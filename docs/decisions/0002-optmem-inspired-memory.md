@@ -17,7 +17,7 @@ summaries as disposable, progressively retrievable views.
 
 ## Decision
 
-Use two logical tables:
+Use two logical tables for the memory subsystem:
 
 ```text
 memory_log(id, text, created_at, embedding)

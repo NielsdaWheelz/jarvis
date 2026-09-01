@@ -32,6 +32,19 @@ These instructions govern all work in this repository.
 - Reuse the working Gmail, Calendar, Maps, and Discord integrations and their
   existing authorizations. Audit and adapt their public surfaces; do not force
   new provider setup merely to make the architecture cleaner.
+- Jarvis owns exactly four application tables: `message`, `memory_log`,
+  `memory_summary`, and `action`. Adding another requires an accepted ADR.
+
+## Conversation invariants
+
+- `message` is the centralized conversation record across every client.
+- Store every inbound owner message before processing it.
+- Store every Jarvis response centrally.
+- Enforce source-message uniqueness so adapter retries cannot duplicate history.
+- Discord is a client and delivery surface, not canonical conversation storage.
+- Provider sessions are disposable and reconstructable from `message` plus
+  recalled memory.
+- Tool execution belongs in `action`; learned context belongs in memory.
 
 ## Memory invariants
 
@@ -52,8 +65,11 @@ These instructions govern all work in this repository.
   Discord-server management are automatic.
 - Consequential communication to another person, spending money, exposing a
   secret, or irreversible destructive action requires Approve or Deny.
-- Approval executes the exact stored pending action once. Do not interpret a
-  free-form conversational reply as approval.
+- Every tool call that mutates an external integration or local workspace is
+  recorded once in `action`; reads and canonical message/memory transactions are
+  not.
+- Approval executes the exact stored `action` once. Do not interpret a free-form
+  conversational reply as approval.
 
 ## Engineering rules
 

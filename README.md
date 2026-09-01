@@ -14,7 +14,17 @@ Jarvis converses naturally in Discord, recalls relevant memories before every
 human turn, uses connected tools, acts automatically for reads and ordinary
 reversible work, asks for a simple Approve or Deny decision before consequential
 communication to another person, and appends useful memories after interactions.
-Raw memories are permanent. Summaries, embeddings, and indexes are rebuildable.
+Conversation history is centralized independently of Discord. Raw memories are
+permanent. Summaries, embeddings, and indexes are rebuildable.
+
+Jarvis owns exactly four application tables:
+
+```text
+message
+memory_log
+memory_summary
+action
+```
 
 ## Authoritative documents
 

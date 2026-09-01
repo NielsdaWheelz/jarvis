@@ -1,6 +1,6 @@
 # ADR 0003: Natural Discord interaction and a narrow approval boundary
 
-- Status: Accepted
+- Status: Accepted; action storage amended by ADR 0007
 - Date: 2026-09-01
 
 ## Context
@@ -27,8 +27,8 @@ Approval is required only when an action communicates consequentially to another
 person, spends money, exposes a secret, or irreversibly destroys meaningful
 external data.
 
-Approval references one stored pending action. It executes that exact action at
-most once. Free-form conversation is not approval.
+Approval references one stored row in the unified `action` ledger. It executes
+that exact action at most once. Free-form conversation is not approval.
 
 ## Consequences
 

@@ -27,12 +27,16 @@ Deliverables:
 - PostgreSQL connection and migrations.
 - Reused Discord ingress/egress.
 - Owner identity and dedicated-server configuration.
+- `message` schema and idempotent Discord ingestion.
+- Central storage of every owner message and Jarvis response.
 - Subscription-backed `provider-runtime` main-agent session.
+- Fresh-session context reconstruction from centralized messages.
 - Strict `answer` and `finish_silent` model outputs.
 - Natural text conversations without commands.
 
 Exit condition: the owner can have a useful natural Discord conversation through
-a fresh and a resumed Jarvis process.
+a fresh and a resumed Jarvis process, and that history remains available from
+PostgreSQL independently of Discord.
 
 ## Slice 2: read tools
 
@@ -83,6 +87,8 @@ Deliverables:
 - Reused Gmail draft operation.
 - Reused personal Calendar write operations.
 - Discord channel/server organization tools.
+- `action` schema and effect ledger for every external-integration or local-
+  workspace mutation.
 - Automatic action classification for these capabilities.
 - Write effect IDs and recovery tests where required.
 
@@ -93,8 +99,9 @@ calendar change, and Discord organization without unnecessary approval.
 
 Deliverables:
 
-- `pending_action` schema.
 - `propose_action` model step.
+- `awaiting_approval`, Approve, and Deny transitions in the existing `action`
+  table.
 - Discord preview with Approve and Deny.
 - Owner-only atomic claim and execution.
 - Reused Gmail send binding.

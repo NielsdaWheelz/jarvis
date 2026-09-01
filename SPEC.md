@@ -37,7 +37,9 @@ V1 MUST:
    boundary.
 10. Be inspectable enough to diagnose bad recall, bad memories, failed tools,
     and duplicate or unauthorized action execution.
-11. Remain small enough that one engineer can understand the complete system.
+11. Preserve centralized conversation history independently of any one client
+    so future clients such as Android can share the same conversations.
+12. Remain small enough that one engineer can understand the complete system.
 
 ## 3. Non-goals
 
@@ -105,6 +107,20 @@ theatre, and notifications without a plausible user benefit.
 Reliability outranks personality. Silence is a valid outcome when nothing needs
 the user's attention.
 
+### 4.4 Centralized conversation history
+
+Discord is a client and delivery surface, not the canonical conversation store.
+Jarvis MUST persist every owner message and every Jarvis response in PostgreSQL.
+
+The same conversation MAY later span Discord, Android, or another client using
+one internal `conversation_id`. Provider-native sessions are disposable and MUST
+be reconstructable from centralized messages plus recalled memory.
+
+V1 does not need a separate `conversation` table. Conversation lists and history
+are derived from `message` rows. A `conversation` table may be added later only
+when concrete title, membership, archival, or empty-conversation requirements
+justify it.
+
 ## 5. Authority and approvals
 
 ### 5.1 Automatic operations
@@ -145,8 +161,10 @@ email send may be the only such tool.
 
 Approval is deliberately simple:
 
-1. Jarvis stores the exact proposed tool name and arguments in `pending_action`.
-2. Jarvis presents a human-readable preview with Approve and Deny buttons.
+1. Jarvis stores the exact proposed tool name and arguments in `action` with
+   status `awaiting_approval`.
+2. Jarvis renders a human-readable preview from the stored arguments and presents
+   it with Approve and Deny buttons.
 3. Approve atomically claims and executes that stored action at most once.
 4. Deny marks it denied and performs no external action.
 5. Success or failure is reported naturally in Discord.
@@ -155,8 +173,8 @@ For email, an ambiguous provider timeout MUST be reconciled against Sent mail
 before any retry. The reused integration SHOULD attach a stable generated
 `Message-ID` when it supports doing so.
 
-Free-form text MUST NOT count as approval. The owner identity and pending action
-ID are sufficient; v1 does not require a cryptographic action-hash protocol.
+Free-form text MUST NOT count as approval. The owner identity and action ID are
+sufficient; v1 does not require a cryptographic action-hash protocol.
 
 ## 6. Memory
 
@@ -188,6 +206,11 @@ during ingestion or a rebuild. Full-text indexes are also derived.
 The system MUST NOT add memory categories, fact types, importance fields,
 salience scores, source-authority scores, confidence dimensions, validity
 intervals, conflict states, or personal-domain foreign keys in v1.
+
+Recaller, rememberer, and dreamer are bounded agents, not single-shot prompt
+transformations. Each MAY think across multiple Codex turns, make decisions,
+invoke its allowed tools repeatedly, reformulate searches, and stop when it has
+done enough. Their different tool sets enforce their roles.
 
 ### 6.2 Raw memories
 
@@ -258,12 +281,14 @@ lessons, and context needed to interpret later events. It SHOULD omit ephemeral
 chatter, redundant paraphrases, and information already adequately remembered.
 
 The rememberer uses Codex and structured output, but the stored memory itself is
-ordinary natural language.
+ordinary natural language. It MAY search and open existing raw memories and
+summaries repeatedly before deciding to append zero or more raw memories.
 
 ### 6.6 Dreamer
 
 The dreamer runs periodically after inactivity or on a simple system schedule.
-It uses the same recall and memory-writing primitives as the online system.
+It is an agentic Codex loop that may search and open raw memories and summaries
+repeatedly before writing, replacing, or deleting derived summaries.
 
 The dreamer MAY:
 
@@ -364,19 +389,107 @@ tool, sandbox, environment, and event behavior has been qualified together.
 - Redis, Kafka, Kubernetes, Elasticsearch, Neo4j, or a separate vector database.
 - A general MCP bridge unless measured tool-loop limitations justify it.
 
-## 9. Persistence outside memory
+## 9. Persistence
 
-Jarvis MAY persist only the ordinary technical state required to function,
-including:
+Jarvis owns exactly four application tables:
 
-- Pending actions and execution results.
-- Provider session references and resumable conversation state.
-- Existing connector credentials, cursors, and adapter state.
-- Configuration, owner identity, and Discord server identity.
-- Minimal operational diagnostics.
+```text
+message
+  id
+  conversation_id
+  role
+  text
+  source
+  source_conversation_id
+  source_message_id
+  created_at
 
-This permission MUST NOT be used to recreate a structured model of the user's
-life outside the memory system.
+memory_log
+  id
+  text
+  created_at
+  embedding
+
+memory_summary
+  id
+  text
+  source_memory_ids
+  created_at
+  embedding
+
+action
+  id
+  tool_name
+  arguments
+  status
+  created_at
+  decided_at
+  completed_at
+  result
+```
+
+### 9.1 Message
+
+`message` is the canonical cross-client conversation history.
+
+- `conversation_id` groups messages into a conversation without requiring a
+  separate conversation record.
+- `role` is `user` or `assistant` in v1.
+- `source` identifies the originating client, initially `discord` and later
+  potentially `android` or another client.
+- `source_conversation_id` and `source_message_id` preserve external identity.
+- `(source, source_message_id)` MUST be unique when `source_message_id` is
+  present, preventing duplicate ingestion.
+- Every inbound owner message MUST be inserted before its turn begins.
+- Every Jarvis response MUST be inserted centrally as part of delivery.
+- Tool calls and results do not belong in `message`; they belong in `action`.
+- Learned context does not belong in `message`; it belongs in memory.
+
+### 9.2 Action
+
+`action` is the single durable ledger for tool calls that mutate an external
+integration or local workspace. Reads do not create action rows. Canonical
+transactions that append `message`, `memory_log`, or `memory_summary` do not
+create redundant action rows.
+
+Allowed statuses are:
+
+```text
+ready
+awaiting_approval
+executing
+succeeded
+failed
+uncertain
+denied
+```
+
+- Automatic writes begin as `ready` and execute without user input.
+- Approval-required writes begin as `awaiting_approval`.
+- Execution atomically claims either `ready` or `awaiting_approval` as
+  `executing`; approval is what permits the latter transition.
+- `id` is the stable effect/idempotency identity.
+- `arguments` stores the exact validated call.
+- `result` stores the final receipt or redacted result needed for recovery.
+- State transitions MUST be atomic.
+- A completed, denied, or already executing action MUST NOT execute again because
+  of a retry or duplicate Discord interaction.
+
+The action table replaces separate pending-action, tool-effect, execution, and
+receipt tables.
+
+### 9.3 Other technical state
+
+Existing connector credentials, cursors, and adapter state remain in their
+existing owned stores. Configuration, owner identity, and Discord server identity
+SHOULD live in deployment configuration. Provider sessions remain in the
+provider runtime's state and are non-canonical.
+
+Migration tooling may create its own bookkeeping table. PostgreSQL indexes and
+internal catalogs are not Jarvis application tables.
+
+This section MUST NOT be used to recreate a structured model of the user's life
+outside the four-table schema.
 
 ## 10. Existing integrations
 
@@ -409,8 +522,8 @@ V1 targets one always-on Linux host.
   logs.
 - The Codex worker SHOULD use an empty, read-only workspace and isolated state.
 - PostgreSQL and private service ports MUST not be publicly exposed.
-- Backups MUST include raw memory, summaries, pending actions, and required
-  connector state.
+- Backups MUST include centralized messages, raw memory, summaries, actions, and
+  required connector state.
 - A restore test MUST be completed before v1 acceptance.
 - Summary and embedding rebuilds MUST be testable from preserved raw memory.
 - A crash or retry MUST NOT send the same approved email twice.
@@ -438,8 +551,9 @@ V1 is done only when every mandatory criterion in
 the existing personal integrations and subscription-backed Codex account.
 
 Passing unit tests alone is insufficient. Acceptance includes a real end-to-end
-conversation, memory formation and recall, summary reconstruction, automatic
-calendar behavior, and an exactly-once approved email send.
+conversation persisted independently of Discord, memory formation and recall,
+summary reconstruction, automatic calendar behavior, and an exactly-once
+approved email send.
 
 ## 14. Change control
 
@@ -450,6 +564,9 @@ The following are frozen architectural decisions:
 - Existing Google and Discord integrations are reused.
 - Python, `provider-runtime`, `llm-tools`, PostgreSQL, full-text search, and
   pgvector.
+- Exactly four application tables: `message`, `memory_log`, `memory_summary`,
+  and `action`.
+- Centralized conversation history independent of Discord and provider sessions.
 - One append-only raw memory log plus rebuildable summaries and indexes.
 - No explicit personal-domain object model.
 - No workflow or agent framework.

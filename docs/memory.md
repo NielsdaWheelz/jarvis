@@ -5,11 +5,12 @@ This document is the implementation contract for Jarvis memory. It expands
 
 ## Mental model
 
-Memory has one durable substrate and several disposable views:
+Memory has one durable substrate and several disposable views. Centralized
+conversation history is working evidence for memory formation, but it remains
+separate from learned memory:
 
 ```text
-                     canonical
-conversation ──► rememberer ──► memory_log
+message history ──► rememberer ──► memory_log
                                       │
                    ┌──────────────────┼──────────────────┐
                    ▼                  ▼                  ▼
@@ -22,6 +23,11 @@ conversation ──► rememberer ──► memory_log
 The raw log is truth in the narrow storage sense: it is the only memory state
 that must survive the loss of every derived artifact. It is still a model-made
 recollection, not proof of current external reality.
+
+Recaller, rememberer, and dreamer are genuine bounded agents. Each can reason
+over multiple Codex turns, make decisions, call its allowed tools more than once,
+reformulate searches, inspect new results, and stop when sufficient. The tool
+boundary, not a single model completion, defines each role.
 
 ## Schema
 
@@ -99,7 +105,7 @@ everything else remains useful natural language.
 - The completed human/main-agent exchange.
 - Material tool observations used by that exchange.
 - The relevant memory bundle originally recalled.
-- A bounded amount of nearby conversation context.
+- A bounded amount of nearby centralized `message` history.
 
 ### Output
 
@@ -133,6 +139,9 @@ Poor candidates include:
 - Paraphrases of an already adequate memory.
 
 No fixed taxonomy enforces this distinction. Model quality and evaluation do.
+
+The rememberer may use `memory.search` and `memory.open` repeatedly before using
+`memory.append`. It may decide that no append is warranted.
 
 ### Append semantics
 
@@ -206,6 +215,9 @@ It may run:
 
 It may select work through recent raw rows, full-text search, semantic neighbors,
 existing summary lineage, or bounded sampling.
+
+Its tools are limited to searching/opening raw memories and summaries and
+writing/deleting summaries. It may use them repeatedly within configured bounds.
 
 ### Allowed changes
 

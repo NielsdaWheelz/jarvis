@@ -14,6 +14,7 @@ dedicated Discord server
           ▼
   Discord ingress/egress
           │
+          ├────────────────────────────► append/read message history
           ▼
  recall before every human input ──────► PostgreSQL memory
           │                               log + summaries
@@ -24,9 +25,10 @@ dedicated Discord server
  host-owned llm-tools executor ────────► existing integrations
           │                               Discord / Gmail /
           │                               Calendar / Maps
-          ├── automatic result
-          │
-          └── pending action ──► Approve / Deny ──► execute once
+          ▼
+      action ledger
+          ├── ready ───────────────────► execute automatically
+          └── awaiting approval ───────► Approve / Deny ─► execute once
 
 completed interaction
           │
@@ -44,6 +46,12 @@ simple periodic timer
 The components are logical roles. They MAY initially run in one deployment and
 one Python package.
 
+Recaller, rememberer, and dreamer are bounded agents. They may reason across
+multiple Codex turns, make decisions, call their allowed tools repeatedly, issue
+new searches based on earlier results, and decide when to stop. Their capability
+profiles differ; they are not single-shot prompt functions and do not share the
+main agent's external tools.
+
 ### Discord adapter
 
 Responsibilities:
@@ -51,8 +59,9 @@ Responsibilities:
 - Receive events from the existing dedicated Discord server.
 - Accept control only from the configured owner Discord ID.
 - Preserve Discord message, channel, thread, and server identifiers.
+- Persist inbound and outbound conversation messages centrally.
 - Send normal responses and proactive messages.
-- Render Approve and Deny components for pending actions.
+- Render Approve and Deny components for actions awaiting approval.
 - Permit Jarvis to manage its dedicated server.
 
 It does not perform model reasoning or decide tool authority.
@@ -63,18 +72,20 @@ The turn coordinator is ordinary application code, not a workflow engine.
 
 For each owner-authored human input it:
 
-1. Acquires the conversation/session turn lock.
-2. Builds a recaller request from the human input and recent context.
-3. Runs the recaller.
-4. Builds the main-agent context with the recalled memory bundle.
-5. Runs the host-mediated model/tool loop until answer, pending action, silence,
+1. Inserts the inbound message idempotently using its Discord source identity.
+2. Acquires the conversation turn lock.
+3. Builds a recaller request from the human input and centralized recent context.
+4. Runs the recaller.
+5. Builds the main-agent context with the recalled memory bundle.
+6. Runs the host-mediated model/tool loop until answer, action proposal, silence,
    failure, or a bounded turn limit.
-6. Delivers the result through Discord.
-7. Invokes the rememberer with the completed useful working context.
-8. Releases the turn lock.
+7. Stores any Jarvis response in `message` and delivers it through Discord.
+8. Invokes the rememberer with the completed useful working context.
+9. Releases the turn lock.
 
-A process crash may lose an uncommitted conversational response. It MUST NOT
-duplicate an externally approved effect.
+Once a Jarvis response has been decided, centralized message storage survives a
+client-delivery failure. A process crash MUST NOT duplicate an externally
+approved effect.
 
 ### Recaller
 
@@ -117,7 +128,7 @@ finish_silent
 ```
 
 The application, not the model, determines whether a tool is automatic or must
-be stored as a pending action.
+await approval in `action`.
 
 ### Rememberer
 
@@ -146,40 +157,49 @@ The host:
 - Validates tool arguments and results.
 - Supplies the correct existing integration binding.
 - Owns credentials and connector state.
-- Persists stable effect identity for write calls.
+- Persists every tool call that mutates an external integration or local
+  workspace in `action` before execution.
 - Classifies the call as automatic or approval-required.
 - Reports typed observations back to the model.
 
 The tool executor MUST NOT accept an arbitrary tool name or schema invented by a
 model response.
 
-### Approval handler
+Reads and canonical `message`/memory transactions do not create action rows.
+
+### Action and approval handler
 
 The approval handler operates independently of the active model session.
 
-`pending_action` minimally contains:
+`action` minimally contains:
 
 ```text
 id
 tool_name
-arguments_json
-preview_text
-status          # pending | executing | succeeded | failed | denied
+arguments
+status
 created_at
-executed_at
-result_ref
+decided_at
+completed_at
+result
 ```
 
-Approve performs an atomic `pending -> executing` transition. Only the winner of
-that transition may execute the operation. Retries reconcile an uncertain prior
-result before repeating an irreversible provider call.
+An automatic write starts as `ready`; an approval-gated write starts as
+`awaiting_approval`. Approve performs an atomic `awaiting_approval -> executing`
+transition. Only the winner of that transition may execute the operation. Deny
+transitions it to `denied`.
+
+The remaining statuses are `succeeded`, `failed`, and `uncertain`. Retries
+reconcile an uncertain prior result before repeating an irreversible provider
+call. The action ID is the stable effect and idempotency identity.
 
 For email, reconciliation SHOULD use a stable generated `Message-ID` to inspect
 Sent mail after an ambiguous timeout. If the existing integration cannot prove
 whether the message was sent, Jarvis reports uncertainty instead of retrying
 blindly.
 
-This table is application mechanics, not a workflow system.
+This one table replaces separate pending-action, effect, execution, and receipt
+tables. It is application mechanics, not a workflow system.
 
 ## Persistence
 
@@ -187,11 +207,14 @@ PostgreSQL is the only new required state service.
 
 It stores:
 
+- `message`.
 - `memory_log`.
 - `memory_summary`.
-- `pending_action`.
-- Minimal provider, Discord, and integration state not already owned elsewhere.
-- Minimal execution receipts needed for safe retries.
+- `action`.
+
+These are the only Jarvis application tables. Existing connector state remains
+in its current owned stores. Deployment configuration owns the user, server, and
+credential settings. Migration tooling may create its own bookkeeping table.
 
 PostgreSQL full-text search and pgvector serve memory retrieval. No other search,
 queue, graph, cache, or vector service is required.
@@ -240,15 +263,16 @@ Context should be compact and rebuilt from owned state:
 
 ```text
 stable Jarvis instructions
-+ recent Discord working context
++ recent centralized message history
 + recaller memory bundle
 + relevant live tool observations
 + current human input
 ```
 
 Provider-native session history is a performance aid, not the canonical copy of
-conversation or memory. Jarvis must be able to start a fresh session using its
-owned context.
+conversation or memory. Jarvis must be able to start a fresh session from
+`message` plus recalled memory. Discord history is likewise a client copy, not
+the canonical conversation store.
 
 Untrusted email, calendar, map, and Discord content is presented as data. It may
 influence the answer but cannot grant tool authority or alter system rules.
@@ -271,13 +295,14 @@ expand authority or switch providers.
 Operational records SHOULD allow an engineer to reconstruct:
 
 ```text
-Discord input
+centralized input message ID
 → recalled memory IDs
 → model steps
 → tool names and redacted arguments
 → automatic/approval decision
 → provider outcome
-→ Discord output
+→ centralized output message ID
+→ Discord delivery
 → appended memory IDs
 ```
 
@@ -293,6 +318,8 @@ from their owned stores under explicit local access.
   formation MAY occur later but MUST NOT duplicate known rows blindly.
 - Dreamer failure: retain existing summaries and raw log.
 - Read-tool failure: main agent may retry within bounds or report uncertainty.
-- Approval storage failure: do not present a functional Approve button.
+- Action storage failure: do not execute a write or present a functional Approve
+  button.
 - Approved-action uncertainty: do not blindly retry; reconcile or report it.
-- Discord delivery failure: preserve enough result state for a bounded retry.
+- Discord delivery failure: preserve the centralized message and report or retry
+  delivery within bounds.

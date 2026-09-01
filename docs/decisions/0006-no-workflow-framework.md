@@ -1,6 +1,6 @@
 # ADR 0006: Do not use a workflow framework in v1
 
-- Status: Accepted
+- Status: Accepted; persistence wording amended by ADR 0007
 - Date: 2026-09-01
 
 ## Context
@@ -9,7 +9,7 @@ Jarvis v1 has a small number of direct flows:
 
 - Recall, converse, respond, remember.
 - Periodically dream and rebuild summaries.
-- Store a pending outward action, then approve or deny it.
+- Store an outward action awaiting approval, then approve or deny it.
 
 DBOS, Temporal, Restate, Celery, or another durable workflow system would add a
 new programming model and operational surface before these flows have shown a
@@ -20,8 +20,8 @@ need for it.
 Use ordinary Python control flow, PostgreSQL transactions, stable effect IDs,
 and a systemd or small process timer.
 
-Persist pending approvals as ordinary rows. Do not keep a worker blocked while
-waiting for the user.
+Persist approvals in the ordinary unified `action` table. Do not keep a worker
+blocked while waiting for the user.
 
 Do not add a workflow framework in v1.
 

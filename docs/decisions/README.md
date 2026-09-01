@@ -5,15 +5,16 @@ not implementation suggestions.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted |
+| [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted; trace amended by 0010 |
 | [0002](0002-optmem-inspired-memory.md) | Immutable raw memory and rebuildable views | Accepted |
 | [0003](0003-natural-discord-and-autonomy.md) | Natural Discord and a narrow approval boundary | Accepted |
 | [0004](0004-python-codex-and-tool-kernel.md) | Python, Codex, `provider-runtime`, and `llm-tools` | Accepted |
 | [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted |
 | [0006](0006-no-workflow-framework.md) | No v1 workflow framework | Accepted |
-| [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted |
+| [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted; schemas superseded by 0010 |
 | [0008](0008-embedding-source.md) | Embedding through an embedding-scoped OpenAI credential | Accepted; amends 0004 |
 | [0009](0009-least-privilege-discord-and-host-rendered-approval.md) | Least-privilege Discord and a host-rendered approval preview | Accepted; supersedes part of 0003 |
+| [0010](0010-minimal-durable-state.md) | Minimal message and action durable state | Accepted; amends 0001 and supersedes part of 0007 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

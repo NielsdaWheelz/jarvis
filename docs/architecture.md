@@ -22,12 +22,15 @@ dedicated Discord server
                                         │
                          ┌──────────────┴──────────────┐
                          ▼                             ▼
-                   automatic call              awaiting approval
+                   queued action               awaiting approval
                          │                             │
                          ▼                             ▼
-                 existing integration          host-rendered preview
-                                                       │
-                                                 Approve / Deny
+                     executing                host-rendered preview
+                         │                             │
+                         ▼                       Approve / Deny
+                 existing integration                 │
+                                                      ▼
+                                                  executing
 
 completed owner turn ──► rememberer ──► host transaction ──► memory_log
 
@@ -64,7 +67,7 @@ but the bot lacks `EMBED_LINKS`, so Discord does not automatically unfurl them.
 
 ```text
 Discord event
-→ insert user message using unique source identity
+→ insert owner message with processed_at null using unique source identity
 → if already present, stop
 → enqueue/start its turn
 ```
@@ -73,18 +76,20 @@ Discord event
 
 ```text
 validated say or host-rendered response
-→ insert assistant message with delivered_at null
+→ insert assistant message with source_message_id null
 → send to Discord
-→ store Discord message ID and delivered_at
+→ store Discord message ID as source_message_id
 ```
 
-On startup, the adapter retries assistant messages whose `delivered_at` is null.
+On startup, the adapter retries assistant messages whose `source_message_id` is
+null.
 Conversational delivery is at-least-once. A rare duplicate after an ambiguous
 Discord send is acceptable; losing or duplicating an effectful tool action is
 not.
 
-Approval messages follow the same persistence rule. Their action stores the
-Discord delivery reference needed to disable components later.
+Approval messages follow the same persistence rule. The action's
+`approval_message_id` references the internal message row; that row acquires the
+Discord delivery ID. A component interaction must match both.
 
 ## Turn coordinator
 
@@ -92,18 +97,25 @@ For each owner message:
 
 1. Check the paused flag.
 2. Persist/deduplicate the inbound message.
-3. Acquire the in-process provider lease.
+3. Acquire the in-process provider mutex.
 4. Run the recaller.
 5. Build context from stable instructions, recent centralized messages, recalled
    memory, the current instant, and the owner's timezone.
 6. Run the bounded main-agent step loop.
-7. Persist and deliver any response.
-8. Release the provider lease.
+7. Persist the durable conclusion and set the owner message's `processed_at` in
+   the same transaction.
+8. Deliver any pending response and release the provider mutex.
 9. Run the rememberer in the background, yielding to new owner work.
 
 A turn is eligible for remembering after `say`, `finish`, or creation of an
 action awaiting approval. This includes a turn whose visible response is a
 host-rendered approval message rather than model-authored prose.
+
+At startup, an owner row with null `processed_at` is an interrupted turn. If it
+has no originating action, it may be replayed. If it already produced an action,
+the host resumes or reconciles the action, persists an interruption notice, and
+closes the turn without replaying the model. This is the turn-level duplicate
+effect barrier.
 
 The application holds one PostgreSQL advisory lock for deployment ownership. A
 second Jarvis instance refuses to start. Because only one process runs, turn and
@@ -147,7 +159,7 @@ failed or cancelled run leaves `remembered_at` null for a bounded retry sweep.
 The dreamer searches and opens memory, then returns a structured batch of
 summary insertions and removals. Host code applies the batch transactionally.
 
-Only one dreamer runs at once. It yields the provider lease when owner input is
+Only one dreamer runs at once. It yields the provider mutex when owner input is
 waiting. Missing a dream run cannot break conversational correctness because raw
 memory remains directly searchable.
 
@@ -159,7 +171,7 @@ declaration and binding. `llm-tools` supplies the kernel, not those integrations
 The host:
 
 - Freezes a capability plan for each cognitive role and turn.
-- Validates canonical tool IDs and closed arguments.
+- Validates versioned canonical tool IDs and closed arguments.
 - Classifies calls using the fixed automatic/approval policy.
 - Owns connector credentials.
 - Executes reads directly through the kernel without action rows.
@@ -176,7 +188,7 @@ application transactions. They are not tools and do not pass through the kernel.
 automatic tool call       approval-bearing tool call
         │                           │
         ▼                           ▼
-      ready                 awaiting_approval
+      queued                awaiting_approval
         │                           │
         └──────────────┬────────────┘
                        ▼
@@ -185,28 +197,40 @@ automatic tool call       approval-bearing tool call
        ┌───────────────┼────────────────┐
        ▼               ▼                ▼
    succeeded         failed          uncertain
+
+queued ─────────────────────────► cancelled
+awaiting_approval ──────────────► cancelled
 ```
 
-`denied`, `expired`, and `superseded` terminate an action before execution.
+`cancelled` terminates an action before execution, whether the owner denied an
+approval or cancelled queued scheduled work.
 
-`ready`, `awaiting_approval`, and `executing` are active. The intent-key unique
-constraint applies only to these states. `uncertain` is terminal for execution
-and therefore never prevents a later new action with identical arguments.
+`queued`, `awaiting_approval`, and `executing` are non-terminal. `uncertain` is
+terminal for execution and does not prevent a later new action with identical
+arguments.
 
-Execution claims commit before the external call. An `executing` row has a
-lease. A periodic/startup reconciler examines expired leases using tool-specific
-evidence. It never blindly retries an operation that may already have happened.
+Execution claims commit before the external call. There is no action lease: one
+deployment process owns all work. A bounded request timeout and startup scan
+reconcile any row left `executing` using tool-specific evidence. Only proof that
+the effect did not happen can return it to `queued`; ambiguous outcomes become
+`uncertain`.
+
+`tool_name`, `arguments`, and `origin_message_id` never change after insertion.
+The tool name carries its contract version. The executor and approval renderer
+both consume the same stored arguments, so no input digest or parallel contract
+revision record is needed.
 
 ## Approval rendering
 
 The model step contains a canonical tool call and arguments only. When policy
 requires approval:
 
-1. Insert the action.
-2. Load its stored validated arguments.
-3. Select the host renderer for that exact tool revision.
-4. Render every recipient, audience, and transmitted value.
-5. Persist/deliver host-owned Discord content with Approve and Deny.
+1. Insert the action and host-owned approval message in one transaction.
+2. Store the internal message ID as `approval_message_id`.
+3. Load the action's immutable validated arguments.
+4. Select the host renderer for the versioned `tool_name`.
+5. Render every recipient, audience, and transmitted value.
+6. Deliver the pending message with Approve and Deny.
 
 For content exceeding one Discord message, the renderer may split the material
 or attach a host-generated text file. The final component-bearing message states
@@ -222,7 +246,7 @@ approval. After an ambiguous send:
 1. Check whether the draft still exists.
 2. If absent, inspect Sent mail using the available thread, recipients, subject,
    and provider response evidence.
-3. Retry only when evidence proves the send did not occur.
+3. Repeat only when evidence proves the send did not occur and repeating is safe.
 4. Otherwise record terminal `uncertain` and tell the owner.
 
 Slice 0 validates the exact behavior of the existing Gmail integration for new
@@ -263,11 +287,12 @@ boundary.
 
 No workflow framework exists.
 
-- A small timer selects due `schedule_wake` action rows.
+- A small timer selects queued `schedule_wake` rows whose `execute_after` is due.
 - Quiet hours move the effective due time to their end.
 - A periodic connector tick may start a read-only proactive turn.
-- A timer may invoke dreaming when the provider lease is idle.
-- A startup/periodic action reconciler examines expired execution leases.
+- A timer may invoke dreaming when the provider mutex is idle.
+- Startup reconciles every action left `executing`; ordinary external calls use
+  bounded timeouts while the process is alive.
 
 Each path is an ordinary function over explicit database state.
 
@@ -279,9 +304,12 @@ Each path is an ordinary function over explicit database state.
 - Rememberer failure: leave `remembered_at` null and retry later.
 - Dreamer failure: retain raw memory and existing summaries.
 - Embedding failure: leave the vector null; lexical recall continues.
-- Discord delivery failure: retain the undelivered assistant message for retry.
+- Discord delivery failure: retain the assistant row with null
+  `source_message_id` for retry.
 - Approval-rendering failure: create no functional Approve component.
-- Expired action lease: reconcile before retry.
+- Interrupted turn with no effect: replay; interrupted turn with an originating
+  action: resume/reconcile without model replay.
+- Action left `executing`: reconcile before any repeat.
 - Unprovable external outcome: record terminal `uncertain` and tell the owner.
 
 ## Inspection
@@ -293,12 +321,11 @@ payloads in ordinary logs:
 owner message
 → recalled candidate IDs
 → selected memory IDs
-→ model steps
-→ tool names and classifications
-→ action IDs and provider outcomes
-→ assistant message
 → appended memory IDs
+→ provider trace IDs
 ```
 
-Trace details are implementation diagnostics, never a memory-ranking signal in
-v1.
+The bounded trace lives on the owner message and contains only those identifiers.
+Action rows already carry tool and outcome lineage through `origin_message_id`;
+private payloads and model prose are not duplicated into trace. Trace details are
+implementation diagnostics, never a memory-ranking signal in v1.

@@ -30,13 +30,15 @@ Deliver:
 - `message` table and owner/source identity.
 - Existing Discord ingress/egress.
 - Inbound deduplication.
-- Persist-before-send assistant messages with `delivered_at` recovery.
+- Persist-before-send assistant messages using null `source_message_id` as the
+  delivery watermark.
+- `processed_at` turn completion and interrupted-turn recovery.
 - Host acknowledgement, typing state, stop/pause/resume, and no streaming.
 - Subscription-backed main Codex session with `say` and `finish`.
-- Deployment ownership lock and in-process provider lease.
+- Deployment ownership lock and in-process provider mutex.
 
-Exit: natural conversation survives restart and a simulated outbound-delivery
-failure is retried.
+Exit: natural conversation survives restart, a simulated outbound-delivery
+failure is retried, and an interrupted effect-free turn is safely replayed.
 
 ## Slice 2: read tools
 
@@ -87,14 +89,16 @@ or improves the recall evaluation result.
 
 Deliver:
 
-- `action` table, durable effect identity, active-state uniqueness, leases, and
-  terminal `uncertain` semantics.
+- Exact minimal `action` schema, versioned immutable calls, seven statuses, and
+  terminal-for-execution `uncertain` semantics.
 - Existing Gmail draft binding.
 - Existing owner-only Calendar writes.
 - Permitted Discord server-organization bindings.
 - Automatic/approval classification owned by host code.
 - `schedule_wake`, quiet-hour delay, and periodic read-only connector reconcile.
-- Startup/periodic action reconciler.
+- Bounded external timeouts and startup reconciliation of `executing` actions,
+  without leases, attempt counters, or blind retry.
+- Interrupted turns that already created an action close without model replay.
 
 Exit: Jarvis performs a draft, personal calendar change, channel organization,
 and scheduled proactive message without unnecessary approval or workflow
@@ -109,9 +113,9 @@ Deliver:
   no model preview field or action preview column.
 - Long-action rendering through host-owned split messages or attachment.
 - Host-owned Approve/Deny message and immediate interaction acknowledgement.
-- Owner/guild/channel validation.
-- Atomic claim, duplicate-click protection, lease recovery, and Gmail-specific
-  reconciliation.
+- Owner/guild/channel/approval-message validation.
+- `approval_message_id`, atomic claim, duplicate-click protection, and
+  Gmail-specific reconciliation.
 - Free-form approval rejection and terminal uncertainty reporting.
 
 Exit: Deny sends nothing; Approve sends the exact rendered email once; a shared

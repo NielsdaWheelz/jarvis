@@ -39,8 +39,11 @@ These instructions govern all work in this repository.
 - `message` is canonical conversation history; Discord and provider sessions are
   delivery/runtime surfaces.
 - Persist and source-deduplicate owner input before processing it.
-- Persist an assistant response before delivery. Set `delivered_at` only after
-  Discord accepts it, and retry null rows after restart.
+- Set an owner message's `processed_at` only in the transaction that records its
+  durable turn conclusion. Never replay an interrupted turn that already created
+  an action.
+- Persist an assistant response before delivery. A null `source_message_id` is
+  the outbound retry watermark; fill it with the adapter's ID after delivery.
 - Conversational delivery is at least once. A rare duplicate response is
   accepted; duplicate external effects are not.
 - `remembered_at` distinguishes a completed rememberer run, including a valid
@@ -80,6 +83,12 @@ These instructions govern all work in this repository.
   The model protocol and action schema contain no preview field.
 - Approval-bearing Discord messages are host-owned and cannot be edited or
   deleted by model-originated tools.
+- Version `tool_name`; keep it, `arguments`, and `origin_message_id` immutable.
+- Action states are exactly `queued`, `awaiting_approval`, `executing`,
+  `succeeded`, `failed`, `uncertain`, and `cancelled`.
+- The single deployment owner reconciles rows left `executing` after a timeout or
+  restart. Do not add action leases, retry counters, intent keys, input digests,
+  or parallel contract-revision metadata without measured need and a new ADR.
 - `uncertain` is terminal and non-retryable. Report it to the owner; later
   evidence may resolve its recorded outcome but may never trigger execution.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.

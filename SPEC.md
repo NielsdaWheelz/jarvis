@@ -124,19 +124,29 @@ Every owner message and every Jarvis response MUST be persisted in `message`.
 Provider sessions are disposable and reconstructable from centralized messages
 plus recalled memory.
 
-Inbound owner messages are stored before processing and deduplicated by their
-source identity.
+Inbound owner messages are stored with `processed_at = NULL` before processing
+and deduplicated by their source identity. A turn reaches a durable conclusion
+when it produces a persisted assistant response, finishes silently, or persists
+an approval proposal. The host sets `processed_at` in the same transaction as
+that conclusion.
 
 Outbound Jarvis messages use simple at-least-once delivery:
 
-1. Insert the assistant message with `delivered_at = NULL`.
+1. Insert the assistant message with `source_message_id = NULL`.
 2. Deliver it through Discord.
-3. Store the Discord message ID and set `delivered_at`.
-4. Retry undelivered assistant rows after restart.
+3. Store the Discord message ID in `source_message_id`.
+4. Retry assistant rows whose `source_message_id` is still null after restart.
 
 A crash after Discord accepts the message but before step 3 may produce duplicate
 conversational text. This is accepted in v1. It MUST NOT duplicate an external
 tool effect or approval-bearing action.
+
+On startup, an owner row with `processed_at = NULL` and no action originating
+from it MAY be replayed. If an action already originates from the interrupted
+turn, the host MUST reconcile or resume that action and MUST NOT replay the model
+turn automatically. It persists a host-authored interruption notice and closes
+the turn instead. This deliberately prefers a recoverable partial interaction to
+duplicating an effect.
 
 The host acknowledges an owner message and shows a typing indicator before model
 work. V1 does not stream partial structured model output into Discord; a `say`
@@ -228,40 +238,48 @@ disables the components before any slow external work begins.
 Approval is deliberately simple:
 
 1. Validate the proposed tool and arguments.
-2. Insert one `action` row as `awaiting_approval`.
-3. Render the exact action from the stored arguments.
+2. Insert one `action` row as `awaiting_approval`, plus its host-owned approval
+   `message`, in one transaction.
+3. Store that message's internal ID as `approval_message_id` and render the exact
+   action from the immutable stored arguments.
 4. On Approve or Deny, validate the context and atomically claim or resolve the
    stored row.
 5. Immediately acknowledge the Discord interaction and disable its components.
 6. Execute an approved action at most once and store its result.
 7. Report success, failure, or uncertainty naturally.
 
-The invoking Discord user, guild, and channel must match the stored action
-context. Free-form text never counts as approval.
+The invoking Discord user and guild must match deployment configuration. The
+interaction's channel and Discord message ID must match the `message` referenced
+by `approval_message_id`. Free-form text never counts as approval.
 
-`executing` is lease-held. When a lease expires, the reconciler determines what
-happened before any retry. `uncertain` is a terminal, non-retryable outcome for
-an action whose external result cannot be proved. It does not block a later new
-action with identical arguments.
-
-The active states used by intent deduplication are only:
+Action states are exactly:
 
 ```text
-ready
+queued
 awaiting_approval
 executing
-```
-
-Terminal states are:
-
-```text
 succeeded
 failed
 uncertain
-denied
-expired
-superseded
+cancelled
 ```
+
+Automatic and scheduled writes begin `queued`. Approval-bearing writes begin
+`awaiting_approval`. Approve atomically moves an action to `executing`; Deny moves
+it to `cancelled`. The owner may also cancel a queued scheduled action.
+
+The deployment-level lock guarantees that only one Jarvis process can execute
+actions. An external request has a bounded timeout. After a timeout, or on
+startup when an action remains `executing`, the host uses tool-specific evidence
+to reconcile it. It may return the action to `queued` only when evidence proves
+the effect did not occur and repeating it is safe. Otherwise it records
+`succeeded`, `failed`, or terminal-for-execution `uncertain`. There is no blind
+retry, attempt counter, or execution lease.
+
+Repeated calls with identical arguments are permitted. Duplicate prevention
+comes from source-message deduplication, atomic action state transitions, the
+action ID as a provider idempotency key where supported, and tool-specific
+reconciliation—not a guessed semantic intent key.
 
 Later evidence MAY amend the recorded result of an uncertain action and mark it
 succeeded or failed, but it MUST never cause automatic re-execution.
@@ -275,7 +293,7 @@ Gmail send uses the provider's draft flow:
 3. Request approval for sending that stored draft.
 4. Send by `draftId` after approval.
 5. On an ambiguous result, check whether the draft remains and inspect Sent mail
-   before retrying.
+   before deciding whether a repeat is proved safe.
 
 The exact reconciliation behavior for new and existing threads MUST be verified
 against the live integration in Slice 0. If reconciliation cannot establish an
@@ -511,7 +529,7 @@ The Linux deployment SHOULD run Codex under a dedicated unprivileged OS user.
 Exactly one Jarvis service instance owns a deployment. A PostgreSQL advisory lock
 at startup prevents overlap.
 
-Within that one process, an ordinary in-process provider lease allows at most one
+Within that one process, an ordinary in-process mutex allows at most one
 Codex turn at a time. Foreground owner work takes precedence over rememberer and
 dreamer work. Background cognitive work may be cancelled and retried if owner
 input arrives.
@@ -556,14 +574,13 @@ Jarvis owns exactly four application tables.
 ```text
 message
   id
-  conversation_id
   role
   text
   source
   source_conversation_id
   source_message_id
   created_at
-  delivered_at
+  processed_at
   remembered_at
   trace
 
@@ -582,42 +599,45 @@ memory_summary
 
 action
   id
-  intent_key
   tool_name
   arguments
-  input_digest
-  contract_revisions
   status
-  attempts
-  not_before
-  lease_expires_at
+  execute_after
   origin_message_id
-  client_ref
+  approval_message_id
   created_at
   decided_at
   completed_at
   result
 ```
 
-Mechanical columns may change without creating a personal-domain model, but a
-new application table or semantic memory field requires an ADR.
+These are the exact v1 application columns. Database-generated search columns
+and Alembic's migration bookkeeping are physical infrastructure, not application
+state. Changing this roster, adding an application table, or adding a semantic
+memory field requires an ADR.
 
 ### 9.1 Message
 
-`message` is canonical cross-client conversation history.
+`message` is canonical conversation history.
 
 - `(source, source_message_id)` is unique when a source ID exists.
-- Owner messages are inserted before their turn.
-- Assistant messages are inserted before delivery and use `delivered_at` as the
-  retry watermark.
+- Owner messages are inserted before their turn with `processed_at = NULL`.
+- `processed_at` is set on an owner row only when its response, silent finish, or
+  approval proposal is durably recorded.
+- Assistant messages are inserted before delivery. A null `source_message_id` is
+  the outbound retry watermark; a successful adapter delivery fills it with the
+  source platform's ID.
 - `remembered_at` records completion of memory formation for an owner turn,
   including a successful decision to write no memories.
-- `trace` contains a bounded redacted record of recalled IDs, selected IDs,
-  model steps, tool names, classifications, and appended memory IDs.
+- `trace` is bounded JSON on the owner row containing only recall candidate IDs,
+  selected memory IDs, created memory IDs, and provider trace IDs. It contains no
+  prompts, model prose, message copies, tool arguments, or private payloads.
 - Tool payloads do not belong in conversation text solely for debugging.
 
-V1 needs no separate `conversation` table; conversation lists derive from
-message rows.
+V1 has no internal `conversation_id` and no `conversation` table. Recent local
+context groups by `(source, source_conversation_id)`; durable memory is global.
+A future multi-client product may add an internal conversation mapping when a
+second client demonstrates the need.
 
 ### 9.2 Action
 
@@ -627,16 +647,29 @@ approval, execution, reconciliation, and receipts.
 - Reads create no action row.
 - Message persistence creates no action row.
 - Raw memory and summary transactions create no action row.
-- Automatic tool writes begin `ready`.
+- Automatic tool writes begin `queued`.
 - Approval-bearing writes begin `awaiting_approval`.
 - `id` is the durable effect identity.
-- `arguments` stores the exact validated call and is the sole source for approval
-  rendering.
-- `intent_key` is unique only across active states.
-- `not_before` supports `schedule_wake` without another table.
+- `tool_name` is a versioned canonical identifier such as
+  `gmail.send_draft.v1`.
+- `tool_name`, `arguments`, and `origin_message_id` are immutable after insert.
+- `arguments` is the sole source for approval rendering and execution.
+- `execute_after` is nullable; null means immediately eligible, while a timestamp
+  supports `schedule_wake` without another table.
+- `approval_message_id` is nullable and unique when present. It points to the
+  host-owned approval `message` and is required while status is
+  `awaiting_approval`.
 - State claims commit before external calls.
-- An expired execution lease triggers reconciliation, never blind retry.
-- `result` stores the receipt or evidence supporting failure or uncertainty.
+- `decided_at` records an owner approval, denial, or cancellation decision.
+  `completed_at` is set when the action reaches `succeeded`, `failed`,
+  `uncertain`, or `cancelled`.
+- `result` stores a typed provider receipt, failure evidence, cancellation
+  reason, or uncertainty evidence without secrets.
+
+Queued or approval-bearing rows whose versioned `tool_name` is no longer
+supported fail closed as `cancelled` and are reported. Contract digests are not
+stored separately. Because immutable arguments remain available, derived hashes
+can be computed later if measured need justifies them.
 
 The action ledger must not become a duplicate message or memory store.
 

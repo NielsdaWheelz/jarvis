@@ -1,6 +1,6 @@
 # ADR 0001: Build one small personal agent system
 
-- Status: Accepted
+- Status: Accepted; trace location and shape amended by ADR 0010
 - Date: 2026-09-01
 
 ## Context

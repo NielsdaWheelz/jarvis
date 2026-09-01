@@ -166,7 +166,9 @@ Host code validates the final strings and performs one transaction:
 
 A successful rememberer that returns no memories still sets the watermark. A
 failed or cancelled run leaves it null. A bounded sweep retries completed owner
-turns whose watermark remains null.
+turns where `processed_at IS NOT NULL` and `remembered_at IS NULL`. The explicit
+processing watermark prevents an interrupted turn from being mistaken for a
+completed turn whose rememberer merely chose to write nothing.
 
 This is a canonical application transaction, not a tool effect. It creates no
 `action` row and stores the memory text in no other Jarvis table.

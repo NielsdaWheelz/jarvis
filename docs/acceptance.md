@@ -19,7 +19,8 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A1.3** A clean checkout can be configured without modifying Ariel,
       `llm-calling`, or `llm-tools`.
 - [ ] **A1.4** Migrations from an empty PostgreSQL database produce exactly the
-      four Jarvis application tables in the specification.
+      four Jarvis application tables and exact application-column rosters in the
+      specification.
 - [ ] **A1.5** Unit and integration tests run through one documented command.
 - [ ] **A1.6** Secrets are absent from the repository, fixtures, PostgreSQL, model
       context, and ordinary logs.
@@ -43,13 +44,17 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A2.7** Every inbound owner message is stored before processing and one
       redelivered Discord event starts no second turn.
 - [ ] **A2.8** Every assistant response is inserted before Discord delivery and
-      receives a source message ID plus `delivered_at` after success.
+      receives a `source_message_id` after success; a null ID is the only
+      outbound retry watermark.
 - [ ] **A2.9** An undelivered assistant row is retried after restart. A duplicate
       conversational message is tolerated, but no tool effect is duplicated.
 - [ ] **A2.10** A fresh provider session reconstructs recent context from
       centralized messages and recalled memory.
 - [ ] **A2.11** The host acknowledges input and shows typing state; no partial
       structured model output is streamed into Discord.
+- [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. After a
+      simulated crash, an incomplete turn without actions may replay, while one
+      that already created an action is closed without model replay.
 
 ## A3. Existing integrations
 
@@ -88,7 +93,7 @@ These criteria are **live** and use existing registrations and credentials.
 - [ ] **A4.8** Quota exhaustion produces a fixed host-authored notice and changes
       no provider, model, or credential.
 - [ ] **A4.9** Reads create no action rows; effectful tool calls create one action
-      before execution with a durable effect identity.
+      before execution with a durable effect identity and versioned tool name.
 - [ ] **A4.10** Canonical message, raw-memory, and summary transactions create no
       action rows.
 
@@ -106,7 +111,8 @@ These criteria are **live** and use existing registrations and credentials.
 - [ ] **A5.6** The rememberer runs after `say`, `finish`, and approval-proposal
       turns, including when it chooses to write no memory.
 - [ ] **A5.7** A successful zero-memory result sets `remembered_at`; a cancelled
-      run leaves it null and a bounded sweep retries it.
+      run leaves it null, and a bounded sweep retries only rows with non-null
+      `processed_at` and null `remembered_at`.
 - [ ] **A5.8** Raw memories and `remembered_at` commit atomically and create no
       action row or duplicate storage elsewhere.
 - [ ] **A5.9** Under the application role, raw text/time updates, deletes, and
@@ -146,12 +152,14 @@ These criteria are **live** where they call Gmail or Discord.
       external work begins.
 - [ ] **A6.8** Free-form “yes,” “send it,” or relayed approval never approves an
       action. Safety behavior, five of five.
-- [ ] **A6.9** Deny prevents send; Approve by the owner sends the exact stored
-      draft; a non-owner or mismatched guild/channel cannot decide it.
-- [ ] **A6.10** Duplicate Approve interactions and repeated active intents produce
-      no duplicate external effect.
-- [ ] **A6.11** A process killed around dispatch is reconciled before retry and
-      leaves no permanently executing row.
+- [ ] **A6.9** Deny moves the action to `cancelled` and prevents send; Approve by
+      the owner sends the exact stored draft; a non-owner or mismatched
+      guild/channel/message cannot decide it.
+- [ ] **A6.10** Duplicate Approve interactions execute one action once, while two
+      deliberately created actions with identical arguments are not collapsed by
+      a semantic intent key.
+- [ ] **A6.11** A process killed around dispatch leaves `executing`; startup
+      reconciliation resolves it before any repeat and no action lease is used.
 - [ ] **A6.12** A genuinely unknowable outcome becomes terminal `uncertain`, is
       reported, and does not block a later identical new action.
 - [ ] **A6.13 — live.** An approved email produces exactly one recipient copy,
@@ -159,6 +167,9 @@ These criteria are **live** where they call Gmail or Discord.
       draft/Sent behavior.
 - [ ] **A6.14** External success is reported only from provider or reconciliation
       evidence, never a model assertion.
+- [ ] **A6.15** The action table has exactly the columns in SPEC section 9 and the
+      seven statuses in section 5.4; versioned `tool_name`, `arguments`, and
+      `origin_message_id` cannot change after insertion.
 
 ## A7. Recovery and operations
 
@@ -168,10 +179,10 @@ These criteria are **live** where they call Gmail or Discord.
       raw memory IDs/text/timestamps, and action effects/status/results.
 - [ ] **A7.3** Derived summaries and embeddings can be completely regenerated
       after restore.
-- [ ] **A7.4** Restored completed, denied, expired, superseded, and uncertain
-      actions do not become executable.
+- [ ] **A7.4** Restored `succeeded`, `failed`, `uncertain`, and `cancelled` actions
+      do not become executable; restored `executing` actions reconcile first.
 - [ ] **A7.5** Jarvis resumes Discord operation and retries pending assistant
-      delivery after restart.
+      rows with null `source_message_id` after restart.
 - [ ] **A7.6** A database backup contains no usable Google, Discord, Codex, or
       embedding credential.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private

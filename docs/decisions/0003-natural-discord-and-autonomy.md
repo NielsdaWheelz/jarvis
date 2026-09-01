@@ -1,6 +1,7 @@
 # ADR 0003: Natural Discord interaction and a narrow approval boundary
 
-- Status: Accepted; action storage amended by ADR 0007
+- Status: Accepted; action storage amended by ADR 0007; Administrator and
+  approval-preview decisions superseded by ADR 0009
 - Date: 2026-09-01
 
 ## Context
@@ -41,13 +42,19 @@ Positive:
 
 Accepted costs:
 
-- Literal Discord Administrator access can destroy or reorganize the dedicated
-  server if the bot misbehaves.
 - Natural language can be less discoverable than commands for repeated exact
   operations.
-- Discord is not an ideal long-term surface for secrets or biometric approval.
+- **Discord is a third-party processor for the entire product.** Every
+  conversation, every memory Jarvis quotes back, every email it summarizes, and
+  every approval preview passes through and is retained by Discord — including
+  content Jarvis later deletes, which leaves the client and not the platform.
+  This is the single largest privacy fact about the design, and it is accepted
+  knowingly. Discord is also not an appropriate surface for secrets or biometric
+  approval.
 - Some external writes require judgment about whether they communicate or are
   irreversible.
+- The Administrator grant originally accepted here has been withdrawn; see
+  [ADR 0009](0009-least-privilege-discord-and-host-rendered-approval.md).
 
 ## Rejected alternatives
 

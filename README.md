@@ -31,8 +31,10 @@ action
 1. [V1 specification](SPEC.md) — normative product and engineering contract.
 2. [Architecture](docs/architecture.md) — runtime, component, data, and tool
    boundaries.
-3. [Memory](docs/memory.md) — exact rememberer, recaller, and dreamer behavior.
-4. [Acceptance](docs/acceptance.md) — the definition of done.
+3. [Memory](docs/memory.md) — exact rememberer, recaller, and dreamer behavior,
+   plus the physical schema and the recall evaluation set.
+4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
+   completion predicate for v1.
 5. [Implementation plan](docs/implementation-plan.md) — ordered, independently
    acceptable slices.
 6. [Decision records](docs/decisions/) — why the current design exists.
@@ -55,5 +57,28 @@ ADR that also updates every affected normative document in the same change.
 - A project-management database or personal knowledge graph
 - A workflow-engine deployment
 - A mobile application in v1
+- Web search or browsing in v1
 - Rebuilding integrations that already work
 - Broad speculative integration work
+
+## Stated trade-offs
+
+These are accepted knowingly, not overlooked.
+
+- Discord is a third-party processor for every conversation, every quoted
+  memory, every summarized email, and every approval preview.
+- The complete raw memory corpus is disclosed to the embedding processor; see
+  [ADR 0008](docs/decisions/0008-embedding-source.md).
+- One subscription pool is a single point of total conversational outage, with
+  no fallback by design.
+- Every foreground turn needs recall plus the main-agent call, while remembering
+  follows asynchronously. This is slower and more expensive than a stateless
+  chat response.
+- Raw memory grows without bound and model-made memories can be wrong.
+  Correction is by append; v1 deliberately has no erasure mechanism.
+- Conversational Discord delivery is at least once, so a crash at the delivery
+  boundary can repeat a response. Effectful actions remain independently
+  idempotent.
+- A one-user system has no second reviewer. The owner is simultaneously the
+  builder, the auditor, and the beneficiary, which instrumentation mitigates and
+  nothing removes.

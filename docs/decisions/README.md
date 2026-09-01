@@ -12,6 +12,14 @@ not implementation suggestions.
 | [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted |
 | [0006](0006-no-workflow-framework.md) | No v1 workflow framework | Accepted |
 | [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted |
+| [0008](0008-embedding-source.md) | Embedding through an embedding-scoped OpenAI credential | Accepted; amends 0004 |
+| [0009](0009-least-privilege-discord-and-host-rendered-approval.md) | Least-privilege Discord and a host-rendered approval preview | Accepted; supersedes part of 0003 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.
+
+ADRs 0001 through 0006 were written on the same day as the specification they
+justify. They are founding rationale rather than records of decisions taken under
+observed pressure. That is worth knowing when reading SPEC section 13's
+"observed evidence" bar for future ADRs: the bar applies to changing these
+decisions, not to how they were originally reached.

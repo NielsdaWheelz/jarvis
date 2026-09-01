@@ -15,6 +15,13 @@ agent reasoning.
 smaller principle: preserve a canonical append-only log and treat model-generated
 summaries as disposable, progressively retrievable views.
 
+What is adopted from it is exactly that principle and nothing else. Its
+positional summary tree, its coverage relationship between the log and the tree,
+and its retrieval mechanics are **not** adopted; Jarvis uses a flat summary table
+with flattened raw lineage, and the recaller searches raw rows directly. The
+citation explains where the idea came from. It is not a specification by
+reference, and nothing in OptMem is binding here.
+
 ## Decision
 
 Use two logical tables for the memory subsystem:
@@ -51,8 +58,9 @@ Accepted costs:
 - Model-made memories may contain mistakes or contradictions.
 - Retrieval and summarization must cope with repetition.
 - Current external truth still requires live tools.
-- Administrative erasure needs a separate explicit design if it becomes a
-  requirement.
+- V1 has no erasure mechanism. Designing one safely requires accounting for
+  messages, actions, backups, provider state, Discord, and external systems, not
+  just punching an exception through the raw-memory invariant.
 
 ## Rejected alternatives
 

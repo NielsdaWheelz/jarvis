@@ -37,7 +37,11 @@ Positive:
 Accepted costs:
 
 - V1 may temporarily depend on integration boundaries shaped by Ariel.
-- An audit is required before their reuse strategy is known.
+- **Ariel is a running deployment on the same host, not a library.** Reusing its
+  authorizations without deciding ownership would leave two gateway clients on
+  one Discord bot token and two agents acting autonomously on one mailbox. The
+  audit MUST assign exactly one owning process to each credential; see
+  [SPEC.md section 10](../../SPEC.md#10-existing-integrations).
 - Some adapters may later deserve extraction into independent packages.
 - The new repository is not initially a completely self-contained deployment.
 

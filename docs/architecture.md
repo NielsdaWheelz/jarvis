@@ -1,325 +1,304 @@
 # V1 architecture
 
-This document expands the architecture required by [SPEC.md](../SPEC.md). It is
-descriptive unless it uses MUST or MUST NOT. `SPEC.md` remains authoritative.
+This document expands [SPEC.md](../SPEC.md). `SPEC.md` wins if they disagree.
 
-## Design objective
-
-Jarvis should feel like one capable assistant while remaining mechanically
-simple enough to understand in one sitting.
+## System shape
 
 ```text
 dedicated Discord server
           │
           ▼
-  Discord ingress/egress
-          │
-          ├────────────────────────────► append/read message history
-          ▼
- recall before every human input ──────► PostgreSQL memory
-          │                               log + summaries
-          ▼
-  main Codex reasoning loop
+ Discord adapter ───────────────► message
           │
           ▼
- host-owned llm-tools executor ────────► existing integrations
-          │                               Discord / Gmail /
-          │                               Calendar / Maps
+      recaller ─────────────────► memory search/open
+          │
           ▼
-      action ledger
-          ├── ready ───────────────────► execute automatically
-          └── awaiting approval ───────► Approve / Deny ─► execute once
+  main Codex agent
+          │
+          ├── say / finish
+          │
+          └── call_tool ────────► host policy + llm-tools
+                                        │
+                         ┌──────────────┴──────────────┐
+                         ▼                             ▼
+                   automatic call              awaiting approval
+                         │                             │
+                         ▼                             ▼
+                 existing integration          host-rendered preview
+                                                       │
+                                                 Approve / Deny
 
-completed interaction
-          │
-          ▼
-      rememberer ──────────────────────► append memory_log
+completed owner turn ──► rememberer ──► host transaction ──► memory_log
 
-simple periodic timer
-          │
-          ▼
-        dreamer ───────────────────────► rebuild memory_summary
+simple timer ──────────► dreamer ─────► host transaction ──► memory_summary
 ```
 
-## Runtime components
+Jarvis is one Python application and one PostgreSQL database. Components below
+are code boundaries, not independently deployed services unless an existing
+integration requires one.
 
-The components are logical roles. They MAY initially run in one deployment and
-one Python package.
+## Discord adapter
 
-Recaller, rememberer, and dreamer are bounded agents. They may reason across
-multiple Codex turns, make decisions, call their allowed tools repeatedly, issue
-new searches based on earlier results, and decide when to stop. Their capability
-profiles differ; they are not single-shot prompt functions and do not share the
-main agent's external tools.
+The adapter:
 
-### Discord adapter
+- Receives the owner's Discord messages.
+- Deduplicates gateway re-delivery by Discord message ID.
+- Matches `stop`, `pause`, and `resume` before model work.
+- Persists inbound messages before processing.
+- Delivers pending assistant messages and records Discord message IDs.
+- Shows acknowledgement and typing state while a turn runs.
+- Renders host-owned Approve and Deny messages from stored action arguments.
+- Atomically claims or denies component interactions, then immediately
+  acknowledges them and disables their components before external work.
+- Prevents model tools from editing host-owned approval messages.
+- Exposes the permitted channel, thread, message, attachment, and reaction
+  operations through Jarvis-owned `llm-tools` declarations.
 
-Responsibilities:
+The adapter renders model output as ordinary text/Markdown. It may render links,
+but the bot lacks `EMBED_LINKS`, so Discord does not automatically unfurl them.
 
-- Receive events from the existing dedicated Discord server.
-- Accept control only from the configured owner Discord ID.
-- Preserve Discord message, channel, thread, and server identifiers.
-- Persist inbound and outbound conversation messages centrally.
-- Send normal responses and proactive messages.
-- Render Approve and Deny components for actions awaiting approval.
-- Permit Jarvis to manage its dedicated server.
+## Message lifecycle
 
-It does not perform model reasoning or decide tool authority.
+### Inbound
 
-### Turn coordinator
+```text
+Discord event
+→ insert user message using unique source identity
+→ if already present, stop
+→ enqueue/start its turn
+```
 
-The turn coordinator is ordinary application code, not a workflow engine.
+### Outbound
 
-For each owner-authored human input it:
+```text
+validated say or host-rendered response
+→ insert assistant message with delivered_at null
+→ send to Discord
+→ store Discord message ID and delivered_at
+```
 
-1. Inserts the inbound message idempotently using its Discord source identity.
-2. Acquires the conversation turn lock.
-3. Builds a recaller request from the human input and centralized recent context.
-4. Runs the recaller.
-5. Builds the main-agent context with the recalled memory bundle.
-6. Runs the host-mediated model/tool loop until answer, action proposal, silence,
-   failure, or a bounded turn limit.
-7. Stores any Jarvis response in `message` and delivers it through Discord.
-8. Invokes the rememberer with the completed useful working context.
-9. Releases the turn lock.
+On startup, the adapter retries assistant messages whose `delivered_at` is null.
+Conversational delivery is at-least-once. A rare duplicate after an ambiguous
+Discord send is acceptable; losing or duplicating an effectful tool action is
+not.
 
-Once a Jarvis response has been decided, centralized message storage survives a
-client-delivery failure. A process crash MUST NOT duplicate an externally
-approved effect.
+Approval messages follow the same persistence rule. Their action stores the
+Discord delivery reference needed to disable components later.
+
+## Turn coordinator
+
+For each owner message:
+
+1. Check the paused flag.
+2. Persist/deduplicate the inbound message.
+3. Acquire the in-process provider lease.
+4. Run the recaller.
+5. Build context from stable instructions, recent centralized messages, recalled
+   memory, the current instant, and the owner's timezone.
+6. Run the bounded main-agent step loop.
+7. Persist and deliver any response.
+8. Release the provider lease.
+9. Run the rememberer in the background, yielding to new owner work.
+
+A turn is eligible for remembering after `say`, `finish`, or creation of an
+action awaiting approval. This includes a turn whose visible response is a
+host-rendered approval message rather than model-authored prose.
+
+The application holds one PostgreSQL advisory lock for deployment ownership. A
+second Jarvis instance refuses to start. Because only one process runs, turn and
+provider scheduling inside that process use ordinary locks and queues rather
+than additional database workflow machinery.
+
+## Cognitive roles
 
 ### Recaller
 
-The recaller is a Codex session with access only to memory search and memory-open
-operations. It has no connector or write tools.
-
-It returns a bounded memory bundle containing selected text, IDs, timestamps,
-and summary lineage where relevant. It may return no memories.
+The recaller receives the owner input and bounded recent context. Its frozen
+capability plan contains only memory search and memory open. It may issue several
+queries and returns a compact bundle of raw memories and summaries, or nothing.
 
 ### Main agent
 
-The main agent is Jarvis's visible reasoning role. It receives:
+The main agent receives recalled memory and the capability descriptions exposed
+for the turn. It emits the strict step grammar defined once in
+[SPEC section 7.4](../SPEC.md#74-model-step-protocol).
 
-- The current human input.
-- Recent working conversation context.
-- Recalled memories.
-- Concise stable Jarvis instructions.
-- The capability descriptions exposed for the turn.
-- Typed observations from previous tool steps.
-
-It does not receive connector credentials or a writable repository checkout.
-
-The main agent emits one structured step at a time:
-
-```text
-read
-  canonical tool name
-  arguments
-
-answer
-  Discord-ready text
-
-propose_action
-  canonical tool name
-  exact arguments
-  human-readable preview
-
-finish_silent
-  optional internal reason
-```
-
-The application, not the model, determines whether a tool is automatic or must
-await approval in `action`.
+The main agent never owns credentials or policy classification. Host code
+validates the whole step before executing any call. Independent calls in one
+step may run concurrently within the turn budget.
 
 ### Rememberer
 
-The rememberer is a Codex session with read-only access to relevant memories and
-one append operation. It receives the completed working context and produces
-zero or more concise raw memories.
+The rememberer receives the persisted completed turn, material tool observations,
+and relevant existing memory. It can search/open memory and returns a structured
+final list of zero or more raw memory strings.
 
-It cannot create summaries or execute external actions.
+Host code performs one transaction that:
+
+- Appends the new `memory_log` rows.
+- Sets `remembered_at` on the triggering owner message.
+
+The rememberer does not call a memory write tool and creates no action rows. A
+failed or cancelled run leaves `remembered_at` null for a bounded retry sweep.
 
 ### Dreamer
 
-The dreamer is invoked by a systemd timer or a small timer loop. It can search
-and open raw memories and rebuild summary rows. It cannot mutate the raw log or
-use external action tools.
+The dreamer searches and opens memory, then returns a structured batch of
+summary insertions and removals. Host code applies the batch transactionally.
 
-Dreaming is opportunistic. A missed dream run must not affect conversational
-correctness; the raw log remains searchable directly.
+Only one dreamer runs at once. It yields the provider lease when owner input is
+waiting. Missing a dream run cannot break conversational correctness because raw
+memory remains directly searchable.
 
-### Tool executor
+## Tool execution
 
-All application tools are declared through `llm-tools`.
+Jarvis owns every Gmail, Calendar, Maps, Discord, local, and memory-read tool
+declaration and binding. `llm-tools` supplies the kernel, not those integrations.
 
 The host:
 
-- Selects a closed capability plan for each role.
-- Validates tool arguments and results.
-- Supplies the correct existing integration binding.
-- Owns credentials and connector state.
-- Persists every tool call that mutates an external integration or local
-  workspace in `action` before execution.
-- Classifies the call as automatic or approval-required.
-- Reports typed observations back to the model.
+- Freezes a capability plan for each cognitive role and turn.
+- Validates canonical tool IDs and closed arguments.
+- Classifies calls using the fixed automatic/approval policy.
+- Owns connector credentials.
+- Executes reads directly through the kernel without action rows.
+- Inserts an `action` before every effectful tool call.
+- Supplies the action ID as the durable effect identity.
+- Returns typed observations to the model.
 
-The tool executor MUST NOT accept an arbitrary tool name or schema invented by a
-model response.
+Canonical message persistence, raw-memory append, and summary replacement are
+application transactions. They are not tools and do not pass through the kernel.
 
-Reads and canonical `message`/memory transactions do not create action rows.
-
-### Action and approval handler
-
-The approval handler operates independently of the active model session.
-
-`action` minimally contains:
+## Action lifecycle
 
 ```text
-id
-tool_name
-arguments
-status
-created_at
-decided_at
-completed_at
-result
+automatic tool call       approval-bearing tool call
+        │                           │
+        ▼                           ▼
+      ready                 awaiting_approval
+        │                           │
+        └──────────────┬────────────┘
+                       ▼
+                   executing
+                       │
+       ┌───────────────┼────────────────┐
+       ▼               ▼                ▼
+   succeeded         failed          uncertain
 ```
 
-An automatic write starts as `ready`; an approval-gated write starts as
-`awaiting_approval`. Approve performs an atomic `awaiting_approval -> executing`
-transition. Only the winner of that transition may execute the operation. Deny
-transitions it to `denied`.
+`denied`, `expired`, and `superseded` terminate an action before execution.
 
-The remaining statuses are `succeeded`, `failed`, and `uncertain`. Retries
-reconcile an uncertain prior result before repeating an irreversible provider
-call. The action ID is the stable effect and idempotency identity.
+`ready`, `awaiting_approval`, and `executing` are active. The intent-key unique
+constraint applies only to these states. `uncertain` is terminal for execution
+and therefore never prevents a later new action with identical arguments.
 
-For email, reconciliation SHOULD use a stable generated `Message-ID` to inspect
-Sent mail after an ambiguous timeout. If the existing integration cannot prove
-whether the message was sent, Jarvis reports uncertainty instead of retrying
-blindly.
+Execution claims commit before the external call. An `executing` row has a
+lease. A periodic/startup reconciler examines expired leases using tool-specific
+evidence. It never blindly retries an operation that may already have happened.
 
-This one table replaces separate pending-action, effect, execution, and receipt
-tables. It is application mechanics, not a workflow system.
+## Approval rendering
+
+The model step contains a canonical tool call and arguments only. When policy
+requires approval:
+
+1. Insert the action.
+2. Load its stored validated arguments.
+3. Select the host renderer for that exact tool revision.
+4. Render every recipient, audience, and transmitted value.
+5. Persist/deliver host-owned Discord content with Approve and Deny.
+
+For content exceeding one Discord message, the renderer may split the material
+or attach a host-generated text file. The final component-bearing message states
+that the entire preceding payload is what Approve executes.
+
+There is no model preview field and no stored preview column.
+
+## Gmail send recovery
+
+Email is prepared as a Gmail draft and the Gmail `draftId` is stored before
+approval. After an ambiguous send:
+
+1. Check whether the draft still exists.
+2. If absent, inspect Sent mail using the available thread, recipients, subject,
+   and provider response evidence.
+3. Retry only when evidence proves the send did not occur.
+4. Otherwise record terminal `uncertain` and tell the owner.
+
+Slice 0 validates the exact behavior of the existing Gmail integration for new
+and reply threads.
 
 ## Persistence
 
-PostgreSQL is the only new required state service.
+PostgreSQL owns exactly:
 
-It stores:
+- `message`
+- `memory_log`
+- `memory_summary`
+- `action`
 
-- `message`.
-- `memory_log`.
-- `memory_summary`.
-- `action`.
+Existing integration state stays with its current owner. Configuration owns the
+owner ID, Discord server ID, timezone, paused flag, model configuration, and
+credential locations. Alembic may own its bookkeeping table.
 
-These are the only Jarvis application tables. Existing connector state remains
-in its current owned stores. Deployment configuration owns the user, server, and
-credential settings. Migration tooling may create its own bookkeeping table.
+## Provider containment
 
-PostgreSQL full-text search and pgvector serve memory retrieval. No other search,
-queue, graph, cache, or vector service is required.
+Codex runs under the exact policy in [SPEC section 7.5](../SPEC.md#75-codex-containment):
+empty read-only working directory, no network, deny-mode approval, disabled native
+feature set, no MCP, and no connector credentials.
 
-Large raw email bodies, attachments, and map data SHOULD remain in their source
-systems. Memory stores concise recollections and stable references, not mirrors
-of connected services.
+The application consumes normalized provider events:
 
-## Existing integration boundary
+- Normal lifecycle, reasoning, warning, and planning passthrough events do not
+  fail a turn.
+- Any `AgentToolUse` fails the confined turn.
+- A permission request fails closed.
+- A failed session is discarded.
 
-Gmail, Calendar, Maps, and Discord are already working and are inputs to this
-system, not greenfield connector projects.
+An attempted native tool can therefore fail a turn even when the sandbox denied
+its effect. The event is the drift signal; containment is the sandbox and process
+boundary.
 
-The integration audit should expose each existing operation as one of:
+## Scheduling
 
-- Read operation: automatic.
-- Reversible personal write: automatic.
-- Consequential outward action: pending approval.
-- Unsupported in v1.
+No workflow framework exists.
 
-Adapters should be thin. They MUST preserve existing authentication and stable
-provider IDs where possible. They MUST NOT expose generic access to the host
-machine or unrelated Ariel internals.
+- A small timer selects due `schedule_wake` action rows.
+- Quiet hours move the effective due time to their end.
+- A periodic connector tick may start a read-only proactive turn.
+- A timer may invoke dreaming when the provider lease is idle.
+- A startup/periodic action reconciler examines expired execution leases.
 
-## Process and deployment boundary
-
-The preferred deployment has:
-
-- One Jarvis Python service for Discord, coordination, memory roles, and tool
-  policy.
-- One PostgreSQL database.
-- A confined `provider-runtime` Codex child process/session mechanism.
-- Existing connector modules or small adapter processes as required by their
-  current implementation.
-
-Separate services are justified only by an existing integration boundary or a
-credential/process-isolation requirement. They are not a goal.
-
-The production target is Linux because the current `provider-runtime` security
-tests contain Linux-specific assumptions. Development on macOS is allowed, but
-security acceptance occurs on Linux.
-
-## Context construction
-
-Context should be compact and rebuilt from owned state:
-
-```text
-stable Jarvis instructions
-+ recent centralized message history
-+ recaller memory bundle
-+ relevant live tool observations
-+ current human input
-```
-
-Provider-native session history is a performance aid, not the canonical copy of
-conversation or memory. Jarvis must be able to start a fresh session from
-`message` plus recalled memory. Discord history is likewise a client copy, not
-the canonical conversation store.
-
-Untrusted email, calendar, map, and Discord content is presented as data. It may
-influence the answer but cannot grant tool authority or alter system rules.
-
-## Bounded execution
-
-Each foreground turn MUST have configurable bounds on:
-
-- Model turns.
-- Tool invocations.
-- Retrieved memory candidates.
-- Returned memory text.
-- Wall-clock duration.
-
-Exhaustion produces an honest partial result or failure. It does not silently
-expand authority or switch providers.
-
-## Logging and inspection
-
-Operational records SHOULD allow an engineer to reconstruct:
-
-```text
-centralized input message ID
-→ recalled memory IDs
-→ model steps
-→ tool names and redacted arguments
-→ automatic/approval decision
-→ provider outcome
-→ centralized output message ID
-→ Discord delivery
-→ appended memory IDs
-```
-
-Ordinary logs MUST NOT contain credentials, full private messages, raw email
-bodies, or complete memory text. Development inspection tools may retrieve those
-from their owned stores under explicit local access.
+Each path is an ordinary function over explicit database state.
 
 ## Failure behavior
 
-- Recaller failure: continue with no recalled memory and say nothing unless it
-  materially affects the answer.
-- Rememberer failure: preserve the completed user response; retrying memory
-  formation MAY occur later but MUST NOT duplicate known rows blindly.
-- Dreamer failure: retain existing summaries and raw log.
-- Read-tool failure: main agent may retry within bounds or report uncertainty.
-- Action storage failure: do not execute a write or present a functional Approve
-  button.
-- Approved-action uncertainty: do not blindly retry; reconcile or report it.
-- Discord delivery failure: preserve the centralized message and report or retry
-  delivery within bounds.
+- Recaller failure: continue without recalled memory.
+- Main-agent failure: report a concise host-authored error; retry at most once on
+  a fresh session and never after an effect completed.
+- Rememberer failure: leave `remembered_at` null and retry later.
+- Dreamer failure: retain raw memory and existing summaries.
+- Embedding failure: leave the vector null; lexical recall continues.
+- Discord delivery failure: retain the undelivered assistant message for retry.
+- Approval-rendering failure: create no functional Approve component.
+- Expired action lease: reconcile before retry.
+- Unprovable external outcome: record terminal `uncertain` and tell the owner.
+
+## Inspection
+
+A message trace should make this path reconstructable without storing private
+payloads in ordinary logs:
+
+```text
+owner message
+→ recalled candidate IDs
+→ selected memory IDs
+→ model steps
+→ tool names and classifications
+→ action IDs and provider outcomes
+→ assistant message
+→ appended memory IDs
+```
+
+Trace details are implementation diagnostics, never a memory-ranking signal in
+v1.

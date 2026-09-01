@@ -10,10 +10,13 @@ user's context, useful memory, capable reasoning, and willingness to perform
 tedious work. A service mesh, agent organization, project ontology, and broad
 control plane would increase implementation surface before demonstrating value.
 
-The bitter lesson favors general learning and computation over large collections
-of hand-authored domain machinery. For v1, capable models operating over natural
-language and tools should be given the opportunity to solve the problem before
-we encode an ontology of the user's life.
+Rich Sutton's bitter lesson is about AI *methods* — general learning and search
+beating hand-encoded human knowledge — and applying it directly to database
+schema design would be borrowing authority the essay does not lend. The narrower
+and sufficient argument stands on its own: we do not yet know which structure
+this user's life actually needs, capable models over natural language and tools
+may not need any, and an ontology written before that is known constrains the
+system to a guess. Give the model the chance first.
 
 ## Decision
 
@@ -26,6 +29,12 @@ relationships.
 
 Add structure only after a repeated measured failure shows that model reasoning
 over memories and live tools is insufficient.
+
+A bet with no scoreboard is a belief. The instrument that makes this falsifiable
+is the per-turn trace on the response `message` row — candidate memory IDs,
+selected memory IDs, and the IDs the main agent reports using — recorded from
+Slice 1, plus the recall evaluation set frozen at Slice 3. Every escape hatch in
+this specification releases on "measured failure"; these are what measure it.
 
 ## Consequences
 

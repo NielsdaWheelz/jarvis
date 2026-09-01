@@ -11,9 +11,11 @@ Jarvis v1 has a small number of direct flows:
 - Periodically dream and rebuild summaries.
 - Store an outward action awaiting approval, then approve or deny it.
 
-DBOS, Temporal, Restate, Celery, or another durable workflow system would add a
-new programming model and operational surface before these flows have shown a
-need for it.
+Temporal, Restate, Celery, or another durable workflow system would add a new
+programming model and a new operational surface before these flows have shown a
+need for it. DBOS is a PostgreSQL-backed library rather than a service, so the
+operational-surface argument does not apply to it; the rejection there rests on
+the programming model alone, which is sufficient.
 
 ## Decision
 
@@ -36,7 +38,10 @@ Positive:
 
 Accepted costs:
 
-- Retry and recovery behavior must be written explicitly where needed.
+- Retry and recovery behavior must be written explicitly. Every effectful
+  application tool call has a persisted identity before dispatch. Canonical
+  message and memory transactions are ordinary host bookkeeping and follow
+  their own database invariants.
 - Numerous future long-running flows could eventually strain this design.
 - Migration to a workflow engine may require restructuring coordinator code.
 

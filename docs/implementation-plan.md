@@ -1,172 +1,179 @@
 # V1 implementation plan
 
-This plan consists of small vertical slices. Each slice should leave the
-repository understandable and demonstrably closer to the acceptance contract.
-It is not a schedule and does not authorize deferred features.
+Each slice is a small vertical increment. The plan names intended sequence, not a
+workflow system or calendar schedule.
 
-## Slice 0: integration and runtime audit
+## Slice 0: audit and qualification
 
-Deliverables:
+Deliver:
 
 - Delegated summaries of the existing Discord, Gmail, Calendar, and Maps
   integration surfaces without importing unrelated Ariel design.
-- Exact reuse plan for their credentials and authorizations.
-- A clean dependency strategy for `provider-runtime` and `llm-tools` that does
-  not touch the user's staged-deletion `llm-tools` checkout.
-- Linux qualification tests for the pinned Codex SDK/runtime combination.
-- Initial threat and private-data fixture inventory.
+- One owning process for each reused credential and an explicit Ariel/Jarvis
+  handoff or local-interface plan.
+- Pinned git dependencies for `provider-runtime` and `llm-tools` that do not
+  touch the user's local worktrees.
+- Linux qualification of the pinned Codex SDK/runtime containment policy.
+- A restricted embedding API key plus a live negative generative-call test.
+- Live Gmail checks for draft-send and reconciliation behavior on new and reply
+  threads.
+- The verified owner-only Calendar ID set.
 
-Exit condition: every external dependency needed for the first conversation has
-a known callable surface and ownership boundary.
+Exit: every required external surface and credential has a known owner,
+interface, and test strategy.
 
-## Slice 1: conversational skeleton
+## Slice 1: conversation skeleton
 
-Deliverables:
+Deliver:
 
-- Python project and locked environment.
-- PostgreSQL connection and migrations.
-- Reused Discord ingress/egress.
-- Owner identity and dedicated-server configuration.
-- `message` schema and idempotent Discord ingestion.
-- Central storage of every owner message and Jarvis response.
-- Subscription-backed `provider-runtime` main-agent session.
-- Fresh-session context reconstruction from centralized messages.
-- Strict `answer` and `finish_silent` model outputs.
-- Natural text conversations without commands.
+- Python project, lockfile, PostgreSQL, and migrations.
+- `message` table and owner/source identity.
+- Existing Discord ingress/egress.
+- Inbound deduplication.
+- Persist-before-send assistant messages with `delivered_at` recovery.
+- Host acknowledgement, typing state, stop/pause/resume, and no streaming.
+- Subscription-backed main Codex session with `say` and `finish`.
+- Deployment ownership lock and in-process provider lease.
 
-Exit condition: the owner can have a useful natural Discord conversation through
-a fresh and a resumed Jarvis process, and that history remains available from
-PostgreSQL independently of Discord.
+Exit: natural conversation survives restart and a simulated outbound-delivery
+failure is retried.
 
 ## Slice 2: read tools
 
-Deliverables:
+Deliver:
 
-- `llm-tools` catalog and host executor.
-- Strict `read` model step.
-- Reused Gmail read/search operations.
-- Reused Calendar read operations.
-- Reused Maps lookup operations.
-- Typed observations and bounded multi-turn tool loop.
+- Jarvis-owned `llm-tools` catalog, profiles, bounds, and executor.
+- Strict `call_tool | say | finish` schema.
+- Existing Gmail read/search bindings.
+- Existing Calendar read bindings.
+- Existing Maps lookup bindings.
+- Typed observations and bounded tool loops.
+- Confined Codex drift tests.
 
-Exit condition: Jarvis can answer a compound natural question using all three
-live Google services without exposing credentials to the model.
+Exit: Jarvis answers a natural compound question using all live read services
+without exposing credentials to Codex.
 
 ## Slice 3: raw memory and recall
 
-Deliverables:
+Deliver:
 
-- `memory_log` schema, append path, embeddings, and full-text search.
-- Memory search and open primitives.
-- Recaller invoked before every owner input.
-- Rememberer invoked after completed interactions.
-- Stable reference convention and link resolver for existing services.
-- Fixed personal/redacted recall evaluation set.
+- Exact `memory_log` schema and append-only database enforcement.
+- Host-owned rememberer commit with `remembered_at` in the same transaction.
+- Full-text search and nullable OpenAI embeddings.
+- Memory search/open tools for the recaller only.
+- Recaller before every owner input.
+- Stable external-reference convention.
+- Fifteen-case owner-authored redacted recall evaluation set.
+- Bounded retry sweep for completed unremembered turns.
 
-Exit condition: a remembered preference and linked external matter are recalled
-in a fresh provider session without user repetition.
+Exit: a durable preference and linked external matter are recalled in a fresh
+provider session, and memory persistence creates no action row or duplicate text.
 
 ## Slice 4: dreaming and summaries
 
-Deliverables:
+Deliver:
 
-- `memory_summary` schema with raw lineage.
-- Dreamer capability profile.
-- Simple systemd or process timer.
-- Summary generation, replacement, and deletion.
-- Complete summary/embedding rebuild command.
-- Contradiction and flattened-lineage tests.
+- Exact `memory_summary` schema with raw lineage.
+- Dreamer search/open profile.
+- Structured final summary-mutation batch and host-owned transaction.
+- Simple idle/system timer with one dreamer at a time.
+- Full derived-memory rebuild command.
+- Contradiction, unsupported-summary, lineage, and pre/post rebuild tests.
 
-Exit condition: wiping derived memory and rebuilding it from the raw log restores
-passing recall evaluations.
+Exit: wiping every summary and embedding and rebuilding from raw memory preserves
+or improves the recall evaluation result.
 
-## Slice 5: automatic writes
+## Slice 5: automatic writes and proactivity
 
-Deliverables:
+Deliver:
 
-- Reused Gmail draft operation.
-- Reused personal Calendar write operations.
-- Discord channel/server organization tools.
-- `action` schema and effect ledger for every external-integration or local-
-  workspace mutation.
-- Automatic action classification for these capabilities.
-- Write effect IDs and recovery tests where required.
+- `action` table, durable effect identity, active-state uniqueness, leases, and
+  terminal `uncertain` semantics.
+- Existing Gmail draft binding.
+- Existing owner-only Calendar writes.
+- Permitted Discord server-organization bindings.
+- Automatic/approval classification owned by host code.
+- `schedule_wake`, quiet-hour delay, and periodic read-only connector reconcile.
+- Startup/periodic action reconciler.
 
-Exit condition: Jarvis performs a natural request involving a draft, personal
-calendar change, and Discord organization without unnecessary approval.
+Exit: Jarvis performs a draft, personal calendar change, channel organization,
+and scheduled proactive message without unnecessary approval or workflow
+framework.
 
 ## Slice 6: Approve and Deny
 
-Deliverables:
+Deliver:
 
-- `propose_action` model step.
-- `awaiting_approval`, Approve, and Deny transitions in the existing `action`
-  table.
-- Discord preview with Approve and Deny.
-- Owner-only atomic claim and execution.
-- Reused Gmail send binding.
-- Duplicate-click, restart, provider-timeout, and uncertainty tests.
+- Gmail send as draft-send by stored `draftId`.
+- Host preview renderers for Gmail send and non-owner-only calendar writes, with
+  no model preview field or action preview column.
+- Long-action rendering through host-owned split messages or attachment.
+- Host-owned Approve/Deny message and immediate interaction acknowledgement.
+- Owner/guild/channel validation.
+- Atomic claim, duplicate-click protection, lease recovery, and Gmail-specific
+  reconciliation.
+- Free-form approval rejection and terminal uncertainty reporting.
 
-Exit condition: an approved email sends exactly once and a denied email never
-sends.
+Exit: Deny sends nothing; Approve sends the exact rendered email once; a shared
+calendar change is also rendered exactly; an ambiguous result is reconciled or
+reported without blind retry.
 
 ## Slice 7: production acceptance
 
-Deliverables:
+Deliver:
 
-- Linux deployment definition.
-- Secret/configuration procedure.
-- PostgreSQL backup and tested restore.
-- Redacted operational inspection.
-- Complete automated acceptance run.
-- Seven-day personal acceptance period.
+- Always-on Linux deployment.
+- Secret and configuration procedure.
+- Daily encrypted backup and off-host copy.
+- Clean-host restore test.
+- Complete acceptance run.
+- Seven-day owner acceptance period.
 - Dated acceptance report.
 
-Exit condition: every non-waived mandatory criterion in `docs/acceptance.md`
-passes and the owner signs off.
+Exit: every non-waived mandatory criterion in `docs/acceptance.md` passes and the
+owner signs off.
 
 ## Deferred slices
 
-These are deliberately unordered until v1 usage supplies evidence.
-
 ### OnePassword
 
-- Integrate selected vault/item retrieval using the user's existing preferred
-  OnePassword mechanism.
-- Do not bulk-copy secrets into memory.
-- Add narrowly defined write or fill behavior only after real use.
+- Retrieve selected items using the owner's preferred OnePassword interface.
+- Never copy vault contents into memory in bulk.
+- Add writes only after read behavior proves useful.
 
 ### Nexus
 
-- Search and open Nexus resources through a stable authenticated interface.
-- Preserve Nexus resource URIs in raw memories.
-- Consider additive notes/highlights only after read behavior is useful.
+- Search and open resources through a stable authenticated interface.
+- Preserve Nexus resource URIs in raw memory.
+- Consider additive notes/highlights after read use is proven.
 
 ### Skidbladnir
 
-- Read machine and session state first.
-- Preserve exact session identity in memory references.
-- Do not expose generic terminal or SSH authority to Jarvis.
+- Read machine and exact session state first.
+- Preserve session identity in memory references.
+- Never substitute generic terminal or SSH authority for an adapter.
 
 ### Android
 
 - Build only when Discord usage demonstrates a need for biometrics, widgets,
-  quick capture, share targets, device-local context, or a richer private UI.
+  capture, share targets, device context, or a more private interface.
 - Prefer native Kotlin and Jetpack Compose.
 
-### Additional autonomy
+### Administrative memory erasure
 
-- Add approval-bearing operations one at a time.
-- Reduce approval only when repeated accepted actions establish a clear rule.
-- Do not introduce a general permission framework preemptively.
+- Design only if requested.
+- Cover messages, raw memory, summaries, action payloads, traces, provider state,
+  backups, Discord, and live source systems.
+- Do not promise erasure by tombstoning only one table.
 
-## Features that require a new ADR
+## Changes requiring an ADR
 
-- A workflow engine.
-- An explicit personal-domain object model.
-- A graph database or separate vector/search service.
-- Slash commands or a general Discord control surface.
-- A provider other than Codex.
-- Direct model access to connector credentials or execution authority.
-- Destructive consolidation of raw memory.
-- Autonomous code, prompt, permission, or deployment modification.
+- A fifth application table.
+- A semantic memory field or explicit personal-domain model.
+- A workflow or agent framework.
+- A graph or separate vector/search service.
+- Slash commands or a general control surface.
+- A cognitive provider other than subscription-backed Codex.
+- Direct model credentials, MCP execution authority, or generic shell access.
+- Destructive raw-memory consolidation or administrative erasure.
+- Android or a new external service in v1.

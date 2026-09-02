@@ -2,7 +2,7 @@
 
 - Status: Accepted; action storage amended by ADR 0007; Administrator and
   approval-preview decisions superseded by ADR 0009; server organization
-  superseded by ADR 0011
+  superseded by ADR 0011; generic local-write scope superseded by ADR 0014
 - Date: 2026-09-01
 
 ## Context

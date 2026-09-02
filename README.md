@@ -2,8 +2,8 @@
 
 Jarvis is a personal, persistent AI assistant for one user. It lives in one
 configured private Discord channel, uses the user's existing Gmail, Google
-Calendar, Google Maps, and Discord integrations, and develops durable memory
-through a simple remember/retrieve/dream loop.
+Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
+and develops durable memory through a simple remember/retrieve/dream loop.
 
 This repository is intentionally specification-first. No implementation is
 present yet.
@@ -59,7 +59,7 @@ ADR that also updates every affected normative document in the same change.
 - A project-management database or personal knowledge graph
 - A workflow-engine deployment
 - A mobile application in v1
-- Web search or browsing in v1
+- Authenticated browsing, browser automation, or unrestricted Web access
 - Rebuilding integrations that already work
 - Broad speculative integration work
 - Multiple Discord channels, threads, direct messages, or server organization in
@@ -81,6 +81,9 @@ These are accepted knowingly, not overlooked.
 - Conversation, approvals, and proactive notices interleave in one Discord
   channel. Multiple channels are deferred until that produces a measured
   problem.
+- Public search queries are disclosed to Brave, and public page reads disclose
+  the requested URL and host IP to the destination. The tools send no connector
+  credentials or cookies and do not provide authenticated or JavaScript browsing.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed.

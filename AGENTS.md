@@ -36,6 +36,9 @@ These instructions govern all work in this repository.
 - Reuse the working Gmail, Calendar, Maps, and Discord integrations and their
   authorizations. Audit and adapt public surfaces; do not copy Ariel agent,
   orchestration, prompt, product-domain, or memory implementation.
+- The v1 model tool catalog is exactly SPEC section 7.3. Use the pinned
+  `llm-tools` `web.search` and `web.read`; do not add local-filesystem, Gmail
+  organization, tool-discovery, Discord, or other model tools.
 
 ## Conversation invariants
 
@@ -79,12 +82,14 @@ These instructions govern all work in this repository.
 
 ## Authority invariants
 
-- Models never receive connector credentials or direct execution authority.
+- Models never receive connector, Brave, or embedding credentials or direct
+  execution authority.
 - Host code validates and classifies calls; effectful application tools execute
   through `llm-tools` and use one durable `action` row.
 - Reads and canonical message/memory transactions create no action rows.
-- Reads, memory work, configured local writes, personal calendar management,
-  drafts, and normal responses in the configured Discord channel are automatic.
+- Catalogued reads, memory work, email drafts, personal calendar management,
+  scheduled wakes, and normal responses in the configured Discord channel are
+  automatic.
 - Consequential communication to another person, spending, secret exposure, and
   irreversible destructive external work require Approve or Deny.
 - Approval executes the exact stored arguments once. Free-form text never
@@ -105,6 +110,9 @@ These instructions govern all work in this repository.
 - `uncertain` is terminal and non-retryable. Report it to the owner; later
   evidence may resolve its recorded outcome but may never trigger execution.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
+- Only an owner-requested due `schedule_wake` starts a user-facing proactive
+  turn. Do not add generic quiet hours, connector polling, or autonomous
+  inbox/calendar monitoring in v1.
 
 ## Engineering rules
 

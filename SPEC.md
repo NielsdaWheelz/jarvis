@@ -25,19 +25,21 @@ V1 MUST:
    channel.
 2. Reuse the user's working Discord, Gmail, Google Calendar, and Google Maps
    integrations without avoidable reauthorization.
-3. Persist conversation history independently of Discord and provider sessions.
-4. Recall relevant durable memory before every owner-authored human input.
-5. Append useful durable memories after completed owner turns.
-6. Preserve raw memories while treating summaries, embeddings, and indexes as
+3. Use bounded public-Web search and page reading when live external evidence is
+   needed.
+4. Persist conversation history independently of Discord and provider sessions.
+5. Recall relevant durable memory before every owner-authored human input.
+6. Append useful durable memories after completed owner turns.
+7. Preserve raw memories while treating summaries, embeddings, and indexes as
    rebuildable.
-7. Combine keyword and semantic memory search.
-8. Use tools to answer and act rather than merely explain how work could be done.
-9. Act automatically for reads, ordinary reversible work, and work confined to
+8. Combine keyword and semantic memory search.
+9. Use tools to answer and act rather than merely explain how work could be done.
+10. Act automatically for reads, ordinary reversible work, and work confined to
    the user's resources.
-10. Ask only for Approve or Deny at the defined external-authority boundary.
-11. Remain inspectable enough to diagnose bad recall, failed tools, and duplicate
+11. Ask only for Approve or Deny at the defined external-authority boundary.
+12. Remain inspectable enough to diagnose bad recall, failed tools, and duplicate
     or uncertain actions.
-12. Remain small enough that one engineer can understand the complete system.
+13. Remain small enough that one engineer can understand the complete system.
 
 ## 3. Non-goals
 
@@ -51,7 +53,6 @@ V1 MUST NOT add:
   knowledge-graph domain models.
 - A workflow or agent framework.
 - A general-purpose remote shell, SSH, terminal, or unconstrained browser agent.
-- Web search or web browsing.
 - OnePassword, Nexus, or Skidbladnir integration.
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
@@ -169,19 +170,20 @@ after its schema is valid.
 
 ### 4.4 Proactivity and stop control
 
-V1 supports two non-human triggers:
-
-- A due `schedule_wake` action.
-- A periodic connector reconciliation tick.
+V1 has one user-facing proactive trigger: a due `schedule_wake` action created
+from the owner's natural-language request. A wake becomes eligible at its exact
+requested instant; if Jarvis was offline, it becomes eligible on startup. There
+are no generic quiet hours, periodic connector polls, notification batching,
+urgency classification, or autonomous inbox/calendar monitoring in v1.
 
 Inbound email, calendar changes, Maps data, and non-owner Discord activity do not
-directly start model turns. A proactive turn receives read and memory tools only.
-It cannot perform writes or propose approval-bearing actions. Its only possible
-external output is a normal message to the owner in the configured channel.
+directly start model turns. A proactive turn receives fresh recall and the
+catalogued read tools only. It cannot perform writes or propose approval-bearing
+actions. Its only possible external output is a normal message to the owner in
+the configured channel.
 
-Configured quiet hours delay proactive turns until quiet hours end. No mandatory
-activity channel, batching subsystem, urgency classifier, or notification-budget
-framework exists in v1.
+Dreaming may run silently on an idle/system timer. It is derived-memory
+maintenance, not a user-facing proactive turn.
 
 Before recall or any model call, host code matches an owner message whose trimmed
 content is exactly `stop` or `pause`, case-insensitively, and persists a paused
@@ -194,16 +196,19 @@ dreaming. `resume` clears the flag. These controls do not involve the model.
 
 Jarvis acts without approval for:
 
-- Internal and external reads.
+- The exact read tools in section 7.3.
 - Memory retrieval, append, summary maintenance, and index rebuilding.
-- Writes inside Jarvis's configured local workspace and database.
-- Creating and editing email drafts without sending them.
-- Ordinary email organization exposed by the reused integration.
+- Canonical message, action, and deployment bookkeeping in Jarvis's own database
+  and private runtime state.
+- `gmail.create_draft` and `gmail.update_draft`, without sending.
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
+- Creating or cancelling a `schedule_wake`.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
-- Other reversible housekeeping confined to the owner's own resources.
+
+This list is exhaustive for v1 automatic writes. There is no local-filesystem
+tool and no Gmail label, archive, trash, delete, or other organization tool.
 
 An owner-only calendar is one whose live ACL grants access only to the owner.
 The deployment records the verified owner-only calendar IDs. A calendar write
@@ -305,10 +310,13 @@ succeeded or failed, but it MUST never cause automatic re-execution.
 Gmail send uses the provider's draft flow:
 
 1. Create the exact draft automatically.
-2. Persist its Gmail `draftId` and known thread identity on the action.
-3. Request approval for sending that stored draft.
-4. Send by `draftId` after approval.
-5. On an ambiguous result, check whether the draft remains and inspect Sent mail
+2. Persist its Gmail `draftId`, known thread identity, and exact envelope,
+   subject, and body snapshot in the action arguments.
+3. Render and request approval for that immutable snapshot.
+4. Immediately before sending, fetch the live draft and require it to match the
+   snapshot exactly; a mismatch fails the action and requires a new proposal.
+5. Send by `draftId` after approval.
+6. On an ambiguous result, check whether the draft remains and inspect Sent mail
    before deciding whether a repeat is proved safe.
 
 The exact reconciliation behavior for new and existing threads MUST be verified
@@ -522,17 +530,54 @@ ordinary embedding outages.
 The complete memory corpus is disclosed to the embedding processor at ingestion
 and rebuild time and incurs API cost. This is an accepted v1 trade-off.
 
-### 7.3 Tool kernel
+### 7.3 Tool kernel and exact catalog
 
-Jarvis declares its Gmail, Calendar, Maps, local, and memory-read tool families
-in this repository and executes effectful application capabilities through the
-pinned `llm-tools` kernel. Discord ingress, `say` delivery, typing state, and
-host-owned approval presentation remain transport operations outside the model
-tool catalog.
+V1 exposes exactly the following canonical model tools:
+
+| Tools | Granted role | Authority |
+|---|---|---|
+| `gmail.search`, `gmail.read_thread` | Main | Read; automatic |
+| `gmail.create_draft`, `gmail.update_draft` | Main | Write; automatic |
+| `gmail.send_draft` | Main | Write; approval required |
+| `calendar.list_events`, `calendar.get_event` | Main | Read; automatic |
+| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | Main | Automatic only for a no-attendee event on a verified owner-only calendar; otherwise approval required |
+| `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
+| `web.search`, `web.read` | Main | Public-Web read; automatic |
+| `schedule_wake` | Main | Write; automatic |
+| `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
+
+The main agent receives recalled memory but no memory tool. Internal cognitive
+roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
+No role receives `tool.search`, `tool.read`, a local-filesystem tool, a Gmail
+organization tool, or a model-callable Discord tool.
+
+Jarvis declares and binds its Gmail, Calendar, Maps, schedule, and memory tools
+in this repository. The pinned `llm-tools` revision already supplies the
+portable `web.search` declaration and Brave binding plus the bounded public-Web
+`web.read` declaration and reader. Jarvis composes and grants those Web tools and
+owns their credential, information-flow policy, and run budgets.
+
+`web.search` sends a bounded query to Brave. `web.read` accepts one public
+HTTP(S) URL and returns bounded inert text; it sends no cookies or application
+credentials, executes no JavaScript, loads no subresources, persists no page,
+and rejects credential-bearing URLs, private/link-local/loopback destinations,
+unsafe redirects, unsupported media, and oversized responses. Web observations
+are untrusted evidence, never instructions or authority. Unmistakable credential
+material is rejected from Web arguments rather than sent. V1 does not implement
+authenticated browsing, browser automation, or JavaScript rendering.
+
+`gmail.send_draft` arguments contain the provider draft ID, known thread
+identity, and the exact To/Cc/Bcc, subject, and body snapshot shown for approval.
+Immediately before send, the host verifies that the live draft still matches
+that snapshot; a mismatch fails the action and requires a new proposal.
+
+`schedule_wake` uses one closed tagged schema: create with an exact
+`execute_after` instant and instruction, or cancel with the target queued wake's
+action ID. Cancellation cannot target an executing or terminal action.
 
 `llm-tools` supplies contracts, capability profiles, validation, budgets,
-effect identity, and replay semantics. It does not supply Jarvis's integration
-tools.
+effect identity, replay semantics, and the two portable Web tools. It does not
+supply Jarvis's application-specific integrations.
 
 Reads need no action row. Effectful tool calls create an `action` before
 execution and use its ID as their durable effect identity. Canonical message and
@@ -565,8 +610,9 @@ The grammar has no approval preview. Host rendering is specified in section 5.3.
 
 ### 7.5 Codex containment
 
-Codex receives no connector credentials, generic shell, writable project
-checkout, MCP server, or direct execution-authority tool channel.
+Codex receives no connector, Brave, or embedding credentials, generic shell,
+writable project checkout, MCP server, or direct execution-authority tool
+channel.
 
 Sessions use the pinned native feature-disable option, an empty read-only working
 directory, disabled network, approval mode `deny`, no MCP, and the allowed-tools
@@ -601,6 +647,8 @@ lock holds.
 - Discord: reuse the working single-channel transport; prefer `discord.py` for
   new Gateway code if the existing integration has no established library.
 - Google: reuse the working Gmail, Calendar, Maps, OAuth, and client stack.
+- Public Web: reuse `llm-tools` `web.search` with its Brave adapter and
+  `web.read` with its bounded safe reader.
 - Scheduling: systemd timer or a small ordinary process timer.
 - Testing: pytest, Hypothesis where useful, library-supplied test doubles, and
   synthetic or redacted connector fixtures.
@@ -753,7 +801,7 @@ backups. Alembic may own its migration table.
 V1 reuses the working Discord, Gmail, Google Calendar, and Google Maps
 integrations.
 
-Slice 0 records for each:
+Slice 0 records for each reused connector and the Web family:
 
 - Callable operations and schemas, with Discord limited to configured-channel
   transport operations rather than a model tool family.
@@ -762,7 +810,26 @@ Slice 0 records for each:
 - Read and write behavior.
 - Existing tests.
 - The smallest Jarvis-owned `llm-tools` declaration and binding for each
-  application tool integration.
+  application tool integration, plus the exact composed `llm-tools` Web
+  bindings.
+
+The qualification report MUST also contain the exact v1 tool manifest from
+section 7.3, live authority classification, Calendar ACL result, Gmail
+draft/send/reconciliation findings, credential ownership and handoff plan, and
+proof that Codex cannot access connector, Brave, or embedding credentials.
+Implementation MUST NOT proceed beyond Slice 0 until the owner signs off that
+report. Authorization to perform Slice 0 is not acceptance of findings that have
+not yet been observed.
+
+Credential discovery first inspects Ariel's existing operator configuration,
+without importing Ariel application code. If a required credential is absent
+locally, a delegated read-only audit MAY inspect the user-owned repository on the
+development server and return only credential locations and integration shape,
+never secret values in model context or ordinary logs. An operator or delegated
+execution agent transfers selected credentials by a non-echoing filesystem or
+service-manager operation directly into Jarvis's mode-0600 credential files.
+If a required credential is absent from both locations, Slice 0 remains open;
+Jarvis does not silently create a provider account or authorization.
 
 Each credential has one owning process. Jarvis MUST NOT share one Discord bot
 token with another running Gateway client, and two autonomous agents MUST NOT act
@@ -800,6 +867,7 @@ Acceptance includes:
 - Natural single-channel Discord conversation, compatible-session resume, and
   lost-session context reconstruction.
 - Live Gmail, Calendar, and Maps use.
+- Live public-Web search and page reading.
 - Memory formation, fresh-session recall, dreaming, and complete rebuild.
 - Automatic personal calendar work.
 - Host-rendered approval and one exactly-once approved email send.
@@ -816,6 +884,9 @@ Frozen decisions:
 - A provider-neutral context builder; reusable but non-canonical provider
   sessions.
 - Existing Google and Discord integrations are reused.
+- The exact minimal v1 tool catalog in section 7.3.
+- Only owner-requested `schedule_wake` actions initiate user-facing proactive
+  turns.
 - Python, PostgreSQL, pgvector, `provider-runtime`, and `llm-tools`.
 - Immutable raw memory plus rebuildable summaries and indexes.
 - No action rows for canonical message or memory transactions.
@@ -825,7 +896,8 @@ Frozen decisions:
 - Unversioned canonical v1 tool names with immutable stored calls and
   deployment-time compatibility discipline.
 - No v1 redaction or destructive memory consolidation.
-- No Android or new service integrations.
+- No Android, OnePassword, Nexus, Skidbladnir, or other unlisted application
+  integration.
 
 Changing one requires an ADR stating observed evidence, migration impact, and
 the acceptance criteria affected.

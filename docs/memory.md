@@ -293,9 +293,9 @@ summary text need not be byte-identical.
 ## Current-state rule
 
 Memory does not replace live integration state. Questions about current mail,
-calendar events, or places use the corresponding tool. Current Jarvis
-conversation comes from canonical `message` rows; Discord has no model-callable
-read tool in v1. Recalled memory supplies history and relevance.
+calendar events, places, or public-Web information use the corresponding tool.
+Current Jarvis conversation comes from canonical `message` rows; Discord has no
+model-callable read tool in v1. Recalled memory supplies history and relevance.
 
 Memory quality is judged by whether it reduces repeated explanation while
 keeping irrelevant recollections out of the main context. Schema richness is not

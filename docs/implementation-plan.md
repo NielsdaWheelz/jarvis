@@ -5,25 +5,42 @@ workflow system or calendar schedule.
 
 ## Slice 0: audit and qualification
 
+Status: owner-authorized on 2026-09-01; qualification findings not yet produced
+or accepted.
+
 Deliver:
 
 - Delegated summaries of the existing Discord, Gmail, Calendar, and Maps
   integration surfaces without importing unrelated Ariel design.
+- The exact canonical tool manifest, schemas, typed observations, and live
+  automatic/approval classification from SPEC section 7.3.
 - The configured Discord guild/owner/channel IDs, exact four bot permissions,
   minimal Gateway intents, and bounded history-catch-up behavior.
 - One owning process for each reused credential and an explicit Ariel/Jarvis
   handoff or local-interface plan.
+- Credential discovery from Ariel's local operator configuration first; if a
+  required credential is absent, a delegated read-only inventory of the
+  user-owned development-server repository. Secret values never enter agent
+  summaries, model context, the qualification report, or ordinary logs; any
+  delegated transfer is a non-echoing copy directly into mode-0600
+  service-manager credential files.
 - Pinned git dependencies for `provider-runtime` and `llm-tools` that do not
   touch the user's local worktrees.
+- Live `llm-tools` Brave-search and safe-public-Web-read canaries, including
+  private-destination, unsafe-redirect, and credential-egress rejection.
 - Linux qualification of the pinned Codex SDK/runtime containment policy plus
   start, continue, and resume behavior.
 - A restricted embedding API key plus a live negative generative-call test.
 - Live Gmail checks for draft-send and reconciliation behavior on new and reply
   threads.
 - The verified owner-only Calendar ID set.
+- A dated, sanitized qualification report carrying the owner's explicit
+  sign-off after review of the observed results.
 
 Exit: every required external surface and credential has a known owner,
-interface, and test strategy.
+interface, and test strategy, every live check passes, and the owner signs off
+the resulting report. Authorization to run this slice is not advance acceptance
+of unknown findings. No Slice 1 implementation starts before this exit.
 
 ## Slice 1: conversation skeleton
 
@@ -59,14 +76,17 @@ Deliver:
 - No Discord declarations in the model tool catalog; conversation delivery stays
   in the adapter.
 - Strict `call_tool | say | finish` schema.
-- Existing Gmail read/search bindings.
-- Existing Calendar read bindings.
-- Existing Maps lookup bindings.
+- `gmail.search` and `gmail.read_thread` bindings.
+- `calendar.list_events` and `calendar.get_event` bindings.
+- `maps.search_places`, `maps.get_place`, and `maps.directions` bindings.
+- Pinned `llm-tools` `web.search` and `web.read` bindings under Jarvis-owned
+  credentials, information-flow policy, and budgets.
 - Typed observations and bounded tool loops.
 - Confined Codex drift tests.
 
-Exit: Jarvis answers a natural compound question using all live read services
-without exposing credentials to Codex.
+Exit: Jarvis answers a natural compound question using Gmail, Calendar, Maps,
+public-Web search, and a fetched public page without exposing credentials to
+Codex or granting the Codex child native network access.
 
 ## Slice 3: raw memory and recall
 
@@ -105,10 +125,13 @@ Deliver:
 
 - Exact minimal `action` schema, unversioned immutable calls, seven statuses, and
   terminal-for-execution `uncertain` semantics.
-- Existing Gmail draft binding.
-- Existing owner-only Calendar writes.
+- `gmail.create_draft` and `gmail.update_draft` bindings.
+- `calendar.create_event`, `calendar.update_event`, and
+  `calendar.delete_event` bindings.
 - Automatic/approval classification owned by host code.
-- `schedule_wake`, quiet-hour delay, and periodic read-only connector reconcile.
+- Owner-requested `schedule_wake` with closed create/cancel variants, exact
+  due-time and restart behavior; no generic quiet hours, connector polling, or
+  autonomous inbox/calendar monitor.
 - Bounded external timeouts and startup reconciliation of `executing` actions,
   without leases, attempt counters, or blind retry.
 - Interrupted turns that already created an action close without model replay.
@@ -201,6 +224,16 @@ owner signs off.
   backups, Discord, and live source systems.
 - Do not promise erasure by tombstoning only one table.
 
+### Broader tools and autonomous monitoring
+
+- Add Gmail labels, archive, trash, attachment download, or other mailbox
+  organization only after actual use identifies a specific burden.
+- Add local-filesystem access only with an observed use case and an explicit
+  confined root and operation set; never start from generic file authority.
+- Add inbox/calendar monitoring, connector polling, notification policy, or
+  quiet hours only after requested wakes prove insufficient and observed noise
+  defines the policy.
+
 ## Changes requiring an ADR
 
 - A fifth application table.
@@ -213,4 +246,4 @@ owner signs off.
 - A cognitive provider other than subscription-backed Codex.
 - Direct model credentials, MCP execution authority, or generic shell access.
 - Destructive raw-memory consolidation or administrative erasure.
-- Android or a new external service in v1.
+- Android or an application service beyond the frozen v1 catalog.

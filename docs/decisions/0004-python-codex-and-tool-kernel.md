@@ -1,7 +1,7 @@
 # ADR 0004: Python, Codex, `provider-runtime`, and `llm-tools`
 
-- Status: Accepted; amended by ADR 0008 on embedding and ADR 0012 on session and
-  context lifecycle
+- Status: Accepted; amended by ADR 0008 on embedding, ADR 0012 on session and
+  context lifecycle, and ADR 0014 on portable Web tool ownership
 - Date: 2026-09-01
 
 ## Context

@@ -27,6 +27,10 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A1.7** A second Jarvis instance against the same deployment refuses to
       start while the first holds the ownership lock.
 - [ ] **A1.8** Startup refuses mismatched pinned Codex SDK/runtime versions.
+- [ ] **A1.9** A dated Slice 0 qualification report records the exact tool
+      manifest and schemas, live authority classification, credential
+      ownership/handoff, Calendar ACLs, Gmail send reconciliation, Web canaries,
+      and credential-containment results; the owner signs it before Slice 1.
 
 ## A2. Discord and conversation history
 
@@ -72,7 +76,8 @@ named explicitly; no criterion disappears or is weakened silently.
 
 ## A3. Existing integrations
 
-These criteria are **live** and use existing registrations and credentials.
+These criteria are **live** and use the registrations and credentials qualified
+in Slice 0.
 
 - [ ] **A3.1** Jarvis searches and reads a Gmail conversation.
 - [ ] **A3.2** Jarvis creates an email draft automatically.
@@ -83,10 +88,17 @@ These criteria are **live** and use existing registrations and credentials.
 - [ ] **A3.6** Adding or notifying another attendee requires approval.
 - [ ] **A3.7** A naive calendar datetime is rejected, and owner-local relative
       time resolves correctly around midnight.
-- [ ] **A3.8** Jarvis performs a live Maps/place lookup.
-- [ ] **A3.9** No avoidable new Google or Discord registration or authorization
+- [ ] **A3.8** Jarvis performs live Maps place lookup and directions calls.
+- [ ] **A3.9** Jarvis uses `web.search` to search Brave and `web.read` to read a
+      returned public page as bounded inert text.
+- [ ] **A3.10** The public-Web reader sends no cookies or connector credentials,
+      executes no JavaScript, loads no subresources, and rejects a
+      credential-bearing URL, loopback/private/link-local target, unsafe
+      redirect, unsupported media type, and oversized response. Unmistakable
+      credential material in a Web argument is rejected before dispatch.
+- [ ] **A3.11** No avoidable new Google or Discord registration or authorization
       was required.
-- [ ] **A3.10** Every credential has one owning process, and no bot token or
+- [ ] **A3.12** Every credential has one owning process, and no bot token or
       autonomous mailbox/calendar authority is concurrently shared with Ariel.
 
 ## A4. Model and tool boundary
@@ -97,8 +109,8 @@ These criteria are **live** and use existing registrations and credentials.
       isolated sessions.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
-- [ ] **A4.3** Codex receives no connector or embedding credential and its child
-      environment contains none.
+- [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
+      its child environment contains none.
 - [ ] **A4.4** Codex runs from an empty read-only directory containing no Jarvis,
       Ariel, or sibling repository source, with network disabled and no MCP.
 - [ ] **A4.5** Unknown, malformed, or ungranted tool calls fail before integration
@@ -113,6 +125,9 @@ These criteria are **live** and use existing registrations and credentials.
       tool name.
 - [ ] **A4.10** Canonical message, raw-memory, and summary transactions create no
       action rows.
+- [ ] **A4.11** The frozen plans grant exactly the SPEC section 7.3 catalog by
+      role. No plan grants `tool.search`, `tool.read`, local-filesystem, Gmail
+      organization, Discord, or another unlisted tool.
 
 ## A5. Memory
 
@@ -153,9 +168,10 @@ These criteria are **live** and use existing registrations and credentials.
 
 These criteria are **live** where they call Gmail or Discord.
 
-- [ ] **A6.1** Reads, local writes, personal calendar work, drafts, and ordinary
-      responses or proactive notices in the configured Discord channel execute
-      automatically. Discord transport operations create no action rows.
+- [ ] **A6.1** Catalogued reads, email drafts, verified owner-only no-attendee
+      calendar work, `schedule_wake`, and ordinary responses or requested wake
+      notices in the configured Discord channel execute automatically. Discord
+      transport operations create no action rows.
 - [ ] **A6.2** An email send becomes `awaiting_approval` and does not send before
       the owner clicks Approve.
 - [ ] **A6.3** The model step and action schema have no approval preview field.
@@ -190,6 +206,13 @@ These criteria are **live** where they call Gmail or Discord.
       `origin_message_id` cannot change after insertion. Stored arguments are
       revalidated before rendering and execution; an unsupported or invalid
       non-executing action is cancelled and reported.
+- [ ] **A6.16** `schedule_wake` creates an exact due wake and cancels a named
+      queued wake. A requested wake becomes eligible at its stored instant and
+      after restart when overdue. No generic quiet-hours transform, periodic
+      connector turn, or autonomous inbox/calendar monitor is configured.
+- [ ] **A6.17** Immediately before an approved Gmail send, the live draft must
+      match the stored recipient, subject, and complete-body snapshot. A
+      mismatch sends nothing, fails the action, and requires a new proposal.
 
 ## A7. Recovery and operations
 
@@ -205,8 +228,8 @@ These criteria are **live** where they call Gmail or Discord.
       and retries pending assistant rows with null `source_message_id` after
       restart. It resumes a configuration-compatible main session when possible
       and cold bootstraps from canonical context when not.
-- [ ] **A7.6** A database backup contains no usable Google, Discord, Codex, or
-      embedding credential.
+- [ ] **A7.6** A database backup contains no usable Google, Discord, Codex,
+      Brave, or embedding credential.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private
       message, email body, memory text, or secret.
 
@@ -231,7 +254,7 @@ After at least seven days, the owner affirms:
 - [ ] **A9.1** Natural conversation is preferable to command-oriented use.
 - [ ] **A9.2** Memory saved repeated explanation on multiple occasions.
 - [ ] **A9.3** Irrelevant recall was not routinely distracting.
-- [ ] **A9.4** Automatic calendar and local work did not feel like babysitting.
+- [ ] **A9.4** Automatic calendar and draft work did not feel like babysitting.
 - [ ] **A9.5** Email approval was accurate and not burdensome.
 - [ ] **A9.6** The single Discord channel remained usable and Jarvis did not
       create notification noise sufficient to justify multiple channels or
@@ -250,6 +273,7 @@ The report records:
 - Embedding model, dimension, key restriction test, and disclosed processor.
 - Results by criterion ID and behavioral trial counts.
 - Integration operations and credential ownership.
+- Signed Slice 0 qualification report revision.
 - Recall scores before and after rebuild.
 - Backup/restore result.
 - Known limitations, explicit waivers, and owner sign-off.

@@ -218,9 +218,20 @@ memory remains directly searchable.
 
 ## Tool execution
 
-Jarvis owns every Gmail, Calendar, Maps, local, and memory-read tool declaration
-and binding. `llm-tools` supplies the kernel, not those integrations. Discord is
-the conversation adapter and has no model-callable tool declarations in v1.
+The complete tool manifest and authority classification live in
+[SPEC section 7.3](../SPEC.md#73-tool-kernel-and-exact-catalog). Jarvis owns the
+Gmail, Calendar, Maps, schedule, and memory declarations and bindings. The pinned
+`llm-tools` revision owns the reusable `web.search` and `web.read` declarations
+and implementations; Jarvis explicitly composes, configures, and grants them.
+Discord is the conversation adapter and has no model-callable declarations.
+
+Capability plans are closed by role:
+
+- Main: the catalogued Gmail, Calendar, Maps, Web, and `schedule_wake` tools.
+- Recaller, rememberer, and dreamer: `memory.search` and `memory.open` only.
+
+There are no local-filesystem, Gmail organization, progressive-discovery, or
+Discord tools in a v1 capability plan.
 
 The host:
 
@@ -298,8 +309,10 @@ There is no model preview field and no stored preview column.
 
 ## Gmail send recovery
 
-Email is prepared as a Gmail draft and the Gmail `draftId` is stored before
-approval. After an ambiguous send:
+Email is prepared as a Gmail draft. Its `draftId`, thread identity, and exact
+recipient/subject/body snapshot are stored before approval. After approval and
+before dispatch, the executor fetches the live draft. A mismatch fails without
+sending and requires a new proposal. After an ambiguous send:
 
 1. Check whether the draft still exists.
 2. If absent, inspect Sent mail using the available thread, recipients, subject,
@@ -329,7 +342,12 @@ Alembic may own its bookkeeping table.
 
 Codex runs under the exact policy in [SPEC section 7.5](../SPEC.md#75-codex-containment):
 empty read-only working directory, no network, deny-mode approval, disabled native
-feature set, no MCP, and no connector credentials.
+feature set, no MCP, and no connector, Brave, or embedding credentials.
+
+The confined Codex child still has no native network or Web search. A structured
+`web.search` or `web.read` request returns to the Jarvis host, which applies the
+frozen capability plan and executes the bounded `llm-tools` binding outside the
+child.
 
 The application consumes normalized provider events:
 
@@ -348,8 +366,9 @@ boundary.
 No workflow framework exists.
 
 - A small timer selects queued `schedule_wake` rows whose `execute_after` is due.
-- Quiet hours move the effective due time to their end.
-- A periodic connector tick may start a read-only proactive turn.
+- A requested wake becomes eligible at its stored instant, or on startup when
+  that instant passed during downtime; no generic quiet-hours transform exists.
+- No periodic connector tick or autonomous inbox/calendar monitor starts turns.
 - A timer may invoke dreaming when the provider mutex is idle.
 - Startup reconciles every action left `executing`; ordinary external calls use
   bounded timeouts while the process is alive.

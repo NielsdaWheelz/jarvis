@@ -1,6 +1,8 @@
 # ADR 0017: Extract the reusable bounded agent kernel
 
-- Status: Accepted
+- Status: Accepted; corrected provider/loop/admission contract incorporated on
+  2026-09-02 and durable Jarvis mapping recorded by
+  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md)
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md),
   [ADR 0007](0007-central-messages-and-unified-actions.md), and
@@ -9,192 +11,119 @@
 
 ## Context
 
-Jarvis needs a strict model protocol, provider-neutral reconstruction, bounded
-model/tool loops, session-reference handling, cancellation, and race-safe drain
-completion. Those mechanisms are not personal-assistant product behavior. They
-will recur in other applications using the owner's `provider-runtime` and
-`llm-tools` libraries.
+Jarvis needs strict structured steps, provider-neutral reconstruction, bounded
+model/tool loops, session-reference handling, steering, cancellation, and safe
+settlement. Those mechanisms recur outside a personal assistant.
 
-A survey of Codapt2 at revision `62123f8c37b0` found several strong reusable
-invariants: validate the complete model step before effects, return corrective
-protocol feedback, keep canonical application events independent of provider
-transcripts, give one drain exclusive ownership, and use a consumed-input
-watermark when attempting to become idle so newly arrived work is not stranded.
-Its broader implementation—durable workflow machinery, many state projections,
-persistent peer agents, semantic tool discovery, and Lua execution—is not needed
-for Jarvis v1.
+Codapt2 supplied useful prior art: validate a whole step before effects, keep
+canonical input independent of provider transcripts, poll ordered input inside
+the loop, use one claim owner, and test crash boundaries. Its TypeScript/Effect/
+PostgreSQL workflow substrate, product projections, peers, discovery, and Lua VM
+do not belong in Jarvis v1.
 
-Keeping the generic machinery inside Jarvis would make later extraction harder
-and invite multiple subtly different crash and race implementations. Copying
-Codapt2 wholesale would instead introduce more concepts than this one-user
-prototype needs.
+The first extracted spec got the interior right but described seams the pinned
+libraries did not have, allowed unsafe multi-call/parallel behavior, and bounded
+only one run while cleanup could start unlimited successors. Those errors are
+corrected in kernel commit `50a2a4e98865f7263c3d7b3052602da74f29d588`.
 
 ## Decision
 
-Create an independent Python 3.12 repository and distribution named
-`llm-agent-kernel`, imported as `llm_agent_kernel`. Jarvis consumes a qualified,
-pinned git revision rather than a mutable sibling checkout.
-
-Dependency direction is one way:
+Jarvis consumes the independent Python 3.12 `llm-agent-kernel` distribution at
+an immutable revision:
 
 ```text
 Jarvis
   -> llm-agent-kernel
-       -> provider-runtime
+       -> provider-runtime AgentRuntime
        -> llm-tools
 ```
 
-Neither lower-level library depends on Jarvis or on another consumer. The kernel
-does not create database tables, migrations, connectors, product policy, or user
-interfaces.
-
-Ownership is explicit:
+Ownership is:
 
 | Owner | Responsibilities |
-|---|---|
-| `provider-runtime` | Provider calls and normalized events; Codex authentication, containment, session start/continue/resume/discard, and opaque session references |
-| `llm-tools` | Typed prompt sections; tool declarations, frozen grants, schema validation, execution budgets, effect identity/replay semantics, and portable tools |
-| `llm-agent-kernel` | Immutable agent definitions with maximum capability envelopes and output contracts; the exact model-step protocol; whole-step validation; bounded thread drains and isolated one-shot runs; continuation/bootstrap coordination; `ContextSourcePort`, `SessionRefPort`, `InputCheckpointPort`, `ToolDispatchPort`, `ClockPort`, cancellation, and optional `EventSinkPort`; reusable conformance tests |
-| Jarvis | Product context selection; canonical messages and memories; implementations of kernel persistence ports; Discord; connectors; tool catalog composition; information-flow and authority policy; approval/action semantics; scheduling; credentials; user-visible delivery |
+| --- | --- |
+| `provider-runtime` | Native Codex authentication; `AgentRuntime` open/run/close; `PermissionPolicy`; native options; structured output; events, usage, quota, and session refs |
+| `llm-tools` | Prompt sections; declarations/bindings; frozen profiles/plans; `HostTable`; pure validation; `ToolEffect`/`ReplayPolicy`; tool budgets; positions, recorder, execution, and results |
+| `llm-agent-kernel` | Immutable definitions/fingerprints; containment and plan-tightening enforcement; `say | call_tool | finish`; semantic whole-step validation; serial loop; mid-loop polling; session/checkpoint/admission choreography; one-shots; outcomes and conformance |
+| Jarvis | Product context; input/plan selection; canonical messages/memory; session-ref/checkpoint/admission/dispatch adapters; Discord/connectors; policy; action/effect identity and recorder implementation; reconciliation; scheduling and delivery |
 
-The kernel's exact discriminated model-step grammar is:
+V1 uses only subscription-backed
+`provider_runtime.agent_runtime.AgentRuntime`. Jarvis application tools are
+neither provider-native nor MCP tools. The native child has a private empty
+read-only cwd, disabled network/environment/MCP/built-ins/Web, and approval deny.
+Any native tool-use or permission-request event fails and discards the session.
+
+The exact model grammar is one closed value:
 
 ```text
-say
-  text
-
-call_tools
-  calls:
-    call_id
-    canonical tool ID
-    arguments
-
-finish
-  optional reason
-  result only as required by the frozen output contract
+say(text)
+call_tool(canonical tool ID, arguments)
+finish(optional reason, output-contract result)
 ```
 
-Unknown fields are rejected. Every `call_tools` step and every contained call
-must validate before any call dispatches. `call_tools` has no user-facing text;
-it returns correlated typed observations, and only a later separate `say` may
-describe their actual outcome. A `say` concludes the current input visibly;
-`finish` concludes it silently. Protocol-invalid output performs no effect and
-becomes bounded corrective context.
+The model supplies no call ID, effect ID, preview, or authority. Exactly one
+tool runs serially per step after independent whole-step, output-contract, plan,
+and pure argument validation. A completed bounded result returns to a later
+model turn. A durable host suspension releases resources and later resumes
+product work through an action-resolution input containing original call
+evidence.
 
-The main definition has a conversational output contract and forbids
-`finish.result`. Recaller, rememberer, and dreamer are isolated one-shot runs
-whose closed structured contracts forbid user-facing text and require a
-schema-valid `finish.result`. They use no input checkpoint or saved session
-reference; their plans are strictly non-effectful, and Jarvis commits their
-result or recomputes the run.
+The main definition is continuing and conversational. Recaller, rememberer, and
+dreamer are isolated structured one-shots with no `Write` plan, checkpoint, or
+saved ref. Sessions are disposable; Jarvis stores generation-CAS refs outside
+PostgreSQL and cold-bootstraps from canonical context.
 
-The kernel does not classify authority. Jarvis freezes the `llm-tools` per-run
-capability plan as a subset of the definition envelope and supplies a dispatch
-port that returns `executed`, `pending_approval`, `denied`, `failed`, or
-`uncertain`.
-Jarvis derives two kernel run classes from existing message fields:
-`interactive` for owner and action-resolution rows, bound to the full Main plan,
-and `proactive-read` for scheduled-wake rows, bound to the external-read plan.
-The checkpoint adapter exposes only a maximal contiguous same-class prefix; a
-class mismatch or differently classified next row arms the correct run and
-defers without a provider call or cross-plan consumption.
-`pending_approval` and `uncertain` settle the proposing input with a
-host-referenced waiting conclusion; Jarvis persists and later resolves the
-product action through the existing ledger. An outcome that cannot return to a
-still-live originating loop creates one idempotent host-authored waking message
-keyed by action ID plus resolved state, not the original turn-local call ID.
-Due scheduled wakes use a distinct idempotent host input rendered from immutable
-action arguments. Neither input may be consumed silently: a missing model `say`
-gets a deterministic host-rendered assistant fallback.
+The host claim returns one non-empty bounded batch and its chosen frozen plan.
+The kernel has no run class. Jarvis prioritizes owner/action-resolution work with
+the full Main plan; scheduled wakes run separately with a read-only plan.
+Compatible owner input can append mid-loop. Stop/pause preempts. Ordinary input
+racing finalization gets the prior valid answer and a later run.
 
-Jarvis supplies product-selected canonical context through the kernel
-`ContextSourcePort`. `llm-tools` typed prompt sections render it without treating XML-like
-markup as a security boundary. A continuation projection contains current
-inputs and dynamic context; a bootstrap projection adds stable sections and
-bounded canonical history. Provider-specific types appear only at the adapter
-boundary. Provider session lifecycle remains implemented by `provider-runtime`;
-the kernel only coordinates an opaque `SessionRefPort`, keyed by application
-thread and immutable agent-definition fingerprint, with generation
-compare-and-set. Jarvis stores the main session reference outside PostgreSQL and
-gives memory roles fresh sessions. A valid response advances the reference
-before canonical checkpoint settlement; if settlement is interrupted, the
-still-unprocessed input causes recovery to discard the speculative reference
-before replay. A stale compare-and-set stops before dispatch or settlement, and
-each successful store advances the expected generation.
+`settle` atomically records conclusion plus `processed_at`. `release` never
+arms. Deterministic poison exits consume the input with a host-authored stopped
+conclusion. Crashes are bounded by `message.processing_attempts`; every provider
+run also requires rolling admission. Writes map `action.id` to both
+`InvocationPosition` and `EffectId` with durable action state.
 
-The kernel's `InputCheckpointPort` provides an exclusive drain claim, an ordered
-waking-input snapshot and consumed watermark, atomic terminal
-conclusion/checkpoint commit, and compare-and-set idle. If input arrives beyond the
-consumed watermark while a drain attempts to become idle, the transition fails
-and the drain continues only when the input has the same run class; otherwise
-the adapter arms a correctly classified handoff. Jarvis implements this port
-over its canonical message state and its single-process coordination; no
-application table or column is added. Restart recovery still comes from null
-`processed_at` rows. Read and protocol observations stay turn-local; effects
-remain durable through `llm-tools` and Jarvis actions. The kernel's event sink
-is optional best-effort observability, not a required canonical event store.
-
-Checkpoint settlement returns `continue`, `idle`, or `deferred`. Same-class
-later input may continue; different-class input or exhausted limits makes Jarvis
-arm the correct next run before claim release and the kernel returns public
-`pending_input`. Startup
-scans null-`processed_at` inputs before becoming idle. One host-generated `as_of`
-is captured per claimed input batch and remains unchanged through that batch's
-tool loop; the batch itself is not repeated on later continuation calls.
-
-V1 has no general subagent abstraction and no model-generated program runtime.
-Recaller, rememberer, and dreamer are fixed Jarvis cognitive roles invoked
-through the kernel's one-shot primitive, not delegated persistent agents.
-Task-scoped delegation and CodeAct/Lua or another program-agent surface are separate future
-experiments that require measured product need, explicit capability narrowing,
-and their own ADRs.
+Before implementation, `llm-tools` must expose and qualify public pure
+validation, profile tightening, `HostTable` publication, and async durable
+recorder/executor seams. The kernel and Jarvis may not replace them privately.
 
 ## Consequences
 
-Positive:
+Benefits:
 
-- Jarvis keeps one small product architecture while reusable agent-loop
-  correctness has one implementation and conformance suite.
-- A future stateless/API provider and lost native session use the same
-  reconstruction boundary.
-- Complete-step validation, budgets, cancellation, and idle races are tested
-  independently of Discord and Google integrations.
-- The existing four-table schema and approval/action design do not change.
-- Other applications can reuse the kernel without inheriting Jarvis memory,
-  policy, or UI.
+- Reusable run correctness has one truthful API and multi-run conformance suite.
+- Codex session reuse remains valuable without becoming canonical.
+- One serial call removes partial outcome vectors and parallel uncertainty.
+- Provider work is bounded across crashes and fresh runs.
 
-Accepted costs:
+Costs:
 
-- Jarvis gains another pinned dependency and release boundary before v1 ships.
-- The port boundary needs careful fixtures so abstraction does not hide product
-  transactions or provider failures.
-- Provider-native compaction remains opaque, and a bootstrap restores useful
-  semantic continuity rather than byte-identical reasoning history.
-- The first consumer may not reveal every reusable interface; incompatible
-  generalization waits for a second real consumer.
+- Jarvis gains another pinned dependency and must first upgrade `llm-tools`.
+- Serial reads can take longer.
+- V1 has typing state but no model-authored progress narration.
+- Recaller/rememberer/dreamer open a native subprocess/session per invocation.
+- A valid answer is retained when ordinary input races finalization rather than
+  being regenerated with the new message.
 
 ## Rejected alternatives
 
-- **Keep the loop in Jarvis:** encourages duplicated orchestration and makes a
-  later extraction harder without improving product behavior.
-- **Copy Codapt2 wholesale:** imports workflow, state, discovery, and execution
-  infrastructure that the v1 does not need.
-- **Duplicate provider or tool layers:** conflicts with the deliberately
-  authoritative `provider-runtime` and `llm-tools` libraries.
-- **Put Jarvis policy in the kernel:** couples a reusable run loop to one
-  product's approval and autonomy boundary.
-- **Add persistent peer agents now:** Codapt2's peer mailbox lacks the narrowed
-  task, lifetime, result, cancellation, and budget semantics a safe delegation
-  facility would need.
-- **Add `run(code)` or Lua now:** the small fixed tool catalog gets most of the
-  benefit from batched structured calls without another parser, sandbox, replay,
-  or approval boundary.
+- Keep the loop in Jarvis: duplicates subtle provider/effect/recovery seams.
+- Copy Codapt2 wholesale: imports unneeded workflow and product machinery.
+- Union stateless generation and AgentRuntime behind an imaginary port: matches
+  neither dependency lifecycle.
+- Multi-call or parallel dispatch: requires durable partial outcome vectors and
+  not-initiated states v1 does not need.
+- Kernel run classes: priority and compatibility are host product policy.
+- Automatic rearm after cancellation/exhaustion: renews fresh provider budgets
+  indefinitely.
+- Put Jarvis policy in the kernel: couples reusable control flow to one product.
 
 ## Migration and acceptance
 
-Implementation has not started, so there is no runtime or database migration.
-Jarvis Slice 0 qualifies a pinned kernel revision alongside its existing
-libraries. Slices 1 and 2 adopt its ports and conformance suite. A1.2, A1.3,
-A1.5, A1.8, A2.10, A2.12, A2.13, A4.1, A4.5, A4.7, and A4.11 cover the boundary.
-The existing-table action-resolution and scheduled-wake paths are covered by
-A6.14 and A6.16.
+Implementation has not started. Slice 0 upgrades `llm-tools`, pins all three
+libraries, and qualifies exact public APIs before Slice 1. Jarvis adds the three
+columns authorized by ADR 0018 but no fifth application table. Acceptance A1.2,
+A1.5, A1.9, A2.10–A2.13, A4.1, A4.4–A4.12, A6.10–A6.15, and A7.8–A7.10 cover
+the corrected boundary.

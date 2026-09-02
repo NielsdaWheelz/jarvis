@@ -3,7 +3,7 @@
 - Status: Accepted; message/action schemas and lifecycle superseded by ADR 0010;
   provider-session lifecycle amended by ADR 0012; accepted duplicate-delivery
   semantics superseded by ADR 0016; action-resolution correlation amended by
-  ADR 0017
+  ADR 0017; recorder/cross-run mapping amended by ADR 0018
 - Date: 2026-09-01
 
 ## Context
@@ -80,9 +80,9 @@ Positive:
 Accepted costs:
 
 - Jarvis stores a durable copy of conversational content.
-- A rare crash can produce a duplicate conversational response. Effectful
-  actions retain their independent exactly-once attempt and reconciliation
-  rules.
+- Conversational and effect delivery guarantees are superseded by ADR 0016;
+  effectful actions retain an independent durable position and reconciliation
+  boundary rather than a universal exactly-once claim.
 - Listing conversations is initially derived from message rows.
 - Host code, rather than the generic tool kernel, owns a few canonical database
   transactions.

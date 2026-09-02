@@ -31,8 +31,8 @@ Add structure only after a repeated measured failure shows that model reasoning
 over memories and live tools is insufficient.
 
 A bet with no scoreboard is a belief. The instrument that makes this falsifiable
-is the per-turn trace on the response `message` row — candidate memory IDs,
-selected memory IDs, and the IDs the main agent reports using — recorded from
+is the bounded trace on the originating `message` row—candidate/selected memory
+IDs plus compact run/provider IDs, usage counters, and outcome—recorded from
 Slice 1, plus the recall evaluation set frozen at Slice 3. Every escape hatch in
 this specification releases on "measured failure"; these are what measure it.
 

@@ -1,6 +1,6 @@
 # ADR 0016: Use provider-native idempotency before uncertainty
 
-- Status: Accepted
+- Status: Accepted; schema-cost statement amended by ADR 0018
 - Date: 2026-09-01
 - Supersedes: the accepted duplicate conversational-delivery semantics in
   [ADR 0007](0007-central-messages-and-unified-actions.md) and
@@ -88,8 +88,9 @@ Positive:
 - Calendar create retries converge on one provider resource.
 - Gmail and Calendar ambiguity normally resolves without owner involvement.
 - The honest `uncertain` escape hatch remains for failures no protocol can prove.
-- No table, column, action state, lease, attempt counter, or workflow system is
-  added.
+- No new table, action state, lease, or workflow system is added. ADR 0018 later
+  added `action.attempts` as audit evidence for actual executor entries; it does
+  not authorize retry.
 
 Accepted costs:
 
@@ -120,6 +121,7 @@ Accepted costs:
 
 ## Migration and acceptance
 
-There is no database migration because implementation has not started and every
-new identity derives from existing IDs. The affected criteria are A2.8, A2.9,
+Implementation had not started when this ADR was accepted; every provider
+identity still derives from existing IDs. ADR 0018's later schema migration is
+independent of that identity derivation. The affected criteria are A2.8, A2.9,
 A3.4, A6.11, A6.12, A6.13, and A7.5.

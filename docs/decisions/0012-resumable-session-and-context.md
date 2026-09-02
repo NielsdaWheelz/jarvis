@@ -1,6 +1,7 @@
 # ADR 0012: Reuse one main Codex session over provider-neutral context
 
-- Status: Accepted; implementation ownership amended by ADR 0017
+- Status: Accepted; implementation ownership and polling/admission amended by
+  ADRs 0017 and 0018
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md) and the provider-session
   lifecycle in [ADR 0007](0007-central-messages-and-unified-actions.md)
@@ -30,13 +31,19 @@ persisted `AgentSessionRef`. A changed session-scoped configuration starts a
 fresh main session rather than carrying old prompts, model configuration,
 containment, or capability assumptions across a deployment.
 
-The reference and a digest of stable session-scoped configuration live in
-atomically replaced private runtime state outside PostgreSQL. The digest covers
-stable instructions, model and reasoning configuration, runtime, containment,
-and the session capability contract; it is not a tool version or durable
-application record. This runtime state is non-canonical, contains no conversation
-bodies or credentials, and need not be backed up. A digest mismatch or resume
-failure discards the reference and starts a new session.
+V1 uses the stateful `provider_runtime.agent_runtime.AgentRuntime` open/run/close
+surface, not root stateless generation. The live session is a resource owned by
+the adapter; the serialized ref is only its disposable continuation handle.
+
+The reference and a fingerprint of complete session-scoped configuration live
+in atomically replaced private runtime state outside PostgreSQL. The fingerprint
+covers stable instructions, model/reasoning/output contract,
+credential-profile identity, SDK/runtime revisions, cwd/directories/MCP
+configuration, `PermissionPolicy`, native options, and the session capability
+envelope. Secret bytes and per-run subset plans are excluded. This runtime state
+is non-canonical, contains no conversation bodies or credentials, and need not
+be backed up. A fingerprint mismatch or resume failure discards the reference
+and starts a new session.
 
 Recaller, rememberer, and dreamer invocations use fresh isolated sessions. They
 do not share the main session or one another's history. Their narrower prompts
@@ -65,17 +72,17 @@ The builder supports two projections:
   API-backed provider may consume this projection without changing application
   context selection.
 
-The current owner message appears exactly once. Completed history excludes the
-current owner row. In-progress tool-loop observations remain turn-local; if an
-effect-free interrupted turn is replayed, reads may be performed again under the
-existing recovery rules.
+Each admitted owner input appears exactly once. Completed history excludes every
+current claimed row. Compatible input may be appended mid-loop and receives a
+new continuation delta. In-progress read observations remain turn-local and may
+be performed again under the existing recovery rules.
 
 The owner timezone is stable deployment configuration. It is included once when
-a main or isolated cognitive session opens. Each owner turn or background job
-receives one authoritative `as_of` value. Source messages retain their own
-`created_at`; tool-loop continuations and embedding calls do not receive a
-repeated clock. Stable instructions precede dynamic time when a provider
-projection is rendered.
+a main or isolated cognitive session opens. Each newly admitted input batch or
+background job receives one authoritative `as_of` value. Source messages retain
+their own `created_at`; tool-only continuations and embedding calls do not
+receive a repeated clock. Stable instructions precede dynamic time when a
+provider projection is rendered.
 
 Session reuse is an optimization and continuity feature, not a correctness,
 durability, or promised-cost property. Canonical messages plus recall must always

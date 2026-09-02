@@ -29,6 +29,9 @@ These instructions govern all work in this repository.
   salience scores, temporal validity, or source-authority taxonomies.
 - Jarvis owns exactly four application tables: `message`, `memory_log`,
   `memory_summary`, and `action`. A fifth requires an accepted ADR.
+- The three additional irreducible durability fields are
+  `message.processing_attempts`, `action.execution_contract`, and
+  `action.attempts`. Do not expand them into a generic workflow/version system.
 - Do not add slash commands, speculative components, Android, or deferred
   integrations in v1. Natural Discord conversation plus Approve and Deny is the
   interface.
@@ -57,19 +60,27 @@ These instructions govern all work in this repository.
   matches; the fingerprint is rebuildable runtime state, not a table column or
   tool version.
 - Recaller, rememberer, and dreamer invocations use fresh isolated sessions.
-- The kernel owns the exact `say | call_tools | finish` model-step grammar,
-  validates an entire step before dispatching any call, and runs bounded drains.
-  `call_tools` carries no user-facing text; internal one-shot roles use only
-  non-effectful plans and closed structured `finish.result` contracts.
-  Definitions hold maximum capability envelopes; each run gets a frozen subset,
-  with proactive main turns narrowed to reads. Derive `interactive` for owner
-  and action-resolution rows and `proactive-read` for scheduled-wake rows; a
-  drain must never cross from one run class into the other.
+- The kernel owns the exact `say | call_tool | finish` model-step grammar,
+  validates the entire step and pure arguments before dispatch, and permits
+  exactly one serial call per step. `call_tool` carries no user-facing text or
+  model-authored call/effect ID. Internal one-shot roles use plans containing no
+  `ToolEffect.Write` and closed structured `finish.result` contracts.
+  Definitions hold maximum capability envelopes; each run gets a proven frozen
+  tightening, with scheduled-wake runs narrowed to reads. Jarvis—not the
+  kernel—selects priority, compatibility, batching, and the plan.
   `llm-tools` owns typed prompt sections and tool contracts/execution;
   `provider-runtime` owns provider calls and native session lifecycle. Do not
   duplicate those layers in Jarvis.
 - Persist and source-deduplicate owner input and required host-authored action
   resolutions before processing them.
+- Increment `message.processing_attempts` when an admitted claim begins provider
+  work. Deterministic poison stops consume the row; cleanup never automatically
+  rearms it. Startup/recovery scans canonical null-`processed_at` rows under the
+  attempt ceiling and rolling admission.
+- Poll compatible owner input before provider turns, dispatch, after tool
+  completion, and before settlement. Stop/pause preempts. An ordinary follow-up
+  racing after the final poll gets the already-valid answer first and its own run
+  next.
 - Set a waking message's `processed_at` only in the transaction that records its
   durable turn conclusion. Never replay an interrupted owner turn that already
   created an action.
@@ -106,6 +117,10 @@ These instructions govern all work in this repository.
 
 - Models never receive connector, Brave, or embedding credentials or direct
   execution authority.
+- V1 uses the real `AgentRuntime` lane with the closed JSON-schema output,
+  private empty read-only cwd, disabled built-ins/Web/network/environment/MCP,
+  and approval deny. Any native tool-use or permission-request event fails and
+  discards the session.
 - Host code validates and classifies calls; effectful application tools execute
   through `llm-tools` and use one durable `action` row.
 - Reads and canonical message/memory transactions create no action rows.
@@ -121,16 +136,21 @@ These instructions govern all work in this repository.
 - Approval-bearing Discord messages are host-owned and cannot be edited or
   deleted by model-originated tools.
 - Keep canonical `tool_name`, `arguments`, and `origin_message_id` immutable.
-  V1 tool names are unversioned. Revalidate stored arguments before approval
-  rendering and execution; drain non-terminal actions before an incompatible
-  tool change.
+  Also keep the host-authored `execution_contract` immutable. V1 tool names are
+  unversioned; the contract snapshot binds the occupied position's tool, policy,
+  plan, effect/replay declarations, and input digest. Revalidate both before
+  approval rendering and execution; drain non-terminal actions before an
+  incompatible tool change.
 - Action states are exactly `queued`, `awaiting_approval`, `executing`,
   `succeeded`, `failed`, `uncertain`, and `cancelled`.
 - The single deployment owner reconciles rows left `executing` after a timeout or
-  restart. Do not add action leases, retry counters, intent keys, input digests,
-  or parallel contract-revision metadata without measured need and a new ADR.
+  restart. Increment `action.attempts` immediately before actual executor entry;
+  the count records, but never authorizes, an evidence-proven safe repeat. Do not
+  add action leases, intent keys, client references, multi-call vectors, or a
+  general version registry without measured need and a new ADR.
 - Use `action.id` as deterministic provider effect identity where the provider
-  supports it, including Calendar create IDs.
+  supports it, including Calendar create IDs, and as both the `llm-tools`
+  `InvocationPosition` and `EffectId` for every `Write`.
 - `uncertain` is terminal and non-retryable, and is allowed only after the
   complete tool-specific automatic reconciliation procedure is exhausted.
   Present the evidence to the owner; later evidence may resolve the outcome but
@@ -155,14 +175,18 @@ These instructions govern all work in this repository.
   Do not move product authority into `llm-agent-kernel`.
 - Use one deployment-level PostgreSQL advisory lock and ordinary in-process
   scheduling; do not invent redundant workflow coordination.
+- Require host rolling admission before provider I/O. Keep the private journal
+  content-free, settle it on every exit, cap concurrency at one, and fail closed
+  on corrupt state.
 - Derived state must be safely rebuildable.
 - Preserve user-owned changes in every repository.
 - Never place credentials, OAuth tokens, private memory text, or message bodies
   in ordinary logs or real private content in fixtures.
 - Timestamps are `timestamptz`; the host runs UTC. Each cognitive session
   receives the configured owner IANA timezone once when it opens. Each owner
-  turn or background job receives one host-generated `as_of`; embedding calls
-  and tool-loop continuations do not receive a repeated clock.
+  input batch or background job receives one host-generated `as_of`; a batch
+  appended mid-loop gets its own. Embedding and tool-only continuations do not
+  receive a repeated clock.
 - Every behavioral change needs tests against the relevant acceptance criteria.
 - Dependency and model upgrades are explicit and replay-tested.
 - Avoid abstractions with one caller unless they enforce a stated boundary.

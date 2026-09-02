@@ -21,7 +21,8 @@ kernel reconstruction path can restore it from canonical messages and recalled
 memory.
 Jarvis is the first consumer of the independent `llm-agent-kernel` library:
 Jarvis chooses product context and policy, while the library supplies the
-bounded whole-step/drain machinery around `provider-runtime` and `llm-tools`.
+contained Codex session lifecycle, strict one-call-at-a-time loop, mid-loop
+steering, and cross-run bounds around `provider-runtime` and `llm-tools`.
 
 Jarvis owns exactly four application tables:
 
@@ -50,7 +51,7 @@ ADR that also updates every affected normative document in the same change.
 
 ## Status
 
-- Baseline date: 2026-09-01
+- Baseline date: 2026-09-02
 - Status: v1 specification frozen; implementation not started
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
@@ -94,9 +95,21 @@ These are accepted knowingly, not overlooked.
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed.
 - Extracting the generic run loop adds a third pinned local-library boundary.
-  In return, crash/race semantics, strict protocol handling, and provider-neutral
-  reconstruction have one reusable conformance contract instead of becoming
-  Jarvis-specific orchestration.
+  It also requires a small `llm-tools` public-API upgrade before implementation.
+  In return, crash/race semantics, strict protocol handling, provider
+  containment, and reconstruction have one reusable conformance contract instead
+  of becoming Jarvis-specific orchestration.
+- A valid answer is not discarded when an ordinary follow-up races with final
+  settlement; the answer is delivered and the follow-up runs next. Stop/pause
+  remains an immediate host preemption path.
+- V1 serializes model tool calls and has no model-authored progress narration.
+  This trades some read latency for a much smaller partial-effect and recovery
+  state machine; Discord typing state indicates activity.
+- Three durability fields survive the simplification pass:
+  `message.processing_attempts` bounds poison recovery, while
+  `action.execution_contract` and `action.attempts` make an occupied write
+  position replayable and auditable. They do not create a general workflow or
+  tool-version system.
 - Raw memory grows without bound and model-made memories can be wrong.
   Correction is by append; v1 deliberately has no erasure mechanism.
 - Discord deduplicates a stable per-message nonce only within a recent window.

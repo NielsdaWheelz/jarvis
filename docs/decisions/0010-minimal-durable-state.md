@@ -1,31 +1,38 @@
 # ADR 0010: Keep only irreducible message and action state
 
-- Status: Accepted; mandatory tool-name versioning superseded by ADR 0013;
-  accepted duplicate-delivery cost superseded by ADR 0016
+- Status: Accepted; tool naming amended by ADR 0013; provider-native
+  idempotency amended by ADR 0016; cross-run and recorder facts amended by
+  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md)
 - Date: 2026-09-01
-- Amends: [ADR 0001](0001-small-personal-agent.md) trace location and shape
+- Amended: 2026-09-02
 - Supersedes: the message/action schemas and lifecycle in
   [ADR 0007](0007-central-messages-and-unified-actions.md)
 
 ## Context
 
-The first unified action design accumulated an intent key, input digest,
-contract-revision bag, attempt counter, execution lease, and opaque client
-reference. Those mechanisms are useful in some distributed workflow systems,
-but Jarvis deliberately has one user, one process, one deployment ownership
-lock, and tool-specific external reconciliation.
+The first unified action design accumulated an intent key, client reference,
+separate digest/revision columns, execution lease, and generic workflow retry
+machinery. Jarvis has one user, one process, one deployment ownership lock, and
+tool-specific reconciliation; those fields created invalid combinations without
+resolving whether an external effect committed.
 
-The extra fields did not remove the difficult ambiguity: whether an external
-effect happened before a crash. They created more possible invalid combinations
-and policies that had no v1 behavior. Meanwhile, `message` duplicated delivery
-state and lacked the one watermark needed to distinguish a completed owner turn
-from an interrupted one.
+The later kernel boundary review found three different facts that are not
+reconstructable after a crash:
 
-The governing rule is:
+1. How many times one poison message has entered provider work.
+2. Which exact tool/policy/plan/effect/replay/input contract occupied a durable
+   write position.
+3. How many actual executor entries occurred after evidence-authorized recovery.
 
-> Persist a fact now when losing it would make an external effect, approval,
-> crash, or historical diagnosis ambiguous. Add reconstructable optimization
-> metadata only after measured need.
+Those facts earn one message counter, one closed action JSON value, and one
+action counter. They do not earn a workflow engine or general tool-version
+registry.
+
+The rule is:
+
+> Persist a fact when losing it makes provider work, an external effect,
+> approval, crash recovery, or historical diagnosis ambiguous. Reconstruct
+> everything else until measured failure proves otherwise.
 
 ## Decision
 
@@ -41,24 +48,23 @@ message
   source_message_id
   created_at
   processed_at
+  processing_attempts
   remembered_at
   trace
 ```
 
-An owner row starts with null `processed_at`. The response, silent finish, or
-approval proposal and the watermark commit together. An assistant row starts
-with null `source_message_id`; successful delivery fills it with the adapter's
-message ID. That one field is both delivery evidence and the retry watermark, so
-`delivered_at` is unnecessary.
+An owner/host waking row starts with null `processed_at` and zero
+`processing_attempts`. The latter increments when an admitted claim begins
+provider work. It records no retry policy; crossing the configured ceiling
+stops or parks work before provider I/O.
 
-V1 has no internal `conversation_id`. Discord channel or thread identity supplies
-local context. A future second client may introduce internal conversation mapping
-when its actual continuation semantics are known.
+An assistant row starts with null `source_message_id`; successful delivery or
+history reconciliation fills it. That single field is the retry watermark, so
+`delivered_at` remains unnecessary. V1 has no internal conversation table.
 
-The bounded `trace` lives on the owner row and contains only recall candidate
-IDs, selected memory IDs, created memory IDs, and provider trace IDs. It contains
-no model prose or private payloads. This preserves ADR 0001's empirical recall
-scoreboard without turning the message table into an execution log.
+Bounded `trace` contains recall IDs and compact run summaries—run/provider trace
+IDs, provider turns, available normalized token usage, duration, and outcome.
+It contains no message copies, prompts, model prose, tool payloads, or results.
 
 The exact v1 action schema is:
 
@@ -67,7 +73,9 @@ action
   id
   tool_name
   arguments
+  execution_contract
   status
+  attempts
   execute_after
   origin_message_id
   approval_message_id
@@ -77,13 +85,18 @@ action
   result
 ```
 
-`tool_name` is a versioned canonical identifier. `tool_name`, `arguments`, and
-`origin_message_id` are immutable. The action ID is the durable effect identity
-and is passed as a provider idempotency key where supported. An approval renderer
-and executor consume the same stored arguments. `approval_message_id` explicitly
-links the host-owned approval message instead of storing an opaque client bag.
+`tool_name`, `arguments`, `execution_contract`, and `origin_message_id` are
+immutable. The closed host-authored `execution_contract` contains the exact
+tool-contract, policy, and plan revisions, `ToolEffect`, `ReplayPolicy`, and
+canonical input digest used to occupy the `llm-tools` position. This is one
+effect's recovery evidence, not a dispatch registry or model field.
 
-Action states are exactly:
+The action ID is both `InvocationPosition` and `EffectId` for `Write` and is a
+provider idempotency key where supported. `attempts` increments immediately
+before actual executor entry. Reconciliation reads do not increment it, and the
+count never authorizes a repeat.
+
+Action states remain exactly:
 
 ```text
 queued
@@ -95,60 +108,42 @@ uncertain
 cancelled
 ```
 
-Automatic and scheduled work begins `queued`; `execute_after` is null for
-immediate work. Approval-bearing work begins `awaiting_approval`. Approve moves
-it atomically to `executing`; Deny moves it to `cancelled`. Completed outcomes are
-`succeeded`, `failed`, or terminal-for-execution `uncertain`.
-
-There is no action lease. The deployment advisory lock proves that one process
-owns execution. External calls use bounded timeouts. Startup reconciles every
-row left `executing`; only tool-specific proof that no effect occurred may return
-it to `queued`. Otherwise the row becomes succeeded, failed, or uncertain.
+There is no lease. One process owns execution. A timeout or `executing` row
+enters tool-specific reconciliation; only proof that the effect is absent and a
+repeat safe can return it to `queued`. `uncertain` is terminal for execution.
 
 There is no semantic intent key. Source-message uniqueness prevents duplicate
-inbound turns, atomic state transition prevents duplicate execution of one row,
-the action ID supplies provider idempotency where available, and reconciliation
-handles ambiguous effects. Two deliberately created rows with identical
-arguments remain two legitimate actions.
-
-An interrupted owner turn with no originating action may replay. If it already
-created an action, the host resumes or reconciles that action and closes the turn
-with a host-authored notice instead of replaying model work.
+input, an atomic state claim prevents duplicate execution of one row, action ID
+and the occupied recorder position provide effect identity, and reconciliation
+handles ambiguity. Two intentionally created identical rows remain two actions.
 
 ## Consequences
 
-Positive:
+Benefits:
 
-- Every column answers a concrete recovery, authority, or diagnosis question.
-- Immutable arguments structurally bind approval rendering to execution without
-  a parallel digest.
-- One-process recovery is explicit and has no simulated distributed lease.
-- Turn completion, delivery completion, and memory completion are independent
-  and unambiguous.
-- Identical legitimate actions are not silently collapsed by guessed intent.
+- Four application tables still express the complete product.
+- Poison-input recovery and durable write replay are honest across restarts.
+- Approval preview and execution consume the same immutable arguments and
+  contract.
+- No intent deduplication, lease, client bag, or general version dispatcher
+  exists.
 
-Accepted costs:
+Costs:
 
-- There is no historical delivery timestamp separate from the source message
-  ID.
-- A second client will require an explicit conversation-mapping decision and
-  migration.
-- An interrupted turn that already produced an action is not transparently
-  replayed; the owner receives a partial-turn notice.
-- Retry counts and exact-intent analytics are unavailable unless later evidence
-  earns new fields or structured operational telemetry.
-- Multi-process execution would require a new ownership design and schema
-  migration. It is outside v1.
+- Three columns survived the simplification pass.
+- The JSON contract must have one closed host schema and migration discipline.
+- `trace` is bounded and not a complete execution log.
+- Multi-process execution would require a new ownership decision.
 
 ## Rejected alternatives
 
-- **Keep every defensive field:** more state combinations without resolving the
-  external-effect ambiguity.
-- **Derive action state entirely from timestamps:** obscures approval and crash
-  transitions rather than simplifying them.
-- **Store contract digests:** versioned immutable tool IDs fail closed more
-  directly.
-- **Keep an execution lease for possible future workers:** the global ownership
-  lock makes it redundant today; adding workers is an architectural change.
-- **Use a generic client reference:** hides the only required relationship,
-  which is the approval message.
+- Remove `processing_attempts`: a crash loop can renew provider budgets.
+- Derive the occupied execution contract from current code: deployment drift can
+  reinterpret a pending write.
+- Reconstruct executor count from logs: ordinary logs are non-canonical and
+  intentionally payload-poor.
+- Restore the original field set: intent keys, client refs, leases, and parallel
+  revision columns remain unearned.
+- Add separate recorder/workflow tables now: the action row can conform to the
+  required durable recorder semantics in v1; Slice 0 must stop for a new ADR if
+  that mapping fails qualification.

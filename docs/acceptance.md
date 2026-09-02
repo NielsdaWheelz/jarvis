@@ -33,8 +33,9 @@ named explicitly; no criterion disappears or is weakened silently.
       manifest and schemas, live authority classification, credential
       ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID
       behavior, Gmail send reconciliation, Web canaries, kernel port/conformance
-      qualification, and credential-containment results; the owner signs it
-      before Slice 1.
+      qualification against the real AgentRuntime API, the upgraded public
+      `llm-tools` validation/plan/HostTable/async-recorder seams, and
+      credential-containment results; the owner signs it before Slice 1.
 
 ## A2. Discord and conversation history
 
@@ -52,8 +53,12 @@ named explicitly; no criterion disappears or is weakened silently.
       capability can create, rename, reorder, archive, or delete a channel or
       thread, manage another message, or add a reaction.
 - [ ] **A2.5** Approve and Deny are the only custom action components.
-- [ ] **A2.6** `stop` pauses tools, actions, proactivity, and dreaming without a
-      model call; `resume` restores operation; the flag survives restart.
+- [ ] **A2.6** `stop` or `pause` immediately signals the active cancellation
+      token, settles the interrupted/control inputs with a host-authored stopped
+      conclusion at the next safe boundary, and pauses tools, actions,
+      proactivity, and dreaming without a model call. `resume` restores
+      operation; the flag survives restart. A committed external effect is
+      reconciled rather than falsely undone.
 - [ ] **A2.7** Every inbound owner message is stored before processing and one
       redelivered Discord event starts no second turn.
 - [ ] **A2.8** Every assistant response is inserted before Discord delivery and
@@ -79,22 +84,20 @@ named explicitly; no criterion disappears or is weakened silently.
       before replay.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
       output is streamed into Discord.
-- [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. After a
-      simulated crash, an incomplete turn without actions may replay, while one
-      that already created an action is closed without model replay. An owner or
-      host action-resolution or scheduled-wake input arriving during compare-and-
-      set idle continues only in a compatible run class, or atomically arms the
-      correctly classified run before a `pending_input` claim release; it is
-      never stranded or consumed under another class's plan. A mismatched
-      initial claim calls no provider. Startup
-      scans null `processed_at` rows before becoming idle, and cancellation/error
-      cleanup arms recovery before releasing any still-unprocessed row.
+- [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. Claims
+      are non-empty and contain a host-selected plan. Compatible owner input
+      arriving mid-loop is polled and appears exactly once before the next
+      provider/tool boundary; scheduled-wake input remains unclaimed under an
+      interactive plan. Stop preempts. Ordinary input arriving after the final
+      poll retains the current valid answer and runs next. Startup scans null
+      `processed_at` rows. Cleanup release never arms a successor.
 - [ ] **A2.13** Jarvis product context selection supplies plain canonical data to
       the kernel bootstrap and continuation ports. A fake stateless adapter
       consumes the bootstrap without Codex SDK types; `llm-tools` typed prompt
       sections preserve the current owner message exactly once and one
-      host-supplied `as_of`; stable material includes the owner timezone before
-      that instant; tool/protocol continuation does not repeat the current batch;
+      host-supplied `as_of` per admitted batch; stable material includes the
+      owner timezone before dynamic time; tool/protocol continuation does not
+      repeat the current batch;
       continuation does not resend completed history or the stable timezone.
 
 ## A3. Existing integrations
@@ -136,42 +139,55 @@ in Slice 0.
       open fresh, and never touch an input-checkpoint or saved-session port. The
       main output contract is conversational; each internal role has a closed
       structured result schema and a memory-read maximum envelope. Every run plan
-      is a frozen subset of its definition envelope; internal plans are strictly
-      non-effectful and the proactive main plan is read-only.
+      is publicly proven to tighten its definition envelope;
+      internal plans contain no `ToolEffect.Write` and the scheduled-wake main
+      plan is read-only.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
 - [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
       its child environment contains none.
-- [ ] **A4.4** Codex runs from an empty read-only directory containing no Jarvis,
-      Ariel, or sibling repository source, with network disabled and no MCP.
-- [ ] **A4.5** The kernel accepts exactly `say | call_tools | finish`, rejects
-      unknown fields, and validates the whole step plus every call before any
-      dispatch. Unknown, malformed, or ungranted calls execute nothing; bounded
-      corrective feedback can recover. `call_tools` accepts no user-facing text;
-      a separate `say` may describe only already-observed outcomes. Structured
-      roles reject user-facing text and accept only a schema-valid
-      `finish.result`; the main role rejects terminal result payloads.
-- [ ] **A4.6** A scripted `AgentToolUse` event fails the confined turn while a
-      scripted native reasoning passthrough event does not.
-- [ ] **A4.7** Model-step, tool-call, wall-time, and usage bounds stop an
-      intentional infinite-loop fixture; cancellation stops a background role at
-      a defined boundary and leaves its product checkpoint recoverable.
+- [ ] **A4.4** The real `AgentRuntime` request uses `JsonSchemaAgentOutput`, a
+      private empty read-only cwd containing no repository source, no additional
+      directories, disabled network, denied approval, empty copied environment,
+      no MCP, disabled native built-ins/Web, and only the SDK-required
+      `allowed_tools=("*",)` sentinel.
+- [ ] **A4.5** The kernel accepts exactly `say | call_tool | finish`. It rejects
+      unknown fields and validates the whole step, output contract, frozen
+      binding, and pure arguments before output or dispatch. `call_tool` has one
+      tool, executes serially, and accepts no prose, model call/effect ID,
+      preview, authority, approval, or delivery field. A separate `say` may
+      describe only an observed outcome. Structured roles accept only a
+      schema-valid `finish.result`; the main role rejects terminal result
+      payloads. No parallel or multi-call path exists.
+- [ ] **A4.6** A scripted `AgentToolUse` or `AgentPermissionRequest` event fails
+      and discards the confined session with no host dispatch or conclusion,
+      while a scripted native reasoning passthrough event does not. Streaming
+      `AgentText` is never delivered.
+- [ ] **A4.7** `KernelLimits` bound provider turns, repairs, wall time, reported
+      usage, and cumulative visible context; `llm_tools.RunLimits` alone bound
+      tool calls, attempts, bytes, `max_in_flight=1`, and tool elapsed time. An
+      intentional loop stops without double-charging a tool replay, and
+      cancellation leaves its product checkpoint recoverable.
 - [ ] **A4.8** Quota exhaustion produces a fixed host-authored notice and changes
       no provider, model, or credential.
-- [ ] **A4.9** Reads create no action rows; effectful tool calls create one action
-      before execution with a durable effect identity and canonical unversioned
-      tool name.
+- [ ] **A4.9** Reads create no action rows; every `Write` creates one action
+      before executor entry with immutable arguments/execution contract and uses
+      `action.id` as both `InvocationPosition` and `EffectId`.
 - [ ] **A4.10** Canonical message, raw-memory, and summary transactions create no
       action rows.
 - [ ] **A4.11** Definition maximum envelopes equal the SPEC section 7.3 catalog
-      by role, and every frozen run plan is a subset of its envelope. Ordinary
-      owner-input and action-resolution `interactive` main runs receive the full
-      Main plan; scheduled-wake `proactive-read` main runs receive only the
-      catalogued external reads; internal one-shots receive exactly the two
-      memory reads. No plan grants `tool.search`, `tool.read`,
+      by role, and every frozen run plan tightens its envelope. Owner-input and
+      action-resolution main runs receive the full Main plan; scheduled-wake
+      runs receive only the catalogued external reads; internal one-shots receive
+      exactly the two memory reads. No plan grants `tool.search`, `tool.read`,
       local-filesystem, Gmail organization, Discord, delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.
+- [ ] **A4.12** Pure `llm-tools` input validation touches no recorder, position,
+      executor, or tool budget. A completed dispatch returns one bounded
+      `ToolResult`; approval or reconciliation returns one durable suspension.
+      Later resolution includes the action reference, tool, original validated
+      arguments, resolved state, and safe evidence without provider history.
 
 ## A5. Memory
 
@@ -237,12 +253,14 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.9** Deny moves the action to `cancelled` and prevents send; Approve by
       the owner sends the exact stored draft; a non-owner or mismatched
       guild/channel/message cannot decide it.
-- [ ] **A6.10** Duplicate Approve interactions execute one action once, while two
-      deliberately created actions with identical arguments are not collapsed by
-      a semantic intent key.
+- [ ] **A6.10** Duplicate Approve interactions claim one action execution.
+      A provider retry occurs only after reconciliation proves the effect absent;
+      two deliberately created actions with identical arguments are not
+      collapsed by a semantic intent key.
 - [ ] **A6.11** A process killed around dispatch leaves `executing`; startup runs
       the complete tool-specific reconciliation procedure before any repeat and
-      no action lease is used. A timeout alone authorizes neither retry nor
+      no action lease is used. `attempts` increments before each actual executor
+      entry but authorizes nothing. A timeout alone authorizes neither retry nor
       `uncertain`.
 - [ ] **A6.12** Only an outcome still unknowable after bounded automatic
       reconciliation becomes terminal `uncertain`. Jarvis presents its evidence
@@ -256,15 +274,19 @@ These criteria are **live** where they call Gmail or Discord.
       its still-live originating loop creates exactly one host-authored waking
       message keyed by action ID plus resolved state; startup repairs a missing
       row, a later evidence-based resolution of `uncertain` appends rather than
-      rewrites, and the new run correlates by action ID rather than the original
-      turn-local call ID. A silent `finish` or model failure instead persists a
+      rewrites, and the new run contains the action ID, tool, original validated
+      arguments, state, and safe evidence rather than a model call ID. A silent
+      `finish` or model failure instead persists a
       deterministic visible fallback; asynchronous action results are never
       consumed without an owner notice.
 - [ ] **A6.15** The action table has exactly the columns in SPEC section 9 and the
-      seven statuses in section 5.4; canonical `tool_name`, `arguments`, and
-      `origin_message_id` cannot change after insertion. Stored arguments are
-      revalidated before rendering and execution; an unsupported or invalid
-      non-executing action is cancelled and reported.
+      seven statuses in section 5.4; canonical `tool_name`, `arguments`,
+      `execution_contract`, and `origin_message_id` cannot change after
+      insertion. The closed contract records the exact tool/policy/plan
+      revisions, effect/replay declarations, and input digest for the occupied
+      position. Stored arguments and contract are revalidated before rendering,
+      execution, replay, or reconciliation; unsupported or invalid non-executing
+      work is cancelled and reported.
 - [ ] **A6.16** `schedule_wake` creates an exact due wake and cancels a named
       queued wake. A requested wake becomes eligible at its stored instant and
       after restart when overdue. Claiming it creates exactly one host input from
@@ -296,6 +318,21 @@ These criteria are **live** where they call Gmail or Discord.
       Brave, or embedding credential.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private
       message, email body, memory text, or secret.
+- [ ] **A7.8** Protocol, run-budget, quota, explicit-stop, and repeated-provider
+      exhaustion persist a host-authored stopped conclusion, consume the poison
+      input, and cause zero automatic successor runs. Simulated process crashes
+      increment `processing_attempts`; the configured ceiling stops or parks the
+      row before another provider call.
+- [ ] **A7.9** A host-issued rolling admission check occurs before every
+      cognitive provider invocation and bounds turns, available normalized
+      tokens, no-progress attempts, and cognitive concurrency at one. Usage settles on success,
+      failure, cancellation, and quota exhaustion. A corrupt private admission
+      journal fails closed, and a configuration defect parks work rather than
+      looping.
+- [ ] **A7.10** Multi-run race fixtures cover mid-loop compatible input, stop
+      preemption, ordinary follow-up during finalization, suspension/resolution,
+      startup recovery, session-ref CAS, poison input, and admission. Passing
+      single-run kernel tests alone is insufficient.
 
 ## A8. End-to-end memory scenario
 
@@ -335,6 +372,8 @@ The report records:
   digests.
 - Main-session continuation, compatible resume, and lost-session bootstrap
   results.
+- Exact AgentRuntime containment request, native-event fail-stop, upgraded
+  `llm-tools` public-seam qualification, and multi-run admission/poison results.
 - Embedding model, dimension, key restriction test, and disclosed processor.
 - Results by criterion ID and behavioral trial counts.
 - Integration operations and credential ownership.

@@ -2,7 +2,8 @@
 
 - Status: Accepted; amended by ADR 0008 on embedding, ADR 0012 on session and
   context lifecycle, ADR 0014 on portable Web tool ownership, and ADR 0017 on
-  reusable agent-loop ownership
+  reusable agent-loop ownership; exact provider surface and containment
+  corrected by ADR 0018
 - Date: 2026-09-01
 
 ## Context
@@ -27,11 +28,13 @@ kernel and four portable tools; every Jarvis capability declaration and binding
 is new work in the Jarvis repository, not an adaptation of something the library
 already ships.
 
-Confine the Codex session with the native option that disables its built-in
-feature set, a read-only empty working directory, disabled network, deny-mode
-approvals, and the `("*",)` allowed-tools sentinel that is the only spelling the
-route accepts. The sandbox and approval mode, not a tool filter, are what confine
-a Codex session.
+Use only the stateful `provider_runtime.agent_runtime.AgentRuntime` lane with
+`JsonSchemaAgentOutput`. Confine it with a private empty absolute cwd, read-only
+filesystem policy, no additional directories, disabled network, empty copied
+environment, no MCP, deny-mode approvals, disabled native built-ins/Web, and the
+`("*",)` allowed-tools sentinel required by the pinned route. The sentinel is
+not authority. Fail and discard the session on any native tool-use or permission
+request event.
 
 Use a multi-turn structured-step protocol between Codex and the host instead of
 giving Codex connector credentials or direct write-authority MCP tools. Confine
@@ -56,10 +59,9 @@ Accepted costs:
   may add more. Remembering follows asynchronously. Jarvis will still be slower
   than stateless chat for simple questions.
 - Codex runtime containment depends partly on the deployment boundary.
-- The Codex worker, if run as the Jarvis service uid, can read the owner's entire
-  home directory under `read_only`. There is no network egress under the mandated
-  policy, so this is a confidentiality-in-context cost rather than an
-  exfiltration path, and running a second unprivileged uid removes it.
+- Provider containment depends on both the runtime policy mapping and OS process
+  boundary, so the exact request and negative native-tool tests remain release
+  gates.
 - The current library qualification target is Linux, not macOS.
 - **A single subscription pool is a single point of total conversational
   outage.** The lane blocks and stops on quota exhaustion by design and never

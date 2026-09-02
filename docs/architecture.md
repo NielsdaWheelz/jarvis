@@ -5,36 +5,37 @@ This document expands [SPEC.md](../SPEC.md). `SPEC.md` wins if they disagree.
 ## System shape
 
 ```text
-dedicated Discord server
+configured Discord #general
           │
           ▼
  Discord adapter ───────────────► message
-          │
-          ▼
-      recaller ─────────────────► memory search/open
-          │
-          ▼
-  main Codex agent
-          │
-          ├── say / finish
-          │
-          └── call_tool ────────► host policy + llm-tools
-                                        │
-                         ┌──────────────┴──────────────┐
-                         ▼                             ▼
-                   queued action               awaiting approval
-                         │                             │
-                         ▼                             ▼
-                     executing                host-rendered preview
-                         │                             │
-                         ▼                       Approve / Deny
-                 existing integration                 │
-                                                      ▼
-                                                  executing
+          │                          │
+          ▼                          ▼
+ fresh recaller ────────────────► context builder ◄── memory search/open
+                                     │
+                                     ▼
+                         resumable main Codex session
+                                     │
+                    ┌────────────────┴────────────────┐
+                    ▼                                 ▼
+               say / finish                      call_tool
+                    │                                 │
+                    ▼                                 ▼
+          Discord transport                 host policy + llm-tools
+                                                      │
+                                   ┌──────────────────┴──────────────┐
+                                   ▼                                 ▼
+                             queued action                   awaiting approval
+                                   │                                 │
+                                   ▼                           host-rendered
+                               executing                    Approve / Deny
+                                   │                                 │
+                                   ▼                                 ▼
+                           existing integration                  executing
 
-completed owner turn ──► rememberer ──► host transaction ──► memory_log
+completed owner turn ──► fresh rememberer ─► host transaction ─► memory_log
 
-simple timer ──────────► dreamer ─────► host transaction ──► memory_summary
+simple timer ──────────► fresh dreamer ─────► host transaction ─► memory_summary
 ```
 
 Jarvis is one Python application and one PostgreSQL database. Components below
@@ -45,18 +46,22 @@ integration requires one.
 
 The adapter:
 
-- Receives the owner's Discord messages.
+- Receives the owner's messages only from the configured guild and channel and
+  ignores direct messages, threads, other channels, and other users.
 - Deduplicates gateway re-delivery by Discord message ID.
+- Boundedly catches up owner messages after the latest stored Discord message ID
+  when Gateway resume cannot cover downtime.
 - Matches `stop`, `pause`, and `resume` before model work.
 - Persists inbound messages before processing.
 - Delivers pending assistant messages and records Discord message IDs.
-- Shows acknowledgement and typing state while a turn runs.
+- Starts typing state promptly while a turn runs.
 - Renders host-owned Approve and Deny messages from stored action arguments.
 - Atomically claims or denies component interactions, then immediately
   acknowledges them and disables their components before external work.
 - Prevents model tools from editing host-owned approval messages.
-- Exposes the permitted channel, thread, message, attachment, and reaction
-  operations through Jarvis-owned `llm-tools` declarations.
+- Exposes no model-callable Discord tools. Ingress, `say` delivery, typing state,
+  host approval presentation, and editing Jarvis's own approval message are
+  adapter operations.
 
 The adapter renders model output as ordinary text/Markdown. It may render links,
 but the bot lacks `EMBED_LINKS`, so Discord does not automatically unfurl them.
@@ -98,10 +103,11 @@ For each owner message:
 1. Check the paused flag.
 2. Persist/deduplicate the inbound message.
 3. Acquire the in-process provider mutex.
-4. Run the recaller.
-5. Build context from stable instructions, recent centralized messages, recalled
-   memory, the current instant, and the owner's timezone.
-6. Run the bounded main-agent step loop.
+4. Snapshot one host `as_of` instant and run the recaller in a fresh isolated
+   session.
+5. Build a provider-neutral continuation or bootstrap context package.
+6. Continue the healthy main session, resume a configuration-compatible session,
+   or open a fresh session and run the bounded main-agent step loop.
 7. Persist the durable conclusion and set the owner message's `processed_at` in
    the same transaction.
 8. Deliver any pending response and release the provider mutex.
@@ -122,18 +128,63 @@ second Jarvis instance refuses to start. Because only one process runs, turn and
 provider scheduling inside that process use ordinary locks and queues rather
 than additional database workflow machinery.
 
+## Context and session lifecycle
+
+One application-owned context builder selects model-visible context before any
+provider-specific encoding. Its plain structured package contains:
+
+- Stable instructions.
+- Bounded completed canonical messages, excluding the current owner row.
+- The current event with its source timestamp.
+- Recalled memories with IDs, timestamps, and summary lineage.
+- The capability descriptions granted to the role and turn.
+- The configured owner IANA timezone.
+- One host-generated `as_of` instant.
+
+The current event appears exactly once. Provider adapters translate this package
+into native inputs; selection code does not construct Codex SDK message objects.
+
+The configured Discord channel owns one main Codex session. Its
+`AgentSessionRef` and a digest of stable session-scoped configuration live in an
+atomically replaced private runtime-state file, not PostgreSQL. The digest covers
+stable instructions, model and reasoning configuration, runtime, containment,
+and the session capability contract. An ordinary restart or compatible
+deployment attempts resume. A digest mismatch, invalid reference, or resume
+failure discards the reference and opens a fresh session.
+
+A continuation projection sends the current event, fresh recall, current
+capabilities, and `as_of`; stable session context, including owner timezone, and
+native history carry prior turns. A bootstrap projection prepends stable
+instructions and bounded canonical history. That same bootstrap package is the
+required boundary for a future stateless or API-backed provider. V1 does not
+implement the second provider.
+
+Recaller, rememberer, and dreamer calls always open fresh isolated sessions.
+They never reuse the main session or each other's history. Source-message
+timestamps remain attached to their content. Each fresh session receives the
+timezone once; each owner turn or background job receives one `as_of`.
+Embedding requests and subsequent tool-loop turns do not repeat a changing
+clock.
+
+Session history, native compaction, and cache behavior are disposable
+optimizations. A cold bootstrap need not recreate provider reasoning or
+compaction byte-for-byte; it must restore useful conversational continuity from
+canonical messages plus recall.
+
 ## Cognitive roles
 
 ### Recaller
 
-The recaller receives the owner input and bounded recent context. Its frozen
-capability plan contains only memory search and memory open. It may issue several
-queries and returns a compact bundle of raw memories and summaries, or nothing.
+The recaller opens a fresh session and receives the owner input, bounded recent
+context, owner timezone, and the turn's `as_of`. Its frozen capability plan
+contains only memory search and memory open. It may issue several queries and
+returns a compact bundle of raw memories and summaries, or nothing.
 
 ### Main agent
 
-The main agent receives recalled memory and the capability descriptions exposed
-for the turn. It emits the strict step grammar defined once in
+The main agent normally continues the channel's existing session. It receives
+fresh recalled memory and the capability descriptions exposed for the turn. It
+emits the strict step grammar defined once in
 [SPEC section 7.4](../SPEC.md#74-model-step-protocol).
 
 The main agent never owns credentials or policy classification. Host code
@@ -142,9 +193,10 @@ step may run concurrently within the turn budget.
 
 ### Rememberer
 
-The rememberer receives the persisted completed turn, material tool observations,
-and relevant existing memory. It can search/open memory and returns a structured
-final list of zero or more raw memory strings.
+The rememberer opens a fresh session and receives the persisted completed turn,
+material tool observations, source timestamps, and relevant existing memory. It
+can search/open memory and returns a structured final list of zero or more raw
+memory strings.
 
 Host code performs one transaction that:
 
@@ -156,8 +208,9 @@ failed or cancelled run leaves `remembered_at` null for a bounded retry sweep.
 
 ### Dreamer
 
-The dreamer searches and opens memory, then returns a structured batch of
-summary insertions and removals. Host code applies the batch transactionally.
+The dreamer opens a fresh session, searches and opens memory, then returns a
+structured batch of summary insertions and removals. Host code applies the batch
+transactionally.
 
 Only one dreamer runs at once. It yields the provider mutex when owner input is
 waiting. Missing a dream run cannot break conversational correctness because raw
@@ -165,13 +218,14 @@ memory remains directly searchable.
 
 ## Tool execution
 
-Jarvis owns every Gmail, Calendar, Maps, Discord, local, and memory-read tool
-declaration and binding. `llm-tools` supplies the kernel, not those integrations.
+Jarvis owns every Gmail, Calendar, Maps, local, and memory-read tool declaration
+and binding. `llm-tools` supplies the kernel, not those integrations. Discord is
+the conversation adapter and has no model-callable tool declarations in v1.
 
 The host:
 
 - Freezes a capability plan for each cognitive role and turn.
-- Validates versioned canonical tool IDs and closed arguments.
+- Validates canonical tool IDs and closed arguments.
 - Classifies calls using the fixed automatic/approval policy.
 - Owns connector credentials.
 - Executes reads directly through the kernel without action rows.
@@ -216,9 +270,12 @@ the effect did not happen can return it to `queued`; ambiguous outcomes become
 `uncertain`.
 
 `tool_name`, `arguments`, and `origin_message_id` never change after insertion.
-The tool name carries its contract version. The executor and approval renderer
-both consume the same stored arguments, so no input digest or parallel contract
-revision record is needed.
+V1 tool names have no mandatory version suffix. The executor and approval
+renderer both resolve the current declaration and revalidate the same stored
+arguments, so no input digest or parallel contract revision record is needed.
+An incompatible tool change drains or cancels non-terminal actions before
+deployment; a versioned successor is introduced only when coexistence is
+actually required.
 
 ## Approval rendering
 
@@ -228,7 +285,8 @@ requires approval:
 1. Insert the action and host-owned approval message in one transaction.
 2. Store the internal message ID as `approval_message_id`.
 3. Load the action's immutable validated arguments.
-4. Select the host renderer for the versioned `tool_name`.
+4. Resolve the current declaration, revalidate the stored arguments, and select
+   the host renderer for `tool_name`.
 5. Render every recipient, audience, and transmitted value.
 6. Deliver the pending message with Approve and Deny.
 
@@ -262,8 +320,10 @@ PostgreSQL owns exactly:
 - `action`
 
 Existing integration state stays with its current owner. Configuration owns the
-owner ID, Discord server ID, timezone, paused flag, model configuration, and
-credential locations. Alembic may own its bookkeeping table.
+owner ID, Discord guild and channel IDs, timezone, paused flag, model
+configuration, and credential locations. A private runtime-state file owns the
+non-canonical main session reference and stable session-configuration digest.
+Alembic may own its bookkeeping table.
 
 ## Provider containment
 
@@ -299,8 +359,9 @@ Each path is an ordinary function over explicit database state.
 ## Failure behavior
 
 - Recaller failure: continue without recalled memory.
-- Main-agent failure: report a concise host-authored error; retry at most once on
-  a fresh session and never after an effect completed.
+- Main-agent failure: report a concise host-authored error; discard the failed
+  session and retry at most once from a canonical context bootstrap, never after
+  an effect completed.
 - Rememberer failure: leave `remembered_at` null and retry later.
 - Dreamer failure: retain raw memory and existing summaries.
 - Embedding failure: leave the vector null; lexical recall continues.

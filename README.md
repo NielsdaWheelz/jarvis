@@ -1,9 +1,9 @@
 # Jarvis
 
-Jarvis is a personal, persistent AI assistant for one user. It lives primarily
-in its own Discord server, uses the user's existing Gmail, Google Calendar,
-Google Maps, and Discord integrations, and develops durable memory through a
-simple remember/retrieve/dream loop.
+Jarvis is a personal, persistent AI assistant for one user. It lives in one
+configured private Discord channel, uses the user's existing Gmail, Google
+Calendar, Google Maps, and Discord integrations, and develops durable memory
+through a simple remember/retrieve/dream loop.
 
 This repository is intentionally specification-first. No implementation is
 present yet.
@@ -15,7 +15,9 @@ human turn, uses connected tools, acts automatically for reads and ordinary
 reversible work, asks for a simple Approve or Deny decision before consequential
 communication to another person, and appends useful memories after interactions.
 Conversation history is centralized independently of Discord. Raw memories are
-permanent. Summaries, embeddings, and indexes are rebuildable.
+permanent. Summaries, embeddings, and indexes are rebuildable. One main Codex
+session normally continues across turns and restarts, while a provider-neutral
+context builder can reconstruct it from canonical messages and recalled memory.
 
 Jarvis owns exactly four application tables:
 
@@ -47,7 +49,7 @@ ADR that also updates every affected normative document in the same change.
 - Baseline date: 2026-09-01
 - Status: v1 specification frozen; implementation not started
 - Intended deployment: personal, single-user, always-on Linux service
-- Primary client: dedicated private Discord server
+- Primary client: one configured channel in a dedicated private Discord server
 - Model provider: subscription-backed Codex through `provider-runtime`
 
 ## Explicit non-goals
@@ -60,6 +62,8 @@ ADR that also updates every affected normative document in the same change.
 - Web search or browsing in v1
 - Rebuilding integrations that already work
 - Broad speculative integration work
+- Multiple Discord channels, threads, direct messages, or server organization in
+  v1
 
 ## Stated trade-offs
 
@@ -74,6 +78,12 @@ These are accepted knowingly, not overlooked.
 - Every foreground turn needs recall plus the main-agent call, while remembering
   follows asynchronously. This is slower and more expensive than a stateless
   chat response.
+- Conversation, approvals, and proactive notices interleave in one Discord
+  channel. Multiple channels are deferred until that produces a measured
+  problem.
+- Codex session history, compaction, and cache behavior are non-canonical
+  optimizations. A changed session-scoped contract or lost session takes a cold
+  context bootstrap, and no cost saving is guaranteed.
 - Raw memory grows without bound and model-made memories can be wrong.
   Correction is by append; v1 deliberately has no erasure mechanism.
 - Conversational Discord delivery is at least once, so a crash at the delivery

@@ -7,14 +7,17 @@ not implementation suggestions.
 |---|---|---|
 | [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted; trace amended by 0010 |
 | [0002](0002-optmem-inspired-memory.md) | Immutable raw memory and rebuildable views | Accepted |
-| [0003](0003-natural-discord-and-autonomy.md) | Natural Discord and a narrow approval boundary | Accepted |
-| [0004](0004-python-codex-and-tool-kernel.md) | Python, Codex, `provider-runtime`, and `llm-tools` | Accepted |
-| [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted |
+| [0003](0003-natural-discord-and-autonomy.md) | Natural Discord and a narrow approval boundary | Accepted; server organization superseded by 0011 |
+| [0004](0004-python-codex-and-tool-kernel.md) | Python, Codex, `provider-runtime`, and `llm-tools` | Accepted; session/context amended by 0012 |
+| [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted; Discord tool scope superseded by 0011 |
 | [0006](0006-no-workflow-framework.md) | No v1 workflow framework | Accepted |
-| [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted; schemas superseded by 0010 |
+| [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted; schemas superseded by 0010; session lifecycle amended by 0012 |
 | [0008](0008-embedding-source.md) | Embedding through an embedding-scoped OpenAI credential | Accepted; amends 0004 |
-| [0009](0009-least-privilege-discord-and-host-rendered-approval.md) | Least-privilege Discord and a host-rendered approval preview | Accepted; supersedes part of 0003 |
-| [0010](0010-minimal-durable-state.md) | Minimal message and action durable state | Accepted; amends 0001 and supersedes part of 0007 |
+| [0009](0009-least-privilege-discord-and-host-rendered-approval.md) | Least-privilege Discord and a host-rendered approval preview | Accepted; Discord permissions superseded by 0011; approval remains |
+| [0010](0010-minimal-durable-state.md) | Minimal message and action durable state | Accepted; tool-name versioning superseded by 0013 |
+| [0011](0011-single-channel-discord.md) | One configured Discord channel, transport only | Accepted; supersedes Discord organization/tool scope in 0003, 0005, and 0009 |
+| [0012](0012-resumable-session-and-context.md) | Resumable main session over provider-neutral context | Accepted; amends 0004 and 0007 |
+| [0013](0013-unversioned-v1-tools.md) | Unversioned v1 tool names | Accepted; supersedes part of 0010 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

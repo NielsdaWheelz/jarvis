@@ -32,12 +32,17 @@ named explicitly; no criterion disappears or is weakened silently.
 
 - [ ] **A2.1 — live.** The owner can speak naturally to Jarvis without slash
       commands and receive useful text/Markdown replies.
-- [ ] **A2.2 — live.** The effective bot permissions are exactly the eleven
-      permissions listed in SPEC section 4.1; `ADMINISTRATOR`, membership,
-      webhook, role, invite, and `EMBED_LINKS` permissions are absent.
+- [ ] **A2.2 — live.** The effective bot permissions are exactly
+      `VIEW_CHANNEL`, `SEND_MESSAGES`, `ATTACH_FILES`, and
+      `READ_MESSAGE_HISTORY` in the configured channel. `ADMINISTRATOR`, thread,
+      channel-management, message-management, reaction, membership, webhook,
+      role, invite, moderation, and `EMBED_LINKS` permissions are absent. Gateway
+      intents are exactly `GUILDS`, `GUILD_MESSAGES`, and `MESSAGE_CONTENT`.
 - [ ] **A2.3** A non-owner cannot start controlled tool work or approve an action.
-- [ ] **A2.4** Jarvis can create, rename, and archive a test channel without
-      approval but cannot delete it.
+- [ ] **A2.4** Owner messages and interactions in direct messages, threads, or
+      any channel other than the configured channel are ignored. No Jarvis
+      capability can create, rename, reorder, archive, or delete a channel or
+      thread, manage another message, or add a reaction.
 - [ ] **A2.5** Approve and Deny are the only custom action components.
 - [ ] **A2.6** `stop` pauses tools, actions, proactivity, and dreaming without a
       model call; `resume` restores operation; the flag survives restart.
@@ -48,13 +53,22 @@ named explicitly; no criterion disappears or is weakened silently.
       outbound retry watermark.
 - [ ] **A2.9** An undelivered assistant row is retried after restart. A duplicate
       conversational message is tolerated, but no tool effect is duplicated.
-- [ ] **A2.10** A fresh provider session reconstructs recent context from
-      centralized messages and recalled memory.
-- [ ] **A2.11** The host acknowledges input and shows typing state; no partial
-      structured model output is streamed into Discord.
+- [ ] **A2.10** Consecutive owner turns reuse one native main Codex session; an
+      ordinary restart or compatible deployment resumes it; a changed
+      session-configuration digest, deleted reference, invalid reference, or
+      resume failure starts a fresh session that reconstructs useful context
+      from centralized messages and recalled memory.
+- [ ] **A2.11** The host promptly shows typing state; no partial structured model
+      output is streamed into Discord.
 - [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. After a
       simulated crash, an incomplete turn without actions may replay, while one
       that already created an action is closed without model replay.
+- [ ] **A2.13** The provider-neutral context builder emits plain application
+      data with bootstrap and continuation projections. A fake stateless adapter
+      consumes the bootstrap without Codex SDK types; the current owner message
+      appears exactly once; stable material includes the owner timezone before
+      the dynamic `as_of`; continuation does not resend completed history or the
+      stable timezone.
 
 ## A3. Existing integrations
 
@@ -78,7 +92,9 @@ These criteria are **live** and use existing registrations and credentials.
 ## A4. Model and tool boundary
 
 - [ ] **A4.1** Every cognitive role authenticates through subscription-backed
-      Codex with no generative API-key or provider fallback.
+      Codex with no generative API-key or provider fallback. Only the main role
+      reuses a session; recaller, rememberer, and dreamer invocations use fresh
+      isolated sessions.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
 - [ ] **A4.3** Codex receives no connector or embedding credential and its child
@@ -93,7 +109,8 @@ These criteria are **live** and use existing registrations and credentials.
 - [ ] **A4.8** Quota exhaustion produces a fixed host-authored notice and changes
       no provider, model, or credential.
 - [ ] **A4.9** Reads create no action rows; effectful tool calls create one action
-      before execution with a durable effect identity and versioned tool name.
+      before execution with a durable effect identity and canonical unversioned
+      tool name.
 - [ ] **A4.10** Canonical message, raw-memory, and summary transactions create no
       action rows.
 
@@ -136,8 +153,9 @@ These criteria are **live** and use existing registrations and credentials.
 
 These criteria are **live** where they call Gmail or Discord.
 
-- [ ] **A6.1** Reads, local writes, personal calendar work, drafts, and permitted
-      Discord organization execute automatically.
+- [ ] **A6.1** Reads, local writes, personal calendar work, drafts, and ordinary
+      responses or proactive notices in the configured Discord channel execute
+      automatically. Discord transport operations create no action rows.
 - [ ] **A6.2** An email send becomes `awaiting_approval` and does not send before
       the owner clicks Approve.
 - [ ] **A6.3** The model step and action schema have no approval preview field.
@@ -168,8 +186,10 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.14** External success is reported only from provider or reconciliation
       evidence, never a model assertion.
 - [ ] **A6.15** The action table has exactly the columns in SPEC section 9 and the
-      seven statuses in section 5.4; versioned `tool_name`, `arguments`, and
-      `origin_message_id` cannot change after insertion.
+      seven statuses in section 5.4; canonical `tool_name`, `arguments`, and
+      `origin_message_id` cannot change after insertion. Stored arguments are
+      revalidated before rendering and execution; an unsupported or invalid
+      non-executing action is cancelled and reported.
 
 ## A7. Recovery and operations
 
@@ -181,8 +201,10 @@ These criteria are **live** where they call Gmail or Discord.
       after restore.
 - [ ] **A7.4** Restored `succeeded`, `failed`, `uncertain`, and `cancelled` actions
       do not become executable; restored `executing` actions reconcile first.
-- [ ] **A7.5** Jarvis resumes Discord operation and retries pending assistant
-      rows with null `source_message_id` after restart.
+- [ ] **A7.5** Jarvis resumes Discord operation, boundedly catches up owner input,
+      and retries pending assistant rows with null `source_message_id` after
+      restart. It resumes a configuration-compatible main session when possible
+      and cold bootstraps from canonical context when not.
 - [ ] **A7.6** A database backup contains no usable Google, Discord, Codex, or
       embedding credential.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private
@@ -211,8 +233,9 @@ After at least seven days, the owner affirms:
 - [ ] **A9.3** Irrelevant recall was not routinely distracting.
 - [ ] **A9.4** Automatic calendar and local work did not feel like babysitting.
 - [ ] **A9.5** Email approval was accurate and not burdensome.
-- [ ] **A9.6** Jarvis did not create gratuitous Discord structure or notification
-      noise.
+- [ ] **A9.6** The single Discord channel remained usable and Jarvis did not
+      create notification noise sufficient to justify multiple channels or
+      threads.
 - [ ] **A9.7** At least one interaction connected remembered context and live
       service state into meaningful cognitive offloading.
 
@@ -222,6 +245,8 @@ The report records:
 
 - Git revision and dependency-lock digest.
 - Codex SDK/runtime/model and prompt digests.
+- Main-session continuation, compatible resume, and lost-session bootstrap
+  results.
 - Embedding model, dimension, key restriction test, and disclosed processor.
 - Results by criterion ID and behavioral trial counts.
 - Integration operations and credential ownership.

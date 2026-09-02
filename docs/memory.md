@@ -115,7 +115,7 @@ On 1 September 2026, Nikhil decided that Jarvis v1 should preserve raw
 natural-language memories and rebuild every summary and index from them.
 
 <refs>
-  <ref uri="discord://jarvis/architecture/message-123">Decision discussion</ref>
+  <ref uri="discord://jarvis/general/message-123">Decision discussion</ref>
 </refs>
 ```
 
@@ -138,8 +138,10 @@ The rememberer runs after an owner turn that:
 - Finished silently through `finish`.
 - Created an action awaiting approval and a host-rendered approval message.
 
-It receives the persisted turn, material tool observations, the memories recalled
-for that turn, and bounded recent conversation history.
+It opens a fresh isolated Codex session and receives the persisted turn with
+source timestamps, material tool observations, the memories recalled for that
+turn, and bounded recent conversation history. Its root invocation receives the
+owner timezone and one host-generated `as_of` value once.
 
 ### Reasoning
 
@@ -183,7 +185,9 @@ still finds the memory.
 
 ## Recaller
 
-The recaller runs before every owner-authored human input. It has two primitives:
+The recaller runs in a fresh isolated Codex session before every owner-authored
+human input. It receives the owner timezone and the foreground turn's one
+host-generated `as_of` value. It has two primitives:
 
 ```text
 search_memory(query, lexical_limit, semantic_limit)
@@ -206,8 +210,10 @@ An empty bundle is a correct result.
 
 ## Dreamer
 
-The dreamer runs periodically or manually when no owner work is waiting. It may
-search and open raw memories and current summaries across several Codex turns.
+The dreamer runs in a fresh isolated Codex session periodically or manually when
+no owner work is waiting. Its root invocation receives one job `as_of` value. It
+may search and open raw memories and current summaries across several Codex
+turns.
 
 Its final structured output is a batch of:
 
@@ -287,8 +293,9 @@ summary text need not be byte-identical.
 ## Current-state rule
 
 Memory does not replace live integration state. Questions about current mail,
-calendar events, places, or Discord content use the corresponding tool. Recalled
-memory supplies history and relevance.
+calendar events, or places use the corresponding tool. Current Jarvis
+conversation comes from canonical `message` rows; Discord has no model-callable
+read tool in v1. Recalled memory supplies history and relevance.
 
 Memory quality is judged by whether it reduces repeated explanation while
 keeping irrelevant recollections out of the main context. Schema richness is not

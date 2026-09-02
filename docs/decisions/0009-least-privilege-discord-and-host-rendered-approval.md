@@ -1,6 +1,7 @@
 # ADR 0009: Least-privilege Discord and a host-rendered approval preview
 
-- Status: Accepted
+- Status: Accepted; Discord permission and organization portions superseded by
+  ADR 0011; host-rendered approval decisions remain accepted
 - Date: 2026-09-01
 - Supersedes: the Administrator trade-off in
   [ADR 0003](0003-natural-discord-and-autonomy.md)

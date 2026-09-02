@@ -21,7 +21,8 @@ calls are internal cognitive roles, not user-facing personalities.
 
 V1 MUST:
 
-1. Provide a natural ongoing relationship in a dedicated Discord server.
+1. Provide a natural ongoing relationship in one configured private Discord
+   channel.
 2. Reuse the user's working Discord, Gmail, Google Calendar, and Google Maps
    integrations without avoidable reauthorization.
 3. Persist conversation history independently of Discord and provider sessions.
@@ -55,6 +56,11 @@ V1 MUST NOT add:
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
 - Slash commands, dashboards, or speculative action components.
+- Multiple Jarvis channels, Discord threads or direct messages, and Discord
+  server organization.
+- An API-backed cognitive provider. The v1 context builder remains
+  provider-neutral so a later provider does not require new canonical context
+  machinery.
 - Autonomous modification of prompts, permissions, code, or deployment.
 
 Deferred integrations are recorded in the implementation plan.
@@ -63,44 +69,50 @@ Deferred integrations are recorded in the implementation plan.
 
 ### 4.1 Discord is Jarvis's home
 
-Jarvis MUST live in a dedicated private Discord server owned by the user. The
-server contains only the owner, Jarvis, and explicitly trusted supporting bots.
+Jarvis MUST live in one configured private Discord text channel, conventionally
+`#general`, in a dedicated server owned by the user. Deployment configuration
+contains exactly one owner Discord user ID, guild ID, and channel ID.
 
-Jarvis MAY automatically:
+Jarvis accepts owner messages and approval interactions only in that channel. It
+MUST ignore direct messages, Discord threads, other channels, and every other
+user. The server MAY contain explicitly trusted supporting bots, but they cannot
+control Jarvis.
 
-- Create, rename, reorder, and archive channels or threads.
-- Send, edit, organize, and delete messages it authored, except host-owned
-  approval messages.
-- Use ordinary text, Markdown, links, and code snippets.
-- Proactively message the owner under section 4.4.
+Discord is a host-owned conversation transport, not a model-callable tool
+family. The adapter MAY:
 
-Jarvis MUST archive rather than delete channels or threads in v1. The server is
-small and private; accumulating archived channels is an accepted cost.
+- Receive and boundedly catch up owner messages from the configured channel.
+- Start typing state promptly while a turn runs.
+- Deliver ordinary text, Markdown, links, and code snippets produced by `say`.
+- Deliver proactive messages under section 4.4.
+- Deliver host-rendered approval messages and plain-text payload attachments.
+- Edit its own approval message to disable Approve and Deny after a decision.
 
-The bot MUST NOT hold `ADMINISTRATOR`, membership, invite, role, webhook, ban,
-kick, moderation, or guild-management permissions. Its role grants exactly:
+These transport operations create no `action` rows. Jarvis has no v1 capability
+to create, rename, reorder, archive, or delete channels or threads; manage other
+messages; add reactions; or organize the server.
+
+The bot role grants exactly:
 
 - `VIEW_CHANNEL`
 - `SEND_MESSAGES`
-- `SEND_MESSAGES_IN_THREADS`
-- `CREATE_PUBLIC_THREADS`
-- `CREATE_PRIVATE_THREADS`
-- `MANAGE_THREADS`
-- `MANAGE_CHANNELS`
-- `MANAGE_MESSAGES`
 - `ATTACH_FILES`
 - `READ_MESSAGE_HISTORY`
-- `ADD_REACTIONS`
 
-`EMBED_LINKS` is deliberately absent, so Discord does not automatically unfurl
-links Jarvis posts. Jarvis may still post ordinary clickable links. Normal model
-output is text; host code MUST NOT translate a model-supplied rich-content object
-into an embed, attachment, or interaction component. The host-owned approval
-renderer in section 5.3 is the deliberate exception for a plain-text payload
-attachment and Approve or Deny components.
+The integration enables exactly the `GUILDS`, `GUILD_MESSAGES`, and
+`MESSAGE_CONTENT` Gateway intents. Direct-message, member, presence, and reaction
+intents are absent; host filtering rejects thread events. Invite, role, webhook,
+ban, kick, moderation, message-management, and guild-management authority are
+absent. `ADMINISTRATOR`, `MANAGE_CHANNELS`, `MANAGE_THREADS`, `MANAGE_MESSAGES`,
+thread creation and send permissions, `ADD_REACTIONS`, and `EMBED_LINKS` are
+deliberately absent.
 
-Jarvis identifies the owner by stable Discord user ID. A message or component
-interaction from any other identity MUST NOT control tools or approvals.
+Without `EMBED_LINKS`, Discord does not automatically unfurl links Jarvis posts;
+ordinary clickable links still work. Normal model output is text. Host code MUST
+NOT translate a model-supplied rich-content object into an embed, attachment, or
+interaction component. The host-owned approval renderer in section 5.3 is the
+deliberate exception for a plain-text payload attachment and Approve or Deny
+components.
 
 ### 4.2 Conversation is natural
 
@@ -121,12 +133,15 @@ result.
 
 Discord is a client and delivery surface, not the canonical conversation store.
 Every owner message and every Jarvis response MUST be persisted in `message`.
-Provider sessions are disposable and reconstructable from centralized messages
-plus recalled memory.
+The main Codex session is normally continued and resumed, but it remains
+disposable and reconstructable from centralized messages plus recalled memory.
+Losing it MUST cause a cold context bootstrap, not conversation or memory loss.
 
 Inbound owner messages are stored with `processed_at = NULL` before processing
-and deduplicated by their source identity. A turn reaches a durable conclusion
-when it produces a persisted assistant response, finishes silently, or persists
+and deduplicated by their source identity. On startup, the adapter MAY use
+Discord history after the latest stored source message ID for bounded catch-up.
+A turn reaches a durable conclusion when it produces a persisted assistant
+response, finishes silently, or persists
 an approval proposal. The host sets `processed_at` in the same transaction as
 that conclusion.
 
@@ -148,9 +163,9 @@ turn automatically. It persists a host-authored interruption notice and closes
 the turn instead. This deliberately prefers a recoverable partial interaction to
 duplicating an effect.
 
-The host acknowledges an owner message and shows a typing indicator before model
-work. V1 does not stream partial structured model output into Discord; a `say`
-step is delivered only after its schema is valid.
+The host promptly shows a typing indicator before model work. V1 does not stream
+partial structured model output into Discord; a `say` step is delivered only
+after its schema is valid.
 
 ### 4.4 Proactivity and stop control
 
@@ -162,7 +177,7 @@ V1 supports two non-human triggers:
 Inbound email, calendar changes, Maps data, and non-owner Discord activity do not
 directly start model turns. A proactive turn receives read and memory tools only.
 It cannot perform writes or propose approval-bearing actions. Its only possible
-external output is a normal message to the owner in the dedicated server.
+external output is a normal message to the owner in the configured channel.
 
 Configured quiet hours delay proactive turns until quiet hours end. No mandatory
 activity channel, batching subsystem, urgency classifier, or notification-budget
@@ -186,7 +201,8 @@ Jarvis acts without approval for:
 - Ordinary email organization exposed by the reused integration.
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
-- Discord messages and server organization within section 4.1.
+- Normal Jarvis responses and proactive owner notices through the configured
+  Discord transport.
 - Other reversible housekeeping confined to the owner's own resources.
 
 An owner-only calendar is one whose live ACL grants access only to the owner.
@@ -248,9 +264,9 @@ Approval is deliberately simple:
 6. Execute an approved action at most once and store its result.
 7. Report success, failure, or uncertainty naturally.
 
-The invoking Discord user and guild must match deployment configuration. The
-interaction's channel and Discord message ID must match the `message` referenced
-by `approval_message_id`. Free-form text never counts as approval.
+The invoking Discord user, guild, and channel must match deployment
+configuration. The interaction's Discord message ID must match the `message`
+referenced by `approval_message_id`. Free-form text never counts as approval.
 
 Action states are exactly:
 
@@ -424,8 +440,9 @@ A memory is a prior model-made recollection. It is neither live external truth
 nor authority. Memory text never grants a permission, records operative consent,
 changes the approval boundary, or becomes a system instruction.
 
-Current questions about Gmail, Calendar, Maps, or Discord should use live tools.
-Memory supplies relevance and history.
+Current questions about Gmail, Calendar, or Maps should use live tools. Current
+Jarvis conversation comes from canonical `message` rows. Memory supplies
+relevance and history.
 
 ## 7. Model and tool runtime
 
@@ -440,6 +457,42 @@ All cognitive roles use subscription-backed Codex through the local
   deployment.
 - Upgrades pass recorded replay and containment tests before activation.
 - Quota exhaustion produces a fixed host-authored notice and no provider change.
+
+The configured Discord channel maps to one continuing main Codex session. The
+host persists its `AgentSessionRef` and a digest of stable session-scoped
+configuration in private, atomically replaced runtime state outside PostgreSQL.
+The digest covers stable instructions, model and reasoning configuration,
+runtime, containment, and the session capability contract. An ordinary restart
+or compatible deployment attempts resume. A digest mismatch, invalid reference,
+or resume failure starts a fresh session.
+
+Recaller, rememberer, and dreamer invocations use fresh isolated sessions. They
+MUST NOT share the main session or one another's history.
+
+Jarvis owns one provider-neutral context builder whose plain application data
+contains stable instructions, bounded completed message history, the current
+event and source timestamp, recalled memories with IDs and timestamps, granted
+capability descriptions, the owner IANA timezone, and one host-generated `as_of`
+instant. Provider SDK message types appear only at the provider-adapter boundary.
+
+For a healthy main session, the continuation projection sends the current event,
+fresh recall, current capabilities, and `as_of`; stable session context,
+including the owner timezone, and native history carry prior turns. For a fresh
+Codex session, the bootstrap projection also includes stable instructions and
+bounded canonical history. The same bootstrap projection MUST remain usable by a
+future stateless or API-backed provider without replacing context selection. V1
+implements no such second provider.
+
+The current owner message appears exactly once and is excluded from completed
+history. Source messages retain `created_at`. A cognitive session receives the
+owner timezone once when it opens. Each owner turn or background job receives one
+authoritative `as_of`; tool-loop continuations and embedding calls receive no
+repeated clock. Stable prompt material precedes dynamic time in a rendered
+provider request.
+
+Native session history, compaction, and cache behavior are optimizations, not
+canonical state or guaranteed cost properties. Canonical messages plus recall
+MUST always be sufficient to start again.
 
 ### 7.2 Embeddings
 
@@ -471,9 +524,11 @@ and rebuild time and incurs API cost. This is an accepted v1 trade-off.
 
 ### 7.3 Tool kernel
 
-Jarvis declares its Gmail, Calendar, Maps, Discord, local, and memory-read tool
-families in this repository and executes effectful application capabilities
-through the pinned `llm-tools` kernel.
+Jarvis declares its Gmail, Calendar, Maps, local, and memory-read tool families
+in this repository and executes effectful application capabilities through the
+pinned `llm-tools` kernel. Discord ingress, `say` delivery, typing state, and
+host-owned approval presentation remain transport operations outside the model
+tool catalog.
 
 `llm-tools` supplies contracts, capability profiles, validation, budgets,
 effect identity, and replay semantics. It does not supply Jarvis's integration
@@ -543,8 +598,8 @@ lock holds.
 - Database: PostgreSQL with full-text search and pgvector.
 - HTTP/schema: FastAPI and Pydantic v2 when a new HTTP surface is needed.
 - Persistence: Psycopg 3, SQLAlchemy 2, and Alembic.
-- Discord: reuse the working integration; prefer `discord.py` for new Gateway
-  code if the existing integration has no established library.
+- Discord: reuse the working single-channel transport; prefer `discord.py` for
+  new Gateway code if the existing integration has no established library.
 - Google: reuse the working Gmail, Calendar, Maps, OAuth, and client stack.
 - Scheduling: systemd timer or a small ordinary process timer.
 - Testing: pytest, Hypothesis where useful, library-supplied test doubles, and
@@ -564,8 +619,11 @@ Initial library pins:
 Both are git dependencies, not path dependencies. Jarvis MUST NOT modify or
 restore the user's existing `llm-tools` checkout.
 
-The host and PostgreSQL run in UTC. Owner-local time comes only from required
-IANA timezone configuration, which is included in every model context.
+The host and PostgreSQL run in UTC. Owner-local time comes from required IANA
+timezone configuration included once when each cognitive session opens. The
+context builder adds one host-generated `as_of` instant per owner turn or
+background job, not to embedding calls or every tool-loop continuation. Stable
+prompt material precedes the changing instant.
 
 ## 9. Persistence
 
@@ -635,9 +693,11 @@ memory field requires an ADR.
 - Tool payloads do not belong in conversation text solely for debugging.
 
 V1 has no internal `conversation_id` and no `conversation` table. Recent local
-context groups by `(source, source_conversation_id)`; durable memory is global.
-A future multi-client product may add an internal conversation mapping when a
-second client demonstrates the need.
+context groups by `(source, source_conversation_id)`; in v1 the source
+conversation ID is the one configured Discord channel. The field remains useful
+as delivery provenance and a future client boundary without creating current
+routing behavior. Durable memory is global. A future multi-client product may
+add an internal conversation mapping when a second client demonstrates the need.
 
 ### 9.2 Action
 
@@ -650,10 +710,12 @@ approval, execution, reconciliation, and receipts.
 - Automatic tool writes begin `queued`.
 - Approval-bearing writes begin `awaiting_approval`.
 - `id` is the durable effect identity.
-- `tool_name` is a versioned canonical identifier such as
-  `gmail.send_draft.v1`.
+- `tool_name` is a stable canonical identifier such as `gmail.send_draft`; v1
+  does not require version suffixes.
 - `tool_name`, `arguments`, and `origin_message_id` are immutable after insert.
 - `arguments` is the sole source for approval rendering and execution.
+- Host code resolves the current declaration and validates stored arguments
+  again before approval rendering and immediately before execution.
 - `execute_after` is nullable; null means immediately eligible, while a timestamp
   supports `schedule_wake` without another table.
 - `approval_message_id` is nullable and unique when present. It points to the
@@ -666,9 +728,13 @@ approval, execution, reconciliation, and receipts.
 - `result` stores a typed provider receipt, failure evidence, cancellation
   reason, or uncertainty evidence without secrets.
 
-Queued or approval-bearing rows whose versioned `tool_name` is no longer
-supported fail closed as `cancelled` and are reported. Contract digests are not
-stored separately. Because immutable arguments remain available, derived hashes
+Queued or approval-bearing rows whose `tool_name` is unsupported or whose stored
+arguments no longer validate fail closed as `cancelled` and are reported. An
+existing name MUST remain backward-compatible while a non-terminal action uses
+it. Before an incompatible schema or semantic change, the deployment owner
+resolves or cancels those actions. A future incompatible implementation MAY earn
+a distinct versioned successor name; v1 stores no general version registry or
+contract digest. Because immutable arguments remain available, derived hashes
 can be computed later if measured need justifies them.
 
 The action ledger must not become a duplicate message or memory store.
@@ -676,9 +742,11 @@ The action ledger must not become a duplicate message or memory store.
 ### 9.3 Other state
 
 Existing connector credentials, cursors, and adapter state remain in their
-current owned stores. Owner/server identity and the paused flag live in deployment
-or host configuration. Provider session state is non-canonical. Alembic may own
-its migration table.
+current owned stores. Owner/guild/channel identity and the paused flag live in
+deployment or host configuration. The main `AgentSessionRef` and stable
+session-configuration digest live in private runtime state outside PostgreSQL.
+Provider session state is non-canonical, rebuildable, and excluded from required
+backups. Alembic may own its migration table.
 
 ## 10. Existing integrations
 
@@ -687,12 +755,14 @@ integrations.
 
 Slice 0 records for each:
 
-- Callable operations and schemas.
+- Callable operations and schemas, with Discord limited to configured-channel
+  transport operations rather than a model tool family.
 - Credential location and owning process.
 - Safe credential reuse or handoff.
 - Read and write behavior.
 - Existing tests.
-- The smallest Jarvis-owned `llm-tools` declaration and binding.
+- The smallest Jarvis-owned `llm-tools` declaration and binding for each
+  application tool integration.
 
 Each credential has one owning process. Jarvis MUST NOT share one Discord bot
 token with another running Gateway client, and two autonomous agents MUST NOT act
@@ -727,7 +797,8 @@ using the real personal integrations and subscription-backed Codex account.
 
 Acceptance includes:
 
-- Natural Discord conversation and restart recovery.
+- Natural single-channel Discord conversation, compatible-session resume, and
+  lost-session context reconstruction.
 - Live Gmail, Calendar, and Maps use.
 - Memory formation, fresh-session recall, dreaming, and complete rebuild.
 - Automatic personal calendar work.
@@ -739,8 +810,11 @@ Acceptance includes:
 Frozen decisions:
 
 - One visible Jarvis and natural Discord interaction.
+- One configured Discord channel with no v1 server-organization tools.
 - Exactly four application tables.
 - Central conversation history with at-least-once conversational delivery.
+- A provider-neutral context builder; reusable but non-canonical provider
+  sessions.
 - Existing Google and Discord integrations are reused.
 - Python, PostgreSQL, pgvector, `provider-runtime`, and `llm-tools`.
 - Immutable raw memory plus rebuildable summaries and indexes.
@@ -748,6 +822,8 @@ Frozen decisions:
 - No explicit personal-domain object model.
 - No workflow or agent framework.
 - Host-rendered approval previews and the stated autonomy boundary.
+- Unversioned canonical v1 tool names with immutable stored calls and
+  deployment-time compatibility discipline.
 - No v1 redaction or destructive memory consolidation.
 - No Android or new service integrations.
 

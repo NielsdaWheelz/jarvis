@@ -1,7 +1,8 @@
 # ADR 0003: Natural Discord interaction and a narrow approval boundary
 
 - Status: Accepted; action storage amended by ADR 0007; Administrator and
-  approval-preview decisions superseded by ADR 0009
+  approval-preview decisions superseded by ADR 0009; server organization
+  superseded by ADR 0011
 - Date: 2026-09-01
 
 ## Context

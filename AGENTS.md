@@ -30,6 +30,9 @@ These instructions govern all work in this repository.
 - Do not add slash commands, speculative components, Android, or deferred
   integrations in v1. Natural Discord conversation plus Approve and Deny is the
   interface.
+- Discord v1 is exactly one configured guild channel. Do not add Discord
+  threads, direct messages, channel organization, reactions, broad message
+  management, or model-callable Discord tools.
 - Reuse the working Gmail, Calendar, Maps, and Discord integrations and their
   authorizations. Audit and adapt public surfaces; do not copy Ariel agent,
   orchestration, prompt, product-domain, or memory implementation.
@@ -38,6 +41,13 @@ These instructions govern all work in this repository.
 
 - `message` is canonical conversation history; Discord and provider sessions are
   delivery/runtime surfaces.
+- Normally continue and resume one main Codex session, but treat its reference,
+  history, compaction, and cache state as disposable. A provider-neutral context
+  builder must reconstruct a fresh session from canonical messages plus recall.
+- Resume the main session only when its stable session-configuration digest
+  matches; the digest is rebuildable runtime state, not a table column or tool
+  version.
+- Recaller, rememberer, and dreamer invocations use fresh isolated sessions.
 - Persist and source-deduplicate owner input before processing it.
 - Set an owner message's `processed_at` only in the transaction that records its
   durable turn conclusion. Never replay an interrupted turn that already created
@@ -74,7 +84,7 @@ These instructions govern all work in this repository.
   through `llm-tools` and use one durable `action` row.
 - Reads and canonical message/memory transactions create no action rows.
 - Reads, memory work, configured local writes, personal calendar management,
-  drafts, and permitted Jarvis-server organization are automatic.
+  drafts, and normal responses in the configured Discord channel are automatic.
 - Consequential communication to another person, spending, secret exposure, and
   irreversible destructive external work require Approve or Deny.
 - Approval executes the exact stored arguments once. Free-form text never
@@ -83,7 +93,10 @@ These instructions govern all work in this repository.
   The model protocol and action schema contain no preview field.
 - Approval-bearing Discord messages are host-owned and cannot be edited or
   deleted by model-originated tools.
-- Version `tool_name`; keep it, `arguments`, and `origin_message_id` immutable.
+- Keep canonical `tool_name`, `arguments`, and `origin_message_id` immutable.
+  V1 tool names are unversioned. Revalidate stored arguments before approval
+  rendering and execution; drain non-terminal actions before an incompatible
+  tool change.
 - Action states are exactly `queued`, `awaiting_approval`, `executing`,
   `succeeded`, `failed`, `uncertain`, and `cancelled`.
 - The single deployment owner reconciles rows left `executing` after a timeout or
@@ -102,8 +115,10 @@ These instructions govern all work in this repository.
 - Preserve user-owned changes in every repository.
 - Never place credentials, OAuth tokens, private memory text, or message bodies
   in ordinary logs or real private content in fixtures.
-- Timestamps are `timestamptz`; the host runs UTC; owner-local time comes from a
-  configured IANA timezone included in model context.
+- Timestamps are `timestamptz`; the host runs UTC. Each cognitive session
+  receives the configured owner IANA timezone once when it opens. Each owner
+  turn or background job receives one host-generated `as_of`; embedding calls
+  and tool-loop continuations do not receive a repeated clock.
 - Every behavioral change needs tests against the relevant acceptance criteria.
 - Dependency and model upgrades are explicit and replay-tested.
 - Avoid abstractions with one caller unless they enforce a stated boundary.

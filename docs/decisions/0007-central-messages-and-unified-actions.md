@@ -1,6 +1,7 @@
 # ADR 0007: Centralize messages and use one action ledger
 
-- Status: Accepted; message/action schemas and lifecycle superseded by ADR 0010
+- Status: Accepted; message/action schemas and lifecycle superseded by ADR 0010;
+  provider-session lifecycle amended by ADR 0012
 - Date: 2026-09-01
 
 ## Context

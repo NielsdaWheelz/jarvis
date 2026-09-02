@@ -1,6 +1,6 @@
 # ADR 0005: Reuse working integrations and defer new ones
 
-- Status: Accepted
+- Status: Accepted; Discord tool-surface decision superseded by ADR 0011
 - Date: 2026-09-01
 
 ## Context

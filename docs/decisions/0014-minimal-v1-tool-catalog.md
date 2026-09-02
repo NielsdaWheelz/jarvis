@@ -24,7 +24,7 @@ reader. Reimplementing them in Jarvis would duplicate a portable boundary.
 ## Decision
 
 The exact catalog is normative in
-[SPEC section 7.3](../../SPEC.md#73-tool-kernel-and-exact-catalog):
+[SPEC section 7.3](../../SPEC.md#73-tool-contracts-and-exact-catalog):
 
 - Main: Gmail search/thread read, draft create/update, approved draft send;
   Calendar list/get/create/update/delete; Maps place search/get/directions;

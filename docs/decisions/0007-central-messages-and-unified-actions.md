@@ -2,7 +2,8 @@
 
 - Status: Accepted; message/action schemas and lifecycle superseded by ADR 0010;
   provider-session lifecycle amended by ADR 0012; accepted duplicate-delivery
-  semantics superseded by ADR 0016
+  semantics superseded by ADR 0016; action-resolution correlation amended by
+  ADR 0017
 - Date: 2026-09-01
 
 ## Context

@@ -170,7 +170,8 @@ A successful rememberer that returns no memories still sets the watermark. A
 failed or cancelled run leaves it null. A bounded sweep retries completed owner
 turns where `processed_at IS NOT NULL` and `remembered_at IS NULL`. The explicit
 processing watermark prevents an interrupted turn from being mistaken for a
-completed turn whose rememberer merely chose to write nothing.
+completed turn whose rememberer merely chose to write nothing. Rows with
+`role = host`, including action resolutions and scheduled wakes, are excluded.
 
 This is a canonical application transaction, not a tool effect. It creates no
 `action` row and stores the memory text in no other Jarvis table.

@@ -11,17 +11,20 @@ configured Discord #general
  Discord adapter ───────────────► message
           │                          │
           ▼                          ▼
- fresh recaller ────────────────► context builder ◄── memory search/open
+ fresh recaller ──────► Jarvis context/checkpoint/session adapters ◄── memory
                                      │
                                      ▼
-                         resumable main Codex session
+                             llm-agent-kernel
+                         bounded run + exclusive drain
                                      │
                     ┌────────────────┴────────────────┐
                     ▼                                 ▼
-               say / finish                      call_tool
+      provider-runtime / Codex                 call_tools dispatch
+                    │                                 │
+               say / finish                    Jarvis policy
                     │                                 │
                     ▼                                 ▼
-          Discord transport                 host policy + llm-tools
+          message / Discord                        llm-tools
                                                       │
                                    ┌──────────────────┴──────────────┐
                                    ▼                                 ▼
@@ -41,6 +44,12 @@ simple timer ──────────► fresh dreamer ─────► 
 Jarvis is one Python application and one PostgreSQL database. Components below
 are code boundaries, not independently deployed services unless an existing
 integration requires one.
+
+`llm-agent-kernel` is a pinned independent library, not another service or
+state owner. It supplies the reusable protocol and bounded run/drain machinery.
+`provider-runtime` remains the provider/session implementation and `llm-tools`
+remains the prompt-section, contract, grant, validation, and tool-execution
+implementation. Jarvis owns every product and persistence adapter.
 
 ## Discord adapter
 
@@ -112,34 +121,72 @@ For each owner message:
 2. Persist/deduplicate the inbound message.
 3. Acquire the in-process provider mutex.
 4. Snapshot one host `as_of` instant and run the recaller in a fresh isolated
-   session.
-5. Build a provider-neutral continuation or bootstrap context package.
-6. Continue the healthy main session, resume a configuration-compatible session,
-   or open a fresh session and run the bounded main-agent step loop.
-7. Persist the durable conclusion and set the owner message's `processed_at` in
-   the same transaction.
-8. Deliver any pending response and release the provider mutex.
-9. Run the rememberer in the background, yielding to new owner work.
+   read-only kernel one-shot run.
+5. Through the Jarvis context adapter, select canonical product context and give
+   the kernel a provider-neutral continuation or bootstrap package.
+6. The kernel continues the healthy main session, asks `provider-runtime` to
+   resume a compatible reference, or opens a fresh session, then runs the
+   bounded whole-step loop.
+7. Through Jarvis's checkpoint adapter, settle the consumed watermark: in one
+   transaction persist the durable conclusion, set each consumed waking
+   message's `processed_at`, and test for newer input. Settlement returns
+   continue, idle, or deferred. A later same-class input may continue the drain.
+   A different-class input, or exhausted limits, makes the adapter arm the
+   correct next run before releasing ownership; the public outcome is
+   `pending_input`.
+8. Deliver any pending response and release the provider mutex after the drain
+   settles.
+9. Run the rememberer in the background through a fresh isolated kernel run,
+    yielding to new owner work.
 
 A turn is eligible for remembering after `say`, `finish`, or creation of an
 action awaiting approval. This includes a turn whose visible response is a
 host-rendered approval message rather than model-authored prose.
 
-At startup, an owner row with null `processed_at` is an interrupted turn. If it
-has no originating action, it may be replayed. If it already produced an action,
+At startup, a waking owner or host row with null `processed_at` is an interrupted
+turn. A host action-resolution row is safe to replay. If an owner row has no
+originating action, it may also be replayed. If it already produced an action,
 the host resumes or reconciles the action, persists an interruption notice, and
 closes the turn without replaying the model. This is the turn-level duplicate
 effect barrier.
+
+An action outcome that cannot return to its still-live originating model loop
+idempotently inserts one host-authored waking `message` keyed by
+`(source = action, source_message_id = action.id + ":" + status)`. It carries the
+action ID, tool, resolved state, and safe normalized result. A later evidence-
+based transition from `uncertain` to `succeeded` or `failed` therefore earns a
+new resolution row rather than rewriting history. The main drain processes it
+through the same checkpoint path and may explain the outcome naturally; it never
+reuses the original turn-local call ID. Startup repairs a missing required
+resolution row from terminal action state before becoming idle.
+
+Action-resolution and scheduled-wake host inputs require visible delivery. If
+the main model finishes silently or fails before `say`, Jarvis finalization
+persists a deterministic assistant fallback from the host row's safe fields and
+processes both together. The fallback for uncertainty includes reconciliation
+evidence; the fallback for a wake includes the stored reminder instruction.
 
 The application holds one PostgreSQL advisory lock for deployment ownership. A
 second Jarvis instance refuses to start. Because only one process runs, turn and
 provider scheduling inside that process use ordinary locks and queues rather
 than additional database workflow machinery.
 
+The exclusive-drain claim, ordered waking snapshot, opaque consumed watermark,
+atomic terminal checkpoint, and compare-and-set idle behavior implement the
+kernel `InputCheckpointPort` over existing `message` state. They add no table or
+column. The adapter derives `interactive` for owner and action-resolution rows
+and `proactive-read` for scheduled-wake rows, binds each class to its frozen
+plan, and exposes only the maximal contiguous prefix of one class. An initial
+class mismatch or a newer different-class row arms the correct run before
+declining or releasing the claim, even when budget remains. Idempotent
+error/cancellation release arms recovery before relinquishing any still-
+unprocessed row. Null `processed_at` remains the restart-recovery signal.
+
 ## Context and session lifecycle
 
-One application-owned context builder selects model-visible context before any
-provider-specific encoding. Its plain structured package contains:
+Jarvis's application context adapter selects model-visible product context from
+canonical state before any provider-specific encoding. Its plain structured
+package contains:
 
 - Stable instructions.
 - Bounded completed canonical messages, excluding the current owner row.
@@ -149,29 +196,51 @@ provider-specific encoding. Its plain structured package contains:
 - The configured owner IANA timezone.
 - One host-generated `as_of` instant.
 
-The current event appears exactly once. Provider adapters translate this package
-into native inputs; selection code does not construct Codex SDK message objects.
+The current event appears exactly once. `llm-agent-kernel` coordinates the
+continuation/bootstrap projection and `llm-tools` typed prompt sections render
+it. XML-like markup is useful structure and provenance, not a prompt-injection
+security boundary. Provider adapters translate the rendered package into native
+inputs; selection code does not construct Codex SDK message objects.
 
 The configured Discord channel owns one main Codex session. Its
-`AgentSessionRef` and a digest of stable session-scoped configuration live in an
-atomically replaced private runtime-state file, not PostgreSQL. The digest covers
-stable instructions, model and reasoning configuration, runtime, containment,
-and the session capability contract. An ordinary restart or compatible
-deployment attempts resume. A digest mismatch, invalid reference, or resume
-failure discards the reference and opens a fresh session.
+`AgentSessionRef` and immutable agent-definition fingerprint live in an
+atomically replaced private runtime-state file, not PostgreSQL, behind Jarvis's
+kernel `SessionRefPort` adapter. The fingerprint covers stable instructions,
+model and reasoning configuration, kernel/runtime revisions, containment, and
+the session capability envelope; per-run subset plans do not rotate the session.
+An ordinary restart or compatible deployment
+attempts resume through `provider-runtime`. A fingerprint mismatch, invalid
+reference, or resume failure discards the reference and opens a fresh session.
+References are scoped by application thread and fingerprint; a generation
+compare-and-set prevents a stale run from overwriting a newer reference.
+Every stored reference returns the generation expected by the next model step.
+A stale store stops before dispatch or canonical settlement; Jarvis never acts
+on a response whose provider state it failed to save.
+After a crash with unprocessed canonical input, Jarvis discards a speculatively
+advanced reference unless alignment can be proved and cold-bootstraps before
+replay. On a valid terminal response, the generation-checked reference advances
+before the canonical conclusion/checkpoint transaction. If the latter is
+interrupted, null `processed_at` exposes the unresolved input and makes that
+reference unsafe to reuse.
 
-A continuation projection sends the current event, fresh recall, current
-capabilities, and `as_of`; stable session context, including owner timezone, and
-native history carry prior turns. A bootstrap projection prepends stable
-instructions and bounded canonical history. That same bootstrap package is the
-required boundary for a future stateless or API-backed provider. V1 does not
-implement the second provider.
+A continuation projection sends the current event, current capabilities,
+`as_of`, and fresh recall only for owner input; stable session context, including
+owner timezone, and native history carry prior turns. A bootstrap projection
+prepends stable instructions and bounded canonical history. That same bootstrap
+package is the required boundary for a future stateless or API-backed provider.
+V1 does not implement the second provider. The current batch appears only on its
+first call in one provider session; later tool/protocol continuations carry only
+new observations or corrections. A replacement cold bootstrap includes
+unresolved input once in the replacement session.
 
 Recaller, rememberer, and dreamer calls always open fresh isolated sessions.
-They never reuse the main session or each other's history. Source-message
-timestamps remain attached to their content. Each fresh session receives the
-timezone once; each owner turn or background job receives one `as_of`.
-Embedding requests and subsequent tool-loop turns do not repeat a changing
+Their agent definitions use kernel `SessionMode.isolated`; they never load or
+save a session reference or reuse the main session or each other's history, and
+their frozen plans contain only non-effectful memory reads. The main definition
+uses `SessionMode.continuing`. Source-message timestamps remain
+attached to their content. Each fresh session receives the timezone once; each
+claimed owner-input batch or background job receives exactly one host-supplied
+`as_of`, reused unchanged through its tool loop. Embedding requests receive no
 clock.
 
 Session history, native compaction, and cache behavior are disposable
@@ -179,32 +248,57 @@ optimizations. A cold bootstrap need not recreate provider reasoning or
 compaction byte-for-byte; it must restore useful conversational continuity from
 canonical messages plus recall.
 
+Checkpoint finalization maps the terminal conversational conclusion and
+consumed-input checkpoint into the same Jarvis transaction. Read observations
+and protocol correction remain turn-local; effectful outcomes are already
+durable in `action` and through `llm-tools`. The kernel `EventSinkPort` is optional
+best-effort observability, not a canonical event store. Emission is attempted
+before reuse but failure is nonfatal. Exact provider requests and normalized
+events remain provider/runtime audit data; Jarvis stores only bounded provider
+trace IDs in `message.trace`, not another event table.
+
 ## Cognitive roles
+
+These are four immutable kernel agent definitions, not a general subagent or
+persistent-peer system. The main role is a continuing thread run with a
+conversational output contract and a maximum envelope equal to the exact main
+catalog. Recaller, rememberer, and dreamer are fixed isolated one-shot runs with
+memory-read envelopes and closed structured output contracts. Jarvis supplies a
+frozen subset plan per run; `interactive` owner/action-resolution runs use the
+full Main plan and `proactive-read` scheduled-wake runs narrow the same
+continuing definition to external reads. One-shot plans are read-only. One-shot
+runs use no application checkpoint or saved session-reference port; host code
+commits or recomputes their results.
 
 ### Recaller
 
 The recaller opens a fresh session and receives the owner input, bounded recent
 context, owner timezone, and the turn's `as_of`. Its frozen capability plan
 contains only memory search and memory open. It may issue several queries and
-returns a compact bundle of raw memories and summaries, or nothing.
+returns a schema-valid `finish.result` bundle of raw memories and summaries, or
+an explicit empty bundle.
 
 ### Main agent
 
 The main agent normally continues the channel's existing session. It receives
-fresh recalled memory and the capability descriptions exposed for the turn. It
-emits the strict step grammar defined once in
-[SPEC section 7.4](../SPEC.md#74-model-step-protocol).
+fresh recalled memory on owner turns and the capability descriptions exposed
+for every turn. It emits the strict step grammar defined once in
+[SPEC section 7.4](../SPEC.md#74-model-step-protocol-and-bounded-drain).
 
 The main agent never owns credentials or policy classification. Host code
-validates the whole step before executing any call. Independent calls in one
-step may run concurrently within the turn budget.
+supplies product dispatch and policy. The kernel validates the whole step and
+`llm-tools` validates every call before any call dispatches. Independently
+classified reads may run concurrently within the turn budget; effectful calls
+run in order and a stopping outcome prevents later calls from starting.
+`call_tools` carries no user-facing text; after the model observes correlated
+outcomes, it may issue a separate truthful `say`.
 
 ### Rememberer
 
 The rememberer opens a fresh session and receives the persisted completed turn,
 material tool observations, source timestamps, and relevant existing memory. It
-can search/open memory and returns a structured final list of zero or more raw
-memory strings.
+can search/open memory and returns a schema-valid `finish.result` list of zero or
+more raw memory strings.
 
 Host code performs one transaction that:
 
@@ -217,8 +311,8 @@ failed or cancelled run leaves `remembered_at` null for a bounded retry sweep.
 ### Dreamer
 
 The dreamer opens a fresh session, searches and opens memory, then returns a
-structured batch of summary insertions and removals. Host code applies the batch
-transactionally.
+schema-valid `finish.result` batch of summary insertions and removals. Host code
+applies the batch transactionally.
 
 Only one dreamer runs at once. It yields the provider mutex when owner input is
 waiting. Missing a dream run cannot break conversational correctness because raw
@@ -227,7 +321,7 @@ memory remains directly searchable.
 ## Tool execution
 
 The complete tool manifest and authority classification live in
-[SPEC section 7.3](../SPEC.md#73-tool-kernel-and-exact-catalog). Jarvis owns the
+[SPEC section 7.3](../SPEC.md#73-tool-contracts-and-exact-catalog). Jarvis owns the
 Gmail, Calendar, Maps, schedule, and memory declarations and bindings. The pinned
 `llm-tools` revision owns the reusable `web.search` and `web.read` declarations
 and implementations; Jarvis explicitly composes, configures, and grants them.
@@ -244,16 +338,41 @@ Discord tools in a v1 capability plan.
 The host:
 
 - Freezes a capability plan for each cognitive role and turn.
-- Validates canonical tool IDs and closed arguments.
+- Supplies that plan and its product dispatch adapter to `llm-agent-kernel`.
+- Uses `llm-tools` to validate canonical tool IDs and closed arguments.
 - Classifies calls using the fixed automatic/approval policy.
 - Owns connector credentials.
-- Executes reads directly through the kernel without action rows.
+- Executes reads through `llm-tools` without action rows.
 - Inserts an `action` before every effectful tool call.
 - Supplies the action ID as the durable effect identity.
-- Returns typed observations to the model.
+- Returns typed observations through the kernel dispatch port, correlated by
+  turn-local `call_id`.
 
 Canonical message persistence, raw-memory append, and summary replacement are
-application transactions. They are not tools and do not pass through the kernel.
+application transactions. They are not model tools and do not pass through
+`llm-tools`; terminal conversation persistence is exposed to the agent kernel
+only through Jarvis's checkpoint adapter.
+
+## Kernel protocol and drain
+
+`llm-agent-kernel` parses exactly `say`, `call_tools`, or `finish`. Unknown
+fields fail. It validates the entire response and every call before any
+dispatch, so a malformed later call cannot leave an earlier partial effect.
+Protocol-invalid output executes nothing and returns bounded corrective context.
+This is atomic validation, not a claim that separately committed external
+effects form one transaction.
+
+`call_tools` carries no user-facing text. Tool observations are correlated by
+unique turn-local call IDs, and only a later `say` can describe their actual
+outcomes to the owner. The kernel loops only within configured model-step,
+tool-call, wall-time, and usage budgets.
+
+Jarvis's dispatch adapter returns `executed`, `pending_approval`, `denied`,
+`failed`, or `uncertain`; the kernel never chooses authority. A
+`pending_approval` or `uncertain` outcome settles the proposing input with a
+host-referenced waiting conclusion. A terminal action later creates an
+idempotent host-authored action-resolution message and a new input batch.
+Approval, execution, and reconciliation remain host-owned action behavior.
 
 ## Action lifecycle
 
@@ -281,6 +400,12 @@ approval or cancelled queued scheduled work.
 `queued`, `awaiting_approval`, and `executing` are non-terminal. `uncertain` is
 terminal for execution and does not prevent a later new action with identical
 arguments.
+
+When a terminal outcome cannot return to the still-live originating model loop
+(including approval/denial, uncertainty, or crash reconciliation), host code
+inserts the idempotent action-resolution message before considering notification
+complete. Automatic actions whose result returns as an ordinary live tool
+observation do not create a second resolution turn.
 
 Execution claims commit before the external call. There is no action lease: one
 deployment process owns all work. A bounded request timeout and startup scan
@@ -362,8 +487,8 @@ PostgreSQL owns exactly:
 Existing integration state stays with its current owner. Configuration owns the
 owner ID, Discord guild and channel IDs, timezone, paused flag, model
 configuration, and credential locations. A private runtime-state file owns the
-non-canonical main session reference and stable session-configuration digest.
-Alembic may own its bookkeeping table.
+non-canonical main session reference and immutable agent-definition fingerprint
+behind Jarvis's `SessionRefPort` adapter. Alembic may own its bookkeeping table.
 
 ## Provider containment
 
@@ -373,8 +498,8 @@ feature set, no MCP, and no connector, Brave, or embedding credentials.
 
 The confined Codex child still has no native network or Web search. A structured
 `web.search` or `web.read` request returns to the Jarvis host, which applies the
-frozen capability plan and executes the bounded `llm-tools` binding outside the
-child.
+frozen capability plan and dispatches the bounded `llm-tools` binding outside
+the child through `llm-agent-kernel`.
 
 The application consumes normalized provider events:
 
@@ -390,11 +515,17 @@ boundary.
 
 ## Scheduling
 
-No workflow framework exists.
+No workflow framework exists. The kernel's bounded in-process drain does not
+persist a workflow graph, own product state, or wait durably for approvals.
 
 - A small timer selects queued `schedule_wake` rows whose `execute_after` is due.
 - A requested wake becomes eligible at its stored instant, or on startup when
   that instant passed during downtime; no generic quiet-hours transform exists.
+- Claiming a due wake atomically marks it `executing` and inserts one idempotent
+  host waking message keyed by `(schedule_wake, action.id)`, rendered from the
+  immutable stored instruction and requested instant. The proactive run or its
+  deterministic visible fallback processes that row and marks the action
+  `succeeded` in one transaction.
 - No periodic connector tick or autonomous inbox/calendar monitor starts turns.
 - A timer may invoke dreaming when the provider mutex is idle.
 - Startup reconciles every action left `executing`; ordinary external calls use
@@ -406,8 +537,8 @@ Each path is an ordinary function over explicit database state.
 
 - Recaller failure: continue without recalled memory.
 - Main-agent failure: report a concise host-authored error; discard the failed
-  session and retry at most once from a canonical context bootstrap, never after
-  an effect completed.
+  session through `provider-runtime` and let the kernel retry at most once from a
+  canonical context bootstrap, never after an effect completed.
 - Rememberer failure: leave `remembered_at` null and retry later.
 - Dreamer failure: retain raw memory and existing summaries.
 - Embedding failure: leave the vector null; lexical recall continues.

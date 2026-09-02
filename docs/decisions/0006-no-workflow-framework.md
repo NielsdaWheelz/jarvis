@@ -1,6 +1,7 @@
 # ADR 0006: Do not use a workflow framework in v1
 
-- Status: Accepted; persistence wording amended by ADR 0007
+- Status: Accepted; persistence wording amended by ADR 0007; bounded
+  agent-kernel distinction clarified by ADR 0017
 - Date: 2026-09-01
 
 ## Context

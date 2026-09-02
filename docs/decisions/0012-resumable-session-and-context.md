@@ -1,6 +1,6 @@
 # ADR 0012: Reuse one main Codex session over provider-neutral context
 
-- Status: Accepted
+- Status: Accepted; implementation ownership amended by ADR 0017
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md) and the provider-session
   lifecycle in [ADR 0007](0007-central-messages-and-unified-actions.md)

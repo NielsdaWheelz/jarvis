@@ -14,24 +14,27 @@ named explicitly; no criterion disappears or is weakened silently.
 ## A1. Repository and deployment
 
 - [ ] **A1.1** The server uses Python 3.12 with a reproducible lockfile.
-- [ ] **A1.2** `provider-runtime` and `llm-tools` use qualified pinned git
-      revisions, not the user's mutable local worktrees.
+- [ ] **A1.2** `llm-agent-kernel`, `provider-runtime`, and `llm-tools` use
+      qualified pinned git revisions, not the user's mutable local worktrees.
 - [ ] **A1.3** A clean checkout can be configured without modifying Ariel,
-      `llm-calling`, or `llm-tools`.
+      `llm-agent-kernel`, `llm-calling`, or `llm-tools`.
 - [ ] **A1.4** Migrations from an empty PostgreSQL database produce exactly the
       four Jarvis application tables and exact application-column rosters in the
       specification.
-- [ ] **A1.5** Unit and integration tests run through one documented command.
+- [ ] **A1.5** Unit, integration, and pinned `llm-agent-kernel` conformance tests
+      run through one documented command.
 - [ ] **A1.6** Secrets are absent from the repository, fixtures, PostgreSQL, model
       context, and ordinary logs.
 - [ ] **A1.7** A second Jarvis instance against the same deployment refuses to
       start while the first holds the ownership lock.
-- [ ] **A1.8** Startup refuses mismatched pinned Codex SDK/runtime versions.
+- [ ] **A1.8** Startup refuses mismatched pinned kernel, Codex SDK, or runtime
+      versions.
 - [ ] **A1.9** A dated Slice 0 qualification report records the exact tool
       manifest and schemas, live authority classification, credential
       ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID
-      behavior, Gmail send reconciliation, Web canaries, and
-      credential-containment results; the owner signs it before Slice 1.
+      behavior, Gmail send reconciliation, Web canaries, kernel port/conformance
+      qualification, and credential-containment results; the owner signs it
+      before Slice 1.
 
 ## A2. Discord and conversation history
 
@@ -65,20 +68,34 @@ named explicitly; no criterion disappears or is weakened silently.
       uses the qualified direct REST binding, not a private `discord.py` API.
 - [ ] **A2.10** Consecutive owner turns reuse one native main Codex session; an
       ordinary restart or compatible deployment resumes it; a changed
-      session-configuration digest, deleted reference, invalid reference, or
-      resume failure starts a fresh session that reconstructs useful context
-      from centralized messages and recalled memory.
+      agent-definition fingerprint, deleted reference, invalid reference, or
+      resume failure starts a fresh session through the kernel ports and
+      reconstructs useful context from centralized messages and recalled memory.
+      A stale session-reference generation cannot overwrite a newer one or
+      proceed to dispatch/settlement. A successful store advances the expected
+      generation. A crash
+      after reference advancement but before canonical settlement leaves the
+      input unprocessed and forces that speculative reference to be discarded
+      before replay.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
       output is streamed into Discord.
 - [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. After a
       simulated crash, an incomplete turn without actions may replay, while one
-      that already created an action is closed without model replay.
-- [ ] **A2.13** The provider-neutral context builder emits plain application
-      data with bootstrap and continuation projections. A fake stateless adapter
-      consumes the bootstrap without Codex SDK types; the current owner message
-      appears exactly once; stable material includes the owner timezone before
-      the dynamic `as_of`; continuation does not resend completed history or the
-      stable timezone.
+      that already created an action is closed without model replay. An owner or
+      host action-resolution or scheduled-wake input arriving during compare-and-
+      set idle continues only in a compatible run class, or atomically arms the
+      correctly classified run before a `pending_input` claim release; it is
+      never stranded or consumed under another class's plan. A mismatched
+      initial claim calls no provider. Startup
+      scans null `processed_at` rows before becoming idle, and cancellation/error
+      cleanup arms recovery before releasing any still-unprocessed row.
+- [ ] **A2.13** Jarvis product context selection supplies plain canonical data to
+      the kernel bootstrap and continuation ports. A fake stateless adapter
+      consumes the bootstrap without Codex SDK types; `llm-tools` typed prompt
+      sections preserve the current owner message exactly once and one
+      host-supplied `as_of`; stable material includes the owner timezone before
+      that instant; tool/protocol continuation does not repeat the current batch;
+      continuation does not resend completed history or the stable timezone.
 
 ## A3. Existing integrations
 
@@ -112,21 +129,33 @@ in Slice 0.
 
 ## A4. Model and tool boundary
 
-- [ ] **A4.1** Every cognitive role authenticates through subscription-backed
-      Codex with no generative API-key or provider fallback. Only the main role
-      reuses a session; recaller, rememberer, and dreamer invocations use fresh
-      isolated sessions.
+- [ ] **A4.1** Every cognitive role runs through `llm-agent-kernel` and
+      authenticates through subscription-backed Codex with no generative API-key
+      or provider fallback. The main definition is `continuing`; recaller,
+      rememberer, and dreamer definitions are isolated one-shot runs, always
+      open fresh, and never touch an input-checkpoint or saved-session port. The
+      main output contract is conversational; each internal role has a closed
+      structured result schema and a memory-read maximum envelope. Every run plan
+      is a frozen subset of its definition envelope; internal plans are strictly
+      non-effectful and the proactive main plan is read-only.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
 - [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
       its child environment contains none.
 - [ ] **A4.4** Codex runs from an empty read-only directory containing no Jarvis,
       Ariel, or sibling repository source, with network disabled and no MCP.
-- [ ] **A4.5** Unknown, malformed, or ungranted tool calls fail before integration
-      code.
+- [ ] **A4.5** The kernel accepts exactly `say | call_tools | finish`, rejects
+      unknown fields, and validates the whole step plus every call before any
+      dispatch. Unknown, malformed, or ungranted calls execute nothing; bounded
+      corrective feedback can recover. `call_tools` accepts no user-facing text;
+      a separate `say` may describe only already-observed outcomes. Structured
+      roles reject user-facing text and accept only a schema-valid
+      `finish.result`; the main role rejects terminal result payloads.
 - [ ] **A4.6** A scripted `AgentToolUse` event fails the confined turn while a
       scripted native reasoning passthrough event does not.
-- [ ] **A4.7** Tool and turn bounds stop an intentional infinite-loop fixture.
+- [ ] **A4.7** Model-step, tool-call, wall-time, and usage bounds stop an
+      intentional infinite-loop fixture; cancellation stops a background role at
+      a defined boundary and leaves its product checkpoint recoverable.
 - [ ] **A4.8** Quota exhaustion produces a fixed host-authored notice and changes
       no provider, model, or credential.
 - [ ] **A4.9** Reads create no action rows; effectful tool calls create one action
@@ -134,14 +163,21 @@ in Slice 0.
       tool name.
 - [ ] **A4.10** Canonical message, raw-memory, and summary transactions create no
       action rows.
-- [ ] **A4.11** The frozen plans grant exactly the SPEC section 7.3 catalog by
-      role. No plan grants `tool.search`, `tool.read`, local-filesystem, Gmail
-      organization, Discord, or another unlisted tool.
+- [ ] **A4.11** Definition maximum envelopes equal the SPEC section 7.3 catalog
+      by role, and every frozen run plan is a subset of its envelope. Ordinary
+      owner-input and action-resolution `interactive` main runs receive the full
+      Main plan; scheduled-wake `proactive-read` main runs receive only the
+      catalogued external reads; internal one-shots receive exactly the two
+      memory reads. No plan grants `tool.search`, `tool.read`,
+      local-filesystem, Gmail organization, Discord, delegation, program
+      execution, or another unlisted tool. The kernel neither discovers tools
+      nor classifies product authority.
 
 ## A5. Memory
 
 - [ ] **A5.1** The recaller runs before every owner-authored human input and may
-      correctly return an empty bundle.
+      correctly return an empty schema-valid bundle through its isolated
+      one-shot terminal result.
 - [ ] **A5.2** Full-text search finds an exact or rare-keyword memory.
 - [ ] **A5.3** Semantic search finds relevant memory with no important shared
       query keyword.
@@ -150,10 +186,12 @@ in Slice 0.
 - [ ] **A5.5** The recaller may issue multiple searches and open a summary's raw
       sources.
 - [ ] **A5.6** The rememberer runs after `say`, `finish`, and approval-proposal
-      turns, including when it chooses to write no memory.
+      turns, returning a schema-valid isolated one-shot result even when it
+      chooses to write no memory.
 - [ ] **A5.7** A successful zero-memory result sets `remembered_at`; a cancelled
-      run leaves it null, and a bounded sweep retries only rows with non-null
-      `processed_at` and null `remembered_at`.
+      run leaves it null, and a bounded sweep retries only `role = owner` rows
+      with non-null `processed_at` and null `remembered_at`; host inputs are never
+      selected.
 - [ ] **A5.8** Raw memories and `remembered_at` commit atomically and create no
       action row or duplicate storage elsewhere.
 - [ ] **A5.9** Under the application role, raw text/time updates, deletes, and
@@ -167,7 +205,8 @@ in Slice 0.
 - [ ] **A5.13** Every summary has non-empty valid raw lineage; summary-of-summary
       lineage is flattened.
 - [ ] **A5.14** The dreamer changes summaries but cannot change raw memory or use
-      external tools.
+      external tools; its mutation batch is a schema-valid isolated one-shot
+      result applied only by host code.
 - [ ] **A5.15** Wiping summaries and embeddings leaves lexical raw recall working;
       complete rebuild restores a recall-evaluation result no worse than before.
 - [ ] **A5.16** The checked-in recall set has at least fifteen cases with the lane
@@ -213,7 +252,14 @@ These criteria are **live** where they call Gmail or Discord.
       including an injected ambiguous-timeout test reconciled through the Gmail
       draft/Sent behavior.
 - [ ] **A6.14** External success is reported only from provider or reconciliation
-      evidence, never a model assertion.
+      evidence, never a model assertion. An action outcome that cannot return to
+      its still-live originating loop creates exactly one host-authored waking
+      message keyed by action ID plus resolved state; startup repairs a missing
+      row, a later evidence-based resolution of `uncertain` appends rather than
+      rewrites, and the new run correlates by action ID rather than the original
+      turn-local call ID. A silent `finish` or model failure instead persists a
+      deterministic visible fallback; asynchronous action results are never
+      consumed without an owner notice.
 - [ ] **A6.15** The action table has exactly the columns in SPEC section 9 and the
       seven statuses in section 5.4; canonical `tool_name`, `arguments`, and
       `origin_message_id` cannot change after insertion. Stored arguments are
@@ -221,8 +267,12 @@ These criteria are **live** where they call Gmail or Discord.
       non-executing action is cancelled and reported.
 - [ ] **A6.16** `schedule_wake` creates an exact due wake and cancels a named
       queued wake. A requested wake becomes eligible at its stored instant and
-      after restart when overdue. No generic quiet-hours transform, periodic
-      connector turn, or autonomous inbox/calendar monitor is configured.
+      after restart when overdue. Claiming it creates exactly one host input from
+      the immutable stored instruction and requested instant; it does not invoke
+      the owner-input recaller. The visible model result or deterministic
+      fallback marks the wake succeeded atomically. No generic quiet-hours
+      transform, periodic connector turn, or autonomous inbox/calendar monitor
+      is configured.
 - [ ] **A6.17** Immediately before an approved Gmail send, the live draft must
       match the stored recipient, subject, and complete-body snapshot. A
       mismatch sends nothing, fails the action, and requires a new proposal.
@@ -281,7 +331,8 @@ After at least seven days, the owner affirms:
 The report records:
 
 - Git revision and dependency-lock digest.
-- Codex SDK/runtime/model and prompt digests.
+- Kernel revision/conformance result plus Codex SDK/runtime/model and prompt
+  digests.
 - Main-session continuation, compatible resume, and lost-session bootstrap
   results.
 - Embedding model, dimension, key restriction test, and disclosed processor.

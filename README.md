@@ -17,7 +17,11 @@ communication to another person, and appends useful memories after interactions.
 Conversation history is centralized independently of Discord. Raw memories are
 permanent. Summaries, embeddings, and indexes are rebuildable. One main Codex
 session normally continues across turns and restarts, while a provider-neutral
-context builder can reconstruct it from canonical messages and recalled memory.
+kernel reconstruction path can restore it from canonical messages and recalled
+memory.
+Jarvis is the first consumer of the independent `llm-agent-kernel` library:
+Jarvis chooses product context and policy, while the library supplies the
+bounded whole-step/drain machinery around `provider-runtime` and `llm-tools`.
 
 Jarvis owns exactly four application tables:
 
@@ -50,12 +54,14 @@ ADR that also updates every affected normative document in the same change.
 - Status: v1 specification frozen; implementation not started
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
-- Model provider: subscription-backed Codex through `provider-runtime`
+- Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
+  through `provider-runtime` and host tools through `llm-tools`
 
 ## Explicit non-goals
 
 - A general multi-user assistant platform
 - A visible society of named agents
+- General subagent delegation or a model-generated program runtime in v1
 - A project-management database or personal knowledge graph
 - A workflow-engine deployment
 - A mobile application in v1
@@ -75,9 +81,9 @@ These are accepted knowingly, not overlooked.
   [ADR 0008](docs/decisions/0008-embedding-source.md).
 - One subscription pool is a single point of total conversational outage, with
   no fallback by design.
-- Every foreground turn needs recall plus the main-agent call, while remembering
-  follows asynchronously. This is slower and more expensive than a stateless
-  chat response.
+- Every owner-authored foreground turn needs recall plus the main-agent call,
+  while remembering follows asynchronously. This is slower and more expensive
+  than a stateless chat response.
 - Conversation, approvals, and proactive notices interleave in one Discord
   channel. Multiple channels are deferred until that produces a measured
   problem.
@@ -87,6 +93,10 @@ These are accepted knowingly, not overlooked.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed.
+- Extracting the generic run loop adds a third pinned local-library boundary.
+  In return, crash/race semantics, strict protocol handling, and provider-neutral
+  reconstruction have one reusable conformance contract instead of becoming
+  Jarvis-specific orchestration.
 - Raw memory grows without bound and model-made memories can be wrong.
   Correction is by append; v1 deliberately has no erasure mechanism.
 - Discord deduplicates a stable per-message nonce only within a recent window.

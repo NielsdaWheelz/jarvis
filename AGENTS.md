@@ -19,10 +19,12 @@ These instructions govern all work in this repository.
 ## V1 constraints
 
 - Keep the system small and optimize for one user and one deployment.
-- Use Python 3.12, PostgreSQL, subscription-backed Codex through the local
-  `provider-runtime` library, and the local `llm-tools` kernel.
-- Do not add DBOS, Temporal, Restate, Celery, another workflow framework, an
-  agent framework, or speculative scale infrastructure.
+- Use Python 3.12, PostgreSQL, the pinned `llm-agent-kernel` library,
+  subscription-backed Codex through `provider-runtime`, and the `llm-tools`
+  tool-contract and execution library.
+- Do not add DBOS, Temporal, Restate, Celery, another workflow framework, a
+  general agent framework beyond the approved bounded kernel, or speculative
+  scale infrastructure.
 - Do not add personal-domain tables or memory categories, confidence fields,
   salience scores, temporal validity, or source-authority taxonomies.
 - Jarvis owns exactly four application tables: `message`, `memory_log`,
@@ -48,16 +50,29 @@ These instructions govern all work in this repository.
 - `message` is canonical conversation history; Discord and provider sessions are
   delivery/runtime surfaces.
 - Normally continue and resume one main Codex session, but treat its reference,
-  history, compaction, and cache state as disposable. A provider-neutral context
-  builder must reconstruct a fresh session from canonical messages plus recall.
-- Resume the main session only when its stable session-configuration digest
-  matches; the digest is rebuildable runtime state, not a table column or tool
-  version.
+  history, compaction, and cache state as disposable. Jarvis must supply the
+  product context selected from canonical messages, plus recall for owner input,
+  through the `llm-agent-kernel` reconstruction ports.
+- Resume the main session only when its immutable agent-definition fingerprint
+  matches; the fingerprint is rebuildable runtime state, not a table column or
+  tool version.
 - Recaller, rememberer, and dreamer invocations use fresh isolated sessions.
-- Persist and source-deduplicate owner input before processing it.
-- Set an owner message's `processed_at` only in the transaction that records its
-  durable turn conclusion. Never replay an interrupted turn that already created
-  an action.
+- The kernel owns the exact `say | call_tools | finish` model-step grammar,
+  validates an entire step before dispatching any call, and runs bounded drains.
+  `call_tools` carries no user-facing text; internal one-shot roles use only
+  non-effectful plans and closed structured `finish.result` contracts.
+  Definitions hold maximum capability envelopes; each run gets a frozen subset,
+  with proactive main turns narrowed to reads. Derive `interactive` for owner
+  and action-resolution rows and `proactive-read` for scheduled-wake rows; a
+  drain must never cross from one run class into the other.
+  `llm-tools` owns typed prompt sections and tool contracts/execution;
+  `provider-runtime` owns provider calls and native session lifecycle. Do not
+  duplicate those layers in Jarvis.
+- Persist and source-deduplicate owner input and required host-authored action
+  resolutions before processing them.
+- Set a waking message's `processed_at` only in the transaction that records its
+  durable turn conclusion. Never replay an interrupted owner turn that already
+  created an action.
 - Persist an assistant response before delivery. A null `source_message_id` is
   the outbound retry watermark; fill it with the adapter's ID after delivery or
   history reconciliation.
@@ -66,6 +81,8 @@ These instructions govern all work in this repository.
   reconcile bounded history first; an incomplete check leaves the row pending.
 - `remembered_at` distinguishes a completed rememberer run, including a valid
   decision to store nothing, from one that never completed.
+- Retry memory formation only for `role=owner`; host action-resolution and
+  scheduled-wake rows never enter the rememberer sweep.
 - Canonical message persistence is host bookkeeping and creates no `action`.
 
 ## Memory invariants
@@ -118,6 +135,13 @@ These instructions govern all work in this repository.
   complete tool-specific automatic reconciliation procedure is exhausted.
   Present the evidence to the owner; later evidence may resolve the outcome but
   may never trigger execution.
+- An action outcome that cannot return to its live originating model loop creates
+  one idempotent host-authored waking `message`, keyed by `action.id` plus
+  resolved status; do not reuse the turn-local model call ID as durable
+  correlation or rewrite an earlier uncertain resolution.
+- Host action-resolution and scheduled-wake inputs must produce a visible
+  `say` or deterministic host-rendered assistant fallback; never process them
+  silently. Due-wake input is rendered from immutable stored arguments.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
 - Only an owner-requested due `schedule_wake` starts a user-facing proactive
   turn. Do not add generic quiet hours, connector polling, or autonomous
@@ -126,6 +150,9 @@ These instructions govern all work in this repository.
 ## Engineering rules
 
 - Prefer plain functions, explicit data flow, and database transactions.
+- Jarvis owns product context selection, its kernel port adapters, Discord,
+  memory, connectors, policy, approvals, actions, scheduling, and credentials.
+  Do not move product authority into `llm-agent-kernel`.
 - Use one deployment-level PostgreSQL advisory lock and ordinary in-process
   scheduling; do not invent redundant workflow coordination.
 - Derived state must be safely rebuildable.

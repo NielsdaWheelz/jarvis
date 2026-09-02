@@ -29,8 +29,9 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A1.8** Startup refuses mismatched pinned Codex SDK/runtime versions.
 - [ ] **A1.9** A dated Slice 0 qualification report records the exact tool
       manifest and schemas, live authority classification, credential
-      ownership/handoff, Calendar ACLs, Gmail send reconciliation, Web canaries,
-      and credential-containment results; the owner signs it before Slice 1.
+      ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID
+      behavior, Gmail send reconciliation, Web canaries, and
+      credential-containment results; the owner signs it before Slice 1.
 
 ## A2. Discord and conversation history
 
@@ -53,10 +54,15 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A2.7** Every inbound owner message is stored before processing and one
       redelivered Discord event starts no second turn.
 - [ ] **A2.8** Every assistant response is inserted before Discord delivery and
-      receives a `source_message_id` after success; a null ID is the only
-      outbound retry watermark.
-- [ ] **A2.9** An undelivered assistant row is retried after restart. A duplicate
-      conversational message is tolerated, but no tool effect is duplicated.
+      receives a `source_message_id` after success or history reconciliation; a
+      null ID is the only outbound retry watermark. Its 20-character Discord
+      nonce is derived exactly from `message.id` as specified and is not stored.
+- [ ] **A2.9 — live.** Every Discord create and retry uses the same nonce with
+      `enforce_nonce=true`. Injecting a lost accepted response inside the nonce
+      window leaves exactly one visible message. A simulated delayed restart
+      outside that window finds the nonce in bounded history and performs no
+      second create; an incomplete history check leaves the row pending. Create
+      uses the qualified direct REST binding, not a private `discord.py` API.
 - [ ] **A2.10** Consecutive owner turns reuse one native main Codex session; an
       ordinary restart or compatible deployment resumes it; a changed
       session-configuration digest, deleted reference, invalid reference, or
@@ -83,7 +89,10 @@ in Slice 0.
 - [ ] **A3.2** Jarvis creates an email draft automatically.
 - [ ] **A3.3** Jarvis reads the live calendar.
 - [ ] **A3.4** Jarvis creates, edits, and removes a no-attendee event on a
-      verified owner-only calendar without approval.
+      verified owner-only calendar without approval. Create uses the exact
+      action-derived Google event ID from SPEC section 7.3; an injected lost
+      create response followed by reconciliation leaves exactly one matching
+      event.
 - [ ] **A3.5** A shared or unknown-ACL calendar write requires approval.
 - [ ] **A3.6** Adding or notifying another attendee requires approval.
 - [ ] **A3.7** A naive calendar datetime is rejected, and owner-local relative
@@ -192,10 +201,14 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.10** Duplicate Approve interactions execute one action once, while two
       deliberately created actions with identical arguments are not collapsed by
       a semantic intent key.
-- [ ] **A6.11** A process killed around dispatch leaves `executing`; startup
-      reconciliation resolves it before any repeat and no action lease is used.
-- [ ] **A6.12** A genuinely unknowable outcome becomes terminal `uncertain`, is
-      reported, and does not block a later identical new action.
+- [ ] **A6.11** A process killed around dispatch leaves `executing`; startup runs
+      the complete tool-specific reconciliation procedure before any repeat and
+      no action lease is used. A timeout alone authorizes neither retry nor
+      `uncertain`.
+- [ ] **A6.12** Only an outcome still unknowable after bounded automatic
+      reconciliation becomes terminal `uncertain`. Jarvis presents its evidence
+      and asks the owner to inspect provider state; it never automatically
+      re-executes and does not block a later identical new action.
 - [ ] **A6.13 — live.** An approved email produces exactly one recipient copy,
       including an injected ambiguous-timeout test reconciled through the Gmail
       draft/Sent behavior.
@@ -226,8 +239,9 @@ These criteria are **live** where they call Gmail or Discord.
       do not become executable; restored `executing` actions reconcile first.
 - [ ] **A7.5** Jarvis resumes Discord operation, boundedly catches up owner input,
       and retries pending assistant rows with null `source_message_id` after
-      restart. It resumes a configuration-compatible main session when possible
-      and cold bootstraps from canonical context when not.
+      restart using deterministic nonce/history reconciliation. It resumes a
+      configuration-compatible main session when possible and cold bootstraps
+      from canonical context when not.
 - [ ] **A7.6** A database backup contains no usable Google, Discord, Codex,
       Brave, or embedding credential.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private

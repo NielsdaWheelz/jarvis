@@ -11,15 +11,16 @@ not implementation suggestions.
 | [0004](0004-python-codex-and-tool-kernel.md) | Python, Codex, `provider-runtime`, and `llm-tools` | Accepted; session/context amended by 0012; portable-Web ownership amended by 0014 |
 | [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted; Discord tool scope superseded by 0011; public Web amended by 0014 |
 | [0006](0006-no-workflow-framework.md) | No v1 workflow framework | Accepted |
-| [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted; schemas superseded by 0010; session lifecycle amended by 0012 |
+| [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted; schemas superseded by 0010; session lifecycle amended by 0012; duplicate-delivery semantics superseded by 0016 |
 | [0008](0008-embedding-source.md) | Embedding through an embedding-scoped OpenAI credential | Accepted; amends 0004 |
 | [0009](0009-least-privilege-discord-and-host-rendered-approval.md) | Least-privilege Discord and a host-rendered approval preview | Accepted; Discord permissions superseded by 0011; approval remains |
-| [0010](0010-minimal-durable-state.md) | Minimal message and action durable state | Accepted; tool-name versioning superseded by 0013 |
+| [0010](0010-minimal-durable-state.md) | Minimal message and action durable state | Accepted; tool-name versioning superseded by 0013; duplicate-delivery cost superseded by 0016 |
 | [0011](0011-single-channel-discord.md) | One configured Discord channel, transport only | Accepted; supersedes Discord organization/tool scope in 0003, 0005, and 0009 |
 | [0012](0012-resumable-session-and-context.md) | Resumable main session over provider-neutral context | Accepted; amends 0004 and 0007 |
 | [0013](0013-unversioned-v1-tools.md) | Unversioned v1 tool names | Accepted; supersedes part of 0010 |
 | [0014](0014-minimal-v1-tool-catalog.md) | Exact minimal v1 tool catalog with portable Web tools | Accepted; supersedes parts of 0003 and 0004; amends 0005 |
 | [0015](0015-explicit-v1-proactivity.md) | User-facing proactivity only through requested wakes | Accepted |
+| [0016](0016-provider-native-idempotency.md) | Provider-native idempotency before terminal uncertainty | Accepted; supersedes delivery semantics in 0007 and 0010 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

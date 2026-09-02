@@ -16,6 +16,11 @@ Deliver:
   automatic/approval classification from SPEC section 7.3.
 - The configured Discord guild/owner/channel IDs, exact four bot permissions,
   minimal Gateway intents, and bounded history-catch-up behavior.
+- Live Discord confirmation that `enforce_nonce` returns the existing message
+  for the same recent bot nonce and that history exposes that nonce.
+- Qualification of `discord.py` 2.7.1 for Gateway/interactions and direct
+  `httpx` Discord REST v10 Create Message for enforced nonces, with no private
+  client-library API.
 - One owning process for each reused credential and an explicit Ariel/Jarvis
   handoff or local-interface plan.
 - Credential discovery from Ariel's local operator configuration first; if a
@@ -33,7 +38,8 @@ Deliver:
 - A restricted embedding API key plus a live negative generative-call test.
 - Live Gmail checks for draft-send and reconciliation behavior on new and reply
   threads.
-- The verified owner-only Calendar ID set.
+- The verified owner-only Calendar ID set plus a live client-generated event-ID,
+  duplicate-response, and get-by-ID check.
 - A dated, sanitized qualification report carrying the owner's explicit
   sign-off after review of the observed results.
 
@@ -54,6 +60,11 @@ Deliver:
 - Bounded owner-message catch-up after downtime.
 - Persist-before-send assistant messages using null `source_message_id` as the
   delivery watermark.
+- Deterministic 20-character Discord nonce derivation, `enforce_nonce=true` on
+  every create, same-nonce retry, and bounded history reconciliation before a
+  delayed retry.
+- Narrow typed Discord REST v10 Create Message binding over `httpx`; retain
+  `discord.py` for Gateway/interactions.
 - `processed_at` turn completion and interrupted-turn recovery.
 - Prompt typing state, stop/pause/resume, and no streaming.
 - Provider-neutral context package with continuation and bootstrap projections.
@@ -65,8 +76,9 @@ Deliver:
 - Deployment ownership lock and in-process provider mutex.
 
 Exit: natural conversation in one channel survives compatible session resume
-and deliberate session loss, a simulated outbound-delivery failure is retried,
-and an interrupted effect-free turn is safely replayed.
+and deliberate session loss, lost Discord acknowledgement and delayed-restart
+fixtures each leave exactly one visible response, and an interrupted effect-free
+turn is safely replayed.
 
 ## Slice 2: read tools
 
@@ -128,12 +140,15 @@ Deliver:
 - `gmail.create_draft` and `gmail.update_draft` bindings.
 - `calendar.create_event`, `calendar.update_event`, and
   `calendar.delete_event` bindings.
+- Action-derived Calendar create IDs plus get-and-compare reconciliation for
+  create/update/delete ambiguity.
 - Automatic/approval classification owned by host code.
 - Owner-requested `schedule_wake` with closed create/cancel variants, exact
   due-time and restart behavior; no generic quiet hours, connector polling, or
   autonomous inbox/calendar monitor.
-- Bounded external timeouts and startup reconciliation of `executing` actions,
-  without leases, attempt counters, or blind retry.
+- Bounded external timeouts and startup reconciliation of `executing` actions;
+  `uncertain` only after the complete tool-specific automatic procedure is
+  exhausted, without leases, attempt counters, or blind retry.
 - Interrupted turns that already created an action close without model replay.
 
 Exit: Jarvis performs a draft, personal calendar change, and scheduled proactive
@@ -152,6 +167,8 @@ Deliver:
 - Owner/guild/channel/approval-message validation.
 - `approval_message_id`, atomic claim, duplicate-click protection, and
   Gmail-specific reconciliation.
+- Bounded Gmail draft/Sent re-reads before terminal uncertainty, with evidence
+  presented for owner inspection.
 - Free-form approval rejection and terminal uncertainty reporting.
 
 Exit: Deny sends nothing; Approve sends the exact rendered email once; a shared

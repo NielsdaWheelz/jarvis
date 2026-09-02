@@ -146,16 +146,40 @@ response, finishes silently, or persists
 an approval proposal. The host sets `processed_at` in the same transaction as
 that conclusion.
 
-Outbound Jarvis messages use simple at-least-once delivery:
+Outbound Jarvis messages use a persistent, provider-deduplicated outbox:
 
 1. Insert the assistant message with `source_message_id = NULL`.
-2. Deliver it through Discord.
-3. Store the Discord message ID in `source_message_id`.
-4. Retry assistant rows whose `source_message_id` is still null after restart.
+2. Derive its Discord nonce as the unpadded base64url encoding of the first 15
+   bytes of `SHA-256(UTF-8("jarvis-discord-v1:" + canonical_text(message.id)))`.
+   This is a deterministic 20-character value and is not stored separately.
+3. Create the Discord message with that nonce and `enforce_nonce = true`.
+4. Store the returned Discord message ID in `source_message_id`.
+5. Reuse the identical nonce for every retry.
 
-A crash after Discord accepts the message but before step 3 may produce duplicate
-conversational text. This is accepted in v1. It MUST NOT duplicate an external
-tool effect or approval-bearing action.
+In these derivations, `canonical_text(id)` means the lowercase, whitespace-free
+PostgreSQL text representation of the persisted ID.
+
+The qualified `discord.py` 2.7.1 public send API accepts `nonce` but does not
+expose `enforce_nonce`. V1 therefore uses one small host-owned `httpx` binding to
+Discord REST v10 for Create Message. Gateway ingress, typing, and component
+interactions remain on `discord.py`; Jarvis does not call private `discord.py`
+internals.
+
+Discord enforces nonce uniqueness for the same author only within its recent
+deduplication window. Before a delayed or post-restart retry that may fall
+outside that window, the adapter MUST boundedly read channel history after the
+nearest known preceding Discord message and look for its own message with the
+same nonce. With no preceding anchor, it scans backward no earlier than the
+pending row's `created_at`, subject to the same bound. If found, it stores that
+Discord ID without sending. If the required interval cannot be checked
+completely, the row remains pending; it is not blindly resent. If the check
+completes without a match, the adapter sends with the same enforced nonce.
+
+A null `source_message_id` remains the only outbound retry watermark. The nonce
+derives from existing state, so this rule adds no column. V1 does not accept a
+known duplicate-delivery path; a Discord service defect or inconsistent history
+remains outside the guarantee. External tool effects and approval-bearing
+actions have their independent action-level barriers.
 
 On startup, an owner row with `processed_at = NULL` and no action originating
 from it MAY be replayed. If an action already originates from the interrupted
@@ -292,18 +316,23 @@ it to `cancelled`. The owner may also cancel a queued scheduled action.
 The deployment-level lock guarantees that only one Jarvis process can execute
 actions. An external request has a bounded timeout. After a timeout, or on
 startup when an action remains `executing`, the host uses tool-specific evidence
-to reconcile it. It may return the action to `queued` only when evidence proves
-the effect did not occur and repeating it is safe. Otherwise it records
-`succeeded`, `failed`, or terminal-for-execution `uncertain`. There is no blind
-retry, attempt counter, or execution lease.
+and bounded provider re-reads to reconcile it automatically. It may return the
+action to `queued` only when evidence proves the effect did not occur and
+repeating it is safe. It records `succeeded` or `failed` when provider evidence
+establishes the outcome. Only after the tool-specific reconciliation procedure
+is exhausted and available evidence genuinely cannot decide does it record
+terminal-for-execution `uncertain`. A timeout alone is never evidence for a
+retry or for uncertainty. There is no blind retry, attempt counter, or execution
+lease.
 
 Repeated calls with identical arguments are permitted. Duplicate prevention
 comes from source-message deduplication, atomic action state transitions, the
 action ID as a provider idempotency key where supported, and tool-specific
 reconciliation—not a guessed semantic intent key.
 
-Later evidence MAY amend the recorded result of an uncertain action and mark it
-succeeded or failed, but it MUST never cause automatic re-execution.
+An uncertain result includes the safe evidence Jarvis has and asks the owner to
+inspect the provider state. Later evidence MAY amend the recorded result and
+mark it succeeded or failed, but it MUST never cause automatic re-execution.
 
 ### 5.5 Gmail send
 
@@ -316,12 +345,14 @@ Gmail send uses the provider's draft flow:
 4. Immediately before sending, fetch the live draft and require it to match the
    snapshot exactly; a mismatch fails the action and requires a new proposal.
 5. Send by `draftId` after approval.
-6. On an ambiguous result, check whether the draft remains and inspect Sent mail
-   before deciding whether a repeat is proved safe.
+6. On an ambiguous result, perform bounded re-reads: check whether the draft
+   remains and inspect Sent mail using the known identity before deciding whether
+   a repeat is proved safe.
 
 The exact reconciliation behavior for new and existing threads MUST be verified
-against the live integration in Slice 0. If reconciliation cannot establish an
-outcome, the action becomes terminal `uncertain` and Jarvis tells the owner.
+against the live integration in Slice 0. Only if the complete reconciliation
+procedure cannot establish an outcome does the action become terminal
+`uncertain`; Jarvis presents its evidence and asks the owner to inspect Gmail.
 
 ## 6. Memory
 
@@ -571,6 +602,17 @@ identity, and the exact To/Cc/Bcc, subject, and body snapshot shown for approval
 Immediately before send, the host verifies that the live draft still matches
 that snapshot; a mismatch fails the action and requires a new proposal.
 
+For `calendar.create_event`, the host derives the Google event ID as the first
+32 lowercase hexadecimal characters of
+`SHA-256(UTF-8("jarvis-calendar-v1:" + canonical_text(action.id)))`. The
+resulting 128-bit identifier satisfies Google's event-ID alphabet and is neither
+model-authored nor stored as a new field. A timeout or provider duplicate
+response is reconciled by reading that exact event ID and comparing the
+binding's normalized writable event projection with the immutable action
+arguments. A match is success; a conflict is never overwritten or retried
+blindly. Calendar update and delete reconcile through their known provider event
+ID and live state under the same rule.
+
 `schedule_wake` uses one closed tagged schema: create with an exact
 `execute_after` instant and instruction, or cancel with the target queued wake's
 action ID. Cancellation cannot target an executing or terminal action.
@@ -644,8 +686,10 @@ lock holds.
 - Database: PostgreSQL with full-text search and pgvector.
 - HTTP/schema: FastAPI and Pydantic v2 when a new HTTP surface is needed.
 - Persistence: Psycopg 3, SQLAlchemy 2, and Alembic.
-- Discord: reuse the working single-channel transport; prefer `discord.py` for
-  new Gateway code if the existing integration has no established library.
+- Discord: reuse the working single-channel transport; use `discord.py` 2.7.1
+  for Gateway and interactions, and a narrow `httpx` Discord REST v10 Create
+  Message binding for `enforce_nonce` until a qualified public client API exposes
+  it.
 - Google: reuse the working Gmail, Calendar, Maps, OAuth, and client stack.
 - Public Web: reuse `llm-tools` `web.search` with its Brave adapter and
   `web.read` with its bounded safe reader.
@@ -731,8 +775,9 @@ memory field requires an ADR.
 - `processed_at` is set on an owner row only when its response, silent finish, or
   approval proposal is durably recorded.
 - Assistant messages are inserted before delivery. A null `source_message_id` is
-  the outbound retry watermark; a successful adapter delivery fills it with the
-  source platform's ID.
+  the outbound retry watermark; a successful adapter delivery or history
+  reconciliation fills it with the source platform's ID. The Discord nonce is
+  deterministically derived from `message.id` and needs no column.
 - `remembered_at` records completion of memory formation for an owner turn,
   including a successful decision to write no memories.
 - `trace` is bounded JSON on the owner row containing only recall candidate IDs,
@@ -761,7 +806,10 @@ approval, execution, reconciliation, and receipts.
 - `tool_name` is a stable canonical identifier such as `gmail.send_draft`; v1
   does not require version suffixes.
 - `tool_name`, `arguments`, and `origin_message_id` are immutable after insert.
-- `arguments` is the sole source for approval rendering and execution.
+- `arguments` is the sole source of the model-proposed and user-visible effect
+  payload used for approval rendering and execution. `id` is the only additional
+  input to a deterministic provider effect identity such as the Calendar event
+  ID; it cannot change the approved payload.
 - Host code resolves the current declaration and validates stored arguments
   again before approval rendering and immediately before execution.
 - `execute_after` is nullable; null means immediately eligible, while a timestamp
@@ -814,9 +862,10 @@ Slice 0 records for each reused connector and the Web family:
   bindings.
 
 The qualification report MUST also contain the exact v1 tool manifest from
-section 7.3, live authority classification, Calendar ACL result, Gmail
-draft/send/reconciliation findings, credential ownership and handoff plan, and
-proof that Codex cannot access connector, Brave, or embedding credentials.
+section 7.3, live authority classification, Discord enforced-nonce/history
+findings, Calendar ACL and client-ID findings, Gmail draft/send/reconciliation
+findings, credential ownership and handoff plan, and proof that Codex cannot
+access connector, Brave, or embedding credentials.
 Implementation MUST NOT proceed beyond Slice 0 until the owner signs off that
 report. Authorization to perform Slice 0 is not acceptance of findings that have
 not yet been observed.
@@ -880,7 +929,8 @@ Frozen decisions:
 - One visible Jarvis and natural Discord interaction.
 - One configured Discord channel with no v1 server-organization tools.
 - Exactly four application tables.
-- Central conversation history with at-least-once conversational delivery.
+- Central conversation history with a persistent, provider-deduplicated Discord
+  outbox and delayed history reconciliation.
 - A provider-neutral context builder; reusable but non-canonical provider
   sessions.
 - Existing Google and Discord integrations are reused.

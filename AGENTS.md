@@ -33,6 +33,9 @@ These instructions govern all work in this repository.
 - Discord v1 is exactly one configured guild channel. Do not add Discord
   threads, direct messages, channel organization, reactions, broad message
   management, or model-callable Discord tools.
+- Use `discord.py` 2.7.1 for Gateway/interactions and the narrow host-owned
+  `httpx` REST v10 Create Message binding for enforced nonces. Do not depend on
+  private `discord.py` internals.
 - Reuse the working Gmail, Calendar, Maps, and Discord integrations and their
   authorizations. Audit and adapt public surfaces; do not copy Ariel agent,
   orchestration, prompt, product-domain, or memory implementation.
@@ -56,9 +59,11 @@ These instructions govern all work in this repository.
   durable turn conclusion. Never replay an interrupted turn that already created
   an action.
 - Persist an assistant response before delivery. A null `source_message_id` is
-  the outbound retry watermark; fill it with the adapter's ID after delivery.
-- Conversational delivery is at least once. A rare duplicate response is
-  accepted; duplicate external effects are not.
+  the outbound retry watermark; fill it with the adapter's ID after delivery or
+  history reconciliation.
+- Derive the Discord nonce from `message.id` exactly as SPEC section 4.3 states,
+  set `enforce_nonce=true`, and reuse it for every retry. A delayed retry must
+  reconcile bounded history first; an incomplete check leaves the row pending.
 - `remembered_at` distinguishes a completed rememberer run, including a valid
   decision to store nothing, from one that never completed.
 - Canonical message persistence is host bookkeeping and creates no `action`.
@@ -107,8 +112,12 @@ These instructions govern all work in this repository.
 - The single deployment owner reconciles rows left `executing` after a timeout or
   restart. Do not add action leases, retry counters, intent keys, input digests,
   or parallel contract-revision metadata without measured need and a new ADR.
-- `uncertain` is terminal and non-retryable. Report it to the owner; later
-  evidence may resolve its recorded outcome but may never trigger execution.
+- Use `action.id` as deterministic provider effect identity where the provider
+  supports it, including Calendar create IDs.
+- `uncertain` is terminal and non-retryable, and is allowed only after the
+  complete tool-specific automatic reconciliation procedure is exhausted.
+  Present the evidence to the owner; later evidence may resolve the outcome but
+  may never trigger execution.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
 - Only an owner-requested due `schedule_wake` starts a user-facing proactive
   turn. Do not add generic quiet hours, connector polling, or autonomous

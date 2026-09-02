@@ -1,6 +1,7 @@
 # ADR 0010: Keep only irreducible message and action state
 
-- Status: Accepted; mandatory tool-name versioning superseded by ADR 0013
+- Status: Accepted; mandatory tool-name versioning superseded by ADR 0013;
+  accepted duplicate-delivery cost superseded by ADR 0016
 - Date: 2026-09-01
 - Amends: [ADR 0001](0001-small-personal-agent.md) trace location and shape
 - Supersedes: the message/action schemas and lifecycle in

@@ -89,9 +89,16 @@ These are accepted knowingly, not overlooked.
   context bootstrap, and no cost saving is guaranteed.
 - Raw memory grows without bound and model-made memories can be wrong.
   Correction is by append; v1 deliberately has no erasure mechanism.
-- Conversational Discord delivery is at least once, so a crash at the delivery
-  boundary can repeat a response. Effectful actions remain independently
-  idempotent.
+- Discord deduplicates a stable per-message nonce only within a recent window.
+  Jarvis reconciles delayed retries through channel history; if that check is
+  unavailable, delivery waits rather than risking a duplicate. A Discord service
+  defect or inconsistent history remains outside Jarvis's guarantee.
+- Discord transport uses `discord.py` for Gateway/interactions and one direct
+  REST create binding because the qualified client does not expose enforced
+  nonces; this small split remains until its public API can replace the binding.
+- Some providers cannot prove whether every timed-out external effect committed.
+  Jarvis exhausts provider-specific automatic reconciliation first, then records
+  terminal `uncertain` and asks the owner to inspect rather than retrying blindly.
 - A one-user system has no second reviewer. The owner is simultaneously the
   builder, the auditor, and the beneficiary, which instrumentation mitigates and
   nothing removes.

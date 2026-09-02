@@ -65,6 +65,10 @@ The adapter:
 
 The adapter renders model output as ordinary text/Markdown. It may render links,
 but the bot lacks `EMBED_LINKS`, so Discord does not automatically unfurl them.
+Gateway ingress, typing, and component interactions use `discord.py`. Outbound
+Create Message uses a narrow host-owned Discord REST v10 `httpx` binding because
+the qualified `discord.py` 2.7.1 send API does not expose `enforce_nonce`; no
+private library API is used.
 
 ## Message lifecycle
 
@@ -82,15 +86,19 @@ Discord event
 ```text
 validated say or host-rendered response
 → insert assistant message with source_message_id null
-→ send to Discord
+→ derive deterministic nonce from message.id
+→ reconcile delayed retry through bounded Discord history when required
+→ create with the same nonce and enforce_nonce=true
 → store Discord message ID as source_message_id
 ```
 
 On startup, the adapter retries assistant messages whose `source_message_id` is
-null.
-Conversational delivery is at-least-once. A rare duplicate after an ambiguous
-Discord send is acceptable; losing or duplicating an effectful tool action is
-not.
+null. A normal retry reuses the same enforced nonce. A delayed retry first reads
+history after the nearest known preceding Discord ID and adopts a matching bot
+message. With no anchor it scans backward to the pending row's creation time.
+An interval that cannot be checked completely leaves the row pending rather than
+risking a duplicate outside Discord's recent nonce window. The nonce is derived
+from the internal message ID and requires no durable field.
 
 Approval messages follow the same persistence rule. The action's
 `approval_message_id` references the internal message row; that row acquires the
@@ -276,9 +284,11 @@ arguments.
 
 Execution claims commit before the external call. There is no action lease: one
 deployment process owns all work. A bounded request timeout and startup scan
-reconcile any row left `executing` using tool-specific evidence. Only proof that
-the effect did not happen can return it to `queued`; ambiguous outcomes become
-`uncertain`.
+reconcile any row left `executing` using tool-specific evidence and bounded
+provider re-reads. Only proof that the effect did not happen and a repeat is safe
+can return it to `queued`. `uncertain` is written only after the complete
+automatic reconciliation procedure is exhausted and the evidence still cannot
+decide; a timeout alone is insufficient.
 
 `tool_name`, `arguments`, and `origin_message_id` never change after insertion.
 V1 tool names have no mandatory version suffix. The executor and approval
@@ -307,6 +317,21 @@ that the entire preceding payload is what Approve executes.
 
 There is no model preview field and no stored preview column.
 
+## Calendar effect identity and recovery
+
+`calendar.create_event` derives a provider event ID from the action ID using the
+fixed algorithm in SPEC section 7.3. The binding supplies that ID on the first
+insert and every reconciliation; the model cannot select it. A timeout or
+duplicate response triggers `events.get` for that exact ID. The binding compares
+a normalized projection of writable event fields with the stored action
+arguments: a match proves success, while a conflict is never overwritten or
+blindly retried.
+
+Calendar update and delete already target a provider event ID. Reconciliation
+reads that resource: intended state proves success, proved unchanged state may
+permit a safe retry, and conflicting or unknowable state exhausts to
+`uncertain`.
+
 ## Gmail send recovery
 
 Email is prepared as a Gmail draft. Its `draftId`, thread identity, and exact
@@ -317,8 +342,10 @@ sending and requires a new proposal. After an ambiguous send:
 1. Check whether the draft still exists.
 2. If absent, inspect Sent mail using the available thread, recipients, subject,
    and provider response evidence.
-3. Repeat only when evidence proves the send did not occur and repeating is safe.
-4. Otherwise record terminal `uncertain` and tell the owner.
+3. Perform the binding's bounded re-read sequence before deciding.
+4. Repeat only when evidence proves the send did not occur and repeating is safe.
+5. Otherwise record terminal `uncertain`, present the evidence, and ask the owner
+   to inspect Gmail.
 
 Slice 0 validates the exact behavior of the existing Gmail integration for new
 and reply threads.
@@ -385,12 +412,15 @@ Each path is an ordinary function over explicit database state.
 - Dreamer failure: retain raw memory and existing summaries.
 - Embedding failure: leave the vector null; lexical recall continues.
 - Discord delivery failure: retain the assistant row with null
-  `source_message_id` for retry.
+  `source_message_id`; retry with the same enforced nonce, using history
+  reconciliation first when the recent nonce window may have elapsed.
 - Approval-rendering failure: create no functional Approve component.
 - Interrupted turn with no effect: replay; interrupted turn with an originating
   action: resume/reconcile without model replay.
 - Action left `executing`: reconcile before any repeat.
-- Unprovable external outcome: record terminal `uncertain` and tell the owner.
+- External outcome still unprovable after complete automatic reconciliation:
+  record terminal `uncertain`, present the evidence, and ask the owner to inspect
+  provider state.
 
 ## Inspection
 

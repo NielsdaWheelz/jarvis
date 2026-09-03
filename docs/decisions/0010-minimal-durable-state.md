@@ -4,7 +4,8 @@
   idempotency amended by ADR 0016; cross-run and recorder facts amended by
   [ADR 0018](0018-serial-kernel-and-bounded-recovery.md); lineage and finite
   attempt semantics amended by
-  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md); durable parking
+  amended by [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
 - Date: 2026-09-01
 - Amended: 2026-09-02
 - Supersedes: the message/action schemas and lifecycle in
@@ -18,17 +19,19 @@ machinery. Jarvis has one user, one process, one deployment ownership lock, and
 tool-specific reconciliation; those fields created invalid combinations without
 resolving whether an external effect committed.
 
-The later kernel boundary review found three different facts that are not
+The later kernel boundary and implementation reviews found four facts that are not
 reconstructable after a crash:
 
 1. How many times one poison message has entered provider work.
 2. Which exact tool/policy/plan/effect/replay/input contract occupied a durable
    write position.
 3. How many actual executor entries occurred after evidence-authorized recovery.
+4. Whether a configuration-defective input is in operator quarantine rather
+   than ordinarily pending.
 
-Those facts earn one message counter, one closed action JSON value, and one
-action counter. They do not earn a workflow engine or general tool-version
-registry.
+Those facts earn one message counter, one message park timestamp, one closed
+action JSON value, and one action counter. They do not earn a workflow engine
+or general tool-version registry.
 
 The rule is:
 
@@ -51,14 +54,24 @@ message
   created_at
   processed_at
   processing_attempts
+  processing_parked_at
   remembered_at
   trace
 ```
 
 An owner/host waking row starts with null `processed_at` and zero
-`processing_attempts`. The latter increments when an admitted claim begins
-provider work. It records no retry policy; crossing the configured ceiling
-stops or parks work before provider I/O.
+`processing_attempts`. After rolling-capacity preflight, the latter increments
+atomically when the checkpoint port acquires a claim. It conservatively counts
+a crash or configuration defect after claim and records no retry policy;
+crossing the configured ceiling stops work before provider I/O. Configuration
+defects use the separate park.
+
+`processing_parked_at` is null for ordinary work. A configuration defect stamps
+it through the kernel checkpoint `park` transaction; claim and recovery scans
+exclude it, and any parked row opens the single cognitive circuit until an
+operator corrects the defect and explicitly clears the timestamp. A bounded
+reason code may accompany it in `trace`, but diagnostic JSON is not control
+state.
 
 An assistant row starts with null `source_message_id`; successful delivery or
 history reconciliation fills it. That single field is the retry watermark, so
@@ -136,7 +149,7 @@ Benefits:
 
 Costs:
 
-- Three columns survived the simplification pass.
+- Four columns survived the simplification pass.
 - The JSON contract must have one closed host schema and migration discipline.
 - `trace` is bounded and not a complete execution log.
 - Multi-process execution would require a new ownership decision.
@@ -144,6 +157,8 @@ Costs:
 ## Rejected alternatives
 
 - Remove `processing_attempts`: a crash loop can renew provider budgets.
+- Remove `processing_parked_at` or hide it in `trace`: configuration poison
+  becomes indistinguishable from runnable work after restart.
 - Derive the occupied execution contract from current code: deployment drift can
   reinterpret a pending write.
 - Reconstruct executor count from logs: ordinary logs are non-canonical and

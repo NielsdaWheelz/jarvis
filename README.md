@@ -54,7 +54,7 @@ ADR that also updates every affected normative document in the same change.
 
 ## Status
 
-- Baseline date: 2026-09-02
+- Baseline date: 2026-09-03
 - Status: v1 specification frozen; Slice 0 qualification in progress
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
@@ -100,10 +100,12 @@ These are accepted knowingly, not overlooked.
   credentials or cookies and do not provide authenticated or JavaScript browsing.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
-  context bootstrap, and no cost saving is guaranteed.
+  context bootstrap, and no cost saving is guaranteed. Rotating or discarding
+  Jarvis's local reference does not prove deletion of provider-retained session
+  data.
 - Extracting the generic run loop adds a third pinned local-library boundary.
-  It also requires a small `llm-tools` public-API upgrade before implementation.
-  In return, crash/race semantics, strict protocol handling, provider
+  It also required a small `llm-tools` public-API upgrade. In return,
+  crash/race semantics, strict protocol handling, provider
   containment, and reconstruction have one reusable conformance contract instead
   of becoming Jarvis-specific orchestration.
 - A valid answer is not discarded when an ordinary follow-up races with final
@@ -112,11 +114,16 @@ These are accepted knowingly, not overlooked.
 - V1 serializes model tool calls and has no model-authored progress narration.
   This trades some read latency for a much smaller partial-effect and recovery
   state machine; Discord typing state indicates activity.
-- Three durability fields survive the simplification pass:
-  `message.processing_attempts` bounds poison recovery, while
+- Four durability fields survive the simplification pass:
+  `message.processing_attempts` bounds poison recovery,
+  `message.processing_parked_at` makes operator quarantine durable, while
   `action.execution_contract` and `action.attempts` make an occupied write
   position replayable and auditable. They do not create a general workflow or
   tool-version system.
+- Kernel time is cooperative at safe boundaries, not an end-to-end response
+  deadline, and its context-byte limit covers newly rendered material rather
+  than all provider-native history and overhead. Jarvis separately monitors and
+  qualifies those omitted surfaces instead of claiming a stronger bound.
 - Multi-message effects carry immutable claim/checkpoint/input/step lineage in
   that existing execution-contract JSON. This is more metadata per action, but
   avoids replaying the wrong subset of a turn after mid-loop steering.

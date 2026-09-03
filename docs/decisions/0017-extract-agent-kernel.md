@@ -4,7 +4,9 @@
   2026-09-02 and durable Jarvis mapping recorded by
   [ADR 0018](0018-serial-kernel-and-bounded-recovery.md); final dispatch and
   admission seams amended by
-  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md); final implemented
+  release boundary pinned by
+  [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md),
   [ADR 0007](0007-central-messages-and-unified-actions.md), and
@@ -26,8 +28,9 @@ do not belong in Jarvis v1.
 The first extracted spec got the interior right but described seams the pinned
 libraries did not have, allowed unsafe multi-call/parallel behavior, and bounded
 only one run while cleanup could start unlimited successors. Those errors are
-corrected and seam-hardened in kernel commit
-`49f64db1cc364facec57bac05a8b183f88079331`.
+corrected in specification commit
+`49f64db1cc364facec57bac05a8b183f88079331`. ADR 0020 pins the later implemented
+and published release.
 
 ## Decision
 
@@ -129,8 +132,9 @@ Costs:
 
 ## Migration and acceptance
 
-Implementation has not started. Slice 0 upgrades `llm-tools`, pins all three
-libraries, and qualifies exact public APIs before Slice 1. Jarvis adds the three
-columns authorized by ADR 0018 but no fifth application table. Acceptance A1.2,
+The kernel and required `llm-tools` upgrade are implemented and published. Slice
+0 still qualifies the Jarvis-owned durable adapters and live provider boundary
+before Slice 1. Jarvis adds the fields authorized by ADRs 0018 and 0020 but no
+fifth application table. Acceptance A1.2,
 A1.5, A1.9, A2.10–A2.13, A4.1, A4.4–A4.12, A6.10–A6.15, and A7.8–A7.10 cover
-the corrected boundary.
+the corrected boundary; ADR 0020 extends recovery coverage through A7.12.

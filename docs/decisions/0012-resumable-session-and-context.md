@@ -1,7 +1,8 @@
 # ADR 0012: Reuse one main Codex session over provider-neutral context
 
 - Status: Accepted; implementation ownership, polling, admission, and isolated
-  write-gate role amended by ADRs 0017–0019
+  write-gate role amended by ADRs 0017–0019; explicit compatibility revision
+  amended by [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md) and the provider-session
   lifecycle in [ADR 0007](0007-central-messages-and-unified-actions.md)
@@ -43,10 +44,14 @@ in atomically replaced private runtime state outside PostgreSQL. The fingerprint
 covers stable instructions, model/reasoning/output contract,
 credential-profile identity, SDK/runtime revisions, cwd/directories/MCP
 configuration, `PermissionPolicy`, native options, and the session capability
-envelope. Secret bytes and per-run subset plans are excluded. This runtime state
-is non-canonical, contains no conversation bodies or credentials, and need not
-be backed up. A fingerprint mismatch or resume failure discards the reference
-and starts a new session.
+envelope. It also covers the required `session_compatibility_revision`, derived
+from a checked-in role/application session-contract revision and the exact
+kernel, provider-runtime, and llm-tools pins. This owner-controlled value rotates
+when a semantic compatibility change is not otherwise serialized in the
+definition. Secret bytes, current input, time, and per-run subset plans are
+excluded. This runtime state is non-canonical, contains no conversation bodies
+or credentials, and need not be backed up. A fingerprint mismatch or resume
+failure discards the reference and starts a new session.
 
 Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
 isolated sessions. They do not share the main session or one another's history.

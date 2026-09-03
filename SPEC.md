@@ -202,10 +202,12 @@ known duplicate-delivery path; a Discord service defect or inconsistent history
 remains outside the guarantee. External tool effects and approval-bearing
 actions have their independent action-level barriers.
 
-On startup, an owner row with `processed_at = NULL` and no action whose immutable
-execution-contract lineage contains that row MAY be reclaimed only while its
-durable `processing_attempts` remains within the configured ceiling and rolling
-admission permits more work. If any action records the row among its admitted
+On startup, an owner row with `processed_at = NULL`,
+`processing_parked_at = NULL`, and no action whose immutable execution-contract
+lineage contains that row MAY be reclaimed only while its durable
+`processing_attempts` remains within the configured ceiling and rolling
+admission permits more work. A parked row is operator-only and never reclaimed
+automatically. If any action records the row among its admitted
 input IDs, the host MUST reconcile or resume that action and MUST NOT replay the
 model turn automatically. It closes exactly the execution contract's admitted
 input rows through its stored checkpoint and persists a host-authored
@@ -691,6 +693,11 @@ it.
 - Kernel revision, model IDs, reasoning levels, prompts, SDK/runtime revisions,
   output contract, `PermissionPolicy`, cwd scope, MCP configuration, and native
   options are pinned per deployment and covered by the definition fingerprint.
+- Every definition supplies a non-empty `session_compatibility_revision`
+  derived from a checked-in canonical manifest containing its role ID, an
+  owner-bumped Jarvis session-contract revision, and the exact
+  `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
+  excludes secrets, input, host time, and per-run subset plans.
 - Upgrades pass recorded replay and containment tests before activation.
 - Quota exhaustion produces a fixed host-authored notice and no provider change.
 
@@ -699,8 +706,10 @@ kernel coordinates provider lifecycle through an opaque `SessionRefPort`; its
 Jarvis adapter persists the `AgentSessionRef` and immutable agent-definition
 fingerprint in private, atomically replaced runtime state outside PostgreSQL.
 The fingerprint covers every session-scoped semantic and containment value,
-including the values listed above; credential secret bytes and per-run subset
-plans do not rotate the session.
+including the values listed above and the owner-controlled compatibility
+revision. A change to any manifest input rotates the revision. Credential secret
+bytes, current input, host time, and per-run subset plans do not rotate the
+session.
 `provider-runtime` performs the actual start, continue, resume, and discard. An
 ordinary restart or compatible deployment attempts resume. A fingerprint
 mismatch, invalid reference, or resume failure starts a fresh session. The
@@ -714,6 +723,9 @@ speculatively advanced reference before replay unless alignment can be proved;
 cold bootstrap is always the safe fallback. For a valid terminal model step,
 the reference advances before the canonical conclusion/checkpoint transaction,
 so a crash cannot commit history while leaving the next continuation behind it.
+Discarding, replacing, or rotating a local reference does not assert deletion
+of provider-retained native history; provider account retention remains a
+separate third-party property.
 
 Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
 isolated sessions. They MUST NOT share the main session or one another's
@@ -784,16 +796,42 @@ canonical null-`processed_at` rows, so correctness does not depend on an atomic
 transaction spanning PostgreSQL and an in-process wake signal. Cleanup `release`
 never arms a successor by itself.
 
+A kernel `park` for a configuration defect is different from cleanup release.
+The checkpoint transaction sets `processing_parked_at` on every claimed,
+unprocessed row, records only a bounded reason code in `trace`, and ends claim
+ownership. Claim and startup/recovery scans exclude parked rows. Because v1 has
+one application thread, any parked row opens the cognitive circuit for all new
+cognitive work; delivery and operator repair remain available. Only an operator
+who has corrected the defect clears the timestamp. Mandatory reconciliation of
+an already-started external effect also remains available. The PostgreSQL row
+is the single canonical circuit state, avoiding a transaction across the database and
+the private runtime journal. Release is a local host maintenance operation, not
+a Discord or model tool. It runs with the service stopped or while holding the
+deployment ownership lock, names explicit message IDs, and does not reset
+attempt history.
+
 Protocol exhaustion, kernel-budget exhaustion, subscription quota exhaustion,
 owner stop, and repeated provider failure persist a deterministic host-authored
 stopped conclusion and consume the claimed input. A process interruption may
 leave it unconsumed; the next successful claim increments
-`processing_attempts`, and exceeding the configured ceiling stops or parks it
-before provider I/O. Configuration defects park the input and pause cognitive
+`processing_attempts`, and exceeding the configured ceiling stops it before
+provider I/O. The increment occurs atomically when a claim is acquired after
+the capacity preflight; it conservatively counts a crash or configuration
+failure after claim. Configuration defects park the input and pause cognitive
 work for operator correction rather than entering a retry loop.
 
+After Jarvis selects and the kernel validates the claimed frozen plan, Jarvis's
+`ToolBudgetFactoryPort` constructs one fresh `BudgetState` from that plan. Its
+limits MUST exactly equal `plan.profile.run_limits`; it MUST NOT reuse state,
+select policy, or inspect input. A mismatch parks a thread claim or rejects an
+isolated one-shot before rendering, admission, provider I/O, or tool I/O. Every
+selectable full Main, read-only proactive, memory-read, and empty gate plan is
+qualified. All budget mutation remains on the dependency's async durable path.
+
 Before claiming/incrementing an input, Jarvis preflights rolling admission under
-its single-process execution mutex. Before provider I/O it durably reserves one
+its single-process execution mutex. The checkpoint claim transaction then
+increments `processing_attempts`; no later cross-port callback or transaction is
+required. Before provider I/O the kernel's admission port durably reserves one
 root work slot plus the finite maximum provider turns and configured reported
 token allowance for that work and its possible serial child one-shots. Recaller
 and any AutomaticWriteGate calls in a foreground turn receive child admission
@@ -815,10 +853,14 @@ configuration; Slice 0 records the chosen values. The subscription AgentRuntime
 lane has no normalized priceable `CallMeta`; Jarvis does not invent a dollar
 estimate.
 
-Admission denial performs no provider I/O and does not increment
-`processing_attempts`. Owner/action-resolution work remains unprocessed and is
-eligible at the journal's reset instant through one ordinary process timer plus
-the startup scan. If the delay is at least 60 seconds, Jarvis inserts at most one
+Preflight capacity denial performs no provider I/O and does not claim or
+increment an input. Under the same execution mutex, the later kernel admission
+reservation MUST NOT return a capacity denial after that successful preflight;
+the adapter raises `AdmissionStateDefect` for an inconsistent journal so the
+kernel parks the claim rather than returning ordinary deferral.
+Owner/action-resolution work remains unprocessed and is eligible at the
+journal's reset instant through one ordinary process timer plus the startup
+scan. If the delay is at least 60 seconds, Jarvis inserts at most one
 host-rendered assistant notice for `(oldest_input_message_id, reset_at)`, using a
 deterministic application UUID as `message.id`; shorter delays are silent.
 Background rememberer and dreamer work always defers silently. Poison-attempt
@@ -1033,8 +1075,16 @@ arguments, resolution state, and safe evidence. Terminal `uncertain` remains a
 Jarvis action result after tool-specific reconciliation, not a kernel retry
 signal.
 
-`KernelLimits` own provider turns, protocol repairs, wall time, normalized
-provider usage, and cumulative model-visible context. The frozen
+`KernelLimits` own provider turns, protocol repairs, cooperative elapsed time at
+safe boundaries, normalized provider usage, and cumulative bytes of
+kernel-rendered model-visible material newly submitted in the current
+invocation. `max_cooperative_seconds` supplies a hard remaining deadline to a
+provider turn but is not an end-to-end latency guarantee: host ports, dispatch,
+settlement, parking, and cleanup may finish later, after which the next safe
+boundary prevents further work. Jarvis MUST NOT put a blunt outer timeout around
+a `Write`. `max_new_context_bytes` excludes provider system/developer material,
+output-schema transport overhead, retained native history, and provider
+compaction; Jarvis bounds and qualifies those surfaces separately. The frozen
 `llm_tools.RunLimits` alone own tool calls, attempts, input/output bytes,
 concurrency, and tool deadlines, with `max_in_flight = 1`. Jarvis and the kernel
 MUST NOT double-charge these budgets. V1 has no parallel dispatch,
@@ -1136,10 +1186,10 @@ AutoGen, another general agent framework, a program-agent runtime, Redis, Kafka,
 Kubernetes, Elasticsearch, Neo4j, a separate vector database, or a general MCP
 bridge in v1.
 
-Initial dependency baseline:
+V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `49f64db1cc364facec57bac05a8b183f88079331`
+  `4dd3f2fd9ef6e08b26ae013d81c27c3a29b1603d`
 - `llm-calling` / `provider-runtime`:
   `a5d9c8e0c1c851daee0731554e0a4a326d3c2819`
 - `llm-tools`: `728f35c0b3a8be91b380ed4258d2b73ad68fc8fa`
@@ -1175,6 +1225,7 @@ message
   created_at
   processed_at
   processing_attempts
+  processing_parked_at
   remembered_at
   trace
 
@@ -1221,15 +1272,24 @@ memory field requires an ADR.
   presented as owner speech.
 - `(source, source_message_id)` is unique when a source ID exists.
 - Every waking owner or host message is inserted before its turn with
-  `processed_at = NULL` and non-negative integer `processing_attempts = 0`.
+  `processed_at = NULL`, non-negative integer `processing_attempts = 0`, and
+  `processing_parked_at = NULL`.
 - Host action-resolution messages are inserted idempotently from terminal
   `action` state with `processed_at = NULL` and are never delivered to Discord as
   if the owner authored them.
 - `processed_at` is set on a waking owner or host row only when its response,
   silent finish, or approval proposal is durably recorded.
-- `processing_attempts` atomically increments when a claim is admitted to begin
-  provider work. It is not a retry instruction; it is the durable poison-input
-  ceiling across crashes and process restarts.
+- `processing_attempts` atomically increments when the checkpoint port acquires
+  a claim after successful rolling-capacity preflight and before plan-budget or
+  provider work. It deliberately counts a crash or configuration defect after
+  claim. It is not a retry instruction; it is the durable poison-input ceiling
+  across crashes and process restarts.
+- `processing_parked_at` is nullable `timestamptz` and canonical
+  operator-quarantine control. The kernel
+  checkpoint `park` transaction stamps it on the claimed unprocessed batch;
+  ordinary claims and recovery scans exclude parked rows, and any parked row
+  opens the v1 cognitive circuit until explicit operator repair clears it.
+  `trace` may record a bounded reason code but is never queried as control state.
 - Assistant messages are inserted before delivery. A null `source_message_id` is
   the outbound retry watermark; a successful adapter delivery or history
   reconciliation fills it with the source platform's ID. The Discord nonce is
@@ -1353,9 +1413,15 @@ Slice 0 records for each reused connector and the Web family:
 - The pinned `llm-agent-kernel` port/conformance contract and the Jarvis-owned
   product-context, session-reference, input-checkpoint, admission, dispatch, and
   event adapters.
+- The plan-aware tool-budget factory against every selectable plan, the exact
+  per-plan `RunLimits`, the compatibility-revision manifest policy, the finite
+  route-qualified one-turn token overshoot reserved by admission, and
+  provider-native context sizing outside `max_new_context_bytes`.
+- Durable checkpoint parking and explicit operator release, including a
+  process-restart test proving parked rows cannot become runnable work.
 - The upgraded public `llm-tools` pure-validation, plan/catalog-consistency and
   full-plan-tightening, exact `HostTable`, and async durable-recorder/executor
-  seams required before kernel implementation.
+  seams consumed by the pinned kernel implementation.
 - The action-backed durable-recorder adapter, including replay of a schedule's
   immutable creation receipt while its product lifecycle remains queued or
   executing.

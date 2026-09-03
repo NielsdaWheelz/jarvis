@@ -2,7 +2,9 @@
 
 - Status: Accepted; dispatch lineage, admission reservations, attempt ceilings,
   and schedule-recorder semantics amended by
-  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md); final pin,
+  plan-aware budgets, compatibility revision, and durable park amended by
+  [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
 - Date: 2026-09-02
 - Amends: [ADR 0010](0010-minimal-durable-state.md),
   [ADR 0012](0012-resumable-session-and-context.md),
@@ -31,14 +33,16 @@ honest mapping without reversing the four-table product decision.
 
 ## Decision
 
-Adopt kernel commit `49f64db1cc364facec57bac05a8b183f88079331` and its
-actual `AgentRuntime`, serial `call_tool`, polling, settlement, admission, and
-effect contracts.
+Adopt the kernel's actual `AgentRuntime`, serial `call_tool`, polling,
+settlement, admission, and effect contracts. ADR 0020 supersedes the original
+specification baseline with the final public implementation revision.
 
 Keep exactly four application tables and add only:
 
 - `message.processing_attempts`: durable provider-work entries for one logical
   waking input; it bounds crash recovery.
+- `message.processing_parked_at`: durable operator quarantine for a claimed
+  input when the kernel detects a configuration defect, added by ADR 0020.
 - `action.execution_contract`: closed immutable host JSON containing exact
   tool-contract/implementation/policy/plan revisions, `ToolEffect`,
   `ReplayPolicy`, and canonical input digest for the occupied position.
@@ -84,7 +88,7 @@ Benefits:
 
 Costs:
 
-- Three columns and one content-free runtime journal are now mandatory.
+- Four columns and one content-free runtime journal are now mandatory.
 - The action contract stores revision/digest evidence previously considered
   speculative; the recorder boundary proved it irreducible.
 - Journal corruption pauses cognitive work until operator action.

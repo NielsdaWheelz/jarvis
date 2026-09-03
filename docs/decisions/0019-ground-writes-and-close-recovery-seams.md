@@ -1,6 +1,7 @@
 # ADR 0019: Ground writes and close the remaining recovery seams
 
-- Status: Accepted
+- Status: Accepted; claim/attempt ordering amended by
+  [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
 - Date: 2026-09-02
 - Amends: [ADR 0010](0010-minimal-durable-state.md),
   [ADR 0012](0012-resumable-session-and-context.md),
@@ -84,9 +85,13 @@ lock marks orphaned reservations interrupted and releases only their live slot;
 capacity remains charged until rolling-window expiry. Missing or corrupt state
 fails closed.
 
-Admission denial does not increment `processing_attempts`. Foreground input
-remains pending and is reconsidered at reset/startup. Delays of at least 60
-seconds receive one deterministic host-rendered assistant notice; background
+Admission preflight denial does not claim or increment input. After a successful
+preflight under the execution mutex, checkpoint claim atomically increments
+`processing_attempts`; the later durable reservation must have capacity, and an
+inconsistent result raises `AdmissionStateDefect` so the kernel parks the claim.
+Foreground
+input remains pending and is reconsidered at reset/startup. Delays of at least
+60 seconds receive one deterministic host-rendered assistant notice; background
 memory work defers silently.
 
 ### Bound effect entries for life

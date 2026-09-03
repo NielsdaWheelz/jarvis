@@ -29,9 +29,10 @@ These instructions govern all work in this repository.
   salience scores, temporal validity, or source-authority taxonomies.
 - Jarvis owns exactly four application tables: `message`, `memory_log`,
   `memory_summary`, and `action`. A fifth requires an accepted ADR.
-- The three additional irreducible durability fields are
-  `message.processing_attempts`, `action.execution_contract`, and
-  `action.attempts`. Do not expand them into a generic workflow/version system.
+- The four additional irreducible durability fields are
+  `message.processing_attempts`, `message.processing_parked_at`,
+  `action.execution_contract`, and `action.attempts`. Do not expand them into a
+  generic workflow/version system.
 - Do not add slash commands, speculative components, Android, or deferred
   integrations in v1. Natural Discord conversation plus Approve and Deny is the
   interface.
@@ -58,7 +59,9 @@ These instructions govern all work in this repository.
   through the `llm-agent-kernel` reconstruction ports.
 - Resume the main session only when its immutable agent-definition fingerprint
   matches; the fingerprint is rebuildable runtime state, not a table column or
-  tool version.
+  tool version. Supply the required owner-controlled
+  `session_compatibility_revision` from the checked-in role/application contract
+  revision and exact dependency pins.
 - Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
   isolated sessions.
 - The kernel owns the exact `say | call_tool | finish` model-step grammar,
@@ -74,10 +77,18 @@ These instructions govern all work in this repository.
   duplicate those layers in Jarvis.
 - Persist and source-deduplicate owner input and required host-authored action
   resolutions before processing them.
-- Increment `message.processing_attempts` when an admitted claim begins provider
-  work. Deterministic poison stops consume the row; cleanup never automatically
-  rearms it. Startup/recovery scans canonical null-`processed_at` rows under the
-  attempt ceiling and rolling admission.
+- Preflight rolling capacity under the execution mutex, then increment
+  `message.processing_attempts` atomically when the checkpoint port returns its
+  claim. It deliberately counts a crash or configuration failure after claim,
+  without hidden coupling to the later admission port. Deterministic poison
+  stops consume the row; cleanup never automatically rearms it.
+  Startup/recovery scans canonical null-`processed_at`,
+  null-`processing_parked_at` rows under the attempt ceiling and rolling
+  admission.
+- A configuration defect uses the checkpoint `park` operation to stamp
+  `message.processing_parked_at` and open the single cognitive circuit. Claims
+  exclude parked rows. Only operator correction explicitly clears the park;
+  never hide scheduling control solely in `trace`.
 - Poll compatible owner input before provider turns, dispatch, after tool
   completion, and before settlement. Stop/pause preempts. An ordinary follow-up
   racing after the final poll gets the already-valid answer first and its own run
@@ -211,6 +222,14 @@ These instructions govern all work in this repository.
 - Serialize active provider turns and host-tool dispatches. A nested write gate
   runs only while the main run is paused and shares capacity already reserved by
   the root; no provider calls overlap.
+- Construct one fresh `llm-tools.BudgetState` after the selected frozen plan is
+  validated, through the kernel's plan-aware budget factory. Its limits must
+  exactly equal `plan.profile.run_limits`; never preconstruct or share it.
+- Treat `KernelLimits.max_cooperative_seconds` as a safe-boundary/provider-turn
+  control, not an end-to-end SLA, and `max_new_context_bytes` as newly rendered
+  kernel material, not total provider-native context. Bound and qualify the
+  omitted host/provider surfaces separately; never place a blunt outer timeout
+  around a `Write`.
 - Derived state must be safely rebuildable.
 - Preserve user-owned changes in every repository.
 - Never place credentials, OAuth tokens, private memory text, or message bodies

@@ -32,10 +32,14 @@ Deliver:
   service-manager credential files.
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
-- Upgrade `llm-tools` in its own repository to expose qualified public pure
+- The implemented public kernel pin
+  `4dd3f2fd9ef6e08b26ae013d81c27c3a29b1603d`, with its exact
+  `provider-runtime` and `llm-tools` dependency pins and deterministic suite
+  recorded in the qualification report.
+- The completed `llm-tools` upgrade exposing qualified public pure
   argument validation, frozen-plan/catalog consistency and full tightening,
   exact `HostTable` publication, and async durable executor/recorder seams; pin
-  the resulting revision before any Jarvis runtime implementation.
+  the qualified revision before any Jarvis runtime implementation.
   Qualification includes adversarial cross-catalog
   effect/schema/handler-implementation/replay-policy/revision substitution and
   proves implementation identity appears in the frozen grant and HostTable.
@@ -44,6 +48,17 @@ Deliver:
   cancellation, and optional observability ports plus its multi-run conformance
   suite. Confirm it owns no database schema, connector, product authority, or
   duplicate provider/tool implementation.
+- A checked-in session-compatibility manifest policy and rotation fixture for
+  every role, including exact dependency-pin and application-contract changes.
+- A plan-aware budget-factory fixture for every selectable full Main, read-only
+  proactive, memory-read, and empty gate plan. Record each exact
+  `llm_tools.RunLimits` value; shared or preconstructed budget state is forbidden.
+- The route-qualified finite one-turn input/output-token overshoot used by
+  admission, plus provider-native context sizing for system/developer material,
+  schema transport, retained history, and compaction outside the kernel's
+  `max_new_context_bytes`.
+- A durable checkpoint-park fixture proving atomic quarantine, process-restart
+  exclusion, circuit opening, and explicit operator release.
 - Qualify an isolated structured one-shot with a genuinely empty `HostTable`
   plan for AutomaticWriteGate; do not add a dummy capability to satisfy a
   library limitation.
@@ -86,7 +101,8 @@ Deliver:
   session-reference, input-checkpoint, and terminal-finalization adapters.
 - Conversational main output contract plus closed structured output contracts
   for isolated recaller, rememberer, and dreamer one-shot runs.
-- `message` table, owner/source identity, and durable `processing_attempts`.
+- `message` table, owner/source identity, durable `processing_attempts`, and
+  nullable `processing_parked_at`.
 - Existing Discord ingress/egress restricted to one configured channel, with no
   model-callable Discord tools.
 - Inbound deduplication.
@@ -108,6 +124,12 @@ Deliver:
   after a fingerprint change or session loss; successful stores advance the
   expected generation and a stale compare-and-set stops before dispatch or
   settlement.
+- Checked-in canonical session-compatibility manifest and required
+  `session_compatibility_revision` on every continuing and isolated definition.
+  Pin or application-contract changes rotate it; dynamic input and subset plans
+  do not.
+- One plan-aware `ToolBudgetFactoryPort` implementation creating fresh exact
+  budgets after plan validation for every selectable plan.
 - Exclusive non-empty claim over messages, host-selected full or scheduled-wake
   read-only plan, ordered watermark, mid-loop compatible-input polling, stop
   preemption, and atomic conclusion/`processed_at` settlement. Incompatible work
@@ -120,17 +142,25 @@ Deliver:
   attempts, and one root concurrency slot before provider I/O. Clean exit
   settles/refunds; startup releases an orphaned slot without refunding its
   rolling turn/token charge.
-- Admission deferral that leaves input and `processing_attempts` untouched,
-  automatically rescans at reset/startup, emits one deterministic assistant
-  notice for owner/action-resolution delays of at least 60 seconds, and silently
-  defers background memory work.
+- Checkpoint `park` implemented as one PostgreSQL transaction that stamps the
+  claimed unprocessed batch, records a bounded reason code, and opens the single
+  cognitive circuit. Claims exclude parked rows; a documented operator repair
+  clears them without resetting attempts.
+- Admission preflight deferral that leaves input and `processing_attempts`
+  untouched, automatically rescans at reset/startup, emits one deterministic
+  assistant notice for owner/action-resolution delays of at least 60 seconds,
+  and silently defers background memory work. After preflight, claim increments
+  the attempt atomically; a later inconsistent capacity result raises
+  `AdmissionStateDefect` and parks rather than coupling the checkpoint and
+  admission adapters.
 - A fake stateless adapter test proving bootstrap context contains no Codex SDK
   types and carries the current owner message exactly once.
 - Kernel conformance fixtures for session loss, invalid protocol, cancellation,
-  a crash between session-reference advancement and canonical settlement, an
+  a crash between session-reference advancement and canonical settlement, a
   compatible input arriving mid-loop, ordinary input arriving during final
   settlement, stop preemption, poison input, crash reclaim, rolling admission,
-  and exhausted bounds.
+  plan-budget mismatch and parking, compatibility rotation, provider-native
+  context sizing, cooperative-time overshoot, and exhausted bounds.
 - Deployment ownership lock and an in-process execution mutex serializing
   provider turns and host-tool dispatches.
 

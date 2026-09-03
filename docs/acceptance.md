@@ -38,6 +38,9 @@ named explicitly; no criterion disappears or is weakened silently.
       credential-containment results. It also records the provider
       failure/cold-bootstrap matrix, finite per-tool lifetime attempt ceilings,
       action-backed schedule-recorder mapping, and empty-plan isolated one-shot;
+      it records the compatibility-revision manifest, plan-aware budget
+      factories and exact per-plan limits, route-qualified one-turn token
+      overshoot, provider-native context sizing, and durable park behavior;
       the owner signs it before Slice 1.
 
 ## A2. Discord and conversation history
@@ -84,7 +87,9 @@ named explicitly; no criterion disappears or is weakened silently.
       generation. A crash
       after reference advancement but before canonical settlement leaves the
       input unprocessed and forces that speculative reference to be discarded
-      before replay.
+      before replay. Every definition has a non-empty manifest-derived
+      `session_compatibility_revision`; changing its application contract or any
+      pinned dependency rotates the fingerprint.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
       output is streamed into Discord.
 - [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. Claims
@@ -93,7 +98,10 @@ named explicitly; no criterion disappears or is weakened silently.
       provider/tool boundary; scheduled-wake input remains unclaimed under an
       interactive plan. Stop preempts. Ordinary input arriving after the final
       poll retains the current valid answer and runs next. Startup scans null
-      `processed_at` rows. Cleanup release never arms a successor.
+      `processed_at` rows only when `processing_parked_at` is null. Cleanup
+      release never arms a successor. Configuration parking atomically stamps
+      the claimed batch, opens the cognitive circuit, and survives restart until
+      explicit operator repair clears it.
 - [ ] **A2.13** Jarvis product context selection supplies plain canonical data to
       the kernel bootstrap and continuation ports. A fake stateless adapter
       consumes the bootstrap without Codex SDK types; `llm-tools` typed prompt
@@ -154,7 +162,11 @@ in Slice 0.
       maximum envelopes; AutomaticWriteGate has an empty envelope. Every run
       plan is publicly proven internally consistent with its exact catalog view
       and to tighten its definition envelope in full; internal plans contain no
-      `ToolEffect.Write` and the scheduled-wake main plan is read-only.
+      `ToolEffect.Write` and the scheduled-wake main plan is read-only. A
+      plan-aware factory creates a fresh `BudgetState` only after plan
+      validation, with limits exactly equal to the selected plan's
+      `profile.run_limits`; mismatch reaches no rendering, admission, provider,
+      or tool I/O.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
 - [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
@@ -178,9 +190,14 @@ in Slice 0.
       discards the confined session, returns no terminal to the Jarvis loop, and
       causes no host dispatch or conclusion, while a scripted native reasoning
       passthrough event does not. Streaming `AgentText` is never delivered.
-- [ ] **A4.7** `KernelLimits` bound provider turns, repairs, wall time, reported
-      usage, and cumulative visible context; `llm_tools.RunLimits` alone bound
-      tool calls, attempts, bytes, `max_in_flight=1`, and tool elapsed time. An
+- [ ] **A4.7** `KernelLimits` bound provider turns, repairs, cooperative time at
+      safe boundaries, reported usage, and cumulative newly rendered kernel
+      context bytes. Provider turns receive the remaining cooperative deadline;
+      a slow host port may exceed it, and no blunt outer timeout interrupts a
+      `Write`. Tests separately bound provider system/developer material,
+      output-schema overhead, retained native history, and compaction because
+      `max_new_context_bytes` does not. `llm_tools.RunLimits` alone bound tool
+      calls, attempts, bytes, `max_in_flight=1`, and tool elapsed time. An
       intentional loop stops without double-charging a tool replay, and
       cancellation leaves its product checkpoint recoverable.
 - [ ] **A4.8** Quota exhaustion produces a fixed host-authored notice and changes
@@ -371,15 +388,16 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A7.8** Protocol, run-budget, quota, explicit-stop, and repeated-provider
       exhaustion persist a host-authored stopped conclusion, consume the poison
       input, and cause zero automatic successor runs. Simulated process crashes
-      increment `processing_attempts`; the configured ceiling stops or parks the
-      row before another provider call.
+      increment `processing_attempts`; the configured ceiling stops the row
+      before another provider call rather than silently renewing work.
 - [ ] **A7.9** A host-issued rolling admission check occurs before every
       cognitive provider invocation. Before I/O, the content-free journal
       durably reserves one root slot plus finite maximum root/serial-child turns
       and configured normalized tokens. Clean exits settle actual usage and
       refund unused capacity; quota and ordinary failures do likewise. A corrupt
-      journal fails closed, and a configuration defect parks work rather than
-      looping.
+      journal fails closed. A configuration or plan-budget defect calls the
+      checkpoint park transaction, stamps `processing_parked_at` on the claimed
+      unprocessed batch, and starts no new cognitive work.
 - [ ] **A7.10** Multi-run race fixtures cover mid-loop compatible input, stop
       preemption, ordinary follow-up during finalization, suspension/resolution,
       startup recovery, session-ref CAS, poison input, and admission. Passing
@@ -387,10 +405,20 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A7.11** Killing the process after admission reservation leaves the full
       turn/token reservation charged. Startup under the exclusive deployment
       lock marks it interrupted and releases only its concurrency slot. Admission
-      denial performs no provider I/O and does not increment
-      `processing_attempts`; owner/action-resolution work becomes eligible at
-      reset, with one deterministic assistant notice for delays of at least 60
-      seconds, while background memory work defers silently.
+      preflight denial performs no provider I/O and does not claim or increment
+      an input. After successful preflight, claim atomically increments
+      `processing_attempts`; a later inconsistent capacity result raises
+      `AdmissionStateDefect` and parks the claim. Owner/action-resolution work
+      becomes eligible at reset, with one deterministic assistant notice for
+      delays of at least 60 seconds, while background memory work defers
+      silently.
+- [ ] **A7.12** A process killed after durable parking cannot reclaim the row on
+      restart. Any parked row opens the single cognitive circuit while delivery
+      and operator repair remain available. Only the documented operator repair
+      path clears `processing_parked_at`, after which the corrected input becomes
+      claimable without resetting its attempt history. Release is unavailable
+      to Discord and every model role, names explicit message IDs, and runs only
+      with the service stopped or under the deployment ownership lock.
 
 ## A8. End-to-end memory scenario
 

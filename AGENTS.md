@@ -123,8 +123,12 @@ These instructions govern all work in this repository.
   execution authority.
 - V1 uses the real `AgentRuntime` lane with the closed JSON-schema output,
   private empty read-only cwd, disabled built-ins/Web/network/environment/MCP,
-  and approval deny. Any native tool-use or permission-request event fails and
-  discards the session.
+  and approval deny. Production consumes `stream_turn`, never the
+  event-discarding `run_turn` projection. Any native tool-use or
+  permission-request event fails and discards the session.
+- Before rendering or I/O, every frozen plan is proven internally consistent
+  with its exact catalog view and to tighten its maximum envelope in full; a
+  profile-only comparison is insufficient.
 - Host code validates and classifies calls; effectful application tools execute
   through `llm-tools` and use one durable `action` row.
 - Before any action insert or approval display, every validated model-proposed

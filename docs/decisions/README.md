@@ -9,7 +9,7 @@ not implementation suggestions.
 | [0002](0002-optmem-inspired-memory.md) | Immutable raw memory and rebuildable views | Accepted |
 | [0003](0003-natural-discord-and-autonomy.md) | Natural Discord and a narrow approval boundary | Accepted; server organization superseded by 0011; generic local-write scope superseded by 0014 |
 | [0004](0004-python-codex-and-tool-kernel.md) | Python, Codex, `provider-runtime`, and `llm-tools` | Accepted; session/context amended by 0012; portable-Web ownership by 0014; generic loop by 0017; exact provider boundary by 0018 |
-| [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted; Discord tool scope superseded by 0011; public Web amended by 0014 |
+| [0005](0005-reuse-integrations.md) | Reuse working integrations; defer new ones | Accepted; Discord tool scope superseded by 0011; public Web amended by 0014; revoked Google grant re-consent amended in place |
 | [0006](0006-no-workflow-framework.md) | No v1 workflow framework | Accepted; bounded agent-kernel distinction clarified by 0017 |
 | [0007](0007-central-messages-and-unified-actions.md) | Central messages and one action ledger | Accepted; schemas superseded by 0010; session by 0012; delivery by 0016; action-resolution by 0017; recorder/cross-run mapping by 0018/0019 |
 | [0008](0008-embedding-source.md) | Embedding through an embedding-scoped OpenAI credential | Accepted; amends 0004 |

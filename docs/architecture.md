@@ -132,9 +132,10 @@ For each owner message:
    read-only kernel one-shot run.
 7. Through the context adapter, select canonical product context and give the
    kernel a provider-neutral continuation or bootstrap package.
-8. The kernel opens/resumes the real contained `AgentRuntime` session and runs
-   its bounded serial loop. It polls for compatible owner input before provider
-   and tool boundaries and for stop/preemption before settlement.
+8. The kernel opens/resumes the real contained `AgentRuntime` session, consumes
+   its observable event stream, and runs its bounded serial loop. It polls for
+   compatible owner input before provider and tool boundaries and for
+   stop/preemption before settlement.
 9. For a validated write proposal, pause the main loop and run the isolated
    AutomaticWriteGate over only current owner text and a restricted effect
    descriptor synchronously under the same root ownership before action creation
@@ -598,12 +599,14 @@ the child through `llm-agent-kernel`.
 
 The application consumes normalized provider events:
 
+- Production drives `AgentRuntime.stream_turn`; the terminal-only `run_turn`
+  convenience projection is forbidden because it discards these events.
 - Normal lifecycle, reasoning, warning, and planning passthrough events do not
   fail a turn.
 - Any `AgentToolUse` or `AgentPermissionRequest` fails the confined turn.
-- A failed session is discarded.
+- A failed session is discarded and no terminal is returned to the Jarvis loop.
 - Streaming text is not delivered; only a validated terminal structured step
-  crosses into Jarvis.
+  from a fully inspected clean stream crosses into Jarvis.
 
 An attempted native tool can therefore fail a turn even when the sandbox denied
 its effect. The event is the drift signal; containment is the sandbox and process

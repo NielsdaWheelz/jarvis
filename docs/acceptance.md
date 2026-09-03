@@ -134,8 +134,10 @@ in Slice 0.
       credential-bearing URL, loopback/private/link-local target, unsafe
       redirect, unsupported media type, and oversized response. Unmistakable
       credential material in a Web argument is rejected before dispatch.
-- [ ] **A3.11** No avoidable new Google or Discord registration or authorization
-      was required.
+- [ ] **A3.11** No new Google or Discord registration is created. The one
+      unavoidable replacement Google offline consent requests exactly the seven
+      scopes in SPEC section 8; it requests no Drive, `gmail.modify`,
+      `gmail.send`, `calendar.readonly`, or `calendar.freebusy` scope.
 - [ ] **A3.12** Every credential has one owning process, and no bot token or
       autonomous mailbox/calendar authority is concurrently shared with Ariel.
 
@@ -150,9 +152,9 @@ in Slice 0.
       internal role has a closed
       structured result schema. Recall/remember/dream roles have memory-read
       maximum envelopes; AutomaticWriteGate has an empty envelope. Every run
-      plan is publicly proven to tighten its definition envelope; internal plans
-      contain no `ToolEffect.Write` and the scheduled-wake main plan is
-      read-only.
+      plan is publicly proven internally consistent with its exact catalog view
+      and to tighten its definition envelope in full; internal plans contain no
+      `ToolEffect.Write` and the scheduled-wake main plan is read-only.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
 - [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
@@ -170,10 +172,12 @@ in Slice 0.
       describe only an observed outcome. Structured roles accept only a
       schema-valid `finish.result`; the main role rejects terminal result
       payloads. No parallel or multi-call path exists.
-- [ ] **A4.6** A scripted `AgentToolUse` or `AgentPermissionRequest` event fails
-      and discards the confined session with no host dispatch or conclusion,
-      while a scripted native reasoning passthrough event does not. Streaming
-      `AgentText` is never delivered.
+- [ ] **A4.6** The production adapter consumes `AgentRuntime.stream_turn` and
+      never calls its event-discarding `run_turn` convenience projection. A
+      scripted `AgentToolUse` or `AgentPermissionRequest` event fails and
+      discards the confined session, returns no terminal to the Jarvis loop, and
+      causes no host dispatch or conclusion, while a scripted native reasoning
+      passthrough event does not. Streaming `AgentText` is never delivered.
 - [ ] **A4.7** `KernelLimits` bound provider turns, repairs, wall time, reported
       usage, and cumulative visible context; `llm_tools.RunLimits` alone bound
       tool calls, attempts, bytes, `max_in_flight=1`, and tool elapsed time. An
@@ -187,10 +191,13 @@ in Slice 0.
 - [ ] **A4.10** Canonical message, raw-memory, and summary transactions create no
       action rows.
 - [ ] **A4.11** Definition maximum envelopes equal the SPEC section 7.3 catalog
-      by role, and every frozen run plan tightens its envelope. Owner-input and
-      action-resolution main runs receive the full Main plan; scheduled-wake
-      runs receive only the catalogued external reads; internal one-shots receive
-      exactly the two memory reads. No plan grants `tool.search`, `tool.read`,
+      by role, and every frozen run plan is proven internally consistent with
+      its exact published catalog view and to tighten its envelope in full.
+      Cross-catalog effect, schema, replay-policy, and revision substitutions
+      fail before rendering or I/O. Owner-input and action-resolution main runs
+      receive the full Main plan; scheduled-wake runs receive only the
+      catalogued external reads; internal one-shots receive exactly the two
+      memory reads. No plan grants `tool.search`, `tool.read`,
       local-filesystem, Gmail organization, Discord, delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.

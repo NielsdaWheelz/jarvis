@@ -635,18 +635,22 @@ application capabilities. It MUST NOT duplicate either dependency.
 Responsibilities are fixed:
 
 - `provider-runtime` owns Codex local-account authentication, native
-  `AgentRuntime` open/run/close lifecycle, `PermissionPolicy`, native options,
-  structured-output lowering, normalized events and usage, quota exhaustion,
-  and opaque session references.
+  `AgentRuntime` open/stream/close lifecycle, `PermissionPolicy`, native
+  options, structured-output lowering, normalized events and usage, quota
+  exhaustion, and opaque session references. Production consumes
+  `stream_turn`; it never uses the terminal-only `run_turn` convenience
+  projection because that hides authority events.
 - `llm-tools` owns typed prompt sections, declarations, bindings, frozen
-  profiles and plans, pure schema validation, `HostTable`, `ToolEffect`,
-  `ReplayPolicy`, tool execution budgets, invocation positions, recorder
-  semantics, execution, and portable tools.
+  profiles and plans, plan/catalog consistency and tightening proofs, pure
+  schema validation, `HostTable`, `ToolEffect`, `ReplayPolicy`, tool execution
+  budgets, invocation positions, recorder semantics, execution, and portable
+  tools.
 - `llm-agent-kernel` owns immutable definitions and containment fingerprints,
-  plan-tightening enforcement, the exact model-step protocol, semantic
-  whole-step validation, bounded serial thread and isolated one-shot loops,
-  mid-loop input polling, run admission enforcement, cancellation, session and
-  checkpoint choreography, typed outcomes, and reusable conformance tests.
+  exact-plan/catalog tightening enforcement before rendering or I/O, the exact
+  model-step protocol, semantic whole-step validation, bounded serial thread
+  and isolated one-shot loops, mid-loop input polling, run admission
+  enforcement, cancellation, session and checkpoint choreography, typed
+  outcomes, and reusable conformance tests.
 - Jarvis owns product context selection, implementations of the persistence
   and admission ports, canonical messages and memories, Discord, connectors,
   catalog composition, plan selection, information-flow and authority policy,
@@ -666,9 +670,12 @@ its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
 `isolated` one-shot definitions with closed structured output contracts. The
 first three have memory-read envelopes; AutomaticWriteGate has an empty tool
 envelope. Jarvis supplies one frozen plan per run; it may narrow but never expand
-the definition envelope. Kernel construction rejects any one-shot plan
-containing `ToolEffect.Write`. `Pure` and `Read` remain distinct effects with
-independent replay policies.
+the definition envelope. Before any plan rendering or I/O, the qualified public
+proof MUST establish that the plan is internally consistent with the exact
+catalog view being published and tightens the definition envelope in full; a
+comparison of profiles alone is insufficient. Kernel construction rejects any
+one-shot plan containing `ToolEffect.Write`. `Pure` and `Read` remain distinct
+effects with independent replay policies.
 
 - Authentication uses the personal local-account credential.
 - No generative API-key fallback or silent provider fallback exists.
@@ -1034,11 +1041,17 @@ approval mode `deny`, an empty copied environment, no MCP servers,
 The Codex `allowed_tools=("*",)` sentinel required by the pinned SDK is present
 only for runtime compatibility; it grants no Jarvis authority.
 
+The provider adapter MUST drive and inspect the public `stream_turn` event
+stream. It MUST NOT call `AgentRuntime.run_turn` in production: that convenience
+method projects only the terminal and discards the intermediate events needed
+to enforce this boundary.
+
 An `AgentToolUse` or `AgentPermissionRequest` event fails the confined turn,
-discards the session, and permits no host dispatch or model-authored conclusion.
-Native passthrough events such as reasoning deltas and planning items do not.
-Streaming `AgentText` is never delivered; only the validated terminal structured
-step can become a Jarvis response.
+taints and discards the session, returns no terminal to the Jarvis loop, and
+permits no host dispatch or model-authored conclusion. Native passthrough events
+such as reasoning deltas and planning items do not. Streaming `AgentText` is
+never delivered; only the validated terminal structured step from a fully
+inspected clean stream can become a Jarvis response.
 
 The Linux deployment SHOULD run Codex under a dedicated unprivileged OS user.
 
@@ -1083,6 +1096,25 @@ orphaned slot without refunding its still-live rolling turn/token charge.
   synthetic or redacted connector fixtures.
 - Deployment: one always-on Linux host and PostgreSQL.
 
+Because the reused refresh grant is revoked, the one replacement offline OAuth
+consent MUST request only:
+
+```text
+openid
+https://www.googleapis.com/auth/userinfo.email
+https://www.googleapis.com/auth/gmail.readonly
+https://www.googleapis.com/auth/gmail.compose
+https://www.googleapis.com/auth/calendar.events
+https://www.googleapis.com/auth/calendar.calendarlist.readonly
+https://www.googleapis.com/auth/calendar.acls.readonly
+```
+
+`gmail.compose` already manages drafts and sends mail; pairing it with
+`gmail.readonly` avoids the label/archive/trash authority of `gmail.modify` and
+makes a separate `gmail.send` grant redundant. Calendar free/busy and legacy
+Drive scopes are outside the v1 catalog. An ACL read denied for a calendar makes
+its sharing state unknown and therefore keeps its writes behind approval.
+
 Do not add DBOS, Temporal, Restate, Celery, LangChain, LlamaIndex, CrewAI,
 AutoGen, another general agent framework, a program-agent runtime, Redis, Kafka,
 Kubernetes, Elasticsearch, Neo4j, a separate vector database, or a general MCP
@@ -1091,15 +1123,16 @@ bridge in v1.
 Initial dependency baseline:
 
 - `llm-agent-kernel`:
-  `049bc9221860d6fc5310f21ad560a9ec39371add`
+  `4eec354008354c09239645fd84c74276e34207be`
 - `llm-calling` / `provider-runtime`:
   `a5d9c8e0c1c851daee0731554e0a4a326d3c2819`
-- `llm-tools`: `8df458a199703120005296ae12f997b39d208fed`
+- `llm-tools`: `2f22c985613e04c08baa456893e63d0b68000dc3`
 
-The `llm-tools` value is a reviewed baseline, not the implementation lock.
-Slice 0 MUST land and qualify the kernel-required public validation,
-plan-tightening, `HostTable`, and async durable-recorder seams, then replace this
-value with that immutable revision before Jarvis runtime work begins.
+The `llm-tools` value is the qualified implementation lock for public
+validation, plan/catalog-consistency and full-plan-tightening, exact
+`HostTable`, and async durable-recorder seams. It MUST be published to the
+configured durable remote before ordinary dependency installation or Jarvis
+runtime work begins.
 
 All three MUST be git dependencies, not path dependencies. Jarvis MUST NOT modify or
 restore the user's existing library worktrees.
@@ -1304,9 +1337,9 @@ Slice 0 records for each reused connector and the Web family:
 - The pinned `llm-agent-kernel` port/conformance contract and the Jarvis-owned
   product-context, session-reference, input-checkpoint, admission, dispatch, and
   event adapters.
-- The upgraded public `llm-tools` pure-validation, plan-tightening, `HostTable`,
-  and async durable-recorder/executor seams required before kernel
-  implementation.
+- The upgraded public `llm-tools` pure-validation, plan/catalog-consistency and
+  full-plan-tightening, exact `HostTable`, and async durable-recorder/executor
+  seams required before kernel implementation.
 - The action-backed durable-recorder adapter, including replay of a schedule's
   immutable creation receipt while its product lifecycle remains queued or
   executing.

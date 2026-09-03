@@ -31,9 +31,12 @@ persisted `AgentSessionRef`. A changed session-scoped configuration starts a
 fresh main session rather than carrying old prompts, model configuration,
 containment, or capability assumptions across a deployment.
 
-V1 uses the stateful `provider_runtime.agent_runtime.AgentRuntime` open/run/close
-surface, not root stateless generation. The live session is a resource owned by
-the adapter; the serialized ref is only its disposable continuation handle.
+V1 uses the stateful `provider_runtime.agent_runtime.AgentRuntime`
+open/stream/close surface, not root stateless generation. The adapter consumes
+`stream_turn` so every native authority event remains observable; it does not
+use the terminal-only `run_turn` projection. The live session is a resource
+owned by the adapter; the serialized ref is only its disposable continuation
+handle.
 
 The reference and a fingerprint of complete session-scoped configuration live
 in atomically replaced private runtime state outside PostgreSQL. The fingerprint

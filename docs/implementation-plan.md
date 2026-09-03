@@ -5,8 +5,9 @@ workflow system or calendar schedule.
 
 ## Slice 0: audit and qualification
 
-Status: owner-authorized on 2026-09-01; qualification findings not yet produced
-or accepted.
+Status: in progress. The dated
+[qualification report](qualification/2026-09-02-slice-0.md) contains observed
+passes, failures, and open gates; it is not yet eligible for owner sign-off.
 
 Deliver:
 
@@ -32,9 +33,11 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - Upgrade `llm-tools` in its own repository to expose qualified public pure
-  argument validation, frozen-profile tightening, `HostTable` publication, and
-  async durable executor/recorder seams; pin the resulting revision before any
-  Jarvis runtime implementation.
+  argument validation, frozen-plan/catalog consistency and full tightening,
+  exact `HostTable` publication, and async durable executor/recorder seams; pin
+  the resulting revision before any Jarvis runtime implementation.
+  Qualification includes adversarial cross-catalog
+  effect/schema/replay-policy/revision substitution.
 - Qualification of the kernel's exact `AgentRuntime` request/lifecycle,
   context, session-reference, input-checkpoint, polling, dispatch, admission,
   cancellation, and optional observability ports plus its multi-run conformance
@@ -54,9 +57,13 @@ Deliver:
 - Live `llm-tools` Brave-search and safe-public-Web-read canaries, including
   private-destination, unsafe-redirect, and credential-egress rejection.
 - Linux qualification of the pinned Codex SDK/runtime containment request,
-  `JsonSchemaAgentOutput`, open/run/close and resume behavior, and fail-stop on
-  native tool-use or permission-request events.
+  `JsonSchemaAgentOutput`, open/stream/close and resume behavior, and fail-stop
+  on native tool-use or permission-request events. Prove production consumes
+  `stream_turn` and never calls the event-discarding `run_turn` projection.
 - A restricted embedding API key plus a live negative generative-call test.
+- One replacement Google offline consent using exactly the minimal scope set in
+  SPEC section 8, followed by encrypted import under Jarvis-owned associated
+  data; do not carry forward legacy Drive or redundant Gmail/Calendar scopes.
 - Live Gmail checks for draft-send and reconciliation behavior on new and reply
   threads.
 - The verified owner-only Calendar ID set plus a live client-generated event-ID,

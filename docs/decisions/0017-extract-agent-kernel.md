@@ -27,7 +27,7 @@ The first extracted spec got the interior right but described seams the pinned
 libraries did not have, allowed unsafe multi-call/parallel behavior, and bounded
 only one run while cleanup could start unlimited successors. Those errors are
 corrected and seam-hardened in kernel commit
-`049bc9221860d6fc5310f21ad560a9ec39371add`.
+`4eec354008354c09239645fd84c74276e34207be`.
 
 ## Decision
 
@@ -45,16 +45,18 @@ Ownership is:
 
 | Owner | Responsibilities |
 | --- | --- |
-| `provider-runtime` | Native Codex authentication; `AgentRuntime` open/run/close; `PermissionPolicy`; native options; structured output; events, usage, quota, and session refs |
-| `llm-tools` | Prompt sections; declarations/bindings; frozen profiles/plans; `HostTable`; pure validation; `ToolEffect`/`ReplayPolicy`; tool budgets; positions, recorder, execution, and results |
-| `llm-agent-kernel` | Immutable definitions/fingerprints; containment and plan-tightening enforcement; `say | call_tool | finish`; semantic whole-step validation; serial loop; mid-loop polling; session/checkpoint/admission choreography; one-shots; outcomes and conformance |
+| `provider-runtime` | Native Codex authentication; observable `AgentRuntime` open/stream/close; `PermissionPolicy`; native options; structured output; events, usage, quota, and session refs |
+| `llm-tools` | Prompt sections; declarations/bindings; frozen profiles/plans; plan/catalog consistency and tightening; exact `HostTable`; pure validation; `ToolEffect`/`ReplayPolicy`; tool budgets; positions, recorder, execution, and results |
+| `llm-agent-kernel` | Immutable definitions/fingerprints; containment and exact-plan/catalog tightening enforcement; `say | call_tool | finish`; semantic whole-step validation; serial loop; mid-loop polling; session/checkpoint/admission choreography; one-shots; outcomes and conformance |
 | Jarvis | Product context; input/plan selection; canonical messages/memory; session-ref/checkpoint/admission/dispatch adapters; Discord/connectors; policy; action/effect identity and recorder implementation; reconciliation; scheduling and delivery |
 
 V1 uses only subscription-backed
 `provider_runtime.agent_runtime.AgentRuntime`. Jarvis application tools are
 neither provider-native nor MCP tools. The native child has a private empty
 read-only cwd, disabled network/environment/MCP/built-ins/Web, and approval deny.
-Any native tool-use or permission-request event fails and discards the session.
+The adapter consumes `stream_turn`, not its event-discarding `run_turn`
+projection. Any native tool-use or permission-request event fails and discards
+the session without returning a terminal to the Jarvis loop.
 
 The exact model grammar is one closed value:
 
@@ -90,8 +92,9 @@ run also requires rolling admission. Writes map `action.id` to both
 `InvocationPosition` and `EffectId` with durable action state.
 
 Before implementation, `llm-tools` must expose and qualify public pure
-validation, profile tightening, `HostTable` publication, and async durable
-recorder/executor seams. The kernel and Jarvis may not replace them privately.
+validation, plan/catalog consistency and full tightening, exact `HostTable`
+publication, and async durable recorder/executor seams. The kernel and Jarvis
+may not replace them privately.
 
 ## Consequences
 

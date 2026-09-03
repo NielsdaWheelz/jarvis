@@ -31,7 +31,7 @@ honest mapping without reversing the four-table product decision.
 
 ## Decision
 
-Adopt kernel commit `049bc9221860d6fc5310f21ad560a9ec39371add` and its
+Adopt kernel commit `4eec354008354c09239645fd84c74276e34207be` and its
 actual `AgentRuntime`, serial `call_tool`, polling, settlement, admission, and
 effect contracts.
 

@@ -167,7 +167,8 @@ into bounded `trace` on every waking row consumed by the checkpoint. This is
 diagnostic grouping metadata; immutable action lineage, not trace, governs
 effect recovery.
 
-Outbound Jarvis messages use a persistent, provider-deduplicated outbox:
+Outbound Jarvis messages use a persistent outbox with recent-window provider
+deduplication:
 
 1. Insert the assistant message with `source_message_id = NULL`.
 2. Derive its Discord nonce as the unpadded base64url encoding of the first 15
@@ -187,20 +188,19 @@ interactions remain on `discord.py`; Jarvis does not call private `discord.py`
 internals.
 
 Discord enforces nonce uniqueness for the same author only within its recent
-deduplication window. Before a delayed or post-restart retry that may fall
-outside that window, the adapter MUST boundedly read channel history after the
-nearest known preceding Discord message and look for its own message with the
-same nonce. With no preceding anchor, it scans backward no earlier than the
-pending row's `created_at`, subject to the same bound. If found, it stores that
-Discord ID without sending. If the required interval cannot be checked
-completely, the row remains pending; it is not blindly resent. If the check
-completes without a match, the adapter sends with the same enforced nonce.
+deduplication window. Slice 0 established that history and exact-message reads
+may omit the nonce, so v1 does not claim nonce-based delayed-history
+reconciliation. A retry believed to remain inside the window is automatic. A
+later retry MAY resend the same persisted text with the same enforced nonce,
+subject to a small finite retry/backoff policy selected and tested in Slice 1.
 
 A null `source_message_id` remains the only outbound retry watermark. The nonce
-derives from existing state, so this rule adds no column. V1 does not accept a
-known duplicate-delivery path; a Discord service defect or inconsistent history
-remains outside the guarantee. External tool effects and approval-bearing
-actions have their independent action-level barriers.
+derives from existing state, so this rule adds no column. Conversational
+delivery is at least once: an ambiguous accepted create followed by a retry
+outside Discord's window may rarely repeat ordinary text. This accepted failure
+mode does not grant effect authority. Approval-bearing actions and external tool
+effects retain their independent action-level barriers, so repeated presentation
+cannot repeat an action.
 
 On startup, an owner row with `processed_at = NULL`,
 `processing_parked_at = NULL`, and no action whose immutable execution-contract
@@ -467,16 +467,25 @@ an asynchronous result or requested reminder.
 
 Gmail send uses the provider's draft flow:
 
-1. Create the exact draft automatically.
+1. During `gmail.create_draft`, compute `digest` as the full lowercase
+   hexadecimal encoding of `SHA-256(UTF-8("jarvis-gmail-v1:" +
+   canonical_text(create_action.id)))`, where `create_action` is that
+   draft-creation action row. Set the draft's RFC `Message-ID` to
+   `<{digest}@jarvis.invalid>` and create the exact draft automatically with that
+   header. `jarvis.invalid` uses the reserved `.invalid` namespace and is never
+   resolved. Updates preserve this identity; the later send action stores it
+   rather than deriving a second one.
 2. Persist its Gmail `draftId`, known thread identity, and exact envelope,
-   subject, and body snapshot in the action arguments.
+   subject, body, and RFC `Message-ID` snapshot in the action arguments.
 3. Render and request approval for that immutable snapshot.
 4. Immediately before sending, fetch the live draft and require it to match the
    snapshot exactly; a mismatch fails the action and requires a new proposal.
 5. Send by `draftId` after approval.
 6. On an ambiguous result, perform bounded re-reads: check whether the draft
-   remains and inspect Sent mail using the known identity before deciding whether
-   a repeat is proved safe.
+   remains and search Sent mail by the exact RFC `Message-ID` before deciding
+   whether a repeat is proved safe. Any match must be fetched and compared with
+   the immutable normalized snapshot; multiple or conflicting matches are
+   `uncertain`, not success.
 
 The exact reconciliation behavior for new and existing threads MUST be verified
 against the live integration in Slice 0. Only if the complete reconciliation
@@ -955,7 +964,12 @@ material is rejected from Web arguments rather than sent. V1 does not implement
 authenticated browsing, browser automation, or JavaScript rendering.
 
 `gmail.send_draft` arguments contain the provider draft ID, known thread
-identity, and the exact To/Cc/Bcc, subject, and body snapshot shown for approval.
+identity, stable RFC `Message-ID`, and the exact To/Cc/Bcc, subject, and body
+snapshot shown for approval. The RFC identity is the full lowercase hexadecimal
+encoding of `SHA-256(UTF-8("jarvis-gmail-v1:" +
+canonical_text(create_action.id)))` inside `<{digest}@jarvis.invalid>`, where
+`create_action` is the original `gmail.create_draft` action. It is set once,
+preserved by updates, and copied into the separate send action's arguments.
 Immediately before send, the host verifies that the live draft still matches
 that snapshot; a mismatch fails the action and requires a new proposal.
 
@@ -1413,18 +1427,15 @@ Slice 0 records for each reused connector and the Web family:
 - The pinned `llm-agent-kernel` port/conformance contract and the Jarvis-owned
   product-context, session-reference, input-checkpoint, admission, dispatch, and
   event adapters.
-- The plan-aware tool-budget factory against every selectable plan, the exact
-  per-plan `RunLimits`, the compatibility-revision manifest policy, the finite
-  route-qualified one-turn token overshoot reserved by admission, and
-  provider-native context sizing outside `max_new_context_bytes`.
-- Durable checkpoint parking and explicit operator release, including a
-  process-restart test proving parked rows cannot become runnable work.
+- The intended plan-aware tool-budget, compatibility-revision, admission,
+  context-sizing, checkpoint-park, and operator-release mappings, with each
+  production proof assigned to the implementation slice that owns it.
 - The upgraded public `llm-tools` pure-validation, plan/catalog-consistency and
   full-plan-tightening, exact `HostTable`, and async durable-recorder/executor
   seams consumed by the pinned kernel implementation.
-- The action-backed durable-recorder adapter, including replay of a schedule's
-  immutable creation receipt while its product lifecycle remains queued or
-  executing.
+- The intended action-backed durable-recorder mapping, including replay of a
+  schedule's immutable creation receipt while its product lifecycle remains
+  queued or executing; its production conformance proof belongs to Slice 5.
 - The exact finite executor-entry ceiling and complete reconciliation procedure
   for every v1 write tool.
 - The exact expected-provider-failure matrix, including which failures permit
@@ -1440,6 +1451,14 @@ access connector, Brave, or embedding credentials.
 Implementation MUST NOT proceed beyond Slice 0 until the owner signs off that
 report. Authorization to perform Slice 0 is not acceptance of findings that have
 not yet been observed.
+
+Slice 0 qualifies dependencies and external surfaces before application code
+exists. It records rather than fabricates evidence for Jarvis-owned adapters.
+Checkpoint/session/admission/parking/delivery and paid consumer probes gate
+Slice 1; read plans gate Slice 2; memory plans gate Slices 3–4; the action
+recorder and automatic-write plans gate Slice 5; approval suspension and plans
+gate Slice 6. A plan MUST pass before it becomes selectable. Final acceptance
+still requires every criterion in section 12.
 
 Credential discovery first inspects Ariel's existing operator configuration,
 without importing Ariel application code. If a required credential is absent
@@ -1505,8 +1524,8 @@ Frozen decisions:
 - One visible Jarvis and natural Discord interaction.
 - One configured Discord channel with no v1 server-organization tools.
 - Exactly four application tables.
-- Central conversation history with a persistent, provider-deduplicated Discord
-  outbox and delayed history reconciliation.
+- Central conversation history with a persistent Discord outbox, recent-window
+  enforced-nonce deduplication, and explicitly bounded delayed ambiguity.
 - Product-selected canonical context through the provider-neutral kernel ports;
   reusable but non-canonical provider sessions.
 - Existing Google and Discord integrations are reused.

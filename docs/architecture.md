@@ -101,18 +101,17 @@ Discord event
 validated say or host-rendered response
 → insert assistant message with source_message_id null
 → derive deterministic nonce from message.id
-→ reconcile delayed retry through bounded Discord history when required
 → create with the same nonce and enforce_nonce=true
 → store Discord message ID as source_message_id
 ```
 
 On startup, the adapter retries assistant messages whose `source_message_id` is
-null. A normal retry reuses the same enforced nonce. A delayed retry first reads
-history after the nearest known preceding Discord ID and adopts a matching bot
-message. With no anchor it scans backward to the pending row's creation time.
-An interval that cannot be checked completely leaves the row pending rather than
-risking a duplicate outside Discord's recent nonce window. The nonce is derived
-from the internal message ID and requires no durable field.
+null. Every retry reuses the same enforced nonce. Discord deduplicates the
+recent case, but its history and exact-message reads may omit nonce, so a delayed
+retry cannot reliably adopt the prior message. Subject to a small finite
+retry/backoff policy, it may resend and rarely repeat ordinary conversational
+text. The nonce is derived from the internal message ID and requires no durable
+field. This transport trade-off cannot duplicate an action effect.
 
 Approval messages follow the same persistence rule. The action's
 `approval_message_id` references the internal message row; that row acquires the
@@ -578,14 +577,16 @@ permit a safe retry, and conflicting or unknowable state exhausts to
 
 ## Gmail send recovery
 
-Email is prepared as a Gmail draft. Its `draftId`, thread identity, and exact
-recipient/subject/body snapshot are stored before approval. After approval and
-before dispatch, the executor fetches the live draft. A mismatch fails without
-sending and requires a new proposal. After an ambiguous send:
+Email is prepared as a Gmail draft with a stable RFC `Message-ID` derived from
+the draft-creation action ID exactly as specified in SPEC section 5.5. Updates
+preserve it, and the separate send action stores it with the `draftId`, thread
+identity, and exact recipient/subject/body snapshot before approval. After
+approval and before dispatch, the executor fetches the live draft. A mismatch
+fails without sending and requires a new proposal. After an ambiguous send:
 
 1. Check whether the draft still exists.
-2. If absent, inspect Sent mail using the available thread, recipients, subject,
-   and provider response evidence.
+2. Search Sent mail by the exact RFC `Message-ID`, fetch any match, and compare
+   its normalized snapshot; multiple or conflicting matches are not success.
 3. Perform the binding's bounded re-read sequence before deciding.
 4. Repeat only when evidence proves the send did not occur and repeating is safe.
 5. Otherwise record terminal `uncertain`, present the evidence, and ask the owner
@@ -701,8 +702,9 @@ Each path is an ordinary function over explicit database state.
 - Dreamer failure: retain raw memory and existing summaries.
 - Embedding failure: leave the vector null; lexical recall continues.
 - Discord delivery failure: retain the assistant row with null
-  `source_message_id`; retry with the same enforced nonce, using history
-  reconciliation first when the recent nonce window may have elapsed.
+  `source_message_id`; retry with the same enforced nonce under the finite
+  Slice 1 retry/backoff policy. A delayed recovery may rarely repeat ordinary
+  text but cannot duplicate an action effect.
 - Approval-rendering failure: create no functional Approve component.
 - Interrupted turn with no effect: replay; interrupted turn with an originating
   action: resume/reconcile without model replay.

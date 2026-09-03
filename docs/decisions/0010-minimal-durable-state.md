@@ -5,7 +5,9 @@
   [ADR 0018](0018-serial-kernel-and-bounded-recovery.md); lineage and finite
   attempt semantics amended by
   [ADR 0019](0019-ground-writes-and-close-recovery-seams.md); durable parking
-  amended by [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
+  amended by [ADR 0020](0020-pin-the-implemented-kernel-boundary.md); delayed
+  Discord delivery amended by
+  [ADR 0022](0022-accept-bounded-discord-delivery-ambiguity.md)
 - Date: 2026-09-01
 - Amended: 2026-09-02
 - Supersedes: the message/action schemas and lifecycle in
@@ -73,9 +75,11 @@ operator corrects the defect and explicitly clears the timestamp. A bounded
 reason code may accompany it in `trace`, but diagnostic JSON is not control
 state.
 
-An assistant row starts with null `source_message_id`; successful delivery or
-history reconciliation fills it. That single field is the retry watermark, so
-`delivered_at` remains unnecessary. V1 has no internal conversation table.
+An assistant row starts with null `source_message_id`; a successful Create
+Message response fills it. That single field is the retry watermark, so
+`delivered_at` remains unnecessary. ADR 0022 records the rare delayed duplicate
+accepted when Discord history omits nonce. V1 has no internal conversation
+table.
 
 Bounded `trace` contains recall IDs and compact run summaries—run/provider trace
 IDs, provider turns, available normalized token usage, duration, and outcome.

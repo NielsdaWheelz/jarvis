@@ -20,11 +20,14 @@ not implementation suggestions.
 | [0013](0013-unversioned-v1-tools.md) | Unversioned v1 tool names | Accepted; occupied-position evidence amended by 0018 and 0019 |
 | [0014](0014-minimal-v1-tool-catalog.md) | Exact minimal v1 tool catalog with portable Web tools | Accepted; supersedes parts of 0003 and 0004; amends 0005 |
 | [0015](0015-explicit-v1-proactivity.md) | User-facing proactivity only through requested wakes | Accepted; schedule receipt semantics amended by 0019 |
-| [0016](0016-provider-native-idempotency.md) | Provider-native idempotency before terminal uncertainty | Accepted; supersedes delivery semantics in 0007 and 0010; schema cost amended by 0018; attempt ceiling by 0019 |
+| [0016](0016-provider-native-idempotency.md) | Provider-native idempotency before terminal uncertainty | Accepted; supersedes delivery semantics in 0007 and 0010; schema cost amended by 0018; attempt ceiling by 0019; Discord delivery amended by 0022; Gmail identity amended by 0023 |
 | [0017](0017-extract-agent-kernel.md) | Extract the reusable bounded agent kernel | Accepted; corrected provider/loop/admission contract incorporated; durable mapping in 0018; final seams in 0019; final release boundary pinned by 0020 |
 | [0018](0018-serial-kernel-and-bounded-recovery.md) | Map the serial kernel and bounded recovery into four tables | Accepted; amends 0010, 0012, 0013, and 0017; final seams amended by 0019; durable park amended by 0020 |
 | [0019](0019-ground-writes-and-close-recovery-seams.md) | Ground writes and close the remaining recovery seams | Accepted; amends 0010, 0012, 0015, and 0018; claim/attempt ordering amended by 0020 |
 | [0020](0020-pin-the-implemented-kernel-boundary.md) | Pin the implemented kernel release boundary | Accepted; amends 0010, 0012, and 0017–0019 |
+| [0021](0021-qualify-adapters-in-their-owning-slices.md) | Qualify adapters in their owning slices | Accepted; amends Slice 0 proof timing in 0017–0020 without weakening final acceptance |
+| [0022](0022-accept-bounded-discord-delivery-ambiguity.md) | Accept bounded Discord delivery ambiguity | Accepted; amends 0016 |
+| [0023](0023-use-a-stable-gmail-rfc-identity.md) | Use a stable Gmail RFC identity | Accepted; amends 0016 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

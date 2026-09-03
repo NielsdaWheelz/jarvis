@@ -6,7 +6,9 @@
   admission seams amended by
   [ADR 0019](0019-ground-writes-and-close-recovery-seams.md); final implemented
   release boundary pinned by
-  [ADR 0020](0020-pin-the-implemented-kernel-boundary.md)
+  [ADR 0020](0020-pin-the-implemented-kernel-boundary.md); adapter proof timing
+  amended by
+  [ADR 0021](0021-qualify-adapters-in-their-owning-slices.md)
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md),
   [ADR 0007](0007-central-messages-and-unified-actions.md), and
@@ -133,8 +135,9 @@ Costs:
 ## Migration and acceptance
 
 The kernel and required `llm-tools` upgrade are implemented and published. Slice
-0 still qualifies the Jarvis-owned durable adapters and live provider boundary
-before Slice 1. Jarvis adds the fields authorized by ADRs 0018 and 0020 but no
-fifth application table. Acceptance A1.2,
+0 qualifies dependency feasibility and the live provider boundary; ADR 0021
+moves each production Jarvis adapter proof to the slice that owns it. Jarvis
+adds the fields authorized by ADRs 0018 and 0020 but no fifth application table.
+Acceptance A1.2,
 A1.5, A1.9, A2.10–A2.13, A4.1, A4.4–A4.12, A6.10–A6.15, and A7.8–A7.10 cover
 the corrected boundary; ADR 0020 extends recovery coverage through A7.12.

@@ -98,11 +98,12 @@ These instructions govern all work in this repository.
   bounded `trace` on every consumed waking row. Never replay an interrupted
   owner turn named by an action's admitted-input lineage.
 - Persist an assistant response before delivery. A null `source_message_id` is
-  the outbound retry watermark; fill it with the adapter's ID after delivery or
-  history reconciliation.
+  the outbound retry watermark; fill it with the adapter's ID after a successful
+  create response.
 - Derive the Discord nonce from `message.id` exactly as SPEC section 4.3 states,
-  set `enforce_nonce=true`, and reuse it for every retry. A delayed retry must
-  reconcile bounded history first; an incomplete check leaves the row pending.
+  set `enforce_nonce=true`, and reuse it for every retry. Historical responses
+  may omit nonce; a delayed bounded retry may rarely repeat ordinary text under
+  ADR 0022, but cannot duplicate an action effect.
 - `remembered_at` distinguishes a completed rememberer run, including a valid
   decision to store nothing, from one that never completed. Remember once per
   settled input group and advance every consumed owner row transactionally;

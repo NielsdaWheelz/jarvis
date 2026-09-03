@@ -1,7 +1,8 @@
 # ADR 0016: Use provider-native idempotency before uncertainty
 
 - Status: Accepted; schema-cost statement amended by ADR 0018; lifetime attempt
-  ceiling amended by ADR 0019
+  ceiling amended by ADR 0019; Discord history claim and delivery guarantee
+  amended by ADR 0022; Gmail identity amended by ADR 0023
 - Date: 2026-09-01
 - Supersedes: the accepted duplicate conversational-delivery semantics in
   [ADR 0007](0007-central-messages-and-unified-actions.md) and
@@ -15,7 +16,9 @@ The original outbox accepted a duplicate Discord response when Discord accepted
 a create but Jarvis crashed before storing the returned ID. Discord now supports
 an enforced nonce: within its recent window, another create by the same author
 with the same nonce returns the existing message instead of creating a second
-one. Message history also exposes the nonce. See Discord's
+one. Slice 0 later established that message history and exact-message reads may
+omit the nonce; the corrected bounded-delivery contract is in
+[ADR 0022](0022-accept-bounded-discord-delivery-ambiguity.md). See Discord's
 [Create Message](https://docs.discord.com/developers/resources/message#create-message)
 contract.
 
@@ -51,11 +54,10 @@ The qualified `discord.py` 2.7.1 public send method exposes `nonce` but not
 Discord REST v10 binding over `httpx`; Gateway and interactions remain on
 `discord.py`. Private client-library internals are not an interface.
 
-Before a delayed retry that may be outside Discord's recent deduplication window,
-the adapter boundedly reads history after the nearest known preceding Discord
-message. If its own message with that nonce exists, it adopts the provider ID.
-If the history check cannot complete, delivery remains pending. A nonce is
-derived state; no column is added.
+For delayed retries outside Discord's recent deduplication window, follow ADR
+0022: nonce-based history reconciliation is not a v1 guarantee, and a bounded
+retry may rarely repeat ordinary conversational text. A nonce is derived state;
+no column is added.
 
 ### Effectful tools
 
@@ -85,7 +87,7 @@ and asks the owner to inspect provider state. No uncertain action re-executes.
 
 Positive:
 
-- Jarvis has no designed duplicate Discord-delivery path.
+- Recent Discord retries converge through the provider's enforced nonce.
 - Calendar create retries converge on one provider resource.
 - Gmail and Calendar ambiguity normally resolves without owner involvement.
 - The honest `uncertain` escape hatch remains for failures no protocol can prove.
@@ -95,8 +97,9 @@ Positive:
 
 Accepted costs:
 
-- Discord's enforced nonce is time-bounded, so delayed retries require a history
-  read and wait when history is unavailable.
+- Discord's enforced nonce is time-bounded and historical responses may omit it,
+  so delayed conversational recovery carries the rare duplicate cost accepted
+  in ADR 0022.
 - A provider defect or inconsistent Discord history can still violate the
   delivery guarantee.
 - The 128-bit Calendar identifier has a negligible but non-zero collision risk;
@@ -110,8 +113,8 @@ Accepted costs:
 
 ## Rejected alternatives
 
-- **Continue accepting Discord duplicates:** unnecessary now that the provider
-  exposes a cheap deduplication primitive.
+- **Accept every Discord duplicate without using nonce enforcement:** rejected;
+  the provider's recent-window primitive cheaply removes the common case.
 - **Add a nonce column:** duplicates deterministic state and creates a migration
   without improving recovery.
 - **Use server-generated Calendar IDs:** reintroduces duplicate-create ambiguity.

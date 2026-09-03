@@ -18,7 +18,8 @@ Deliver:
 - The configured Discord guild/owner/channel IDs, exact four bot permissions,
   minimal Gateway intents, and bounded history-catch-up behavior.
 - Live Discord confirmation that `enforce_nonce` returns the existing message
-  for the same recent bot nonce and that history exposes that nonce.
+  for the same recent bot nonce, plus an honest record of whether history and
+  exact-message reads expose that optional nonce.
 - Qualification of `discord.py` 2.7.1 for Gateway/interactions and direct
   `httpx` Discord REST v10 Create Message for enforced nonces, with no private
   client-library API.
@@ -48,25 +49,17 @@ Deliver:
   cancellation, and optional observability ports plus its multi-run conformance
   suite. Confirm it owns no database schema, connector, product authority, or
   duplicate provider/tool implementation.
-- A checked-in session-compatibility manifest policy and rotation fixture for
-  every role, including exact dependency-pin and application-contract changes.
-- A plan-aware budget-factory fixture for every selectable full Main, read-only
-  proactive, memory-read, and empty gate plan. Record each exact
-  `llm_tools.RunLimits` value; shared or preconstructed budget state is forbidden.
-- The route-qualified finite one-turn input/output-token overshoot used by
-  admission, plus provider-native context sizing for system/developer material,
-  schema transport, retained history, and compaction outside the kernel's
-  `max_new_context_bytes`.
-- A durable checkpoint-park fixture proving atomic quarantine, process-restart
-  exclusion, circuit opening, and explicit operator release.
+- The intended compatibility-revision, plan-aware budget, admission overshoot,
+  provider-native context-sizing, and durable checkpoint-park mappings, with
+  their production proofs assigned to the slices that build them.
 - Qualify an isolated structured one-shot with a genuinely empty `HostTable`
   plan for AutomaticWriteGate; do not add a dummy capability to satisfy a
   library limitation.
 - Record the exact expected-provider-failure matrix, including which failures
   permit the one safe cold bootstrap and which do not.
-- Prove the Jarvis action-backed durable-recorder adapter against `llm-tools`,
-  including the special schedule-creation receipt replay while product status
-  remains queued or executing.
+- Prove that the public `llm-tools` recorder surface can represent the intended
+  Jarvis action and schedule-creation receipt mapping; the production adapter
+  conformance fixture gates Slice 5.
 - Select and record a finite lifetime executor-entry ceiling and complete
   automatic reconciliation procedure for every v1 write tool; no unbounded
   default is permitted.
@@ -110,8 +103,8 @@ Deliver:
 - Persist-before-send assistant messages using null `source_message_id` as the
   delivery watermark.
 - Deterministic 20-character Discord nonce derivation, `enforce_nonce=true` on
-  every create, same-nonce retry, and bounded history reconciliation before a
-  delayed retry.
+  every create and retry, and a small finite delivery retry/backoff policy that
+  accepts the documented rare delayed conversational duplicate.
 - Narrow typed Discord REST v10 Create Message binding over `httpx`; retain
   `discord.py` for Gateway/interactions.
 - `processed_at` turn completion and interrupted-turn recovery.
@@ -129,7 +122,10 @@ Deliver:
   Pin or application-contract changes rotate it; dynamic input and subset plans
   do not.
 - One plan-aware `ToolBudgetFactoryPort` implementation creating fresh exact
-  budgets after plan validation for every selectable plan.
+  budgets after plan validation for every plan selectable in Slice 1.
+- Exact Slice 1 `llm_tools.RunLimits`, finite route-qualified one-turn token
+  overshoot, and provider-native context sizing for system/developer material,
+  schema overhead, retained history, and compaction.
 - Exclusive non-empty claim over messages, host-selected full or scheduled-wake
   read-only plan, ordered watermark, mid-loop compatible-input polling, stop
   preemption, and atomic conclusion/`processed_at` settlement. Incompatible work
@@ -161,6 +157,9 @@ Deliver:
   settlement, stop preemption, poison input, crash reclaim, rolling admission,
   plan-budget mismatch and parking, compatibility rotation, provider-native
   context sizing, cooperative-time overshoot, and exhausted bounds.
+- The three paid Codex consumer probes against the exact pinned kernel and
+  provider-runtime revisions, with sanitized results in the qualification
+  ledger.
 - Deployment ownership lock and an in-process execution mutex serializing
   provider turns and host-tool dispatches.
 
@@ -176,6 +175,8 @@ Deliver:
 - Jarvis-owned application declarations/bindings, product policy, and frozen
   role plans composed through `llm-tools`; the library retains schema,
   validation, prompt-section, budget, and execution ownership.
+- Exact read-plan `RunLimits` and plan-aware factory conformance before any read
+  plan becomes selectable.
 - No Discord declarations in the model tool catalog; conversation delivery stays
   in the adapter.
 - Kernel-owned strict `call_tool | say | finish` schema, complete semantic and
@@ -209,6 +210,8 @@ Deliver:
   isolated rememberer after every eligible completed turn; both use one-shot
   execution, touch no input-checkpoint or saved-session port, and return closed
   structured `finish.result` payloads.
+- Exact recaller and rememberer `RunLimits` plus plan-aware factory conformance
+  before those plans become selectable.
 - Stable external-reference convention.
 - Fifteen-case owner-authored redacted recall evaluation set.
 - Bounded retry sweep for completed unremembered `role = owner` turns only.
@@ -225,6 +228,8 @@ Deliver:
 - Exact `memory_summary` schema with raw lineage.
 - Fresh `SessionMode.isolated` kernel dreamer one-shot search/open profile with a
   closed structured `finish.result` mutation batch.
+- Exact dreamer `RunLimits` and plan-aware factory conformance before its plan
+  becomes selectable.
 - Structured final summary-mutation batch and host-owned transaction.
 - Simple idle/system timer with one dreamer at a time.
 - Full derived-memory rebuild command.
@@ -268,6 +273,9 @@ Deliver:
   with the per-row contract binding tool/policy/plan revisions, effect/replay
   declarations, canonical input digest, finite attempt ceiling, claim/checkpoint,
   model-step ordinal, ordered admitted-input IDs, and gate-supporting owner IDs.
+- Production action-backed recorder conformance, schedule-creation receipt
+  replay, automatic-write suspension evidence, and exact automatic-write plan
+  budgets before any write plan becomes selectable.
 - Interrupted turns that already created an action close exactly the stored
   admitted input prefix without model replay.
 - Base idempotent host-authored action-resolution messages for outcomes that
@@ -283,7 +291,12 @@ framework.
 
 Deliver:
 
-- Gmail send as draft-send by stored `draftId`.
+- Approval suspension/resolution conformance and exact approval-bearing plan
+  budgets before those plans become selectable.
+
+- Gmail send as draft-send by stored `draftId`, with the exact stable RFC
+  `Message-ID` derived from the draft-creation action ID preserved through
+  updates and stored in the immutable send snapshot.
 - Host preview renderers for Gmail send and non-owner-only calendar writes, with
   no model preview field or action preview column.
 - Long-action rendering through host-owned split messages or attachment.

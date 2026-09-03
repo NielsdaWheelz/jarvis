@@ -37,11 +37,10 @@ named explicitly; no criterion disappears or is weakened silently.
       `llm-tools` validation/plan/HostTable/async-recorder seams, and
       credential-containment results. It also records the provider
       failure/cold-bootstrap matrix, finite per-tool lifetime attempt ceilings,
-      action-backed schedule-recorder mapping, and empty-plan isolated one-shot;
-      it records the compatibility-revision manifest, plan-aware budget
-      factories and exact per-plan limits, route-qualified one-turn token
-      overshoot, provider-native context sizing, and durable park behavior;
-      the owner signs it before Slice 1.
+      intended action-backed schedule-recorder mapping, and empty-plan isolated
+      one-shot. For Jarvis adapters that do not exist yet, it records the exact
+      owning slice and acceptance evidence rather than a fictional pass. The
+      owner signs it before Slice 1.
 
 ## A2. Discord and conversation history
 
@@ -68,15 +67,17 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A2.7** Every inbound owner message is stored before processing and one
       redelivered Discord event starts no second turn.
 - [ ] **A2.8** Every assistant response is inserted before Discord delivery and
-      receives a `source_message_id` after success or history reconciliation; a
+      receives a `source_message_id` after a successful create response; a
       null ID is the only outbound retry watermark. Its 20-character Discord
       nonce is derived exactly from `message.id` as specified and is not stored.
 - [ ] **A2.9 — live.** Every Discord create and retry uses the same nonce with
       `enforce_nonce=true`. Injecting a lost accepted response inside the nonce
-      window leaves exactly one visible message. A simulated delayed restart
-      outside that window finds the nonce in bounded history and performs no
-      second create; an incomplete history check leaves the row pending. Create
-      uses the qualified direct REST binding, not a private `discord.py` API.
+      window leaves exactly one visible message. A simulated delayed retry uses
+      the same nonce, obeys the finite Slice 1 retry/backoff bound, and may
+      produce the explicitly accepted rare repeated conversational message
+      because Discord history can omit nonce. Create uses the qualified direct
+      REST binding, not a private `discord.py` API; duplicate presentation never
+      duplicates an action effect.
 - [ ] **A2.10** Consecutive owner turns reuse one native main Codex session; an
       ordinary restart or compatible deployment resumes it; a changed
       agent-definition fingerprint, deleted reference, invalid reference, or
@@ -316,7 +317,11 @@ These criteria are **live** where they call Gmail or Discord.
       re-executes and does not block a later identical new action.
 - [ ] **A6.13 — live.** An approved email produces exactly one recipient copy,
       including an injected ambiguous-timeout test reconciled through the Gmail
-      draft/Sent behavior.
+      draft/Sent behavior. The draft and immutable action snapshot contain the
+      exact stable RFC `Message-ID` derived from the original draft-creation
+      action ID; updates preserve it and the send action copies it. Sent
+      reconciliation searches that identity, fetches matches, and rejects
+      multiple or conflicting matches as uncertain.
 - [ ] **A6.14** External success is reported only from provider or reconciliation
       evidence, never a model assertion. An action outcome that cannot return to
       its still-live originating loop creates exactly one host-authored waking
@@ -378,7 +383,9 @@ These criteria are **live** where they call Gmail or Discord.
       do not become executable; restored `executing` actions reconcile first.
 - [ ] **A7.5** Jarvis resumes Discord operation, boundedly catches up owner input,
       and retries pending assistant rows with null `source_message_id` after
-      restart using deterministic nonce/history reconciliation. It resumes a
+      restart using the deterministic enforced nonce and the finite delivery
+      retry/backoff policy, with the accepted possibility of a rare repeated
+      ordinary response after delayed ambiguous acknowledgement. It resumes a
       configuration-compatible main session when possible and cold bootstraps
       from canonical context when not.
 - [ ] **A7.6** A database backup contains no usable Google, Discord, Codex,

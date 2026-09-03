@@ -136,10 +136,11 @@ These are accepted knowingly, not overlooked.
   forever.
 - Raw memory grows without bound and model-made memories can be wrong.
   Correction is by append; v1 deliberately has no erasure mechanism.
-- Discord deduplicates a stable per-message nonce only within a recent window.
-  Jarvis reconciles delayed retries through channel history; if that check is
-  unavailable, delivery waits rather than risking a duplicate. A Discord service
-  defect or inconsistent history remains outside Jarvis's guarantee.
+- Discord deduplicates a stable per-message nonce only within a recent window,
+  and historical responses may omit that nonce. V1 therefore accepts that an
+  ambiguous acknowledgement followed by a sufficiently delayed bounded retry
+  can rarely repeat ordinary conversational text. This cannot duplicate an
+  approval decision or external action.
 - Discord transport uses `discord.py` for Gateway/interactions and one direct
   REST create binding because the qualified client does not expose enforced
   nonces; this small split remains until its public API can replace the binding.

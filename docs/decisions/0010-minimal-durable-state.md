@@ -2,7 +2,9 @@
 
 - Status: Accepted; tool naming amended by ADR 0013; provider-native
   idempotency amended by ADR 0016; cross-run and recorder facts amended by
-  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md)
+  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md); lineage and finite
+  attempt semantics amended by
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
 - Date: 2026-09-01
 - Amended: 2026-09-02
 - Supersedes: the message/action schemas and lifecycle in
@@ -65,6 +67,8 @@ history reconciliation fills it. That single field is the retry watermark, so
 Bounded `trace` contains recall IDs and compact run summaries—run/provider trace
 IDs, provider turns, available normalized token usage, duration, and outcome.
 It contains no message copies, prompts, model prose, tool payloads, or results.
+ADR 0019 requires the same settlement identity on every consumed waking row so
+multi-message groups remain reconstructable.
 
 The exact v1 action schema is:
 
@@ -88,8 +92,10 @@ action
 `tool_name`, `arguments`, `execution_contract`, and `origin_message_id` are
 immutable. The closed host-authored `execution_contract` contains the exact
 tool-contract, policy, and plan revisions, `ToolEffect`, `ReplayPolicy`, and
-canonical input digest used to occupy the `llm-tools` position. This is one
-effect's recovery evidence, not a dispatch registry or model field.
+canonical input digest used to occupy the `llm-tools` position. ADR 0019 adds a
+finite lifetime attempt ceiling, kernel claim/checkpoint/input/step lineage, and
+supporting owner-input IDs from the write gate. This is one effect's recovery
+evidence, not a dispatch registry or model field.
 
 The action ID is both `InvocationPosition` and `EffectId` for `Write` and is a
 provider idempotency key where supported. `attempts` increments immediately

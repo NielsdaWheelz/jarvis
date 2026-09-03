@@ -59,7 +59,8 @@ These instructions govern all work in this repository.
 - Resume the main session only when its immutable agent-definition fingerprint
   matches; the fingerprint is rebuildable runtime state, not a table column or
   tool version.
-- Recaller, rememberer, and dreamer invocations use fresh isolated sessions.
+- Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
+  isolated sessions.
 - The kernel owns the exact `say | call_tool | finish` model-step grammar,
   validates the entire step and pure arguments before dispatch, and permits
   exactly one serial call per step. `call_tool` carries no user-facing text or
@@ -82,8 +83,9 @@ These instructions govern all work in this repository.
   racing after the final poll gets the already-valid answer first and its own run
   next.
 - Set a waking message's `processed_at` only in the transaction that records its
-  durable turn conclusion. Never replay an interrupted owner turn that already
-  created an action.
+  durable turn conclusion. Put the same run/checkpoint/conclusion identity in
+  bounded `trace` on every consumed waking row. Never replay an interrupted
+  owner turn named by an action's admitted-input lineage.
 - Persist an assistant response before delivery. A null `source_message_id` is
   the outbound retry watermark; fill it with the adapter's ID after delivery or
   history reconciliation.
@@ -91,7 +93,9 @@ These instructions govern all work in this repository.
   set `enforce_nonce=true`, and reuse it for every retry. A delayed retry must
   reconcile bounded history first; an incomplete check leaves the row pending.
 - `remembered_at` distinguishes a completed rememberer run, including a valid
-  decision to store nothing, from one that never completed.
+  decision to store nothing, from one that never completed. Remember once per
+  settled input group and advance every consumed owner row transactionally;
+  fall back to per-row sweep only when grouping trace is unavailable.
 - Retry memory formation only for `role=owner`; host action-resolution and
   scheduled-wake rows never enter the rememberer sweep.
 - Canonical message persistence is host bookkeeping and creates no `action`.
@@ -123,6 +127,11 @@ These instructions govern all work in this repository.
   discards the session.
 - Host code validates and classifies calls; effectful application tools execute
   through `llm-tools` and use one durable `action` row.
+- Before any action insert or approval display, every validated model-proposed
+  `Write` runs through the isolated AutomaticWriteGate. It has no tools and sees
+  only current owner input plus a bounded host-normalized effect descriptor—no
+  recall, connector/Web/tool result, rationale, history, payload prose, or
+  credential. Denial or failure creates no action.
 - Reads and canonical message/memory transactions create no action rows.
 - Catalogued reads, memory work, email drafts, personal calendar management,
   scheduled wakes, and normal responses in the configured Discord channel are
@@ -141,13 +150,19 @@ These instructions govern all work in this repository.
   plan, effect/replay declarations, and input digest. Revalidate both before
   approval rendering and execution; drain non-terminal actions before an
   incompatible tool change.
+- The execution contract also stores finite `max_attempts`, claim ID,
+  through-checkpoint, model-step ordinal, ordered admitted input IDs, and
+  write-gate supporting owner IDs. Recovery uses this lineage, never
+  `origin_message_id` alone.
 - Action states are exactly `queued`, `awaiting_approval`, `executing`,
   `succeeded`, `failed`, `uncertain`, and `cancelled`.
 - The single deployment owner reconciles rows left `executing` after a timeout or
   restart. Increment `action.attempts` immediately before actual executor entry;
-  the count records, but never authorizes, an evidence-proven safe repeat. Do not
-  add action leases, intent keys, client references, multi-call vectors, or a
-  general version registry without measured need and a new ADR.
+  require it to remain below the immutable lifetime ceiling. The count records,
+  but never authorizes, an evidence-proven safe repeat. At the ceiling, proved
+  absence fails and unresolved evidence becomes uncertain. Do not add action
+  leases, intent keys, client references, multi-call vectors, or a general
+  version registry without measured need and a new ADR.
 - Use `action.id` as deterministic provider effect identity where the provider
   supports it, including Calendar create IDs, and as both the `llm-tools`
   `InvocationPosition` and `EffectId` for every `Write`.
@@ -166,6 +181,10 @@ These instructions govern all work in this repository.
 - Only an owner-requested due `schedule_wake` starts a user-facing proactive
   turn. Do not add generic quiet hours, connector polling, or autonomous
   inbox/calendar monitoring in v1.
+- A schedule create keeps an immutable `result.creation_receipt` that the durable
+  recorder replays independently of later queued/executing/terminal status;
+  later lifecycle writes only `wake_outcome`. Cancellation is its own gated
+  action and can target only a queued original.
 
 ## Engineering rules
 
@@ -175,9 +194,15 @@ These instructions govern all work in this repository.
   Do not move product authority into `llm-agent-kernel`.
 - Use one deployment-level PostgreSQL advisory lock and ordinary in-process
   scheduling; do not invent redundant workflow coordination.
-- Require host rolling admission before provider I/O. Keep the private journal
-  content-free, settle it on every exit, cap concurrency at one, and fail closed
-  on corrupt state.
+- Require host rolling admission before provider I/O. Durably reserve maximum
+  root/serial-child turns and reported-token allowance plus one root slot. Clean
+  exits settle/refund; startup releases orphaned slots without refunding their
+  rolling capacity charge. Admission denial does not increment input attempts;
+  owner work is retried at reset with one notice for delays of at least 60
+  seconds, while background work defers silently. Fail closed on corrupt state.
+- Serialize active provider turns and host-tool dispatches. A nested write gate
+  runs only while the main run is paused and shares capacity already reserved by
+  the root; no provider calls overlap.
 - Derived state must be safely rebuildable.
 - Preserve user-owned changes in every repository.
 - Never place credentials, OAuth tokens, private memory text, or message bodies

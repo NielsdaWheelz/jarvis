@@ -132,16 +132,19 @@ contradictory recollections together.
 
 ### Invocation
 
-The rememberer runs after an owner turn that:
+The rememberer runs once after a settled input group containing one or more
+owner messages that:
 
 - Produced a validated `say`.
 - Finished silently through `finish`.
 - Created an action awaiting approval and a host-rendered approval message.
 
-It opens a fresh isolated Codex session and receives the persisted turn with
-source timestamps, material tool observations, the memories recalled for that
-turn, and bounded recent conversation history. Its root invocation receives the
-owner timezone and one host-generated `as_of` value once.
+It opens a fresh isolated Codex session and receives every consumed owner
+message in the group, the persisted conclusion, source timestamps, material
+tool/action observations, the memories recalled for that work, and bounded
+recent conversation history. Host action-resolution or scheduled-wake rows may
+appear as context but are never watermark targets. Its root invocation receives
+the owner timezone and one host-generated `as_of` value once.
 
 ### Reasoning
 
@@ -164,14 +167,19 @@ unsupported inference, secrets, standing authority, and redundant paraphrases.
 Host code validates the final strings and performs one transaction:
 
 1. Append every accepted raw memory.
-2. Set `remembered_at` on the owner message.
+2. Set `remembered_at` on every consumed owner message in the settled group.
 
-A successful rememberer that returns no memories still sets the watermark. A
-failed or cancelled run leaves it null. A bounded sweep retries completed owner
-turns where `processed_at IS NOT NULL` and `remembered_at IS NULL`. The explicit
-processing watermark prevents an interrupted turn from being mistaken for a
-completed turn whose rememberer merely chose to write nothing. Rows with
-`role = host`, including action resolutions and scheduled wakes, are excluded.
+A successful rememberer that returns no memories still sets every watermark. A
+failed or cancelled run leaves all target values null. A bounded sweep retries
+completed owner rows where `processed_at IS NOT NULL` and
+`remembered_at IS NULL`. Normally it groups rows by their shared settled run and
+conclusion trace and processes the group once. If legacy or damaged trace cannot
+establish the group, it processes owner rows individually; search and model
+judgment limit duplicate memories without claiming exact semantic deduplication.
+The explicit processing watermark prevents an interrupted turn from being
+mistaken for a completed turn whose rememberer merely chose to write nothing.
+Rows with `role = host`, including action resolutions and scheduled wakes, are
+excluded as targets.
 
 This is a canonical application transaction, not a tool effect. It creates no
 `action` row and stores the memory text in no other Jarvis table.

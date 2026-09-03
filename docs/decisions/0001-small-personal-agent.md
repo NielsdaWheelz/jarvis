@@ -1,6 +1,7 @@
 # ADR 0001: Build one small personal agent system
 
-- Status: Accepted; trace location and shape amended by ADR 0010
+- Status: Accepted; trace location and shape amended by ADRs 0010 and 0019;
+  internal write-gate role added by ADR 0019
 - Date: 2026-09-01
 
 ## Context
@@ -21,7 +22,8 @@ system to a guess. Give the model the chance first.
 ## Decision
 
 Build one visible Jarvis as a Python modular monolith with internal recaller,
-rememberer, dreamer, and main-agent roles.
+rememberer, dreamer, and main-agent roles. ADR 0019 later adds one narrow,
+tool-less AutomaticWriteGate role without creating a visible agent organization.
 
 Use PostgreSQL as the only new state service. Do not add explicit tables for
 people, projects, commitments, tasks, decisions, episodes, claims, or their
@@ -31,8 +33,8 @@ Add structure only after a repeated measured failure shows that model reasoning
 over memories and live tools is insufficient.
 
 A bet with no scoreboard is a belief. The instrument that makes this falsifiable
-is the bounded trace on the originating `message` row—candidate/selected memory
-IDs plus compact run/provider IDs, usage counters, and outcome—recorded from
+is bounded trace on every settled `message` row—candidate/selected memory IDs
+plus compact run/provider IDs, usage counters, and outcome—recorded from
 Slice 1, plus the recall evaluation set frozen at Slice 3. Every escape hatch in
 this specification releases on "measured failure"; these are what measure it.
 

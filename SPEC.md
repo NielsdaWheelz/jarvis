@@ -14,8 +14,9 @@ Jarvis is a persistent personal assistant for one user. It exists to return the
 user's attention by remembering relevant context, using connected services, and
 performing ordinary work without requiring supervision.
 
-Jarvis is one visible assistant. Recaller, rememberer, dreamer, and other model
-calls are internal cognitive roles, not user-facing personalities.
+Jarvis is one visible assistant. Recaller, rememberer, dreamer,
+AutomaticWriteGate, and other model calls are internal cognitive roles, not
+user-facing personalities.
 
 ## 2. Goals
 
@@ -42,6 +43,8 @@ V1 MUST:
 13. Remain small enough that one engineer can understand the complete system.
 14. Bound provider work across crashes and repeated runs, not only inside one
     model loop.
+15. Require every model-proposed write to be grounded in current owner-authored
+    input before it can create an action or cross an approval boundary.
 
 ## 3. Non-goals
 
@@ -158,7 +161,11 @@ the kernel has no run-class abstraction and never infers authority from text.
 A turn reaches a durable conclusion when it produces a persisted assistant
 response, finishes silently, or persists
 an approval proposal. The host sets `processed_at` in the same transaction as
-that conclusion.
+that conclusion. The same transaction writes the settled run ID,
+through-checkpoint, nullable conclusion-message ID, and conclusion kind/outcome
+into bounded `trace` on every waking row consumed by the checkpoint. This is
+diagnostic grouping metadata; immutable action lineage, not trace, governs
+effect recovery.
 
 Outbound Jarvis messages use a persistent, provider-deduplicated outbox:
 
@@ -195,14 +202,19 @@ known duplicate-delivery path; a Discord service defect or inconsistent history
 remains outside the guarantee. External tool effects and approval-bearing
 actions have their independent action-level barriers.
 
-On startup, an owner row with `processed_at = NULL` and no action originating
-from it MAY be reclaimed only while its durable `processing_attempts` remains
-within the configured ceiling and rolling admission permits more work. If an
-action already originates from the interrupted turn, the host MUST reconcile or
-resume that action and MUST NOT replay the model turn automatically. It persists
-a host-authored interruption notice and closes the turn instead. An exhausted
-or poison input receives a deterministic host-authored stopped conclusion and
-is consumed; cleanup never silently creates a fresh-budget successor.
+On startup, an owner row with `processed_at = NULL` and no action whose immutable
+execution-contract lineage contains that row MAY be reclaimed only while its
+durable `processing_attempts` remains within the configured ceiling and rolling
+admission permits more work. If any action records the row among its admitted
+input IDs, the host MUST reconcile or resume that action and MUST NOT replay the
+model turn automatically. It closes exactly the execution contract's admitted
+input rows through its stored checkpoint and persists a host-authored
+interruption notice. When several actions name overlapping prefixes from one
+run, recovery handles every action and closes the union once through the
+greatest compatible stored checkpoint. `origin_message_id` remains the stable
+root pointer but is not sufficient recovery lineage. An exhausted or poison input receives a
+deterministic host-authored stopped conclusion and is consumed; cleanup never
+silently creates a fresh-budget successor.
 
 The host promptly shows a typing indicator before model work. V1 does not stream
 partial structured model output into Discord; a `say` step is delivered only
@@ -216,7 +228,8 @@ requested instant; if Jarvis was offline, it becomes eligible on startup. There
 are no generic quiet hours, periodic connector polls, notification batching,
 urgency classification, or autonomous inbox/calendar monitoring in v1.
 
-When an eligible queued wake is claimed, host code atomically moves it to
+Only a queued wake with a valid immutable `creation_receipt` in `result` is
+eligible. When one is claimed, host code atomically moves it to
 `executing` and inserts one waking `message` with `role = host`,
 `source = schedule_wake`, `source_message_id = canonical_text(action.id)`, the
 configured conversation ID, and `processed_at = NULL`. Its text is rendered from
@@ -226,6 +239,8 @@ idempotent across restart. The main run receives the normal read-only proactive
 capability plan. Persisting its visible conclusion (or the deterministic fallback
 below) and marking the wake `succeeded` occur in the same transaction; an
 interrupted due-wake row is safe to resume without recreating the action.
+The terminal transaction appends a separate `wake_outcome` to `result`; it never
+overwrites the creation receipt returned by the original tool call.
 
 Inbound email, calendar changes, Maps data, and non-owner Discord activity do not
 directly start model turns. A proactive turn receives the scheduled-wake event
@@ -250,6 +265,10 @@ model.
 
 ### 5.1 Automatic operations
 
+Every model-proposed `Write` passes the owner-grounding gate below before Jarvis
+creates an action, displays an approval, or enters an executor. Approval policy
+is a later independent host check; requiring approval never bypasses this gate.
+
 Jarvis acts without approval for:
 
 - The exact read tools in section 7.3.
@@ -270,6 +289,44 @@ An owner-only calendar is one whose live ACL grants access only to the owner.
 The deployment records the verified owner-only calendar IDs. A calendar write
 whose ACL is shared or unknown requires approval. Calendar write schemas carry an
 explicit IANA timezone and reject naive datetimes.
+
+The `AutomaticWriteGate` is a fixed Jarvis-owned isolated
+`llm-agent-kernel` one-shot with an empty tool plan and a closed result:
+
+```text
+decision = allow | deny
+supporting_owner_message_ids = ordered list of current owner input IDs
+```
+
+It runs only after the main step, frozen binding, and arguments validate, and
+before any `action` insert. It receives only:
+
+- The ordered text and IDs of owner-authored inputs admitted through the current
+  checkpoint. Host action-resolution and scheduled-wake text do not count as
+  authority.
+- The canonical proposed tool ID.
+- A bounded host-normalized descriptor containing only allowlisted scalar fields
+  needed to judge the operation, target, audience, and timing, including the
+  owner timezone and current batch `as_of` when relative wording must be checked.
+  Arbitrary bodies, connector text, and other free-form payloads are replaced by
+  length and digest.
+
+It receives no recalled memory, connector or Web result, tool observation,
+model rationale, provider history, credential, or unbounded proposed payload.
+`allow` is accepted only when the write is directly entailed by current owner
+input, remains within its requested scope, and names a non-empty subset of the
+actual current owner IDs. `deny`, ambiguity, invalid output, quota/admission
+denial, or gate failure creates no action and dispatches nothing; the main loop
+receives a typed policy denial and may ask the owner to restate the request.
+
+The gate cannot widen the frozen plan or override deterministic policy such as
+owner-only Calendar ACLs and approval requirements. Its contract/prompt/model
+revision is covered by `policy_revision`, and an allowed action stores the
+supporting owner IDs in its immutable execution contract. This second model is
+an intentionally narrow prompt-injection defense, not a proof system: directly
+adversarial or ambiguously quoted owner text can still cause a false allow or
+false deny. V1 accepts the added write latency and evaluates this boundary
+adversarially rather than building a provenance type system.
 
 ### 5.2 Approval-required operations
 
@@ -315,17 +372,19 @@ disables the components before any slow external work begins.
 Approval is deliberately simple:
 
 1. Validate the proposed tool and arguments.
-2. Insert one `action` row as `awaiting_approval`, including its immutable
+2. Run `AutomaticWriteGate`; stop with no action unless current owner input
+   directly supports the proposed effect.
+3. Insert one `action` row as `awaiting_approval`, including its immutable
    execution contract, plus its host-owned approval `message`, in one
    transaction.
-3. Store that message's internal ID as `approval_message_id` and render the exact
+4. Store that message's internal ID as `approval_message_id` and render the exact
    action from the immutable stored arguments.
-4. On Approve or Deny, validate the context and atomically claim or resolve the
+5. On Approve or Deny, validate the context and atomically claim or resolve the
    stored row.
-5. Immediately acknowledge the Discord interaction and disable its components.
-6. Execute the approved action through its occupied durable position and store
+6. Immediately acknowledge the Discord interaction and disable its components.
+7. Execute the approved action through its occupied durable position and store
    its result; repeat only after reconciliation proves the effect absent.
-7. Insert one idempotent host-authored action-resolution `message` and let the
+8. Insert one idempotent host-authored action-resolution `message` and let the
    main agent report success, denial, failure, or uncertainty naturally.
 
 The invoking Discord user, guild, and channel must match deployment
@@ -349,18 +408,23 @@ Automatic and scheduled writes begin `queued`. Approval-bearing writes begin
 it to `cancelled`. The owner may also cancel a queued scheduled action.
 
 The deployment-level lock guarantees that only one Jarvis process can execute
-actions. Immediately before each actual executor entry, host code atomically
-increments `attempts`. An external request has a bounded timeout. After a
-timeout, or on startup when an action remains `executing`, the host uses
-tool-specific evidence and bounded provider re-reads to reconcile it
-automatically. It may return the action to `queued` only when evidence proves
-the effect did not occur and repeating it is safe. It records `succeeded` or
-`failed` when provider evidence establishes the outcome. Only after the
-tool-specific reconciliation procedure is exhausted and available evidence
-genuinely cannot decide does it record terminal-for-execution `uncertain`. A
-timeout alone is never evidence for a retry or for uncertainty. There is no
-blind retry or execution lease; `attempts` records the rare evidence-authorized
-repeat rather than authorizing one.
+actions. Every immutable execution contract contains a finite integer
+`max_attempts >= 1`, selected per tool during Slice 0. Immediately before each
+actual effectful binding executor entry, host code atomically requires
+`attempts < max_attempts` and increments `attempts`. Reconciliation reads do not
+increment it. An external request has a bounded timeout. After a timeout, or on
+startup when an action remains `executing`, the host uses tool-specific evidence
+and bounded provider re-reads to reconcile it automatically. It may return the
+action to `queued` only when evidence proves the effect did not occur, repeating
+it is safe, and lifetime attempt capacity remains. It records `succeeded` or
+`failed` when provider evidence establishes the outcome. If the ceiling is
+exhausted, proved absence becomes `failed`; unresolved evidence becomes
+terminal-for-execution `uncertain`. Only after the tool-specific reconciliation
+procedure is exhausted and available evidence genuinely cannot decide does it
+otherwise record `uncertain`. A timeout alone is never evidence for a retry or
+for uncertainty. There is no blind retry or execution lease; `attempts` records
+the rare evidence-authorized repeat rather than authorizing one, and no tool may
+configure an unlimited ceiling.
 
 Repeated calls with identical arguments are permitted. Duplicate prevention
 comes from source-message deduplication, atomic action state transitions, the
@@ -453,8 +517,9 @@ field.
 ### 6.2 Raw memory
 
 The rememberer produces zero or more concise, self-contained natural-language
-memories from completed working context. Host code appends them to `memory_log`
-and sets the originating owner message's `remembered_at` in one transaction.
+memories from one completed settled input group. Host code appends them to
+`memory_log` and sets `remembered_at` on every consumed owner message in that
+group in one transaction.
 
 Memory persistence is host-owned canonical bookkeeping, not an `llm-tools` tool
 effect. It creates no `action` row and does not duplicate memory text into the
@@ -506,21 +571,27 @@ not assume that the summary preserves the detail that made the raw memory useful
 
 ### 6.4 Rememberer
 
-After every owner turn that reached `say`, `finish`, or created an action awaiting
-approval, the rememberer receives the completed persisted context and relevant
-existing memories. It may search and open memory before returning zero or more
-new raw memory strings as a schema-validated `finish.result` from an isolated
-one-shot run.
+After every settled input group containing owner messages that reached `say`,
+`finish`, or created an action awaiting approval, the rememberer receives all
+consumed owner messages, the persisted conclusion, material tool/action context,
+and relevant existing memories. It may search and open memory before returning
+zero or more new raw memory strings as a schema-validated `finish.result` from an
+isolated one-shot run. Host action-resolution and scheduled-wake rows may supply
+context but are not themselves memory-work targets.
 
 The rememberer should retain information likely to save future explanation:
 preferences, decisions, unresolved intentions, persistent circumstances,
 relationships, and useful lessons. It should omit chatter, secrets, full copies
 of live resources, unsupported inferences, and redundant paraphrases.
 
-If the rememberer fails, `remembered_at` remains null. A bounded sweep retries
-unremembered completed rows only when `role = owner`; host action-resolution and
-scheduled-wake inputs are never rememberer work. A successful run that chooses
-to write nothing still sets the watermark.
+If the rememberer fails, every target `remembered_at` remains null. A bounded
+sweep retries unremembered completed rows only when `role = owner`; host
+action-resolution and scheduled-wake inputs are never rememberer work. The
+normal sweep reconstructs a settled group from the shared run/conclusion trace
+and processes it once. If old or damaged trace cannot establish a group, it
+processes owner rows individually; memory search and model deduplication limit
+redundant append without pretending exact semantic deduplication. A successful
+run that chooses to write nothing still sets every target watermark.
 
 ### 6.5 Summaries and dreaming
 
@@ -591,12 +662,13 @@ checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
 persistent peer agents or general delegation. The main definition is
 `continuing` with a conversational output contract and the exact main catalog as
-its maximum envelope. Recaller, rememberer, and dreamer are `isolated` one-shot
-definitions with closed structured output contracts and memory-read envelopes.
-Jarvis supplies one frozen plan per run; it may narrow but never expand the
-definition envelope. Kernel construction rejects any one-shot plan containing
-`ToolEffect.Write`. `Pure` and `Read` remain distinct effects with independent
-replay policies.
+its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
+`isolated` one-shot definitions with closed structured output contracts. The
+first three have memory-read envelopes; AutomaticWriteGate has an empty tool
+envelope. Jarvis supplies one frozen plan per run; it may narrow but never expand
+the definition envelope. Kernel construction rejects any one-shot plan
+containing `ToolEffect.Write`. `Pure` and `Read` remain distinct effects with
+independent replay policies.
 
 - Authentication uses the personal local-account credential.
 - No generative API-key fallback or silent provider fallback exists.
@@ -627,8 +699,9 @@ cold bootstrap is always the safe fallback. For a valid terminal model step,
 the reference advances before the canonical conclusion/checkpoint transaction,
 so a crash cannot commit history while leaving the next continuation behind it.
 
-Recaller, rememberer, and dreamer invocations use fresh isolated sessions. They
-MUST NOT share the main session or one another's history.
+Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
+isolated sessions. They MUST NOT share the main session or one another's
+history.
 
 Jarvis owns product context selection and supplies canonical application data to
 the kernel `ContextSourcePort`: stable instructions, bounded completed message
@@ -664,13 +737,18 @@ Native session history, compaction, and cache behavior are optimizations, not
 canonical state or guaranteed cost properties. Canonical messages plus recall
 MUST always be sufficient to start again.
 
+AutomaticWriteGate does not receive this general product-context projection. It
+receives only the restricted owner-input/effect projection in section 5.1. This
+restriction applies on cold and healthy main sessions alike.
+
 For the main application thread, Jarvis implements the kernel
 `InputCheckpointPort` using existing message state and single-process
 coordination. A claim contains one non-empty bounded input batch, its opaque
-watermark, the host-selected frozen plan, and the oldest logical input's durable
-`processing_attempts` value. Owner and action-resolution work takes priority and
-receives the full Main plan. A scheduled wake is claimed separately with the
-read-only proactive plan. Incompatible work remains unclaimed.
+watermark, stable claim ID, ordered stable input message IDs, the host-selected
+frozen plan, and the oldest logical input's durable `processing_attempts` value.
+Owner and action-resolution work takes priority and receives the full Main plan.
+A scheduled wake is claimed separately with the read-only proactive plan.
+Incompatible work remains unclaimed.
 
 Before every provider turn, before tool dispatch, after tool completion, and
 before settlement, Jarvis lets the kernel poll the canonical message store.
@@ -682,11 +760,13 @@ discard the valid answer already produced: Jarvis commits that answer and
 processes the follow-up in the next run.
 
 A terminal conclusion and `processed_at` watermark commit atomically and
-idempotently. If settlement reports later input, Jarvis signals a later run only
-after commit. Startup and recovery scan the same canonical null-`processed_at`
-rows, so correctness does not depend on an atomic transaction spanning
-PostgreSQL and an in-process wake signal. Cleanup `release` never arms a
-successor by itself.
+idempotently. The same transaction gives every consumed waking row the same run
+ID, through-checkpoint, nullable conclusion-message ID, and conclusion
+kind/outcome in bounded `trace`. If settlement reports later input, Jarvis
+signals a later run only after commit. Startup and recovery scan the same
+canonical null-`processed_at` rows, so correctness does not depend on an atomic
+transaction spanning PostgreSQL and an in-process wake signal. Cleanup `release`
+never arms a successor by itself.
 
 Protocol exhaustion, kernel-budget exhaustion, subscription quota exhaustion,
 owner stop, and repeated provider failure persist a deterministic host-authored
@@ -696,14 +776,38 @@ leave it unconsumed; the next successful claim increments
 before provider I/O. Configuration defects park the input and pause cognitive
 work for operator correction rather than entering a retry loop.
 
-Before provider I/O, Jarvis supplies a host-issued rolling admission token. Its
-atomically replaced private runtime journal bounds provider turns, normalized
-tokens when reported, consecutive no-progress attempts, and total concurrent
-cognitive work. The concurrency ceiling is one in v1. The journal settles usage
-on every exit and fails closed if corrupt. Per-run summaries are also appended
-to bounded `message.trace` where the work has an originating message. The
-subscription AgentRuntime lane has no normalized priceable `CallMeta`; Jarvis
-does not invent a dollar estimate.
+Before claiming/incrementing an input, Jarvis preflights rolling admission under
+its single-process execution mutex. Before provider I/O it durably reserves one
+root work slot plus the finite maximum provider turns and configured reported
+token allowance for that work and its possible serial child one-shots. Recaller
+and any AutomaticWriteGate calls in a foreground turn receive child admission
+tokens against that reservation; the parent is paused and cannot perform
+provider or tool I/O while a child runs. Rememberer and dreamer jobs obtain their
+own root reservations.
+
+The atomically replaced private journal records bounded reservation IDs, run
+IDs, windows, counters, timestamps, reserved/actual capacity, and
+`active | settled | interrupted` state—never prompts or user payloads. A clean
+exit settles actual usage and refunds unused turn/token capacity in `finally`.
+Process death conservatively leaves the full reservation charged. On startup,
+while holding the exclusive deployment lock, Jarvis marks orphaned active
+reservations interrupted and releases their live concurrency slot, but retains
+their turn/token charge until the rolling window expires. Missing or corrupt
+state fails closed until explicit operator reset. Finite window and capacity
+values, including allowances for each admitted child role, are mandatory
+configuration; Slice 0 records the chosen values. The subscription AgentRuntime
+lane has no normalized priceable `CallMeta`; Jarvis does not invent a dollar
+estimate.
+
+Admission denial performs no provider I/O and does not increment
+`processing_attempts`. Owner/action-resolution work remains unprocessed and is
+eligible at the journal's reset instant through one ordinary process timer plus
+the startup scan. If the delay is at least 60 seconds, Jarvis inserts at most one
+host-rendered assistant notice for `(oldest_input_message_id, reset_at)`, using a
+deterministic application UUID as `message.id`; shorter delays are silent.
+Background rememberer and dreamer work always defers silently. Poison-attempt
+exhaustion is not deferred: it consumes the input with the existing visible
+stopped conclusion.
 
 Jarvis's checkpoint finalization maps the conversation conclusion and
 `processed_at` to the existing atomic transaction. Read observations and
@@ -756,12 +860,14 @@ V1 exposes exactly the following canonical model tools:
 | `schedule_wake` | Main | Write; automatic |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
-The table defines each role definition's maximum capability envelope. An
+The table defines each tool-bearing role definition's maximum capability
+envelope. An
 owner-input or action-resolution main run receives the full Main plan. A
 scheduled-wake run uses the same continuing definition but receives only the
 catalogued Gmail, Calendar, Maps, and public-Web reads.
-Each internal one-shot plan contains exactly `memory.search` and `memory.open`.
-Every plan is frozen for its run and may never exceed its envelope.
+Recall, remember, and dream one-shot plans contain exactly `memory.search` and
+`memory.open`; AutomaticWriteGate has an empty plan. Every plan is frozen for its
+run and may never exceed its envelope.
 
 The main agent receives recalled memory but no memory tool. Internal cognitive
 roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
@@ -801,7 +907,44 @@ ID and live state under the same rule.
 
 `schedule_wake` uses one closed tagged schema: create with an exact
 `execute_after` instant and instruction, or cancel with the target queued wake's
-action ID. Cancellation cannot target an executing or terminal action.
+action ID. A create action's closed `result` has two independently managed
+members:
+
+```text
+creation_receipt
+  action_id
+  execute_after
+  arguments_digest
+  recorded_at
+
+wake_outcome = null | terminal persisted-wake outcome
+```
+
+The closed non-null `wake_outcome` variants are:
+
+```text
+concluded(conclusion_message_id, recorded_at)
+cancelled(cancellation_action_id, recorded_at)
+failed(reason_code, recorded_at)
+```
+
+They map the original schedule status to `succeeded`, `cancelled`, or `failed`
+respectively; a local schedule lifecycle never becomes `uncertain`.
+
+The host records `creation_receipt` atomically when the schedule binding accepts
+the queued action; a queued row without that receipt is not eligible to fire and
+is reconciled first. The Jarvis `llm-tools` durable-recorder adapter treats that
+receipt as completion of the original tool effect and replays it for the
+occupied position regardless of the later action status. Due execution changes
+only lifecycle status and `wake_outcome`; it never overwrites
+`creation_receipt`.
+
+Cancellation is a separate gated `schedule_wake` cancel action with its own ID,
+position, attempt ceiling, and closed
+`cancelled(target_action_id, recorded_at)` receipt. In one transaction it targets
+a queued original, records the cancel action as succeeded, moves the original to
+`cancelled`, and writes cancellation evidence to the original `wake_outcome`.
+It cannot target an executing or terminal original.
 
 `llm-tools` supplies contracts, capability profiles and frozen plans,
 `HostTable` publication, typed prompt sections, pure input validation,
@@ -842,12 +985,14 @@ cannot obtain a new correction budget through automatic rearming.
 `call_tool` contains no user-facing text, model-authored call/effect ID,
 preview, authority label, approval instruction, or delivery instruction. It
 proposes exactly one serial call. The host creates or resolves a durable
-`action` before any `Write` executor entry and uses `action.id` as both the
-`llm-tools` `InvocationPosition` and `EffectId`. The executor returns a bounded
-completed `ToolResult`, which becomes input to the next model turn, or Jarvis
-durably accepts the work and returns a suspension waiting for the owner or
-system reconciliation. Only after a completed observation may the model make a
-separate truthful `say`.
+`action` before any `Write` executor entry only after AutomaticWriteGate allows
+the validated proposal. It uses `action.id` as both the `llm-tools`
+`InvocationPosition` and `EffectId`. Gate denial becomes a typed policy
+observation with no action or dispatch. The executor returns a bounded completed
+`ToolResult`, which becomes input to the next model turn, or Jarvis durably
+accepts the work and returns a suspension waiting for the owner or system
+reconciliation. Only after a completed observation may the model make a separate
+truthful `say`.
 
 The main conversational definition forbids `finish.result`. Each internal
 structured definition forbids `say` and requires `finish.result` to match its
@@ -856,9 +1001,10 @@ non-durable recording; consequently a `Read + BilledOnce` operation may be
 billed again after a crash. V1 accepts that bounded cost instead of a generic
 durable observation store.
 
-The model never classifies authority. Jarvis policy selects the plan and maps a
-write into its product action lifecycle. A suspension settles the proposing
-input and releases the provider session lease. A later host-authored message
+The main model never classifies authority. Jarvis policy selects the plan,
+requires current-owner grounding, and maps an allowed write into its product
+action lifecycle. A suspension settles the proposing input and releases the
+provider session lease. A later host-authored message
 starts a new input batch containing the action ID, tool name, original validated
 arguments, resolution state, and safe evidence. Terminal `uncertain` remains a
 Jarvis action result after tool-specific reconciliation, not a kernel retry
@@ -901,16 +1047,22 @@ The Linux deployment SHOULD run Codex under a dedicated unprivileged OS user.
 Exactly one Jarvis service instance owns a deployment. A PostgreSQL advisory lock
 at startup prevents overlap.
 
-Within that one process, an ordinary in-process mutex allows at most one
-cognitive run at a time, and the kernel input-checkpoint port grants at most one
-exclusive drain for the main application thread. Foreground owner work takes
-precedence over rememberer and dreamer work. Kernel cancellation stops
-background cognitive work at a defined boundary; recomputation occurs only on a
-later explicitly admitted schedule, never by unconditional cleanup rearming.
+Within that one process, an ordinary in-process execution mutex permits at most
+one active provider turn or host-tool dispatch at a time, and the kernel
+input-checkpoint port grants at most one exclusive root work epoch for the main
+application thread. AutomaticWriteGate is a serial child: the main run is paused
+before effect dispatch while the isolated gate one-shot runs synchronously under
+the same root ownership; the parent performs no provider or tool I/O and no two
+provider calls overlap. Foreground owner work takes precedence over
+rememberer and dreamer work. Kernel cancellation stops background cognitive work
+at a defined boundary; recomputation occurs only on a later explicitly admitted
+schedule, never by unconditional cleanup rearming.
 
 No second PostgreSQL conversation lock is required while the global ownership
-lock holds. The admission journal's concurrency count is still settled in a
-`finally` path so a normal exception cannot strand capacity.
+lock holds. The root admission reservation owns one concurrency slot; a gate
+child shares it only because its parent is paused and its maximum usage was
+reserved. Normal cleanup settles/refunds in `finally`; startup releases an
+orphaned slot without refunding its still-live rolling turn/token charge.
 
 ## 8. Technology choices
 
@@ -939,7 +1091,7 @@ bridge in v1.
 Initial dependency baseline:
 
 - `llm-agent-kernel`:
-  `50a2a4e98865f7263c3d7b3052602da74f29d588`
+  `049bc9221860d6fc5310f21ad560a9ec39371add`
 - `llm-calling` / `provider-runtime`:
   `a5d9c8e0c1c851daee0731554e0a4a326d3c2819`
 - `llm-tools`: `8df458a199703120005296ae12f997b39d208fed`
@@ -1033,12 +1185,14 @@ memory field requires an ADR.
   the outbound retry watermark; a successful adapter delivery or history
   reconciliation fills it with the source platform's ID. The Discord nonce is
   deterministically derived from `message.id` and needs no column.
-- `remembered_at` records completion of memory formation for an owner turn,
-  including a successful decision to write no memories.
-- `trace` is bounded JSON on the originating row containing recall candidate
-  IDs, selected/created memory IDs, and compact run summaries: run ID, provider
-  trace IDs, provider turns, normalized token usage when reported, duration, and
-  terminal outcome. It contains no prompts, model prose, message copies, tool
+- `remembered_at` records that its owner row participated in a completed
+  rememberer group, including a successful decision to write no memories.
+- `trace` is bounded JSON containing recall candidate IDs,
+  selected/created memory IDs, and compact run summaries: run ID, provider trace
+  IDs, provider turns, normalized token usage when reported, duration, and
+  terminal outcome. Settlement writes the same run ID, through-checkpoint,
+  nullable conclusion-message ID, and conclusion kind/outcome to every consumed
+  waking row. It contains no prompts, model prose, message copies, tool
   arguments, results, or private payloads.
 - Tool payloads do not belong in conversation text solely for debugging.
 
@@ -1068,15 +1222,24 @@ approval, execution, reconciliation, and receipts.
   payload used for approval rendering and execution. `id` is the only additional
   input to a deterministic provider effect identity such as the Calendar event
   ID; it cannot change the approved payload.
-- `execution_contract` is non-null closed host-authored JSONB containing the exact
-  `tool_contract_revision`, `policy_revision`, `plan_revision`, `ToolEffect`,
-  `ReplayPolicy`, and canonical input digest occupied by `llm-tools`. It is not a
-  model field or general version registry. Host code verifies it before every
-  approval rendering, executor entry, replay, or reconciliation.
+- `execution_contract` is non-null closed host-authored JSONB containing the
+  exact `tool_contract_revision`, `policy_revision`, `plan_revision`,
+  `ToolEffect`, `ReplayPolicy`, canonical `input_digest`, finite `max_attempts`,
+  `claim_id`, canonical `through_checkpoint`, `model_step_ordinal`, ordered
+  `input_message_ids`, and
+  `write_gate_supporting_owner_message_ids`. It is not a model field or general
+  version registry. Host code verifies it before every approval rendering,
+  executor entry, replay, or reconciliation.
+- Within that contract, `policy_revision` covers the deterministic authority
+  policy and the AutomaticWriteGate definition fingerprint, including its
+  prompt, model configuration, and output contract.
+- `origin_message_id` is the first waking message in the original claim and
+  remains a convenient stable root pointer. Recovery uses the execution
+  contract's complete admitted-input lineage, not that one pointer alone.
 - `attempts` is a non-negative integer that starts at zero and increments
-  atomically immediately before each actual external executor entry.
-  Reconciliation reads do not increment it, and a count never authorizes a
-  retry.
+  atomically immediately before each actual effectful binding executor entry,
+  only while below the immutable finite `max_attempts`. Reconciliation reads do
+  not increment it, and a count never authorizes a retry.
 - Host code resolves the current declaration and validates stored arguments and
   execution contract again before approval rendering and execution.
 - `execute_after` is nullable; null means immediately eligible, while a timestamp
@@ -1089,7 +1252,9 @@ approval, execution, reconciliation, and receipts.
   `completed_at` is set when the action reaches `succeeded`, `failed`,
   `uncertain`, or `cancelled`.
 - `result` stores a typed provider receipt, failure evidence, cancellation
-  reason, or uncertainty evidence without secrets.
+  reason, or uncertainty evidence without secrets. A create-schedule result
+  preserves an immutable `creation_receipt` while its separate `wake_outcome`
+  moves from null to the later terminal wake result.
 
 Queued or approval-bearing rows whose `tool_name` is unsupported or whose stored
 arguments or execution contract no longer validate fail closed as `cancelled`
@@ -1112,9 +1277,13 @@ agent-definition fingerprint live in private runtime state outside PostgreSQL
 through the kernel `SessionRefPort`. Provider session state is non-canonical,
 rebuildable, and excluded from required backups. A second atomically replaced
 private runtime journal stores the bounded rolling admission window for all
-cognitive work. It contains counters and timestamps only, no prompts or user
-content; missing or corrupt state fails closed until an explicit operator reset.
-Alembic may own its migration table.
+cognitive work. It contains reservation/run IDs, windows, counters, timestamps,
+reserved/actual capacity, and state only—no prompts or user content. Clean exits
+settle and refund unused capacity. Startup under the deployment lock marks
+orphaned reservations interrupted, releases their concurrency slots, and
+retains their conservative turn/token charge until window expiry. Missing or
+corrupt state fails closed until an explicit operator reset. Alembic may own its
+migration table.
 
 ## 10. Existing integrations
 
@@ -1138,6 +1307,15 @@ Slice 0 records for each reused connector and the Web family:
 - The upgraded public `llm-tools` pure-validation, plan-tightening, `HostTable`,
   and async durable-recorder/executor seams required before kernel
   implementation.
+- The action-backed durable-recorder adapter, including replay of a schedule's
+  immutable creation receipt while its product lifecycle remains queued or
+  executing.
+- The exact finite executor-entry ceiling and complete reconciliation procedure
+  for every v1 write tool.
+- The exact expected-provider-failure matrix, including which failures permit
+  the kernel's one safe cold bootstrap and which fail without retry.
+- A real isolated structured one-shot with an empty `HostTable` plan for
+  AutomaticWriteGate; inability to represent no tools holds Slice 0 open.
 
 The qualification report MUST also contain the exact v1 tool manifest from
 section 7.3, live authority classification, Discord enforced-nonce/history
@@ -1183,7 +1361,8 @@ product-domain code.
 - Ordinary logs exclude credentials, private message bodies, raw email bodies,
   and complete memory text.
 - Provider work is admitted through the durable rolling journal; corrupt state
-  fails closed and poison inputs cannot renew their budget across restarts.
+  fails closed, orphaned concurrency is released without refunding reserved
+  rolling capacity, and poison inputs cannot renew their budget across restarts.
 
 ## 12. Definition of done
 
@@ -1227,8 +1406,12 @@ Frozen decisions:
 - No workflow framework, general agent platform, task delegation, or
   model-generated program runtime beyond the bounded kernel.
 - Host-rendered approval previews and the stated autonomy boundary.
+- A restricted AutomaticWriteGate grounds every model-proposed write in current
+  owner-authored input before action creation, without granting new authority.
 - Unversioned canonical v1 tool names with immutable stored calls and
   per-action execution contracts plus deployment-time compatibility discipline.
+- Finite lifetime executor-entry ceilings and action-backed schedule creation
+  receipts that remain replayable across the later wake lifecycle.
 - No v1 redaction or destructive memory consolidation.
 - No Android, OnePassword, Nexus, Skidbladnir, or other unlisted application
   integration.

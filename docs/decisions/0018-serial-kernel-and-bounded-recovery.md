@@ -1,6 +1,8 @@
 # ADR 0018: Map the serial kernel and bounded recovery into four tables
 
-- Status: Accepted
+- Status: Accepted; dispatch lineage, admission reservations, attempt ceilings,
+  and schedule-recorder semantics amended by
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
 - Date: 2026-09-02
 - Amends: [ADR 0010](0010-minimal-durable-state.md),
   [ADR 0012](0012-resumable-session-and-context.md),
@@ -29,7 +31,7 @@ honest mapping without reversing the four-table product decision.
 
 ## Decision
 
-Adopt kernel commit `50a2a4e98865f7263c3d7b3052602da74f29d588` and its
+Adopt kernel commit `049bc9221860d6fc5310f21ad560a9ec39371add` and its
 actual `AgentRuntime`, serial `call_tool`, polling, settlement, admission, and
 effect contracts.
 
@@ -40,7 +42,8 @@ Keep exactly four application tables and add only:
 - `action.execution_contract`: closed immutable host JSON containing exact
   tool/policy/plan revisions, `ToolEffect`, `ReplayPolicy`, and canonical input
   digest for the occupied position.
-- `action.attempts`: count of actual external executor entries.
+- `action.attempts`: count of actual effectful binding executor entries, bounded
+  for life by the execution contract after ADR 0019.
 
 The action row conforms to the durable `llm-tools` recorder/effect boundary:
 `action.id` is both `InvocationPosition` and `EffectId`; immutable arguments and
@@ -59,6 +62,10 @@ rolling admission counters in a content-free atomically replaced private
 journal. The journal bounds provider turns, available normalized tokens,
 no-progress attempts, and concurrency at one. Missing/corrupt state fails closed
 until explicit operator reset.
+
+ADR 0019 later made admission a conservative pre-I/O reservation, copied full
+kernel dispatch lineage into the execution contract, and used shared settlement
+trace across every consumed row without changing the table roster.
 
 The kernel has no run class. Jarvis selects the batch and frozen plan, prioritizes
 owner work, appends compatible input through polling, and leaves incompatible

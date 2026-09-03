@@ -40,6 +40,17 @@ Deliver:
   cancellation, and optional observability ports plus its multi-run conformance
   suite. Confirm it owns no database schema, connector, product authority, or
   duplicate provider/tool implementation.
+- Qualify an isolated structured one-shot with a genuinely empty `HostTable`
+  plan for AutomaticWriteGate; do not add a dummy capability to satisfy a
+  library limitation.
+- Record the exact expected-provider-failure matrix, including which failures
+  permit the one safe cold bootstrap and which do not.
+- Prove the Jarvis action-backed durable-recorder adapter against `llm-tools`,
+  including the special schedule-creation receipt replay while product status
+  remains queued or executing.
+- Select and record a finite lifetime executor-entry ceiling and complete
+  automatic reconciliation procedure for every v1 write tool; no unbounded
+  default is permitted.
 - Live `llm-tools` Brave-search and safe-public-Web-read canaries, including
   private-destination, unsafe-redirect, and credential-egress rejection.
 - Linux qualification of the pinned Codex SDK/runtime containment request,
@@ -93,10 +104,18 @@ Deliver:
   read-only plan, ordered watermark, mid-loop compatible-input polling, stop
   preemption, and atomic conclusion/`processed_at` settlement. Incompatible work
   remains unclaimed; cleanup never arms a successor.
+- Shared run/checkpoint/conclusion trace on every consumed waking row and
+  immutable kernel dispatch lineage available to later action slices.
 - Host-authored poison-input conclusions, durable reclaim ceiling, and a
-  content-free atomically replaced rolling-admission journal that caps provider
-  turns, reported tokens, no-progress attempts, and cognitive concurrency at
-  one.
+  content-free atomically replaced rolling-admission journal that reserves
+  finite maximum root/serial-child provider turns, reported tokens, no-progress
+  attempts, and one root concurrency slot before provider I/O. Clean exit
+  settles/refunds; startup releases an orphaned slot without refunding its
+  rolling turn/token charge.
+- Admission deferral that leaves input and `processing_attempts` untouched,
+  automatically rescans at reset/startup, emits one deterministic assistant
+  notice for owner/action-resolution delays of at least 60 seconds, and silently
+  defers background memory work.
 - A fake stateless adapter test proving bootstrap context contains no Codex SDK
   types and carries the current owner message exactly once.
 - Kernel conformance fixtures for session loss, invalid protocol, cancellation,
@@ -104,7 +123,8 @@ Deliver:
   compatible input arriving mid-loop, ordinary input arriving during final
   settlement, stop preemption, poison input, crash reclaim, rolling admission,
   and exhausted bounds.
-- Deployment ownership lock and in-process provider mutex.
+- Deployment ownership lock and an in-process execution mutex serializing
+  provider turns and host-tool dispatches.
 
 Exit: natural conversation in one channel survives compatible session resume
 and deliberate session loss, lost Discord acknowledgement and delayed-restart
@@ -143,7 +163,8 @@ Codex or granting the Codex child native network access.
 Deliver:
 
 - Exact `memory_log` schema and append-only database enforcement.
-- Host-owned rememberer commit with `remembered_at` in the same transaction.
+- Host-owned rememberer commit with every consumed owner row's `remembered_at`
+  in the same transaction.
 - Full-text search and nullable OpenAI embeddings.
 - Memory search/open tools for the recaller only.
 - Fresh `SessionMode.isolated` kernel recaller before every owner input and fresh
@@ -153,6 +174,8 @@ Deliver:
 - Stable external-reference convention.
 - Fifteen-case owner-authored redacted recall evaluation set.
 - Bounded retry sweep for completed unremembered `role = owner` turns only.
+- Settled-run/conclusion trace grouping for one rememberer invocation per input
+  group, with a safe per-row fallback when grouping metadata is absent.
 
 Exit: a durable preference and linked external matter are recalled in a fresh
 provider session, and memory persistence creates no action row or duplicate text.
@@ -179,6 +202,10 @@ Deliver:
 - Exact minimal `action` schema, including immutable `execution_contract` and
   executor-entry `attempts`, unversioned tool names, seven statuses, and
   terminal-for-execution `uncertain` semantics.
+- Restricted, empty-plan AutomaticWriteGate as an isolated kernel one-shot for
+  every validated write proposal before action creation, with adversarial
+  memory/connector/Web injection fixtures and direct-owner-request usability
+  fixtures.
 - `gmail.create_draft` and `gmail.update_draft` bindings.
 - `calendar.create_event`, `calendar.update_event`, and
   `calendar.delete_event` bindings.
@@ -188,16 +215,23 @@ Deliver:
 - Owner-requested `schedule_wake` with closed create/cancel variants, exact
   due-time and restart behavior; no generic quiet hours, connector polling, or
   autonomous inbox/calendar monitor.
+- Immutable schedule `creation_receipt` plus separate `wake_outcome`; recorder
+  replay remains the creation receipt at every later lifecycle state. Schedule
+  cancellation is its own gated action and a receipt-less queued wake never
+  fires.
 - Idempotent due-wake host messages rendered from immutable stored instructions,
   plus visible model/fallback delivery and atomic scheduled-action completion.
 - Bounded external timeouts and startup reconciliation of `executing` actions;
   `uncertain` only after the complete tool-specific automatic procedure is
   exhausted, without leases or blind retry. The attempt count records each
-  executor entry and never authorizes another.
+  executor entry and never authorizes another; the immutable execution contract
+  supplies a finite lifetime ceiling, after which no requeue is possible.
 - `action.id` mapping to both `llm-tools` `InvocationPosition` and `EffectId`,
   with the per-row contract binding tool/policy/plan revisions, effect/replay
-  declarations, and canonical input digest.
-- Interrupted turns that already created an action close without model replay.
+  declarations, canonical input digest, finite attempt ceiling, claim/checkpoint,
+  model-step ordinal, ordered admitted-input IDs, and gate-supporting owner IDs.
+- Interrupted turns that already created an action close exactly the stored
+  admitted input prefix without model replay.
 - Base idempotent host-authored action-resolution messages for outcomes that
   cannot return to a live originating loop, keyed by action ID plus resolved
   state, with startup repair, visible deterministic fallback, and checkpoint

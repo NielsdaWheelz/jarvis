@@ -19,12 +19,15 @@ configured Discord #general
                                      │
                     ┌────────────────┴────────────────┐
                     ▼                                 ▼
-      provider-runtime / Codex                 call_tool dispatch
+       provider-runtime / Codex                 call_tool dispatch
                     │                                 │
                say / finish                    Jarvis policy
                     │                                 │
-                    ▼                                 ▼
-          message / Discord                        llm-tools
+                    ▼                       Write? ─► isolated
+          message / Discord                 AutomaticWriteGate
+                                                      │
+                                                      ▼
+                                                  llm-tools
                                                       │
                                    ┌──────────────────┴──────────────┐
                                    ▼                                 ▼
@@ -120,22 +123,29 @@ For each owner message:
 
 1. Check the paused flag.
 2. Persist/deduplicate the inbound message.
-3. Acquire the in-process provider mutex.
-4. Claim one non-empty bounded compatible batch, increment its durable
-   `processing_attempts`, choose its frozen plan, and obtain rolling admission.
-5. Snapshot one host `as_of` instant and run the recaller in a fresh isolated
+3. Acquire the in-process execution mutex and preflight rolling admission. A
+   denial defers without claiming or incrementing the input.
+4. Claim one non-empty bounded compatible batch and choose its frozen plan.
+5. Durably reserve the complete finite root/child provider allowance, then
+   increment claimed owner rows' `processing_attempts` before provider I/O.
+6. Snapshot one host `as_of` instant and run the recaller in a fresh isolated
    read-only kernel one-shot run.
-6. Through the context adapter, select canonical product context and give the
+7. Through the context adapter, select canonical product context and give the
    kernel a provider-neutral continuation or bootstrap package.
-7. The kernel opens/resumes the real contained `AgentRuntime` session and runs
+8. The kernel opens/resumes the real contained `AgentRuntime` session and runs
    its bounded serial loop. It polls for compatible owner input before provider
    and tool boundaries and for stop/preemption before settlement.
-8. Through the checkpoint adapter, atomically persist the conclusion, set
-   consumed waking rows' `processed_at`, and report whether later input remains.
-   Ordinary later input runs after commit; cleanup never rearms by itself.
-9. Settle admission usage, deliver pending responses, and release the provider
+9. For a validated write proposal, pause the main loop and run the isolated
+   AutomaticWriteGate over only current owner text and a restricted effect
+   descriptor synchronously under the same root ownership before action creation
+   or effect dispatch.
+10. Through the checkpoint adapter, atomically persist the conclusion, set
+   consumed waking rows' `processed_at`, and place the same run/checkpoint/
+   conclusion identity in their bounded traces. Ordinary later input runs after
+   commit; cleanup never rearms by itself.
+11. Settle/refund admission, deliver pending responses, and release the execution
    mutex.
-10. Run the rememberer later through a fresh admitted isolated kernel run,
+12. Run the rememberer later through a fresh admitted isolated kernel run,
     yielding to new owner work.
 
 A turn is eligible for remembering after `say`, `finish`, or creation of an
@@ -143,11 +153,15 @@ action awaiting approval. This includes a turn whose visible response is a
 host-rendered approval message rather than model-authored prose.
 
 At startup, a waking owner or host row with null `processed_at` is an interrupted
-turn. A host action-resolution row is safe to replay. If an owner row has no
-originating action, it may be reclaimed only within its durable attempt ceiling
-and rolling admission. If it already produced an action, the host resumes or
-reconciles the action, persists an interruption notice, and closes the turn
-without replaying the model. Protocol/budget/quota/stop poison exits persist a
+turn. A host action-resolution row is safe to replay. If no action execution
+contract names an owner row among its admitted input IDs, it may be reclaimed
+only within its durable attempt ceiling and rolling admission. If a contract
+does name it, the host resumes or reconciles the action and closes exactly that
+contract's input IDs through its stored checkpoint with an interruption notice,
+without replaying the model. For several actions from one run it handles every
+action and closes the union once through the greatest compatible stored
+checkpoint. `origin_message_id` is a convenient root pointer, not the recovery
+proof. Protocol/budget/quota/stop poison exits persist a
 host-authored stopped conclusion and consume the input instead of buying a fresh
 run. This is the turn-level duplicate-effect and runaway-work barrier.
 
@@ -182,6 +196,12 @@ the latter is claimed separately under the read-only plan. Incompatible input
 remains unclaimed. Idempotent cleanup releases ownership without scheduling a
 successor. Null `processed_at` plus startup/recovery scanning remains the durable
 work signal.
+
+The kernel dispatch adapter receives an immutable claim ID, through-checkpoint,
+ordered admitted input IDs, and model-step ordinal. Every action copies these
+facts into its execution contract before executor entry. Thus a write proposed
+after mid-loop input is durably linked to the complete input prefix that could
+have influenced it.
 
 If compatible owner input arrives during the loop, polling appends it once to
 the healthy session. Stop/pause signals cancellation immediately. If ordinary
@@ -242,15 +262,17 @@ first call in one provider session; later tool/protocol continuations carry only
 new observations or corrections. A replacement cold bootstrap includes
 unresolved input once in the replacement session.
 
-Recaller, rememberer, and dreamer calls always open fresh isolated sessions.
-Their agent definitions use kernel `SessionMode.isolated`; they never load or
-save a session reference or reuse the main session or each other's history, and
-their frozen plans contain no `ToolEffect.Write`. The main definition uses
+Recaller, rememberer, dreamer, and AutomaticWriteGate calls always open fresh
+isolated sessions. Their agent definitions use kernel `SessionMode.isolated`;
+they never load or save a session reference or reuse the main session or one
+another's history, and their frozen plans contain no `ToolEffect.Write`. The
+first three have memory reads; AutomaticWriteGate has an empty plan and does not
+receive the general context package. The main definition uses
 `SessionMode.continuing`. Source-message timestamps remain attached to their
-content. Each fresh session receives the timezone once; each newly admitted
-input batch or background job receives one host-supplied `as_of`. A compatible
-batch appended mid-loop receives its own; tool-only continuations and embedding
-requests receive no repeated clock.
+content. Each fresh session receives the timezone once only when relevant; each
+newly admitted input batch or background job receives one host-supplied `as_of`.
+A compatible batch appended mid-loop receives its own; tool-only continuations
+and embedding requests receive no repeated clock.
 
 Session history, native compaction, and cache behavior are disposable
 optimizations. A cold bootstrap need not recreate provider reasoning or
@@ -258,29 +280,37 @@ compaction byte-for-byte; it must restore useful conversational continuity from
 canonical messages plus recall.
 
 Checkpoint finalization maps the terminal conversational conclusion and
-consumed-input checkpoint into the same Jarvis transaction. Read observations
-and protocol correction remain turn-local; effectful outcomes are already
-durable in `action` through its `llm-tools` position/recorder mapping. The kernel `EventSinkPort` is optional
-best-effort observability, not a canonical event store. Emission is attempted
-before reuse but failure is nonfatal. Exact provider requests and normalized
-events remain provider/runtime audit data; Jarvis stores bounded run IDs,
-provider trace IDs, turns, available token usage, duration, and outcome in
-`message.trace`, not another event table. An atomically replaced content-free
-runtime journal enforces the rolling admission window for every cognitive role
-and fails closed if corrupt.
+consumed-input checkpoint into the same Jarvis transaction. It writes the same
+run ID, checkpoint, nullable conclusion-message ID, and conclusion outcome into
+bounded `message.trace` on every consumed waking row. Read observations and
+protocol correction remain turn-local; effectful outcomes are already durable
+in `action` through its `llm-tools` position/recorder mapping. The kernel
+`EventSinkPort` is optional best-effort observability, not a canonical event
+store. Emission is attempted before reuse but failure is nonfatal. Exact
+provider requests and normalized events remain provider/runtime audit data;
+Jarvis stores only bounded IDs, counts, usage, duration, and outcome, not another
+event table.
+
+An atomically replaced content-free runtime journal enforces the rolling
+admission window. A root reservation includes maximum turn/token allowance for
+the foreground run and its possible serial recaller/write-gate children;
+background one-shots reserve independently. Clean exit settles actual usage
+and refunds unused capacity. Startup under the deployment lock marks orphaned
+reservations interrupted and releases their live slot while retaining their
+rolling capacity charge until expiry. Corruption fails closed.
 
 ## Cognitive roles
 
-These are four immutable kernel agent definitions, not a general subagent or
+These are five immutable kernel agent definitions, not a general subagent or
 persistent-peer system. The main role is a continuing thread run with a
 conversational output contract and a maximum envelope equal to the exact main
-catalog. Recaller, rememberer, and dreamer are fixed isolated one-shot runs with
-memory-read envelopes and closed structured output contracts. Jarvis supplies a
-frozen subset plan per run; owner/action-resolution runs use the full Main plan
-and scheduled-wake runs narrow the same continuing definition to external
-reads. One-shot plans contain no `ToolEffect.Write`. One-shot runs use no
-application checkpoint or saved session-reference port; host code commits or
-recomputes their results.
+catalog. Recaller, rememberer, dreamer, and AutomaticWriteGate are fixed isolated
+one-shot runs with closed structured output contracts. The first three have
+memory-read envelopes; the gate has none. Jarvis supplies a frozen subset plan
+per run; owner/action-resolution runs use the full Main plan and scheduled-wake
+runs narrow the same continuing definition to external reads. One-shot plans
+contain no `ToolEffect.Write`. One-shot runs use no application checkpoint or
+saved session-reference port; host code commits or recomputes their results.
 
 ### Recaller
 
@@ -303,6 +333,24 @@ the pure `llm-tools` seam validates its one proposed call before dispatch. Calls
 execute serially. `call_tool` carries no user-facing text; after the model
 observes the bounded result, it may issue a separate truthful `say`.
 
+### AutomaticWriteGate
+
+For each validated main-agent `Write`, this role opens a fresh isolated session
+while the main run is paused before effect dispatch. It runs synchronously under
+the same root ownership; its empty frozen plan permits no tool call. It sees
+only current owner-authored input IDs/text, the canonical proposed tool ID, and a
+host allowlist of authority-relevant operation/target/audience/time scalars. The
+trusted time scalars include owner timezone and batch `as_of` only when needed to
+check relative wording; free-form payloads are represented by length and digest. It never sees recall,
+tool or Web observations, connector content, main-model rationale/history, or
+credentials.
+
+Its closed result is `allow | deny` plus supporting current owner IDs. The host
+accepts allow only for a direct, scope-matched current request and stores those
+IDs in the action execution contract. Every other result fails closed with no
+action or approval message. The role neither grants a capability nor classifies
+approval; deterministic Jarvis policy remains authoritative.
+
 ### Rememberer
 
 The rememberer opens a fresh session and receives the persisted completed turn,
@@ -313,10 +361,13 @@ more raw memory strings.
 Host code performs one transaction that:
 
 - Appends the new `memory_log` rows.
-- Sets `remembered_at` on the triggering owner message.
+- Sets `remembered_at` on every owner message in the settled input group.
 
 The rememberer does not call a memory write tool and creates no action rows. A
-failed or cancelled run leaves `remembered_at` null for a bounded retry sweep.
+failed or cancelled run leaves every target `remembered_at` null for a bounded
+retry sweep. Shared settlement trace reconstructs the normal group. If grouping
+metadata is absent, the sweep processes owner rows individually and relies on
+memory search/model judgment to limit redundant append.
 
 ### Dreamer
 
@@ -324,7 +375,7 @@ The dreamer opens a fresh session, searches and opens memory, then returns a
 schema-valid `finish.result` batch of summary insertions and removals. Host code
 applies the batch transactionally.
 
-Only one dreamer runs at once. It yields the provider mutex when owner input is
+Only one dreamer runs at once. It yields the execution mutex when owner input is
 waiting. Missing a dream run cannot break conversational correctness because raw
 memory remains directly searchable.
 
@@ -341,6 +392,7 @@ Capability plans are closed by role:
 
 - Main: the catalogued Gmail, Calendar, Maps, Web, and `schedule_wake` tools.
 - Recaller, rememberer, and dreamer: `memory.search` and `memory.open` only.
+- AutomaticWriteGate: no tools.
 
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
@@ -351,11 +403,15 @@ The host:
 - Supplies that plan and its product dispatch adapter to `llm-agent-kernel`.
 - Uses the qualified pure `llm-tools` seam to validate canonical tool IDs and
   closed arguments before dispatch-side mutation.
+- Runs AutomaticWriteGate for every validated `Write` before inserting an action
+  or rendering approval.
 - Classifies calls using the fixed automatic/approval policy.
 - Owns connector credentials.
 - Executes reads through `llm-tools` without action rows.
 - Inserts an `action` before every effectful tool call.
 - Supplies the action ID as both durable `InvocationPosition` and `EffectId`.
+- Copies kernel dispatch lineage and the gate's supporting owner IDs into the
+  immutable action execution contract.
 - Returns one bounded completed `ToolResult` or one durable suspension through
   the kernel dispatch port.
 
@@ -383,6 +439,11 @@ later action-resolution host row contains the action ID, tool, original
 validated arguments, state, and safe evidence. Jarvis action semantics—not the
 kernel—interpret approved, denied, failed, or terminal uncertain outcomes.
 
+For `Write`, the main run pauses at this dispatch boundary while the separately
+admitted AutomaticWriteGate one-shot runs. Its denial becomes a typed policy
+observation. Only an allow can proceed to durable action creation and ordinary
+deterministic approval classification.
+
 `KernelLimits` own provider turns, protocol repairs, wall time, normalized
 provider usage, and cumulative model-visible context. `llm_tools.RunLimits`
 alone own tool calls, attempts, bytes, `max_in_flight = 1`, and tool elapsed
@@ -409,8 +470,9 @@ queued ────────────────────────�
 awaiting_approval ──────────────► cancelled
 ```
 
-`cancelled` terminates an action before execution, whether the owner denied an
-approval or cancelled queued scheduled work.
+`cancelled` prevents any further effect lifecycle. For denied approval it occurs
+before binding execution; for a queued schedule it occurs after the durable
+creation receipt but before the requested wake runs.
 
 `queued`, `awaiting_approval`, and `executing` are non-terminal. `uncertain` is
 terminal for execution and does not prevent a later new action with identical
@@ -422,24 +484,29 @@ inserts the idempotent action-resolution message before considering notification
 complete. Automatic actions whose result returns as an ordinary live tool
 observation do not create a second resolution turn.
 
-Execution claims commit before the external call. There is no action lease: one
-deployment process owns all work. `attempts` increments atomically immediately
-before actual executor entry. A bounded request timeout and startup scan
-reconcile any row left `executing` using tool-specific evidence and bounded
-provider re-reads. Only proof that the effect did not happen and a repeat is safe
-can return it to `queued`; the attempt count records that repeat but never
-authorizes it. `uncertain` is written only after the complete automatic
+Execution claims commit before the effectful binding call. There is no action
+lease: one deployment process owns all work. Every execution contract stores a finite
+`max_attempts >= 1`. `attempts` increments atomically immediately before actual
+effectful binding executor entry and only if capacity remains. A bounded request
+timeout and startup scan reconcile any row left `executing` using tool-specific
+evidence and bounded provider re-reads. Only proof that the effect did not happen,
+a repeat is safe, and lifetime capacity remains can return it to `queued`; the
+attempt count records that repeat but never authorizes it. At the ceiling,
+proved absence becomes `failed` and unresolved evidence becomes `uncertain`.
+`uncertain` is otherwise written only after the complete automatic
 reconciliation procedure is exhausted and the evidence still cannot decide; a
 timeout alone is insufficient.
 
 `tool_name`, `arguments`, `execution_contract`, and `origin_message_id` never
 change after insertion. V1 tool names have no mandatory version suffix. The
 closed host-authored execution contract records the exact tool, policy, plan,
-effect/replay declarations, and canonical input digest that occupy the
-`llm-tools` position. The executor and approval renderer revalidate both it and
-the stored arguments. This is per-effect recovery evidence, not a general
-version registry. An incompatible tool change drains or cancels non-terminal
-actions; a versioned successor is introduced only when coexistence is required.
+effect/replay declarations, canonical input digest, finite attempt ceiling,
+claim ID, through-checkpoint, model-step ordinal, ordered admitted input IDs, and
+write-gate supporting owner IDs that occupy the `llm-tools` position. The
+executor and approval renderer revalidate both it and the stored arguments. This
+is per-effect recovery evidence, not a general version registry. An incompatible
+tool change drains or cancels non-terminal actions; a versioned successor is
+introduced only when coexistence is required.
 
 ## Approval rendering
 
@@ -508,8 +575,12 @@ configuration, and credential locations. A private runtime-state file owns the
 non-canonical main session reference and immutable agent-definition fingerprint
 behind Jarvis's `SessionRefPort` adapter. A separate atomically replaced,
 content-free private journal owns the rolling cognitive-admission window. A
-missing or corrupt admission journal fails closed pending explicit operator
-reset. Alembic may own its bookkeeping table.
+reservation records run/root IDs, windows, counters, timestamps,
+reserved/actual capacity, and state but no user payload. Clean exit refunds
+unused capacity. Startup under the deployment lock marks orphaned reservations
+interrupted and releases the live slot while retaining turn/token charge until
+window expiry. Missing or corrupt admission state fails closed pending explicit
+operator reset. Alembic may own its bookkeeping table.
 
 ## Provider containment
 
@@ -544,15 +615,28 @@ No workflow framework exists. The kernel's bounded in-process drain does not
 persist a workflow graph, own product state, or wait durably for approvals.
 
 - A small timer selects queued `schedule_wake` rows whose `execute_after` is due.
+- A schedule-create binding atomically stores an immutable `creation_receipt` in
+  `result` while leaving product status queued. The action-backed `llm-tools`
+  recorder replays that receipt for the original occupied tool position
+  regardless of later wake status. A queued schedule with no valid receipt is
+  reconciled and never fires.
 - A requested wake becomes eligible at its stored instant, or on startup when
   that instant passed during downtime; no generic quiet-hours transform exists.
 - Claiming a due wake atomically marks it `executing` and inserts one idempotent
   host waking message keyed by `(schedule_wake, action.id)`, rendered from the
   immutable stored instruction and requested instant. The proactive run or its
   deterministic visible fallback processes that row and marks the action
-  `succeeded` in one transaction.
+  `succeeded` in one transaction, adding closed
+  `wake_outcome.concluded(conclusion_message_id, recorded_at)` without replacing
+  the creation receipt. Cancellation and local failure use the other closed
+  outcome variants and matching statuses; schedule lifecycle never becomes
+  uncertain.
+- Cancelling creates a separate gated action with its own position, finite
+  attempt ceiling, and receipt. Its transaction succeeds that cancel action,
+  changes only a queued original to `cancelled`, and records cancellation in the
+  original's `wake_outcome`.
 - No periodic connector tick or autonomous inbox/calendar monitor starts turns.
-- A timer may invoke dreaming when the provider mutex is idle.
+- A timer may invoke dreaming when the execution mutex is idle.
 - Startup reconciles every action left `executing`; ordinary external calls use
   bounded timeouts while the process is alive.
 
@@ -571,6 +655,10 @@ Each path is an ordinary function over explicit database state.
   an admitted reclaim, and stop before provider I/O once the ceiling is exceeded.
 - Configuration or admission-journal defect: park input and fail closed for
   operator correction.
+- Admission capacity denial: leave owner/action-resolution input unprocessed and
+  automatically rescan at the declared reset instant; for delays of at least 60
+  seconds, insert one deterministic host-rendered assistant notice. Background
+  memory work defers silently.
 - Rememberer failure: leave `remembered_at` null and retry later.
 - Dreamer failure: retain raw memory and existing summaries.
 - Embedding failure: leave the vector null; lexical recall continues.
@@ -598,8 +686,10 @@ owner message
 → run ID, provider trace IDs, turns/tokens, duration, outcome
 ```
 
-The bounded trace lives on the originating message and contains only those IDs
-and counters.
-Action rows already carry tool and outcome lineage through `origin_message_id`;
-private payloads and model prose are not duplicated into trace. Trace details are
-implementation diagnostics, never a memory-ranking signal in v1.
+The bounded trace lives on every waking row consumed by a settlement. Each gets
+the same run/checkpoint/conclusion identity plus only relevant IDs and counters.
+Action rows carry correctness-critical claim/checkpoint/input/step lineage in
+their immutable execution contract; `origin_message_id` is only the stable root
+pointer. Private payloads and model prose are not duplicated into trace. Trace
+details are implementation diagnostics and rememberer-group reconstruction,
+never a memory-ranking signal in v1.

@@ -2,7 +2,9 @@
 
 - Status: Accepted; corrected provider/loop/admission contract incorporated on
   2026-09-02 and durable Jarvis mapping recorded by
-  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md)
+  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md); final dispatch and
+  admission seams amended by
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md),
   [ADR 0007](0007-central-messages-and-unified-actions.md), and
@@ -24,7 +26,8 @@ do not belong in Jarvis v1.
 The first extracted spec got the interior right but described seams the pinned
 libraries did not have, allowed unsafe multi-call/parallel behavior, and bounded
 only one run while cleanup could start unlimited successors. Those errors are
-corrected in kernel commit `50a2a4e98865f7263c3d7b3052602da74f29d588`.
+corrected and seam-hardened in kernel commit
+`049bc9221860d6fc5310f21ad560a9ec39371add`.
 
 ## Decision
 
@@ -70,8 +73,9 @@ evidence.
 
 The main definition is continuing and conversational. Recaller, rememberer, and
 dreamer are isolated structured one-shots with no `Write` plan, checkpoint, or
-saved ref. Sessions are disposable; Jarvis stores generation-CAS refs outside
-PostgreSQL and cold-bootstraps from canonical context.
+saved ref. ADR 0019 adds a fourth isolated, empty-plan AutomaticWriteGate role.
+Sessions are disposable; Jarvis stores generation-CAS refs outside PostgreSQL
+and cold-bootstraps from canonical context.
 
 The host claim returns one non-empty bounded batch and its chosen frozen plan.
 The kernel has no run class. Jarvis prioritizes owner/action-resolution work with

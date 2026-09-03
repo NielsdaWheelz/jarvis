@@ -1,6 +1,7 @@
 # ADR 0016: Use provider-native idempotency before uncertainty
 
-- Status: Accepted; schema-cost statement amended by ADR 0018
+- Status: Accepted; schema-cost statement amended by ADR 0018; lifetime attempt
+  ceiling amended by ADR 0019
 - Date: 2026-09-01
 - Supersedes: the accepted duplicate conversational-delivery semantics in
   [ADR 0007](0007-central-messages-and-unified-actions.md) and
@@ -90,7 +91,7 @@ Positive:
 - The honest `uncertain` escape hatch remains for failures no protocol can prove.
 - No new table, action state, lease, or workflow system is added. ADR 0018 later
   added `action.attempts` as audit evidence for actual executor entries; it does
-  not authorize retry.
+  not authorize retry. ADR 0019 bounds those entries for the action's lifetime.
 
 Accepted costs:
 

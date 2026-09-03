@@ -1,7 +1,7 @@
 # ADR 0012: Reuse one main Codex session over provider-neutral context
 
-- Status: Accepted; implementation ownership and polling/admission amended by
-  ADRs 0017 and 0018
+- Status: Accepted; implementation ownership, polling, admission, and isolated
+  write-gate role amended by ADRs 0017–0019
 - Date: 2026-09-01
 - Amends: [ADR 0004](0004-python-codex-and-tool-kernel.md) and the provider-session
   lifecycle in [ADR 0007](0007-central-messages-and-unified-actions.md)
@@ -45,9 +45,11 @@ is non-canonical, contains no conversation bodies or credentials, and need not
 be backed up. A fingerprint mismatch or resume failure discards the reference
 and starts a new session.
 
-Recaller, rememberer, and dreamer invocations use fresh isolated sessions. They
-do not share the main session or one another's history. Their narrower prompts
-and capabilities must not accumulate in Jarvis's visible conversation.
+Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
+isolated sessions. They do not share the main session or one another's history.
+Their narrower prompts and capabilities must not accumulate in Jarvis's visible
+conversation. ADR 0019 restricts the gate to its own owner-input/effect
+projection rather than this general context package.
 
 Jarvis retains a provider-neutral context builder. Its application-owned output
 contains plain structured sections, not Codex SDK message types:

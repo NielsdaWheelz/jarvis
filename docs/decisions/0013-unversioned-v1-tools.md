@@ -1,7 +1,8 @@
 # ADR 0013: Keep v1 tool names unversioned
 
 - Status: Accepted; occupied-position evidence amended by
-  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md)
+  [ADR 0018](0018-serial-kernel-and-bounded-recovery.md) and
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
 - Date: 2026-09-01
 - Supersedes: the mandatory tool-name versioning portions of
   [ADR 0010](0010-minimal-durable-state.md)

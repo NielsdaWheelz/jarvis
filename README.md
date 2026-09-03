@@ -23,6 +23,9 @@ Jarvis is the first consumer of the independent `llm-agent-kernel` library:
 Jarvis chooses product context and policy, while the library supplies the
 contained Codex session lifecycle, strict one-call-at-a-time loop, mid-loop
 steering, and cross-run bounds around `provider-runtime` and `llm-tools`.
+Every model-proposed write is checked by a fresh, tool-less internal gate using
+only current owner text and a restricted effect descriptor before Jarvis creates
+an action or approval.
 
 Jarvis owns exactly four application tables:
 
@@ -85,6 +88,10 @@ These are accepted knowingly, not overlooked.
 - Every owner-authored foreground turn needs recall plus the main-agent call,
   while remembering follows asynchronously. This is slower and more expensive
   than a stateless chat response.
+- Every proposed write adds a small isolated AutomaticWriteGate call. It sharply
+  reduces authority laundering from recalled or retrieved text, but it is a
+  model judgment rather than formal proof and can falsely deny or allow
+  adversarially phrased owner text.
 - Conversation, approvals, and proactive notices interleave in one Discord
   channel. Multiple channels are deferred until that produces a measured
   problem.
@@ -110,6 +117,16 @@ These are accepted knowingly, not overlooked.
   `action.execution_contract` and `action.attempts` make an occupied write
   position replayable and auditable. They do not create a general workflow or
   tool-version system.
+- Multi-message effects carry immutable claim/checkpoint/input/step lineage in
+  that existing execution-contract JSON. This is more metadata per action, but
+  avoids replaying the wrong subset of a turn after mid-loop steering.
+- Rolling admission reserves worst-case turn/token capacity before provider I/O
+  and retains that charge after a crash. Useful work can therefore be deferred
+  even when the process died before consuming the reservation; this is the cost
+  of a durable spend ceiling without a workflow database.
+- Every action has a finite lifetime executor-entry ceiling. A proven-absent
+  effect can end failed when that capacity is exhausted rather than retrying
+  forever.
 - Raw memory grows without bound and model-made memories can be wrong.
   Correction is by append; v1 deliberately has no erasure mechanism.
 - Discord deduplicates a stable per-message nonce only within a recent window.

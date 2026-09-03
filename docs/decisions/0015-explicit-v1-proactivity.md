@@ -1,6 +1,7 @@
 # ADR 0015: Limit v1 proactivity to requested wakes
 
-- Status: Accepted
+- Status: Accepted; schedule receipt and cancellation semantics amended by
+  [ADR 0019](0019-ground-writes-and-close-recovery-seams.md)
 - Date: 2026-09-01
 
 ## Context

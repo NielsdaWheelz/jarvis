@@ -35,7 +35,10 @@ named explicitly; no criterion disappears or is weakened silently.
       behavior, Gmail send reconciliation, Web canaries, kernel port/conformance
       qualification against the real AgentRuntime API, the upgraded public
       `llm-tools` validation/plan/HostTable/async-recorder seams, and
-      credential-containment results; the owner signs it before Slice 1.
+      credential-containment results. It also records the provider
+      failure/cold-bootstrap matrix, finite per-tool lifetime attempt ceilings,
+      action-backed schedule-recorder mapping, and empty-plan isolated one-shot;
+      the owner signs it before Slice 1.
 
 ## A2. Discord and conversation history
 
@@ -99,6 +102,12 @@ named explicitly; no criterion disappears or is weakened silently.
       owner timezone before dynamic time; tool/protocol continuation does not
       repeat the current batch;
       continuation does not resend completed history or the stable timezone.
+- [ ] **A2.14** Settlement writes the same run ID, through-checkpoint, nullable
+      conclusion-message ID, and conclusion kind/outcome into bounded trace on
+      every consumed waking row. A write proposed after mid-loop input stores
+      immutable claim/checkpoint/ordered-input/model-step lineage, and recovery
+      closes exactly those admitted inputs rather than relying on
+      `origin_message_id` alone.
 
 ## A3. Existing integrations
 
@@ -135,13 +144,15 @@ in Slice 0.
 - [ ] **A4.1** Every cognitive role runs through `llm-agent-kernel` and
       authenticates through subscription-backed Codex with no generative API-key
       or provider fallback. The main definition is `continuing`; recaller,
-      rememberer, and dreamer definitions are isolated one-shot runs, always
-      open fresh, and never touch an input-checkpoint or saved-session port. The
-      main output contract is conversational; each internal role has a closed
-      structured result schema and a memory-read maximum envelope. Every run plan
-      is publicly proven to tighten its definition envelope;
-      internal plans contain no `ToolEffect.Write` and the scheduled-wake main
-      plan is read-only.
+      rememberer, dreamer, and AutomaticWriteGate definitions are isolated
+      one-shot runs, always open fresh, and never touch an input-checkpoint or
+      saved-session port. The main output contract is conversational; each
+      internal role has a closed
+      structured result schema. Recall/remember/dream roles have memory-read
+      maximum envelopes; AutomaticWriteGate has an empty envelope. Every run
+      plan is publicly proven to tighten its definition envelope; internal plans
+      contain no `ToolEffect.Write` and the scheduled-wake main plan is
+      read-only.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
 - [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
@@ -188,6 +199,10 @@ in Slice 0.
       `ToolResult`; approval or reconciliation returns one durable suspension.
       Later resolution includes the action reference, tool, original validated
       arguments, resolved state, and safe evidence without provider history.
+- [ ] **A4.13** Active provider turns and host-tool dispatches are serialized.
+      AutomaticWriteGate can run only while its main parent is paused at the
+      dispatch boundary, uses a child allowance included in the root admission
+      reservation, and never overlaps another provider call.
 
 ## A5. Memory
 
@@ -201,15 +216,17 @@ in Slice 0.
       row identities, and permits a summary and its raw source to coexist.
 - [ ] **A5.5** The recaller may issue multiple searches and open a summary's raw
       sources.
-- [ ] **A5.6** The rememberer runs after `say`, `finish`, and approval-proposal
-      turns, returning a schema-valid isolated one-shot result even when it
-      chooses to write no memory.
-- [ ] **A5.7** A successful zero-memory result sets `remembered_at`; a cancelled
-      run leaves it null, and a bounded sweep retries only `role = owner` rows
-      with non-null `processed_at` and null `remembered_at`; host inputs are never
-      selected.
-- [ ] **A5.8** Raw memories and `remembered_at` commit atomically and create no
-      action row or duplicate storage elsewhere.
+- [ ] **A5.6** The rememberer runs once per settled input group containing owner
+      messages after `say`, `finish`, or an approval proposal. It receives every
+      consumed owner message plus persisted response/tool context and returns a
+      schema-valid isolated one-shot result even when it chooses no memory.
+- [ ] **A5.7** A successful zero-memory result sets `remembered_at` on every
+      consumed owner row; a cancelled run leaves all targets null. A bounded
+      sweep retries only completed `role = owner` rows, normally grouping by
+      shared settlement trace and falling back to individual rows when grouping
+      metadata is absent. Host inputs are never targets.
+- [ ] **A5.8** Raw memories and every target `remembered_at` commit atomically and
+      create no action row or duplicate storage elsewhere.
 - [ ] **A5.9** Under the application role, raw text/time updates, deletes, and
       truncation fail while embedding updates succeed.
 - [ ] **A5.10** A useful preference is recalled in a fresh provider session and a
@@ -232,10 +249,11 @@ in Slice 0.
 
 These criteria are **live** where they call Gmail or Discord.
 
-- [ ] **A6.1** Catalogued reads, email drafts, verified owner-only no-attendee
-      calendar work, `schedule_wake`, and ordinary responses or requested wake
-      notices in the configured Discord channel execute automatically. Discord
-      transport operations create no action rows.
+- [ ] **A6.1** Catalogued reads and ordinary responses or requested wake notices
+      in the configured Discord channel execute automatically. Email drafts,
+      verified owner-only no-attendee calendar work, and `schedule_wake` execute
+      automatically after the required owner-grounding gate. Discord transport
+      operations create no action rows.
 - [ ] **A6.2** An email send becomes `awaiting_approval` and does not send before
       the owner clicks Approve.
 - [ ] **A6.3** The model step and action schema have no approval preview field.
@@ -260,7 +278,10 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.11** A process killed around dispatch leaves `executing`; startup runs
       the complete tool-specific reconciliation procedure before any repeat and
       no action lease is used. `attempts` increments before each actual executor
-      entry but authorizes nothing. A timeout alone authorizes neither retry nor
+      entry only while below immutable finite `max_attempts`, but authorizes
+      nothing. A repeat also requires proof of absence and safety. At the
+      lifetime ceiling, proved absence becomes failed and unresolved evidence
+      becomes uncertain. A timeout alone authorizes neither retry nor
       `uncertain`.
 - [ ] **A6.12** Only an outcome still unknowable after bounded automatic
       reconciliation becomes terminal `uncertain`. Jarvis presents its evidence
@@ -283,21 +304,40 @@ These criteria are **live** where they call Gmail or Discord.
       seven statuses in section 5.4; canonical `tool_name`, `arguments`,
       `execution_contract`, and `origin_message_id` cannot change after
       insertion. The closed contract records the exact tool/policy/plan
-      revisions, effect/replay declarations, and input digest for the occupied
-      position. Stored arguments and contract are revalidated before rendering,
-      execution, replay, or reconciliation; unsupported or invalid non-executing
-      work is cancelled and reported.
+      revisions, effect/replay declarations, input digest, finite attempt
+      ceiling, claim ID, through-checkpoint, model-step ordinal, ordered admitted
+      input IDs, and gate-supporting owner IDs for the occupied position. Stored
+      arguments and contract are revalidated before rendering, execution,
+      replay, or reconciliation; unsupported or invalid non-executing work is
+      cancelled and reported.
 - [ ] **A6.16** `schedule_wake` creates an exact due wake and cancels a named
       queued wake. A requested wake becomes eligible at its stored instant and
       after restart when overdue. Claiming it creates exactly one host input from
       the immutable stored instruction and requested instant; it does not invoke
       the owner-input recaller. The visible model result or deterministic
-      fallback marks the wake succeeded atomically. No generic quiet-hours
-      transform, periodic connector turn, or autonomous inbox/calendar monitor
-      is configured.
+      fallback marks the wake succeeded atomically. Schedule creation stores an
+      immutable creation receipt while status remains queued; recorder replay
+      returns that receipt at every later lifecycle status, and due processing
+      writes only a separate closed concluded/cancelled/failed wake outcome; the
+      lifecycle status agrees with that variant and never becomes uncertain. A
+      queued schedule without a valid receipt never fires. Cancellation is a
+      separate gated action with its own ID/position/receipt and can cancel only
+      a queued original. No generic
+      quiet-hours transform, periodic connector turn, or autonomous
+      inbox/calendar monitor is configured.
 - [ ] **A6.17** Immediately before an approved Gmail send, the live draft must
       match the stored recipient, subject, and complete-body snapshot. A
       mismatch sends nothing, fails the action, and requires a new proposal.
+- [ ] **A6.18** Every validated model-proposed `Write`, including an
+      approval-bearing one, runs AutomaticWriteGate before action creation. The
+      gate has an empty tool plan and receives only current owner input IDs/text,
+      canonical tool ID, and the allowlisted scalar effect descriptor, with
+      timezone/`as_of` only where relative-time validation needs them; recall,
+      connector/Web/tool observations, model rationale/history, credentials, and
+      free-form payload text are absent. Deny, ambiguity, invalid output,
+      admission/quota failure, or non-current supporting IDs create no action or
+      approval. Prompt-injection fixtures from memory, email, Web, and calendar
+      are denied five of five; direct owner write requests remain usable.
 
 ## A7. Recovery and operations
 
@@ -324,15 +364,23 @@ These criteria are **live** where they call Gmail or Discord.
       increment `processing_attempts`; the configured ceiling stops or parks the
       row before another provider call.
 - [ ] **A7.9** A host-issued rolling admission check occurs before every
-      cognitive provider invocation and bounds turns, available normalized
-      tokens, no-progress attempts, and cognitive concurrency at one. Usage settles on success,
-      failure, cancellation, and quota exhaustion. A corrupt private admission
+      cognitive provider invocation. Before I/O, the content-free journal
+      durably reserves one root slot plus finite maximum root/serial-child turns
+      and configured normalized tokens. Clean exits settle actual usage and
+      refund unused capacity; quota and ordinary failures do likewise. A corrupt
       journal fails closed, and a configuration defect parks work rather than
       looping.
 - [ ] **A7.10** Multi-run race fixtures cover mid-loop compatible input, stop
       preemption, ordinary follow-up during finalization, suspension/resolution,
       startup recovery, session-ref CAS, poison input, and admission. Passing
       single-run kernel tests alone is insufficient.
+- [ ] **A7.11** Killing the process after admission reservation leaves the full
+      turn/token reservation charged. Startup under the exclusive deployment
+      lock marks it interrupted and releases only its concurrency slot. Admission
+      denial performs no provider I/O and does not increment
+      `processing_attempts`; owner/action-resolution work becomes eligible at
+      reset, with one deterministic assistant notice for delays of at least 60
+      seconds, while background memory work defers silently.
 
 ## A8. End-to-end memory scenario
 
@@ -373,7 +421,9 @@ The report records:
 - Main-session continuation, compatible resume, and lost-session bootstrap
   results.
 - Exact AgentRuntime containment request, native-event fail-stop, upgraded
-  `llm-tools` public-seam qualification, and multi-run admission/poison results.
+  `llm-tools` public-seam qualification, action/schedule-recorder mapping,
+  AutomaticWriteGate isolation/adversarial results, and multi-run
+  admission/crash/poison results.
 - Embedding model, dimension, key restriction test, and disclosed processor.
 - Results by criterion ID and behavioral trial counts.
 - Integration operations and credential ownership.

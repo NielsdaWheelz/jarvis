@@ -129,6 +129,10 @@ These instructions govern all work in this repository.
 - Before rendering or I/O, every frozen plan is proven internally consistent
   with its exact catalog view and to tighten its maximum envelope in full; a
   profile-only comparison is insufficient.
+- Every binding has a non-empty owner-controlled implementation revision.
+  Jarvis-owned bindings initially use the SPEC section 7.3 convention; bump an
+  affected revision when handler/transitive behavior changes unless revisioned
+  policy inputs already capture the change.
 - Host code validates and classifies calls; effectful application tools execute
   through `llm-tools` and use one durable `action` row.
 - Before any action insert or approval display, every validated model-proposed

@@ -31,7 +31,7 @@ honest mapping without reversing the four-table product decision.
 
 ## Decision
 
-Adopt kernel commit `4eec354008354c09239645fd84c74276e34207be` and its
+Adopt kernel commit `49f64db1cc364facec57bac05a8b183f88079331` and its
 actual `AgentRuntime`, serial `call_tool`, polling, settlement, admission, and
 effect contracts.
 
@@ -40,8 +40,8 @@ Keep exactly four application tables and add only:
 - `message.processing_attempts`: durable provider-work entries for one logical
   waking input; it bounds crash recovery.
 - `action.execution_contract`: closed immutable host JSON containing exact
-  tool/policy/plan revisions, `ToolEffect`, `ReplayPolicy`, and canonical input
-  digest for the occupied position.
+  tool-contract/implementation/policy/plan revisions, `ToolEffect`,
+  `ReplayPolicy`, and canonical input digest for the occupied position.
 - `action.attempts`: count of actual effectful binding executor entries, bounded
   for life by the execution contract after ADR 0019.
 
@@ -53,9 +53,9 @@ recorder API. If it cannot, work stops for a new schema ADR rather than bypassin
 the executor.
 
 V1 tool names remain unversioned. The execution contract does not select among
-implementations; it proves that current code is compatible with an already
-occupied durable position. Incompatible pending work is resolved or cancelled
-before deployment.
+implementations; its internal `implementation_revision` proves that current
+code is compatible with an already occupied durable position. Incompatible
+pending work is resolved or cancelled before deployment.
 
 Jarvis stores bounded per-message run summaries in `message.trace` and all-role
 rolling admission counters in a content-free atomically replaced private

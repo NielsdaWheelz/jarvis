@@ -52,8 +52,9 @@ integration requires one.
 state owner. It supplies contained Codex session choreography, strict serial
 protocol, mid-loop polling, settlement, and bounded run machinery.
 `provider-runtime` remains the provider/session implementation and `llm-tools`
-remains the prompt-section, contract, grant, validation, and tool-execution
-implementation. Jarvis owns every product and persistence adapter.
+remains the prompt-section, contract, implementation-identity, grant,
+validation, and tool-execution implementation. Jarvis owns every product and
+persistence adapter.
 
 ## Discord adapter
 
@@ -400,7 +401,11 @@ Discord tools in a v1 capability plan.
 
 The host:
 
-- Freezes a capability plan for each cognitive role and turn.
+- Gives every Jarvis-owned binding the non-empty implementation revision from
+  SPEC section 7.3; portable Web bindings retain their `llm-tools` revisions.
+- Freezes a capability plan for each cognitive role and turn, proving the exact
+  catalog view—including handler implementation identity—before rendering or
+  I/O.
 - Supplies that plan and its product dispatch adapter to `llm-agent-kernel`.
 - Uses the qualified pure `llm-tools` seam to validate canonical tool IDs and
   closed arguments before dispatch-side mutation.

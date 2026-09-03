@@ -641,10 +641,10 @@ Responsibilities are fixed:
   `stream_turn`; it never uses the terminal-only `run_turn` convenience
   projection because that hides authority events.
 - `llm-tools` owns typed prompt sections, declarations, bindings, frozen
-  profiles and plans, plan/catalog consistency and tightening proofs, pure
-  schema validation, `HostTable`, `ToolEffect`, `ReplayPolicy`, tool execution
-  budgets, invocation positions, recorder semantics, execution, and portable
-  tools.
+  profiles and plans, plan/catalog consistency and tightening proofs,
+  owner-controlled binding implementation revisions, pure schema validation,
+  `HostTable`, `ToolEffect`, `ReplayPolicy`, tool execution budgets, invocation
+  positions, recorder semantics, execution, and portable tools.
 - `llm-agent-kernel` owns immutable definitions and containment fingerprints,
   exact-plan/catalog tightening enforcement before rendering or I/O, the exact
   model-step protocol, semantic whole-step validation, bounded serial thread
@@ -676,6 +676,15 @@ catalog view being published and tightens the definition envelope in full; a
 comparison of profiles alone is insufficient. Kernel construction rejects any
 one-shot plan containing `ToolEffect.Write`. `Pure` and `Read` remain distinct
 effects with independent replay policies.
+
+Every binding has a non-empty internal `implementation_revision`. Jarvis-owned
+bindings use `jarvis-<canonical-tool-id>-v1` initially; portable bindings use
+the revision supplied by `llm-tools`. A handler or transitive
+behavior-affecting dependency change MUST bump every affected implementation
+revision unless revisioned `policy_inputs` already represent the change. This
+is a hidden plan/recovery fingerprint, not public tool-name versioning. Frozen
+profiles, plans, HostTable publication, and action execution contracts carry
+it.
 
 - Authentication uses the personal local-account credential.
 - No generative API-key fallback or silent provider fallback exists.
@@ -875,6 +884,13 @@ catalogued Gmail, Calendar, Maps, and public-Web reads.
 Recall, remember, and dream one-shot plans contain exactly `memory.search` and
 `memory.open`; AutomaticWriteGate has an empty plan. Every plan is frozen for its
 run and may never exceed its envelope.
+
+Every Jarvis-owned entry above initially declares
+`implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
+with hyphens. The model-facing tool IDs remain unversioned. Reviewers MUST reject
+a behavior-changing handler or transitive dependency change that neither bumps
+the affected implementation revision nor records the behavior in revisioned
+policy inputs.
 
 The main agent receives recalled memory but no memory tool. Internal cognitive
 roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
@@ -1123,16 +1139,16 @@ bridge in v1.
 Initial dependency baseline:
 
 - `llm-agent-kernel`:
-  `4eec354008354c09239645fd84c74276e34207be`
+  `49f64db1cc364facec57bac05a8b183f88079331`
 - `llm-calling` / `provider-runtime`:
   `a5d9c8e0c1c851daee0731554e0a4a326d3c2819`
-- `llm-tools`: `2f22c985613e04c08baa456893e63d0b68000dc3`
+- `llm-tools`: `728f35c0b3a8be91b380ed4258d2b73ad68fc8fa`
 
 The `llm-tools` value is the qualified implementation lock for public
 validation, plan/catalog-consistency and full-plan-tightening, exact
-`HostTable`, and async durable-recorder seams. It MUST be published to the
-configured durable remote before ordinary dependency installation or Jarvis
-runtime work begins.
+`HostTable`, binding implementation identity, and async durable-recorder seams.
+It is published on the configured durable remote; ordinary dependency
+installation MUST lock the exact commit rather than import a sibling worktree.
 
 All three MUST be git dependencies, not path dependencies. Jarvis MUST NOT modify or
 restore the user's existing library worktrees.
@@ -1256,10 +1272,10 @@ approval, execution, reconciliation, and receipts.
   input to a deterministic provider effect identity such as the Calendar event
   ID; it cannot change the approved payload.
 - `execution_contract` is non-null closed host-authored JSONB containing the
-  exact `tool_contract_revision`, `policy_revision`, `plan_revision`,
-  `ToolEffect`, `ReplayPolicy`, canonical `input_digest`, finite `max_attempts`,
-  `claim_id`, canonical `through_checkpoint`, `model_step_ordinal`, ordered
-  `input_message_ids`, and
+  exact `tool_contract_revision`, `implementation_revision`,
+  `policy_revision`, `plan_revision`, `ToolEffect`, `ReplayPolicy`, canonical
+  `input_digest`, finite `max_attempts`, `claim_id`, canonical
+  `through_checkpoint`, `model_step_ordinal`, ordered `input_message_ids`, and
   `write_gate_supporting_owner_message_ids`. It is not a model field or general
   version registry. Host code verifies it before every approval rendering,
   executor entry, replay, or reconciliation.

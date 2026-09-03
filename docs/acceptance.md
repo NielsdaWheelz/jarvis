@@ -193,9 +193,12 @@ in Slice 0.
 - [ ] **A4.11** Definition maximum envelopes equal the SPEC section 7.3 catalog
       by role, and every frozen run plan is proven internally consistent with
       its exact published catalog view and to tighten its envelope in full.
-      Cross-catalog effect, schema, replay-policy, and revision substitutions
-      fail before rendering or I/O. Owner-input and action-resolution main runs
-      receive the full Main plan; scheduled-wake runs receive only the
+      Cross-catalog effect, schema, handler-implementation, replay-policy, and
+      revision substitutions fail before rendering or I/O. Every binding has
+      the non-empty owner-controlled implementation revision required by SPEC
+      section 7.3, and HostTable/action evidence carries it. Owner-input and
+      action-resolution main runs receive the full Main plan; scheduled-wake
+      runs receive only the
       catalogued external reads; internal one-shots receive exactly the two
       memory reads. No plan grants `tool.search`, `tool.read`,
       local-filesystem, Gmail organization, Discord, delegation, program
@@ -310,13 +313,13 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.15** The action table has exactly the columns in SPEC section 9 and the
       seven statuses in section 5.4; canonical `tool_name`, `arguments`,
       `execution_contract`, and `origin_message_id` cannot change after
-      insertion. The closed contract records the exact tool/policy/plan
-      revisions, effect/replay declarations, input digest, finite attempt
-      ceiling, claim ID, through-checkpoint, model-step ordinal, ordered admitted
-      input IDs, and gate-supporting owner IDs for the occupied position. Stored
-      arguments and contract are revalidated before rendering, execution,
-      replay, or reconciliation; unsupported or invalid non-executing work is
-      cancelled and reported.
+      insertion. The closed contract records the exact tool-contract,
+      implementation, policy, and plan revisions, effect/replay declarations,
+      input digest, finite attempt ceiling, claim ID, through-checkpoint,
+      model-step ordinal, ordered admitted input IDs, and gate-supporting owner
+      IDs for the occupied position. Stored arguments and contract are
+      revalidated before rendering, execution, replay, or reconciliation;
+      unsupported or invalid non-executing work is cancelled and reported.
 - [ ] **A6.16** `schedule_wake` creates an exact due wake and cancels a named
       queued wake. A requested wake becomes eligible at its stored instant and
       after restart when overdue. Claiming it creates exactly one host input from

@@ -37,7 +37,8 @@ Deliver:
   exact `HostTable` publication, and async durable executor/recorder seams; pin
   the resulting revision before any Jarvis runtime implementation.
   Qualification includes adversarial cross-catalog
-  effect/schema/replay-policy/revision substitution.
+  effect/schema/handler-implementation/replay-policy/revision substitution and
+  proves implementation identity appears in the frozen grant and HostTable.
 - Qualification of the kernel's exact `AgentRuntime` request/lifecycle,
   context, session-reference, input-checkpoint, polling, dispatch, admission,
   cancellation, and optional observability ports plus its multi-run conformance

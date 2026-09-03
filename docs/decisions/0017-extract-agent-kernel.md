@@ -27,7 +27,7 @@ The first extracted spec got the interior right but described seams the pinned
 libraries did not have, allowed unsafe multi-call/parallel behavior, and bounded
 only one run while cleanup could start unlimited successors. Those errors are
 corrected and seam-hardened in kernel commit
-`4eec354008354c09239645fd84c74276e34207be`.
+`49f64db1cc364facec57bac05a8b183f88079331`.
 
 ## Decision
 
@@ -46,7 +46,7 @@ Ownership is:
 | Owner | Responsibilities |
 | --- | --- |
 | `provider-runtime` | Native Codex authentication; observable `AgentRuntime` open/stream/close; `PermissionPolicy`; native options; structured output; events, usage, quota, and session refs |
-| `llm-tools` | Prompt sections; declarations/bindings; frozen profiles/plans; plan/catalog consistency and tightening; exact `HostTable`; pure validation; `ToolEffect`/`ReplayPolicy`; tool budgets; positions, recorder, execution, and results |
+| `llm-tools` | Prompt sections; declarations/bindings; frozen profiles/plans; plan/catalog consistency and tightening; binding implementation revisions; exact `HostTable`; pure validation; `ToolEffect`/`ReplayPolicy`; tool budgets; positions, recorder, execution, and results |
 | `llm-agent-kernel` | Immutable definitions/fingerprints; containment and exact-plan/catalog tightening enforcement; `say | call_tool | finish`; semantic whole-step validation; serial loop; mid-loop polling; session/checkpoint/admission choreography; one-shots; outcomes and conformance |
 | Jarvis | Product context; input/plan selection; canonical messages/memory; session-ref/checkpoint/admission/dispatch adapters; Discord/connectors; policy; action/effect identity and recorder implementation; reconciliation; scheduling and delivery |
 
@@ -91,10 +91,10 @@ conclusion. Crashes are bounded by `message.processing_attempts`; every provider
 run also requires rolling admission. Writes map `action.id` to both
 `InvocationPosition` and `EffectId` with durable action state.
 
-Before implementation, `llm-tools` must expose and qualify public pure
-validation, plan/catalog consistency and full tightening, exact `HostTable`
-publication, and async durable recorder/executor seams. The kernel and Jarvis
-may not replace them privately.
+The pinned `llm-tools` revision exposes and qualifies public pure validation,
+plan/catalog consistency and full tightening, binding implementation identity,
+exact `HostTable` publication, and async durable recorder/executor seams. The
+kernel and Jarvis may not replace them privately.
 
 ## Consequences
 

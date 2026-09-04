@@ -85,40 +85,40 @@ class RecalledMemory(BaseModel):
     memory_id: UUID
     text: str = Field(min_length=1, max_length=8_000)
     created_at: str = Field(min_length=1, max_length=64)
-    source_memory_ids: tuple[UUID, ...] = Field(max_length=50)
+    source_memory_ids: list[UUID] = Field(max_length=50)
 
 
 class RecallResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    memories: tuple[RecalledMemory, ...] = Field(max_length=20)
+    memories: list[RecalledMemory] = Field(max_length=20)
 
 
 class RememberResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    memories: tuple[str, ...] = Field(max_length=20)
+    memories: list[str] = Field(max_length=20)
 
 
 class SummaryInsertion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     text: str = Field(min_length=1, max_length=8_000)
-    source_memory_ids: tuple[UUID, ...] = Field(min_length=1, max_length=100)
+    source_memory_ids: list[UUID] = Field(min_length=1, max_length=100)
 
 
 class DreamResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    insertions: tuple[SummaryInsertion, ...] = Field(max_length=50)
-    remove_summary_ids: tuple[UUID, ...] = Field(max_length=100)
+    insertions: list[SummaryInsertion] = Field(max_length=50)
+    remove_summary_ids: list[UUID] = Field(max_length=100)
 
 
 class AutomaticWriteGateResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     decision: Literal["allow", "deny"]
-    supporting_owner_message_ids: tuple[UUID, ...] = Field(max_length=100)
+    supporting_owner_message_ids: list[UUID] = Field(max_length=100)
 
 
 @dataclass(frozen=True, slots=True)

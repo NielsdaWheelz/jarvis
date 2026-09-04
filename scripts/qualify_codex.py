@@ -26,6 +26,7 @@ from llm_agent_kernel import (
     HostInput,
     InputId,
     OneShotCompleted,
+    OneShotStopped,
     ProviderUsage,
     RunId,
     SessionMode,
@@ -64,6 +65,7 @@ from llm_tools import (
 )
 from provider_runtime.agent_runtime import thaw_json_value
 from pydantic import BaseModel, ConfigDict, SecretStr
+from sqlalchemy import func, select
 
 from jarvis.admission import (
     ExactToolBudgetFactory,
@@ -71,7 +73,7 @@ from jarvis.admission import (
     RollingAdmissionPort,
 )
 from jarvis.config import DiscordSettings
-from jarvis.db import create_engine
+from jarvis.db import action, create_engine, memory_log, memory_summary, message
 from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
     EXPECTED_GIT_PINS,
@@ -132,11 +134,18 @@ class ProbeToolRunResult(BaseModel):
     acknowledged: bool
 
 
+class ProbeCheckFailed(RuntimeError):
+    def __init__(self, reason_code: str) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+
+
 class QualificationFailure(RuntimeError):
-    def __init__(self, stage: str, cause_type: str) -> None:
+    def __init__(self, stage: str, cause_type: str, reason_code: str) -> None:
         super().__init__(stage)
         self.stage = stage
         self.cause_type = cause_type
+        self.reason_code = reason_code
 
 
 async def _must_not_execute(value: object, context: object) -> object:
@@ -467,11 +476,11 @@ async def _structured_probe(
         )
     finally:
         await runtime.close()
-    if not isinstance(outcome, OneShotCompleted):
-        raise RuntimeError("structured qualification did not complete")
+    if isinstance(outcome, OneShotStopped):
+        raise ProbeCheckFailed(f"one_shot_stopped_{outcome.type.value}")
     result = DreamResult.model_validate(thaw_json_value(outcome.result))
     if result.insertions or result.remove_summary_ids:
-        raise RuntimeError("structured qualification returned an unexpected result")
+        raise ProbeCheckFailed("structured_result_not_empty")
     return _metric(
         provider_turns=outcome.metrics.provider_turns,
         usage=outcome.metrics.usage,
@@ -574,10 +583,10 @@ async def _tool_argument_probe(
     finally:
         await runtime.close()
     if not isinstance(outcome, OneShotCompleted) or not dispatcher.validated_call_seen:
-        raise RuntimeError("tool-argument qualification did not complete")
+        raise ProbeCheckFailed("validated_tool_call_not_completed")
     result = ProbeToolRunResult.model_validate(thaw_json_value(outcome.result))
     if result.acknowledged is not True:
-        raise RuntimeError("tool-argument qualification returned an unexpected result")
+        raise ProbeCheckFailed("tool_result_not_acknowledged")
     return _metric(
         provider_turns=outcome.metrics.provider_turns,
         usage=outcome.metrics.usage,
@@ -617,9 +626,22 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     engine = create_engine(arguments.database_url)
     store = MessageStore(engine)
     history = PostgresCanonicalHistory(engine)
-    stage = "conversation"
+    stage = "database"
     try:
         try:
+            async with engine.connect() as connection:
+                counts = [
+                    cast(
+                        int,
+                        await connection.scalar(
+                            select(func.count()).select_from(table)
+                        ),
+                    )
+                    for table in (message, memory_log, memory_summary, action)
+                ]
+            if counts != [0, 0, 0, 0]:
+                raise ProbeCheckFailed("database_not_empty")
+            stage = "conversation"
             conversation, continuity = await _conversation_probe(
                 arguments=arguments,
                 settings=settings,
@@ -649,7 +671,12 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         finally:
             await engine.dispose()
     except BaseException as exc:
-        raise QualificationFailure(stage, type(exc).__name__) from exc
+        reason_code = (
+            exc.reason_code
+            if isinstance(exc, ProbeCheckFailed)
+            else "unexpected_exception"
+        )
+        raise QualificationFailure(stage, type(exc).__name__, reason_code) from exc
     return {
         "route": arguments.model,
         "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
@@ -754,7 +781,11 @@ def main() -> int:
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
             "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
             "implementation": _implementation(),
-            "failure": {"stage": exc.stage, "type": exc.cause_type},
+            "failure": {
+                "reason_code": exc.reason_code,
+                "stage": exc.stage,
+                "type": exc.cause_type,
+            },
             "status": "failed",
         }
     except BaseException as exc:

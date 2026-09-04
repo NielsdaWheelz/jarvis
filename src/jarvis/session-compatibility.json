@@ -8,11 +8,11 @@
     "provider-runtime": "a5d9c8e0c1c851daee0731554e0a4a326d3c2819"
   },
   "role_contract_revisions": {
-    "automatic_write_gate": "jarvis-automatic-write-gate-slice-1-v1",
-    "dreamer": "jarvis-dreamer-slice-1-v1",
+    "automatic_write_gate": "jarvis-automatic-write-gate-slice-1-v2",
+    "dreamer": "jarvis-dreamer-slice-1-v2",
     "main": "jarvis-main-slice-1-v1",
-    "recaller": "jarvis-recaller-slice-1-v1",
-    "rememberer": "jarvis-rememberer-slice-1-v1"
+    "recaller": "jarvis-recaller-slice-1-v2",
+    "rememberer": "jarvis-rememberer-slice-1-v2"
   },
   "schema_version": "jarvis-session-compatibility.v1"
 }

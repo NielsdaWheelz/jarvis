@@ -6,13 +6,21 @@ from typing import cast
 
 import pytest
 from llm_agent_kernel import (
+    AgentDefinition,
     ConversationalOutput,
+    FinishStep,
     SessionMode,
     StructuredOutput,
     provider_wire_schema,
     require_host_plan,
+    validate_provider_step,
 )
-from provider_runtime.agent_runtime import TextContent
+from llm_tools import FrozenToolPlan
+from provider_runtime.agent_runtime import (
+    TextContent,
+    freeze_json_object,
+    thaw_json_value,
+)
 
 from jarvis.definitions import (
     ROUTE_CONTEXT_TOKEN_FLOORS,
@@ -67,6 +75,43 @@ def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
     )
     with pytest.raises(TypeError):
         definitions.plans["extra"] = definitions.plans["main"]  # type: ignore[index]
+
+
+def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
+    definitions = build_slice1_definitions(
+        profile_key="jarvis-test",
+        model="gpt-5.4",
+        owner_timezone="America/Los_Angeles",
+    )
+    cases: tuple[tuple[AgentDefinition, FrozenToolPlan, dict[str, object]], ...] = (
+        (definitions.recaller, definitions.plans["recaller"], {"memories": []}),
+        (definitions.rememberer, definitions.plans["rememberer"], {"memories": []}),
+        (
+            definitions.dreamer,
+            definitions.plans["dreamer"],
+            {"insertions": [], "remove_summary_ids": []},
+        ),
+        (
+            definitions.automatic_write_gate,
+            definitions.plans["automatic_write_gate"],
+            {"decision": "deny", "supporting_owner_message_ids": []},
+        ),
+    )
+    for definition, plan, result in cases:
+        step = validate_provider_step(
+            freeze_json_object(
+                {
+                    "type": "finish",
+                    "say": None,
+                    "call_tool": None,
+                    "finish": {"reason": None, "result": result},
+                }
+            ),
+            definition.output_contract,
+            plan,
+        )
+        assert isinstance(step, FinishStep)
+        assert thaw_json_value(step.result) == result
 
 
 def _assert_codex_closed_schema(node: object) -> None:

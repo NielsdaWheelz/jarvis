@@ -17,12 +17,12 @@ replace every placeholder, and make the file readable only by the service user.
 It contains only the least-privilege `jarvis_runtime` database login. Keep the
 separate migrator login represented by `.env.migration.example` in an
 operator-only credential file; never load it into the Jarvis service.
-The Codex state root must be an absolute, existing mode-0700 directory. The
-Jarvis runtime directory may be absent or an existing mode-0700 directory when
-it is initialized. The Codex profile named by
-`JARVIS_CODEX_PROFILE_KEY` must already contain the owner's local-account
-authentication. Connector, Brave, and embedding credentials are neither needed
-nor loaded in Slice 1.
+The Codex state-root base must be an absolute, existing mode-0700 directory.
+The profile named by `JARVIS_CODEX_PROFILE_KEY` must already contain the
+owner's local-account authentication at the provider-runtime layout
+`<state-root-base>/codex/<profile>/auth.json`. The Jarvis runtime directory may
+be absent or an existing mode-0700 directory when it is initialized. Connector,
+Brave, and embedding credentials are neither needed nor loaded in Slice 1.
 
 Apply the schema and initialize the private state once:
 
@@ -63,10 +63,10 @@ vulnerabilities.
 
 Run every live qualification from the exact revision being recorded and against
 an empty, freshly migrated disposable database. Each runtime-state path must be
-unused and its existing parent must be mode 0700. The Codex state root is the
-private existing local-account state root; do not copy its authentication into
-the checkout or process environment. The Codex child receives an empty
-environment from the production adapter.
+unused and its existing parent must be mode 0700. The Codex state-root base is
+the private existing directory above the `codex/<profile>` provider scope; do
+not copy its authentication into the checkout or process environment. The Codex
+child receives an empty environment from the production adapter.
 
 `qualify_codex.py` performs the three required paid consumer probes in one run:
 main-session continuation/rotation/reconstruction, an isolated closed
@@ -77,7 +77,7 @@ string arguments. Run it once per supported route:
 JARVIS_CODEX_LIVE=1 \
 JARVIS_CODEX_MODEL=gpt-5.6-terra \
 JARVIS_CODEX_PROFILE_KEY=jarvis-runtime \
-JARVIS_CODEX_STATE_ROOT=/private/existing/codex-state \
+JARVIS_CODEX_STATE_ROOT=/private/existing/agent-state \
 JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/terra-runtime \
 JARVIS_LIVE_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_terra_probe \
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles \

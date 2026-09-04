@@ -116,8 +116,6 @@ type ServiceRunOutcome = ThreadOutcome | PreflightDeferred
 class ThreadRunner(Protocol):
     async def run(self, cancellation: CancellationToken) -> ServiceRunOutcome: ...
 
-    async def has_active_claim(self) -> bool: ...
-
     async def settle_control(self, message_id: UUID, control: Control) -> bool: ...
 
     async def discard_recovered_session_reference(self) -> None: ...
@@ -144,10 +142,6 @@ class Slice1ThreadRunner:
         self._history = history
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint: PostgresInputCheckpoint | None = None
-
-    async def has_active_claim(self) -> bool:
-        async with self._checkpoint_lock:
-            return self._checkpoint is not None and self._checkpoint.has_active_claim
 
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         """Settle an idle control, or leave an active one for checkpoint polling."""
@@ -348,7 +342,7 @@ class JarvisService:
             active = self._active_cancellation
             if incoming.control in {Control.STOP, Control.PAUSE}:
                 await self._paused.set_paused(True)
-                if active is not None and await self._runner.has_active_claim():
+                if active is not None:
                     active.cancel()
             elif incoming.control is Control.RESUME:
                 await self._paused.set_paused(False)

@@ -117,10 +117,6 @@ class PostgresInputCheckpoint:
     def consumed_message_ids(self) -> tuple[UUID, ...]:
         return self._consumed_message_ids
 
-    @property
-    def has_active_claim(self) -> bool:
-        return self._active is not None
-
     async def settle_idle_control(
         self,
         *,

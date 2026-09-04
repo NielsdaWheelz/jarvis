@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
-from llm_agent_kernel import CancellationToken
+from llm_agent_kernel import (
+    CancellationToken,
+    ProviderUsage,
+    RunId,
+    RunMetrics,
+    ThreadNoWork,
+)
 from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
@@ -215,15 +222,11 @@ class _Ingress(_DeliveryStore):
 
 class _Runner:
     def __init__(self) -> None:
-        self.active = False
         self.settled: list[tuple[UUID, Control]] = []
 
     async def run(self, cancellation: CancellationToken) -> object:
         del cancellation
         raise AssertionError("model run was not expected")
-
-    async def has_active_claim(self) -> bool:
-        return self.active
 
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         self.settled.append((message_id, control))
@@ -231,6 +234,39 @@ class _Runner:
 
     async def discard_recovered_session_reference(self) -> None:
         return None
+
+
+class _PreClaimRunner:
+    def __init__(self) -> None:
+        self.before_claim = asyncio.Event()
+        self.acquire_claim = asyncio.Event()
+        self.claim_acquired = False
+        self.cancellation_observed = False
+        self.provider_turns = 0
+
+    async def run(self, cancellation: CancellationToken) -> ThreadNoWork:
+        self.before_claim.set()
+        await self.acquire_claim.wait()
+        self.claim_acquired = True
+        self.cancellation_observed = cancellation.cancelled
+        if not cancellation.cancelled:
+            self.provider_turns += 1
+        return ThreadNoWork(
+            RunMetrics(
+                RunId("pre-claim-race"),
+                self.provider_turns,
+                ProviderUsage(),
+                0.0,
+                False,
+            )
+        )
+
+    async def settle_control(self, message_id: UUID, control: Control) -> bool:
+        del message_id, control
+        raise AssertionError("control settlement was not expected")
+
+    async def discard_recovered_session_reference(self) -> None:
+        raise AssertionError("session-reference discard was not expected")
 
 
 class _Gateway:
@@ -247,8 +283,8 @@ class _Gateway:
 
 
 class _InspectableService(JarvisService):
-    def set_active_cancellation(self, cancellation: CancellationToken) -> None:
-        self._active_cancellation = cancellation
+    async def drain_once(self) -> None:
+        await self._drain()
 
 
 async def test_gateway_ready_catches_up_after_canonical_watermark(
@@ -270,33 +306,54 @@ async def test_gateway_ready_catches_up_after_canonical_watermark(
     assert result == CatchUpResult(2, 1, False, "42")
 
 
-async def test_active_pause_signals_kernel_cancellation_immediately(
+async def test_pause_before_claim_cancels_with_multiple_batches_queued(
     tmp_path: Path,
 ) -> None:
     paused_path = tmp_path / "paused.json"
     PausedState.initialize(paused_path)
     store = _Ingress()
-    runner = _Runner()
-    runner.active = True
+    runner = _PreClaimRunner()
+    settings = _settings(tmp_path).model_copy(update={"maximum_batch_size": 1})
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=settings,
         store=cast(IngressStore, store),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
         runner=cast(ThreadRunner, runner),
         gateway=_Gateway(),
     )
-    cancellation = CancellationToken()
-    service.set_active_cancellation(cancellation)
-    incoming = DiscordOwnerMessage(
-        "42",
-        "33",
-        "pause",
-        datetime(2026, 9, 3, 18, tzinfo=UTC),
-        Control.PAUSE,
+    started_at = datetime(2026, 9, 3, 18, tzinfo=UTC)
+    for index in range(2):
+        await service.receive_owner_message(
+            DiscordOwnerMessage(
+                str(40 + index),
+                "33",
+                f"queued input {index}",
+                started_at + timedelta(seconds=index),
+                None,
+            )
+        )
+
+    drain = asyncio.create_task(service.drain_once())
+    await asyncio.wait_for(runner.before_claim.wait(), timeout=1)
+    assert runner.claim_acquired is False
+    await service.receive_owner_message(
+        DiscordOwnerMessage(
+            "42",
+            "33",
+            "pause",
+            started_at + timedelta(seconds=2),
+            Control.PAUSE,
+        )
     )
-    await service.receive_owner_message(incoming)
-    assert cancellation.cancelled
+    assert runner.claim_acquired is False
+    runner.acquire_claim.set()
+    await asyncio.wait_for(drain, timeout=1)
+
+    assert settings.maximum_batch_size == 1
+    assert len(store.inserted) == 3
+    assert runner.cancellation_observed
+    assert runner.provider_turns == 0
     assert await PausedState(paused_path).is_paused() is True
 
 

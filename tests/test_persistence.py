@@ -1001,9 +1001,6 @@ class _CheckpointServiceRunner:
             )
         )
 
-    async def has_active_claim(self) -> bool:
-        return False
-
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         del message_id, control
         raise AssertionError("control settlement was not expected")
@@ -1060,9 +1057,6 @@ class _NeverRunRunner:
         self.calls += 1
         raise AssertionError("provider/admission work was not expected")
 
-    async def has_active_claim(self) -> bool:
-        return False
-
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         del message_id, control
         raise AssertionError("single-row control settlement was not expected")
@@ -1092,9 +1086,6 @@ class _ControlOnlyRunner:
                 False,
             )
         )
-
-    async def has_active_claim(self) -> bool:
-        return False
 
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         await self._store.settle_control(
@@ -1151,9 +1142,6 @@ class _ActiveControlRunner:
             RunMetrics(run_id, 0, ProviderUsage(), 0.001, True),
             ThreadStopKind.preempted,
         )
-
-    async def has_active_claim(self) -> bool:
-        return self._checkpoint is not None and self._checkpoint.has_active_claim
 
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         await self._store.settle_control(
@@ -1218,9 +1206,6 @@ class _IdleBoundaryRunner:
             )
         )
 
-    async def has_active_claim(self) -> bool:
-        return False
-
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         del message_id, control
         raise AssertionError("control settlement was not expected")
@@ -1278,9 +1263,6 @@ class _DeferredThenCheckpointRunner:
                 True,
             )
         )
-
-    async def has_active_claim(self) -> bool:
-        return False
 
     async def settle_control(self, message_id: UUID, control: Control) -> bool:
         del message_id, control

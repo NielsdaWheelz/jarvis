@@ -29,7 +29,7 @@ named explicitly; no criterion disappears or is weakened silently.
       start while the first holds the ownership lock.
 - [ ] **A1.8** Startup refuses mismatched pinned kernel, Codex SDK, or runtime
       versions.
-- [ ] **A1.9** A dated Slice 0 qualification report records the exact tool
+- [x] **A1.9** A dated Slice 0 qualification report records the exact tool
       manifest and schemas, live authority classification, credential
       ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID
       behavior, Gmail send reconciliation, Web canaries, kernel port/conformance

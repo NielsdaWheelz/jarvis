@@ -5,9 +5,10 @@ workflow system or calendar schedule.
 
 ## Slice 0: audit and qualification
 
-Status: in progress. The dated
-[qualification report](qualification/2026-09-02-slice-0.md) contains observed
-passes, failures, and open gates; it is not yet eligible for owner sign-off.
+Status: complete and owner-approved on 2026-09-03. The dated
+[qualification report](qualification/2026-09-02-slice-0.md) is the durable
+record of observed results, accepted trade-offs, and deferred owning-slice
+gates.
 
 Deliver:
 

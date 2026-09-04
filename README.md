@@ -55,8 +55,8 @@ ADR that also updates every affected normative document in the same change.
 ## Status
 
 - Baseline date: 2026-09-03
-- Status: v1 specification frozen; Slice 0 technically complete and awaiting
-  owner sign-off
+- Status: v1 specification frozen; Slice 0 complete and owner-approved; Slice 1
+  ready to begin
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex

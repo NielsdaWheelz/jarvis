@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.migration.example
 .secrets/
 .venv/
 __pycache__/

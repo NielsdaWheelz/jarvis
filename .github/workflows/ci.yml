@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
+        env:
+          POSTGRES_DB: jarvis_test
+          POSTGRES_USER: jarvis_migrator
+          POSTGRES_PASSWORD: jarvis-migrator-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jarvis_migrator -d jarvis_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 0.11.28
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Provision runtime database role
+        env:
+          PGPASSWORD: jarvis-migrator-test
+        run: >-
+          psql -h 127.0.0.1 -U jarvis_migrator -d jarvis_test
+          -v ON_ERROR_STOP=1
+          -c "CREATE ROLE jarvis_runtime LOGIN PASSWORD 'jarvis-runtime-test';
+          GRANT CONNECT ON DATABASE jarvis_test TO jarvis_runtime;
+          GRANT USAGE ON SCHEMA public TO jarvis_runtime;"
+      - name: Verify Slice 1
+        env:
+          JARVIS_TEST_MIGRATION_DATABASE_URL: postgresql://jarvis_migrator:jarvis-migrator-test@127.0.0.1:5432/jarvis_test
+          JARVIS_TEST_DATABASE_URL: postgresql://jarvis_runtime:jarvis-runtime-test@127.0.0.1:5432/jarvis_test
+        run: scripts/verify

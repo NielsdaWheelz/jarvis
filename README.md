@@ -5,8 +5,9 @@ configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and develops durable memory through a simple remember/retrieve/dream loop.
 
-This repository is intentionally specification-first. No implementation is
-present yet.
+This repository is specification-first. Slice 1 implements the bounded
+conversation skeleton; later integrations, memory behavior, actions, approvals,
+and scheduled wakes remain intentionally absent.
 
 ## V1 in one paragraph
 
@@ -56,11 +57,31 @@ ADR that also updates every affected normative document in the same change.
 
 - Baseline date: 2026-09-03
 - Status: v1 specification frozen; Slice 0 complete and owner-approved; Slice 1
-  ready to begin
+  implemented and under qualification
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
+
+## Slice 1 development
+
+Development requires Python 3.12, `uv` 0.11.28, Docker, and PostgreSQL with the
+`vector` extension. Start the pinned database image, create a disposable test
+database, and run every deterministic gate with one command:
+
+```sh
+docker compose up -d --wait
+docker compose exec -T postgres createdb -U jarvis_migrator jarvis_test
+docker compose exec -T postgres psql -U jarvis_migrator -d postgres \
+  -c 'GRANT CONNECT ON DATABASE jarvis_test TO jarvis_runtime'
+JARVIS_TEST_MIGRATION_DATABASE_URL=postgresql://jarvis_migrator:jarvis-migrator-dev@127.0.0.1:54328/jarvis_test \
+JARVIS_TEST_DATABASE_URL=postgresql://jarvis_runtime:jarvis-runtime-dev@127.0.0.1:54328/jarvis_test \
+  scripts/verify
+```
+
+Migration tests downgrade that database to an empty schema. See
+[the operations guide](docs/operations.md) for private state initialization,
+deployment, restart recovery, and operator-only release of parked input.
 
 ## Explicit non-goals
 

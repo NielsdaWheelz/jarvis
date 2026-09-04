@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${JARVIS_TEST_DATABASE_URL:?set JARVIS_TEST_DATABASE_URL to a disposable PostgreSQL database}"
+: "${JARVIS_TEST_MIGRATION_DATABASE_URL:?set JARVIS_TEST_MIGRATION_DATABASE_URL to the disposable database migrator login}"
+
+uv lock --check
+uv sync --frozen --all-groups
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+JARVIS_MIGRATION_DATABASE_URL="$JARVIS_TEST_MIGRATION_DATABASE_URL" uv run alembic upgrade head
+JARVIS_MIGRATION_DATABASE_URL="$JARVIS_TEST_MIGRATION_DATABASE_URL" uv run alembic check
+uv run pytest
+
+kernel_checkout="$(mktemp -d)"
+artifact_directory="$(mktemp -d)"
+install_environment="$(mktemp -d)"
+trap 'rm -rf -- "$kernel_checkout" "$artifact_directory" "$install_environment"' EXIT
+git -C "$kernel_checkout" init --quiet
+git -C "$kernel_checkout" remote add origin https://github.com/NielsdaWheelz/llm-agent-kernel.git
+git -C "$kernel_checkout" fetch --quiet --depth=1 origin c9eefcb458ee5245010dd5e99b48f7116cd1139a
+git -C "$kernel_checkout" checkout --quiet --detach FETCH_HEAD
+test "$(git -C "$kernel_checkout" rev-parse HEAD)" = c9eefcb458ee5245010dd5e99b48f7116cd1139a
+uv run --project "$kernel_checkout" --frozen --all-groups pytest -q "$kernel_checkout"
+
+uv build --out-dir "$artifact_directory"
+artifacts=("$artifact_directory"/*.whl)
+test "${#artifacts[@]}" -eq 1
+test -f "${artifacts[0]}"
+uv venv --python 3.12 "$install_environment"
+uv pip install --python "$install_environment/bin/python" "${artifacts[0]}"
+"$install_environment/bin/python" -c "import jarvis"
+"$install_environment/bin/jarvis" --help >/dev/null
+uv run pip-audit --local

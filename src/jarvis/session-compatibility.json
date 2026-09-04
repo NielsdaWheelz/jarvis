@@ -1,0 +1,18 @@
+{
+  "application_session_contract_revision": "jarvis-slice-1-v2",
+  "dependencies": {
+    "llm-agent-kernel": "c9eefcb458ee5245010dd5e99b48f7116cd1139a",
+    "llm-tools": "728f35c0b3a8be91b380ed4258d2b73ad68fc8fa",
+    "openai-codex": "0.144.4",
+    "openai-codex-cli-bin": "0.144.4",
+    "provider-runtime": "a5d9c8e0c1c851daee0731554e0a4a326d3c2819"
+  },
+  "role_contract_revisions": {
+    "automatic_write_gate": "jarvis-automatic-write-gate-slice-1-v1",
+    "dreamer": "jarvis-dreamer-slice-1-v1",
+    "main": "jarvis-main-slice-1-v1",
+    "recaller": "jarvis-recaller-slice-1-v1",
+    "rememberer": "jarvis-rememberer-slice-1-v1"
+  },
+  "schema_version": "jarvis-session-compatibility.v1"
+}

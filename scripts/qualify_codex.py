@@ -25,7 +25,6 @@ from llm_agent_kernel import (
     DispatchCompleted,
     HostInput,
     InputId,
-    OneShotCompleted,
     OneShotStopped,
     ProviderUsage,
     RunId,
@@ -582,8 +581,10 @@ async def _tool_argument_probe(
         )
     finally:
         await runtime.close()
-    if not isinstance(outcome, OneShotCompleted) or not dispatcher.validated_call_seen:
-        raise ProbeCheckFailed("validated_tool_call_not_completed")
+    if not dispatcher.validated_call_seen:
+        raise ProbeCheckFailed("validated_tool_call_not_observed")
+    if isinstance(outcome, OneShotStopped):
+        raise ProbeCheckFailed(f"validated_tool_call_stopped_{outcome.type.value}")
     result = ProbeToolRunResult.model_validate(thaw_json_value(outcome.result))
     if result.acknowledged is not True:
         raise ProbeCheckFailed("tool_result_not_acknowledged")

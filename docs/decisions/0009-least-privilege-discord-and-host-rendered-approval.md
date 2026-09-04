@@ -1,7 +1,8 @@
 # ADR 0009: Least-privilege Discord and a host-rendered approval preview
 
 - Status: Accepted; Discord permission and organization portions superseded by
-  ADR 0011; host-rendered approval decisions remain accepted
+  ADR 0011 and amended by ADR 0025; host-rendered approval decisions remain
+  accepted
 - Date: 2026-09-01
 - Supersedes: the Administrator trade-off in
   [ADR 0003](0003-natural-discord-and-autonomy.md)
@@ -34,6 +35,10 @@ automatic authority to edit and delete its own messages, which includes the
 message carrying those buttons.
 
 ## Decision
+
+> Amendment: ADR 0025 replaces the exact role-permission requirements below
+> with an accepted v1 authority ceiling plus application-level containment.
+> The host-rendered approval and host-owned message decisions remain binding.
 
 **Least-privilege Discord.** The bot MUST NOT hold `ADMINISTRATOR`,
 `MANAGE_GUILD`, `MANAGE_ROLES`, `MANAGE_WEBHOOKS`, `CREATE_INSTANT_INVITE`,

@@ -1,6 +1,6 @@
 # ADR 0023: Use a stable Gmail RFC identity
 
-- Status: Accepted; amends ADR 0016
+- Status: Superseded by ADR 0024
 - Date: 2026-09-03
 
 ## Context

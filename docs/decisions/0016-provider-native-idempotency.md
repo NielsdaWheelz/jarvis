@@ -2,7 +2,8 @@
 
 - Status: Accepted; schema-cost statement amended by ADR 0018; lifetime attempt
   ceiling amended by ADR 0019; Discord history claim and delivery guarantee
-  amended by ADR 0022; Gmail identity amended by ADR 0023
+  amended by ADR 0022; Gmail identity amended by ADR 0024, which supersedes
+  ADR 0023
 - Date: 2026-09-01
 - Supersedes: the accepted duplicate conversational-delivery semantics in
   [ADR 0007](0007-central-messages-and-unified-actions.md) and

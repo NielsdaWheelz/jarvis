@@ -55,7 +55,8 @@ ADR that also updates every affected normative document in the same change.
 ## Status
 
 - Baseline date: 2026-09-03
-- Status: v1 specification frozen; Slice 0 qualification in progress
+- Status: v1 specification frozen; Slice 0 technically complete and awaiting
+  owner sign-off
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
@@ -95,6 +96,12 @@ These are accepted knowingly, not overlooked.
 - Conversation, approvals, and proactive notices interleave in one Discord
   channel. Multiple channels are deferred until that produces a measured
   problem.
+- The reused Discord role has 25 inherited permissions beyond the four Jarvis
+  needs. V1 accepts that dormant authority by owner choice: Administrator and
+  management/moderation authority remain prohibited, Discord is absent from the
+  model tool catalog, and the narrow host adapter suppresses mentions and link
+  embeds. A compromised bot token or host process nevertheless has more Discord
+  authority than Jarvis needs.
 - Public search queries are disclosed to Brave, and public page reads disclose
   the requested URL and host IP to the destination. The tools send no connector
   credentials or cookies and do not provide authenticated or JavaScript browsing.

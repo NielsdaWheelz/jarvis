@@ -1,6 +1,6 @@
 # ADR 0011: Use one Discord channel as a transport
 
-- Status: Accepted
+- Status: Accepted; role-permission requirements amended by ADR 0025
 - Date: 2026-09-01
 - Supersedes: the server-organization decisions in
   [ADR 0003](0003-natural-discord-and-autonomy.md), the Discord tool-surface
@@ -20,6 +20,10 @@ Discord is already a delivery surface rather than canonical history. The
 read or reorganize the whole server to preserve continuity.
 
 ## Decision
+
+> Amendment: ADR 0025 replaces the exact Discord role-permission set below.
+> The one-channel transport boundary, restricted Gateway intents, and absence
+> of model-callable Discord tools remain binding.
 
 V1 uses one configured private Discord text channel, conventionally
 `#general`, in one configured guild. The deployment also configures one owner

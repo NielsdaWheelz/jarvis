@@ -77,12 +77,14 @@ The adapter:
   host approval presentation, and editing Jarvis's own approval message are
   adapter operations.
 
-The adapter renders model output as ordinary text/Markdown. It may render links,
-but the bot lacks `EMBED_LINKS`, so Discord does not automatically unfurl them.
-Gateway ingress, typing, and component interactions use `discord.py`. Outbound
-Create Message uses a narrow host-owned Discord REST v10 `httpx` binding because
-the qualified `discord.py` 2.7.1 send API does not expose `enforce_nonce`; no
-private library API is used.
+The adapter renders model output as ordinary text/Markdown. The reused role has
+broader inherited permissions than the adapter needs, including `EMBED_LINKS`,
+but no model-callable Discord tool exists. Every outbound create suppresses
+embeds and all creates/content edits disable mention parsing. Gateway ingress,
+typing, and component interactions use `discord.py`. Outbound Create Message
+uses a narrow host-owned Discord REST v10 `httpx` binding because the qualified
+`discord.py` 2.7.1 send API does not expose `enforce_nonce`; no private library
+API is used.
 
 ## Message lifecycle
 
@@ -577,16 +579,18 @@ permit a safe retry, and conflicting or unknowable state exhausts to
 
 ## Gmail send recovery
 
-Email is prepared as a Gmail draft with a stable RFC `Message-ID` derived from
-the draft-creation action ID exactly as specified in SPEC section 5.5. Updates
-preserve it, and the separate send action stores it with the `draftId`, thread
-identity, and exact recipient/subject/body snapshot before approval. After
-approval and before dispatch, the executor fetches the live draft. A mismatch
-fails without sending and requires a new proposal. After an ambiguous send:
+Email is prepared as a Gmail draft with a stable `X-Jarvis-Effect-ID` derived
+from the draft-creation action ID exactly as specified in SPEC section 5.5.
+Gmail owns the RFC `Message-ID`; updates preserve the Jarvis header, and the
+separate send action stores it with the `draftId`, thread identity, and exact
+recipient/subject/body snapshot before approval. After approval and before
+dispatch, the executor fetches the live draft. A mismatch fails without sending
+and requires a new proposal. After an ambiguous send:
 
 1. Check whether the draft still exists.
-2. Search Sent mail by the exact RFC `Message-ID`, fetch any match, and compare
-   its normalized snapshot; multiple or conflicting matches are not success.
+2. Fetch the known thread and inspect raw messages for the exact Jarvis effect
+   header, then compare any match with the normalized snapshot; multiple or
+   conflicting matches are not success.
 3. Perform the binding's bounded re-read sequence before deciding.
 4. Repeat only when evidence proves the send did not occur and repeating is safe.
 5. Otherwise record terminal `uncertain`, present the evidence, and ask the owner

@@ -101,27 +101,31 @@ These transport operations create no `action` rows. Jarvis has no v1 capability
 to create, rename, reorder, archive, or delete channels or threads; manage other
 messages; add reactions; or organize the server.
 
-The bot role grants exactly:
+The bot must have these operational permissions:
 
 - `VIEW_CHANNEL`
 - `SEND_MESSAGES`
 - `ATTACH_FILES`
 - `READ_MESSAGE_HISTORY`
 
+The reused deployment may retain its existing inherited non-management
+permissions; exact role-level least privilege is not a v1 gate. It MUST NOT have
+`ADMINISTRATOR`, guild/channel/message/thread/role/webhook management,
+moderation, kick, or ban authority. This accepted overbreadth is not application
+authority: no model-callable Discord tool exists, and the adapter implements no
+invite, reaction, thread, poll, event, voice, application, membership, or
+server-organization operation.
+
 The integration enables exactly the `GUILDS`, `GUILD_MESSAGES`, and
 `MESSAGE_CONTENT` Gateway intents. Direct-message, member, presence, and reaction
-intents are absent; host filtering rejects thread events. Invite, role, webhook,
-ban, kick, moderation, message-management, and guild-management authority are
-absent. `ADMINISTRATOR`, `MANAGE_CHANNELS`, `MANAGE_THREADS`, `MANAGE_MESSAGES`,
-thread creation and send permissions, `ADD_REACTIONS`, and `EMBED_LINKS` are
-deliberately absent.
-
-Without `EMBED_LINKS`, Discord does not automatically unfurl links Jarvis posts;
-ordinary clickable links still work. Normal model output is text. Host code MUST
-NOT translate a model-supplied rich-content object into an embed, attachment, or
-interaction component. The host-owned approval renderer in section 5.3 is the
-deliberate exception for a plain-text payload attachment and Approve or Deny
-components.
+intents are absent; host filtering rejects thread events. Every Create Message
+and content-bearing edit uses `allowed_mentions = {"parse": []}`. Every Create
+Message sets Discord's `SUPPRESS_EMBEDS` flag; content-bearing edits retain it.
+Ordinary clickable links still work, but Jarvis requests no displayed unfurl.
+Normal model output is text. Host code MUST NOT translate a model-supplied
+rich-content object into an embed, attachment, or interaction component. The
+host-owned approval renderer in section 5.3 is the deliberate exception for a
+plain-text payload attachment and Approve or Deny components.
 
 ### 4.2 Conversation is natural
 
@@ -467,25 +471,24 @@ an asynchronous result or requested reminder.
 
 Gmail send uses the provider's draft flow:
 
-1. During `gmail.create_draft`, compute `digest` as the full lowercase
+1. During `gmail.create_draft`, compute `jarvis_effect_id` as the full lowercase
    hexadecimal encoding of `SHA-256(UTF-8("jarvis-gmail-v1:" +
    canonical_text(create_action.id)))`, where `create_action` is that
-   draft-creation action row. Set the draft's RFC `Message-ID` to
-   `<{digest}@jarvis.invalid>` and create the exact draft automatically with that
-   header. `jarvis.invalid` uses the reserved `.invalid` namespace and is never
-   resolved. Updates preserve this identity; the later send action stores it
-   rather than deriving a second one.
+   draft-creation action row. Set the MIME header
+   `X-Jarvis-Effect-ID: {jarvis_effect_id}` and create the exact draft
+   automatically. Gmail owns the RFC `Message-ID`; updates preserve the Jarvis
+   header, and the later send action stores it rather than deriving a second one.
 2. Persist its Gmail `draftId`, known thread identity, and exact envelope,
-   subject, body, and RFC `Message-ID` snapshot in the action arguments.
+   subject, body, and `jarvis_effect_id` snapshot in the action arguments.
 3. Render and request approval for that immutable snapshot.
 4. Immediately before sending, fetch the live draft and require it to match the
    snapshot exactly; a mismatch fails the action and requires a new proposal.
 5. Send by `draftId` after approval.
 6. On an ambiguous result, perform bounded re-reads: check whether the draft
-   remains and search Sent mail by the exact RFC `Message-ID` before deciding
-   whether a repeat is proved safe. Any match must be fetched and compared with
-   the immutable normalized snapshot; multiple or conflicting matches are
-   `uncertain`, not success.
+   remains, then fetch the known thread and inspect raw messages for the exact
+   `X-Jarvis-Effect-ID` before deciding whether a repeat is proved safe. Any
+   match must be compared with the immutable normalized snapshot; multiple or
+   conflicting matches are `uncertain`, not success.
 
 The exact reconciliation behavior for new and existing threads MUST be verified
 against the live integration in Slice 0. Only if the complete reconciliation
@@ -964,11 +967,11 @@ material is rejected from Web arguments rather than sent. V1 does not implement
 authenticated browsing, browser automation, or JavaScript rendering.
 
 `gmail.send_draft` arguments contain the provider draft ID, known thread
-identity, stable RFC `Message-ID`, and the exact To/Cc/Bcc, subject, and body
-snapshot shown for approval. The RFC identity is the full lowercase hexadecimal
+identity, stable `jarvis_effect_id`, and the exact To/Cc/Bcc, subject, and body
+snapshot shown for approval. The effect identity is the full lowercase hexadecimal
 encoding of `SHA-256(UTF-8("jarvis-gmail-v1:" +
-canonical_text(create_action.id)))` inside `<{digest}@jarvis.invalid>`, where
-`create_action` is the original `gmail.create_draft` action. It is set once,
+canonical_text(create_action.id)))`, where `create_action` is the original
+`gmail.create_draft` action. It is written once as `X-Jarvis-Effect-ID`,
 preserved by updates, and copied into the separate send action's arguments.
 Immediately before send, the host verifies that the live draft still matches
 that snapshot; a mismatch fails the action and requires a new proposal.

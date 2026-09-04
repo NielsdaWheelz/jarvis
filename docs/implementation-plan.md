@@ -15,7 +15,8 @@ Deliver:
   integration surfaces without importing unrelated Ariel design.
 - The exact canonical tool manifest, schemas, typed observations, and live
   automatic/approval classification from SPEC section 7.3.
-- The configured Discord guild/owner/channel IDs, exact four bot permissions,
+- The configured Discord guild/owner/channel IDs, observed effective authority,
+  required four operational permissions, prohibited management authority,
   minimal Gateway intents, and bounded history-catch-up behavior.
 - Live Discord confirmation that `enforce_nonce` returns the existing message
   for the same recent bot nonce, plus an honest record of whether history and
@@ -294,9 +295,9 @@ Deliver:
 - Approval suspension/resolution conformance and exact approval-bearing plan
   budgets before those plans become selectable.
 
-- Gmail send as draft-send by stored `draftId`, with the exact stable RFC
-  `Message-ID` derived from the draft-creation action ID preserved through
-  updates and stored in the immutable send snapshot.
+- Gmail send as draft-send by stored `draftId`, with the exact stable MIME
+  `X-Jarvis-Effect-ID` derived from the draft-creation action ID preserved
+  through updates and stored in the immutable send snapshot.
 - Host preview renderers for Gmail send and non-owner-only calendar writes, with
   no model preview field or action preview column.
 - Long-action rendering through host-owned split messages or attachment.

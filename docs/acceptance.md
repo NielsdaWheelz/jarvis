@@ -46,12 +46,14 @@ named explicitly; no criterion disappears or is weakened silently.
 
 - [ ] **A2.1 — live.** The owner can speak naturally to Jarvis without slash
       commands and receive useful text/Markdown replies.
-- [ ] **A2.2 — live.** The effective bot permissions are exactly
-      `VIEW_CHANNEL`, `SEND_MESSAGES`, `ATTACH_FILES`, and
-      `READ_MESSAGE_HISTORY` in the configured channel. `ADMINISTRATOR`, thread,
-      channel-management, message-management, reaction, membership, webhook,
-      role, invite, moderation, and `EMBED_LINKS` permissions are absent. Gateway
-      intents are exactly `GUILDS`, `GUILD_MESSAGES`, and `MESSAGE_CONTENT`.
+- [ ] **A2.2 — live.** The effective bot permissions include `VIEW_CHANNEL`,
+      `SEND_MESSAGES`, `ATTACH_FILES`, and `READ_MESSAGE_HISTORY`.
+      `ADMINISTRATOR`, guild/channel/message/thread/role/webhook management,
+      moderation, kick, and ban permissions are absent; broader inherited
+      non-management permissions are an accepted v1 deployment trade-off.
+      Every create sets `SUPPRESS_EMBEDS` and empty mention parsing, and every
+      content edit preserves those controls. Gateway intents are exactly
+      `GUILDS`, `GUILD_MESSAGES`, and `MESSAGE_CONTENT`.
 - [ ] **A2.3** A non-owner cannot start controlled tool work or approve an action.
 - [ ] **A2.4** Owner messages and interactions in direct messages, threads, or
       any channel other than the configured channel are ignored. No Jarvis
@@ -318,9 +320,10 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.13 — live.** An approved email produces exactly one recipient copy,
       including an injected ambiguous-timeout test reconciled through the Gmail
       draft/Sent behavior. The draft and immutable action snapshot contain the
-      exact stable RFC `Message-ID` derived from the original draft-creation
-      action ID; updates preserve it and the send action copies it. Sent
-      reconciliation searches that identity, fetches matches, and rejects
+      exact stable `jarvis_effect_id` derived from the original draft-creation
+      action ID; the MIME `X-Jarvis-Effect-ID` header survives updates and send,
+      and the send action copies it. Sent reconciliation fetches the known
+      thread, inspects raw messages, content-compares matches, and rejects
       multiple or conflicting matches as uncertain.
 - [ ] **A6.14** External success is reported only from provider or reconciliation
       evidence, never a model assertion. An action outcome that cannot return to

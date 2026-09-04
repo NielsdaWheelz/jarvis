@@ -91,6 +91,11 @@ of unknown findings. No Slice 1 implementation starts before this exit.
 
 ## Slice 1: conversation skeleton
 
+Status: complete and qualified on 2026-09-03. The dated
+[qualification report](qualification/2026-09-03-slice-1.md) records the exact
+revisions, deterministic gates, paid Codex probes, live Discord results, and
+accepted trade-offs.
+
 Deliver:
 
 - Python project, lockfile, PostgreSQL, and migrations.

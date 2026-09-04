@@ -132,6 +132,13 @@ class ProbeToolRunResult(BaseModel):
     acknowledged: bool
 
 
+class QualificationFailure(RuntimeError):
+    def __init__(self, stage: str, cause_type: str) -> None:
+        super().__init__(stage)
+        self.stage = stage
+        self.cause_type = cause_type
+
+
 async def _must_not_execute(value: object, context: object) -> object:
     del value, context
     raise AssertionError("probe binding executed outside its dispatcher")
@@ -610,33 +617,39 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     engine = create_engine(arguments.database_url)
     store = MessageStore(engine)
     history = PostgresCanonicalHistory(engine)
+    stage = "conversation"
     try:
-        conversation, continuity = await _conversation_probe(
-            arguments=arguments,
-            settings=settings,
-            definitions=definitions,
-            admission_limits=admission_limits,
-            store=store,
-            history=history,
-        )
-        admission = RollingAdmissionPort(
-            settings.admission_journal_path,
-            admission_limits,
-        )
-        structured = await _structured_probe(
-            arguments=arguments,
-            settings=settings,
-            definitions=definitions,
-            admission=admission,
-        )
-        tool_arguments = await _tool_argument_probe(
-            arguments=arguments,
-            settings=settings,
-            definitions=definitions,
-            admission=admission,
-        )
-    finally:
-        await engine.dispose()
+        try:
+            conversation, continuity = await _conversation_probe(
+                arguments=arguments,
+                settings=settings,
+                definitions=definitions,
+                admission_limits=admission_limits,
+                store=store,
+                history=history,
+            )
+            admission = RollingAdmissionPort(
+                settings.admission_journal_path,
+                admission_limits,
+            )
+            stage = "structured"
+            structured = await _structured_probe(
+                arguments=arguments,
+                settings=settings,
+                definitions=definitions,
+                admission=admission,
+            )
+            stage = "tool_arguments"
+            tool_arguments = await _tool_argument_probe(
+                arguments=arguments,
+                settings=settings,
+                definitions=definitions,
+                admission=admission,
+            )
+        finally:
+            await engine.dispose()
+    except BaseException as exc:
+        raise QualificationFailure(stage, type(exc).__name__) from exc
     return {
         "route": arguments.model,
         "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
@@ -736,11 +749,20 @@ def main() -> int:
         arguments = _parse_arguments()
         route = arguments.model
         result = asyncio.run(_run(arguments))
-    except BaseException:
+    except QualificationFailure as exc:
         result = {
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
             "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
             "implementation": _implementation(),
+            "failure": {"stage": exc.stage, "type": exc.cause_type},
+            "status": "failed",
+        }
+    except BaseException as exc:
+        result = {
+            "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
+            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "implementation": _implementation(),
+            "failure": {"stage": "setup", "type": type(exc).__name__},
             "status": "failed",
         }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

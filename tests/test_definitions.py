@@ -83,18 +83,42 @@ def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
         model="gpt-5.4",
         owner_timezone="America/Los_Angeles",
     )
+    memory_id = "00000000-0000-4000-8000-000000000001"
+    summary_id = "00000000-0000-4000-8000-000000000002"
+    owner_id = "00000000-0000-4000-8000-000000000003"
     cases: tuple[tuple[AgentDefinition, FrozenToolPlan, dict[str, object]], ...] = (
-        (definitions.recaller, definitions.plans["recaller"], {"memories": []}),
+        (
+            definitions.recaller,
+            definitions.plans["recaller"],
+            {
+                "memories": [
+                    {
+                        "memory_id": memory_id,
+                        "text": "synthetic recalled memory",
+                        "created_at": "2026-09-03T12:00:00+00:00",
+                        "source_memory_ids": [memory_id],
+                    }
+                ]
+            },
+        ),
         (definitions.rememberer, definitions.plans["rememberer"], {"memories": []}),
         (
             definitions.dreamer,
             definitions.plans["dreamer"],
-            {"insertions": [], "remove_summary_ids": []},
+            {
+                "insertions": [
+                    {
+                        "text": "synthetic summary",
+                        "source_memory_ids": [memory_id],
+                    }
+                ],
+                "remove_summary_ids": [summary_id],
+            },
         ),
         (
             definitions.automatic_write_gate,
             definitions.plans["automatic_write_gate"],
-            {"decision": "deny", "supporting_owner_message_ids": []},
+            {"decision": "allow", "supporting_owner_message_ids": [owner_id]},
         ),
     )
     for definition, plan, result in cases:

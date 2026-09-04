@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from llm_agent_kernel import (
@@ -39,7 +39,7 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from provider_runtime.agent_runtime import CredentialRef, ReasoningSpec
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
@@ -79,13 +79,30 @@ SLICE1_KERNEL_LIMITS = KernelLimits(
 )
 
 
+def _canonical_uuid(value: str) -> str:
+    try:
+        canonical = str(UUID(value))
+    except ValueError as exc:
+        raise ValueError("value must be a canonical UUID") from exc
+    if value != canonical:
+        raise ValueError("value must be a canonical UUID")
+    return value
+
+
+CanonicalUuid = Annotated[
+    str,
+    AfterValidator(_canonical_uuid),
+    WithJsonSchema({"type": "string", "format": "uuid"}),
+]
+
+
 class RecalledMemory(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    memory_id: UUID
+    memory_id: CanonicalUuid
     text: str = Field(min_length=1, max_length=8_000)
     created_at: str = Field(min_length=1, max_length=64)
-    source_memory_ids: list[UUID] = Field(max_length=50)
+    source_memory_ids: list[CanonicalUuid] = Field(max_length=50)
 
 
 class RecallResult(BaseModel):
@@ -104,21 +121,21 @@ class SummaryInsertion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     text: str = Field(min_length=1, max_length=8_000)
-    source_memory_ids: list[UUID] = Field(min_length=1, max_length=100)
+    source_memory_ids: list[CanonicalUuid] = Field(min_length=1, max_length=100)
 
 
 class DreamResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     insertions: list[SummaryInsertion] = Field(max_length=50)
-    remove_summary_ids: list[UUID] = Field(max_length=100)
+    remove_summary_ids: list[CanonicalUuid] = Field(max_length=100)
 
 
 class AutomaticWriteGateResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     decision: Literal["allow", "deny"]
-    supporting_owner_message_ids: list[UUID] = Field(max_length=100)
+    supporting_owner_message_ids: list[CanonicalUuid] = Field(max_length=100)
 
 
 @dataclass(frozen=True, slots=True)

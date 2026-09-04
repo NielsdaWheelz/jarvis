@@ -581,10 +581,13 @@ async def _tool_argument_probe(
         )
     finally:
         await runtime.close()
+    if isinstance(outcome, OneShotStopped):
+        dispatch = (
+            "after_dispatch" if dispatcher.validated_call_seen else "before_dispatch"
+        )
+        raise ProbeCheckFailed(f"tool_call_stopped_{dispatch}_{outcome.type.value}")
     if not dispatcher.validated_call_seen:
         raise ProbeCheckFailed("validated_tool_call_not_observed")
-    if isinstance(outcome, OneShotStopped):
-        raise ProbeCheckFailed(f"validated_tool_call_stopped_{outcome.type.value}")
     result = ProbeToolRunResult.model_validate(thaw_json_value(outcome.result))
     if result.acknowledged is not True:
         raise ProbeCheckFailed("tool_result_not_acknowledged")

@@ -1041,7 +1041,8 @@ memory transactions are host bookkeeping and do not pass through `llm-tools`.
 
 ### 7.4 Model step protocol and bounded drain
 
-The kernel accepts exactly one strict discriminated step per model response:
+The kernel accepts exactly one strict logical discriminated step per model
+response:
 
 ```text
 say
@@ -1063,6 +1064,23 @@ visible output, position occupation, recorder mutation, budget reservation, or
 dispatch. Protocol-invalid output performs no effect and becomes bounded
 corrective context. Exhaustion persists a host-authored stopped conclusion and
 cannot obtain a new correction budget through automatic rearming.
+
+The Codex provider wire is a kernel-owned transport projection, not a second
+logical protocol. It is one closed root object with four required fields:
+`type`, `say`, `call_tool`, and `finish`. `type` selects exactly one non-null
+closed payload; every other payload is null. Optional logical values such as
+`finish.reason` are required-but-nullable on the wire. For `call_tool`, the wire
+`arguments` field is a string containing one strict JSON object. The kernel
+rejects duplicate keys, non-JSON constants, non-object roots, malformed branch
+selection, and invalid logical/tool arguments before dispatch. Jarvis MUST NOT
+decode, manufacture, or bypass this envelope.
+
+A `StructuredOutput` compiles its result schema into the provider-supported
+closed subset when the immutable definition is built, before provider I/O.
+Unsupported contracts fail with `UnsupportedStructuredOutputError`. Arbitrary
+result mappings are unsupported; variable-key results use arrays of closed
+key/value records. Provider-wire compilation never replaces the independent
+Pydantic logical-result validation.
 
 `call_tool` contains no user-facing text, model-authored call/effect ID,
 preview, authority label, approval instruction, or delivery instruction. It
@@ -1206,10 +1224,14 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `4dd3f2fd9ef6e08b26ae013d81c27c3a29b1603d`
+  `c9eefcb458ee5245010dd5e99b48f7116cd1139a`
 - `llm-calling` / `provider-runtime`:
   `a5d9c8e0c1c851daee0731554e0a4a326d3c2819`
 - `llm-tools`: `728f35c0b3a8be91b380ed4258d2b73ad68fc8fa`
+
+The kernel directly certifies and pins `openai-codex==0.144.4`; Jarvis's frozen
+lock MUST resolve that exact SDK version. A Codex SDK change requires explicit
+provider-runtime and kernel requalification before activation.
 
 The `llm-tools` value is the qualified implementation lock for public
 validation, plan/catalog-consistency and full-plan-tightening, exact

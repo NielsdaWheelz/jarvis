@@ -121,6 +121,16 @@ These are accepted knowingly, not overlooked.
 - V1 serializes model tool calls and has no model-authored progress narration.
   This trades some read latency for a much smaller partial-effect and recovery
   state machine; Discord typing state indicates activity.
+- Codex's strict structured-output subset requires a closed, all-required root
+  object, so the kernel transports the logical step through a nullable wire
+  envelope. Tool arguments cross that provider boundary as a strict JSON-object
+  string and are decoded and independently validated before dispatch. This adds
+  output tokens and prevents native per-tool argument-schema enforcement, while
+  retaining the authoritative host validation and closed logical protocol.
+- Structured one-shot results must compile into the provider's supported closed
+  schema subset. Arbitrary result mappings are rejected; variable-key data uses
+  arrays of closed key/value records. This is less ergonomic but fails before
+  provider I/O rather than during a paid run.
 - Four durability fields survive the simplification pass:
   `message.processing_attempts` bounds poison recovery,
   `message.processing_parked_at` makes operator quarantine durable, while

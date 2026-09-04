@@ -69,6 +69,9 @@ These instructions govern all work in this repository.
   exactly one serial call per step. `call_tool` carries no user-facing text or
   model-authored call/effect ID. Internal one-shot roles use plans containing no
   `ToolEffect.Write` and closed structured `finish.result` contracts.
+  The kernel also owns the Codex-compatible provider-wire envelope and strict
+  decoding of its JSON-string tool arguments; Jarvis consumes logical steps and
+  MUST NOT duplicate or bypass that wire adapter.
   Definitions hold maximum capability envelopes; each run gets a proven frozen
   tightening, with scheduled-wake runs narrowed to reads. Jarvis—not the
   kernel—selects priority, compatibility, batching, and the plan.

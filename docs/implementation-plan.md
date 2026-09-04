@@ -36,9 +36,11 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The implemented public kernel pin
-  `4dd3f2fd9ef6e08b26ae013d81c27c3a29b1603d`, with its exact
+  `c9eefcb458ee5245010dd5e99b48f7116cd1139a`, with its exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
-  recorded in the qualification report.
+  recorded in the qualification evidence. The signed Slice 0 report preserves
+  the earlier qualified revision; ADR 0026 records the Slice 1 live failure and
+  superseding provider-wire fix.
 - The completed `llm-tools` upgrade exposing qualified public pure
   argument validation, frozen-plan/catalog consistency and full tightening,
   exact `HostTable` publication, and async durable executor/recorder seams; pin
@@ -96,6 +98,9 @@ Deliver:
   session-reference, input-checkpoint, and terminal-finalization adapters.
 - Conversational main output contract plus closed structured output contracts
   for isolated recaller, rememberer, and dreamer one-shot runs.
+- Provider-terminal fixtures using the kernel-owned closed nullable wire
+  envelope, including JSON-string `call_tool.arguments`; Jarvis must not decode
+  or validate that wire independently.
 - `message` table, owner/source identity, durable `processing_attempts`, and
   nullable `processing_parked_at`.
 - Existing Discord ingress/egress restricted to one configured channel, with no

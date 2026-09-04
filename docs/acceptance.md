@@ -186,7 +186,13 @@ in Slice 0.
       preview, authority, approval, or delivery field. A separate `say` may
       describe only an observed outcome. Structured roles accept only a
       schema-valid `finish.result`; the main role rejects terminal result
-      payloads. No parallel or multi-call path exists.
+      payloads. Its Codex wire schema has one closed object root, four required
+      envelope fields, nullable unselected branches, and only closed nested
+      objects. JSON-string tool arguments reject duplicate keys, non-JSON
+      numeric constants, and non-object roots before independent logical and
+      `llm-tools` validation.
+      Unsupported structured-result schemas fail before provider I/O. No
+      parallel or multi-call path exists.
 - [ ] **A4.6** The production adapter consumes `AgentRuntime.stream_turn` and
       never calls its event-discarding `run_turn` convenience projection. A
       scripted `AgentToolUse` or `AgentPermissionRequest` event fails and

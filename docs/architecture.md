@@ -349,6 +349,14 @@ fresh recalled memory on owner turns and the capability descriptions exposed
 for every turn. It emits the strict step grammar defined once in
 [SPEC section 7.4](../SPEC.md#74-model-step-protocol-and-bounded-drain).
 
+The pinned kernel projects that logical grammar into Codex's closed nullable
+provider-wire envelope and converts the selected payload back before semantic
+validation. Tool arguments are one strictly decoded JSON-object string at that
+boundary because the provider schema cannot represent arbitrary object keys;
+Jarvis receives only the validated logical call. Structured role result schemas
+compile before provider I/O, and contracts outside the supported closed subset
+are rejected during definition construction.
+
 The main agent never owns credentials or policy classification. Host code
 supplies product dispatch and policy. The kernel validates the whole step and
 the pure `llm-tools` seam validates its one proposed call before dispatch. Calls

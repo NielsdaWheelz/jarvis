@@ -1,6 +1,7 @@
 # ADR 0020: Pin the implemented kernel release boundary
 
-- Status: Accepted
+- Status: Accepted; kernel revision pin superseded by ADR 0026; remaining host
+  boundary decisions remain accepted
 - Date: 2026-09-03
 - Amends: [ADR 0010](0010-minimal-durable-state.md),
   [ADR 0012](0012-resumable-session-and-context.md),
@@ -38,6 +39,11 @@ The final public kernel revision is
 `provider-runtime@a5d9c8e0c1c851daee0731554e0a4a326d3c2819`.
 
 ## Decision
+
+> Amendment: ADR 0026 supersedes the exact kernel revision below after the first
+> paid Jarvis consumer probe exposed an incompatible provider-wire schema. The
+> budget, compatibility, limits, parking, and claim-ordering decisions remain
+> binding.
 
 Pin Jarvis to kernel revision
 `4dd3f2fd9ef6e08b26ae013d81c27c3a29b1603d`.

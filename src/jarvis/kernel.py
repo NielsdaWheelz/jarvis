@@ -8,6 +8,7 @@ from llm_agent_kernel import (
     AgentDefinition,
     CancellationToken,
     CodexProvider,
+    KernelLimits,
     SessionCoordinator,
     StaleSessionRef,
     StaleSessionReference,
@@ -89,6 +90,7 @@ def build_kernel_runtime(
     private_cwd_parent: Path,
     session_ref_path: Path,
     model: str,
+    kernel_limits: KernelLimits,
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
     verify_dependencies: bool = True,
 ) -> KernelRuntime:
@@ -109,6 +111,7 @@ def build_kernel_runtime(
         session_ref_path,
         max_generations=session_generation_limit(
             model,
+            kernel_limits=kernel_limits,
             native_limits=native_limits,
         ),
     )

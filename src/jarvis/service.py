@@ -1,4 +1,4 @@
-"""Bounded Slice 1 host-service composition."""
+"""Bounded Jarvis host-service composition."""
 
 from __future__ import annotations
 
@@ -21,13 +21,14 @@ from llm_agent_kernel import (
     ThreadOutcome,
     ThreadStopKind,
     ThreadStopped,
+    ToolDispatchPort,
     run_thread,
 )
 
 from jarvis.admission import ExactToolBudgetFactory, RollingAdmissionPort
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.context import JarvisContextSource
-from jarvis.definitions import Slice1Definitions
+from jarvis.definitions import Slice1Definitions, Slice2Definitions
 from jarvis.discord import (
     CatchUpResult,
     Control,
@@ -121,7 +122,7 @@ class ThreadRunner(Protocol):
     async def discard_recovered_session_reference(self) -> None: ...
 
 
-class Slice1ThreadRunner:
+class JarvisThreadRunner:
     """One concrete invocation of the pinned kernel over PostgreSQL ports."""
 
     def __init__(
@@ -131,8 +132,9 @@ class Slice1ThreadRunner:
         store: MessageStore,
         admission: RollingAdmissionPort,
         kernel_runtime: KernelRuntime,
-        definitions: Slice1Definitions,
+        definitions: Slice1Definitions | Slice2Definitions,
         history: PostgresCanonicalHistory,
+        dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -140,6 +142,7 @@ class Slice1ThreadRunner:
         self._kernel_runtime = kernel_runtime
         self._definitions = definitions
         self._history = history
+        self._dispatcher_factory = dispatcher_factory
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint: PostgresInputCheckpoint | None = None
 
@@ -196,7 +199,7 @@ class Slice1ThreadRunner:
         context = JarvisContextSource(thread_id, self._history)
         async with self._checkpoint_lock:
             if self._checkpoint is not None:
-                raise RuntimeError("the Slice 1 thread runner is already active")
+                raise RuntimeError("the Jarvis thread runner is already active")
             self._checkpoint = checkpoints
         try:
             outcome = await run_thread(
@@ -208,7 +211,7 @@ class Slice1ThreadRunner:
                 admission=self._admission,
                 sessions=self._kernel_runtime.sessions,
                 context_source=context,
-                dispatcher=EmptySlice1Dispatcher(),
+                dispatcher=self._dispatcher_factory(),
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
             )
@@ -226,6 +229,10 @@ class Slice1ThreadRunner:
                 duration_seconds=metrics.duration_seconds,
             )
         return outcome
+
+
+# Compatibility name for the shipped Slice 1 tests and qualification records.
+Slice1ThreadRunner = JarvisThreadRunner
 
 
 def _control_value(control: Control) -> Literal["stop", "pause", "resume"]:
@@ -507,6 +514,7 @@ __all__ = [
     "DeliveryFlushResult",
     "DiscordCursorPort",
     "JarvisService",
+    "JarvisThreadRunner",
     "PendingControlPort",
     "PreflightDeferred",
     "Slice1ThreadRunner",

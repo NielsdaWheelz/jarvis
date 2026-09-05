@@ -5,9 +5,10 @@ configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and develops durable memory through a simple remember/retrieve/dream loop.
 
-This repository is specification-first. Slice 1 implements the bounded
-conversation skeleton; later integrations, memory behavior, actions, approvals,
-and scheduled wakes remain intentionally absent.
+This repository is specification-first. Slice 2 implements the bounded
+conversation skeleton plus automatic Gmail, Calendar, Maps, and public-Web
+reads. Memory behavior, writes, approvals, and scheduled wakes remain
+intentionally absent.
 
 ## V1 in one paragraph
 
@@ -55,15 +56,15 @@ ADR that also updates every affected normative document in the same change.
 
 ## Status
 
-- Baseline date: 2026-09-03
-- Status: v1 specification frozen; Slice 0 complete and owner-approved; Slice 1
-  complete and qualified
+- Baseline date: 2026-09-04
+- Status: v1 specification frozen; Slices 0, 1, and 2 complete and qualified;
+  later slices remain intentionally absent
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 
-## Slice 1 development
+## Slice 2 development
 
 Development requires Python 3.12, `uv` 0.11.28, Docker, and PostgreSQL with the
 `vector` extension. Start the pinned database image, create a disposable test
@@ -126,6 +127,14 @@ These are accepted knowingly, not overlooked.
 - Public search queries are disclosed to Brave, and public page reads disclose
   the requested URL and host IP to the destination. The tools send no connector
   credentials or cookies and do not provide authenticated or JavaScript browsing.
+- Slice 2 gives up Brave's second automatic search attempt and caps a selectable
+  Web-read observation at 64 KiB and aggregate tool output at 256 KiB. This keeps
+  billed-once search completion and native context within their hard boundaries,
+  but transient search failures and unusually large compound reads fail sooner.
+- Calendar events with a provider-declared unspecified end expose a payload-free
+  tagged domain variant rather than Google's compatibility end. This preserves
+  truth but requires consumers to handle the third observed-end variant; the
+  Main session cold-bootstraps once for the corrected v2 contract.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed. Rotating or discarding

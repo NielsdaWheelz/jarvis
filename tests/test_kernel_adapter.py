@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
+import json
 import stat
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 from llm_agent_kernel import (
     CancellationToken,
@@ -35,15 +38,25 @@ from provider_runtime.agent_runtime import (
     freeze_json_object,
 )
 from provider_runtime.types import Absent, CancelSignal
+from pydantic import SecretStr
 
 from jarvis.admission import (
     ExactToolBudgetFactory,
     RollingAdmissionLimits,
     RollingAdmissionPort,
 )
+from jarvis.config import DiscordSettings
 from jarvis.context import CanonicalMessage, JarvisContextSource
-from jarvis.definitions import build_slice1_definitions, verify_runtime_dependencies
+from jarvis.definitions import (
+    SLICE1_KERNEL_LIMITS,
+    SLICE2_KERNEL_LIMITS,
+    build_slice2_definitions,
+    verify_runtime_dependencies,
+)
 from jarvis.kernel import EmptySlice1Dispatcher, build_kernel_runtime
+from jarvis.read_composition import build_read_catalog
+from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.settings import Settings
 
 AS_OF = datetime(2026, 9, 3, 12, tzinfo=UTC)
 
@@ -141,7 +154,8 @@ async def test_runtime_bundle_uses_production_contained_provider(
         provider_state_root=provider_state,
         private_cwd_parent=cwd_parent,
         session_ref_path=session_path,
-        model="gpt-5.4",
+        model="gpt-5.6-terra",
+        kernel_limits=SLICE1_KERNEL_LIMITS,
     )
     try:
         assert bundle.runtime.config.state_root_base == provider_state
@@ -159,20 +173,57 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sentinels: list[str] = []
-    for name in (
-        "JARVIS_DISCORD_BOT_TOKEN",
-        "JARVIS_DATABASE_URL",
-        "JARVIS_GMAIL_CREDENTIAL",
-        "JARVIS_CALENDAR_CREDENTIAL",
-        "JARVIS_MAPS_CREDENTIAL",
-        "BRAVE_API_KEY",
-        "OPENAI_API_KEY",
-        "JARVIS_EMBEDDING_CREDENTIAL",
+    encryption_key = base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("=")
+    keyring = json.dumps({"v2": encryption_key})
+    sentinels = [
+        "postgresql+asyncpg://jarvis:database-secret@db/jarvis",
+        "synthetic-discord-token",
+        "synthetic-google-client",
+        "synthetic-google-secret",
+        keyring,
+        encryption_key,
+        "synthetic-encryption-secret",
+        "synthetic-maps-key",
+        "synthetic-brave-key",
+        "synthetic-embedding-key",
+    ]
+    settings = Settings(
+        database_url=SecretStr(sentinels[0]),
+        discord=DiscordSettings(
+            bot_token=SecretStr(sentinels[1]),
+            owner_user_id=1,
+            guild_id=2,
+            channel_id=3,
+        ),
+        owner_timezone="UTC",
+        codex_profile_key="jarvis-test",
+        codex_model="gpt-5.6-terra",
+        codex_state_root=tmp_path / "provider",
+        runtime_state_directory=tmp_path / "runtime",
+        google_oauth_state_path=tmp_path / "google.json",
+        google_oauth_client_id=SecretStr(sentinels[2]),
+        google_oauth_client_secret=SecretStr(sentinels[3]),
+        connector_encryption_key_version="v2",
+        connector_encryption_keys=SecretStr(sentinels[4]),
+        connector_encryption_secret=SecretStr(sentinels[6]),
+        maps_api_key=SecretStr(sentinels[7]),
+        brave_api_key=SecretStr(sentinels[8]),
+        embedding_openai_api_key=SecretStr(sentinels[9]),
+    )
+    for index, name in enumerate(
+        (
+            "JARVIS_DATABASE_URL",
+            "JARVIS_DISCORD_BOT_TOKEN",
+            "JARVIS_GOOGLE_OAUTH_CLIENT_ID",
+            "JARVIS_GOOGLE_OAUTH_CLIENT_SECRET",
+            "JARVIS_CONNECTOR_ENCRYPTION_KEYS",
+            "JARVIS_CONNECTOR_ENCRYPTION_SECRET",
+            "JARVIS_MAPS_API_KEY",
+            "JARVIS_BRAVE_API_KEY",
+            "JARVIS_EMBEDDING_OPENAI_API_KEY",
+        )
     ):
-        sentinel = f"synthetic-{name.lower()}"
-        sentinels.append(sentinel)
-        monkeypatch.setenv(name, sentinel)
+        monkeypatch.setenv(name, sentinels[(0, 1, 2, 3, 4, 6, 7, 8, 9)[index]])
 
     provider_state = tmp_path / "provider"
     provider_state.mkdir(mode=0o700)
@@ -190,13 +241,23 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         provider_state_root=provider_state,
         private_cwd_parent=cwd_parent,
         session_ref_path=tmp_path / "session.json",
-        model="gpt-5.4",
+        model="gpt-5.6-terra",
+        kernel_limits=SLICE2_KERNEL_LIMITS,
         verify_dependencies=False,
     )
-    definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.4",
-        owner_timezone="UTC",
+    clients = [httpx.AsyncClient(trust_env=False) for _ in range(4)]
+    catalog = build_read_catalog(
+        settings=settings,
+        google_oauth_http=clients[0],
+        google_api_http=clients[1],
+        maps_http=clients[2],
+        brave_http=clients[3],
+    )
+    definitions = build_slice2_definitions(
+        catalog=catalog,
+        profile_key=settings.codex_profile_key,
+        model=settings.codex_model,
+        owner_timezone=settings.owner_timezone,
     )
     plan = definitions.plans["main"]
     sections = PromptSections(
@@ -244,7 +305,7 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
                 ThreadId("thread-contained"),
                 _EmptyHistory(),
             ),
-            dispatcher=EmptySlice1Dispatcher(),
+            dispatcher=ReadToolDispatcher(host_secrets=settings.host_secrets),
             budget_factory=ExactToolBudgetFactory(),
             cancellation=CancellationToken(),
         )
@@ -267,6 +328,8 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         )
     finally:
         await bundle.close()
+        for client in clients:
+            await client.aclose()
 
     assert isinstance(outcome, ThreadCompleted)
     assert len(recorded) == 1

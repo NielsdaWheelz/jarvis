@@ -24,13 +24,16 @@ not implementation suggestions.
 | [0017](0017-extract-agent-kernel.md) | Extract the reusable bounded agent kernel | Accepted; corrected provider/loop/admission contract incorporated; durable mapping in 0018; final seams in 0019; final release boundary pinned by 0020 |
 | [0018](0018-serial-kernel-and-bounded-recovery.md) | Map the serial kernel and bounded recovery into four tables | Accepted; amends 0010, 0012, 0013, and 0017; final seams amended by 0019; durable park amended by 0020 |
 | [0019](0019-ground-writes-and-close-recovery-seams.md) | Ground writes and close the remaining recovery seams | Accepted; amends 0010, 0012, 0015, and 0018; claim/attempt ordering amended by 0020 |
-| [0020](0020-pin-the-implemented-kernel-boundary.md) | Pin the implemented kernel release boundary | Accepted; revision pin superseded by 0026; other host-boundary decisions remain |
+| [0020](0020-pin-the-implemented-kernel-boundary.md) | Pin the implemented kernel release boundary | Accepted; dependency revisions superseded by 0026 and 0027; other host-boundary decisions remain |
 | [0021](0021-qualify-adapters-in-their-owning-slices.md) | Qualify adapters in their owning slices | Accepted; amends Slice 0 proof timing in 0017–0020 without weakening final acceptance |
 | [0022](0022-accept-bounded-discord-delivery-ambiguity.md) | Accept bounded Discord delivery ambiguity | Accepted; amends 0016 |
 | [0023](0023-use-a-stable-gmail-rfc-identity.md) | Use a stable Gmail RFC identity | Superseded by 0024 |
 | [0024](0024-use-a-stable-gmail-effect-header.md) | Use a stable Gmail effect header | Accepted; supersedes 0023 and amends 0016 |
 | [0025](0025-accept-existing-discord-role-authority.md) | Accept existing Discord role authority | Accepted; amends 0009 and 0011 |
-| [0026](0026-pin-codex-compatible-kernel-wire.md) | Pin the Codex-compatible kernel wire protocol | Accepted; supersedes the kernel revision in 0020 |
+| [0026](0026-pin-codex-compatible-kernel-wire.md) | Pin the Codex-compatible kernel wire protocol | Accepted; supersedes the kernel revision in 0020; revision superseded by 0027 |
+| [0027](0027-bound-slice-2-read-observations.md) | Bound Slice 2 connector observations, Web boundaries, and usage accounting | Accepted; amends SPEC 7.3, supersedes prior kernel/provider/llm-tools pins, and supersedes the Slice 0 contract sketch where they differ |
+| [0028](0028-qualify-current-local-account-models.md) | Qualify the exact current ChatGPT local-account model set without fixing its cardinality | Accepted; supersedes 0026's two-current-route conclusion while preserving its wire/schema decision |
+| [0029](0029-represent-calendar-unspecified-ends.md) | Represent observed Calendar events whose end is unspecified | Accepted; supersedes 0027's concrete-end requirement for observed normal events |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

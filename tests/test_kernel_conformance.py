@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
 from collections import deque
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +48,15 @@ from llm_tools import (
     PromptSections,
     PromptText,
     RunLimits,
+    SafeWebReader,
+    ToolId,
+    WebSearchError,
+    WebSearchErrorCode,
+    WebSearchRequest,
+    WebSearchResponse,
+    bind_brave_web_search,
+    bind_web_read,
+    web_family,
 )
 from provider_runtime.agent_runtime import (
     AgentEvent,
@@ -62,9 +72,9 @@ from provider_runtime.agent_runtime import (
     TurnRequest,
     freeze_json_object,
 )
-from provider_runtime.types import Absent, CancelSignal
+from provider_runtime.types import Absent, CancelSignal, Present, TokenUsage
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.admission import (
@@ -75,13 +85,21 @@ from jarvis.admission import (
 )
 from jarvis.config import DiscordSettings
 from jarvis.context import CanonicalMessage, JarvisContextSource
-from jarvis.db import create_engine, message
-from jarvis.definitions import SLICE1_KERNEL_LIMITS, build_slice1_definitions
+from jarvis.db import action, create_engine, message
+from jarvis.definitions import (
+    SLICE1_KERNEL_LIMITS,
+    SLICE2_READ_IDS,
+    SLICE2_WEB_SEARCH_LIMITS,
+    build_slice1_definitions,
+    build_slice2_definitions,
+)
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime
 from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.messages import Settlement as MessageSettlement
-from jarvis.service import Slice1ThreadRunner
+from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_tools import ConnectorFailure, compose_read_catalog
+from jarvis.service import JarvisThreadRunner, Slice1ThreadRunner
 from jarvis.session import AtomicSessionRefPort
 from jarvis.settings import Settings
 
@@ -140,10 +158,12 @@ class _Runtime:
         *,
         reject_next_stream: bool = False,
         on_stream: Any | None = None,
+        usages: list[TokenUsage] | None = None,
     ) -> None:
         self.steps = deque(steps)
         self.reject_next_stream = reject_next_stream
         self.on_stream = on_stream
+        self.usages = deque(usages or [])
         self.opens: list[AgentSessionRequest] = []
         self.turns: list[TurnRequest] = []
         self.closed: list[AgentSession] = []
@@ -186,13 +206,14 @@ class _Runtime:
             raise SessionUnavailable("scripted live session loss")
         if self.on_stream is not None:
             self.on_stream()
+        usage = Present(self.usages.popleft()) if self.usages else Absent()
         yield AgentTerminal(
             status="succeeded",
             failure=None,
             final_text="untrusted provider projection",
             session_ref=session.ref,
             structured_output=freeze_json_object(_wire_step(self.steps.popleft())),
-            usage=Absent(),
+            usage=usage,
         )
 
     async def run_turn(self, *_args: object, **_kwargs: object) -> AgentTerminal:
@@ -226,6 +247,17 @@ def _wire_step(value: dict[str, object]) -> dict[str, object]:
         payload.setdefault("reason", None)
         wire["finish"] = payload
     return wire
+
+
+def _usage(input_tokens: int, output_tokens: int) -> TokenUsage:
+    return TokenUsage.from_components(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=Absent(),
+        reasoning_tokens=Absent(),
+        cache_read_input_tokens=Absent(),
+        cache_write_input_tokens=Absent(),
+    )
 
 
 def test_provider_terminal_fake_uses_json_string_tool_arguments() -> None:
@@ -305,7 +337,101 @@ class _Clock:
 def _definitions() -> Any:
     return build_slice1_definitions(
         profile_key="jarvis-test",
-        model="gpt-5.4",
+        model="gpt-5.6-terra",
+        owner_timezone="America/Los_Angeles",
+    )
+
+
+class _UnavailableReads:
+    async def _fail(self) -> Any:
+        raise ConnectorFailure("provider_unavailable", attempts=1)
+
+    async def gmail_search(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def gmail_read_thread(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def calendar_list_events(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def calendar_get_event(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def search_places(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def get_place(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def directions(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+
+class _UnavailableSearch:
+    async def search(
+        self,
+        request: WebSearchRequest,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+    ) -> WebSearchResponse:
+        del request
+        assert attempt_started is not None
+        attempt_started()
+        raise WebSearchError(
+            WebSearchErrorCode.PROVIDER_DOWN,
+            "synthetic",
+            provider="brave",
+            attempts=1,
+        )
+
+
+class _SlowSearch:
+    async def search(
+        self,
+        request: WebSearchRequest,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+    ) -> WebSearchResponse:
+        del request
+        assert attempt_started is not None
+        attempt_started()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+class _UnavailableResolver:
+    async def resolve(self, hostname: str, port: int) -> tuple[str, ...]:
+        del hostname, port
+        raise OSError("synthetic")
+
+
+def _slice2_definitions(*, slow_search_deadline: float | None = None) -> Any:
+    reads = _UnavailableReads()
+    catalog = compose_read_catalog(
+        google=reads,
+        maps=reads,
+        web=web_family(
+            search=bind_brave_web_search(
+                _SlowSearch()
+                if slow_search_deadline is not None
+                else _UnavailableSearch(),
+                operation_deadline_seconds=slow_search_deadline or 12.0,
+            ),
+            read=bind_web_read(SafeWebReader(resolver=_UnavailableResolver())),
+        ),
+    )
+    return catalog, build_slice2_definitions(
+        catalog=catalog,
+        profile_key="jarvis-test",
+        model="gpt-5.6-terra",
         owner_timezone="America/Los_Angeles",
     )
 
@@ -328,6 +454,7 @@ async def _run(
     cancellation: CancellationToken | None = None,
     budget_factory: Any = None,
     clock: Any = None,
+    dispatcher: Any = None,
 ) -> Any:
     await admission.preflight(
         maximum_turns=definition.limits.max_provider_turns,
@@ -343,7 +470,7 @@ async def _run(
         admission=admission,
         sessions=sessions,
         context_source=context_source,
-        dispatcher=EmptySlice1Dispatcher(),
+        dispatcher=dispatcher or EmptySlice1Dispatcher(),
         budget_factory=budget_factory or ExactToolBudgetFactory(),
         cancellation=cancellation,
         clock=clock or time.monotonic,
@@ -410,6 +537,208 @@ async def test_run_thread_continues_then_cold_reconstructs_after_session_loss(
     )
     assert "earlier" in rendered
     assert second_runtime.run_turn_calls == 0
+
+
+async def test_slice2_compound_reads_are_serial_and_observed_before_say(
+    tmp_path: Path,
+) -> None:
+    catalog, definitions = _slice2_definitions()
+    claim = _claim(
+        definitions.plans["main"],
+        name="compound",
+        text="Check my mail, calendar, a place, and the public web.",
+    )
+    steps: list[dict[str, object]] = [
+        {
+            "type": "call_tool",
+            "tool_id": "gmail.search",
+            "arguments": {"query": "synthetic", "max_results": 1},
+        },
+        {
+            "type": "call_tool",
+            "tool_id": "calendar.list_events",
+            "arguments": {
+                "calendar_id": "primary",
+                "time_min": "2026-09-04T12:00:00Z",
+                "time_max": "2026-09-04T13:00:00Z",
+                "time_zone": "UTC",
+                "max_results": 1,
+            },
+        },
+        {
+            "type": "call_tool",
+            "tool_id": "maps.search_places",
+            "arguments": {
+                "query": "synthetic",
+                "location_bias": None,
+                "max_results": 1,
+            },
+        },
+        {
+            "type": "call_tool",
+            "tool_id": "web.search",
+            "arguments": {"query": "synthetic", "freshness_days": None},
+        },
+        {
+            "type": "call_tool",
+            "tool_id": "web.read",
+            "arguments": {"url": "https://public.example/"},
+        },
+        {"type": "say", "text": "Compound read answer."},
+    ]
+    reported_usage = [_usage(index * 10, index) for index in range(1, 7)]
+    runtime = _Runtime(steps, usages=reported_usage)
+    provider = CodexProvider(
+        cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
+    )
+    references = AtomicSessionRefPort(
+        tmp_path / "slice2-session.json", max_generations=2
+    )
+    dispatcher = ReadToolDispatcher(host_secrets=())
+    admission = _admission(tmp_path, "slice2-compound")
+    try:
+        outcome = await _run(
+            run_id="slice2-compound",
+            definition=definitions.main,
+            checkpoints=InMemoryInputCheckpointPort((ClaimAcquired(claim),)),
+            admission=admission,
+            sessions=SessionCoordinator(provider, references),
+            context_source=JarvisContextSource(THREAD_ID, _History()),
+            dispatcher=dispatcher,
+        )
+    finally:
+        await provider.shutdown()
+
+    assert isinstance(outcome, ThreadCompleted)
+    assert outcome.metrics.usage.input_tokens == 210
+    assert outcome.metrics.usage.output_tokens == 21
+    admission_state = json.loads(
+        (tmp_path / "slice2-compound-admission.json").read_text(encoding="utf-8")
+    )["reservations"][0]
+    assert admission_state["actual_input_tokens"] == 210
+    assert admission_state["actual_output_tokens"] == 21
+    assert len(runtime.turns) == 6
+    for turn in runtime.turns[1:]:
+        rendered = "\n".join(
+            item.text for item in turn.input if isinstance(item, TextContent)
+        )
+        assert "Failure" in rendered
+    assert dispatcher.recorder.terminal_count == 5
+    assert dispatcher.recorder.uncertain_count == 0
+    assert frozenset(catalog.tool_ids) == frozenset(
+        grant.id for grant in definitions.plans["main"].profile.ordered_grants
+    )
+
+
+async def test_absent_provider_usage_retains_the_admission_reservation(
+    tmp_path: Path,
+) -> None:
+    definitions = _definitions()
+    claim = _claim(definitions.plans["main"], name="absent-usage")
+    runtime = _Runtime([{"type": "say", "text": "Bounded answer."}])
+    provider = CodexProvider(
+        cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
+    )
+    admission = _admission(tmp_path, "absent-usage")
+    try:
+        outcome = await _run(
+            run_id="absent-usage",
+            definition=definitions.main,
+            checkpoints=InMemoryInputCheckpointPort((ClaimAcquired(claim),)),
+            admission=admission,
+            sessions=SessionCoordinator(
+                provider,
+                AtomicSessionRefPort(
+                    tmp_path / "absent-usage-session.json", max_generations=32
+                ),
+            ),
+            context_source=JarvisContextSource(THREAD_ID, _History()),
+        )
+    finally:
+        await provider.shutdown()
+
+    assert isinstance(outcome, ThreadCompleted)
+    assert outcome.metrics.usage.input_tokens is None
+    assert outcome.metrics.usage.output_tokens is None
+    admission_state = json.loads(
+        (tmp_path / "absent-usage-admission.json").read_text(encoding="utf-8")
+    )["reservations"][0]
+    assert (
+        admission_state["actual_input_tokens"]
+        == admission_state["reserved_input_tokens"]
+    )
+    assert (
+        admission_state["actual_output_tokens"]
+        == admission_state["reserved_output_tokens"]
+    )
+
+
+async def test_resumed_conversation_settles_invocation_local_usage(
+    tmp_path: Path,
+) -> None:
+    definitions = _definitions()
+    checkpoints = InMemoryInputCheckpointPort(
+        (
+            ClaimAcquired(_claim(definitions.plans["main"], name="usage-first")),
+            ClaimAcquired(_claim(definitions.plans["main"], name="usage-second")),
+        )
+    )
+    runtime = _Runtime(
+        [
+            {"type": "say", "text": "First answer."},
+            {"type": "say", "text": "Second answer."},
+        ],
+        usages=[_usage(100, 10), _usage(30, 3)],
+    )
+    provider = CodexProvider(
+        cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
+    )
+    references = AtomicSessionRefPort(
+        tmp_path / "usage-resume-session.json", max_generations=32
+    )
+    sessions = SessionCoordinator(provider, references)
+    admission = _admission(tmp_path, "usage-resume")
+    try:
+        first = await _run(
+            run_id="usage-first",
+            definition=definitions.main,
+            checkpoints=checkpoints,
+            admission=admission,
+            sessions=sessions,
+            context_source=JarvisContextSource(THREAD_ID, _History()),
+        )
+        second = await _run(
+            run_id="usage-second",
+            definition=definitions.main,
+            checkpoints=checkpoints,
+            admission=admission,
+            sessions=sessions,
+            context_source=JarvisContextSource(THREAD_ID, _History()),
+        )
+    finally:
+        await provider.shutdown()
+
+    assert isinstance(first, ThreadCompleted)
+    assert first.metrics.usage.input_tokens == 100
+    assert first.metrics.usage.output_tokens == 10
+    assert isinstance(second, ThreadCompleted)
+    assert second.metrics.usage.input_tokens == 30
+    assert second.metrics.usage.output_tokens == 3
+    assert len(runtime.opens) == 2
+    assert isinstance(runtime.opens[0].open, NewSession)
+    assert isinstance(runtime.opens[1].open, ResumeSession)
+    assert runtime.opens[1].open.ref == runtime.closed[0].ref
+    admission_state = json.loads(
+        (tmp_path / "usage-resume-admission.json").read_text(encoding="utf-8")
+    )["reservations"]
+    assert [reservation["actual_input_tokens"] for reservation in admission_state] == [
+        100,
+        30,
+    ]
+    assert [reservation["actual_output_tokens"] for reservation in admission_state] == [
+        10,
+        3,
+    ]
 
 
 async def test_invalid_protocol_repairs_are_bounded_and_poison_is_consumed(
@@ -572,6 +901,186 @@ async def test_crash_after_session_ref_cas_forces_cold_recovery(tmp_path: Path) 
     DATABASE_URL is None,
     reason="JARVIS_TEST_DATABASE_URL is not configured",
 )
+async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
+    tmp_path: Path,
+) -> None:
+    if DATABASE_URL is None:
+        pytest.skip("JARVIS_TEST_DATABASE_URL is not configured")
+    engine = create_engine(DATABASE_URL)
+    state = tmp_path / "slice2-deadline-runtime"
+    state.mkdir(mode=0o700)
+    conversation_id = uuid4().int % 900_000_000_000_000_000 + 1
+    settings = Settings(
+        database_url=SecretStr(DATABASE_URL),
+        discord=DiscordSettings(
+            bot_token=SecretStr("qualification-placeholder"),
+            owner_user_id=1,
+            guild_id=2,
+            channel_id=conversation_id,
+        ),
+        owner_timezone="UTC",
+        codex_profile_key="jarvis-test",
+        codex_model="gpt-5.6-terra",
+        codex_state_root=tmp_path,
+        runtime_state_directory=state,
+        google_oauth_state_path=tmp_path / "google.json",
+        google_oauth_client_id=SecretStr("synthetic-google-client"),
+        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        connector_encryption_key_version="v2",
+        connector_encryption_keys=SecretStr("synthetic-keyring"),
+        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
+        maps_api_key=SecretStr("synthetic-maps-key"),
+        brave_api_key=SecretStr("synthetic-brave-key"),
+    )
+    admission_limits = RollingAdmissionLimits()
+    RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
+    catalog, definitions = _slice2_definitions(slow_search_deadline=12.0)
+    assert definitions.plans["main"].grant(ToolId("web.search")).limits == (
+        SLICE2_WEB_SEARCH_LIMITS
+    )
+    search_binding = catalog.binding(ToolId("web.search"))
+    assert search_binding.implementation_revision == "llm-tools-web-search-v2"
+    assert str(search_binding.policy_epoch) == "web-search-v2"
+    assert search_binding.policy_inputs == {
+        "locale": "US/en",
+        "max_results": 10,
+        "operation_deadline_seconds": 12.0,
+        "safe_search": "moderate",
+    }
+    store = MessageStore(engine)
+    async with engine.connect() as connection:
+        action_count_before = await connection.scalar(
+            select(func.count()).select_from(action)
+        )
+    inserted = await store.insert_waking(
+        role="owner",
+        text="Search the public web for this synthetic timeout probe.",
+        source="qualification",
+        source_conversation_id=str(conversation_id),
+        source_message_id=f"slice2-deadline-{uuid4()}",
+        created_at=datetime.now(UTC),
+    )
+    runtime = _Runtime(
+        [
+            {
+                "type": "call_tool",
+                "tool_id": "gmail.search",
+                "arguments": {"query": "synthetic", "max_results": 1},
+            },
+            {
+                "type": "call_tool",
+                "tool_id": "calendar.list_events",
+                "arguments": {
+                    "calendar_id": "primary",
+                    "time_min": "2026-09-04T12:00:00Z",
+                    "time_max": "2026-09-04T13:00:00Z",
+                    "time_zone": "UTC",
+                    "max_results": 1,
+                },
+            },
+            {
+                "type": "call_tool",
+                "tool_id": "maps.search_places",
+                "arguments": {
+                    "query": "synthetic",
+                    "location_bias": None,
+                    "max_results": 1,
+                },
+            },
+            {
+                "type": "call_tool",
+                "tool_id": "web.search",
+                "arguments": {"query": "synthetic timeout", "freshness_days": None},
+            },
+            {
+                "type": "call_tool",
+                "tool_id": "web.read",
+                "arguments": {"url": "https://public.example/"},
+            },
+            {"type": "say", "text": "The compound reads completed boundedly."},
+        ]
+    )
+    provider = CodexProvider(
+        cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
+    )
+    references = AtomicSessionRefPort(
+        settings.session_reference_path, max_generations=2
+    )
+    bundle = KernelRuntime(
+        cast(AgentRuntime, runtime),
+        provider,
+        SessionCoordinator(provider, references),
+        references,
+    )
+    dispatchers: list[ReadToolDispatcher] = []
+
+    def dispatcher_factory() -> ReadToolDispatcher:
+        dispatcher = ReadToolDispatcher(host_secrets=settings.host_secrets)
+        dispatchers.append(dispatcher)
+        return dispatcher
+
+    try:
+        outcome = await JarvisThreadRunner(
+            settings=settings,
+            store=store,
+            admission=RollingAdmissionPort(
+                settings.admission_journal_path,
+                admission_limits,
+            ),
+            kernel_runtime=bundle,
+            definitions=definitions,
+            history=PostgresCanonicalHistory(engine),
+            dispatcher_factory=dispatcher_factory,
+        ).run(CancellationToken())
+        async with engine.connect() as connection:
+            processed_at, parked_at, trace = (
+                await connection.execute(
+                    select(
+                        message.c.processed_at,
+                        message.c.processing_parked_at,
+                        message.c.trace,
+                    ).where(message.c.id == inserted.message.id)
+                )
+            ).one()
+            assistant_text = await connection.scalar(
+                select(message.c.text)
+                .where(
+                    message.c.role == "assistant",
+                    message.c.source_conversation_id == str(conversation_id),
+                )
+                .order_by(message.c.created_at.desc(), message.c.id.desc())
+                .limit(1)
+            )
+            action_count_after = await connection.scalar(
+                select(func.count()).select_from(action)
+            )
+    finally:
+        await provider.shutdown()
+        await engine.dispose()
+
+    assert isinstance(outcome, ThreadCompleted)
+    assert processed_at is not None
+    assert parked_at is None
+    settlement = trace["settlement"]
+    assert settlement["conclusion_kind"] == "conversation"
+    assert settlement["outcome"] == "say"
+    assert assistant_text == "The compound reads completed boundedly."
+    assert action_count_after == action_count_before
+    assert frozenset(catalog.tool_ids) == frozenset(SLICE2_READ_IDS)
+    web_continuation = "\n".join(
+        item.text for item in runtime.turns[4].input if isinstance(item, TextContent)
+    )
+    assert "UpstreamUnavailable" in web_continuation
+    assert "RecoveryRequired" not in web_continuation
+    assert dispatchers[0].recorder.terminal_count == 5
+    assert dispatchers[0].recorder.uncertain_count == 0
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    DATABASE_URL is None,
+    reason="JARVIS_TEST_DATABASE_URL is not configured",
+)
 async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     tmp_path: Path,
 ) -> None:
@@ -591,9 +1100,17 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
         ),
         owner_timezone="UTC",
         codex_profile_key="jarvis-test",
-        codex_model="gpt-5.4",
+        codex_model="gpt-5.6-terra",
         codex_state_root=tmp_path,
         runtime_state_directory=state,
+        google_oauth_state_path=tmp_path / "google.json",
+        google_oauth_client_id=SecretStr("synthetic-google-client"),
+        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        connector_encryption_key_version="v2",
+        connector_encryption_keys=SecretStr("synthetic-keyring"),
+        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
+        maps_api_key=SecretStr("synthetic-maps-key"),
+        brave_api_key=SecretStr("synthetic-brave-key"),
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
@@ -738,9 +1255,17 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
         ),
         owner_timezone="UTC",
         codex_profile_key="jarvis-test",
-        codex_model="gpt-5.4",
+        codex_model="gpt-5.6-terra",
         codex_state_root=tmp_path,
         runtime_state_directory=state,
+        google_oauth_state_path=tmp_path / "google.json",
+        google_oauth_client_id=SecretStr("synthetic-google-client"),
+        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        connector_encryption_key_version="v2",
+        connector_encryption_keys=SecretStr("synthetic-keyring"),
+        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
+        maps_api_key=SecretStr("synthetic-maps-key"),
+        brave_api_key=SecretStr("synthetic-brave-key"),
     )
     limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, limits)

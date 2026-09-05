@@ -256,8 +256,23 @@ session capability envelope, and the required owner-controlled
 `session_compatibility_revision`. Jarvis derives that revision from a checked-in
 canonical manifest containing the role ID, an owner-bumped application
 session-contract revision, and the exact kernel, provider-runtime, and llm-tools
-pins. Secret bytes, current input, host time, and per-run subset plans do not
-rotate the session.
+pins. Manifest schema v2 also records the exact qualified local-account model
+set, currently only `gpt-5.6-terra`. Model-set membership does not enter the
+session revision because the selected model already enters the immutable
+definition fingerprint. Secret bytes, current input, host time, and per-run
+subset plans do not rotate the session.
+The exact kernel `09f08df2970121ababe973b0e92d6901dd40da9e` plus
+provider-runtime `f477dcdcad03c30019576203d4eb8a3581a6d32f` usage-fix pair is
+the sole certified compatibility exception. With every other pin unchanged,
+Jarvis atomically canonicalizes those two values to their predecessor pair only
+for session-revision derivation. The manifest and startup checks still record
+and require the active revisions. A partial pair, another dependency change, or
+an application/role contract change rotates normally.
+Configuration accepts only an exact model in the manifest and rejects the
+retired `gpt-5.4` route before ingress, admission, or provider/tool I/O. The
+qualified set has no fixed cardinality, but release qualification requires at
+least one currently provider-supported ChatGPT local-account route to pass
+live.
 An ordinary restart or compatible deployment
 attempts resume through `provider-runtime`. A fingerprint mismatch, invalid
 reference, or resume failure discards the reference and opens a fresh session.
@@ -427,6 +442,12 @@ Capability plans are closed by role:
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
 
+The implemented Slice 2 catalog is the expected prefix of that v1 manifest: it
+contains exactly the nine Gmail, Calendar, Maps, and public-Web reads and no
+writes, memory, scheduling, or Discord tool. Both its interactive and
+scheduled-wake plans expose those same nine reads. Later unimplemented entries
+are unavailable product scope, not dead bindings in a published plan.
+
 The host:
 
 - Gives every Jarvis-owned binding the non-empty implementation revision from
@@ -456,6 +477,34 @@ Canonical message persistence, raw-memory append, and summary replacement are
 application transactions. They are not model tools and do not pass through
 `llm-tools`; terminal conversation persistence is exposed to the agent kernel
 only through Jarvis's checkpoint adapter.
+
+Slice 2 constructs a fresh non-durable read recorder and exact plan budget for
+each run under the existing execution mutex. Its definition maximum is exactly
+9 calls, 21 external attempts, 69,672 input bytes, 1,114,112 output bytes, one
+in-flight call, and 150 seconds. Selectable plans retain all nine calls but
+tighten `web.search` to one attempt, `web.read` to 65,536 output bytes, and the
+aggregate to 20 attempts and 262,144 output bytes. A Web secret gate recursively
+checks raw and percent/query-decoded string leaves before recorder, budget,
+executor, or provider entry. Reads terminalize only in run-local state and never
+insert `action`.
+
+Calendar normal observations carry a required direct tagged end: timed,
+all-day, or payload-free `type=unspecified`. A missing or false Google flag
+requires a concrete parsed end. True produces the unspecified variant and
+discards Google's compatibility end, for every normal event type; start remains
+required. Sparse cancelled events remain separate. The three-branch observed
+projection is deliberately not a future create/update input, which retains the
+unchanged two-branch concrete end and address-required attendees. Both Calendar
+bindings are implementation v2, and the recomposed
+catalog/profile/plan/HostTable identities plus Main role contract v3 force a
+continuing-session cold bootstrap without changing isolated roles or database
+state.
+
+Google OAuth, Google API, Maps, Brave, and Discord each use a dedicated
+host-owned HTTP client with environment proxy trust and automatic redirects
+disabled. Connector credentials are applied only by their owning binding; the
+public reader opens direct pinned-peer sockets and receives no shared cookie,
+default-auth, or connector state.
 
 ## Kernel protocol and drain
 

@@ -91,8 +91,12 @@ named explicitly; no criterion disappears or is weakened silently.
       after reference advancement but before canonical settlement leaves the
       input unprocessed and forces that speculative reference to be discarded
       before replay. Every definition has a non-empty manifest-derived
-      `session_compatibility_revision`; changing its application contract or any
-      pinned dependency rotates the fingerprint.
+      `session_compatibility_revision`; changing its application contract,
+      selected role contract, or a pinned dependency rotates the fingerprint,
+      except that ADR 0027's exact atomic kernel/provider usage-fix pair retains
+      its certified predecessor identity. Qualified-model membership is not a
+      revision input because the selected model independently participates in
+      the agent-definition fingerprint.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
       output is streamed into Discord.
 - [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. Claims
@@ -127,7 +131,10 @@ in Slice 0.
 
 - [ ] **A3.1** Jarvis searches and reads a Gmail conversation.
 - [ ] **A3.2** Jarvis creates an email draft automatically.
-- [ ] **A3.3** Jarvis reads the live calendar.
+- [ ] **A3.3** Jarvis reads the live calendar. A 50-event final-code probe
+      observes at least three normal events with `end.type=unspecified` and
+      returns each payload-free rather than rejecting it or exposing Google's
+      compatibility end; output reports only counts and no event content or ID.
 - [ ] **A3.4** Jarvis creates, edits, and removes a no-attendee event on a
       verified owner-only calendar without approval. Create uses the exact
       action-derived Google event ID from SPEC section 7.3; an injected lost
@@ -230,6 +237,12 @@ in Slice 0.
       local-filesystem, Gmail organization, Discord, delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.
+      Calendar list/get publish their v2 output contracts and binding
+      implementations: every normal event has a required direct
+      timed/all-day/unspecified tagged end. The
+      affected catalogs, maximum and selected profiles, plans, HostTables, Main
+      definition fingerprint, and Main session revision are newly frozen; an
+      older continuing session cold-bootstraps.
 - [ ] **A4.12** Pure `llm-tools` input validation touches no recorder, position,
       executor, or tool budget. A completed dispatch returns one bounded
       `ToolResult`; approval or reconciliation returns one durable suspension.
@@ -239,6 +252,12 @@ in Slice 0.
       AutomaticWriteGate can run only while its main parent is paused at the
       dispatch boundary, uses a child allowance included in the root admission
       reservation, and never overlaps another provider call.
+- [ ] **A4.14 — live.** The compatibility manifest records the exact qualified
+      ChatGPT-local-account model IDs without fixing their count. Configuration
+      accepts `gpt-5.6-terra` and rejects retired `gpt-5.4` before ingress,
+      admission, provider I/O, or tool I/O. Every recorded route runs the paid
+      consumer probes against the exact release code and lock, and at least one
+      route currently supported by the provider passes.
 
 ## A5. Memory
 

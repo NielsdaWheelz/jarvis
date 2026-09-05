@@ -10,14 +10,17 @@ readme = "README.md"
 requires-python = "==3.12.*"
 dependencies = [
   "alembic==1.16.5",
+  "cryptography==50.0.1",
   "discord.py==2.7.1",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@c9eefcb458ee5245010dd5e99b48f7116cd1139a",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@09f08df2970121ababe973b0e92d6901dd40da9e",
+  "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@9e6d155f3b64f03495911435b7cae8b8d131f9a2",
   "openai-codex-cli-bin==0.144.4",
   "openai-codex==0.144.4",
   "pgvector==0.4.1",
   "psycopg[binary,pool]==3.2.9",
   "pydantic==2.12.5",
+  "provider-runtime[codex-sdk] @ git+https://github.com/NielsdaWheelz/llm-calling.git@f477dcdcad03c30019576203d4eb8a3581a6d32f",
   "sqlalchemy[asyncio]==2.0.43",
 ]
 

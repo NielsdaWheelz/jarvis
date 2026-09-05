@@ -1,4 +1,4 @@
-"""Minimal Slice 1 service and operator entry points."""
+"""Minimal Jarvis service and operator entry points."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import asyncio
 import logging
 import stat
 from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from pathlib import Path
 from uuid import UUID
 
@@ -15,13 +16,15 @@ import httpx
 from jarvis.admission import RollingAdmissionLimits, RollingAdmissionPort
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
-from jarvis.definitions import build_slice1_definitions
+from jarvis.definitions import build_slice2_definitions
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import build_kernel_runtime
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
-from jarvis.service import JarvisService, Slice1ThreadRunner
+from jarvis.read_composition import build_read_catalog
+from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.service import JarvisService, JarvisThreadRunner
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
@@ -97,29 +100,58 @@ async def serve(settings: Settings) -> None:
                     )
                 paused = PausedState(settings.paused_state_path)
                 await paused.is_paused()
-                definitions = build_slice1_definitions(
-                    profile_key=settings.codex_profile_key,
-                    model=settings.codex_model,
-                    owner_timezone=settings.owner_timezone,
-                )
-                kernel_runtime = build_kernel_runtime(
-                    provider_state_root=settings.codex_state_root,
-                    private_cwd_parent=settings.provider_cwd_parent,
-                    session_ref_path=settings.session_reference_path,
-                    model=settings.codex_model,
-                )
-                store = MessageStore(engine)
-                history = PostgresCanonicalHistory(engine)
-                runner = Slice1ThreadRunner(
-                    settings=settings,
-                    store=store,
-                    admission=admission,
-                    kernel_runtime=kernel_runtime,
-                    definitions=definitions,
-                    history=history,
-                )
-                async with httpx.AsyncClient() as http_client:
-                    delivery = DiscordCreateMessageClient(settings.discord, http_client)
+                async with AsyncExitStack() as clients:
+                    google_oauth_http = await clients.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                    google_api_http = await clients.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                    maps_http = await clients.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                    brave_http = await clients.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                    discord_http = await clients.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                    catalog = build_read_catalog(
+                        settings=settings,
+                        google_oauth_http=google_oauth_http,
+                        google_api_http=google_api_http,
+                        maps_http=maps_http,
+                        brave_http=brave_http,
+                    )
+                    definitions = build_slice2_definitions(
+                        catalog=catalog,
+                        profile_key=settings.codex_profile_key,
+                        model=settings.codex_model,
+                        owner_timezone=settings.owner_timezone,
+                    )
+                    kernel_runtime = build_kernel_runtime(
+                        provider_state_root=settings.codex_state_root,
+                        private_cwd_parent=settings.provider_cwd_parent,
+                        session_ref_path=settings.session_reference_path,
+                        model=settings.codex_model,
+                        kernel_limits=definitions.main.limits,
+                    )
+                    store = MessageStore(engine)
+                    history = PostgresCanonicalHistory(engine)
+                    runner = JarvisThreadRunner(
+                        settings=settings,
+                        store=store,
+                        admission=admission,
+                        kernel_runtime=kernel_runtime,
+                        definitions=definitions,
+                        history=history,
+                        dispatcher_factory=lambda: ReadToolDispatcher(
+                            host_secrets=settings.host_secrets
+                        ),
+                    )
+                    delivery = DiscordCreateMessageClient(
+                        settings.discord, discord_http
+                    )
                     service = JarvisService(
                         settings=settings,
                         store=store,
@@ -198,7 +230,7 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("serve", help="run the Slice 1 Discord service")
+    commands.add_parser("serve", help="run the Jarvis Discord service")
     commands.add_parser("initialize-state", help="initialize private host state")
     release = commands.add_parser(
         "release-parked",

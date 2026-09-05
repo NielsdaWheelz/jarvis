@@ -77,18 +77,18 @@ async def test_corrupt_session_reference_fails_closed(tmp_path: Path) -> None:
         await port.load(ThreadId("channel-1"), "c" * 64)
 
 
-async def test_qualified_generation_boundary_rotates_before_fifth_run(
+async def test_qualified_generation_boundary_rotates_before_fourth_run(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "bounded-session.json"
     port = AtomicSessionRefPort(
         path,
-        max_generations=session_generation_limit("gpt-5.4"),
+        max_generations=session_generation_limit("gpt-5.6-terra"),
     )
     thread = ThreadId("channel-1")
     fingerprint = "c" * 64
     expected: int | None = None
-    for generation in range(1, 5):
+    for generation in range(1, 4):
         stored = await port.compare_and_set(
             thread,
             fingerprint,
@@ -97,7 +97,7 @@ async def test_qualified_generation_boundary_rotates_before_fifth_run(
         )
         assert isinstance(stored, StoredSessionRef)
         expected = stored.generation
-        if generation < 4:
+        if generation < 3:
             assert await port.load(thread, fingerprint) == stored
 
     assert await port.load(thread, fingerprint) is None
@@ -105,7 +105,7 @@ async def test_qualified_generation_boundary_rotates_before_fifth_run(
         thread,
         fingerprint,
         None,
-        reference("run-5-cold"),
+        reference("run-4-cold"),
     )
     assert isinstance(rotated, StoredSessionRef)
     assert rotated.generation == 1

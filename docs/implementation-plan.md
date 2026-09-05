@@ -36,11 +36,14 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The implemented public kernel pin
-  `c9eefcb458ee5245010dd5e99b48f7116cd1139a`, with its exact
+  `09f08df2970121ababe973b0e92d6901dd40da9e`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
-  the earlier qualified revision; ADR 0026 records the Slice 1 live failure and
-  superseding provider-wire fix.
+  the earlier qualified revision; ADR 0027 records the compatible Slice 2
+  Web deadline and extraction corrections, invocation-local provider usage,
+  and superseding pins. The exact invocation-local usage-fix pair preserves the
+  existing session-compatibility revision under its upstream-certified atomic
+  exception; it does not recompose a frozen plan or HostTable.
 - The completed `llm-tools` upgrade exposing qualified public pure
   argument validation, frozen-plan/catalog consistency and full tightening,
   exact `HostTable` publication, and async durable executor/recorder seams; pin
@@ -131,8 +134,11 @@ Deliver:
   settlement.
 - Checked-in canonical session-compatibility manifest and required
   `session_compatibility_revision` on every continuing and isolated definition.
-  Pin or application-contract changes rotate it; dynamic input and subset plans
-  do not.
+  Pin or application-contract changes normally rotate it; ADR 0027's one exact
+  atomic provider-usage correction pair preserves it. Dynamic input and subset
+  plans do not rotate it. ADR 0028 records the exact qualified local-account
+  model set separately; the selected model already participates in the
+  definition fingerprint.
 - One plan-aware `ToolBudgetFactoryPort` implementation creating fresh exact
   budgets after plan validation for every plan selectable in Slice 1.
 - Exact Slice 1 `llm_tools.RunLimits`, finite route-qualified one-turn token
@@ -170,8 +176,10 @@ Deliver:
   plan-budget mismatch and parking, compatibility rotation, provider-native
   context sizing, cooperative-time overshoot, and exhausted bounds.
 - The three paid Codex consumer probes against the exact pinned kernel and
-  provider-runtime revisions, with sanitized results in the qualification
-  ledger.
+  provider-runtime revisions on every exact qualified model, with sanitized
+  results in the qualification ledger. At least one currently supported
+  ChatGPT-local-account route must pass; the qualified model count is not
+  permanently fixed.
 - Deployment ownership lock and an in-process execution mutex serializing
   provider turns and host-tool dispatches.
 
@@ -181,6 +189,12 @@ fixtures each leave exactly one visible response, an interrupted effect-free
 turn is safely replayed, and input racing with idle is never stranded.
 
 ## Slice 2: read tools
+
+Status: complete and qualified on 2026-09-04. The strengthened all-nine
+compound-linkage gate and final verifier passed. The dated
+[qualification report](qualification/2026-09-04-slice-2.md) records the exact
+dependencies, frozen identities, deterministic verification, sanitized live
+provider evidence, and accepted trade-offs.
 
 Deliver:
 
@@ -196,7 +210,12 @@ Deliver:
   model-authored ID or prose, bounded corrective feedback, and a separate `say`
   only after the model observes its result.
 - `gmail.search` and `gmail.read_thread` bindings.
-- `calendar.list_events` and `calendar.get_event` bindings.
+- `calendar.list_events` and `calendar.get_event` v2 bindings. Normal observed
+  ends are a required direct timed/all-day/unspecified tagged union. Google's
+  true flag discards its compatibility end and returns the payload-free
+  unspecified variant, while false or missing requires a parsed end. The final
+  live read gate requests 50 events and proves at least three sanitized
+  qualified-account unspecified-end cases.
 - `maps.search_places`, `maps.get_place`, and `maps.directions` bindings.
 - Pinned `llm-tools` `web.search` and `web.read` bindings under Jarvis-owned
   credentials, information-flow policy, and budgets.
@@ -204,10 +223,16 @@ Deliver:
   dispatch adapter retains product authority and supplies original validated
   call evidence on later resolution.
 - Confined Codex drift tests.
+- Exact configuration rejection of retired or unqualified local-account model
+  IDs before ingress, admission, provider I/O, or tool I/O, plus paid consumer
+  qualification of every model in the current compatibility manifest. At least
+  one currently supported route must pass.
 
 Exit: Jarvis answers a natural compound question using Gmail, Calendar, Maps,
 public-Web search, and a fetched public page without exposing credentials to
-Codex or granting the Codex child native network access.
+Codex or granting the Codex child native network access. The final exact-code
+evidence includes valid Calendar unspecified-end observations, recomposed
+frozen identities, and a cold-bootstrapped Main session under role contract v3.
 
 ## Slice 3: raw memory and recall
 

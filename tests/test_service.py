@@ -48,9 +48,17 @@ def _settings(tmp_path: Path) -> Settings:
         ),
         owner_timezone="America/Los_Angeles",
         codex_profile_key="jarvis",
-        codex_model="gpt-5.4",
+        codex_model="gpt-5.6-terra",
         codex_state_root=tmp_path / "codex",
         runtime_state_directory=tmp_path / "runtime",
+        google_oauth_state_path=tmp_path / "google.json",
+        google_oauth_client_id=SecretStr("synthetic-google-client"),
+        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        connector_encryption_key_version="v2",
+        connector_encryption_keys=SecretStr("synthetic-keyring"),
+        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
+        maps_api_key=SecretStr("synthetic-maps-key"),
+        brave_api_key=SecretStr("synthetic-brave-key"),
     )
 
 

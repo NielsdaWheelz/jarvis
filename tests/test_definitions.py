@@ -23,6 +23,7 @@ from provider_runtime.agent_runtime import (
 )
 
 from jarvis.definitions import (
+    QUALIFIED_CODEX_MODELS,
     ROUTE_CONTEXT_TOKEN_FLOORS,
     SLICE1_KERNEL_LIMITS,
     NativeContextLimits,
@@ -37,7 +38,7 @@ from jarvis.definitions import (
 def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
     definitions = build_slice1_definitions(
         profile_key="jarvis-test",
-        model="gpt-5.4",
+        model="gpt-5.6-terra",
         owner_timezone="America/Los_Angeles",
     )
 
@@ -80,7 +81,7 @@ def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
 def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
     definitions = build_slice1_definitions(
         profile_key="jarvis-test",
-        model="gpt-5.4",
+        model="gpt-5.6-terra",
         owner_timezone="America/Los_Angeles",
     )
     memory_id = "00000000-0000-4000-8000-000000000001"
@@ -158,9 +159,66 @@ def _assert_codex_closed_schema(node: object) -> None:
             _assert_codex_closed_schema(child)
 
 
-def test_manifest_revision_changes_with_role_contract() -> None:
+def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None:
     manifest = load_session_manifest()
+    assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
+    assert manifest["application_session_contract_revision"] == "jarvis-slice-2-v3"
+    assert manifest["qualified_models"] == ["gpt-5.6-terra"]
+    assert (
+        cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
+        == "jarvis-main-slice-2-v3"
+    )
+    assert manifest["dependencies"] == {
+        "llm-agent-kernel": "09f08df2970121ababe973b0e92d6901dd40da9e",
+        "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
+        "openai-codex": "0.144.4",
+        "openai-codex-cli-bin": "0.144.4",
+        "provider-runtime": "f477dcdcad03c30019576203d4eb8a3581a6d32f",
+    }
     original = session_compatibility_revision(manifest, "main")
+    assert (
+        original == "d7fdd6cde5dbb976054b79dc9c9d0a09bfc83510fc31af0f32146b40604acd34"
+    )
+
+    previous = {**manifest}
+    previous_roles = dict(
+        cast("dict[str, object]", previous["role_contract_revisions"])
+    )
+    previous_roles["main"] = "jarvis-main-slice-2-v2"
+    previous["role_contract_revisions"] = previous_roles
+    assert session_compatibility_revision(previous, "main") == (
+        "12ede5fb970bc33fb63d276b814fd97489c93b63c5c3f73c104cd0488a2ca165"
+    )
+
+    predecessor = {**manifest}
+    predecessor_dependencies = dict(
+        cast("dict[str, object]", predecessor["dependencies"])
+    )
+    predecessor_dependencies["llm-agent-kernel"] = (
+        "c9dac7a610636a668bbf932cc2f961c0904f9157"
+    )
+    predecessor_dependencies["provider-runtime"] = (
+        "a5d9c8e0c1c851daee0731554e0a4a326d3c2819"
+    )
+    predecessor["dependencies"] = predecessor_dependencies
+    assert session_compatibility_revision(predecessor, "main") == original
+
+    partial = {**manifest}
+    partial_dependencies = dict(cast("dict[str, object]", partial["dependencies"]))
+    partial_dependencies["llm-agent-kernel"] = (
+        "c9dac7a610636a668bbf932cc2f961c0904f9157"
+    )
+    partial["dependencies"] = partial_dependencies
+    assert session_compatibility_revision(partial, "main") != original
+
+    other_dependency = {**manifest}
+    other_dependencies = dict(
+        cast("dict[str, object]", other_dependency["dependencies"])
+    )
+    other_dependencies["llm-tools"] = "0" * 40
+    other_dependency["dependencies"] = other_dependencies
+    assert session_compatibility_revision(other_dependency, "main") != original
+
     changed = {**manifest}
     roles = dict(cast("dict[str, object]", changed["role_contract_revisions"]))
     roles["main"] = "jarvis-main-slice-1-v2"
@@ -171,11 +229,47 @@ def test_manifest_revision_changes_with_role_contract() -> None:
         session_compatibility_revision(manifest, "recaller")
     )
 
+    application_changed = {**manifest}
+    application_changed["application_session_contract_revision"] = "jarvis-slice-2-v4"
+    assert session_compatibility_revision(application_changed, "main") != original
+
+    qualified_models_changed = {
+        **manifest,
+        "qualified_models": ["gpt-5.6-terra", "future"],
+    }
+    assert session_compatibility_revision(qualified_models_changed, "main") == original
+
+
+def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
+    manifest = load_session_manifest()
+    terra = build_slice1_definitions(
+        profile_key="jarvis-test",
+        model="gpt-5.6-terra",
+        owner_timezone="UTC",
+    ).main
+    membership_changed = {
+        **manifest,
+        "qualified_models": ["gpt-5.6-terra", "synthetic-future-model"],
+    }
+    unchanged_revision = session_compatibility_revision(membership_changed, "main")
+    unchanged_terra = replace(
+        terra,
+        session_compatibility_revision=unchanged_revision,
+    )
+    selected_model_changed = replace(
+        terra,
+        provider=replace(terra.provider, model="synthetic-future-model"),
+    )
+
+    assert unchanged_revision == terra.session_compatibility_revision
+    assert unchanged_terra.fingerprint == terra.fingerprint
+    assert selected_model_changed.fingerprint != terra.fingerprint
+
 
 def test_provider_native_material_has_independent_bounds() -> None:
     definitions = build_slice1_definitions(
         profile_key="jarvis-test",
-        model="gpt-5.4",
+        model="gpt-5.6-terra",
         owner_timezone="UTC",
     )
     provider = replace(
@@ -221,16 +315,12 @@ def test_provider_native_material_has_independent_bounds() -> None:
 
 
 def test_route_context_floor_derives_conservative_session_generation_bound() -> None:
-    assert ROUTE_CONTEXT_TOKEN_FLOORS == {
-        "gpt-5.6-terra": 1_050_000,
-        "gpt-5.4": 1_050_000,
-    }
-    assert session_generation_limit("gpt-5.6-terra") == 4
-    assert session_generation_limit("gpt-5.4") == 4
+    assert QUALIFIED_CODEX_MODELS == ("gpt-5.6-terra",)
+    assert ROUTE_CONTEXT_TOKEN_FLOORS == {"gpt-5.6-terra": 1_050_000}
+    assert session_generation_limit("gpt-5.6-terra") == 3
     native = NativeContextLimits()
     retained_run_bound = (
-        SLICE1_KERNEL_LIMITS.max_provider_input_tokens
-        + native.one_turn_input_token_overshoot
+        SLICE1_KERNEL_LIMITS.max_new_context_bytes
         + SLICE1_KERNEL_LIMITS.max_provider_output_tokens
         + native.one_turn_output_token_overshoot
     )
@@ -239,16 +329,14 @@ def test_route_context_floor_derives_conservative_session_generation_bound() -> 
         + native.max_developer_bytes
         + native.max_output_schema_bytes
     )
-    usable = 1_050_000 - SLICE1_KERNEL_LIMITS.max_new_context_bytes
-    assert static_bound + 4 * retained_run_bound <= usable
-    assert static_bound + 5 * retained_run_bound > usable
-    assert 1_050_000 - usable == SLICE1_KERNEL_LIMITS.max_new_context_bytes
+    assert static_bound + 3 * retained_run_bound <= 1_050_000
+    assert static_bound + 4 * retained_run_bound > 1_050_000
 
     with pytest.raises(ValueError, match="qualified Slice 1 route"):
         session_generation_limit("unqualified")
     with pytest.raises(ValueError, match="qualified Slice 1 route"):
         build_slice1_definitions(
             profile_key="jarvis-test",
-            model="unqualified",
+            model="gpt-5.4",
             owner_timezone="UTC",
         )

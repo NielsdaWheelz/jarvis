@@ -1,11 +1,12 @@
-"""Top-level Slice 1 host settings."""
+"""Top-level host settings through Slice 2."""
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Self
+from typing import Self, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -18,6 +19,7 @@ from pydantic import (
 )
 
 from jarvis.config import ConfigurationError, DiscordSettings
+from jarvis.definitions import QUALIFIED_CODEX_MODELS
 
 
 class Settings(BaseModel):
@@ -36,15 +38,44 @@ class Settings(BaseModel):
     codex_model: str = Field(min_length=1, max_length=255)
     codex_state_root: Path
     runtime_state_directory: Path
+    google_oauth_state_path: Path
+    google_oauth_client_id: SecretStr = Field(repr=False)
+    google_oauth_client_secret: SecretStr = Field(repr=False)
+    connector_encryption_key_version: str = Field(min_length=1, max_length=32)
+    connector_encryption_keys: SecretStr = Field(repr=False)
+    connector_encryption_secret: SecretStr = Field(repr=False)
+    maps_api_key: SecretStr = Field(repr=False)
+    brave_api_key: SecretStr = Field(repr=False)
+    embedding_openai_api_key: SecretStr | None = Field(default=None, repr=False)
     maximum_batch_size: int = Field(default=20, ge=1, le=100)
     delivery_batch_size: int = Field(default=20, ge=1, le=100)
 
-    @field_validator("database_url")
+    @field_validator(
+        "database_url",
+        "google_oauth_client_id",
+        "google_oauth_client_secret",
+        "connector_encryption_keys",
+        "connector_encryption_secret",
+        "maps_api_key",
+        "brave_api_key",
+    )
     @classmethod
     def _nonempty_secret(cls, value: SecretStr) -> SecretStr:
         raw = value.get_secret_value()
         if not raw or raw != raw.strip():
-            raise ValueError("database URL must be non-empty without edge whitespace")
+            raise ValueError("secret setting must be non-empty without edge whitespace")
+        return value
+
+    @field_validator("embedding_openai_api_key")
+    @classmethod
+    def _nonempty_optional_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        del cls
+        if value is not None:
+            raw = value.get_secret_value()
+            if not raw or raw != raw.strip():
+                raise ValueError(
+                    "embedding credential must be non-empty without edge whitespace"
+                )
         return value
 
     @field_validator("owner_timezone")
@@ -58,14 +89,24 @@ class Settings(BaseModel):
             ) from exc
         return value
 
-    @field_validator("codex_profile_key", "codex_model")
+    @field_validator("codex_profile_key", "connector_encryption_key_version")
     @classmethod
     def _nonempty_text(cls, value: str) -> str:
         if not value.strip() or value != value.strip():
             raise ValueError("setting must be non-empty without edge whitespace")
         return value
 
-    @field_validator("codex_state_root", "runtime_state_directory")
+    @field_validator("codex_model")
+    @classmethod
+    def _qualified_codex_model(cls, value: str) -> str:
+        del cls
+        if value not in QUALIFIED_CODEX_MODELS:
+            raise ValueError("Codex model is not a qualified local-account route")
+        return value
+
+    @field_validator(
+        "codex_state_root", "runtime_state_directory", "google_oauth_state_path"
+    )
     @classmethod
     def _absolute_runtime_directory(cls, value: Path) -> Path:
         if not value.is_absolute():
@@ -87,6 +128,40 @@ class Settings(BaseModel):
     @property
     def provider_cwd_parent(self) -> Path:
         return self.runtime_state_directory / "provider-cwd"
+
+    @property
+    def host_secrets(self) -> tuple[str, ...]:
+        configured_keys = self.connector_encryption_keys.get_secret_value()
+        key_values: list[str] = []
+        try:
+            parsed: object = json.loads(configured_keys)
+        except json.JSONDecodeError:
+            key_values.extend(
+                item.strip().partition(":")[2].strip()
+                for item in configured_keys.split(",")
+                if item.strip().partition(":")[2].strip()
+            )
+        else:
+            if isinstance(parsed, dict):
+                key_values.extend(
+                    value.strip()
+                    for value in cast("dict[object, object]", parsed).values()
+                    if isinstance(value, str) and value.strip()
+                )
+        values = (
+            self.database_url.get_secret_value(),
+            self.discord.bot_token.get_secret_value(),
+            self.google_oauth_client_id.get_secret_value(),
+            self.google_oauth_client_secret.get_secret_value(),
+            self.connector_encryption_keys.get_secret_value(),
+            self.connector_encryption_secret.get_secret_value(),
+            self.maps_api_key.get_secret_value(),
+            self.brave_api_key.get_secret_value(),
+            *key_values,
+        )
+        if self.embedding_openai_api_key is not None:
+            values += (self.embedding_openai_api_key.get_secret_value(),)
+        return tuple(dict.fromkeys(value for value in values if value))
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
@@ -124,6 +199,31 @@ class Settings(BaseModel):
                 codex_state_root=Path(required("JARVIS_CODEX_STATE_ROOT")),
                 runtime_state_directory=Path(
                     required("JARVIS_RUNTIME_STATE_DIRECTORY")
+                ),
+                google_oauth_state_path=Path(
+                    required("JARVIS_GOOGLE_OAUTH_STATE_PATH")
+                ),
+                google_oauth_client_id=SecretStr(
+                    required("JARVIS_GOOGLE_OAUTH_CLIENT_ID")
+                ),
+                google_oauth_client_secret=SecretStr(
+                    required("JARVIS_GOOGLE_OAUTH_CLIENT_SECRET")
+                ),
+                connector_encryption_key_version=required(
+                    "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION"
+                ),
+                connector_encryption_keys=SecretStr(
+                    required("JARVIS_CONNECTOR_ENCRYPTION_KEYS")
+                ),
+                connector_encryption_secret=SecretStr(
+                    required("JARVIS_CONNECTOR_ENCRYPTION_SECRET")
+                ),
+                maps_api_key=SecretStr(required("JARVIS_MAPS_API_KEY")),
+                brave_api_key=SecretStr(required("JARVIS_BRAVE_API_KEY")),
+                embedding_openai_api_key=(
+                    SecretStr(source["JARVIS_EMBEDDING_OPENAI_API_KEY"])
+                    if source.get("JARVIS_EMBEDDING_OPENAI_API_KEY")
+                    else None
                 ),
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),

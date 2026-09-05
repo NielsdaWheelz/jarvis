@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the paid Slice 1 Codex consumer qualification with sanitized output."""
+"""Run the paid Slice 2 Codex consumer qualification with sanitized output."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import json
 import os
 import platform
 import stat
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,6 +52,7 @@ from llm_tools import (
     PromptText,
     ReplayPolicy,
     RunLimits,
+    SafeWebReader,
     ToolBinding,
     ToolCatalog,
     ToolEffect,
@@ -61,6 +62,13 @@ from llm_tools import (
     ToolLimits,
     ToolPlan,
     ToolSpec,
+    WebSearchError,
+    WebSearchErrorCode,
+    WebSearchRequest,
+    WebSearchResponse,
+    bind_brave_web_search,
+    bind_web_read,
+    web_family,
 )
 from provider_runtime.agent_runtime import thaw_json_value
 from pydantic import BaseModel, ConfigDict, SecretStr
@@ -77,10 +85,11 @@ from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
-    SLICE1_KERNEL_LIMITS,
+    QUALIFIED_CODEX_MODELS,
+    SLICE2_KERNEL_LIMITS,
     DreamResult,
-    Slice1Definitions,
-    build_slice1_definitions,
+    Slice2Definitions,
+    build_slice2_definitions,
     session_generation_limit,
     validate_native_context_bounds,
     verify_runtime_dependencies,
@@ -88,11 +97,86 @@ from jarvis.definitions import (
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime, build_kernel_runtime
 from jarvis.messages import MessageStore
-from jarvis.service import Slice1ThreadRunner
+from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_tools import ConnectorFailure, compose_read_catalog
+from jarvis.service import JarvisThreadRunner
 from jarvis.session import AtomicSessionRefPort
 from jarvis.settings import Settings
 
-_SUPPORTED_ROUTES = frozenset({"gpt-5.6-terra", "gpt-5.4"})
+_SUPPORTED_ROUTES = frozenset(QUALIFIED_CODEX_MODELS)
+
+
+class _UnavailableReads:
+    async def _fail(self) -> Any:
+        raise ConnectorFailure("provider_unavailable", attempts=1)
+
+    async def gmail_search(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def gmail_read_thread(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def calendar_list_events(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def calendar_get_event(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def search_places(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def get_place(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+    async def directions(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
+
+class _UnavailableSearch:
+    async def search(
+        self,
+        request: WebSearchRequest,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+    ) -> WebSearchResponse:
+        del request
+        if attempt_started is None:
+            raise RuntimeError("search attempt callback is absent")
+        attempt_started()
+        raise WebSearchError(
+            WebSearchErrorCode.PROVIDER_DOWN,
+            "synthetic",
+            provider="brave",
+            attempts=1,
+        )
+
+
+class _UnavailableResolver:
+    async def resolve(self, hostname: str, port: int) -> tuple[str, ...]:
+        del hostname, port
+        raise OSError("synthetic")
+
+
+def _slice2_catalog() -> ToolCatalog:
+    reads = _UnavailableReads()
+    return compose_read_catalog(
+        google=reads,
+        maps=reads,
+        web=web_family(
+            search=bind_brave_web_search(
+                _UnavailableSearch(),
+                operation_deadline_seconds=12.0,
+            ),
+            read=bind_web_read(SafeWebReader(resolver=_UnavailableResolver())),
+        ),
+    )
 
 
 def _implementation() -> dict[str, str]:
@@ -190,6 +274,7 @@ def _runtime(arguments: Arguments, settings: Settings) -> KernelRuntime:
         private_cwd_parent=settings.provider_cwd_parent,
         session_ref_path=settings.session_reference_path,
         model=arguments.model,
+        kernel_limits=SLICE2_KERNEL_LIMITS,
     )
 
 
@@ -216,7 +301,7 @@ async def _conversation_turn(
     *,
     arguments: Arguments,
     settings: Settings,
-    definitions: Slice1Definitions,
+    definitions: Slice2Definitions,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
     history: PostgresCanonicalHistory,
@@ -240,7 +325,7 @@ async def _conversation_turn(
     )
     runtime = _runtime(arguments, settings)
     try:
-        outcome = await Slice1ThreadRunner(
+        outcome = await JarvisThreadRunner(
             settings=settings,
             store=store,
             admission=RollingAdmissionPort(
@@ -250,6 +335,9 @@ async def _conversation_turn(
             kernel_runtime=runtime,
             definitions=definitions,
             history=history,
+            dispatcher_factory=lambda: ReadToolDispatcher(
+                host_secrets=settings.host_secrets
+            ),
         ).run(CancellationToken())
     finally:
         await runtime.close()
@@ -279,7 +367,7 @@ async def _conversation_probe(
     *,
     arguments: Arguments,
     settings: Settings,
-    definitions: Slice1Definitions,
+    definitions: Slice2Definitions,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
     history: PostgresCanonicalHistory,
@@ -288,7 +376,10 @@ async def _conversation_probe(
     source_prefix = uuid4().hex
     references = AtomicSessionRefPort(
         settings.session_reference_path,
-        max_generations=session_generation_limit(arguments.model),
+        max_generations=session_generation_limit(
+            arguments.model,
+            kernel_limits=SLICE2_KERNEL_LIMITS,
+        ),
     )
     first_metric, _first_response = await _conversation_turn(
         arguments=arguments,
@@ -317,15 +408,15 @@ async def _conversation_probe(
         source_message_id=f"{source_prefix}-2",
         text="Reply with the synthetic marker from my preceding message.",
     )
-    second_ref = await references.load(
+    second_boundary = await references.load_for_discard(
         ThreadId(str(settings.discord.channel_id)),
         definitions.main.fingerprint,
     )
-    if second_ref is None:
-        raise RuntimeError("second conversation turn did not store a session reference")
+    if second_boundary is None:
+        raise RuntimeError("second turn did not reach the bounded reference")
     continued = (
-        first_ref.ref.native_session_id == second_ref.ref.native_session_id
-        and second_ref.generation > first_ref.generation
+        first_ref.ref.native_session_id == second_boundary.ref.native_session_id
+        and second_boundary.generation == 2
     )
 
     third_metric, third_response = await _conversation_turn(
@@ -336,15 +427,21 @@ async def _conversation_probe(
         store=store,
         history=history,
         source_message_id=f"{source_prefix}-3",
-        text="Reply with the same synthetic marker again.",
+        text=(
+            "After automatic session rotation, reply with the synthetic marker "
+            "from the first message."
+        ),
     )
     third_ref = await references.load(
         ThreadId(str(settings.discord.channel_id)),
         definitions.main.fingerprint,
     )
     if third_ref is None:
-        raise RuntimeError("third conversation turn lost its compatible reference")
+        raise RuntimeError("automatic rotation did not store a fresh reference")
+    if third_ref.ref.native_session_id == second_boundary.ref.native_session_id:
+        raise RuntimeError("automatic rotation did not store a fresh reference")
 
+    settings.session_reference_path.unlink()
     fourth_metric, fourth_response = await _conversation_turn(
         arguments=arguments,
         settings=settings,
@@ -353,92 +450,38 @@ async def _conversation_probe(
         store=store,
         history=history,
         source_message_id=f"{source_prefix}-4",
-        text="Reply with the same synthetic marker once more.",
-    )
-    fourth_boundary = await references.load_for_discard(
-        ThreadId(str(settings.discord.channel_id)),
-        definitions.main.fingerprint,
-    )
-    if fourth_boundary is None:
-        raise RuntimeError("fourth turn did not retain its bounded reference")
-
-    fifth_metric, fifth_response = await _conversation_turn(
-        arguments=arguments,
-        settings=settings,
-        definitions=definitions,
-        admission_limits=admission_limits,
-        store=store,
-        history=history,
-        source_message_id=f"{source_prefix}-5",
-        text=(
-            "After automatic session rotation, reply with the synthetic marker "
-            "from the first message."
-        ),
-    )
-    fifth_ref = await references.load(
-        ThreadId(str(settings.discord.channel_id)),
-        definitions.main.fingerprint,
-    )
-    if fifth_ref is None:
-        raise RuntimeError("automatic rotation did not store a fresh reference")
-
-    settings.session_reference_path.unlink()
-    sixth_metric, sixth_response = await _conversation_turn(
-        arguments=arguments,
-        settings=settings,
-        definitions=definitions,
-        admission_limits=admission_limits,
-        store=store,
-        history=history,
-        source_message_id=f"{source_prefix}-6",
         text=(
             "After deliberate local session loss, reply with the synthetic marker "
             "from the first message."
         ),
     )
-    sixth_ref = await references.load(
+    fourth_ref = await references.load(
         ThreadId(str(settings.discord.channel_id)),
         definitions.main.fingerprint,
     )
-    if sixth_ref is None:
+    if fourth_ref is None:
         raise RuntimeError("deliberate-loss turn did not store a fresh reference")
 
     continuity = {
         "compatible_restart": continued,
         "compatible_restart_recalled_context": marker in second_response.casefold(),
-        "retained_through_generation_three": (
-            third_ref.ref.native_session_id == second_ref.ref.native_session_id
-            and third_ref.generation == 3
-            and marker in third_response.casefold()
-        ),
-        "generation_four_boundary_reached": (
-            fourth_boundary.ref.native_session_id == third_ref.ref.native_session_id
-            and fourth_boundary.generation == 4
-            and marker in fourth_response.casefold()
-        ),
+        "generation_two_boundary_reached": second_boundary.generation == 2,
         "automatic_session_rotated": (
-            fifth_ref.ref.native_session_id != third_ref.ref.native_session_id
-            and fifth_ref.generation == 1
+            third_ref.ref.native_session_id != second_boundary.ref.native_session_id
+            and third_ref.generation == 1
         ),
-        "automatic_rotation_reconstructed": marker in fifth_response.casefold(),
+        "automatic_rotation_reconstructed": marker in third_response.casefold(),
         "deliberate_loss_session_rotated": (
-            sixth_ref.ref.native_session_id != fifth_ref.ref.native_session_id
-            and sixth_ref.generation == 1
+            fourth_ref.ref.native_session_id != third_ref.ref.native_session_id
+            and fourth_ref.generation == 1
         ),
-        "deliberate_loss_reconstructed": marker in sixth_response.casefold(),
+        "deliberate_loss_reconstructed": marker in fourth_response.casefold(),
     }
     if not all(continuity.values()):
         raise RuntimeError("conversation session continuity qualification failed")
     return {
         "status": "passed",
-        "turns": [
-            first_metric,
-            second_metric,
-            third_metric,
-            fourth_metric,
-            fifth_metric,
-            sixth_metric,
-        ],
+        "turns": [first_metric, second_metric, third_metric, fourth_metric],
     }, continuity
 
 
@@ -446,7 +489,7 @@ async def _structured_probe(
     *,
     arguments: Arguments,
     settings: Settings,
-    definitions: Slice1Definitions,
+    definitions: Slice2Definitions,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
     runtime = _runtime(arguments, settings)
@@ -488,7 +531,7 @@ async def _structured_probe(
 
 
 def _tool_probe_definition(
-    definitions: Slice1Definitions,
+    definitions: Slice2Definitions,
 ) -> tuple[AgentDefinition, FrozenToolPlan, ToolBinding[Any, Any, Any]]:
     spec: ToolSpec[ProbeToolInput, ProbeToolSuccess, NoDeclaredError] = ToolSpec(
         id=ToolId("qualification.echo"),
@@ -509,12 +552,12 @@ def _tool_probe_definition(
         execute=Available(_must_not_execute),
         replay_policy=ReplayPolicy.ReDispatchable,
         implementation_revision="jarvis-qualification-echo-v1",
-        policy_epoch=PolicyEpoch("slice-1-qualification-v1"),
+        policy_epoch=PolicyEpoch("slice-2-qualification-v1"),
         policy_inputs={},
     )
     catalog = ToolCatalog.compose((ToolFamily("qualification", (spec,), (binding,)),))
     maximum = CapabilityProfile(
-        ProfileId("slice1_qualification_echo"),
+        ProfileId("slice2_qualification_echo"),
         (ToolGrant(spec.id, None),),
         RunLimits(1, 1, 4_096, 4_096, 1, 30.0),
     ).freeze(catalog)
@@ -540,7 +583,7 @@ def _tool_probe_definition(
         session_compatibility_revision=(
             f"{definitions.main.session_compatibility_revision}:qualification-echo-v1"
         ),
-        limits=SLICE1_KERNEL_LIMITS,
+        limits=SLICE2_KERNEL_LIMITS,
     )
     validate_native_context_bounds(definition, DEFAULT_NATIVE_CONTEXT_LIMITS)
     return definition, plan, cast("ToolBinding[Any, Any, Any]", binding)
@@ -550,7 +593,7 @@ async def _tool_argument_probe(
     *,
     arguments: Arguments,
     settings: Settings,
-    definitions: Slice1Definitions,
+    definitions: Slice2Definitions,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
     definition, plan, binding = _tool_probe_definition(definitions)
@@ -618,10 +661,19 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         codex_model=arguments.model,
         codex_state_root=arguments.state_root,
         runtime_state_directory=arguments.runtime_state_directory,
+        google_oauth_state_path=arguments.runtime_state_directory / "google.json",
+        google_oauth_client_id=SecretStr("qualification-unused-google-client"),
+        google_oauth_client_secret=SecretStr("qualification-unused-google-secret"),
+        connector_encryption_key_version="v2",
+        connector_encryption_keys=SecretStr("qualification-unused-keyring"),
+        connector_encryption_secret=SecretStr("qualification-unused-encryption"),
+        maps_api_key=SecretStr("qualification-unused-maps-key"),
+        brave_api_key=SecretStr("qualification-unused-brave-key"),
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    definitions = build_slice1_definitions(
+    definitions = build_slice2_definitions(
+        catalog=_slice2_catalog(),
         profile_key=arguments.profile,
         model=arguments.model,
         owner_timezone=arguments.owner_timezone,
@@ -762,7 +814,7 @@ def _parse_arguments() -> Arguments:
         )
     model = _required(values, "model")
     if model not in _SUPPORTED_ROUTES:
-        raise ValueError("model must be one of the two qualified routes")
+        raise ValueError("model must be a qualified local-account route")
     return Arguments(
         model=model,
         profile=_required(values, "profile"),

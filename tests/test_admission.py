@@ -158,7 +158,7 @@ async def test_child_reservation_shares_root_slot_and_charge(tmp_path: Path) -> 
 
 async def test_plan_factory_returns_fresh_exact_budget() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test", model="gpt-5.4", owner_timezone="UTC"
+        profile_key="jarvis-test", model="gpt-5.6-terra", owner_timezone="UTC"
     )
     plan = definitions.plans["main"]
     factory = ExactToolBudgetFactory()

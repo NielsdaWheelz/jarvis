@@ -702,6 +702,15 @@ it.
 
 - Authentication uses the personal local-account credential.
 - No generative API-key fallback or silent provider fallback exists.
+- The checked-in compatibility manifest records the exact qualified
+  ChatGPT-local-account model IDs. The current set is exactly
+  `gpt-5.6-terra`; `gpt-5.4` is retired on this authentication path and MUST be
+  rejected during configuration, before ingress, admission, provider I/O, or
+  tool I/O. V1 requires at least one exact model that is currently supported by
+  the provider to pass the paid local-account qualification. The size of this
+  set is not a permanent product invariant; adding, replacing, or removing a
+  route requires current live evidence and an explicit compatibility-manifest
+  update.
 - Kernel revision, model IDs, reasoning levels, prompts, SDK/runtime revisions,
   output contract, `PermissionPolicy`, cwd scope, MCP configuration, and native
   options are pinned per deployment and covered by the definition fingerprint.
@@ -709,7 +718,20 @@ it.
   derived from a checked-in canonical manifest containing its role ID, an
   owner-bumped Jarvis session-contract revision, and the exact
   `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
-  excludes secrets, input, host time, and per-run subset plans.
+  excludes secrets, input, host time, and per-run subset plans. Normally every
+  pin participates exactly in the revision. The sole v1 exception is the
+  upstream-certified compatible pair
+  `llm-agent-kernel@09f08df2970121ababe973b0e92d6901dd40da9e` and
+  `provider-runtime@f477dcdcad03c30019576203d4eb8a3581a6d32f`: when every
+  other pin is unchanged, revision derivation atomically uses their predecessor
+  values so existing native sessions remain compatible. Either pin changed
+  alone or any other dependency change rotates normally.
+- Qualified-model membership does not participate in
+  `session_compatibility_revision`. The exact selected model already
+  participates in the immutable agent-definition fingerprint, so a model
+  change cold-bootstraps without manually rotating the application session
+  contract. Removing the retired, unselected `gpt-5.4` route therefore does not
+  invalidate an otherwise compatible `gpt-5.6-terra` session.
 - Upgrades pass recorded replay and containment tests before activation.
 - Quota exhaustion produces a fixed host-authored notice and no provider change.
 
@@ -719,9 +741,12 @@ Jarvis adapter persists the `AgentSessionRef` and immutable agent-definition
 fingerprint in private, atomically replaced runtime state outside PostgreSQL.
 The fingerprint covers every session-scoped semantic and containment value,
 including the values listed above and the owner-controlled compatibility
-revision. A change to any manifest input rotates the revision. Credential secret
-bytes, current input, host time, and per-run subset plans do not rotate the
-session.
+revision. Changing the manifest's application contract, selected role contract,
+or a dependency pin rotates the revision, except that the one exact atomic
+provider-usage correction pair above uses its certified predecessor values.
+Changing only `qualified_models` does not rotate the revision because the
+selected model is already fingerprinted. Credential secret bytes, current input,
+host time, and per-run subset plans do not rotate the session.
 `provider-runtime` performs the actual start, continue, resume, and discard. An
 ordinary restart or compatible deployment attempts resume. A fingerprint
 mismatch, invalid reference, or resume failure starts a fresh session. The
@@ -930,6 +955,18 @@ V1 exposes exactly the following canonical model tools:
 | `schedule_wake` | Main | Write; automatic |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
+The Slice 2 Jarvis-owned read result unions are exactly:
+
+| Tool | Declared errors |
+|---|---|
+| `gmail.search` | `InvalidQuery`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `gmail.read_thread` | `ThreadNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `calendar.list_events` | `CalendarNotFound`, `InvalidRange`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `calendar.get_event` | `EventNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `maps.search_places` | `InvalidQuery`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `maps.get_place` | `PlaceNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `maps.directions` | `NoRoute`, `InvalidLocation`, `InvalidDepartureTime`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+
 The table defines each tool-bearing role definition's maximum capability
 envelope. An
 owner-input or action-resolution main run receives the full Main plan. A
@@ -941,7 +978,10 @@ run and may never exceed its envelope.
 
 Every Jarvis-owned entry above initially declares
 `implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
-with hyphens. The model-facing tool IDs remain unversioned. Reviewers MUST reject
+with hyphens. The Slice 2 Calendar read bindings are
+`jarvis-calendar-list_events-v2` and `jarvis-calendar-get_event-v2` after the
+ADR 0029 observed-end correction. The model-facing tool IDs remain unversioned.
+Reviewers MUST reject
 a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
 policy inputs.
@@ -965,6 +1005,128 @@ unsafe redirects, unsupported media, and oversized responses. Web observations
 are untrusted evidence, never instructions or authority. Unmistakable credential
 material is rejected from Web arguments rather than sent. V1 does not implement
 authenticated browsing, browser automation, or JavaScript rendering.
+The pinned reader binding implementation is `llm-tools-web-read-v2`. Its
+model-visible `extraction` identifier is `plain-text-v2` for literal plain text
+and `html-visible-text-v2` for visible HTML/XHTML text. These projections decode
+character references exactly once; plain text is never treated as markup.
+
+The production Brave binding uses the pinned `llm-tools`
+`operation_deadline_seconds=12.0` policy. Each selectable Slice 2 frozen plan
+tightens `web.search` to one external attempt and the aggregate external-attempt
+budget to 20 while retaining `BilledOnce`; the maximum role definition retains
+the declaration maximum of two attempts and the exact nine-read sum of 21.
+Jarvis adds no second deadline wrapper.
+
+The seven Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
+addition to their tool-specific failures. Provider JSON is rejected before
+parsing when its decoded body exceeds two mebibytes. Stable identifiers and
+values are never truncated: an overlong provider ID, email address, timestamp,
+URI, MIME type, Calendar recurrence or event value, or other exact field returns
+`ProviderResponseTooLarge`. Only the explicitly presentation-oriented Gmail
+snippet and decoded message text may be shortened, and their enclosing
+`truncated` flag MUST report it. Bounds apply to UTF-8 bytes as well as schema
+characters. Every success carries an aware UTC `observed_at`; ordinary logs
+contain no connector body.
+
+`gmail.search` performs one `users.threads.list` request and returns at most 20
+`{thread_id: string[1..1024], snippet: string[0..1000 bytes]}` records. It sets
+`truncated` for provider pagination or a shortened snippet and performs no
+per-hit expansion. `gmail.read_thread` performs one
+`users.threads.get(format=full)` request and returns at most 50 messages. Each
+message contains exact bounded message/thread IDs, sender, To/Cc/Bcc mailboxes,
+nullable exact RFC Message-ID, subject, aware UTC internal timestamp, decoded
+inert `body_text`, a `body_truncated` flag, and bounded attachment metadata
+`(filename, media_type, size_bytes)`. The newest `max_messages` are selected and
+returned oldest to newest. Mailbox
+names are at most 320 bytes, addresses are exact and at most 320 bytes, subjects
+and RFC Message-IDs are exact and at most 998 bytes, each decoded text is at
+most 16 KiB, aggregate
+returned text is at most 64 KiB, and at most 50 mailboxes per address field and
+50 attachment records per message are returned. Inline `text/plain` is
+preferred; inline HTML is converted to inert text only as fallback. Jarvis does
+not fetch a Gmail `attachmentId`, execute HTML, or load a subresource.
+
+Calendar reads return a closed tagged event union. A normal `type = event`
+snapshot has exact `calendar_id`, `event_id`, and `etag` strings of at most 1024
+bytes, `status = confirmed | tentative`, the bounded observed writable event
+projection,
+nullable organizer, and aware `updated_at`. The observed projection contains a
+summary up to 1024 bytes, nullable description up to 16 KiB, nullable location
+up to 4096 bytes, a required timed aware or all-day start, a required observed
+end, at most 20 exact
+recurrence strings of 1024 bytes, at most 50 attendees, default-reminder state,
+and at most ten email/popup reminders from zero through 40,320 minutes. A sparse
+cancelled provider resource is represented separately as `type = cancelled`
+with exact bounded calendar/event IDs, nullable bounded etag, and nullable aware
+`updated_at`; missing normal-event fields are not invented. A list returns at
+most 50 events and reports provider pagination/count truncation. A get may return
+either variant; event fields are never shortened.
+The observed end is a direct closed union of the existing `TimedEventTime` and
+`AllDayEventTime` plus payload-free
+`UnspecifiedEventEnd {type = unspecified}`; all three share the `type`
+discriminator. Google's missing or false `endTimeUnspecified` requires a valid
+parsed timed or all-day end. True returns `UnspecifiedEventEnd` and causes
+Jarvis to discard Google's compatibility end without parsing it. This rule
+applies to every normal event type, including `fromGmail`; start remains
+required. A non-boolean flag, or an absent or malformed end when false or
+missing, is malformed upstream. The observed projection is not a create/update
+input: future Calendar write inputs retain the unchanged two-branch concrete
+`EventTime` end and an address-required attendee shape.
+An observed-only `CalendarParticipant` has nullable exact `name` and `address`
+fields, each bounded to 320 UTF-8 bytes; a provider participant with both fields
+null is preserved. Normal-event attendees and organizer use this shape. This
+does not weaken Gmail or future Calendar-write
+`Mailbox`, whose address remains required. An over-bound present participant
+field is `ProviderResponseTooLarge`.
+For a timed event, Jarvis preserves a valid provider IANA `timeZone` when one is
+present. An offset-free `dateTime` is localized with that `ZoneInfo`; an
+ambiguous fall-back time deterministically uses `fold=0`, while a nonexistent
+spring-forward time is malformed upstream. If Google omits `timeZone` for an
+already-aware `dateTime`, Jarvis preserves the instant and emits canonical
+`UTC`; an offset-free value without a zone is malformed. Normalization performs
+no additional provider request.
+The corrected Calendar output contracts and binding implementations are v2.
+Affected catalogs, maximum and selected profiles, plans, HostTables, and
+definition fingerprints are recomposed. The Main role session-contract revision
+is `jarvis-main-slice-2-v3`, which cold-bootstraps an older continuing session;
+unaffected isolated role revisions do not change.
+
+Maps place records expose canonical `maps_uri`, a nullable bounded absolute
+HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire
+field `googleMapsLinks.placeUri` and normalizes it to `maps_uri`; it does not
+request the legacy `googleMapsUri`, but normalization accepts that legacy wire
+field from compatible provider payloads. Place IDs have the accepted local exact cap
+of 1024 bytes. Search and details use the same closed shape: exact `place_id`
+from 1 through 1024 bytes, exact `display_name` from 1 through 512 bytes,
+nullable exact `formatted_address` through 1024 bytes, nullable finite
+latitude/longitude, at most 32 exact type strings from 1 through 128 bytes, and
+the nullable exact `maps_uri`. Search returns at most ten results; details reads
+one fresh stable ID. Place results have no field-truncation flag, so an
+over-bound value returns `ProviderResponseTooLarge` rather than a shortened
+success. The fixed endpoint, field mask, result-count, and normalization
+projection are revisioned policy inputs.
+
+The production Places search field mask is exactly
+`places.id,places.displayName,places.formattedAddress,places.location,places.types,places.googleMapsLinks.placeUri`.
+The production place-details field mask is exactly
+`id,displayName,formattedAddress,location,types,googleMapsLinks.placeUri`.
+
+`maps.directions` sets `computeAlternativeRoutes=false`, requests exactly one
+route, and requests no polyline field. A success contains exactly one route with
+bounded non-negative `distance_meters`, the provider duration ceiling-rounded
+to non-negative integer `duration_seconds`, a nullable description of at most
+1000 bytes, and a required list of at most ten warnings of at most 1000 bytes
+each. Zero routes is `NoRoute`; more than one route or an oversized exact route
+value is `ProviderResponseTooLarge`. No encoded polyline is model-visible.
+`departure_at`, when supplied, is offset-aware. A past departure is valid only
+for transit, and transit must lie between seven days before and 100 days after
+the authoritative host instant used for the call. A violation returns declared
+`InvalidDepartureTime` before Maps I/O.
+The production Routes response field mask is exactly
+`routes.distanceMeters,routes.duration,routes.description,routes.warnings`.
+Returned warnings are required display notices. The Maps binding instructions
+require every non-empty warning to appear in the user-facing route answer; the
+warning array is never dropped or rewritten by normalization.
 
 `gmail.send_draft` arguments contain the provider draft ID, known thread
 identity, stable `jarvis_effect_id`, and the exact To/Cc/Bcc, subject, and body
@@ -1224,14 +1386,20 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `c9eefcb458ee5245010dd5e99b48f7116cd1139a`
+  `09f08df2970121ababe973b0e92d6901dd40da9e`
 - `llm-calling` / `provider-runtime`:
-  `a5d9c8e0c1c851daee0731554e0a4a326d3c2819`
-- `llm-tools`: `728f35c0b3a8be91b380ed4258d2b73ad68fc8fa`
+  `f477dcdcad03c30019576203d4eb8a3581a6d32f`
+- `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The kernel directly certifies and pins `openai-codex==0.144.4`; Jarvis's frozen
 lock MUST resolve that exact SDK version. A Codex SDK change requires explicit
 provider-runtime and kernel requalification before activation.
+
+The checked-in compatibility manifest schema v2 records
+`qualified_models = ["gpt-5.6-terra"]`. Startup accepts only those exact model
+IDs. At least one recorded model MUST pass the paid consumer probes through the
+personal local-account credential against the exact code and dependency lock
+being qualified.
 
 The `llm-tools` value is the qualified implementation lock for public
 validation, plan/catalog-consistency and full-plan-tightening, exact
@@ -1432,6 +1600,17 @@ orphaned reservations interrupted, releases their concurrency slots, and
 retains their conservative turn/token charge until window expiry. Missing or
 corrupt state fails closed until an explicit operator reset. Alembic may own its
 migration table.
+
+The qualified mode-0600 Google handoff stores each OAuth token as
+`aesgcm.v1.<base64url(nonce || AES-GCM ciphertext)>`, with a 12-byte nonce. Its
+metadata names `AES-256-GCM`, key version `<version>`, and associated-data
+namespace `jarvis.connector.google:<version>`. Access and refresh tokens bind
+respectively to the full associated data
+`jarvis.connector.google:<version>:access_token` and
+`jarvis.connector.google:<version>:refresh_token`. Jarvis base64url-decodes
+`JARVIS_CONNECTOR_ENCRYPTION_SECRET`, adding padding for decoding; a decoded
+value of exactly 32 bytes is the key, and every other decoded length is reduced
+with SHA-256. A refresh atomically replaces state in this same format.
 
 ## 10. Existing integrations
 

@@ -40,6 +40,7 @@ def test_settings_compose_discord_and_derive_private_paths(tmp_path: Path) -> No
     assert settings.codex_model == "gpt-5.6-terra"
     assert settings.embedding_model == "text-embedding-3-small"
     assert settings.embedding_dimension == 1536
+    assert settings.dream_interval_seconds == 86_400
     assert settings.discord.channel_id == 33
     assert settings.paused_state_path == tmp_path / "runtime" / "paused.json"
     assert settings.admission_journal_path == tmp_path / "runtime" / "admission.json"
@@ -60,6 +61,7 @@ def test_settings_compose_discord_and_derive_private_paths(tmp_path: Path) -> No
         ("JARVIS_RUNTIME_STATE_DIRECTORY", "relative/runtime"),
         ("JARVIS_MAXIMUM_BATCH_SIZE", "101"),
         ("JARVIS_DELIVERY_BATCH_SIZE", "101"),
+        ("JARVIS_DREAM_INTERVAL_SECONDS", "59"),
     ],
 )
 def test_settings_reject_invalid_host_bounds(

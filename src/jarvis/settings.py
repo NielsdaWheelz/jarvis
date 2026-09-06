@@ -1,4 +1,4 @@
-"""Top-level host settings through Slice 3."""
+"""Top-level host settings through Slice 4."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from jarvis.definitions import QUALIFIED_CODEX_MODELS
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
 EMBEDDING_DIMENSION: Final[Literal[1536]] = 1536
 MAXIMUM_BATCH_SIZE: Final[int] = 100
+DEFAULT_DREAM_INTERVAL_SECONDS: Final[int] = 86_400
 
 
 class Settings(BaseModel):
@@ -55,6 +56,10 @@ class Settings(BaseModel):
     embedding_dimension: Literal[1536] = EMBEDDING_DIMENSION
     maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
     delivery_batch_size: int = Field(default=20, ge=1, le=100)
+    dream_interval_seconds: int = Field(
+        default=DEFAULT_DREAM_INTERVAL_SECONDS,
+        ge=60,
+    )
 
     @field_validator(
         "database_url",
@@ -235,12 +240,17 @@ class Settings(BaseModel):
                 embedding_dimension=EMBEDDING_DIMENSION,
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),
+                dream_interval_seconds=positive_int(
+                    "JARVIS_DREAM_INTERVAL_SECONDS",
+                    DEFAULT_DREAM_INTERVAL_SECONDS,
+                ),
             )
         except ValidationError as exc:
             raise ConfigurationError("invalid Jarvis configuration") from exc
 
 
 __all__ = [
+    "DEFAULT_DREAM_INTERVAL_SECONDS",
     "EMBEDDING_DIMENSION",
     "EMBEDDING_MODEL",
     "MAXIMUM_BATCH_SIZE",

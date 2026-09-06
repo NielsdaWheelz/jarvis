@@ -25,14 +25,17 @@ QualificationCheckFailed = cast(
     "type[Exception]", _QUALIFIER["QualificationCheckFailed"]
 )
 RawRow = _QUALIFIER["RawRow"]
+SummaryRow = _QUALIFIER["SummaryRow"]
 assert_sanitized_output = _QUALIFIER["assert_sanitized_output"]
 cognitive_usage = _QUALIFIER["cognitive_usage"]
 cleanup_cycle_runtime = _QUALIFIER["cleanup_cycle_runtime"]
 discard_main_reference = _QUALIFIER["_discard_main_reference"]
 owner_inputs = _QUALIFIER["owner_inputs"]
 qualification_admission_limits = _QUALIFIER["qualification_admission_limits"]
+new_summaries = _QUALIFIER["new_summaries"]
 selected_memories = _QUALIFIER["selected_memories"]
 validate_first_phase = _QUALIFIER["validate_first_phase"]
+validate_dream_phase = _QUALIFIER["validate_dream_phase"]
 validate_second_phase = _QUALIFIER["validate_second_phase"]
 
 
@@ -90,9 +93,9 @@ def test_two_cycle_admission_is_finite_and_exactly_doubled() -> None:
     one = slice3_admission_limits(1)
     two = qualification_admission_limits()
 
-    assert two.max_turns == 2 * one.max_turns
-    assert two.max_input_tokens == 2 * one.max_input_tokens
-    assert two.max_output_tokens == 2 * one.max_output_tokens
+    assert two.max_turns == 2 * one.max_turns + 10
+    assert two.max_input_tokens == 2 * one.max_input_tokens + 160_000 + 32_768
+    assert two.max_output_tokens == 2 * one.max_output_tokens + 16_000 + 8_192
     assert two.serial_child_turns == one.serial_child_turns
     assert two.serial_child_input_tokens == one.serial_child_input_tokens
     assert two.serial_child_output_tokens == one.serial_child_output_tokens
@@ -161,7 +164,7 @@ def test_first_phase_requires_linked_preference_vector_and_watermark() -> None:
             True,
             "created_embedding_invalid",
         ),
-        ((), True, "first_rememberer_created_no_memory"),
+        ((), True, "first_rememberer_created_not_one_memory"),
         (
             (RawRow(RAW_ID, "linked preference", EMBEDDING_DIMENSION),),
             False,
@@ -208,21 +211,49 @@ def test_second_phase_requires_selected_created_row_and_exact_live_reopens() -> 
         calendar_reopened = True
         successful_reads = 2
 
+    summary_id = UUID(int=3)
     report = validate_second_phase(
         after=MemoryState(
-            (RawRow(RAW_ID, "Synthetic durable preference.", 1536),), 0, 0
+            (RawRow(RAW_ID, "Synthetic durable preference.", 1536),),
+            1,
+            0,
+            (
+                SummaryRow(
+                    summary_id,
+                    "Synthetic summary.",
+                    (RAW_ID,),
+                    1536,
+                ),
+            ),
         ),
         owner=_owner(),
         first_created=frozenset((RAW_ID,)),
-        selected=selected_memories(_owner().trace),
+        created_summaries=frozenset((summary_id,)),
+        selected=(
+            *selected_memories(_owner().trace),
+            MemoryIdentity("memory_summary", summary_id),
+        ),
+        opened=(
+            MemoryIdentity("memory_log", RAW_ID),
+            MemoryIdentity("memory_summary", summary_id),
+        ),
+        answer_text=(
+            "- **Decision:** Keep the current plan.\n"
+            "- **Evidence:** Both live records were reopened.\n"
+            "- **Next check:** Review the linked matter tomorrow."
+        ),
         dispatcher=Evidence(),
     )
 
     assert report["fresh_recall_selected_created_raw"] is True
+    assert report["fresh_recall_selected_created_summary"] is True
+    assert report["fresh_recall_opened_summary_sources"] is True
     assert report["gmail_thread_reopened"] is True
     assert report["calendar_event_reopened"] is True
     assert report["successful_main_reads"] == 2
     assert report["action_rows"] == 0
+    assert report["owner_visible_answer_useful"] is True
+    assert report["response_preference_followed"] is True
 
 
 def test_second_phase_rejects_duplicate_memory_text() -> None:
@@ -233,6 +264,7 @@ def test_second_phase_rejects_duplicate_memory_text() -> None:
 
     duplicate = "Synthetic duplicate."
 
+    summary_id = UUID(int=3)
     with pytest.raises(QualificationCheckFailed, match="duplicate_memory_text"):
         validate_second_phase(
             after=MemoryState(
@@ -240,14 +272,118 @@ def test_second_phase_rejects_duplicate_memory_text() -> None:
                     RawRow(RAW_ID, duplicate, 1536),
                     RawRow(UUID(int=2), duplicate, 1536),
                 ),
+                1,
                 0,
-                0,
+                (SummaryRow(summary_id, "Summary.", (RAW_ID,), 1536),),
             ),
             owner=_owner(),
             first_created=frozenset((RAW_ID,)),
-            selected=(MemoryIdentity("memory_log", RAW_ID),),
+            created_summaries=frozenset((summary_id,)),
+            selected=(
+                MemoryIdentity("memory_log", RAW_ID),
+                MemoryIdentity("memory_summary", summary_id),
+            ),
+            opened=(
+                MemoryIdentity("memory_log", RAW_ID),
+                MemoryIdentity("memory_summary", summary_id),
+            ),
+            answer_text=(
+                "- Decision: Keep the current plan.\n"
+                "- Evidence: Both records were reopened.\n"
+                "- Next check: Review the matter tomorrow."
+            ),
             dispatcher=Evidence(),
         )
+
+
+@pytest.mark.parametrize(
+    ("opened", "answer", "reason"),
+    [
+        (
+            (MemoryIdentity("memory_summary", UUID(int=3)),),
+            "- Decision: Keep the plan.\n"
+            "- Evidence: Both records agree.\n"
+            "- Next check: Review tomorrow.",
+            "summary_raw_sources_not_opened",
+        ),
+        (
+            (
+                MemoryIdentity("memory_log", RAW_ID),
+                MemoryIdentity("memory_summary", UUID(int=3)),
+            ),
+            "The linked matter is current.",
+            "owner_answer_preference_not_followed",
+        ),
+        (
+            (
+                MemoryIdentity("memory_log", RAW_ID),
+                MemoryIdentity("memory_summary", UUID(int=3)),
+            ),
+            "- Decision:\n"
+            "- Evidence: Both records agree.\n"
+            "- Next check: Review tomorrow.",
+            "owner_answer_not_useful",
+        ),
+    ],
+)
+def test_second_phase_requires_opened_raw_basis_and_useful_preference_answer(
+    opened: tuple[MemoryIdentity, ...],
+    answer: str,
+    reason: str,
+) -> None:
+    class Evidence:
+        gmail_reopened = True
+        calendar_reopened = True
+        successful_reads = 2
+
+    summary_id = UUID(int=3)
+    with pytest.raises(QualificationCheckFailed, match=reason):
+        validate_second_phase(
+            after=MemoryState(
+                (RawRow(RAW_ID, "Synthetic durable preference.", 1536),),
+                1,
+                0,
+                (SummaryRow(summary_id, "Summary.", (RAW_ID,), 1536),),
+            ),
+            owner=_owner(),
+            first_created=frozenset((RAW_ID,)),
+            created_summaries=frozenset((summary_id,)),
+            selected=(
+                MemoryIdentity("memory_log", RAW_ID),
+                MemoryIdentity("memory_summary", summary_id),
+            ),
+            opened=opened,
+            answer_text=answer,
+            dispatcher=Evidence(),
+        )
+
+
+def test_dream_phase_requires_one_embedded_summary_with_exact_raw_lineage() -> None:
+    _, _, uris = owner_inputs(_resources())
+    raw = (RawRow(RAW_ID, "Synthetic raw memory.", EMBEDDING_DIMENSION),)
+    summary_id = UUID(int=3)
+    created, report = validate_dream_phase(
+        before=MemoryState(raw, 0, 0),
+        after=MemoryState(
+            raw,
+            1,
+            0,
+            (
+                SummaryRow(
+                    summary_id,
+                    f"Synthetic linked summary {uris[0]} and {uris[1]}.",
+                    (RAW_ID,),
+                    EMBEDDING_DIMENSION,
+                ),
+            ),
+        ),
+        first_created=frozenset((RAW_ID,)),
+        required_uris=uris,
+    )
+
+    assert created == frozenset((summary_id,))
+    assert report["flattened_raw_lineage"] is True
+    assert report["raw_memory_unchanged"] is True
 
 
 def test_trace_projection_keeps_only_usage_and_selected_identities() -> None:
@@ -284,6 +420,32 @@ def test_all_script_owned_http_clients_disable_environment_proxies() -> None:
 
     assert source.count("httpx.AsyncClient(") == 5
     assert source.count("trust_env=False") == 5
+
+
+def test_e2e_embeds_the_summary_through_the_shipped_bounded_backfill() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "scripts" / "qualify_memory_e2e.py"
+    ).read_text(encoding="utf-8")
+
+    assert "await first_rememberer.run_one(CancellationToken())" in source
+    assert ".update_embedding(" not in source
+
+
+def test_empty_completed_dream_fails_before_embedding_backfill() -> None:
+    state = MemoryState(
+        (RawRow(RAW_ID, "Synthetic raw memory.", EMBEDDING_DIMENSION),),
+        0,
+        0,
+    )
+    assert new_summaries(state, state) == ()
+
+    source = (
+        Path(__file__).resolve().parents[1] / "scripts" / "qualify_memory_e2e.py"
+    ).read_text(encoding="utf-8")
+    dream_flow = source[source.index("if not isinstance(dream_outcome") :]
+    assert dream_flow.index(
+        'raise QualificationCheckFailed("dreamer_created_not_one_summary")'
+    ) < dream_flow.index("await first_rememberer.run_one(CancellationToken())")
 
 
 @pytest.mark.parametrize(("present", "discard_calls"), [(True, 1), (False, 0)])

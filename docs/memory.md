@@ -238,6 +238,19 @@ Its final structured output is a batch of:
 Host code validates all referenced raw IDs and applies the batch transactionally.
 Summary persistence creates no action rows.
 
+The application role may select, insert, and delete `memory_summary` rows and
+update only their `embedding`. A trigger rejects arbitrary canonical-field
+updates, invalid or duplicate lineage, and `TRUNCATE`. Replacement is one atomic
+delete/insert transaction; summary identity, text, lineage, and creation time are
+never edited in place. A rejected, stale, conflicting, or partially valid batch
+applies nothing. The same raw-memory secret filter runs before insertion without
+logging rejected text.
+
+Lineage is stored as a sorted UUID array and is unique across summaries. V1
+therefore keeps at most one summary for an exact unordered raw-evidence set;
+another facet over the same sources must replace or extend that summary rather
+than create a parallel identity.
+
 A summary:
 
 - Has at least one raw source ID.
@@ -245,8 +258,20 @@ A summary:
 - Introduces no material claim unsupported by its sources.
 - Preserves meaningful disagreement or uncertainty.
 
+The host proves only structural lineage. Prose groundedness is a Dreamer model
+contract evaluated with frozen recall cases and adversarial trials; neither the
+database nor host code claims deterministic semantic proof.
+
 The dreamer cannot update raw memory, execute external actions, alter prompts or
 permissions, edit code, or deploy itself.
+
+The service timer waits one complete interval before its first run and defaults
+to 24 hours. It coalesces missed ticks in process memory, skips without a model
+call when raw memory is empty, and yields its cancellable reasoning and memory
+reads when owner work arrives. The short database transaction completes
+atomically once started. `jarvis dream` provides one stopped, deployment-locked
+manual invocation. Timer drift and missed intervals across downtime are accepted;
+there is no durable dream-job ledger.
 
 ## Embeddings
 
@@ -293,18 +318,37 @@ repository. They run through one documented command.
 
 ## Rebuild contract
 
-The required rebuild test:
+The frozen pre/wipe/rebuild/post qualification runs against a distinct fresh
+migrated qualification database seeded only with the checked-in synthetic
+corpus. The stopped `jarvis rebuild-memory` command separately reuses the
+deployment lock for the real deployment corpus. Keeping those databases
+separate prevents immutable synthetic fixture UUIDs from polluting production
+memory and prevents a normal private corpus from being coupled to S01.
+
+The qualification path:
 
 1. Record the recall evaluation result.
 2. Delete every `memory_summary` row.
 3. Clear every embedding and rebuildable search artifact.
 4. Rebuild raw full-text search and embeddings.
-5. Run the dreamer to regenerate summaries.
+5. Run one bounded dreamer pass to regenerate summaries.
 6. Embed and index summaries.
 7. Run recall evaluation again.
 
+The production path performs steps 2 through 6 on the private corpus while the
+service remains stopped. Its full-text expression indexes remain usable across
+the wipe; no mixed embedding space is served.
+
 The post-rebuild result must be no worse than the pre-rebuild result. Generated
-summary text need not be byte-identical.
+summary UUIDs and text need not be byte-identical. The frozen S01 logical role is
+bound after rebuild only when exactly one regenerated summary has the flattened
+lineage set `{M11, M12}`; zero or multiple matches fail, and the original compact
+selection plus source-opening requirements apply to that regenerated identity.
+This is evaluation-only binding, not a production alias. Failure exits nonzero
+without starting the service; rerunning from immutable raw memory is safe.
+The production command proves structural/raw invariants but does not run the
+synthetic evaluator against private deployment rows; the separate fresh-database
+qualification is its release gate.
 
 ## Current-state rule
 

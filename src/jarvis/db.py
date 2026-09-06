@@ -182,6 +182,11 @@ Index(
     postgresql_using="gin",
     _table=memory_summary,
 )
+Index(
+    "uq_memory_summary_source_memory_ids",
+    memory_summary.c.source_memory_ids,
+    unique=True,
+)
 
 action = Table(
     "action",

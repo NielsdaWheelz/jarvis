@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
-from jarvis.recall_evaluation import RecallObservation, load_recall_set, score_recall
+from jarvis.recall_evaluation import (
+    SEEDED_S01_ID,
+    PostRebuildSummary,
+    RecallObservation,
+    bind_post_rebuild_s01,
+    load_recall_set,
+    score_recall,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORIES = ROOT / "eval" / "recall-memories.jsonl"
@@ -150,4 +158,86 @@ def test_observation_accepts_the_exact_eight_call_recaller_plan_bound() -> None:
             selected_ids=(),
             opened_ids=(),
             search_calls=9,
+        )
+
+
+def test_post_rebuild_binds_s01_by_exact_flattened_raw_lineage() -> None:
+    _, cases = load_recall_set(MEMORIES, CASES)
+    regenerated_id = UUID("20000000-0000-4000-8000-000000000001")
+
+    bound = bind_post_rebuild_s01(
+        cases,
+        (
+            PostRebuildSummary(
+                id=regenerated_id,
+                source_memory_ids=(
+                    UUID("00000000-0000-4000-8000-000000000012"),
+                    UUID("00000000-0000-4000-8000-000000000011"),
+                ),
+            ),
+            PostRebuildSummary(
+                id=UUID("20000000-0000-4000-8000-000000000002"),
+                source_memory_ids=(UUID("00000000-0000-4000-8000-000000000001"),),
+            ),
+        ),
+    )
+
+    changed = {
+        case.id for original, case in zip(cases, bound, strict=True) if original != case
+    }
+    assert changed == {"R13", "R14", "R16"}
+    for case_id in changed:
+        case = next(item for item in bound if item.id == case_id)
+        assert regenerated_id in case.must_select_ids
+        assert SEEDED_S01_ID not in case.must_select_ids
+        assert set(case.must_open_ids) == {
+            UUID("00000000-0000-4000-8000-000000000011"),
+            UUID("00000000-0000-4000-8000-000000000012"),
+        }
+    assert cases == load_recall_set(MEMORIES, CASES)[1]
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_post_rebuild_requires_exactly_one_s01_lineage_summary(count: int) -> None:
+    _, cases = load_recall_set(MEMORIES, CASES)
+    summaries = tuple(
+        PostRebuildSummary(
+            id=UUID(f"20000000-0000-4000-8000-{index:012d}"),
+            source_memory_ids=(
+                UUID("00000000-0000-4000-8000-000000000011"),
+                UUID("00000000-0000-4000-8000-000000000012"),
+            ),
+        )
+        for index in range(1, count + 1)
+    )
+
+    with pytest.raises(ValueError, match="exactly one summary"):
+        bind_post_rebuild_s01(cases, summaries)
+
+
+def test_post_rebuild_rejects_summary_identity_conflicting_with_raw_fixture() -> None:
+    _, cases = load_recall_set(MEMORIES, CASES)
+
+    with pytest.raises(ValueError, match="conflicts with a frozen raw identity"):
+        bind_post_rebuild_s01(
+            cases,
+            (
+                PostRebuildSummary(
+                    id=UUID("00000000-0000-4000-8000-000000000011"),
+                    source_memory_ids=(
+                        UUID("00000000-0000-4000-8000-000000000011"),
+                        UUID("00000000-0000-4000-8000-000000000012"),
+                    ),
+                ),
+            ),
+        )
+
+
+def test_post_rebuild_summary_lineage_must_be_unique() -> None:
+    identity = UUID("00000000-0000-4000-8000-000000000011")
+
+    with pytest.raises(ValueError, match="lineage must be unique"):
+        PostRebuildSummary(
+            id=UUID("20000000-0000-4000-8000-000000000001"),
+            source_memory_ids=(identity, identity),
         )

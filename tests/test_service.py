@@ -504,6 +504,37 @@ class _ControlledSleep:
         await self.release.wait()
 
 
+class _OneShotDreamSleep:
+    def __init__(self) -> None:
+        self.seconds: float | None = None
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self._subsequent = asyncio.Event()
+
+    async def __call__(self, seconds: float) -> None:
+        self.seconds = seconds
+        if not self.started.is_set():
+            self.started.set()
+            await self.release.wait()
+            return
+        await self._subsequent.wait()
+
+
+class _RecordingBackground:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.calls = 0
+
+    async def run_one(self, cancellation: CancellationToken) -> bool:
+        assert not cancellation.cancelled
+        self.calls += 1
+        self.started.set()
+        return False
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None:
+        cancellation.cancel()
+
+
 async def test_background_admission_deferral_schedules_silent_reset(
     tmp_path: Path,
 ) -> None:
@@ -554,3 +585,60 @@ async def test_shutdown_waits_for_background_atomic_commit_boundary(
     background.release.set()
     await asyncio.wait_for(drain, timeout=1)
     assert background.token.cancelled
+
+
+async def test_dream_timer_waits_a_full_interval_before_one_silent_run(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    dreamer = _RecordingBackground()
+    dream_sleep = _OneShotDreamSleep()
+    settings = _settings(tmp_path).model_copy(update={"dream_interval_seconds": 86_400})
+    service = JarvisService(
+        settings=settings,
+        store=cast(IngressStore, _Ingress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _NoWorkRunner()),
+        dreamer=dreamer,
+        gateway=_Gateway(),
+        dream_sleep=dream_sleep,
+    )
+
+    worker = asyncio.create_task(service.run_worker())
+    await asyncio.wait_for(dream_sleep.started.wait(), timeout=1)
+    assert dream_sleep.seconds == 86_400
+    assert dreamer.calls == 0
+
+    dream_sleep.release.set()
+    await asyncio.wait_for(dreamer.started.wait(), timeout=1)
+    assert dreamer.calls == 1
+    service.request_shutdown()
+    await asyncio.wait_for(worker, timeout=1)
+
+
+async def test_restart_does_not_immediately_replay_a_missed_dream(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    dreamer = _RecordingBackground()
+    dream_sleep = _OneShotDreamSleep()
+    service = JarvisService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _Ingress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _NoWorkRunner()),
+        dreamer=dreamer,
+        gateway=_Gateway(),
+        dream_sleep=dream_sleep,
+    )
+
+    worker = asyncio.create_task(service.run_worker())
+    await asyncio.wait_for(dream_sleep.started.wait(), timeout=1)
+    await asyncio.sleep(0)
+    assert dreamer.calls == 0
+    service.request_shutdown()
+    await asyncio.wait_for(worker, timeout=1)

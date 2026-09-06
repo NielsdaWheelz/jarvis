@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import stat
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
@@ -114,3 +116,49 @@ def test_cli_rejects_retired_model_before_serve_or_runtime_io(
     assert main(("serve",)) == 1
     assert not serve_called
     assert not (tmp_path / "runtime").exists()
+
+
+def test_manual_dream_cli_reports_only_mutation_counts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = _settings(tmp_path)
+    created = (UUID(int=1), UUID(int=2))
+    removed = (UUID(int=3),)
+
+    async def run(selected: Settings) -> object:
+        assert selected is settings
+        return SimpleNamespace(
+            created_summary_ids=created,
+            removed_summary_ids=removed,
+        )
+
+    monkeypatch.setattr(Settings, "from_env", staticmethod(lambda: settings))
+    monkeypatch.setattr("jarvis.cli.dream_once", run)
+
+    assert main(("dream",)) == 0
+    assert capsys.readouterr().out == "Dream completed: inserted=2 removed=1.\n"
+
+
+def test_rebuild_cli_reports_only_production_corpus_counts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = _settings(tmp_path)
+
+    async def run(selected: Settings) -> object:
+        assert selected is settings
+        return SimpleNamespace(
+            raw_memory_count=12,
+            summaries_after=1,
+        )
+
+    monkeypatch.setattr(Settings, "from_env", staticmethod(lambda: settings))
+    monkeypatch.setattr("jarvis.cli.rebuild_memory", run)
+
+    assert main(("rebuild-memory",)) == 0
+    assert capsys.readouterr().out == (
+        "Memory rebuild completed: raw=12 summaries=1.\n"
+    )

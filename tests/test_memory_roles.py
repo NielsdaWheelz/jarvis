@@ -1167,8 +1167,8 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
             "16f677462102a5729096c8c0f12626d61f49c58947b09839d3af2cdd00ae1058",
         ),
         "recaller": (
-            "bb65aea0556493724687b7cd82f83ba371a9c3e4af6eb29511f157b4954a9e68",
-            "7d00a3e601aa9e9a9e69d4b5aae3f61e3c92b2f94b88cb9a8435ba5284280e70",
+            "55e524a968064ddefd1eb898576efb4ca8139f508b003427e2896861980b7037",
+            "ecc242e4e685b2d4d0ad04422b0241dc0beac514928aa3a9d3a791b8861091cb",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",

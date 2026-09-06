@@ -1,6 +1,6 @@
-# Slice 3 operations
+# Slice 4 operations
 
-Jarvis Slice 3 is one Python 3.12 process, one PostgreSQL database, and one
+Jarvis Slice 4 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its model-callable
 catalog contains exactly the nine automatic external reads plus the two memory
 reads in SPEC 7.3. The main role receives only the external reads; the isolated
@@ -203,8 +203,45 @@ JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-e2e-runtime \
 
 Supply the remaining ordinary production settings, including the exact Codex
 and embedding configuration above. The qualifier expands only its rolling
-admission capacity to exactly two full one-owner cycles; role plans, per-run
-limits, and production admission behavior remain unchanged.
+admission capacity to exactly two full one-owner cycles plus one Dreamer run;
+role plans, per-run limits, and production admission behavior remain unchanged.
+
+Run one manual dream only while the service is stopped. It takes the deployment
+lock, skips provider I/O when raw memory is empty, and prints counts only:
+
+```sh
+uv run jarvis dream
+```
+
+The process-local timer defaults to 86,400 seconds and does not run immediately
+at startup. `JARVIS_DREAM_INTERVAL_SECONDS` may set a value of at least 60
+seconds; production should retain the 24-hour default. The timer can drift or
+miss intervals across downtime, and foreground owner work preempts Dreamer
+reasoning while an already-started summary transaction finishes atomically.
+
+Run the complete derived-memory rebuild only while the service is stopped:
+
+```sh
+uv run jarvis rebuild-memory
+```
+
+The command takes the deployment lock, atomically deletes summaries and clears
+every vector, proves raw lexical recall, re-embeds raw rows, runs exactly one
+Dreamer pass, and embeds regenerated summaries. It never starts the service.
+Failure exits nonzero; inspect and retain its private journal, keep the service
+stopped, and rerun from immutable raw memory after correcting the cause.
+
+Before a production rebuild release, run the Slice 4 paid rebuild qualifier on
+a distinct empty, freshly migrated qualification database. It alone seeds the
+frozen synthetic corpus and records the required pre/wipe/dream/post score, so
+exact S01/M11/M12 fixture identities never enter permanent production memory.
+The separate adversarial qualifier performs exactly five paid synthetic
+injection trials without retry:
+
+```sh
+uv run python scripts/qualify_dreaming.py --confirm-paid
+uv run python scripts/qualify_dreamer_adversarial.py --confirm-paid
+```
 
 Both memory qualifiers intentionally leave their isolated PostgreSQL database
 and private runtime-state directory intact so failures can be inspected without

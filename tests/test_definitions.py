@@ -168,8 +168,31 @@ def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
-        == "jarvis-recaller-slice-3-v1"
+        == "jarvis-recaller-slice-4-v11"
     )
+    assert session_compatibility_revision(manifest, "recaller") == (
+        "ecc242e4e685b2d4d0ad04422b0241dc0beac514928aa3a9d3a791b8861091cb"
+    )
+    assert (
+        cast("dict[str, object]", manifest["role_contract_revisions"])["dreamer"]
+        == "jarvis-dreamer-slice-4-v5"
+    )
+    assert session_compatibility_revision(manifest, "dreamer") == (
+        "07d8a1396abb6070fd577721bb3aecdbe21233fac3332daa2e10e0cb4a5793c4"
+    )
+    previous_recaller = {**manifest}
+    previous_recaller_roles = dict(
+        cast("dict[str, object]", previous_recaller["role_contract_revisions"])
+    )
+    previous_recaller_roles["recaller"] = "jarvis-recaller-slice-4-v10"
+    previous_recaller["role_contract_revisions"] = previous_recaller_roles
+    assert session_compatibility_revision(previous_recaller, "recaller") == (
+        "f2af5c739f4277c72c139236d411148a62d13c0e1dd0cb0fe158b933c4acca59"
+    )
+    for role in ("main", "rememberer", "dreamer", "automatic_write_gate"):
+        assert session_compatibility_revision(previous_recaller, role) == (
+            session_compatibility_revision(manifest, role)
+        )
     assert manifest["dependencies"] == {
         "llm-agent-kernel": "670da13ff0cfe766f36d8966e0575db0f7525143",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",

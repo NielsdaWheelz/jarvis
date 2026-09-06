@@ -6,12 +6,25 @@ import argparse
 import asyncio
 import logging
 import stat
-from collections.abc import Sequence
-from contextlib import AsyncExitStack
+from collections.abc import AsyncIterator, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
+from llm_agent_kernel import (
+    AdmissionGranted,
+    AdmissionRequest,
+    AdmissionToken,
+    AdmissionUsage,
+    CancellationToken,
+    ProviderUsage,
+    RunId,
+    ThreadId,
+)
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.admission import (
     RollingAdmissionPort,
@@ -20,11 +33,14 @@ from jarvis.admission import (
 )
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
-from jarvis.definitions import build_slice3_definitions
+from jarvis.definitions import (
+    Slice4Definitions,
+    build_slice4_definitions,
+)
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import KernelRuntime, build_kernel_runtime
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
@@ -32,15 +48,99 @@ from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
-from jarvis.service import JarvisService, JarvisThreadRunner, RemembererWorker
+from jarvis.rebuild import (
+    DerivedMemoryCorpusRebuild,
+    DreamMutationProgress,
+    PostgresRebuildStore,
+    corpus_rebuild_admission_limits,
+    rebuild_memory_corpus,
+)
+from jarvis.service import (
+    BackgroundDeferred,
+    DreamerRunCompleted,
+    DreamerWorker,
+    JarvisService,
+    JarvisThreadRunner,
+    RemembererWorker,
+)
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
 LOGGER = logging.getLogger(__name__)
 
+_MAXIMUM_REBUILD_MEMORY_ROWS = 10_000
+
 
 class StartupDefect(RuntimeError):
     """The configured private runtime layout is unsafe or incomplete."""
+
+
+@dataclass(frozen=True, slots=True)
+class _IsolatedMemoryRuntime:
+    admission: RootTrackingAdmissionPort
+    definitions: Slice4Definitions
+    dreamer: DreamerWorker
+    embedder: OpenAIEmbedder
+    kernel: KernelRuntime
+    memory: MemoryStore
+
+
+@asynccontextmanager
+async def _isolated_memory_runtime(
+    *,
+    settings: Settings,
+    engine: AsyncEngine,
+    admission: RootTrackingAdmissionPort,
+) -> AsyncIterator[_IsolatedMemoryRuntime]:
+    async with httpx.AsyncClient(
+        trust_env=False,
+        follow_redirects=False,
+    ) as http:
+        memory = MemoryStore(engine)
+        embedder = OpenAIEmbedder(
+            settings.embedding_openai_api_key,
+            http_client=http,
+        )
+        catalog = build_slice3_catalog(
+            settings=settings,
+            google_oauth_http=http,
+            google_api_http=http,
+            maps_http=http,
+            brave_http=http,
+            memory_repository=PostgresMemoryRepository(engine),
+            memory_embedder=embedder,
+        )
+        definitions = build_slice4_definitions(
+            catalog=catalog,
+            profile_key=settings.codex_profile_key,
+            model=settings.codex_model,
+            owner_timezone=settings.owner_timezone,
+        )
+        kernel = build_kernel_runtime(
+            provider_state_root=settings.codex_state_root,
+            private_cwd_parent=settings.provider_cwd_parent,
+            session_ref_path=settings.session_reference_path,
+            model=settings.codex_model,
+            kernel_limits=definitions.main.limits,
+        )
+        try:
+            yield _IsolatedMemoryRuntime(
+                admission=admission,
+                definitions=definitions,
+                dreamer=DreamerWorker(
+                    definition=definitions.dreamer,
+                    plan=definitions.plans["dreamer"],
+                    admission=admission,
+                    provider=kernel.provider,
+                    dispatcher_factory=MemoryToolDispatcher,
+                    memory=memory,
+                ),
+                embedder=embedder,
+                kernel=kernel,
+                memory=memory,
+            )
+        finally:
+            await kernel.close()
 
 
 def _private_directory(path: Path, name: str) -> None:
@@ -141,7 +241,7 @@ async def serve(settings: Settings) -> None:
                         memory_repository=PostgresMemoryRepository(engine),
                         memory_embedder=embedder,
                     )
-                    definitions = build_slice3_definitions(
+                    definitions = build_slice4_definitions(
                         catalog=catalog,
                         profile_key=settings.codex_profile_key,
                         model=settings.codex_model,
@@ -168,6 +268,14 @@ async def serve(settings: Settings) -> None:
                         embedder=embedder,
                         maximum_messages_per_group=settings.maximum_batch_size,
                     )
+                    dreamer = DreamerWorker(
+                        definition=definitions.dreamer,
+                        plan=definitions.plans["dreamer"],
+                        admission=admission,
+                        provider=kernel_runtime.provider,
+                        dispatcher_factory=MemoryToolDispatcher,
+                        memory=memory,
+                    )
                     runner = JarvisThreadRunner(
                         settings=settings,
                         store=store,
@@ -192,6 +300,7 @@ async def serve(settings: Settings) -> None:
                         delivery=delivery,
                         runner=runner,
                         background=rememberer,
+                        dreamer=dreamer,
                     )
 
                     async def ready() -> None:
@@ -261,11 +370,132 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
         await engine.dispose()
 
 
+async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
+    """Run one operator-requested dream while the service is stopped."""
+    _validate_runtime_layout(settings)
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine):
+            if await MemoryStore(engine).raw_memory_count() == 0:
+                return None
+            limits = slice3_admission_limits(settings.maximum_batch_size)
+            admission_store = RollingAdmissionPort(
+                settings.admission_journal_path,
+                limits,
+            )
+            await admission_store.recover_orphans()
+            admission = RootTrackingAdmissionPort(admission_store)
+            async with _isolated_memory_runtime(
+                settings=settings,
+                engine=engine,
+                admission=admission,
+            ) as runtime:
+                outcome = await runtime.dreamer.run_at(
+                    as_of=datetime.now(UTC),
+                    cancellation=CancellationToken(),
+                )
+            if isinstance(outcome, BackgroundDeferred):
+                raise RuntimeError("manual dream is deferred by rolling admission")
+            if not isinstance(outcome, DreamerRunCompleted):
+                raise RuntimeError("manual dream did not complete")
+            return outcome
+    finally:
+        await engine.dispose()
+
+
+async def rebuild_memory(
+    settings: Settings,
+) -> DerivedMemoryCorpusRebuild:
+    """Rebuild the deployment's derived memory while the service is stopped."""
+    _validate_runtime_layout(settings)
+    limits = corpus_rebuild_admission_limits()
+    journal_path = settings.runtime_state_directory / "memory-rebuild-admission.json"
+    engine = create_engine(settings.database_url.get_secret_value())
+    root: AdmissionToken | None = None
+    admission: RootTrackingAdmissionPort | None = None
+    operation_failed = False
+    try:
+        async with deployment_ownership(engine):
+            if not journal_path.exists():
+                RollingAdmissionPort.initialize(journal_path, limits)
+            admission_store = RollingAdmissionPort(journal_path, limits)
+            recovered = await admission_store.recover_orphans()
+            if recovered:
+                LOGGER.warning(
+                    "Recovered interrupted rebuild admission slots: count=%d",
+                    len(recovered),
+                )
+            admission = RootTrackingAdmissionPort(admission_store)
+            reserved = await admission.reserve(
+                AdmissionRequest(
+                    RunId(str(uuid4())),
+                    ThreadId("jarvis-stopped-memory-rebuild"),
+                    1,
+                    1,
+                    1,
+                    1,
+                )
+            )
+            if not isinstance(reserved, AdmissionGranted):
+                raise RuntimeError("stopped rebuild admission is unavailable")
+            root = reserved.token
+            async with _isolated_memory_runtime(
+                settings=settings,
+                engine=engine,
+                admission=admission,
+            ) as runtime:
+
+                async def dream(as_of: datetime) -> DreamMutationProgress:
+                    assert root is not None
+                    outcome = await runtime.dreamer.run_at(
+                        as_of=as_of,
+                        cancellation=CancellationToken(),
+                        parent_admission=root,
+                    )
+                    if not isinstance(outcome, DreamerRunCompleted):
+                        raise RuntimeError("rebuild dreamer did not complete")
+                    return DreamMutationProgress(
+                        len(outcome.created_summary_ids),
+                        len(outcome.removed_summary_ids),
+                    )
+
+                result = await rebuild_memory_corpus(
+                    store=PostgresRebuildStore(engine),
+                    embedder=runtime.embedder,
+                    dream_once=dream,
+                    maximum_memory_rows=_MAXIMUM_REBUILD_MEMORY_ROWS,
+                    as_of=datetime.now(UTC),
+                )
+        return result
+    except BaseException:
+        operation_failed = True
+        raise
+    finally:
+        if root is not None and admission is not None:
+            try:
+                await admission.settle(
+                    root,
+                    AdmissionUsage(0, ProviderUsage(), 0.0),
+                )
+            except BaseException:
+                if not operation_failed:
+                    raise
+                LOGGER.warning(
+                    "Rebuild admission settlement also failed; recovery is required"
+                )
+        await engine.dispose()
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the Jarvis Discord service")
     commands.add_parser("initialize-state", help="initialize private host state")
+    commands.add_parser("dream", help="run one isolated dream while stopped")
+    commands.add_parser(
+        "rebuild-memory",
+        help="rebuild all derived memory while stopped",
+    )
     release = commands.add_parser(
         "release-parked",
         help="release explicitly named parked input after operator correction",
@@ -284,6 +514,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             asyncio.run(serve(settings))
         elif arguments.command == "initialize-state":
             initialize_state(settings)
+        elif arguments.command == "dream":
+            result = asyncio.run(dream_once(settings))
+            if result is None:
+                print("Dream skipped: no raw memory.")
+            else:
+                print(
+                    "Dream completed: "
+                    f"inserted={len(result.created_summary_ids)} "
+                    f"removed={len(result.removed_summary_ids)}."
+                )
+        elif arguments.command == "rebuild-memory":
+            result = asyncio.run(rebuild_memory(settings))
+            print(
+                "Memory rebuild completed: "
+                f"raw={result.raw_memory_count} "
+                f"summaries={result.summaries_after}."
+            )
         elif arguments.command == "release-parked":
             message_ids = tuple(arguments.message_ids)
             if len(set(message_ids)) != len(message_ids):
@@ -301,4 +548,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["StartupDefect", "initialize_state", "main", "release_parked", "serve"]
+__all__ = [
+    "StartupDefect",
+    "dream_once",
+    "initialize_state",
+    "main",
+    "rebuild_memory",
+    "release_parked",
+    "serve",
+]

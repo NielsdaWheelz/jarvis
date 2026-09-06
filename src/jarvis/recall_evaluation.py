@@ -6,7 +6,7 @@ import json
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -81,6 +81,17 @@ class RecallObservation(_StrictModel):
     search_calls: int = Field(ge=0, le=8)
 
 
+class PostRebuildSummary(_StrictModel):
+    id: UUID
+    source_memory_ids: tuple[UUID, ...] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique_raw_lineage(self) -> PostRebuildSummary:
+        if len(set(self.source_memory_ids)) != len(self.source_memory_ids):
+            raise ValueError("post-rebuild summary lineage must be unique")
+        return self
+
+
 class CaseScore(_StrictModel):
     id: str
     selected_pass: bool
@@ -98,6 +109,15 @@ class RecallScore(_StrictModel):
     search_passed: int
     passed: int
     total: int
+
+
+SEEDED_S01_ID: Final = UUID("10000000-0000-4000-8000-000000000001")
+S01_RAW_LINEAGE: Final = frozenset(
+    {
+        UUID("00000000-0000-4000-8000-000000000011"),
+        UUID("00000000-0000-4000-8000-000000000012"),
+    }
+)
 
 
 def load_recall_set(
@@ -119,6 +139,61 @@ def load_observations(path: Path) -> tuple[RecallObservation, ...]:
     if len({item.id for item in observations}) != len(observations):
         raise ValueError("recall observations contain duplicate case IDs")
     return observations
+
+
+def load_post_rebuild_summaries(path: Path) -> tuple[PostRebuildSummary, ...]:
+    summaries = tuple(
+        PostRebuildSummary.model_validate(value) for value in _json_lines(path)
+    )
+    if len({item.id for item in summaries}) != len(summaries):
+        raise ValueError("post-rebuild summaries contain duplicate IDs")
+    return summaries
+
+
+def bind_post_rebuild_s01(
+    cases: tuple[RecallCase, ...],
+    summaries: tuple[PostRebuildSummary, ...],
+) -> tuple[RecallCase, ...]:
+    """Bind seeded S01 requirements to one regenerated summary by raw lineage."""
+    if len({item.id for item in summaries}) != len(summaries):
+        raise ValueError("post-rebuild summaries contain duplicate IDs")
+    matches = tuple(
+        item
+        for item in summaries
+        if frozenset(item.source_memory_ids) == S01_RAW_LINEAGE
+    )
+    if len(matches) != 1:
+        raise ValueError(
+            "post-rebuild S01 requires exactly one summary with the frozen raw lineage"
+        )
+    regenerated_id = matches[0].id
+    raw_requirement_ids = {
+        identity
+        for case in cases
+        for identity in (*case.must_select_ids, *case.must_open_ids)
+        if identity != SEEDED_S01_ID
+    }
+    if regenerated_id in raw_requirement_ids:
+        raise ValueError("post-rebuild summary ID conflicts with a frozen raw identity")
+
+    bound: list[RecallCase] = []
+    replacements = 0
+    for case in cases:
+        selected_ids = tuple(
+            regenerated_id if identity == SEEDED_S01_ID else identity
+            for identity in case.must_select_ids
+        )
+        replacements += sum(
+            identity == SEEDED_S01_ID for identity in case.must_select_ids
+        )
+        bound.append(
+            RecallCase.model_validate(
+                {**case.model_dump(), "must_select_ids": selected_ids}
+            )
+        )
+    if replacements == 0:
+        raise ValueError("frozen recall cases do not reference seeded S01")
+    return tuple(bound)
 
 
 def score_recall(
@@ -226,12 +301,17 @@ def _validate_recall_set(
 
 
 __all__ = [
+    "S01_RAW_LINEAGE",
+    "SEEDED_S01_ID",
     "CaseScore",
+    "PostRebuildSummary",
     "RecallCase",
     "RecallFixture",
     "RecallObservation",
     "RecallScore",
+    "bind_post_rebuild_s01",
     "load_observations",
+    "load_post_rebuild_summaries",
     "load_recall_set",
     "score_recall",
 ]

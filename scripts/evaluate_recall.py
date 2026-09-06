@@ -7,7 +7,13 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from jarvis.recall_evaluation import load_observations, load_recall_set, score_recall
+from jarvis.recall_evaluation import (
+    bind_post_rebuild_s01,
+    load_observations,
+    load_post_rebuild_summaries,
+    load_recall_set,
+    score_recall,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORIES = ROOT / "eval" / "recall-memories.jsonl"
@@ -17,12 +23,21 @@ CASES = ROOT / "eval" / "recall.jsonl"
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--observations", type=Path)
+    parser.add_argument("--post-rebuild-summaries", type=Path)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = _parser().parse_args(argv)
+    parser = _parser()
+    arguments = parser.parse_args(argv)
     memories, cases = load_recall_set(MEMORIES, CASES)
+    if arguments.post_rebuild_summaries is not None:
+        if arguments.observations is None:
+            parser.error("--post-rebuild-summaries requires --observations")
+        cases = bind_post_rebuild_s01(
+            cases,
+            load_post_rebuild_summaries(arguments.post_rebuild_summaries),
+        )
     if arguments.observations is None:
         print(
             json.dumps(

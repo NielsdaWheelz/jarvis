@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import RowMapping, and_, func, insert, not_, or_, select, update
+from sqlalchemy import RowMapping, and_, delete, func, insert, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from jarvis.db import memory_log, memory_summary, message
@@ -21,6 +21,9 @@ MemoryTableKind = Literal["memory_log", "memory_summary"]
 _MAX_TRACE_BYTES = 16_384
 _MAX_MEMORY_TEXT_BYTES = 8_000
 _MAX_REMEMBERED_MEMORIES = 20
+_MAX_SUMMARY_INSERTIONS = 50
+_MAX_SUMMARY_REMOVALS = 100
+_MAX_SUMMARY_LINEAGE_IDS = 100
 _MAX_RUN_ID_CHARACTERS = 256
 _MAX_PROVIDER_TRACE_IDS = 16
 _MAX_PROVIDER_TRACE_ID_CHARACTERS = 256
@@ -174,11 +177,231 @@ class RemembererCommit:
     remembered_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class SummaryInsertionCandidate:
+    text: str
+    source_memory_ids: tuple[UUID, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryMutationBatch:
+    insertions: tuple[SummaryInsertionCandidate, ...]
+    remove_summary_ids: tuple[UUID, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryMutationCommit:
+    created: tuple[StoredMemorySummary, ...]
+    removed_summary_ids: tuple[UUID, ...]
+    committed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedMemoryWipe:
+    raw_embeddings_cleared: int
+    summary_embeddings_cleared: int
+    summaries_deleted: int
+
+
 class MemoryStore:
     """Direct PostgreSQL operations for canonical and derived memory state."""
 
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
+
+    async def raw_memory_count(self) -> int:
+        async with self._engine.connect() as connection:
+            value = await connection.scalar(
+                select(func.count()).select_from(memory_log)
+            )
+        if value is None:
+            raise MemoryPersistenceDefect("raw memory count returned no value")
+        return value
+
+    async def summary_count(self) -> int:
+        async with self._engine.connect() as connection:
+            value = await connection.scalar(
+                select(func.count()).select_from(memory_summary)
+            )
+        if value is None:
+            raise MemoryPersistenceDefect("summary count returned no value")
+        return value
+
+    async def apply_summary_mutations(
+        self,
+        *,
+        batch: SummaryMutationBatch,
+        committed_at: datetime | None = None,
+    ) -> SummaryMutationCommit:
+        if len(batch.insertions) > _MAX_SUMMARY_INSERTIONS:
+            raise ValueError("dream result exceeds the summary insertion bound")
+        if len(batch.remove_summary_ids) > _MAX_SUMMARY_REMOVALS:
+            raise ValueError("dream result exceeds the summary removal bound")
+        _unique_ids(batch.remove_summary_ids, "summary removal")
+        for candidate in batch.insertions:
+            _summary_text(candidate.text)
+            _unique_nonempty_ids(candidate.source_memory_ids, "summary source")
+            if len(candidate.source_memory_ids) > _MAX_SUMMARY_LINEAGE_IDS:
+                raise ValueError("summary lineage exceeds the 100-ID bound")
+        if len({candidate.text for candidate in batch.insertions}) != len(
+            batch.insertions
+        ):
+            raise ValueError("dream result contains duplicate summary text")
+        lineages = tuple(
+            tuple(sorted(candidate.source_memory_ids)) for candidate in batch.insertions
+        )
+        if len(set(lineages)) != len(lineages):
+            raise ValueError("dream result contains duplicate summary lineage")
+
+        completed_at = committed_at or datetime.now(UTC)
+        _aware(completed_at, "summary mutation completion time")
+        source_ids = tuple(
+            dict.fromkeys(source_id for lineage in lineages for source_id in lineage)
+        )
+        new_ids = tuple(uuid4() for _ in batch.insertions)
+
+        async with self._engine.begin() as connection:
+            raw_ids = set(
+                (
+                    await connection.execute(
+                        select(memory_log.c.id).where(memory_log.c.id.in_(source_ids))
+                    )
+                ).scalars()
+                if source_ids
+                else ()
+            )
+            summary_ids_to_lock = tuple(
+                dict.fromkeys((*source_ids, *batch.remove_summary_ids))
+            )
+            current_summary_ids = set(
+                (
+                    await connection.execute(
+                        select(memory_summary.c.id)
+                        .where(memory_summary.c.id.in_(summary_ids_to_lock))
+                        .with_for_update()
+                    )
+                ).scalars()
+                if summary_ids_to_lock
+                else ()
+            )
+            if set(batch.remove_summary_ids) - current_summary_ids:
+                raise MemoryPersistenceDefect(
+                    "dream result references a stale summary removal"
+                )
+            if set(source_ids) & current_summary_ids:
+                raise MemoryPersistenceDefect(
+                    "dream result lineage contains a summary identity"
+                )
+            if set(source_ids) - raw_ids:
+                raise MemoryPersistenceDefect(
+                    "dream result references missing memory lineage"
+                )
+
+            if batch.insertions:
+                duplicate_lineage_ids = set(
+                    (
+                        await connection.execute(
+                            select(memory_summary.c.id)
+                            .where(
+                                memory_summary.c.source_memory_ids.in_(
+                                    [list(lineage) for lineage in lineages]
+                                )
+                            )
+                            .with_for_update()
+                        )
+                    ).scalars()
+                ) - set(batch.remove_summary_ids)
+                if duplicate_lineage_ids:
+                    raise MemoryPersistenceDefect(
+                        "dream result duplicates existing summary lineage"
+                    )
+                duplicate_text_ids = set(
+                    (
+                        await connection.execute(
+                            select(memory_summary.c.id).where(
+                                memory_summary.c.text.in_(
+                                    candidate.text for candidate in batch.insertions
+                                )
+                            )
+                        )
+                    ).scalars()
+                ) - set(batch.remove_summary_ids)
+                if duplicate_text_ids:
+                    raise MemoryPersistenceDefect(
+                        "dream result duplicates existing summary text"
+                    )
+
+            if batch.remove_summary_ids:
+                await connection.execute(
+                    delete(memory_summary).where(
+                        memory_summary.c.id.in_(batch.remove_summary_ids)
+                    )
+                )
+            if batch.insertions:
+                await connection.execute(
+                    insert(memory_summary),
+                    [
+                        {
+                            "id": summary_id,
+                            "text": candidate.text,
+                            "source_memory_ids": list(lineage),
+                            "created_at": completed_at,
+                            "embedding": None,
+                        }
+                        for summary_id, candidate, lineage in zip(
+                            new_ids,
+                            batch.insertions,
+                            lineages,
+                            strict=True,
+                        )
+                    ],
+                )
+                created_rows = (
+                    (
+                        await connection.execute(
+                            select(memory_summary).where(
+                                memory_summary.c.id.in_(new_ids)
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            else:
+                created_rows = ()
+        created_by_id = {
+            cast(UUID, row["id"]): _stored_memory_summary(row) for row in created_rows
+        }
+        return SummaryMutationCommit(
+            created=tuple(created_by_id[summary_id] for summary_id in new_ids),
+            removed_summary_ids=batch.remove_summary_ids,
+            committed_at=completed_at,
+        )
+
+    async def wipe_derived_memory(self) -> DerivedMemoryWipe:
+        async with self._engine.begin() as connection:
+            summary_embeddings_cleared = (
+                await connection.execute(
+                    update(memory_summary)
+                    .where(memory_summary.c.embedding.is_not(None))
+                    .values(embedding=None)
+                )
+            ).rowcount
+            raw_embeddings_cleared = (
+                await connection.execute(
+                    update(memory_log)
+                    .where(memory_log.c.embedding.is_not(None))
+                    .values(embedding=None)
+                )
+            ).rowcount
+            summaries_deleted = (
+                await connection.execute(delete(memory_summary))
+            ).rowcount
+        return DerivedMemoryWipe(
+            raw_embeddings_cleared=raw_embeddings_cleared,
+            summary_embeddings_cleared=summary_embeddings_cleared,
+            summaries_deleted=summaries_deleted,
+        )
 
     async def prepare_rememberer_group(
         self,
@@ -696,6 +919,21 @@ def _accepted_memories(
     return tuple(accepted), tuple(rejected)
 
 
+def _summary_text(value: str) -> None:
+    if not value.strip():
+        raise ValueError("summary text must be a non-empty string")
+    try:
+        encoded = value.encode()
+    except UnicodeEncodeError:
+        raise ValueError("summary text must be valid UTF-8") from None
+    if len(encoded) > _MAX_MEMORY_TEXT_BYTES:
+        raise ValueError("summary text exceeds the 8000-byte storage bound")
+    if _PRIVATE_KEY_BLOCK.search(value) is not None:
+        raise ValueError("summary text contains private-key material")
+    if _KNOWN_TOKEN_PREFIX.search(value) is not None:
+        raise ValueError("summary text contains known-token material")
+
+
 def _stored_raw_memory(row: RowMapping) -> StoredRawMemory:
     return StoredRawMemory(
         id=cast(UUID, row["id"]),
@@ -750,9 +988,20 @@ def _bounded_trace(value: dict[str, object]) -> None:
         raise MemoryPersistenceDefect("rememberer trace exceeds its storage bound")
 
 
-def _unique_nonempty_ids(values: tuple[UUID, ...], name: str) -> None:
-    if not values or len(set(values)) != len(values):
+def _unique_nonempty_ids(values: Sequence[object], name: str) -> None:
+    if (
+        not values
+        or any(not isinstance(item, UUID) for item in values)
+        or len(set(values)) != len(values)
+    ):
         raise ValueError(f"{name} IDs must be non-empty and unique")
+
+
+def _unique_ids(values: Sequence[object], name: str) -> None:
+    if any(not isinstance(item, UUID) for item in values) or len(set(values)) != len(
+        values
+    ):
+        raise ValueError(f"{name} IDs must be unique canonical UUID values")
 
 
 def _aware(value: datetime, name: str) -> None:
@@ -779,6 +1028,7 @@ def _nonnegative(value: int, name: str) -> int:
 
 
 __all__ = [
+    "DerivedMemoryWipe",
     "MemoryIdentity",
     "MemoryPersistenceDefect",
     "MemoryStore",
@@ -792,4 +1042,7 @@ __all__ = [
     "StoredMemory",
     "StoredMemorySummary",
     "StoredRawMemory",
+    "SummaryInsertionCandidate",
+    "SummaryMutationBatch",
+    "SummaryMutationCommit",
 ]

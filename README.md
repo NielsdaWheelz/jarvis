@@ -5,10 +5,11 @@ configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and develops durable memory through a simple remember/retrieve/dream loop.
 
-This repository is specification-first. Slice 3 implements the bounded
+This repository is specification-first. Slice 4 implements the bounded
 conversation skeleton, automatic Gmail, Calendar, Maps, and public-Web reads,
-and permanent raw memory with isolated recall and remembering. Summary writing,
-writes, approvals, and scheduled wakes remain intentionally absent.
+permanent raw memory with isolated recall and remembering, and disposable
+lineage-grounded summaries with stopped rebuild. External writes, approvals,
+and scheduled wakes remain intentionally absent.
 
 ## V1 in one paragraph
 
@@ -57,14 +58,14 @@ ADR that also updates every affected normative document in the same change.
 ## Status
 
 - Baseline date: 2026-09-05
-- Status: v1 specification frozen; Slices 0 through 3 complete and qualified;
+- Status: v1 specification frozen; Slices 0 through 4 complete and qualified;
   later slices remain intentionally absent
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 
-## Slice 3 development
+## Slice 4 development
 
 Development requires Python 3.12, `uv` 0.11.28, Docker, and PostgreSQL with the
 `vector` extension. Start the pinned database image, create a disposable test
@@ -148,6 +149,10 @@ These are accepted knowingly, not overlooked.
   context bootstrap, and no cost saving is guaranteed. Rotating or discarding
   Jarvis's local reference does not prove deletion of provider-retained session
   data.
+- Dreaming runs from a process-local 24-hour timer. It can drift or miss runs
+  across downtime; raw memory remains searchable and one stopped manual command
+  is available. Summary creation and full rebuild add metered Terra and embedding
+  work, while nullable derived vectors remain possible during ordinary outages.
 - Extracting the generic run loop adds a third pinned local-library boundary.
   It also required a small `llm-tools` public-API upgrade. In return,
   crash/race semantics, strict protocol handling, provider

@@ -424,6 +424,12 @@ Only one dreamer runs at once. It yields the execution mutex when owner input is
 waiting. Missing a dream run cannot break conversational correctness because raw
 memory remains directly searchable.
 
+The process-local timer waits 24 hours by default before its first attempt and
+has no durable scheduling row. Manual dreaming and full derived-memory rebuild
+reuse deployment ownership and therefore refuse to overlap the service. Once a
+validated mutation batch enters its short database transaction, foreground work
+waits for that transaction to commit or roll back atomically.
+
 ## Tool execution
 
 The complete tool manifest and authority classification live in
@@ -442,11 +448,11 @@ Capability plans are closed by role:
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
 
-The implemented Slice 2 catalog is the expected prefix of that v1 manifest: it
-contains exactly the nine Gmail, Calendar, Maps, and public-Web reads and no
-writes, memory, scheduling, or Discord tool. Both its interactive and
-scheduled-wake plans expose those same nine reads. Later unimplemented entries
-are unavailable product scope, not dead bindings in a published plan.
+The implemented Slice 4 catalog contains exactly the nine Gmail, Calendar, Maps,
+and public-Web reads plus `memory.search` and `memory.open`. Main and the dormant
+scheduled-wake plan expose only the nine external reads. Recaller, rememberer,
+and dreamer expose only the two memory reads. External writes and scheduling are
+unavailable product scope, not dead bindings in a published plan.
 
 The host:
 

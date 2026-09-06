@@ -217,3 +217,195 @@ async def test_memory_log_triggers_are_enabled(engine: AsyncEngine) -> None:
         ("memory_log_append_only", "O"),
         ("memory_log_no_truncate", "O"),
     }
+
+
+async def test_runtime_role_summary_privileges_are_exact(
+    engine: AsyncEngine,
+) -> None:
+    async with engine.connect() as connection:
+        table_privileges = set(
+            (
+                await connection.execute(
+                    text(
+                        "SELECT privilege_type "
+                        "FROM information_schema.table_privileges "
+                        "WHERE table_schema = 'public' "
+                        "AND table_name = 'memory_summary' "
+                        "AND grantee = current_user"
+                    )
+                )
+            ).scalars()
+        )
+        update_privileges = set(
+            (
+                await connection.execute(
+                    text(
+                        "SELECT column_name "
+                        "FROM information_schema.column_privileges "
+                        "WHERE table_schema = 'public' "
+                        "AND table_name = 'memory_summary' "
+                        "AND grantee = current_user "
+                        "AND privilege_type = 'UPDATE'"
+                    )
+                )
+            ).scalars()
+        )
+
+    assert table_privileges == {"DELETE", "INSERT", "SELECT"}
+    assert update_privileges == {"embedding"}
+
+
+async def test_runtime_role_can_replace_summary_and_update_only_embedding(
+    engine: AsyncEngine,
+    migrator_engine: AsyncEngine,
+) -> None:
+    raw_id = uuid4()
+    summary_id = uuid4()
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(memory_log).values(id=raw_id, text="Synthetic summary source.")
+        )
+        await connection.execute(
+            insert(memory_summary).values(
+                id=summary_id,
+                text="Synthetic replaceable summary.",
+                source_memory_ids=[raw_id],
+            )
+        )
+        await connection.execute(
+            update(memory_summary)
+            .where(memory_summary.c.id == summary_id)
+            .values(embedding=[1.0, *([0.0] * 1535)])
+        )
+
+    for statement, parameters in (
+        (
+            "UPDATE memory_summary SET id = :replacement_id WHERE id = :id",
+            {"id": summary_id, "replacement_id": uuid4()},
+        ),
+        (
+            "UPDATE memory_summary SET text = 'changed' WHERE id = :id",
+            {"id": summary_id},
+        ),
+        (
+            "UPDATE memory_summary SET source_memory_ids = ARRAY[:raw_id]::uuid[] "
+            "WHERE id = :id",
+            {"id": summary_id, "raw_id": raw_id},
+        ),
+        (
+            "UPDATE memory_summary SET created_at = CURRENT_TIMESTAMP WHERE id = :id",
+            {"id": summary_id},
+        ),
+        ("TRUNCATE memory_summary", {}),
+    ):
+        with pytest.raises(DBAPIError, match="permission denied"):
+            async with engine.begin() as connection:
+                await connection.execute(text(statement), parameters)
+
+    with pytest.raises(DBAPIError, match="canonical fields are immutable"):
+        async with migrator_engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE memory_summary SET text = 'changed' WHERE id = :id"),
+                {"id": summary_id},
+            )
+    with pytest.raises(DBAPIError, match="cannot be truncated"):
+        async with migrator_engine.begin() as connection:
+            await connection.execute(text("TRUNCATE memory_summary"))
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("DELETE FROM memory_summary WHERE id = :id"),
+            {"id": summary_id},
+        )
+
+
+async def test_summary_trigger_requires_unique_existing_raw_lineage(
+    engine: AsyncEngine,
+) -> None:
+    raw_id = uuid4()
+    summary_id = uuid4()
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(memory_log).values(id=raw_id, text="Synthetic lineage source.")
+        )
+        await connection.execute(
+            insert(memory_summary).values(
+                id=summary_id,
+                text="Synthetic valid lineage summary.",
+                source_memory_ids=[raw_id],
+            )
+        )
+
+    for source_memory_ids in (
+        [raw_id, raw_id],
+        [uuid4()],
+        [summary_id],
+    ):
+        with pytest.raises(DBAPIError, match="unique raw IDs"):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    insert(memory_summary).values(
+                        id=uuid4(),
+                        text=f"Synthetic invalid lineage {uuid4()}.",
+                        source_memory_ids=source_memory_ids,
+                    )
+                )
+
+
+async def test_summary_lineage_is_canonical_and_globally_unique(
+    engine: AsyncEngine,
+) -> None:
+    first, second = sorted((uuid4(), uuid4()))
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(memory_log),
+            [
+                {"id": first, "text": "Synthetic canonical lineage source one."},
+                {"id": second, "text": "Synthetic canonical lineage source two."},
+            ],
+        )
+
+    with pytest.raises(DBAPIError, match="unique raw IDs"):
+        async with engine.begin() as connection:
+            await connection.execute(
+                insert(memory_summary).values(
+                    id=uuid4(),
+                    text="Synthetic noncanonical lineage summary.",
+                    source_memory_ids=[second, first],
+                )
+            )
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(memory_summary).values(
+                id=uuid4(),
+                text="Synthetic canonical lineage summary.",
+                source_memory_ids=[first, second],
+            )
+        )
+    with pytest.raises(DBAPIError, match="uq_memory_summary_source_memory_ids"):
+        async with engine.begin() as connection:
+            await connection.execute(
+                insert(memory_summary).values(
+                    id=uuid4(),
+                    text="Synthetic duplicate canonical lineage summary.",
+                    source_memory_ids=[first, second],
+                )
+            )
+
+
+async def test_memory_summary_triggers_are_enabled(engine: AsyncEngine) -> None:
+    async with engine.connect() as connection:
+        triggers = (
+            await connection.execute(
+                text(
+                    "SELECT tgname, tgenabled FROM pg_trigger "
+                    "WHERE tgrelid = 'memory_summary'::regclass "
+                    "AND NOT tgisinternal"
+                )
+            )
+        ).all()
+    assert set(triggers) == {
+        ("memory_summary_canonical", "O"),
+        ("memory_summary_no_truncate", "O"),
+    }

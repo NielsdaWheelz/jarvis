@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
+    AdmissionToken,
     AgentDefinition,
     CancellationToken,
     DispatchCompleted,
@@ -60,10 +61,12 @@ from jarvis.context import (
     MemoryReadDispatcherPort,
 )
 from jarvis.definitions import (
+    DreamResult,
     RememberResult,
     Slice1Definitions,
     Slice2Definitions,
     Slice3Definitions,
+    Slice4Definitions,
 )
 from jarvis.discord import (
     CatchUpResult,
@@ -79,6 +82,8 @@ from jarvis.memory import (
     RemembererGroup,
     RemembererRunSummary,
     StoredRawMemory,
+    SummaryInsertionCandidate,
+    SummaryMutationBatch,
 )
 from jarvis.messages import InboundInsert, MessageStore, PendingControl, StoredMessage
 from jarvis.settings import Settings
@@ -579,6 +584,162 @@ class RemembererWorker:
             await asyncio.gather(embedding, cancelled, return_exceptions=True)
 
 
+@dataclass(frozen=True, slots=True)
+class DreamerRunCompleted:
+    run_id: RunId
+    created_summary_ids: tuple[UUID, ...]
+    removed_summary_ids: tuple[UUID, ...]
+    metrics: RunMetrics
+
+
+type DreamerRunOutcome = DreamerRunCompleted | BackgroundDeferred | None
+
+
+class DreamerWorker:
+    """Run one isolated summary mutation with a cancellable reasoning boundary."""
+
+    def __init__(
+        self,
+        *,
+        definition: AgentDefinition,
+        plan: FrozenToolPlan,
+        admission: RootTrackingAdmissionPort,
+        provider: ProviderSessionPort,
+        dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
+        memory: MemoryStore,
+    ) -> None:
+        self._definition = definition
+        self._plan = plan
+        self._admission = admission
+        self._provider = provider
+        self._dispatcher_factory = dispatcher_factory
+        self._memory = memory
+        self._commit_in_progress = False
+        self._foreground_waiting = False
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None:
+        if self._commit_in_progress:
+            self._foreground_waiting = True
+        else:
+            cancellation.cancel()
+
+    async def run_one(
+        self,
+        cancellation: CancellationToken,
+    ) -> bool | BackgroundDeferred:
+        outcome = await self.run_at(
+            as_of=datetime.now(UTC),
+            cancellation=cancellation,
+        )
+        if isinstance(outcome, BackgroundDeferred):
+            return outcome
+        return isinstance(outcome, DreamerRunCompleted)
+
+    async def run_at(
+        self,
+        *,
+        as_of: datetime,
+        cancellation: CancellationToken,
+        parent_admission: AdmissionToken | None = None,
+    ) -> DreamerRunOutcome:
+        if cancellation.cancelled or await self._memory.raw_memory_count() == 0:
+            return None
+        limits = self._definition.limits
+        if parent_admission is None:
+            reset_at = await self._admission.preflight_background(
+                maximum_turns=limits.max_provider_turns,
+                maximum_input_tokens=limits.max_provider_input_tokens,
+                maximum_output_tokens=limits.max_provider_output_tokens,
+            )
+            if reset_at is not None:
+                return BackgroundDeferred(reset_at)
+        run_id = RunId(str(uuid4()))
+        job_input = HostInput(
+            InputId(str(uuid4())),
+            PromptSections(
+                (
+                    PromptSection(
+                        PromptSectionKind("dream_job"),
+                        (),
+                        PromptText("Run one bounded memory-summary maintenance pass."),
+                    ),
+                )
+            ),
+            as_of,
+        )
+        dispatcher = self._dispatcher_factory()
+        try:
+            outcome = await run_one_shot(
+                run_id=run_id,
+                definition=self._definition,
+                inputs=(job_input,),
+                as_of=as_of,
+                plan=self._plan,
+                source_sections=PromptSections(()),
+                admission=self._admission,
+                provider=self._provider,
+                dispatcher=dispatcher,
+                budget_factory=ExactToolBudgetFactory(),
+                parent_admission=parent_admission,
+                cancellation=cancellation,
+            )
+        except Exception:
+            return None
+        if (
+            not isinstance(outcome, OneShotCompleted)
+            or cancellation.cancelled
+            or dispatcher.evidence.search_calls == 0
+        ):
+            return None
+        try:
+            result = DreamResult.model_validate(outcome.result)
+            batch = SummaryMutationBatch(
+                insertions=tuple(
+                    SummaryInsertionCandidate(
+                        text=item.text,
+                        source_memory_ids=tuple(
+                            UUID(identity) for identity in item.source_memory_ids
+                        ),
+                    )
+                    for item in result.insertions
+                ),
+                remove_summary_ids=tuple(
+                    UUID(identity) for identity in result.remove_summary_ids
+                ),
+            )
+        except (TypeError, ValueError):
+            return None
+        if cancellation.cancelled:
+            return None
+        self._commit_in_progress = True
+        self._foreground_waiting = False
+        commit = None
+        try:
+            commit = await self._memory.apply_summary_mutations(batch=batch)
+        except Exception:
+            pass
+        finally:
+            self._commit_in_progress = False
+            if self._foreground_waiting:
+                cancellation.cancel()
+            self._foreground_waiting = False
+        if commit is None:
+            return None
+        completed = DreamerRunCompleted(
+            run_id=run_id,
+            created_summary_ids=tuple(item.id for item in commit.created),
+            removed_summary_ids=commit.removed_summary_ids,
+            metrics=outcome.metrics,
+        )
+        LOGGER.info(
+            "Dreamer completed: turns=%d inserted=%d removed=%d",
+            completed.metrics.provider_turns,
+            len(completed.created_summary_ids),
+            len(completed.removed_summary_ids),
+        )
+        return completed
+
+
 def _recalled_id_sections(group: RemembererGroup) -> PromptSections:
     identities: list[dict[str, str]] = []
     for target in group.targets:
@@ -638,7 +799,12 @@ class JarvisThreadRunner:
         store: MessageStore,
         admission: RollingAdmissionPort | RootTrackingAdmissionPort,
         kernel_runtime: KernelRuntime,
-        definitions: Slice1Definitions | Slice2Definitions | Slice3Definitions,
+        definitions: (
+            Slice1Definitions
+            | Slice2Definitions
+            | Slice3Definitions
+            | Slice4Definitions
+        ),
         history: PostgresCanonicalHistory,
         dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
         memory: MemoryStore | None = None,
@@ -655,14 +821,14 @@ class JarvisThreadRunner:
         self._memory = memory
         self._memory_dispatcher_factory = memory_dispatcher_factory
         self._rememberer = rememberer
-        if isinstance(definitions, Slice3Definitions) and (
+        if isinstance(definitions, Slice3Definitions | Slice4Definitions) and (
             not isinstance(admission, RootTrackingAdmissionPort)
             or memory is None
             or memory_dispatcher_factory is None
             or rememberer is None
         ):
             raise ValueError(
-                "Slice 3 runner requires complete isolated memory composition"
+                "memory-enabled runner requires complete isolated memory composition"
             )
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint: PostgresInputCheckpoint | None = None
@@ -726,7 +892,7 @@ class JarvisThreadRunner:
             on_settlement=on_settlement,
         )
         recaller = None
-        if isinstance(self._definitions, Slice3Definitions):
+        if isinstance(self._definitions, Slice3Definitions | Slice4Definitions):
             assert isinstance(self._admission, RootTrackingAdmissionPort)
             assert self._memory is not None
             assert self._memory_dispatcher_factory is not None
@@ -852,8 +1018,10 @@ class JarvisService:
         delivery: CreateMessagePort,
         runner: ThreadRunner,
         background: BackgroundWorkerPort | None = None,
+        dreamer: BackgroundWorkerPort | None = None,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -861,15 +1029,20 @@ class JarvisService:
         self._delivery = delivery
         self._runner = runner
         self._background = background
+        self._dreamer = dreamer
         self._gateway = gateway
         self._sleep = sleep
+        self._dream_sleep = dream_sleep
         self._work = asyncio.Event()
         self._shutdown = asyncio.Event()
         self._execution_mutex = asyncio.Lock()
         self._active_lock = asyncio.Lock()
         self._active_cancellation: CancellationToken | None = None
+        self._active_background: BackgroundWorkerPort | None = None
         self._background_cancellation: CancellationToken | None = None
         self._reset_task: asyncio.Task[None] | None = None
+        self._dream_timer_task: asyncio.Task[None] | None = None
+        self._dream_due = False
 
     def bind_gateway(self, gateway: GatewayPort) -> None:
         """Resolve the one callback cycle between the service and Gateway."""
@@ -900,8 +1073,9 @@ class JarvisService:
 
             active = self._active_cancellation
             background = self._background_cancellation
-            if background is not None and self._background is not None:
-                self._background.request_interrupt(background)
+            background_worker = self._active_background
+            if background is not None and background_worker is not None:
+                background_worker.request_interrupt(background)
             if incoming.control in {Control.STOP, Control.PAUSE}:
                 await self._paused.set_paused(True)
                 if active is not None:
@@ -952,10 +1126,24 @@ class JarvisService:
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
-        while not self._shutdown.is_set():
-            await self._work.wait()
-            self._work.clear()
-            await self._drain()
+        if self._dreamer is not None:
+            self._dream_timer_task = asyncio.create_task(
+                self._dream_timer(),
+                name="jarvis-dream-timer",
+            )
+        try:
+            while not self._shutdown.is_set():
+                await self._work.wait()
+                self._work.clear()
+                await self._drain()
+        finally:
+            if self._dream_timer_task is not None:
+                self._dream_timer_task.cancel()
+                await asyncio.gather(
+                    self._dream_timer_task,
+                    return_exceptions=True,
+                )
+                self._dream_timer_task = None
 
     def request_work(self) -> None:
         self._work.set()
@@ -963,10 +1151,15 @@ class JarvisService:
     def request_shutdown(self) -> None:
         self._shutdown.set()
         self._work.set()
-        if self._background_cancellation is not None and self._background is not None:
-            self._background.request_interrupt(self._background_cancellation)
+        if (
+            self._background_cancellation is not None
+            and self._active_background is not None
+        ):
+            self._active_background.request_interrupt(self._background_cancellation)
         if self._reset_task is not None:
             self._reset_task.cancel()
+        if self._dream_timer_task is not None:
+            self._dream_timer_task.cancel()
 
     async def _drain(self) -> None:
         async with self._execution_mutex:
@@ -1038,11 +1231,20 @@ class JarvisService:
                     self._schedule_reset(outcome.until)
                     return
                 if isinstance(outcome, ThreadNoWork):
-                    background = await self._run_background_once()
+                    background = await self._run_background_once(self._background)
                     if isinstance(background, BackgroundDeferred):
                         self._schedule_reset(background.until)
                         return
                     if background:
+                        continue
+                    if self._work.is_set() or not self._dream_due:
+                        return
+                    dream = await self._run_background_once(self._dreamer)
+                    if isinstance(dream, BackgroundDeferred):
+                        self._schedule_reset(dream.until)
+                        return
+                    self._dream_due = False
+                    if dream:
                         continue
                     return
                 if (
@@ -1056,23 +1258,36 @@ class JarvisService:
                 ):
                     return
 
-    async def _run_background_once(self) -> bool | BackgroundDeferred:
-        if self._background is None or self._work.is_set():
+    async def _run_background_once(
+        self,
+        worker: BackgroundWorkerPort | None,
+    ) -> bool | BackgroundDeferred:
+        if worker is None or self._work.is_set():
             return False
         cancellation = CancellationToken()
         async with self._active_lock:
+            self._active_background = worker
             self._background_cancellation = cancellation
             if self._work.is_set():
                 cancellation.cancel()
         try:
             try:
-                return await self._background.run_one(cancellation)
+                return await worker.run_one(cancellation)
             except Exception:
                 return False
         finally:
             async with self._active_lock:
                 if self._background_cancellation is cancellation:
                     self._background_cancellation = None
+                    self._active_background = None
+
+    async def _dream_timer(self) -> None:
+        while not self._shutdown.is_set():
+            await self._dream_sleep(self._settings.dream_interval_seconds)
+            if self._shutdown.is_set():
+                return
+            self._dream_due = True
+            self._work.set()
 
     def _schedule_reset(self, reset_at: datetime) -> None:
         delay = max(0.0, (reset_at.astimezone(UTC) - datetime.now(UTC)).total_seconds())
@@ -1095,6 +1310,8 @@ __all__ = [
     "BackgroundDeferred",
     "DeliveryFlushResult",
     "DiscordCursorPort",
+    "DreamerRunCompleted",
+    "DreamerWorker",
     "JarvisService",
     "JarvisThreadRunner",
     "PendingControlPort",

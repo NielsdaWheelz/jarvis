@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the sanitized paid Slice 3 durable-memory end-to-end qualification."""
+"""Run the sanitized paid Slice 4 dreaming-memory end-to-end qualification."""
 
 from __future__ import annotations
 
@@ -40,14 +40,15 @@ from jarvis.db import action, create_engine, memory_log, memory_summary, message
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
-    Slice3Definitions,
-    build_slice3_definitions,
+    SLICE4_DREAM_KERNEL_LIMITS,
+    Slice4Definitions,
+    build_slice4_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import KernelRuntime, build_kernel_runtime
-from jarvis.memory import MemoryIdentity, MemoryStore
+from jarvis.memory import MemoryIdentity, MemoryStore, StoredMemory
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore, StoredMessage
@@ -65,7 +66,12 @@ from jarvis.read_tools import (
     GmailSearchInput,
     GmailSearchSuccess,
 )
-from jarvis.service import JarvisThreadRunner, RemembererWorker
+from jarvis.service import (
+    DreamerRunCompleted,
+    DreamerWorker,
+    JarvisThreadRunner,
+    RemembererWorker,
+)
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL, Settings
 
 _SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
@@ -102,10 +108,38 @@ class RawRow:
 
 
 @dataclass(frozen=True, slots=True)
+class SummaryRow:
+    id: UUID
+    text: str = field(repr=False)
+    source_memory_ids: tuple[UUID, ...]
+    embedding_dimension: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryState:
     raw: tuple[RawRow, ...] = field(repr=False)
     summary_count: int
     action_count: int
+    summaries: tuple[SummaryRow, ...] = field(default=(), repr=False)
+
+
+class _RecordingMemoryStore(MemoryStore):
+    def __init__(self, engine: AsyncEngine) -> None:
+        super().__init__(engine)
+        self.opened_identities: list[MemoryIdentity] = []
+
+    async def open_memories(
+        self,
+        *,
+        identities: tuple[MemoryIdentity, ...],
+        maximum_rows: int,
+    ) -> tuple[StoredMemory, ...]:
+        rows = await super().open_memories(
+            identities=identities,
+            maximum_rows=maximum_rows,
+        )
+        self.opened_identities.extend(row.identity for row in rows)
+        return rows
 
 
 class _TargetRecordingDispatcher:
@@ -170,13 +204,25 @@ def _required(name: str) -> str:
 
 
 def qualification_admission_limits() -> RollingAdmissionLimits:
-    """Bound exactly two one-owner foreground/recaller/rememberer cycles."""
+    """Bound two foreground memory cycles and one isolated Dreamer run."""
     one_cycle = slice3_admission_limits(1)
+    dream_input = SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens
+    dream_output = SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens
     return RollingAdmissionLimits(
         window_seconds=one_cycle.window_seconds,
-        max_turns=2 * one_cycle.max_turns,
-        max_input_tokens=2 * one_cycle.max_input_tokens,
-        max_output_tokens=2 * one_cycle.max_output_tokens,
+        max_turns=(
+            2 * one_cycle.max_turns + SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
+        ),
+        max_input_tokens=(
+            2 * one_cycle.max_input_tokens
+            + dream_input
+            + one_cycle.root_input_token_overshoot
+        ),
+        max_output_tokens=(
+            2 * one_cycle.max_output_tokens
+            + dream_output
+            + one_cycle.root_output_token_overshoot
+        ),
         max_no_progress_attempts=one_cycle.max_no_progress_attempts,
         root_input_token_overshoot=one_cycle.root_input_token_overshoot,
         root_output_token_overshoot=one_cycle.root_output_token_overshoot,
@@ -288,8 +334,8 @@ def validate_first_phase(
 ) -> tuple[frozenset[UUID], dict[str, object]]:
     before_ids = {row.id for row in before.raw}
     created = tuple(row for row in after.raw if row.id not in before_ids)
-    if not created:
-        raise QualificationCheckFailed("first_rememberer_created_no_memory")
+    if len(created) != 1:
+        raise QualificationCheckFailed("first_rememberer_created_not_one_memory")
     if owner.remembered_at is None:
         raise QualificationCheckFailed("first_owner_watermark_missing")
     if after.action_count != 0:
@@ -325,6 +371,40 @@ def validate_first_phase(
     }
 
 
+def new_summaries(before: MemoryState, after: MemoryState) -> tuple[SummaryRow, ...]:
+    before_ids = {row.id for row in before.summaries}
+    return tuple(row for row in after.summaries if row.id not in before_ids)
+
+
+def validate_dream_phase(
+    *,
+    before: MemoryState,
+    after: MemoryState,
+    first_created: frozenset[UUID],
+    required_uris: tuple[str, str],
+) -> tuple[frozenset[UUID], dict[str, object]]:
+    created = new_summaries(before, after)
+    if len(created) != 1:
+        raise QualificationCheckFailed("dreamer_created_not_one_summary")
+    summary = created[0]
+    if frozenset(summary.source_memory_ids) != first_created:
+        raise QualificationCheckFailed("dreamer_summary_lineage_invalid")
+    if summary.embedding_dimension != EMBEDDING_DIMENSION:
+        raise QualificationCheckFailed("dreamer_summary_embedding_invalid")
+    if not all(uri in summary.text for uri in required_uris):
+        raise QualificationCheckFailed("dreamer_summary_missing_linked_matter")
+    if after.action_count != 0 or after.raw != before.raw:
+        raise QualificationCheckFailed("dreamer_changed_canonical_state")
+    return frozenset((summary.id,)), {
+        "action_rows": after.action_count,
+        "created_summary_rows": 1,
+        "flattened_raw_lineage": True,
+        "linked_matter_retained": True,
+        "raw_memory_unchanged": True,
+        "vectors_1536": True,
+    }
+
+
 class ReopenEvidence(Protocol):
     gmail_reopened: bool
     calendar_reopened: bool
@@ -336,7 +416,10 @@ def validate_second_phase(
     after: MemoryState,
     owner: StoredMessage,
     first_created: frozenset[UUID],
+    created_summaries: frozenset[UUID],
     selected: tuple[MemoryIdentity, ...],
+    opened: tuple[MemoryIdentity, ...],
+    answer_text: str,
     dispatcher: ReopenEvidence,
 ) -> dict[str, object]:
     if not any(
@@ -344,6 +427,24 @@ def validate_second_phase(
         for item in selected
     ):
         raise QualificationCheckFailed("fresh_recall_missed_created_memory")
+    if not any(
+        item.table_kind == "memory_summary" and item.id in created_summaries
+        for item in selected
+    ):
+        raise QualificationCheckFailed("fresh_recall_missed_created_summary")
+    summaries = {row.id: row for row in after.summaries if row.id in created_summaries}
+    if set(summaries) != set(created_summaries):
+        raise QualificationCheckFailed("created_summary_missing")
+    required_opened = {
+        MemoryIdentity("memory_summary", summary_id) for summary_id in created_summaries
+    }
+    required_opened.update(
+        MemoryIdentity("memory_log", source_id)
+        for summary in summaries.values()
+        for source_id in summary.source_memory_ids
+    )
+    if not required_opened.issubset(set(opened)):
+        raise QualificationCheckFailed("summary_raw_sources_not_opened")
     if not dispatcher.gmail_reopened:
         raise QualificationCheckFailed("gmail_thread_not_reopened")
     if not dispatcher.calendar_reopened:
@@ -352,20 +453,39 @@ def validate_second_phase(
         raise QualificationCheckFailed("second_owner_watermark_missing")
     if after.action_count != 0:
         raise QualificationCheckFailed("action_row_created")
-    if after.summary_count != 0:
-        raise QualificationCheckFailed("summary_row_created")
+    if after.summary_count != len(created_summaries):
+        raise QualificationCheckFailed("summary_row_count_changed")
     if any(row.embedding_dimension != EMBEDDING_DIMENSION for row in after.raw):
         raise QualificationCheckFailed("memory_embedding_invalid")
     texts = tuple(row.text for row in after.raw)
     if len(texts) != len(set(texts)):
         raise QualificationCheckFailed("duplicate_memory_text")
+    bullet_lines = tuple(
+        line.strip()[2:].strip()
+        for line in answer_text.splitlines()
+        if line.strip().startswith(("- ", "* ", "• "))
+    )
+    if len(bullet_lines) != 3:
+        raise QualificationCheckFailed("owner_answer_preference_not_followed")
+    headings: list[str] = []
+    for line in bullet_lines:
+        heading, separator, body = line.partition(":")
+        headings.append(heading.strip().strip("*").casefold())
+        if separator != ":" or len(body.split()) < 2:
+            raise QualificationCheckFailed("owner_answer_not_useful")
+    if headings != ["decision", "evidence", "next check"]:
+        raise QualificationCheckFailed("owner_answer_preference_not_followed")
     return {
         "action_rows": after.action_count,
         "calendar_event_reopened": True,
         "duplicate_memory_text": False,
         "fresh_recall_selected_created_raw": True,
+        "fresh_recall_selected_created_summary": True,
+        "fresh_recall_opened_summary_sources": True,
         "gmail_thread_reopened": True,
+        "owner_visible_answer_useful": True,
         "raw_rows": len(after.raw),
+        "response_preference_followed": True,
         "successful_main_reads": dispatcher.successful_reads,
         "summary_rows": after.summary_count,
         "vectors_1536": True,
@@ -426,6 +546,16 @@ async def _memory_state(engine: AsyncEngine) -> MemoryState:
             int,
             await connection.scalar(select(func.count()).select_from(memory_summary)),
         )
+        summary_rows = (
+            await connection.execute(
+                select(
+                    memory_summary.c.id,
+                    memory_summary.c.text,
+                    memory_summary.c.source_memory_ids,
+                    memory_summary.c.embedding,
+                ).order_by(memory_summary.c.created_at, memory_summary.c.id)
+            )
+        ).all()
         action_count = cast(
             int, await connection.scalar(select(func.count()).select_from(action))
         )
@@ -444,13 +574,26 @@ async def _memory_state(engine: AsyncEngine) -> MemoryState:
         ),
         summary_count=summary_count,
         action_count=action_count,
+        summaries=tuple(
+            SummaryRow(
+                id=cast(UUID, row.id),
+                text=cast(str, row.text),
+                source_memory_ids=tuple(cast("Sequence[UUID]", row.source_memory_ids)),
+                embedding_dimension=(
+                    None
+                    if row.embedding is None
+                    else len(cast("Sequence[float]", row.embedding))
+                ),
+            )
+            for row in summary_rows
+        ),
     )
 
 
 async def _dispatch_read(
     *,
     dispatcher: ReadToolDispatcher,
-    definitions: Slice3Definitions,
+    definitions: Slice4Definitions,
     budgets: BudgetState,
     tool_id: str,
     validated_input: object,
@@ -476,7 +619,7 @@ async def _dispatch_read(
 
 async def _select_live_resources(
     *,
-    definitions: Slice3Definitions,
+    definitions: Slice4Definitions,
     host_secrets: tuple[str, ...],
     gmail_query: str,
     calendar_id: str,
@@ -568,18 +711,18 @@ def _build_roles(
     *,
     settings: Settings,
     engine: AsyncEngine,
-    definitions: Slice3Definitions,
+    definitions: Slice4Definitions,
     runtime: KernelRuntime,
     embedder: OpenAIEmbedder,
     resources: LiveResources,
     dispatchers: list[_TargetRecordingDispatcher],
-) -> tuple[JarvisThreadRunner, RemembererWorker]:
+) -> tuple[JarvisThreadRunner, RemembererWorker, _RecordingMemoryStore]:
     admission = RootTrackingAdmissionPort(
         RollingAdmissionPort(
             settings.admission_journal_path, qualification_admission_limits()
         )
     )
-    memory = MemoryStore(engine)
+    memory = _RecordingMemoryStore(engine)
     messages = MessageStore(engine)
     rememberer = RemembererWorker(
         definition=definitions.rememberer,
@@ -612,13 +755,36 @@ def _build_roles(
             rememberer=rememberer,
         ),
         rememberer,
+        memory,
     )
+
+
+async def _owner_conclusion(
+    store: MessageStore,
+    owner: StoredMessage,
+) -> StoredMessage:
+    settlement = owner.trace.get("settlement")
+    if not isinstance(settlement, dict):
+        raise QualificationCheckFailed("owner_settlement_missing")
+    identifier = cast("dict[object, object]", settlement).get("conclusion_message_id")
+    try:
+        message_id = UUID(cast(str, identifier))
+    except (TypeError, ValueError):
+        raise QualificationCheckFailed("owner_conclusion_missing") from None
+    conclusion = await store.message_by_id(message_id)
+    if (
+        conclusion is None
+        or conclusion.role != "assistant"
+        or conclusion.source_conversation_id != owner.source_conversation_id
+    ):
+        raise QualificationCheckFailed("owner_conclusion_missing")
+    return conclusion
 
 
 async def _discard_main_reference(
     *,
     settings: Settings,
-    definitions: Slice3Definitions,
+    definitions: Slice4Definitions,
     runtime: KernelRuntime,
     runner: JarvisThreadRunner,
     require_present: bool,
@@ -637,7 +803,7 @@ async def _discard_main_reference(
 async def cleanup_cycle_runtime(
     *,
     settings: Settings,
-    definitions: Slice3Definitions,
+    definitions: Slice4Definitions,
     runtime: KernelRuntime,
     runner: JarvisThreadRunner | None,
     primary_error: BaseException | None,
@@ -707,7 +873,7 @@ async def _run(
                 memory_repository=PostgresMemoryRepository(engine),
                 memory_embedder=embedder,
             )
-            definitions = build_slice3_definitions(
+            definitions = build_slice4_definitions(
                 catalog=catalog,
                 profile_key=settings.codex_profile_key,
                 model=settings.codex_model,
@@ -737,7 +903,7 @@ async def _run(
             first_runner: JarvisThreadRunner | None = None
             first_error: BaseException | None = None
             try:
-                first_runner, first_rememberer = _build_roles(
+                first_runner, first_rememberer, _first_memory = _build_roles(
                     settings=settings,
                     engine=engine,
                     definitions=definitions,
@@ -751,7 +917,7 @@ async def _run(
                     text=first_input,
                     source="qualification",
                     source_conversation_id=str(settings.discord.channel_id),
-                    source_message_id=f"slice3-memory-e2e-{uuid4()}-1",
+                    source_message_id=f"slice4-memory-e2e-{uuid4()}-1",
                     created_at=datetime.now(UTC),
                 )
                 first_outcome = await first_runner.run(CancellationToken())
@@ -800,6 +966,68 @@ async def _run(
                     primary_error=first_error,
                 )
 
+            stage = "dream"
+            dream_runtime = build_kernel_runtime(
+                provider_state_root=settings.codex_state_root,
+                private_cwd_parent=settings.provider_cwd_parent,
+                session_ref_path=settings.session_reference_path,
+                model=settings.codex_model,
+                kernel_limits=definitions.dreamer.limits,
+            )
+            dream_before = await _memory_state(engine)
+            dream_error: BaseException | None = None
+            try:
+                dreamer = DreamerWorker(
+                    definition=definitions.dreamer,
+                    plan=definitions.plans["dreamer"],
+                    admission=RootTrackingAdmissionPort(
+                        RollingAdmissionPort(
+                            settings.admission_journal_path,
+                            qualification_admission_limits(),
+                        )
+                    ),
+                    provider=dream_runtime.provider,
+                    dispatcher_factory=cast("Callable[[], Any]", MemoryToolDispatcher),
+                    memory=MemoryStore(engine),
+                )
+                dream_outcome = await dreamer.run_at(
+                    as_of=datetime.now(UTC),
+                    cancellation=CancellationToken(),
+                )
+                if not isinstance(dream_outcome, DreamerRunCompleted):
+                    raise QualificationCheckFailed("dreamer_not_completed")
+                dream_generated = await _memory_state(engine)
+                if len(new_summaries(dream_before, dream_generated)) != 1:
+                    raise QualificationCheckFailed("dreamer_created_not_one_summary")
+                if await first_rememberer.run_one(CancellationToken()) is not True:
+                    raise QualificationCheckFailed("summary_embedding_backfill_failed")
+                created_summaries, dream_report = validate_dream_phase(
+                    before=dream_before,
+                    after=await _memory_state(engine),
+                    first_created=first_created,
+                    required_uris=required_uris,
+                )
+                dream_report["embedding_backfill"] = (
+                    "rememberer_bounded_null_vector_sweep"
+                )
+                dream_report["usage"] = _usage(
+                    provider_turns=dream_outcome.metrics.provider_turns,
+                    input_tokens=dream_outcome.metrics.usage.input_tokens,
+                    output_tokens=dream_outcome.metrics.usage.output_tokens,
+                    duration_seconds=dream_outcome.metrics.duration_seconds,
+                )
+            except BaseException as error:
+                dream_error = error
+                raise
+            finally:
+                try:
+                    await dream_runtime.close()
+                except BaseException as error:
+                    if dream_error is None:
+                        raise QualificationCheckFailed(
+                            "dream_runtime_cleanup_failed"
+                        ) from error
+
             stage = "second_cycle"
             second_runtime = build_kernel_runtime(
                 provider_state_root=settings.codex_state_root,
@@ -812,7 +1040,7 @@ async def _run(
             second_runner: JarvisThreadRunner | None = None
             second_error: BaseException | None = None
             try:
-                second_runner, second_rememberer = _build_roles(
+                second_runner, second_rememberer, second_memory = _build_roles(
                     settings=settings,
                     engine=engine,
                     definitions=definitions,
@@ -826,7 +1054,7 @@ async def _run(
                     text=second_input,
                     source="qualification",
                     source_conversation_id=str(settings.discord.channel_id),
-                    source_message_id=f"slice3-memory-e2e-{uuid4()}-2",
+                    source_message_id=f"slice4-memory-e2e-{uuid4()}-2",
                     created_at=datetime.now(UTC),
                 )
                 second_outcome = await second_runner.run(CancellationToken())
@@ -834,16 +1062,21 @@ async def _run(
                     raise QualificationCheckFailed("second_thread_not_completed")
                 if len(second_dispatchers) != 1:
                     raise QualificationCheckFailed("main_dispatcher_count_invalid")
+                recaller_opened = tuple(second_memory.opened_identities)
                 if await second_rememberer.run_one(CancellationToken()) is not True:
                     raise QualificationCheckFailed("second_rememberer_not_completed")
                 second_owner = await store.message_by_id(inserted.message.id)
                 if second_owner is None:
                     raise QualificationCheckFailed("second_owner_missing")
+                second_answer = await _owner_conclusion(store, second_owner)
                 second_report = validate_second_phase(
                     after=await _memory_state(engine),
                     owner=second_owner,
                     first_created=first_created,
+                    created_summaries=created_summaries,
                     selected=selected_memories(second_owner.trace),
+                    opened=recaller_opened,
+                    answer_text=second_answer.text,
                     dispatcher=second_dispatchers[0],
                 )
                 second_report["main_usage"] = _usage(
@@ -878,7 +1111,11 @@ async def _run(
                 )
 
             result: dict[str, object] = {
-                "admission_cycle_capacity": 2,
+                "admission_cycle_capacity": {
+                    "dreamer_runs": 1,
+                    "foreground_cycles": 2,
+                },
+                "dream": dream_report,
                 "embedding": {
                     "dimension": EMBEDDING_DIMENSION,
                     "model": EMBEDDING_MODEL,
@@ -899,6 +1136,7 @@ async def _run(
                         "rememberer": (
                             definitions.rememberer.session_compatibility_revision
                         ),
+                        "dreamer": definitions.dreamer.session_compatibility_revision,
                     },
                     "tools": {
                         name: catalog.binding(ToolId(name)).implementation_revision

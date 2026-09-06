@@ -268,6 +268,10 @@ provider session, and memory persistence creates no action row or duplicate text
 
 ## Slice 4: dreaming and summaries
 
+Status: complete and qualified on 2026-09-05. The dated
+[qualification report](qualification/2026-09-05-slice-4.md) records exact
+deterministic, paid, rebuild, and product evidence plus every accepted trade-off.
+
 Deliver:
 
 - Exact `memory_summary` schema with raw lineage.

@@ -1,9 +1,11 @@
-# Slice 2 operations
+# Slice 3 operations
 
-Jarvis Slice 2 is one Python 3.12 process, one PostgreSQL database, and one
+Jarvis Slice 3 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its model-callable
-catalog is exactly the nine automatic reads in SPEC 7.3. Run it as a dedicated
-unprivileged OS user in UTC.
+catalog contains exactly the nine automatic external reads plus the two memory
+reads in SPEC 7.3. The main role receives only the external reads; the isolated
+recaller and rememberer receive only `memory.search` and `memory.open`. Run it
+as a dedicated unprivileged OS user in UTC.
 
 ## Install and configure
 
@@ -27,8 +29,12 @@ be absent or an existing mode-0700 directory when it is initialized. Supply the
 qualified mode-0600 Google OAuth state plus the exact Google client,
 connector-encryption, Maps, and Brave settings shown in `.env.example`. They
 remain host-owned and never enter Codex context or child-process environment.
-An optional embedding key is only added to the host-side Web secret-rejection
-set; Slice 2 does not implement embeddings.
+The required `JARVIS_EMBEDDING_OPENAI_API_KEY` is the already-qualified OpenAI
+project key restricted to embeddings. It remains in the host process only and
+is also added to the host-side Web secret-rejection set. Configuration fixes
+`JARVIS_EMBEDDING_MODEL=text-embedding-3-small` and
+`JARVIS_EMBEDDING_DIMENSION=1536`; changing either requires the stopped rebuild
+procedure in SPEC 7.2.
 
 Apply the schema and initialize the private state once:
 
@@ -65,7 +71,7 @@ The command checks the frozen environment, formatting, linting, typing, tests,
 migrations and schema drift, package artifacts, and installed dependency
 vulnerabilities.
 
-## Paid Slice 2 qualifications
+## Paid qualifications
 
 Run every live qualification from the exact revision being recorded and against
 an empty, freshly migrated disposable database. Each runtime-state path must be
@@ -153,9 +159,67 @@ JARVIS_LIVE_EXPECTED_REPLY_MARKER=... \
   uv run python scripts/qualify_e2e.py
 ```
 
-All four scripts emit bounded JSON containing statuses, counts, revisions,
+All live qualification scripts emit bounded JSON containing statuses, counts, revisions,
 timings, and token usage only. They never emit prompts, replies, Discord IDs,
 session IDs, credentials, or provider event payloads.
+
+Run the Slice 3 memory qualifier against its own empty, freshly migrated
+database. The script inserts only the frozen redacted fixture corpus, embeds it
+through the production provider-runtime port, proves the embedding credential
+is rejected for generation, runs every owner-approved recall case through a
+fresh isolated Terra recaller, and runs a fresh isolated zero-memory rememberer
+that must advance its owner watermark without adding a memory or action. The
+runtime-state directory must not exist before the command.
+
+```sh
+JARVIS_MEMORY_LIVE=1 \
+JARVIS_CODEX_MODEL=gpt-5.6-terra \
+JARVIS_CODEX_PROFILE_KEY=jarvis-runtime \
+JARVIS_CODEX_STATE_ROOT=/private/existing/agent-state \
+JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-runtime \
+JARVIS_LIVE_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_memory_probe \
+JARVIS_OWNER_TIMEZONE=America/Los_Angeles \
+JARVIS_CODEX_REASONING_EFFORT=high \
+JARVIS_EMBEDDING_OPENAI_API_KEY=... \
+  uv run python scripts/qualify_memory.py
+```
+
+Run the final Slice 3 product acceptance against another empty, freshly
+migrated database. The Gmail query must identify at least one safe real thread;
+the calendar must contain a normal event within one year of the run. This probe
+stores a linked preference, destroys and rebuilds the provider runtime, recalls
+the preference indirectly, reopens the exact live Gmail thread and Calendar
+event, and proves that neither cycle creates actions or duplicate memory text.
+
+```sh
+JARVIS_MEMORY_E2E_LIVE=1 \
+JARVIS_MAXIMUM_BATCH_SIZE=1 \
+JARVIS_MEMORY_E2E_GMAIL_QUERY='newer_than:365d' \
+JARVIS_MEMORY_E2E_CALENDAR_ID=primary \
+JARVIS_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_memory_e2e \
+JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-e2e-runtime \
+  uv run python scripts/qualify_memory_e2e.py
+```
+
+Supply the remaining ordinary production settings, including the exact Codex
+and embedding configuration above. The qualifier expands only its rolling
+admission capacity to exactly two full one-owner cycles; role plans, per-run
+limits, and production admission behavior remain unchanged.
+
+Both memory qualifiers intentionally leave their isolated PostgreSQL database
+and private runtime-state directory intact so failures can be inspected without
+mutating permanent raw memory. They contain private canonical inputs, memory,
+and live reference state. After recording the sanitized JSON evidence, the
+operator must securely dispose of those qualification-only resources using the
+deployment's database and filesystem administration procedures; Jarvis has no
+memory-deletion path.
+
+The frozen set can also score sanitized observation JSON without a provider
+call:
+
+```sh
+uv run python scripts/evaluate_recall.py --observations observations.json
+```
 
 Migrations own application objects and grant only the required DML to
 `jarvis_runtime`. That role cannot delete or truncate `memory_log`, cannot
@@ -170,6 +234,13 @@ whose `source_message_id` is null, releases orphaned admission concurrency
 without refunding its rolling charge, and scans unprocessed, unparked waking
 rows. A compatible main-session reference is resumed. A missing, incompatible,
 or invalid provider session cold-bootstraps from canonical message history.
+After foreground work yields, the background worker boundedly retries completed,
+unremembered owner groups and null embeddings. It groups normal rows by their
+shared settlement identity and falls back to one owner row only when old or
+damaged trace cannot establish a group. Background admission delay is silent;
+the service schedules the next capacity reset rather than requiring new owner
+traffic. Host action-resolution and scheduled-wake rows are never memory-work
+targets.
 Successful outbox delivery drains every current batch. A row that exhausts its
 finite delivery retry schedule remains pending and stops that drain; the next
 startup or ingress signal retries it with the same persisted UUID and nonce.
@@ -209,3 +280,9 @@ Credentials and disposable provider session state are supplied separately and
 must not be placed in the database backup. Ordinary logs contain event types,
 bounded IDs, counts, and reason codes only—not messages, prompts, memory text,
 tool payloads, tokens, or credentials.
+
+Raw memory is permanent and grows without a deletion path in v1. Embeddings and
+full-text indexes are derived, but backups must retain every `memory_log` row.
+Embedding ingestion, rebuilds, and semantic search queries disclose their input
+text to the metered embedding processor. An embedding outage leaves new vectors
+null; lexical recall remains available and the bounded backfill retries later.

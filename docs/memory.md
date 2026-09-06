@@ -43,16 +43,17 @@ No semantic column may be added in v1. In particular, memory has no category,
 importance, confidence, salience, validity, conflict, person, project, or
 procedure field.
 
-The physical migration may add generated full-text-search columns and indexes.
-Those are database mechanics rather than application memory fields.
+The physical migration adds no search columns. It creates English-stemmed and
+simple-token GIN expression indexes over `text`, preserving the exact canonical
+column schema while keeping both lexical representations rebuildable.
 
 Recommended physical types:
 
 - `id`: application-generated UUID.
 - `text`: non-empty UTF-8 text.
 - `created_at`: database-generated `timestamptz` in UTC.
-- `embedding`: nullable `vector(N)`, where `N` comes from the one configured
-  embedding model.
+- `embedding`: nullable `vector(1536)`, pinned with the deployment's
+  `text-embedding-3-small` model.
 - `source_memory_ids`: non-empty UUID array validated by host code against
   `memory_log` before insertion.
 
@@ -141,10 +142,10 @@ owner messages that:
 
 It opens a fresh isolated Codex session and receives every consumed owner
 message in the group, the persisted conclusion, source timestamps, material
-tool/action observations, the memories recalled for that work, and bounded
-recent conversation history. Host action-resolution or scheduled-wake rows may
-appear as context but are never watermark targets. Its root invocation receives
-the owner timezone and one host-generated `as_of` value once.
+tool/action observations, and the identities of memories recalled for that work
+so it may reopen them. Host action-resolution or scheduled-wake rows may appear
+as context but are never watermark targets. Its root invocation receives the
+owner timezone and one host-generated `as_of` value once.
 
 ### Reasoning
 
@@ -199,13 +200,18 @@ human input. It receives the owner timezone and the foreground turn's one
 host-generated `as_of` value. It has two primitives:
 
 ```text
-search_memory(query, lexical_limit, semantic_limit)
-open_memory(ids)
+memory.search(query, lexical_limit, semantic_limit)
+memory.open(identities)
 ```
 
 Search covers both tables and returns the union of full-text and vector results.
 The host deduplicates identical `(table_kind, id)` results but does not suppress a
 raw memory merely because a selected summary cites it.
+
+Every semantic search sends its bounded query to the configured OpenAI embedding
+processor and incurs a metered embedding call. Lexical-only search sends nothing
+to that processor. An embedding failure removes only the semantic lane for that
+call; PostgreSQL lexical retrieval still runs.
 
 Candidates include their ID, table kind, text, creation time, retrieval ranks,
 and summary source IDs where applicable. The recaller may reformulate queries,
@@ -244,8 +250,8 @@ permissions, edit code, or deploy itself.
 
 ## Embeddings
 
-One embedding model and vector dimension are deployment configuration, not row
-metadata.
+The deployment pins `text-embedding-3-small` with exactly 1,536 dimensions.
+These are deployment configuration, not row metadata.
 
 Ordinary ingestion may leave embeddings null during an outage. Queries exclude
 null vectors and retain lexical results.
@@ -266,7 +272,8 @@ remains stopped, the system never searches a mixed vector space.
 ## Recall evaluation
 
 `eval/recall.jsonl` is a version-controlled, synthetic or redacted set of at
-least fifteen owner-authored cases:
+least fifteen owner-authored or explicitly owner-approved cases. Model-invented
+cases are never described as owner-authored:
 
 ```json
 {"id":"R07","query":"...","must_recall_ids":["..."],"lane":"semantic"}

@@ -10,6 +10,7 @@ git diff --check
 uv run ruff format --check .
 uv run ruff check .
 uv run pyright
+uv run python scripts/check_docs.py
 JARVIS_MIGRATION_DATABASE_URL="$JARVIS_TEST_MIGRATION_DATABASE_URL" uv run alembic upgrade head
 JARVIS_MIGRATION_DATABASE_URL="$JARVIS_TEST_MIGRATION_DATABASE_URL" uv run alembic check
 uv run pytest
@@ -22,15 +23,15 @@ install_environment="$(mktemp -d)"
 trap 'rm -rf -- "$kernel_checkout" "$provider_checkout" "$tools_checkout" "$artifact_directory" "$install_environment"' EXIT
 git -C "$kernel_checkout" init --quiet
 git -C "$kernel_checkout" remote add origin https://github.com/NielsdaWheelz/llm-agent-kernel.git
-git -C "$kernel_checkout" fetch --quiet --depth=1 origin 09f08df2970121ababe973b0e92d6901dd40da9e
+git -C "$kernel_checkout" fetch --quiet --depth=1 origin 670da13ff0cfe766f36d8966e0575db0f7525143
 git -C "$kernel_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 09f08df2970121ababe973b0e92d6901dd40da9e
+test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 670da13ff0cfe766f36d8966e0575db0f7525143
 uv run --project "$kernel_checkout" --frozen --all-groups pytest -q "$kernel_checkout"
 git -C "$provider_checkout" init --quiet
 git -C "$provider_checkout" remote add origin https://github.com/NielsdaWheelz/llm-calling.git
-git -C "$provider_checkout" fetch --quiet --depth=1 origin f477dcdcad03c30019576203d4eb8a3581a6d32f
+git -C "$provider_checkout" fetch --quiet --depth=1 origin 2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd
 git -C "$provider_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$provider_checkout" rev-parse HEAD)" = f477dcdcad03c30019576203d4eb8a3581a6d32f
+test "$(git -C "$provider_checkout" rev-parse HEAD)" = 2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd
 case "$(uname -s)" in
   Linux)
     uv run --project "$provider_checkout" --frozen --all-extras --all-groups pytest -q "$provider_checkout"

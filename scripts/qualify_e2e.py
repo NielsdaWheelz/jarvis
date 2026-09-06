@@ -338,9 +338,14 @@ async def _run(settings: Settings) -> dict[str, object]:
     _validate_settings(settings)
     await _require_empty_database(settings)
 
-    from jarvis.cli import initialize_state
-
-    initialize_state(settings)
+    settings.runtime_state_directory.mkdir(mode=0o700)
+    settings.provider_cwd_parent.mkdir(mode=0o700)
+    PausedState.initialize(settings.paused_state_path)
+    admission_limits = RollingAdmissionLimits()
+    RollingAdmissionPort.initialize(
+        settings.admission_journal_path,
+        admission_limits,
+    )
     engine = create_engine(settings.database_url.get_secret_value())
     kernel_runtime = build_kernel_runtime(
         provider_state_root=settings.codex_state_root,
@@ -377,7 +382,6 @@ async def _run(settings: Settings) -> dict[str, object]:
 
     try:
         async with deployment_ownership(engine):
-            admission_limits = RollingAdmissionLimits()
             admission = RollingAdmissionPort(
                 settings.admission_journal_path,
                 admission_limits,

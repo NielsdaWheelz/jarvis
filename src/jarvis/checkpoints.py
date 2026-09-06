@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 from typing import Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -75,6 +77,7 @@ class _ActiveClaim:
     offered_message_ids: tuple[UUID, ...] = ()
     offered_host_inputs: tuple[StoredMessage, ...] = ()
     offered_checkpoint: Checkpoint | None = None
+    batch_as_of: dict[tuple[InputId, ...], datetime] | None = None
 
 
 class PostgresInputCheckpoint:
@@ -91,6 +94,7 @@ class PostgresInputCheckpoint:
         maximum_batch_size: int,
         maximum_attempts: int,
         maximum_response_characters: int = 2_000,
+        on_settlement: Callable[[tuple[UUID, ...]], None] | None = None,
     ) -> None:
         if type(maximum_batch_size) is not int or maximum_batch_size <= 0:
             raise ValueError("maximum batch size must be a positive integer")
@@ -109,13 +113,39 @@ class PostgresInputCheckpoint:
         self._maximum_batch_size = maximum_batch_size
         self._maximum_attempts = maximum_attempts
         self._maximum_response_characters = maximum_response_characters
+        self._on_settlement = on_settlement
         self._lock = asyncio.Lock()
         self._active: _ActiveClaim | None = None
         self._consumed_message_ids: tuple[UUID, ...] = ()
+        self._consumed_owner_message_ids: tuple[UUID, ...] = ()
+        self._consumed_owner_groups: tuple[tuple[UUID, ...], ...] = ()
 
     @property
     def consumed_message_ids(self) -> tuple[UUID, ...]:
         return self._consumed_message_ids
+
+    @property
+    def consumed_owner_message_ids(self) -> tuple[UUID, ...]:
+        return self._consumed_owner_message_ids
+
+    @property
+    def consumed_owner_groups(self) -> tuple[tuple[UUID, ...], ...]:
+        return self._consumed_owner_groups
+
+    async def as_of_for_inputs(self, inputs: tuple[HostInput, ...]) -> datetime:
+        if not inputs:
+            raise CheckpointStateDefect("batch clock lookup requires host input")
+        input_ids = tuple(item.input_id for item in inputs)
+        async with self._lock:
+            active = self._active
+            if active is None or active.batch_as_of is None:
+                raise CheckpointStateDefect("batch clock lookup has no active claim")
+            try:
+                return active.batch_as_of[input_ids]
+            except KeyError as error:
+                raise CheckpointStateDefect(
+                    "batch clock lookup names an unknown input batch"
+                ) from error
 
     async def settle_idle_control(
         self,
@@ -141,9 +171,14 @@ class PostgresInputCheckpoint:
             if self._active is not None:
                 return ClaimBusy()
             while True:
+                remaining_run_inputs = self._maximum_batch_size - len(
+                    self._consumed_message_ids
+                )
+                if remaining_run_inputs <= 0:
+                    return ClaimNoWork()
                 selection = await self._store.claim(
                     source_conversation_id=str(thread_id),
-                    maximum_batch_size=self._maximum_batch_size,
+                    maximum_batch_size=remaining_run_inputs,
                     maximum_attempts=self._maximum_attempts,
                 )
                 if isinstance(selection, CircuitOpen):
@@ -194,6 +229,9 @@ class PostgresInputCheckpoint:
                     value for value in selected_messages if value.role == "host"
                 ),
                 pending_control=pending_control,
+                batch_as_of={
+                    tuple(item.input_id for item in claim.inputs): claim.as_of,
+                },
             )
             return ClaimAcquired(claim)
 
@@ -225,13 +263,24 @@ class PostgresInputCheckpoint:
                     )
                 if found_preempting_control or not controls:
                     break
+            remaining_batch_size = self._maximum_batch_size - len(
+                self._consumed_message_ids
+                + active.message_ids
+                + active.offered_message_ids
+            )
+            if remaining_batch_size <= 0 and not found_preempting_control:
+                return NoNewInput()
             result = await self._store.poll(
                 route=(
                     "interactive" if active.route == "interactive" else "scheduled_wake"
                 ),
                 source_conversation_id=str(self._thread_id),
                 known_message_ids=active.message_ids + active.offered_message_ids,
-                maximum_batch_size=self._maximum_batch_size,
+                maximum_batch_size=(
+                    self._maximum_batch_size
+                    if found_preempting_control
+                    else remaining_batch_size
+                ),
                 include_host_inputs=not (
                     active.host_inputs or active.offered_host_inputs
                 ),
@@ -256,6 +305,10 @@ class PostgresInputCheckpoint:
             )
             new_checkpoint = Checkpoint(result.through_checkpoint)
             active.offered_checkpoint = new_checkpoint
+            assert active.batch_as_of is not None
+            if tuple(item.input_id for item in appended) in active.batch_as_of:
+                raise CheckpointStateDefect("polled input batch identity was reused")
+            active.batch_as_of[tuple(item.input_id for item in appended)] = result.as_of
             return AppendInputs(
                 inputs=appended,
                 new_checkpoint=new_checkpoint,
@@ -321,7 +374,14 @@ class PostgresInputCheckpoint:
                 conclusion_message_id=conclusion_message_id,
             )
             self._record_consumed(active.message_ids)
+            owner_group: tuple[UUID, ...] = ()
+            if (
+                kind == "conversation" and outcome in {"say", "finish", "host_fallback"}
+            ) or (kind == "suspension" and outcome == "user"):
+                owner_group = self._record_consumed_owners(active)
             self._active = None
+            if self._on_settlement is not None:
+                self._on_settlement(owner_group)
             return SettleMoreInput() if result.more_input else SettleIdle()
 
     async def release(self, claim: InputClaim, reason: str) -> ReleaseResult:
@@ -400,6 +460,19 @@ class PostgresInputCheckpoint:
         self._consumed_message_ids += tuple(
             message_id for message_id in message_ids if message_id not in known
         )
+
+    def _record_consumed_owners(self, active: _ActiveClaim) -> tuple[UUID, ...]:
+        host_ids = {value.id for value in active.host_inputs}
+        known = set(self._consumed_owner_message_ids)
+        group = tuple(
+            message_id
+            for message_id in active.message_ids
+            if message_id not in host_ids and message_id not in known
+        )
+        if group:
+            self._consumed_owner_message_ids += group
+            self._consumed_owner_groups += (group,)
+        return group
 
     def _require_active(
         self,

@@ -17,6 +17,8 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    func,
+    literal_column,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -123,6 +125,25 @@ memory_log = Table(
     CheckConstraint("length(text) > 0", name="text_nonempty"),
 )
 
+Index(
+    "ix_memory_log_search_english",
+    func.to_tsvector(
+        literal_column("'english'::regconfig"),
+        memory_log.c.text,
+    ),
+    postgresql_using="gin",
+    _table=memory_log,
+)
+Index(
+    "ix_memory_log_search_simple",
+    func.to_tsvector(
+        literal_column("'simple'::regconfig"),
+        memory_log.c.text,
+    ),
+    postgresql_using="gin",
+    _table=memory_log,
+)
+
 memory_summary = Table(
     "memory_summary",
     metadata,
@@ -141,6 +162,25 @@ memory_summary = Table(
         "cardinality(source_memory_ids) > 0",
         name="source_memory_ids_nonempty",
     ),
+)
+
+Index(
+    "ix_memory_summary_search_english",
+    func.to_tsvector(
+        literal_column("'english'::regconfig"),
+        memory_summary.c.text,
+    ),
+    postgresql_using="gin",
+    _table=memory_summary,
+)
+Index(
+    "ix_memory_summary_search_simple",
+    func.to_tsvector(
+        literal_column("'simple'::regconfig"),
+        memory_summary.c.text,
+    ),
+    postgresql_using="gin",
+    _table=memory_summary,
 )
 
 action = Table(

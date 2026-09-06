@@ -1,4 +1,4 @@
-"""Top-level host settings through Slice 2."""
+"""Top-level host settings through Slice 3."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Self, cast
+from typing import Final, Literal, Self, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -20,6 +20,10 @@ from pydantic import (
 
 from jarvis.config import ConfigurationError, DiscordSettings
 from jarvis.definitions import QUALIFIED_CODEX_MODELS
+
+EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
+EMBEDDING_DIMENSION: Final[Literal[1536]] = 1536
+MAXIMUM_BATCH_SIZE: Final[int] = 100
 
 
 class Settings(BaseModel):
@@ -46,8 +50,10 @@ class Settings(BaseModel):
     connector_encryption_secret: SecretStr = Field(repr=False)
     maps_api_key: SecretStr = Field(repr=False)
     brave_api_key: SecretStr = Field(repr=False)
-    embedding_openai_api_key: SecretStr | None = Field(default=None, repr=False)
-    maximum_batch_size: int = Field(default=20, ge=1, le=100)
+    embedding_openai_api_key: SecretStr = Field(repr=False)
+    embedding_model: Literal["text-embedding-3-small"] = EMBEDDING_MODEL
+    embedding_dimension: Literal[1536] = EMBEDDING_DIMENSION
+    maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
     delivery_batch_size: int = Field(default=20, ge=1, le=100)
 
     @field_validator(
@@ -58,24 +64,13 @@ class Settings(BaseModel):
         "connector_encryption_secret",
         "maps_api_key",
         "brave_api_key",
+        "embedding_openai_api_key",
     )
     @classmethod
     def _nonempty_secret(cls, value: SecretStr) -> SecretStr:
         raw = value.get_secret_value()
         if not raw or raw != raw.strip():
             raise ValueError("secret setting must be non-empty without edge whitespace")
-        return value
-
-    @field_validator("embedding_openai_api_key")
-    @classmethod
-    def _nonempty_optional_secret(cls, value: SecretStr | None) -> SecretStr | None:
-        del cls
-        if value is not None:
-            raw = value.get_secret_value()
-            if not raw or raw != raw.strip():
-                raise ValueError(
-                    "embedding credential must be non-empty without edge whitespace"
-                )
         return value
 
     @field_validator("owner_timezone")
@@ -157,10 +152,9 @@ class Settings(BaseModel):
             self.connector_encryption_secret.get_secret_value(),
             self.maps_api_key.get_secret_value(),
             self.brave_api_key.get_secret_value(),
+            self.embedding_openai_api_key.get_secret_value(),
             *key_values,
         )
-        if self.embedding_openai_api_key is not None:
-            values += (self.embedding_openai_api_key.get_secret_value(),)
         return tuple(dict.fromkeys(value for value in values if value))
 
     @classmethod
@@ -188,6 +182,20 @@ class Settings(BaseModel):
             if value <= 0:
                 raise ConfigurationError(f"{name} must be a positive integer")
             return value
+
+        embedding_model = required("JARVIS_EMBEDDING_MODEL")
+        if embedding_model != EMBEDDING_MODEL:
+            raise ConfigurationError(
+                f"JARVIS_EMBEDDING_MODEL must be {EMBEDDING_MODEL}"
+            )
+        required("JARVIS_EMBEDDING_DIMENSION")
+        embedding_dimension = positive_int(
+            "JARVIS_EMBEDDING_DIMENSION", EMBEDDING_DIMENSION
+        )
+        if embedding_dimension != EMBEDDING_DIMENSION:
+            raise ConfigurationError(
+                f"JARVIS_EMBEDDING_DIMENSION must be {EMBEDDING_DIMENSION}"
+            )
 
         try:
             return cls(
@@ -220,11 +228,11 @@ class Settings(BaseModel):
                 ),
                 maps_api_key=SecretStr(required("JARVIS_MAPS_API_KEY")),
                 brave_api_key=SecretStr(required("JARVIS_BRAVE_API_KEY")),
-                embedding_openai_api_key=(
-                    SecretStr(source["JARVIS_EMBEDDING_OPENAI_API_KEY"])
-                    if source.get("JARVIS_EMBEDDING_OPENAI_API_KEY")
-                    else None
+                embedding_openai_api_key=SecretStr(
+                    required("JARVIS_EMBEDDING_OPENAI_API_KEY")
                 ),
+                embedding_model=EMBEDDING_MODEL,
+                embedding_dimension=EMBEDDING_DIMENSION,
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),
             )
@@ -232,4 +240,9 @@ class Settings(BaseModel):
             raise ConfigurationError("invalid Jarvis configuration") from exc
 
 
-__all__ = ["Settings"]
+__all__ = [
+    "EMBEDDING_DIMENSION",
+    "EMBEDDING_MODEL",
+    "MAXIMUM_BATCH_SIZE",
+    "Settings",
+]

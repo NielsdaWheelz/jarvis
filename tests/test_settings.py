@@ -28,6 +28,9 @@ def _environment(tmp_path: Path) -> dict[str, str]:
         "JARVIS_CONNECTOR_ENCRYPTION_SECRET": "synthetic-encryption-secret",
         "JARVIS_MAPS_API_KEY": "synthetic-maps-key",
         "JARVIS_BRAVE_API_KEY": "synthetic-brave-key",
+        "JARVIS_EMBEDDING_OPENAI_API_KEY": "synthetic-embedding-key",
+        "JARVIS_EMBEDDING_MODEL": "text-embedding-3-small",
+        "JARVIS_EMBEDDING_DIMENSION": "1536",
     }
 
 
@@ -35,6 +38,8 @@ def test_settings_compose_discord_and_derive_private_paths(tmp_path: Path) -> No
     settings = Settings.from_env(_environment(tmp_path))
 
     assert settings.codex_model == "gpt-5.6-terra"
+    assert settings.embedding_model == "text-embedding-3-small"
+    assert settings.embedding_dimension == 1536
     assert settings.discord.channel_id == 33
     assert settings.paused_state_path == tmp_path / "runtime" / "paused.json"
     assert settings.admission_journal_path == tmp_path / "runtime" / "admission.json"
@@ -75,6 +80,39 @@ def test_settings_require_explicit_codex_state_root(tmp_path: Path) -> None:
         Settings.from_env(environment)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "JARVIS_EMBEDDING_OPENAI_API_KEY",
+        "JARVIS_EMBEDDING_MODEL",
+        "JARVIS_EMBEDDING_DIMENSION",
+    ],
+)
+def test_settings_require_embedding_configuration(tmp_path: Path, name: str) -> None:
+    environment = _environment(tmp_path)
+    del environment[name]
+    with pytest.raises(ConfigurationError, match=f"missing required setting: {name}"):
+        Settings.from_env(environment)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("JARVIS_EMBEDDING_MODEL", "text-embedding-3-large"),
+        ("JARVIS_EMBEDDING_DIMENSION", "512"),
+    ],
+)
+def test_settings_reject_embedding_identity_drift(
+    tmp_path: Path,
+    name: str,
+    value: str,
+) -> None:
+    environment = _environment(tmp_path)
+    environment[name] = value
+    with pytest.raises(ConfigurationError, match=f"{name} must be"):
+        Settings.from_env(environment)
+
+
 def test_settings_reject_retired_codex_model_before_state_creation(
     tmp_path: Path,
 ) -> None:
@@ -97,13 +135,12 @@ def test_settings_reject_obsolete_processing_attempt_override(tmp_path: Path) ->
 def test_settings_exposes_each_host_secret_without_rendering_it(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     environment["JARVIS_CONNECTOR_ENCRYPTION_KEYS"] = '{"v2":" bare-key-value "}'
-    environment["JARVIS_EMBEDDING_OPENAI_API_KEY"] = "embedding-key"
     settings = Settings.from_env(environment)
 
     assert "bare-key-value" in settings.host_secrets
-    assert "embedding-key" in settings.host_secrets
+    assert "synthetic-embedding-key" in settings.host_secrets
     assert "bare-key-value" not in repr(settings)
-    assert "embedding-key" not in repr(settings)
+    assert "synthetic-embedding-key" not in repr(settings)
 
     environment["JARVIS_CONNECTOR_ENCRYPTION_KEYS"] = "v2: version-key-value"
     settings = Settings.from_env(environment)

@@ -5,10 +5,10 @@ configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and develops durable memory through a simple remember/retrieve/dream loop.
 
-This repository is specification-first. Slice 2 implements the bounded
-conversation skeleton plus automatic Gmail, Calendar, Maps, and public-Web
-reads. Memory behavior, writes, approvals, and scheduled wakes remain
-intentionally absent.
+This repository is specification-first. Slice 3 implements the bounded
+conversation skeleton, automatic Gmail, Calendar, Maps, and public-Web reads,
+and permanent raw memory with isolated recall and remembering. Summary writing,
+writes, approvals, and scheduled wakes remain intentionally absent.
 
 ## V1 in one paragraph
 
@@ -56,15 +56,15 @@ ADR that also updates every affected normative document in the same change.
 
 ## Status
 
-- Baseline date: 2026-09-04
-- Status: v1 specification frozen; Slices 0, 1, and 2 complete and qualified;
+- Baseline date: 2026-09-05
+- Status: v1 specification frozen; Slices 0 through 3 complete and qualified;
   later slices remain intentionally absent
 - Intended deployment: personal, single-user, always-on Linux service
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 
-## Slice 2 development
+## Slice 3 development
 
 Development requires Python 3.12, `uv` 0.11.28, Docker, and PostgreSQL with the
 `vector` extension. Start the pinned database image, create a disposable test
@@ -104,13 +104,21 @@ These are accepted knowingly, not overlooked.
 
 - Discord is a third-party processor for every conversation, every quoted
   memory, every summarized email, and every approval preview.
-- The complete raw memory corpus is disclosed to the embedding processor; see
-  [ADR 0008](docs/decisions/0008-embedding-source.md).
+- The complete raw memory corpus and every semantic-search query are disclosed
+  to the embedding processor; see
+  [ADR 0008](docs/decisions/0008-embedding-source.md). Ingestion, backfill, and
+  query-embedding calls are metered by that processor.
 - One subscription pool is a single point of total conversational outage, with
   no fallback by design.
 - Every owner-authored foreground turn needs recall plus the main-agent call,
   while remembering follows asynchronously. This is slower and more expensive
   than a stateless chat response.
+- Embedding failures leave committed raw memories with null vectors. Those rows
+  remain lexically searchable and a bounded later sweep retries them, but
+  semantic recall is incomplete during the outage.
+- Raw memory grows indefinitely in v1. There is deliberately no deletion,
+  redaction, forgetting, or destructive consolidation path; storage and search
+  cost grow with use until a later accepted design addresses every durable copy.
 - Every proposed write adds a small isolated AutomaticWriteGate call. It sharply
   reduces authority laundering from recalled or retrieved text, but it is a
   model judgment rather than formal proof and can falsely deny or allow

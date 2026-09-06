@@ -19,6 +19,7 @@ from llm_agent_kernel import (
     AlreadyReleased,
     AppendInputs,
     CancellationToken,
+    CheckpointStateDefect,
     ClaimAcquired,
     ClaimBusy,
     ClaimNoWork,
@@ -57,6 +58,7 @@ from jarvis.discord import (
     discord_nonce,
 )
 from jarvis.history import PostgresCanonicalHistory
+from jarvis.memory import MemoryIdentity
 from jarvis.messages import (
     CircuitOpen,
     ClaimedMessages,
@@ -744,6 +746,46 @@ async def test_database_enforces_raw_memory_append_only(
             )
 
 
+async def test_recall_trace_fits_all_eight_search_candidate_sets(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    message_id = await _owner(
+        store,
+        "bounded recall trace",
+        source_conversation_id=f"recall-trace-{uuid4()}",
+    )
+    candidates = tuple(MemoryIdentity("memory_log", uuid4()) for _ in range(8 * 20))
+    await store.record_recall(
+        message_id=message_id,
+        candidate_identities=candidates,
+        selected_identities=candidates[:20],
+        run_id="bounded-recaller-run",
+        terminal_outcome="completed",
+        provider_turns=8,
+        input_tokens=100,
+        output_tokens=20,
+        duration_seconds=1.25,
+    )
+
+    async with engine.connect() as connection:
+        trace = await connection.scalar(
+            select(message.c.trace).where(message.c.id == message_id)
+        )
+    assert isinstance(trace, dict)
+    recaller = cast(dict[str, object], trace).get("recaller")
+    assert isinstance(recaller, dict)
+    recall_trace = cast(dict[str, object], recaller)
+    candidates_value = recall_trace["candidate_memory_ids"]
+    selected_value = recall_trace["selected_memory_ids"]
+    assert isinstance(candidates_value, list)
+    assert isinstance(selected_value, list)
+    assert len(cast(list[object], candidates_value)) == 160
+    assert len(cast(list[object], selected_value)) == 20
+    assert "opened_memory_ids" not in recall_trace
+    assert len(json.dumps(trace, separators=(",", ":")).encode()) <= 16_384
+
+
 async def test_action_constraints_and_identity_immutability(
     engine: AsyncEngine,
     migrator_engine: AsyncEngine,
@@ -1336,6 +1378,7 @@ async def test_service_processes_successor_after_durable_poison_conclusion(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=PausedState(paused_path),
@@ -1401,6 +1444,7 @@ async def test_service_event_preserves_input_arriving_at_idle_boundary(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=PausedState(paused_path),
@@ -1470,6 +1514,7 @@ async def test_capacity_reset_timer_retries_untouched_input_without_external_wak
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=PausedState(paused_path),
@@ -1580,6 +1625,7 @@ async def test_restart_drains_more_than_two_outbox_batches(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
             delivery_batch_size=2,
         ),
         store=store,
@@ -1653,6 +1699,7 @@ async def test_recovered_pause_settles_pending_owner_prefix_without_runner(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=PausedState(paused_path),
@@ -1729,6 +1776,7 @@ async def test_recovered_pause_preserves_host_input_visibility(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=PausedState(paused_path),
@@ -1789,6 +1837,7 @@ async def test_one_signal_drains_queued_pause_then_resume(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=paused,
@@ -1880,6 +1929,7 @@ async def test_active_pause_then_resume_preserves_canonical_control_order(
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
             maps_api_key=SecretStr("synthetic-maps-key"),
             brave_api_key=SecretStr("synthetic-brave-key"),
+            embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
         ),
         store=store,
         paused=paused,
@@ -2031,6 +2081,7 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
     )
     assert isinstance(result, ClaimAcquired)
     claim = result.claim
+    assert await checkpoint.as_of_for_inputs(claim.inputs) == claim.as_of
     assert (
         render_prompt(claim.inputs[0].sections).count("current synthetic owner input")
         == 1
@@ -2054,13 +2105,17 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
     polled = await checkpoint.poll(claim, claim.through_checkpoint)
     assert isinstance(polled, AppendInputs)
     assert tuple(value.input_id for value in polled.inputs) == (str(second_id),)
+    assert await checkpoint.as_of_for_inputs(polled.inputs) == polled.new_as_of
     settled = await checkpoint.settle(
         claim,
         polled.new_checkpoint,
         ConversationConclusion("synthetic answer"),
     )
     assert checkpoint.consumed_message_ids == (first_id, second_id)
+    assert checkpoint.consumed_owner_message_ids == (first_id, second_id)
     assert settled.type == "idle"
+    with pytest.raises(CheckpointStateDefect):
+        await checkpoint.as_of_for_inputs(claim.inputs)
 
     history = await PostgresCanonicalHistory(engine).completed_history(
         ThreadId(conversation_id),
@@ -2072,6 +2127,76 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
         "current synthetic owner input",
         "compatible synthetic follow-up",
         "synthetic answer",
+    )
+
+
+async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = "multiple-settlement-groups"
+    first_id = await _owner(
+        store,
+        "multiple-settlement-first",
+        source_conversation_id=conversation_id,
+    )
+    groups: list[tuple[UUID, ...]] = []
+    definitions = build_slice1_definitions(
+        profile_key="synthetic-profile",
+        model="gpt-5.6-terra",
+        owner_timezone="America/Los_Angeles",
+    )
+    checkpoint = PostgresInputCheckpoint(
+        store=store,
+        thread_id=ThreadId(conversation_id),
+        run_id=RunId("multiple-settlement-run"),
+        interactive_plan=definitions.plans["main"],
+        scheduled_wake_plan=definitions.plans["scheduled_wake"],
+        maximum_batch_size=2,
+        maximum_attempts=3,
+        on_settlement=groups.append,
+    )
+    first = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("multiple-settlement-owner")
+    )
+    assert isinstance(first, ClaimAcquired)
+    second_id = await _owner(
+        store,
+        "multiple-settlement-second",
+        source_conversation_id=conversation_id,
+        created_at=datetime.now(UTC) + timedelta(seconds=1),
+    )
+    settled = await checkpoint.settle(
+        first.claim,
+        first.claim.through_checkpoint,
+        ConversationConclusion("first answer"),
+    )
+    assert isinstance(settled, SettleMoreInput)
+
+    second = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("multiple-settlement-owner")
+    )
+    assert isinstance(second, ClaimAcquired)
+    await _owner(
+        store,
+        "multiple-settlement-third",
+        source_conversation_id=conversation_id,
+        created_at=datetime.now(UTC) + timedelta(seconds=2),
+    )
+    await checkpoint.settle(
+        second.claim,
+        second.claim.through_checkpoint,
+        ConversationConclusion("second answer"),
+    )
+
+    assert groups == [(first_id,), (second_id,)]
+    assert checkpoint.consumed_owner_groups == ((first_id,), (second_id,))
+    assert checkpoint.consumed_owner_message_ids == (first_id, second_id)
+    assert isinstance(
+        await checkpoint.claim(
+            ThreadId(conversation_id), OwnerToken("multiple-settlement-owner")
+        ),
+        ClaimNoWork,
     )
 
 
@@ -2162,6 +2287,7 @@ async def test_kernel_stop_poll_settles_before_release(engine: AsyncEngine) -> N
         Released,
     )
     assert checkpoint.consumed_message_ids == (initial_id, stop_id)
+    assert checkpoint.consumed_owner_message_ids == ()
     assert isinstance(await checkpoint.release(claim, "cleanup"), AlreadyReleased)
 
 
@@ -2297,6 +2423,7 @@ async def test_idle_control_and_exhausted_input_are_host_settled(
     )
     assert isinstance(recovered, ClaimNoWork)
     assert recovery_checkpoint.consumed_message_ids == (exhausted_id,)
+    assert recovery_checkpoint.consumed_owner_message_ids == ()
     await store.record_run_metrics(
         consumed_message_ids=recovery_checkpoint.consumed_message_ids,
         run_id="exhausted-run-4",
@@ -2516,6 +2643,7 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
         result.claim.through_checkpoint,
         ConversationConclusion("x" * 2_001),
     )
+    assert checkpoint.consumed_owner_message_ids == ()
     pending = await store.pending_delivery(
         source_conversation_id=conversation_id,
         limit=10,
@@ -2557,6 +2685,7 @@ async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) 
         ConversationConclusion(None),
     )
     assert checkpoint.consumed_message_ids == (inserted.message.id,)
+    assert checkpoint.consumed_owner_message_ids == ()
     pending = await store.pending_delivery(
         source_conversation_id=conversation_id,
         limit=10,

@@ -28,6 +28,7 @@ from jarvis.discord import (
 )
 from jarvis.messages import InboundInsert, PendingControl, StoredMessage
 from jarvis.service import (
+    BackgroundDeferred,
     IngressStore,
     JarvisService,
     ThreadRunner,
@@ -59,6 +60,7 @@ def _settings(tmp_path: Path) -> Settings:
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
         maps_api_key=SecretStr("synthetic-maps-key"),
         brave_api_key=SecretStr("synthetic-brave-key"),
+        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
 
 
@@ -295,6 +297,30 @@ class _InspectableService(JarvisService):
         await self._drain()
 
 
+class _NoWorkRunner(_Runner):
+    async def run(self, cancellation: CancellationToken) -> ThreadNoWork:
+        assert not cancellation.cancelled
+        return ThreadNoWork(
+            RunMetrics(RunId("no-work"), 0, ProviderUsage(), 0.0, False)
+        )
+
+
+class _BlockingBackground:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.cancelled = False
+
+    async def run_one(self, cancellation: CancellationToken) -> bool:
+        self.started.set()
+        await self.release.wait()
+        self.cancelled = cancellation.cancelled
+        return False
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None:
+        cancellation.cancel()
+
+
 async def test_gateway_ready_catches_up_after_canonical_watermark(
     tmp_path: Path,
 ) -> None:
@@ -393,3 +419,138 @@ async def test_resume_clears_pause_and_remains_queued_for_ordered_drain(
     assert await paused.is_paused() is False
     assert store.inserted[0].text == "resume"
     assert runner.settled == []
+
+
+async def test_owner_arrival_cancels_background_without_cancelling_main(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    background = _BlockingBackground()
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _Ingress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _NoWorkRunner()),
+        background=background,
+        gateway=_Gateway(),
+    )
+    drain = asyncio.create_task(service.drain_once())
+    await asyncio.wait_for(background.started.wait(), timeout=1)
+
+    await service.receive_owner_message(
+        DiscordOwnerMessage(
+            "42",
+            "33",
+            "new foreground work",
+            datetime(2026, 9, 3, 18, tzinfo=UTC),
+            None,
+        )
+    )
+    background.release.set()
+    await asyncio.wait_for(drain, timeout=1)
+
+    assert background.cancelled
+
+
+class _DeferredBackground:
+    def __init__(self, until: datetime) -> None:
+        self.until = until
+
+    async def run_one(self, cancellation: CancellationToken) -> BackgroundDeferred:
+        assert not cancellation.cancelled
+        return BackgroundDeferred(self.until)
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None:
+        cancellation.cancel()
+
+
+class _BlockingCommitBackground:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.token: CancellationToken | None = None
+        self.in_commit = False
+        self.interrupt_pending = False
+
+    async def run_one(self, cancellation: CancellationToken) -> bool:
+        self.token = cancellation
+        self.in_commit = True
+        self.started.set()
+        await self.release.wait()
+        self.in_commit = False
+        if self.interrupt_pending:
+            cancellation.cancel()
+        return True
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None:
+        assert cancellation is self.token
+        if self.in_commit:
+            self.interrupt_pending = True
+        else:
+            cancellation.cancel()
+
+
+class _ControlledSleep:
+    def __init__(self) -> None:
+        self.seconds: float | None = None
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __call__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self.started.set()
+        await self.release.wait()
+
+
+async def test_background_admission_deferral_schedules_silent_reset(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    sleep = _ControlledSleep()
+    reset_at = datetime.now(UTC) + timedelta(minutes=2)
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _Ingress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _NoWorkRunner()),
+        background=_DeferredBackground(reset_at),
+        gateway=_Gateway(),
+        sleep=sleep,
+    )
+
+    await service.drain_once()
+    await asyncio.wait_for(sleep.started.wait(), timeout=1)
+    assert sleep.seconds is not None
+    assert 0 < sleep.seconds <= 120
+    service.request_shutdown()
+
+
+async def test_shutdown_waits_for_background_atomic_commit_boundary(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    background = _BlockingCommitBackground()
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _Ingress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _NoWorkRunner()),
+        background=background,
+        gateway=_Gateway(),
+    )
+    drain = asyncio.create_task(service.drain_once())
+    await asyncio.wait_for(background.started.wait(), timeout=1)
+
+    service.request_shutdown()
+
+    assert background.token is not None
+    assert not background.token.cancelled
+    background.release.set()
+    await asyncio.wait_for(drain, timeout=1)
+    assert background.token.cancelled

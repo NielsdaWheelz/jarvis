@@ -1386,9 +1386,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `09f08df2970121ababe973b0e92d6901dd40da9e`
+  `670da13ff0cfe766f36d8966e0575db0f7525143`
 - `llm-calling` / `provider-runtime`:
-  `f477dcdcad03c30019576203d4eb8a3581a6d32f`
+  `2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The kernel directly certifies and pins `openai-codex==0.144.4`; Jarvis's frozen

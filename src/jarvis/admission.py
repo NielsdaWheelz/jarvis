@@ -30,6 +30,11 @@ from llm_tools import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from jarvis._atomic_json import read_private_json, replace_private_json
+from jarvis.definitions import (
+    SLICE2_KERNEL_LIMITS,
+    SLICE3_RECALL_KERNEL_LIMITS,
+    SLICE3_REMEMBER_KERNEL_LIMITS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +180,34 @@ class RollingAdmissionPort:
             maximum_input_tokens,
             maximum_output_tokens,
             self._limits,
+            include_serial_children=True,
+        )
+        async with self._lock:
+            now = self._now()
+            journal = self._read()
+            changed = _prune(journal, now)
+            if any(root.owns_live_slot for root in journal.reservations):
+                raise AdmissionStateDefect(
+                    "admission journal contains an active root slot"
+                )
+            reset_at = _capacity_reset(journal, now, self._limits, request)
+            if changed:
+                self._write(journal)
+            return reset_at
+
+    async def preflight_background(
+        self,
+        *,
+        maximum_turns: int,
+        maximum_input_tokens: int,
+        maximum_output_tokens: int,
+    ) -> datetime | None:
+        request = _required_root(
+            maximum_turns,
+            maximum_input_tokens,
+            maximum_output_tokens,
+            self._limits,
+            include_serial_children=False,
         )
         async with self._lock:
             now = self._now()
@@ -212,6 +245,7 @@ class RollingAdmissionPort:
                 request.maximum_input_tokens,
                 request.maximum_output_tokens,
                 self._limits,
+                include_serial_children=request.thread_id is not None,
             )
             if request.thread_id is not None and (
                 request.attempt_number is None
@@ -349,6 +383,147 @@ class RollingAdmissionPort:
         replace_private_json(self._path, journal.model_dump(mode="json"))
 
 
+class RootTrackingAdmissionPort:
+    """Track the validated root and expose foreground roots to serial children."""
+
+    def __init__(self, delegate: RollingAdmissionPort) -> None:
+        self._delegate = delegate
+        self._lock = asyncio.Lock()
+        self._root: AdmissionToken | None = None
+        self._child: AdmissionToken | None = None
+
+    async def preflight(
+        self,
+        *,
+        maximum_turns: int,
+        maximum_input_tokens: int,
+        maximum_output_tokens: int,
+    ) -> datetime | None:
+        return await self._delegate.preflight(
+            maximum_turns=maximum_turns,
+            maximum_input_tokens=maximum_input_tokens,
+            maximum_output_tokens=maximum_output_tokens,
+        )
+
+    async def active_root(self) -> AdmissionToken:
+        async with self._lock:
+            if self._root is None or not self._root.owns_live_slot:
+                raise AdmissionStateDefect("serial child has no active root admission")
+            if self._child is not None:
+                raise AdmissionStateDefect("another serial child admission is active")
+            return self._root
+
+    async def preflight_background(
+        self,
+        *,
+        maximum_turns: int,
+        maximum_input_tokens: int,
+        maximum_output_tokens: int,
+    ) -> datetime | None:
+        return await self._delegate.preflight_background(
+            maximum_turns=maximum_turns,
+            maximum_input_tokens=maximum_input_tokens,
+            maximum_output_tokens=maximum_output_tokens,
+        )
+
+    async def reserve(self, request: AdmissionRequest) -> AdmissionResult:
+        async with self._lock:
+            if request.parent is None:
+                if self._root is not None:
+                    raise AdmissionStateDefect(
+                        "admission wrapper already has an active root"
+                    )
+            elif request.parent != self._root or self._child is not None:
+                raise AdmissionStateDefect(
+                    "serial child admission parent is not active"
+                )
+            result = await self._delegate.reserve(request)
+            if isinstance(result, AdmissionGranted):
+                if request.parent is None:
+                    if not result.token.owns_live_slot:
+                        raise AdmissionStateDefect(
+                            "root admission returned a child token"
+                        )
+                    self._root = result.token
+                else:
+                    if result.token.owns_live_slot:
+                        raise AdmissionStateDefect(
+                            "child admission returned a root token"
+                        )
+                    self._child = result.token
+            return result
+
+    async def settle(self, token: AdmissionToken, usage: AdmissionUsage) -> None:
+        async with self._lock:
+            if token == self._child:
+                await self._delegate.settle(token, usage)
+                self._child = None
+                return
+            if token != self._root:
+                raise AdmissionStateDefect("admission wrapper settlement is unknown")
+            if self._child is not None:
+                raise AdmissionStateDefect(
+                    "root admission settled with an active child"
+                )
+            await self._delegate.settle(token, usage)
+            self._root = None
+
+    async def recover_orphans(self) -> tuple[RunId, ...]:
+        async with self._lock:
+            if self._root is not None or self._child is not None:
+                raise AdmissionStateDefect(
+                    "cannot recover admission while work is active"
+                )
+            return await self._delegate.recover_orphans()
+
+
+def slice3_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
+    if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
+        raise ValueError("maximum owner inputs must be a positive integer")
+    root_input_overshoot = 32_768
+    root_output_overshoot = 8_192
+    serial_child_turns = (
+        maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
+    )
+    serial_child_input_tokens = maximum_owner_inputs * (
+        SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+    )
+    serial_child_output_tokens = maximum_owner_inputs * (
+        SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+    )
+    maximum_foreground_turns = (
+        SLICE2_KERNEL_LIMITS.max_provider_turns + serial_child_turns
+    )
+    maximum_foreground_input_tokens = (
+        SLICE2_KERNEL_LIMITS.max_provider_input_tokens
+        + root_input_overshoot
+        + serial_child_input_tokens
+    )
+    maximum_foreground_output_tokens = (
+        SLICE2_KERNEL_LIMITS.max_provider_output_tokens
+        + root_output_overshoot
+        + serial_child_output_tokens
+    )
+    return RollingAdmissionLimits(
+        max_turns=(
+            maximum_foreground_turns + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns
+        ),
+        max_input_tokens=(
+            maximum_foreground_input_tokens
+            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_input_tokens
+            + root_input_overshoot
+        ),
+        max_output_tokens=(
+            maximum_foreground_output_tokens
+            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
+            + root_output_overshoot
+        ),
+        serial_child_turns=serial_child_turns,
+        serial_child_input_tokens=serial_child_input_tokens,
+        serial_child_output_tokens=serial_child_output_tokens,
+    )
+
+
 @dataclass(slots=True)
 class _Spend:
     reservation: Reservation
@@ -438,6 +613,8 @@ def _required_root(
     input_tokens: int,
     output_tokens: int,
     limits: RollingAdmissionLimits,
+    *,
+    include_serial_children: bool,
 ) -> tuple[int, int, int]:
     if any(
         type(value) is not int or value <= 0
@@ -445,13 +622,13 @@ def _required_root(
     ):
         raise ValueError("admission request maxima must be positive integers")
     return (
-        turns + limits.serial_child_turns,
+        turns + (limits.serial_child_turns if include_serial_children else 0),
         input_tokens
         + limits.root_input_token_overshoot
-        + limits.serial_child_input_tokens,
+        + (limits.serial_child_input_tokens if include_serial_children else 0),
         output_tokens
         + limits.root_output_token_overshoot
-        + limits.serial_child_output_tokens,
+        + (limits.serial_child_output_tokens if include_serial_children else 0),
     )
 
 
@@ -535,6 +712,8 @@ def _reserve_child(
     )
     if root is None or root.state != "active" or not root.owns_live_slot:
         raise AdmissionStateDefect("child admission has no active parent root")
+    if root.thread_id is None:
+        raise AdmissionStateDefect("background root has no serial-child allowance")
     if str(parent.run_id) != root.run_id or not parent.owns_live_slot:
         raise AdmissionStateDefect("child admission parent token is inconsistent")
     if any(
@@ -746,12 +925,19 @@ def _validate_journal(journal: _Journal, limits: RollingAdmissionLimits) -> None
             raise ValueError("admission reservation window changed")
         if (root.thread_id is None) != (root.attempt_number is None):
             raise ValueError("admission thread and attempt state is inconsistent")
+        child_turns = limits.serial_child_turns if root.thread_id is not None else 0
+        child_input = (
+            limits.serial_child_input_tokens if root.thread_id is not None else 0
+        )
+        child_output = (
+            limits.serial_child_output_tokens if root.thread_id is not None else 0
+        )
         if (
-            root.reserved_turns != root.root_reserved_turns + limits.serial_child_turns
+            root.reserved_turns != root.root_reserved_turns + child_turns
             or root.reserved_input_tokens
-            != root.root_reserved_input_tokens + limits.serial_child_input_tokens
+            != root.root_reserved_input_tokens + child_input
             or root.reserved_output_tokens
-            != root.root_reserved_output_tokens + limits.serial_child_output_tokens
+            != root.root_reserved_output_tokens + child_output
         ):
             raise ValueError("admission root and child allowances are inconsistent")
         if (
@@ -838,4 +1024,6 @@ __all__ = [
     "InProcessBudgetState",
     "RollingAdmissionLimits",
     "RollingAdmissionPort",
+    "RootTrackingAdmissionPort",
+    "slice3_admission_limits",
 ]

@@ -1,11 +1,11 @@
 {
-  "application_session_contract_revision": "jarvis-slice-2-v3",
+  "application_session_contract_revision": "jarvis-slice-3-v1",
   "dependencies": {
-    "llm-agent-kernel": "09f08df2970121ababe973b0e92d6901dd40da9e",
+    "llm-agent-kernel": "670da13ff0cfe766f36d8966e0575db0f7525143",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
     "openai-codex": "0.144.4",
     "openai-codex-cli-bin": "0.144.4",
-    "provider-runtime": "f477dcdcad03c30019576203d4eb8a3581a6d32f"
+    "provider-runtime": "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd"
   },
   "qualified_models": [
     "gpt-5.6-terra"
@@ -13,9 +13,9 @@
   "role_contract_revisions": {
     "automatic_write_gate": "jarvis-automatic-write-gate-slice-1-v2",
     "dreamer": "jarvis-dreamer-slice-1-v2",
-    "main": "jarvis-main-slice-2-v3",
-    "recaller": "jarvis-recaller-slice-1-v2",
-    "rememberer": "jarvis-rememberer-slice-1-v2"
+    "main": "jarvis-main-slice-3-v1",
+    "recaller": "jarvis-recaller-slice-3-v1",
+    "rememberer": "jarvis-rememberer-slice-3-v1"
   },
   "schema_version": "jarvis-session-compatibility.v2"
 }

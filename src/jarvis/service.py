@@ -3,32 +3,68 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
+    AgentDefinition,
     CancellationToken,
+    DispatchCompleted,
+    DispatchResult,
+    HostInput,
+    InputId,
+    OneShotCompleted,
     OwnerToken,
+    ProviderSessionPort,
     RunId,
+    RunMetrics,
     ThreadDeferred,
     ThreadId,
     ThreadNoWork,
     ThreadOutcome,
     ThreadStopKind,
     ThreadStopped,
+    ToolDispatchLineage,
     ToolDispatchPort,
+    run_one_shot,
     run_thread,
 )
+from llm_tools import (
+    BudgetState,
+    FrozenToolPlan,
+    PromptAttribute,
+    PromptAttributeName,
+    PromptSection,
+    PromptSectionKind,
+    PromptSections,
+    PromptText,
+    ToolBinding,
+    canonical_json_bytes,
+)
 
-from jarvis.admission import ExactToolBudgetFactory, RollingAdmissionPort
+from jarvis.admission import (
+    ExactToolBudgetFactory,
+    RollingAdmissionPort,
+    RootTrackingAdmissionPort,
+)
 from jarvis.checkpoints import PostgresInputCheckpoint
-from jarvis.context import JarvisContextSource
-from jarvis.definitions import Slice1Definitions, Slice2Definitions
+from jarvis.context import (
+    IsolatedRecaller,
+    JarvisContextSource,
+    MemoryReadDispatcherPort,
+)
+from jarvis.definitions import (
+    RememberResult,
+    Slice1Definitions,
+    Slice2Definitions,
+    Slice3Definitions,
+)
 from jarvis.discord import (
     CatchUpResult,
     Control,
@@ -38,11 +74,19 @@ from jarvis.discord import (
 )
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime
+from jarvis.memory import (
+    MemoryStore,
+    RemembererGroup,
+    RemembererRunSummary,
+    StoredRawMemory,
+)
 from jarvis.messages import InboundInsert, MessageStore, PendingControl, StoredMessage
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
 LOGGER = logging.getLogger(__name__)
+
+_MAX_MATERIAL_CONTEXT_BYTES = 180_000
 
 
 class PendingDeliveryStore(Protocol):
@@ -114,12 +158,474 @@ class PreflightDeferred:
 type ServiceRunOutcome = ThreadOutcome | PreflightDeferred
 
 
+@dataclass(frozen=True, slots=True)
+class BackgroundDeferred:
+    until: datetime
+
+
+class EmbeddingPort(Protocol):
+    async def embed(self, inputs: tuple[str, ...]) -> tuple[tuple[float, ...], ...]: ...
+
+
+class CapturingReadDispatcher:
+    """Keep bounded completed Main observations only for the immediate rememberer."""
+
+    def __init__(self, delegate: ToolDispatchPort) -> None:
+        self._delegate = delegate
+        self._observations: list[tuple[str, int, object]] = []
+
+    async def dispatch(
+        self,
+        *,
+        binding: ToolBinding[Any, Any, Any],
+        validated_input: object,
+        plan: FrozenToolPlan,
+        budgets: BudgetState,
+        cancellation: CancellationToken,
+        lineage: ToolDispatchLineage,
+    ) -> DispatchResult:
+        result = await self._delegate.dispatch(
+            binding=binding,
+            validated_input=validated_input,
+            plan=plan,
+            budgets=budgets,
+            cancellation=cancellation,
+            lineage=lineage,
+        )
+        if isinstance(result, DispatchCompleted):
+            self._observations.append(
+                (
+                    str(binding.spec.id),
+                    lineage.model_step_ordinal,
+                    result.result,
+                )
+            )
+        return result
+
+    def material_sections(self) -> PromptSections:
+        selected: list[PromptSection] = []
+        used = 0
+        for tool_id, ordinal, result in reversed(self._observations):
+            encoded = canonical_json_bytes(result)
+            if used + len(encoded) > _MAX_MATERIAL_CONTEXT_BYTES:
+                continue
+            selected.append(
+                PromptSection(
+                    PromptSectionKind("material_tool_observation"),
+                    (
+                        PromptAttribute(PromptAttributeName("tool_id"), tool_id),
+                        PromptAttribute(
+                            PromptAttributeName("model_step_ordinal"), str(ordinal)
+                        ),
+                    ),
+                    PromptText(encoded.decode()),
+                )
+            )
+            used += len(encoded)
+        selected.reverse()
+        return PromptSections(tuple(selected))
+
+    def take_material_sections(self) -> PromptSections:
+        sections = self.material_sections()
+        self._observations.clear()
+        return sections
+
+
+@dataclass(frozen=True, slots=True)
+class _ImmediateRemembererWork:
+    owner_message_ids: tuple[UUID, ...]
+    material_context: PromptSections
+
+
+class RemembererWorker:
+    """Run one bounded isolated rememberer or embedding unit at a time."""
+
+    def __init__(
+        self,
+        *,
+        definition: AgentDefinition,
+        plan: FrozenToolPlan,
+        admission: RootTrackingAdmissionPort,
+        provider: ProviderSessionPort,
+        dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
+        memory: MemoryStore,
+        messages: MessageStore,
+        embedder: EmbeddingPort,
+        maximum_messages_per_group: int,
+    ) -> None:
+        if (
+            type(maximum_messages_per_group) is not int
+            or maximum_messages_per_group <= 0
+        ):
+            raise ValueError("rememberer group bound must be a positive integer")
+        self._definition = definition
+        self._plan = plan
+        self._admission = admission
+        self._provider = provider
+        self._dispatcher_factory = dispatcher_factory
+        self._memory = memory
+        self._messages = messages
+        self._embedder = embedder
+        self._maximum_messages_per_group = maximum_messages_per_group
+        self._immediate: list[_ImmediateRemembererWork] = []
+        self._commit_in_progress = False
+        self._foreground_waiting = False
+
+    def enqueue(
+        self,
+        owner_message_ids: tuple[UUID, ...],
+        material_context: PromptSections,
+    ) -> None:
+        if not owner_message_ids or len(set(owner_message_ids)) != len(
+            owner_message_ids
+        ):
+            raise ValueError("rememberer owner IDs must be non-empty and unique")
+        self._immediate.append(
+            _ImmediateRemembererWork(owner_message_ids, material_context)
+        )
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None:
+        if self._commit_in_progress:
+            self._foreground_waiting = True
+        else:
+            cancellation.cancel()
+
+    async def run_one(
+        self, cancellation: CancellationToken
+    ) -> bool | BackgroundDeferred:
+        if cancellation.cancelled:
+            return False
+        immediate = self._immediate[0] if self._immediate else None
+        if immediate is None:
+            groups = await self._memory.select_pending_rememberer_groups(
+                maximum_groups=1,
+                maximum_messages_per_group=self._maximum_messages_per_group,
+            )
+            if not groups:
+                return await self._backfill(cancellation)
+            group = groups[0]
+            material_context = PromptSections(())
+        else:
+            try:
+                group = await self._memory.prepare_rememberer_group(
+                    owner_message_ids=immediate.owner_message_ids,
+                )
+            except Exception:
+                self._immediate.pop(0)
+                return False
+            material_context = immediate.material_context
+        limits = self._definition.limits
+        reset_at = await self._admission.preflight_background(
+            maximum_turns=limits.max_provider_turns,
+            maximum_input_tokens=limits.max_provider_input_tokens,
+            maximum_output_tokens=limits.max_provider_output_tokens,
+        )
+        if reset_at is not None:
+            return BackgroundDeferred(reset_at)
+        completed = await self._remember(group, material_context, cancellation)
+        if completed and immediate is not None:
+            self._immediate.pop(0)
+        return completed
+
+    async def _remember(
+        self,
+        group: RemembererGroup,
+        material_context: PromptSections,
+        cancellation: CancellationToken,
+    ) -> bool:
+        inputs = tuple(
+            HostInput(
+                InputId(str(target.id)),
+                PromptSections(
+                    (
+                        PromptSection(
+                            PromptSectionKind("settled_owner_input"),
+                            (
+                                PromptAttribute(
+                                    PromptAttributeName("source"), target.source
+                                ),
+                            ),
+                            PromptText(target.text),
+                        ),
+                    )
+                ),
+                target.created_at,
+            )
+            for target in group.targets
+        )
+        source = await self._rememberer_source(group, material_context)
+        run_id = RunId(str(uuid4()))
+        try:
+            outcome = await run_one_shot(
+                run_id=run_id,
+                definition=self._definition,
+                inputs=inputs,
+                as_of=datetime.now(UTC),
+                plan=self._plan,
+                source_sections=source,
+                admission=self._admission,
+                provider=self._provider,
+                dispatcher=self._dispatcher_factory(),
+                budget_factory=ExactToolBudgetFactory(),
+                cancellation=cancellation,
+            )
+        except Exception:
+            await self._record_attempt(
+                group,
+                run_id,
+                "configuration_error",
+                None,
+            )
+            return False
+        if not isinstance(outcome, OneShotCompleted):
+            await self._record_attempt(
+                group,
+                run_id,
+                outcome.type.value,
+                outcome.metrics,
+            )
+            return False
+        if cancellation.cancelled:
+            await self._record_attempt(
+                group,
+                run_id,
+                "cancelled",
+                outcome.metrics,
+            )
+            return False
+        try:
+            result = RememberResult.model_validate(outcome.result)
+        except (TypeError, ValueError):
+            await self._record_attempt(
+                group,
+                run_id,
+                "invalid_result",
+                outcome.metrics,
+            )
+            return False
+        metrics = outcome.metrics
+        if cancellation.cancelled:
+            await self._record_attempt(
+                group,
+                run_id,
+                "cancelled",
+                metrics,
+            )
+            return False
+        self._commit_in_progress = True
+        self._foreground_waiting = False
+        commit = None
+        try:
+            commit = await self._memory.commit_rememberer_result(
+                group=group,
+                memory_texts=tuple(result.memories),
+                run=RemembererRunSummary(
+                    run_id=str(run_id),
+                    provider_turns=metrics.provider_turns,
+                    input_tokens=metrics.usage.input_tokens,
+                    output_tokens=metrics.usage.output_tokens,
+                    duration_ms=round(metrics.duration_seconds * 1_000),
+                ),
+            )
+        except Exception:
+            pass
+        finally:
+            self._commit_in_progress = False
+            if self._foreground_waiting:
+                cancellation.cancel()
+            self._foreground_waiting = False
+        if commit is None:
+            await self._record_attempt(
+                group,
+                run_id,
+                "commit_failure",
+                metrics,
+            )
+            return False
+        if cancellation.cancelled or not commit.created:
+            return True
+        await self._embed_created(commit.created, cancellation)
+        return True
+
+    async def _record_attempt(
+        self,
+        group: RemembererGroup,
+        run_id: RunId,
+        terminal_outcome: str,
+        metrics: RunMetrics | None,
+    ) -> None:
+        try:
+            await self._messages.record_rememberer_attempt(
+                message_ids=tuple(target.id for target in group.targets),
+                run_id=str(run_id),
+                terminal_outcome=terminal_outcome,
+                provider_turns=None if metrics is None else metrics.provider_turns,
+                input_tokens=None if metrics is None else metrics.usage.input_tokens,
+                output_tokens=None if metrics is None else metrics.usage.output_tokens,
+                duration_seconds=None if metrics is None else metrics.duration_seconds,
+            )
+        except Exception:
+            return
+
+    async def _rememberer_source(
+        self,
+        group: RemembererGroup,
+        material_context: PromptSections,
+    ) -> PromptSections:
+        sections: list[PromptSection] = list(material_context.sections)
+        settlement = group.settlement
+        if settlement is not None:
+            body = None
+            if settlement.conclusion_message_id is not None:
+                conclusion = await self._messages.message_by_id(
+                    UUID(settlement.conclusion_message_id)
+                )
+                if conclusion is None or conclusion.role != "assistant":
+                    raise RuntimeError("rememberer conclusion is missing")
+                body = PromptText(conclusion.text)
+            sections.append(
+                PromptSection(
+                    PromptSectionKind("persisted_conclusion"),
+                    (
+                        PromptAttribute(
+                            PromptAttributeName("conclusion_kind"),
+                            settlement.conclusion_kind,
+                        ),
+                        PromptAttribute(
+                            PromptAttributeName("outcome"), settlement.outcome
+                        ),
+                    ),
+                    body,
+                )
+            )
+        recalled = _recalled_id_sections(group)
+        sections.extend(recalled.sections)
+        return PromptSections(tuple(sections))
+
+    async def _embed_created(
+        self,
+        rows: tuple[StoredRawMemory, ...],
+        cancellation: CancellationToken,
+    ) -> None:
+        vectors = await self._embedding_vectors(
+            tuple(row.text for row in rows), cancellation
+        )
+        if vectors is None:
+            return
+        if cancellation.cancelled or len(vectors) != len(rows):
+            return
+        for row, vector in zip(rows, vectors, strict=True):
+            if cancellation.cancelled:
+                return
+            try:
+                await self._memory.update_embedding(
+                    identity=row.identity,
+                    embedding=vector,
+                )
+            except Exception:
+                return
+
+    async def _backfill(self, cancellation: CancellationToken) -> bool:
+        rows = await self._memory.select_null_embedding_candidates(maximum_rows=32)
+        if not rows or cancellation.cancelled:
+            return False
+        vectors = await self._embedding_vectors(
+            tuple(row.text for row in rows), cancellation
+        )
+        if vectors is None:
+            return False
+        if cancellation.cancelled or len(vectors) != len(rows):
+            return False
+        updated = False
+        for row, vector in zip(rows, vectors, strict=True):
+            if cancellation.cancelled:
+                break
+            try:
+                await self._memory.update_embedding(
+                    identity=row.identity,
+                    embedding=vector,
+                )
+            except Exception:
+                break
+            updated = True
+        return updated
+
+    async def _embedding_vectors(
+        self,
+        texts: tuple[str, ...],
+        cancellation: CancellationToken,
+    ) -> tuple[tuple[float, ...], ...] | None:
+        embedding = asyncio.create_task(self._embedder.embed(texts))
+        cancelled = asyncio.create_task(cancellation.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                (embedding, cancelled),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if cancelled in done:
+                embedding.cancel()
+                await asyncio.gather(embedding, return_exceptions=True)
+                return None
+            cancelled.cancel()
+            await asyncio.gather(cancelled, return_exceptions=True)
+            return embedding.result()
+        except Exception:
+            return None
+        finally:
+            if not embedding.done():
+                embedding.cancel()
+            if not cancelled.done():
+                cancelled.cancel()
+            await asyncio.gather(embedding, cancelled, return_exceptions=True)
+
+
+def _recalled_id_sections(group: RemembererGroup) -> PromptSections:
+    identities: list[dict[str, str]] = []
+    for target in group.targets:
+        recaller = target.trace.get("recaller")
+        if not isinstance(recaller, dict):
+            continue
+        selected = cast("dict[str, object]", recaller).get("selected_memory_ids")
+        if not isinstance(selected, list):
+            continue
+        for value in cast("list[object]", selected):
+            if not isinstance(value, dict):
+                continue
+            item = cast("dict[str, object]", value)
+            table_kind = item.get("table_kind")
+            identifier = item.get("id")
+            if not isinstance(table_kind, str) or not isinstance(identifier, str):
+                continue
+            identity = {"table_kind": table_kind, "id": identifier}
+            if identity not in identities:
+                identities.append(identity)
+    if not identities:
+        return PromptSections(())
+    return PromptSections(
+        (
+            PromptSection(
+                PromptSectionKind("recalled_memory_identities"),
+                (),
+                PromptText(json.dumps(identities, separators=(",", ":"))),
+            ),
+        )
+    )
+
+
 class ThreadRunner(Protocol):
     async def run(self, cancellation: CancellationToken) -> ServiceRunOutcome: ...
 
     async def settle_control(self, message_id: UUID, control: Control) -> bool: ...
 
     async def discard_recovered_session_reference(self) -> None: ...
+
+
+class BackgroundWorkerPort(Protocol):
+    async def run_one(
+        self, cancellation: CancellationToken
+    ) -> bool | BackgroundDeferred: ...
+
+    def request_interrupt(self, cancellation: CancellationToken) -> None: ...
 
 
 class JarvisThreadRunner:
@@ -130,11 +636,14 @@ class JarvisThreadRunner:
         *,
         settings: Settings,
         store: MessageStore,
-        admission: RollingAdmissionPort,
+        admission: RollingAdmissionPort | RootTrackingAdmissionPort,
         kernel_runtime: KernelRuntime,
-        definitions: Slice1Definitions | Slice2Definitions,
+        definitions: Slice1Definitions | Slice2Definitions | Slice3Definitions,
         history: PostgresCanonicalHistory,
         dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
+        memory: MemoryStore | None = None,
+        memory_dispatcher_factory: Callable[[], MemoryReadDispatcherPort] | None = None,
+        rememberer: RemembererWorker | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -143,6 +652,18 @@ class JarvisThreadRunner:
         self._definitions = definitions
         self._history = history
         self._dispatcher_factory = dispatcher_factory
+        self._memory = memory
+        self._memory_dispatcher_factory = memory_dispatcher_factory
+        self._rememberer = rememberer
+        if isinstance(definitions, Slice3Definitions) and (
+            not isinstance(admission, RootTrackingAdmissionPort)
+            or memory is None
+            or memory_dispatcher_factory is None
+            or rememberer is None
+        ):
+            raise ValueError(
+                "Slice 3 runner requires complete isolated memory composition"
+            )
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint: PostgresInputCheckpoint | None = None
 
@@ -187,6 +708,13 @@ class JarvisThreadRunner:
 
         run_id = RunId(str(uuid4()))
         thread_id = ThreadId(str(self._settings.discord.channel_id))
+        dispatcher = CapturingReadDispatcher(self._dispatcher_factory())
+
+        def on_settlement(owner_message_ids: tuple[UUID, ...]) -> None:
+            material_context = dispatcher.take_material_sections()
+            if owner_message_ids and self._rememberer is not None:
+                self._rememberer.enqueue(owner_message_ids, material_context)
+
         checkpoints = PostgresInputCheckpoint(
             store=self._store,
             thread_id=thread_id,
@@ -195,8 +723,29 @@ class JarvisThreadRunner:
             scheduled_wake_plan=self._definitions.plans["scheduled_wake"],
             maximum_batch_size=self._settings.maximum_batch_size,
             maximum_attempts=self._definitions.main.limits.max_no_progress_attempts,
+            on_settlement=on_settlement,
         )
-        context = JarvisContextSource(thread_id, self._history)
+        recaller = None
+        if isinstance(self._definitions, Slice3Definitions):
+            assert isinstance(self._admission, RootTrackingAdmissionPort)
+            assert self._memory is not None
+            assert self._memory_dispatcher_factory is not None
+            recaller = IsolatedRecaller(
+                definition=self._definitions.recaller,
+                plan=self._definitions.plans["recaller"],
+                admission=self._admission,
+                provider=self._kernel_runtime.provider,
+                dispatcher_factory=self._memory_dispatcher_factory,
+                memory=self._memory,
+                trace=self._store,
+            )
+        context = JarvisContextSource(
+            thread_id,
+            self._history,
+            recaller=recaller,
+            cancellation=cancellation,
+            batch_clock=checkpoints if recaller is not None else None,
+        )
         async with self._checkpoint_lock:
             if self._checkpoint is not None:
                 raise RuntimeError("the Jarvis thread runner is already active")
@@ -211,7 +760,7 @@ class JarvisThreadRunner:
                 admission=self._admission,
                 sessions=self._kernel_runtime.sessions,
                 context_source=context,
-                dispatcher=self._dispatcher_factory(),
+                dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
             )
@@ -302,6 +851,7 @@ class JarvisService:
         paused: PausedState,
         delivery: CreateMessagePort,
         runner: ThreadRunner,
+        background: BackgroundWorkerPort | None = None,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -310,6 +860,7 @@ class JarvisService:
         self._paused = paused
         self._delivery = delivery
         self._runner = runner
+        self._background = background
         self._gateway = gateway
         self._sleep = sleep
         self._work = asyncio.Event()
@@ -317,6 +868,7 @@ class JarvisService:
         self._execution_mutex = asyncio.Lock()
         self._active_lock = asyncio.Lock()
         self._active_cancellation: CancellationToken | None = None
+        self._background_cancellation: CancellationToken | None = None
         self._reset_task: asyncio.Task[None] | None = None
 
     def bind_gateway(self, gateway: GatewayPort) -> None:
@@ -347,6 +899,9 @@ class JarvisService:
                 return
 
             active = self._active_cancellation
+            background = self._background_cancellation
+            if background is not None and self._background is not None:
+                self._background.request_interrupt(background)
             if incoming.control in {Control.STOP, Control.PAUSE}:
                 await self._paused.set_paused(True)
                 if active is not None:
@@ -408,6 +963,8 @@ class JarvisService:
     def request_shutdown(self) -> None:
         self._shutdown.set()
         self._work.set()
+        if self._background_cancellation is not None and self._background is not None:
+            self._background.request_interrupt(self._background_cancellation)
         if self._reset_task is not None:
             self._reset_task.cancel()
 
@@ -481,6 +1038,12 @@ class JarvisService:
                     self._schedule_reset(outcome.until)
                     return
                 if isinstance(outcome, ThreadNoWork):
+                    background = await self._run_background_once()
+                    if isinstance(background, BackgroundDeferred):
+                        self._schedule_reset(background.until)
+                        return
+                    if background:
+                        continue
                     return
                 if (
                     isinstance(outcome, ThreadStopped)
@@ -492,6 +1055,24 @@ class JarvisService:
                     and not outcome.metrics.input_consumed
                 ):
                     return
+
+    async def _run_background_once(self) -> bool | BackgroundDeferred:
+        if self._background is None or self._work.is_set():
+            return False
+        cancellation = CancellationToken()
+        async with self._active_lock:
+            self._background_cancellation = cancellation
+            if self._work.is_set():
+                cancellation.cancel()
+        try:
+            try:
+                return await self._background.run_one(cancellation)
+            except Exception:
+                return False
+        finally:
+            async with self._active_lock:
+                if self._background_cancellation is cancellation:
+                    self._background_cancellation = None
 
     def _schedule_reset(self, reset_at: datetime) -> None:
         delay = max(0.0, (reset_at.astimezone(UTC) - datetime.now(UTC)).total_seconds())
@@ -511,12 +1092,14 @@ class JarvisService:
 
 
 __all__ = [
+    "BackgroundDeferred",
     "DeliveryFlushResult",
     "DiscordCursorPort",
     "JarvisService",
     "JarvisThreadRunner",
     "PendingControlPort",
     "PreflightDeferred",
+    "RemembererWorker",
     "Slice1ThreadRunner",
     "flush_pending_deliveries",
 ]

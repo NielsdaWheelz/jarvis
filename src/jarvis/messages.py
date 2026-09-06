@@ -13,6 +13,8 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from jarvis.db import message
+from jarvis.memory import MemoryIdentity
+from jarvis.settings import MAXIMUM_BATCH_SIZE
 
 MessageRole = Literal["owner", "assistant", "host"]
 ClaimRoute = Literal["interactive", "scheduled_wake"]
@@ -219,6 +221,19 @@ class MessageStore:
                 msg = "source identity was reused for different message content"
                 raise PersistenceDefect(msg)
             return InboundInsert(stored, inserted=False)
+
+    async def message_by_id(self, message_id: UUID) -> StoredMessage | None:
+        async with self._engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        select(message).where(message.c.id == message_id)
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return None if row is None else _stored_message(row)
 
     async def claim(
         self,
@@ -913,6 +928,151 @@ class MessageStore:
                     .where(message.c.id == value.id)
                     .values(trace=message.c.trace.concat({"settlement": completed}))
                 )
+
+    async def record_recall(
+        self,
+        *,
+        message_id: UUID,
+        candidate_identities: tuple[MemoryIdentity, ...],
+        selected_identities: tuple[MemoryIdentity, ...],
+        run_id: str,
+        terminal_outcome: str,
+        provider_turns: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        duration_seconds: float,
+    ) -> None:
+        if len(candidate_identities) > 160 or len(set(candidate_identities)) != len(
+            candidate_identities
+        ):
+            raise ValueError("recall candidate IDs must be unique and bounded")
+        if len(selected_identities) > 20 or len(set(selected_identities)) != len(
+            selected_identities
+        ):
+            raise ValueError("recall selected IDs must be unique and bounded")
+        summary: dict[str, object] = {
+            "run_id": _nonempty(run_id, "recall run id"),
+            "provider_turns": _nonnegative(provider_turns, "provider turns"),
+            "terminal_outcome": _nonempty(
+                terminal_outcome,
+                "recall terminal outcome",
+            ),
+            "duration_ms": _duration_ms(duration_seconds),
+        }
+        if input_tokens is not None:
+            summary["input_tokens"] = _nonnegative(input_tokens, "input tokens")
+        if output_tokens is not None:
+            summary["output_tokens"] = _nonnegative(output_tokens, "output tokens")
+
+        def identities(values: tuple[MemoryIdentity, ...]) -> list[dict[str, str]]:
+            return [
+                {"table_kind": item.table_kind, "id": str(item.id)} for item in values
+            ]
+
+        recall_trace = {
+            "candidate_memory_ids": identities(candidate_identities),
+            "selected_memory_ids": identities(selected_identities),
+            "run": summary,
+        }
+        _bounded_trace({"recaller": recall_trace})
+        async with self._engine.begin() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        select(message)
+                        .where(message.c.id == message_id)
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise PersistenceDefect("recall trace references a missing message")
+            stored = _stored_message(row)
+            if stored.role != "owner":
+                raise PersistenceDefect("recall trace target is not owner-authored")
+            updated_trace = {**stored.trace, "recaller": recall_trace}
+            _bounded_trace(updated_trace)
+            await connection.execute(
+                update(message)
+                .where(message.c.id == message_id)
+                .values(trace=message.c.trace.concat({"recaller": recall_trace}))
+            )
+
+    async def record_rememberer_attempt(
+        self,
+        *,
+        message_ids: tuple[UUID, ...],
+        run_id: str,
+        terminal_outcome: str,
+        provider_turns: int | None,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        duration_seconds: float | None,
+    ) -> None:
+        if (
+            not message_ids
+            or len(message_ids) > MAXIMUM_BATCH_SIZE
+            or len(set(message_ids)) != len(message_ids)
+        ):
+            raise ValueError("rememberer attempt target IDs must be unique and bounded")
+        if len(run_id) > 256:
+            raise ValueError("rememberer run id exceeds its bound")
+        if (
+            len(terminal_outcome) > MAX_REASON_CODE_LENGTH
+            or _REASON_CODE.fullmatch(terminal_outcome) is None
+        ):
+            raise ValueError("rememberer terminal outcome is invalid")
+        summary: dict[str, object] = {
+            "run_id": _nonempty(run_id, "rememberer run id"),
+            "terminal_outcome": terminal_outcome,
+        }
+        for name, value in (
+            ("provider_turns", provider_turns),
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+        ):
+            if value is not None:
+                summary[name] = _nonnegative(value, name.replace("_", " "))
+        if duration_seconds is not None:
+            summary["duration_ms"] = _duration_ms(duration_seconds)
+        rememberer_trace: dict[str, object] = {
+            "created_memory_ids": [],
+            "run": summary,
+        }
+        _bounded_trace({"rememberer": rememberer_trace})
+
+        async with self._engine.begin() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        select(message)
+                        .where(message.c.id.in_(message_ids))
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if len(rows) != len(message_ids):
+                raise PersistenceDefect(
+                    "rememberer attempt references a missing message"
+                )
+            for row in rows:
+                stored = _stored_message(row)
+                if (
+                    stored.role != "owner"
+                    or stored.processed_at is None
+                    or stored.remembered_at is not None
+                ):
+                    raise PersistenceDefect("rememberer attempt target is ineligible")
+                _bounded_trace({**stored.trace, "rememberer": rememberer_trace})
+            await connection.execute(
+                update(message)
+                .where(message.c.id.in_(message_ids))
+                .values(trace=message.c.trace.concat({"rememberer": rememberer_trace}))
+            )
 
     async def pending_delivery(
         self,

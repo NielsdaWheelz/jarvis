@@ -931,6 +931,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
         maps_api_key=SecretStr("synthetic-maps-key"),
         brave_api_key=SecretStr("synthetic-brave-key"),
+        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
@@ -1111,6 +1112,7 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
         maps_api_key=SecretStr("synthetic-maps-key"),
         brave_api_key=SecretStr("synthetic-brave-key"),
+        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
@@ -1266,6 +1268,7 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
         maps_api_key=SecretStr("synthetic-maps-key"),
         brave_api_key=SecretStr("synthetic-brave-key"),
+        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
     limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, limits)

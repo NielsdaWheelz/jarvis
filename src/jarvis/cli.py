@@ -13,18 +13,26 @@ from uuid import UUID
 
 import httpx
 
-from jarvis.admission import RollingAdmissionLimits, RollingAdmissionPort
+from jarvis.admission import (
+    RollingAdmissionPort,
+    RootTrackingAdmissionPort,
+    slice3_admission_limits,
+)
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
-from jarvis.definitions import build_slice2_definitions
+from jarvis.definitions import build_slice3_definitions
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
+from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import build_kernel_runtime
+from jarvis.memory import MemoryStore
+from jarvis.memory_dispatch import MemoryToolDispatcher
+from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
-from jarvis.read_composition import build_read_catalog
+from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
-from jarvis.service import JarvisService, JarvisThreadRunner
+from jarvis.service import JarvisService, JarvisThreadRunner, RemembererWorker
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
@@ -71,7 +79,7 @@ def initialize_state(settings: Settings) -> None:
     PausedState.initialize(settings.paused_state_path)
     RollingAdmissionPort.initialize(
         settings.admission_journal_path,
-        RollingAdmissionLimits(),
+        slice3_admission_limits(settings.maximum_batch_size),
     )
 
 
@@ -88,11 +96,11 @@ async def serve(settings: Settings) -> None:
     try:
         async with deployment_ownership(engine):
             try:
-                admission = RollingAdmissionPort(
+                admission_store = RollingAdmissionPort(
                     settings.admission_journal_path,
-                    RollingAdmissionLimits(),
+                    slice3_admission_limits(settings.maximum_batch_size),
                 )
-                recovered = await admission.recover_orphans()
+                recovered = await admission_store.recover_orphans()
                 if recovered:
                     LOGGER.warning(
                         "Recovered interrupted admission slots: count=%d",
@@ -116,14 +124,24 @@ async def serve(settings: Settings) -> None:
                     discord_http = await clients.enter_async_context(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
-                    catalog = build_read_catalog(
+                    embedding_http = await clients.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                    memory = MemoryStore(engine)
+                    embedder = OpenAIEmbedder(
+                        settings.embedding_openai_api_key,
+                        http_client=embedding_http,
+                    )
+                    catalog = build_slice3_catalog(
                         settings=settings,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
                         maps_http=maps_http,
                         brave_http=brave_http,
+                        memory_repository=PostgresMemoryRepository(engine),
+                        memory_embedder=embedder,
                     )
-                    definitions = build_slice2_definitions(
+                    definitions = build_slice3_definitions(
                         catalog=catalog,
                         profile_key=settings.codex_profile_key,
                         model=settings.codex_model,
@@ -136,8 +154,20 @@ async def serve(settings: Settings) -> None:
                         model=settings.codex_model,
                         kernel_limits=definitions.main.limits,
                     )
+                    admission = RootTrackingAdmissionPort(admission_store)
                     store = MessageStore(engine)
                     history = PostgresCanonicalHistory(engine)
+                    rememberer = RemembererWorker(
+                        definition=definitions.rememberer,
+                        plan=definitions.plans["rememberer"],
+                        admission=admission,
+                        provider=kernel_runtime.provider,
+                        dispatcher_factory=MemoryToolDispatcher,
+                        memory=memory,
+                        messages=store,
+                        embedder=embedder,
+                        maximum_messages_per_group=settings.maximum_batch_size,
+                    )
                     runner = JarvisThreadRunner(
                         settings=settings,
                         store=store,
@@ -148,6 +178,9 @@ async def serve(settings: Settings) -> None:
                         dispatcher_factory=lambda: ReadToolDispatcher(
                             host_secrets=settings.host_secrets
                         ),
+                        memory=memory,
+                        memory_dispatcher_factory=MemoryToolDispatcher,
+                        rememberer=rememberer,
                     )
                     delivery = DiscordCreateMessageClient(
                         settings.discord, discord_http
@@ -158,6 +191,7 @@ async def serve(settings: Settings) -> None:
                         paused=paused,
                         delivery=delivery,
                         runner=runner,
+                        background=rememberer,
                     )
 
                     async def ready() -> None:

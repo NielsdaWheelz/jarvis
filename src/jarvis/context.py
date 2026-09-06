@@ -1,20 +1,30 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import pairwise
 from typing import Literal, Protocol
+from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
     AgentDefinition,
+    CancellationToken,
     Checkpoint,
     ContextSourceDefect,
     HostInput,
     InputClaim,
     InputId,
+    OneShotCompleted,
+    ProviderSessionPort,
+    RunId,
     ThreadId,
+    ThreadStopKind,
+    ToolDispatchPort,
+    run_one_shot,
 )
 from llm_tools import (
+    FrozenToolPlan,
     PromptAttribute,
     PromptAttributeName,
     PromptSection,
@@ -23,6 +33,11 @@ from llm_tools import (
     PromptText,
     render_prompt,
 )
+
+from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
+from jarvis.definitions import RecallResult
+from jarvis.memory import MemoryIdentity, StoredMemory, StoredMemorySummary
+from jarvis.memory_dispatch import MemoryDispatchEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,12 +68,177 @@ class CanonicalHistoryPort(Protocol):
     ) -> tuple[CanonicalMessage, ...]: ...
 
 
+class BatchClockPort(Protocol):
+    async def as_of_for_inputs(self, inputs: tuple[HostInput, ...]) -> datetime: ...
+
+
+class MemoryOpenPort(Protocol):
+    async def open_memories(
+        self,
+        *,
+        identities: tuple[MemoryIdentity, ...],
+        maximum_rows: int,
+    ) -> tuple[StoredMemory, ...]: ...
+
+
+class RecallTracePort(Protocol):
+    async def record_recall(
+        self,
+        *,
+        message_id: UUID,
+        candidate_identities: tuple[MemoryIdentity, ...],
+        selected_identities: tuple[MemoryIdentity, ...],
+        run_id: str,
+        terminal_outcome: str,
+        provider_turns: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        duration_seconds: float,
+    ) -> None: ...
+
+
+class MemoryReadDispatcherPort(ToolDispatchPort, Protocol):
+    @property
+    def evidence(self) -> MemoryDispatchEvidence: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RecallEvidence:
+    candidate_identities: tuple[MemoryIdentity, ...]
+    selected_identities: tuple[MemoryIdentity, ...]
+    opened_identities: tuple[MemoryIdentity, ...]
+    search_calls: int
+
+
+class IsolatedRecaller:
+    def __init__(
+        self,
+        *,
+        definition: AgentDefinition,
+        plan: FrozenToolPlan,
+        admission: RootTrackingAdmissionPort,
+        provider: ProviderSessionPort,
+        dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
+        memory: MemoryOpenPort,
+        trace: RecallTracePort,
+    ) -> None:
+        self._definition = definition
+        self._plan = plan
+        self._admission = admission
+        self._provider = provider
+        self._dispatcher_factory = dispatcher_factory
+        self._memory = memory
+        self._trace = trace
+        self._last_evidence: RecallEvidence | None = None
+
+    @property
+    def last_evidence(self) -> RecallEvidence | None:
+        return self._last_evidence
+
+    async def recall(
+        self,
+        owner_input: HostInput,
+        *,
+        as_of: datetime,
+        recent_context: PromptSections,
+        cancellation: CancellationToken,
+    ) -> PromptSections:
+        try:
+            message_id = UUID(str(owner_input.input_id))
+        except ValueError as error:
+            raise ContextSourceDefect("owner input ID is not a UUID") from error
+        dispatcher = self._dispatcher_factory()
+        run_id = RunId(str(uuid4()))
+        outcome = await run_one_shot(
+            run_id=run_id,
+            definition=self._definition,
+            inputs=(owner_input,),
+            as_of=as_of,
+            plan=self._plan,
+            source_sections=recent_context,
+            admission=self._admission,
+            provider=self._provider,
+            dispatcher=dispatcher,
+            budget_factory=ExactToolBudgetFactory(),
+            parent_admission=await self._admission.active_root(),
+            cancellation=cancellation,
+        )
+        candidates = _normalized_identities(
+            dispatcher.evidence.candidate_ids,
+            deduplicate=True,
+        )
+        opened = _normalized_identities(
+            dispatcher.evidence.opened_ids,
+            deduplicate=False,
+        )
+        search_calls = dispatcher.evidence.search_calls
+        if type(search_calls) is not int or not 0 <= search_calls <= 8:
+            raise ContextSourceDefect(
+                "memory dispatcher search-call evidence is invalid"
+            )
+        selected: tuple[MemoryIdentity, ...] = ()
+        memories: tuple[StoredMemory, ...] = ()
+        terminal_outcome = (
+            "completed" if isinstance(outcome, OneShotCompleted) else outcome.type.value
+        )
+        if isinstance(outcome, OneShotCompleted):
+            try:
+                result = RecallResult.model_validate(outcome.result)
+            except (TypeError, ValueError):
+                terminal_outcome = "invalid_result"
+            else:
+                selected = tuple(
+                    MemoryIdentity(item.table_kind, UUID(item.id))
+                    for item in result.memories
+                )
+                if len(selected) != len(set(selected)) or any(
+                    item not in (*candidates, *opened) for item in selected
+                ):
+                    terminal_outcome = "invalid_selection"
+                    selected = ()
+                else:
+                    memories = await self._memory.open_memories(
+                        identities=selected,
+                        maximum_rows=20,
+                    )
+                    if tuple(item.identity for item in memories) != selected:
+                        terminal_outcome = "missing_selection"
+                        memories = ()
+        metrics = outcome.metrics
+        self._last_evidence = RecallEvidence(
+            candidates,
+            selected,
+            opened,
+            search_calls,
+        )
+        await self._trace.record_recall(
+            message_id=message_id,
+            candidate_identities=candidates,
+            selected_identities=selected,
+            run_id=str(run_id),
+            terminal_outcome=terminal_outcome,
+            provider_turns=metrics.provider_turns,
+            input_tokens=metrics.usage.input_tokens,
+            output_tokens=metrics.usage.output_tokens,
+            duration_seconds=metrics.duration_seconds,
+        )
+        if (
+            not isinstance(outcome, OneShotCompleted)
+            and outcome.type is ThreadStopKind.configuration_error
+        ):
+            raise ContextSourceDefect("isolated recaller configuration defect")
+        return _memory_sections(memories)
+
+
 class JarvisContextSource:
     def __init__(
         self,
         thread_id: ThreadId,
         history: CanonicalHistoryPort,
         *,
+        recaller: IsolatedRecaller | None = None,
+        cancellation: CancellationToken | None = None,
+        batch_clock: BatchClockPort | None = None,
         history_limit: int = 100,
         history_max_bytes: int = 65_536,
     ) -> None:
@@ -70,12 +250,58 @@ class JarvisContextSource:
         self._history = history
         self._history_limit = history_limit
         self._history_max_bytes = history_max_bytes
+        self._recaller = recaller
+        self._cancellation = cancellation or CancellationToken()
+        self._batch_clock = batch_clock
+        if recaller is not None and batch_clock is None:
+            raise ValueError(
+                "recall-aware context requires an authoritative batch clock"
+            )
+        self._recall_cache: dict[InputId, PromptSections] = {}
 
     async def bootstrap(
         self, definition: AgentDefinition, claim: InputClaim
     ) -> PromptSections:
         del definition
         excluded = tuple(item.input_id for item in claim.inputs)
+        messages = await self._completed_history(excluded)
+        history_sections = self._history_sections(messages)
+        recall = await self._recall_sections(
+            claim.inputs,
+            as_of=claim.as_of,
+            recent_context=history_sections,
+        )
+        return PromptSections((*history_sections.sections, *recall.sections))
+
+    async def continuation(
+        self,
+        definition: AgentDefinition,
+        claim: InputClaim,
+        inputs: tuple[HostInput, ...],
+        through_checkpoint: Checkpoint,
+    ) -> PromptSections:
+        del definition, through_checkpoint
+        if (
+            not inputs
+            or self._recaller is None
+            or not any(_is_owner_input(item) for item in inputs)
+        ):
+            return PromptSections(())
+        excluded = tuple(
+            dict.fromkeys(item.input_id for item in (*claim.inputs, *inputs))
+        )
+        history = self._history_sections(await self._completed_history(excluded))
+        if self._batch_clock is None:
+            raise ContextSourceDefect("recall-aware context has no batch clock")
+        return await self._recall_sections(
+            inputs,
+            as_of=await self._batch_clock.as_of_for_inputs(inputs),
+            recent_context=history,
+        )
+
+    async def _completed_history(
+        self, excluded: tuple[InputId, ...]
+    ) -> tuple[CanonicalMessage, ...]:
         messages = await self._history.completed_history(
             self._thread_id,
             exclude_input_ids=excluded,
@@ -93,7 +319,11 @@ class JarvisContextSource:
             left.created_at > right.created_at for left, right in pairwise(messages)
         ):
             raise ContextSourceDefect("canonical history is not chronological")
+        return messages
 
+    def _history_sections(
+        self, messages: tuple[CanonicalMessage, ...]
+    ) -> PromptSections:
         selected: list[PromptSection] = []
         used = 0
         for message in reversed(messages):
@@ -120,15 +350,40 @@ class JarvisContextSource:
             )
         )
 
-    async def continuation(
+    async def _recall_sections(
         self,
-        definition: AgentDefinition,
-        claim: InputClaim,
         inputs: tuple[HostInput, ...],
-        through_checkpoint: Checkpoint,
+        *,
+        as_of: datetime,
+        recent_context: PromptSections,
     ) -> PromptSections:
-        del definition, claim, inputs, through_checkpoint
-        return PromptSections(())
+        if self._recaller is None:
+            return PromptSections(())
+        recalled: list[PromptSection] = []
+        for item in inputs:
+            if not _is_owner_input(item):
+                continue
+            sections = self._recall_cache.get(item.input_id)
+            if sections is None:
+                sections = await self._recaller.recall(
+                    item,
+                    as_of=as_of,
+                    recent_context=recent_context,
+                    cancellation=self._cancellation,
+                )
+                self._recall_cache[item.input_id] = sections
+            recalled.extend(sections.sections)
+        if not recalled:
+            return PromptSections(())
+        return PromptSections(
+            (
+                PromptSection(
+                    PromptSectionKind("recalled_memory_bundle"),
+                    (),
+                    PromptSections(tuple(recalled)),
+                ),
+            )
+        )
 
 
 def _message_section(message: CanonicalMessage) -> PromptSection:
@@ -145,4 +400,67 @@ def _message_section(message: CanonicalMessage) -> PromptSection:
     )
 
 
-__all__ = ["CanonicalHistoryPort", "CanonicalMessage", "JarvisContextSource"]
+def _is_owner_input(value: HostInput) -> bool:
+    return any(
+        str(section.kind) == "owner_input" for section in value.sections.sections
+    )
+
+
+def _memory_sections(memories: tuple[StoredMemory, ...]) -> PromptSections:
+    sections: list[PromptSection] = []
+    for value in memories:
+        attributes = [
+            PromptAttribute(
+                PromptAttributeName("table_kind"), value.identity.table_kind
+            ),
+            PromptAttribute(PromptAttributeName("memory_id"), str(value.id)),
+            PromptAttribute(
+                PromptAttributeName("source_timestamp"), value.created_at.isoformat()
+            ),
+        ]
+        if isinstance(value, StoredMemorySummary):
+            attributes.append(
+                PromptAttribute(
+                    PromptAttributeName("source_memory_ids"),
+                    ",".join(map(str, value.source_memory_ids)),
+                )
+            )
+        sections.append(
+            PromptSection(
+                PromptSectionKind("recalled_memory"),
+                tuple(attributes),
+                PromptText(value.text),
+            )
+        )
+    return PromptSections(tuple(sections))
+
+
+def _normalized_identities(
+    values: tuple[MemoryIdentity, ...],
+    *,
+    deduplicate: bool,
+) -> tuple[MemoryIdentity, ...]:
+    identities: list[MemoryIdentity] = []
+    try:
+        for value in values:
+            identity = MemoryIdentity(value.table_kind, UUID(str(value.id)))
+            if not deduplicate or identity not in identities:
+                identities.append(identity)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ContextSourceDefect(
+            "memory dispatcher identity evidence is invalid"
+        ) from error
+    return tuple(identities)
+
+
+__all__ = [
+    "BatchClockPort",
+    "CanonicalHistoryPort",
+    "CanonicalMessage",
+    "IsolatedRecaller",
+    "JarvisContextSource",
+    "MemoryOpenPort",
+    "MemoryReadDispatcherPort",
+    "RecallEvidence",
+    "RecallTracePort",
+]

@@ -94,10 +94,8 @@ def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
             {
                 "memories": [
                     {
-                        "memory_id": memory_id,
-                        "text": "synthetic recalled memory",
-                        "created_at": "2026-09-03T12:00:00+00:00",
-                        "source_memory_ids": [memory_id],
+                        "table_kind": "memory_log",
+                        "id": memory_id,
                     }
                 ]
             },
@@ -162,22 +160,26 @@ def _assert_codex_closed_schema(node: object) -> None:
 def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None:
     manifest = load_session_manifest()
     assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
-    assert manifest["application_session_contract_revision"] == "jarvis-slice-2-v3"
+    assert manifest["application_session_contract_revision"] == "jarvis-slice-3-v1"
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
-        == "jarvis-main-slice-2-v3"
+        == "jarvis-main-slice-3-v1"
+    )
+    assert (
+        cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
+        == "jarvis-recaller-slice-3-v1"
     )
     assert manifest["dependencies"] == {
-        "llm-agent-kernel": "09f08df2970121ababe973b0e92d6901dd40da9e",
+        "llm-agent-kernel": "670da13ff0cfe766f36d8966e0575db0f7525143",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "f477dcdcad03c30019576203d4eb8a3581a6d32f",
+        "provider-runtime": "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd",
     }
     original = session_compatibility_revision(manifest, "main")
     assert (
-        original == "d7fdd6cde5dbb976054b79dc9c9d0a09bfc83510fc31af0f32146b40604acd34"
+        original == "91806d3ee93b4ae51864dee630cb46b9b4e1fb71098bed43b6482c357602274b"
     )
 
     previous = {**manifest}
@@ -187,13 +189,25 @@ def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None
     previous_roles["main"] = "jarvis-main-slice-2-v2"
     previous["role_contract_revisions"] = previous_roles
     assert session_compatibility_revision(previous, "main") == (
-        "12ede5fb970bc33fb63d276b814fd97489c93b63c5c3f73c104cd0488a2ca165"
+        "e618f4158dc5e7b221f1d2f6a5ac5b8a035d72d9264bdefdf1afe008e24b2406"
     )
 
-    predecessor = {**manifest}
-    predecessor_dependencies = dict(
-        cast("dict[str, object]", predecessor["dependencies"])
+    historical = {**manifest}
+    historical_dependencies = dict(
+        cast("dict[str, object]", historical["dependencies"])
     )
+    historical_dependencies["llm-agent-kernel"] = (
+        "09f08df2970121ababe973b0e92d6901dd40da9e"
+    )
+    historical_dependencies["provider-runtime"] = (
+        "f477dcdcad03c30019576203d4eb8a3581a6d32f"
+    )
+    historical["dependencies"] = historical_dependencies
+    historical_revision = session_compatibility_revision(historical, "main")
+    assert historical_revision != original
+
+    predecessor = {**historical}
+    predecessor_dependencies = dict(historical_dependencies)
     predecessor_dependencies["llm-agent-kernel"] = (
         "c9dac7a610636a668bbf932cc2f961c0904f9157"
     )
@@ -201,15 +215,15 @@ def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None
         "a5d9c8e0c1c851daee0731554e0a4a326d3c2819"
     )
     predecessor["dependencies"] = predecessor_dependencies
-    assert session_compatibility_revision(predecessor, "main") == original
+    assert session_compatibility_revision(predecessor, "main") == historical_revision
 
-    partial = {**manifest}
-    partial_dependencies = dict(cast("dict[str, object]", partial["dependencies"]))
+    partial = {**historical}
+    partial_dependencies = dict(historical_dependencies)
     partial_dependencies["llm-agent-kernel"] = (
         "c9dac7a610636a668bbf932cc2f961c0904f9157"
     )
     partial["dependencies"] = partial_dependencies
-    assert session_compatibility_revision(partial, "main") != original
+    assert session_compatibility_revision(partial, "main") != historical_revision
 
     other_dependency = {**manifest}
     other_dependencies = dict(

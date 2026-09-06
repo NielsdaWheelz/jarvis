@@ -669,6 +669,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         connector_encryption_secret=SecretStr("qualification-unused-encryption"),
         maps_api_key=SecretStr("qualification-unused-maps-key"),
         brave_api_key=SecretStr("qualification-unused-brave-key"),
+        embedding_openai_api_key=SecretStr("qualification-unused-embedding-key"),
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)

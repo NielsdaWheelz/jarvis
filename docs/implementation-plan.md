@@ -36,7 +36,7 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The implemented public kernel pin
-  `09f08df2970121ababe973b0e92d6901dd40da9e`, with exact
+  `670da13ff0cfe766f36d8966e0575db0f7525143`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2
@@ -236,13 +236,20 @@ frozen identities, and a cold-bootstrapped Main session under role contract v3.
 
 ## Slice 3: raw memory and recall
 
+Status: complete and qualified on 2026-09-05. The dated
+[qualification report](qualification/2026-09-05-slice-3.md) records the exact
+deterministic and product evidence, the corrected historical provider-schema
+blocker, the unchanged frozen evaluator's final 17/17 result, and all accepted
+trade-offs.
+
 Deliver:
 
 - Exact `memory_log` schema and append-only database enforcement.
 - Host-owned rememberer commit with every consumed owner row's `remembered_at`
   in the same transaction.
 - Full-text search and nullable OpenAI embeddings.
-- Memory search/open tools for the recaller only.
+- Memory search/open tools for the recaller and rememberer only in Slice 3;
+  never for the main agent.
 - Fresh `SessionMode.isolated` kernel recaller before every owner input and fresh
   isolated rememberer after every eligible completed turn; both use one-shot
   execution, touch no input-checkpoint or saved-session port, and return closed
@@ -250,7 +257,8 @@ Deliver:
 - Exact recaller and rememberer `RunLimits` plus plan-aware factory conformance
   before those plans become selectable.
 - Stable external-reference convention.
-- Fifteen-case owner-authored redacted recall evaluation set.
+- At least fifteen owner-authored or explicitly owner-approved redacted,
+  synthetic-safe recall evaluation cases.
 - Bounded retry sweep for completed unremembered `role = owner` turns only.
 - Settled-run/conclusion trace grouping for one rememberer invocation per input
   group, with a safe per-row fallback when grouping metadata is absent.

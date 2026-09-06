@@ -34,6 +34,7 @@ def _settings(tmp_path: Path) -> Settings:
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
         maps_api_key=SecretStr("synthetic-maps-key"),
         brave_api_key=SecretStr("synthetic-brave-key"),
+        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
 
 
@@ -101,6 +102,9 @@ def test_cli_rejects_retired_model_before_serve_or_runtime_io(
         "JARVIS_CONNECTOR_ENCRYPTION_SECRET": "synthetic-encryption-secret",
         "JARVIS_MAPS_API_KEY": "synthetic-maps-key",
         "JARVIS_BRAVE_API_KEY": "synthetic-brave-key",
+        "JARVIS_EMBEDDING_OPENAI_API_KEY": "synthetic-embedding-key",
+        "JARVIS_EMBEDDING_MODEL": "text-embedding-3-small",
+        "JARVIS_EMBEDDING_DIMENSION": "1536",
     }
     for name, value in environment.items():
         monkeypatch.setenv(name, value)

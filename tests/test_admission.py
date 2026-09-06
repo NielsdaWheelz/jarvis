@@ -20,8 +20,15 @@ from jarvis.admission import (
     ExactToolBudgetFactory,
     RollingAdmissionLimits,
     RollingAdmissionPort,
+    RootTrackingAdmissionPort,
+    slice3_admission_limits,
 )
-from jarvis.definitions import build_slice1_definitions
+from jarvis.definitions import (
+    SLICE2_KERNEL_LIMITS,
+    SLICE3_RECALL_KERNEL_LIMITS,
+    SLICE3_REMEMBER_KERNEL_LIMITS,
+    build_slice1_definitions,
+)
 
 
 def limits(**changes: int) -> RollingAdmissionLimits:
@@ -154,6 +161,123 @@ async def test_child_reservation_shares_root_slot_and_charge(tmp_path: Path) -> 
     assert state["actual_turns"] == 2
     assert state["actual_input_tokens"] == 20
     assert state["actual_output_tokens"] == 6
+
+
+async def test_tracking_wrapper_exposes_one_validated_root_to_one_serial_child(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "admission.json"
+    selected = limits(
+        serial_child_turns=1,
+        serial_child_input_tokens=30,
+        serial_child_output_tokens=10,
+    )
+    RollingAdmissionPort.initialize(path, selected)
+    port = RootTrackingAdmissionPort(RollingAdmissionPort(path, selected))
+    root = await port.reserve(
+        AdmissionRequest(RunId("root"), ThreadId("channel-1"), 1, 2, 100, 20)
+    )
+    assert isinstance(root, AdmissionGranted)
+    assert await port.active_root() == root.token
+    child = await port.reserve(
+        AdmissionRequest(RunId("child"), None, None, 1, 20, 5, root.token)
+    )
+    assert isinstance(child, AdmissionGranted)
+    with pytest.raises(AdmissionStateDefect):
+        await port.active_root()
+    await port.settle(
+        child.token,
+        AdmissionUsage(1, ProviderUsage(input_tokens=8, output_tokens=2), 1.0),
+    )
+    await port.settle(
+        root.token,
+        AdmissionUsage(1, ProviderUsage(input_tokens=12, output_tokens=4), 1.0),
+    )
+    with pytest.raises(AdmissionStateDefect):
+        await port.active_root()
+
+
+def test_slice3_capacity_reserves_one_recaller_per_maximum_owner_input() -> None:
+    selected = slice3_admission_limits(20)
+    assert selected.serial_child_turns == 200
+    assert selected.serial_child_input_tokens == 3_855_360
+    assert selected.serial_child_output_tokens == 483_840
+
+
+async def test_slice3_capacity_fits_worst_foreground_then_background_rememberer(
+    tmp_path: Path,
+) -> None:
+    maximum_owner_inputs = 20
+    selected = slice3_admission_limits(maximum_owner_inputs)
+    path = tmp_path / "admission.json"
+    RollingAdmissionPort.initialize(path, selected)
+    port = RollingAdmissionPort(
+        path,
+        selected,
+        clock=lambda: datetime(2026, 9, 4, tzinfo=UTC),
+    )
+    main = SLICE2_KERNEL_LIMITS
+    foreground = await port.reserve(
+        AdmissionRequest(
+            RunId("foreground"),
+            ThreadId("channel"),
+            1,
+            main.max_provider_turns,
+            main.max_provider_input_tokens,
+            main.max_provider_output_tokens,
+        )
+    )
+    assert isinstance(foreground, AdmissionGranted)
+    recall = SLICE3_RECALL_KERNEL_LIMITS
+    for index in range(maximum_owner_inputs):
+        child = await port.reserve(
+            AdmissionRequest(
+                RunId(f"recaller-{index}"),
+                None,
+                None,
+                recall.max_provider_turns,
+                recall.max_provider_input_tokens,
+                recall.max_provider_output_tokens,
+                foreground.token,
+            )
+        )
+        assert isinstance(child, AdmissionGranted)
+        await port.settle(
+            child.token,
+            AdmissionUsage(
+                recall.max_provider_turns,
+                ProviderUsage(input_tokens=None, output_tokens=None),
+                60.0,
+            ),
+        )
+    await port.settle(
+        foreground.token,
+        AdmissionUsage(
+            main.max_provider_turns,
+            ProviderUsage(input_tokens=None, output_tokens=None),
+            300.0,
+        ),
+    )
+
+    remember = SLICE3_REMEMBER_KERNEL_LIMITS
+    background = await port.reserve(
+        AdmissionRequest(
+            RunId("rememberer"),
+            None,
+            None,
+            remember.max_provider_turns,
+            remember.max_provider_input_tokens,
+            remember.max_provider_output_tokens,
+        )
+    )
+    assert isinstance(background, AdmissionGranted)
+    assert background.token.reserved_turns == remember.max_provider_turns
+    assert background.token.reserved_input_tokens == (
+        remember.max_provider_input_tokens + selected.root_input_token_overshoot
+    )
+    assert background.token.reserved_output_tokens == (
+        remember.max_provider_output_tokens + selected.root_output_token_overshoot
+    )
 
 
 async def test_plan_factory_returns_fresh_exact_budget() -> None:

@@ -345,19 +345,43 @@ Deliver:
 
 - Approval suspension/resolution conformance and exact approval-bearing plan
   budgets before those plans become selectable.
-
 - Gmail send as draft-send by stored `draftId`, with the exact stable MIME
   `X-Jarvis-Effect-ID` derived from the draft-creation action ID preserved
   through updates and stored in the immutable send snapshot.
-- Host preview renderers for Gmail send and non-owner-only calendar writes, with
-  no model preview field or action preview column.
-- Long-action rendering through host-owned split messages or attachment.
-- Host-owned Approve/Deny message and immediate interaction acknowledgement.
-- Owner/guild/channel/approval-message validation.
+- Gmail pre-send re-fetch and exact snapshot comparison, followed on ambiguity
+  by three fixed observations of the known draft and known thread. Each thread
+  read uses minimal metadata followed by at most one hundred individual raw
+  message reads, with no mailbox search or ordering assumption. Excluding only
+  the current live draft message ID, one unique observed exact
+  effect-header/content match proves success after every selected bounded
+  message is processed, even if the thread has a later unprocessed tail; no
+  Gmail label is required. Duplicate, conflicting, malformed, or partially
+  processed evidence cannot.
+- Approval execution for shared/unknown-calendar and attendee-bearing Calendar
+  create/update/delete, while verified owner-only no-attendee work remains
+  automatic.
+- Closed host preview renderers for Gmail send and approval-required Calendar
+  writes, with no model preview field or action preview column. Every supported
+  approval uses one bounded deterministic UTF-8 JSON attachment containing every
+  validated stored argument, including complete long bodies and all Calendar
+  writable values.
+- Host-owned component messages containing only Approve and Deny, with opaque
+  IDs binding the action and internal approval-message row.
+- Exact owner/guild/channel/Discord-message/action/internal-message/stale-state
+  validation, followed by an atomic decision and immediate interaction-response
+  edit that disables both components before slow work.
 - `approval_message_id`, atomic claim, duplicate-click protection, and
-  Gmail-specific reconciliation.
-- Bounded Gmail draft/Sent re-reads before terminal uncertainty, with evidence
-  presented for owner inspection.
+  durable main-turn suspension that retains no blocked worker or provider
+  session while the owner decides.
+- Startup repair of missing approval delivery and missing action-resolution
+  input, plus recovery of an approved action interrupted before executor entry;
+  recovered execution first disables the known Discord components.
+- Bounded Gmail reconciliation before evidence-proven repeat or terminal
+  uncertainty: `0`/`2`/`8` second observation backoffs, at most 102 provider
+  reads per observation, sixteen MiB, and thirty seconds. Repeat requires three
+  complete observations proving an unchanged draft and a complete thread with
+  no matching non-draft message; the original mutation timeout decides nothing
+  by itself.
 - Free-form approval rejection and terminal uncertainty reporting.
 - Approval-specific action-resolution and fallback fixtures using the Slice 5
   existing-table mechanism.
@@ -365,6 +389,9 @@ Deliver:
 Exit: Deny sends nothing; Approve sends the exact rendered email once; a shared
 calendar change is also rendered exactly; an ambiguous result is reconciled or
 reported without blind retry.
+
+Slice 7 deployment, backup/restore, seven-day owner acceptance, and final
+production sign-off remain outside this slice.
 
 ## Slice 7: production acceptance
 

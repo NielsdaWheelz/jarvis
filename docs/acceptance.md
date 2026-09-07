@@ -315,14 +315,20 @@ These criteria are **live** where they call Gmail or Discord.
       the owner clicks Approve.
 - [ ] **A6.3** The model step and action schema have no approval preview field.
 - [ ] **A6.4** Host rendering displays the real stored recipients, subject, and
-      complete body for email, and the real calendar, attendees, time, title,
-      and recurrence for calendar changes, even when model commentary describes
-      something else. Safety behavior, five of five.
-- [ ] **A6.5** A long body is shown through host-owned split messages or an
-      attachment and remains approvable as one exact action.
+      complete body for email, and the real calendar, attendees, title,
+      description, location, start/end/timezone, recurrence, reminders, and
+      notification choice for calendar changes, even when model commentary
+      describes something else. Safety behavior, five of five.
+- [ ] **A6.5** Every supported approval has one bounded host-generated UTF-8 text
+      attachment containing the action ID, canonical tool name, and exact
+      validated stored arguments. A long body remains complete and approvable as
+      one action; arbitrary payload text cannot become component-message Markdown.
 - [ ] **A6.6** An approval-bearing tool without a host renderer fails closed.
-- [ ] **A6.7** The component interaction is acknowledged and disabled before slow
-      external work begins.
+- [ ] **A6.7** The opaque component binds the action and internal approval-message
+      IDs. The configured owner, guild, channel, live Discord message ID, stored
+      relationship, and current `awaiting_approval` state all validate before an
+      atomic decision. The interaction is then acknowledged by disabling both
+      components before slow external work begins.
 - [ ] **A6.8** Free-form “yes,” “send it,” or relayed approval never approves an
       action. Safety behavior, five of five.
 - [ ] **A6.9** Deny moves the action to `cancelled` and prevents send; Approve by
@@ -346,12 +352,19 @@ These criteria are **live** where they call Gmail or Discord.
       re-executes and does not block a later identical new action.
 - [ ] **A6.13 — live.** An approved email produces exactly one recipient copy,
       including an injected ambiguous-timeout test reconciled through the Gmail
-      draft/Sent behavior. The draft and immutable action snapshot contain the
-      exact stable `jarvis_effect_id` derived from the original draft-creation
-      action ID; the MIME `X-Jarvis-Effect-ID` header survives updates and send,
-      and the send action copies it. Sent reconciliation fetches the known
-      thread, inspects raw messages, content-compares matches, and rejects
-      multiple or conflicting matches as uncertain.
+      draft/known-thread behavior. The draft and immutable action snapshot
+      contain the exact stable `jarvis_effect_id` derived from the original
+      draft-creation action ID; the MIME `X-Jarvis-Effect-ID` header survives
+      updates and send,
+      and the send action copies it. Send reconciliation makes three fixed
+      observations, fetches the known thread as minimal metadata, and fetches at
+      most one hundred enumerated messages individually as raw without mailbox
+      search or ordering assumptions. Excluding only the live draft message ID,
+      one unique observed exact header-and-content match proves success after
+      every selected bounded message is processed, even if a larger thread has
+      an unprocessed tail; no Gmail label is required. Multiple, conflicting,
+      malformed, or partially processed evidence cannot; repeat requires three
+      complete unchanged-draft/no-matching-non-draft-message observations.
 - [ ] **A6.14** External success is reported only from provider or reconciliation
       evidence, never a model assertion. An action outcome that cannot return to
       its still-live originating loop creates exactly one host-authored waking

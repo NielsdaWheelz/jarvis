@@ -167,8 +167,18 @@ These instructions govern all work in this repository.
   approves an action.
 - Approval previews are deterministically host-rendered from stored arguments.
   The model protocol and action schema contain no preview field.
+- V1 renders every supported approval as one bounded host-generated UTF-8 text
+  attachment containing the action ID, canonical tool name, and exact validated
+  stored arguments. The component message identifies it as complete and has
+  exactly Approve and Deny; rendering failure presents no functional component.
 - Approval-bearing Discord messages are host-owned and cannot be edited or
   deleted by model-originated tools.
+- An approval component binds the action and internal approval-message IDs.
+  Accept it only from the configured owner/guild/channel when its Discord
+  message ID matches that stored row and the action is still awaiting approval.
+  Commit the claim or denial before acknowledging through a component-disabling
+  interaction edit, and disable again during startup recovery before executing
+  an approved action that never reached its executor.
 - Keep canonical `tool_name`, `arguments`, and `origin_message_id` immutable.
   Also keep the host-authored `execution_contract` immutable. V1 tool names are
   unversioned; the contract snapshot binds the occupied position's tool, policy,
@@ -199,6 +209,22 @@ These instructions govern all work in this repository.
   one idempotent host-authored waking `message`, keyed by `action.id` plus
   resolved status; do not reuse the turn-local model call ID as durable
   correlation or rewrite an earlier uncertain resolution.
+- Gmail send re-fetches and exactly compares the known draft before dispatch.
+  Ambiguous recovery makes three observations at fixed `0`, `2`, and `8` second
+  backoffs. Each reads that draft, fetches the known thread as minimal metadata,
+  and fetches at most one hundred enumerated messages individually as raw. The
+  procedure permits at most 102 provider reads per observation, sixteen MiB of
+  response bodies, and thirty seconds. Excluding only the current live draft
+  message ID, one unique observed exact effect-header/content match after every
+  selected bounded message is processed proves success even when the thread has
+  an unprocessed tail; no Gmail label is required. Duplicate, conflicting,
+  malformed, or partially processed evidence is not success. A repeat requires
+  three complete observations proving the exact unchanged draft and complete
+  thread contain no matching non-draft message, plus remaining attempt capacity.
+  An original mutation
+  timeout alone authorizes neither retry nor uncertainty; expiry of the separate
+  reconciliation elapsed bound exhausts that bounded procedure with incomplete
+  evidence and becomes terminal uncertainty.
 - Host action-resolution and scheduled-wake inputs must produce a visible
   `say` or deterministic host-rendered assistant fallback; never process them
   silently. Due-wake input is rendered from immutable stored arguments.

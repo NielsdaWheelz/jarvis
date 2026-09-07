@@ -1389,15 +1389,15 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "8ae1f9a186c08eb46edde150a6cc4d4e68bdd9f811681df6efbd04046f72ac02",
-            "3cfd944608017249a0e1effbf5cd5fe3b389020a200a217a69c43990173ee6c8",
+            "b676dd50c571c5db3759ef9e4eeca917f8799bb5cdbddd5c24b0ba05d6b14c2c",
+            "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851",
             "c6aca9bd0c34b4c607656f06295ef148c02c99667d5005b3b6f4cb36dac76cfb",
             "938e95934d054c05a0526e3d7259cafb6e816cec97a5013ce767d4db755b4d5d",
             "16f677462102a5729096c8c0f12626d61f49c58947b09839d3af2cdd00ae1058",
         ),
         "recaller": (
-            "a8300bc5d898572f33bd03c63ac23afda13d1fca856f6b6ddd88ffd458297ad6",
-            "0fede7ec8ab388ce3f6105c61a33d46f8a2912b026a9b00e292862615bfa39b3",
+            "20f4945148e9da0aff15f7b728f608d4075d2a03a22cba4227cd07dccaa113a1",
+            "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",

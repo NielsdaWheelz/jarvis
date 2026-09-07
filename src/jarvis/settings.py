@@ -1,4 +1,4 @@
-"""Top-level host settings through Slice 5."""
+"""Top-level host settings."""
 
 from __future__ import annotations
 

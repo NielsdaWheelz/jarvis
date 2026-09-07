@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+from llm_agent_kernel import SessionMode, require_host_plan
 from llm_tools import Available, ToolId, Unavailable, canonical_json_bytes
 from pydantic import SecretStr
 
@@ -18,11 +19,16 @@ from jarvis.definitions import (
     SLICE5_PLAN_TOOL_LIMITS,
     SLICE5_TOOL_LIMITS,
     SLICE5_WRITE_IDS,
+    SLICE6_KERNEL_LIMITS,
+    SLICE6_PLAN_TOOL_LIMITS,
+    SLICE6_TOOL_LIMITS,
+    SLICE6_WRITE_IDS,
     build_slice5_definitions,
     build_slice5_write_gate,
+    build_slice6_definitions,
 )
 from jarvis.settings import Settings
-from jarvis.write_composition import build_slice5_catalog
+from jarvis.write_composition import build_slice5_catalog, build_slice6_catalog
 
 
 class _Actions:
@@ -172,6 +178,10 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         "authority": "automatic-write-gated",
         "conflict_check": "exact-normalized-content-digest",
         "effect_header": "preserve-X-Jarvis-Effect-ID",
+        "reconciliation_max_thread_messages": 100,
+        "reconciliation_thread_read": (
+            "threads.get(format=minimal)-then-messages.get(format=raw)"
+        ),
         "send": False,
         "automatic_write_gate_definition_fingerprint": "a" * 64,
     }
@@ -227,15 +237,15 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "5785c000e362b2c2dcede24174441203425e1794cee66c39f2c6893ddeaee21d",
-            "3cfd944608017249a0e1effbf5cd5fe3b389020a200a217a69c43990173ee6c8",
-            "6a8d3701f30f7503eed7f67f2931fbf786faec8b7e19b01c7e7680deff34cb88",
-            "882eaa5b077240fdd9c534bc8597c15cce62681eb558f41fe03335392ac9e936",
-            "9999bf4578b6736648ea72d3b2610d35b8cdcee1b733241935e336f9c5daf276",
+            "e971b04c4dcc27b5b1e79a9cba2af419024d579e0e3e49cba8fecf2edd5ad9f9",
+            "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851",
+            "345dd98b0809280aedc4c1dd6966e9614e056ac58c413f0c16df2b490e88413f",
+            "20b9e85126efba68b118033f7c5aabf89af9e31c9f36ced139690b8710491d13",
+            "020e6519d917d3c8c0aa03876b10b5e765699f6739ee4b087838ab4e7502eb11",
         ),
         "recaller": (
-            "da152298a4e9f049f0527bfdce96c9d413f4d4d1f4144813678b8e60e59edad6",
-            "0fede7ec8ab388ce3f6105c61a33d46f8a2912b026a9b00e292862615bfa39b3",
+            "6cb283b899d349bd23be58e3defc66b21f27127e6c52509e4d330a439da301d4",
+            "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
@@ -248,8 +258,166 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
         ),
         "dreamer": (
-            "c13d4141126aa593e22c353e183ca94d20d1d0c267de0413df265bf965506b42",
-            "9a4a5404789ea51172d8cb429e31a875fecad1ced5f7fb39b39f18f872a12122",
+            "b4638173de89eab7cb698ed8fa9cc3b61b5c8f354dd2d35119d97145b235ca2f",
+            "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d",
+            "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
+            "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
+            "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
+        ),
+        "automatic_write_gate": (
+            "233504c37b55dbb86c7b93a8e2366e30e83b8e1231da648ff4babf72aeb06c0e",
+            "2c453f5b070233f697387ce2235e2d107566216bd45af11fd659ecb70f330aa4",
+            "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
+            "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
+            "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",
+        ),
+    }
+    assert (
+        definitions.plans["scheduled_wake"].profile.profile_revision,
+        definitions.plans["scheduled_wake"].plan_revision,
+    ) == (
+        "e978fb5ee1276aef4e5cdf9b57ab6337b6264d75570b480a999a2cce88276f5b",
+        "d818b1f8cfad6faaa856fc5baf14a9438d6e8a5cf80b13b63f0bcb5f84ff3897",
+    )
+
+
+async def test_slice6_catalog_and_plans_select_every_qualified_binding(
+    tmp_path: Path,
+) -> None:
+    clients = tuple(
+        httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(500, request=request)
+            ),
+            trust_env=False,
+            follow_redirects=False,
+        )
+        for _ in range(4)
+    )
+    gate, _ = build_slice5_write_gate(
+        profile_key="synthetic-profile",
+        model="gpt-5.6-terra",
+    )
+    try:
+        catalog = build_slice6_catalog(
+            settings=_settings(tmp_path),
+            google_oauth_http=clients[0],
+            google_api_http=clients[1],
+            maps_http=clients[2],
+            brave_http=clients[3],
+            memory_repository=cast("Any", _MemoryRepository()),
+            memory_embedder=cast("Any", _MemoryEmbedder()),
+            actions=cast("Any", _Actions()),
+            automatic_write_gate_definition_fingerprint=gate.fingerprint,
+        )
+    finally:
+        for client in clients:
+            await client.aclose()
+
+    assert all(
+        isinstance(catalog.binding(tool_id).execute, Available)
+        for tool_id in catalog.tool_ids
+    )
+    send = catalog.binding(ToolId("gmail.send_draft"))
+    assert send.implementation_revision == "jarvis-gmail-send_draft-v1"
+    assert send.policy_inputs == {
+        "action_max_attempts": 2,
+        "authority": "approval-required",
+        "automatic_write_gate_definition_fingerprint": gate.fingerprint,
+        "effect_header": "preserve-X-Jarvis-Effect-ID",
+        "mailbox_search": False,
+        "pre_send_check": "exact-normalized-snapshot",
+        "reconciliation_backoff_seconds": (0, 2, 8),
+        "reconciliation_list_pages": 0,
+        "reconciliation_max_elapsed_seconds": 30,
+        "reconciliation_max_observations": 3,
+        "reconciliation_positive_proof": (
+            "one-exact-match-after-bounded-candidates-processed-"
+            "with-no-conflicting-evidence"
+        ),
+        "reconciliation_max_provider_reads_per_observation": 102,
+        "reconciliation_max_response_bytes": 16 * 1024 * 1024,
+        "reconciliation_max_response_bytes_per_read": 2 * 1024 * 1024,
+        "reconciliation_max_thread_messages": 100,
+        "reconciliation_thread_minimal_gets_per_observation": 1,
+        "reconciliation_thread_raw_message_gets_per_observation": 100,
+    }
+    definitions = build_slice6_definitions(
+        catalog=catalog,
+        profile_key="synthetic-profile",
+        model="gpt-5.6-terra",
+        owner_timezone="UTC",
+    )
+    assert definitions.main.limits == SLICE6_KERNEL_LIMITS
+    assert definitions.main.maximum_profile.run_limits == SLICE6_TOOL_LIMITS
+    assert definitions.plans["main"].profile.run_limits == SLICE6_PLAN_TOOL_LIMITS
+    assert definitions.plans["main"].profile.run_limits.max_external_attempts == sum(
+        grant.limits.max_attempts
+        for grant in definitions.plans["main"].profile.ordered_grants
+    )
+    assert definitions.plans["main"].profile.run_limits.max_output_bytes == sum(
+        grant.limits.max_output_bytes
+        for grant in definitions.plans["main"].profile.ordered_grants
+    )
+    assert set(definitions.main.maximum_profile.grants) == set(
+        (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS)
+    )
+    assert set(definitions.plans["main"].profile.grants) == set(catalog.tool_ids) - {
+        *SLICE3_MEMORY_READ_IDS
+    }
+    assert set(definitions.plans["scheduled_wake"].profile.grants) == set(
+        SLICE2_READ_IDS
+    )
+    assert not definitions.automatic_write_gate.maximum_profile.grants
+    assert not definitions.plans["automatic_write_gate"].profile.grants
+    assert definitions.main.session_mode is SessionMode.continuing
+    for role in ("recaller", "rememberer", "dreamer", "automatic_write_gate"):
+        assert getattr(definitions, role).session_mode is SessionMode.isolated
+    for name in definitions.plans:
+        role = "main" if name in {"proactive", "scheduled_wake"} else name
+        require_host_plan(
+            definitions.plans[name], getattr(definitions, role).maximum_profile
+        )
+    assert {
+        role: (
+            getattr(definitions, role).fingerprint,
+            getattr(definitions, role).session_compatibility_revision,
+            getattr(definitions, role).maximum_profile.profile_revision,
+            definitions.plans[role].profile.profile_revision,
+            definitions.plans[role].plan_revision,
+        )
+        for role in (
+            "main",
+            "recaller",
+            "rememberer",
+            "dreamer",
+            "automatic_write_gate",
+        )
+    } == {
+        "main": (
+            "bc8776d9cb50bdfd10f56e740e43985bf85f753707489b40c5069093038da303",
+            "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851",
+            "bedc829b107567729bdeacc11092cfc396aed5ba5e775ec23abed4d20da477c5",
+            "08da680b42b997cba65f5b38da7aad897fadcb54a5815d51f5a13c122ce4ae7b",
+            "064853322ff93952db8a663060b4009eed98d5b437473f65329070c9622104f5",
+        ),
+        "recaller": (
+            "6cb283b899d349bd23be58e3defc66b21f27127e6c52509e4d330a439da301d4",
+            "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db",
+            "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
+            "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
+            "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
+        ),
+        "rememberer": (
+            "1a0205f12021519079521e08427b4d2d9fa884d0fe8991c622961771c8b6d1c9",
+            "6a126ce2c500d900291c35d51a44eda4bba24c816383453b5dc1649865e3738b",
+            "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
+            "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
+            "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
+        ),
+        "dreamer": (
+            "b4638173de89eab7cb698ed8fa9cc3b61b5c8f354dd2d35119d97145b235ca2f",
+            "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d",
             "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
             "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
             "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",

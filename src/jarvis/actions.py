@@ -163,6 +163,20 @@ class ResolutionInsert:
 
 
 @dataclass(frozen=True, slots=True)
+class ApprovalInsert:
+    action: StoredAction
+    message_id: UUID
+    action_inserted: bool
+    message_inserted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalDecision:
+    action: StoredAction
+    applied: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ClaimedSchedule:
     action: StoredAction
     waking_message_id: UUID
@@ -246,6 +260,304 @@ class ActionStore:
                 )
             return existing
 
+    async def insert_awaiting_approval(
+        self,
+        *,
+        tool_name: ToolId,
+        arguments: Mapping[str, object],
+        execution_contract: ExecutionContract,
+        origin_message_id: UUID,
+        approval_text: str,
+        source_conversation_id: str,
+        action_id: UUID | None = None,
+        created_at: datetime | None = None,
+    ) -> ApprovalInsert:
+        """Atomically persist one approval action and its outbound message."""
+
+        if not approval_text or len(approval_text) > MAX_DISCORD_MESSAGE_CHARACTERS:
+            raise ValueError("approval message must be non-empty and Discord-bounded")
+        if (
+            not source_conversation_id
+            or source_conversation_id != source_conversation_id.strip()
+        ):
+            raise ValueError("source conversation ID must be non-empty and canonical")
+        identifier = action_id or uuid4()
+        approval_message_id = uuid5(
+            NAMESPACE_URL,
+            f"jarvis-action-approval-v1:{identifier}",
+        )
+        timestamp = created_at or datetime.now(UTC)
+        _aware(timestamp, "action creation time")
+        canonical_arguments = _json_object(dict(arguments), "action arguments")
+        _validate_new_action(
+            tool_name,
+            canonical_arguments,
+            execution_contract,
+            origin_message_id,
+        )
+        message_values: dict[str, object] = {
+            "id": approval_message_id,
+            "role": "assistant",
+            "text": approval_text,
+            "source": "discord",
+            "source_conversation_id": source_conversation_id,
+            "source_message_id": None,
+            "created_at": timestamp,
+            "processed_at": timestamp,
+            "processing_attempts": 0,
+            "processing_parked_at": None,
+            "remembered_at": None,
+            "trace": {},
+        }
+        action_values: dict[str, object] = {
+            "id": identifier,
+            "tool_name": str(tool_name),
+            "arguments": canonical_arguments,
+            "execution_contract": execution_contract.as_json(),
+            "status": "awaiting_approval",
+            "attempts": 0,
+            "execute_after": None,
+            "origin_message_id": origin_message_id,
+            "approval_message_id": approval_message_id,
+            "created_at": timestamp,
+            "decided_at": None,
+            "completed_at": None,
+        }
+        async with self.engine.begin() as connection:
+            input_ids = tuple(map(UUID, execution_contract.input_message_ids))
+            input_rows = (
+                (
+                    await connection.execute(
+                        select(message)
+                        .where(message.c.id.in_(input_ids))
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if len(input_rows) != len(input_ids):
+                raise ActionPersistenceDefect(
+                    "approval action lineage references missing input"
+                )
+            inputs = {cast(UUID, row["id"]): row for row in input_rows}
+            if any(
+                row["source_conversation_id"] != source_conversation_id
+                for row in input_rows
+            ):
+                raise ActionPersistenceDefect(
+                    "approval action lineage belongs to a different conversation"
+                )
+            if any(
+                inputs[UUID(value)]["role"] != "owner"
+                for value in execution_contract.write_gate_supporting_owner_message_ids
+            ):
+                raise ActionPersistenceDefect(
+                    "approval action write-gate support is not owner-authored"
+                )
+
+            message_row = (
+                await connection.execute(
+                    postgresql_insert(message)
+                    .values(**message_values)
+                    .on_conflict_do_nothing(index_elements=(message.c.id,))
+                    .returning(message.c.id)
+                )
+            ).scalar_one_or_none()
+            message_inserted = message_row is not None
+            if not message_inserted:
+                await _require_approval_message(
+                    connection,
+                    approval_message_id=approval_message_id,
+                    approval_text=approval_text,
+                    source_conversation_id=source_conversation_id,
+                    created_at=timestamp,
+                )
+
+            action_row = (
+                (
+                    await connection.execute(
+                        postgresql_insert(action)
+                        .values(**action_values)
+                        .on_conflict_do_nothing(index_elements=(action.c.id,))
+                        .returning(*action.c)
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            action_inserted = action_row is not None
+            stored = (
+                _stored_action(action_row)
+                if action_row is not None
+                else await _require_locked_action(connection, identifier)
+            )
+            if (
+                _action_identity(stored)
+                != (
+                    tool_name,
+                    canonical_arguments,
+                    execution_contract,
+                    origin_message_id,
+                    None,
+                    timestamp,
+                )
+                or stored.approval_message_id != approval_message_id
+            ):
+                raise ActionPersistenceDefect(
+                    "action identity was reused for a different invocation"
+                )
+            return ApprovalInsert(
+                action=stored,
+                message_id=approval_message_id,
+                action_inserted=action_inserted,
+                message_inserted=message_inserted,
+            )
+
+    async def pending_approvals(
+        self,
+        *,
+        source_conversation_id: str,
+        limit: int = 100,
+    ) -> tuple[StoredAction, ...]:
+        """Select approval rows whose persistent Discord views need restoring."""
+
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("pending approval limit must be a positive integer")
+        if (
+            not source_conversation_id
+            or source_conversation_id != source_conversation_id.strip()
+        ):
+            raise ValueError("source conversation ID must be non-empty and canonical")
+        async with self.engine.connect() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        select(action)
+                        .where(
+                            action.c.status == "awaiting_approval",
+                            action.c.origin_message_id.in_(
+                                select(message.c.id).where(
+                                    message.c.source_conversation_id
+                                    == source_conversation_id
+                                )
+                            ),
+                        )
+                        .order_by(action.c.created_at, action.c.id)
+                        .limit(limit)
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            stored = tuple(map(_stored_action, rows))
+            for value in stored:
+                assert value.approval_message_id is not None
+                await _require_approval_message(
+                    connection,
+                    approval_message_id=value.approval_message_id,
+                    source_conversation_id=source_conversation_id,
+                )
+        return stored
+
+    async def approved_not_entered(
+        self,
+        *,
+        limit: int = 100,
+    ) -> tuple[StoredAction, ...]:
+        """Select approved actions whose effectful executor was never entered."""
+
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("approved action limit must be a positive integer")
+        async with self.engine.connect() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        select(action)
+                        .where(
+                            action.c.status == "executing",
+                            action.c.approval_message_id.is_not(None),
+                            action.c.decided_at.is_not(None),
+                            action.c.attempts == 0,
+                        )
+                        .order_by(action.c.decided_at, action.c.id)
+                        .limit(limit)
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(map(_stored_action, rows))
+
+    async def claim_approval(
+        self,
+        *,
+        action_id: UUID,
+        approval_message_id: UUID,
+        discord_message_id: str,
+        source_conversation_id: str,
+        decided_at: datetime | None = None,
+    ) -> ApprovalDecision:
+        """Atomically move one exactly related pending approval to execution."""
+
+        timestamp = decided_at or datetime.now(UTC)
+        _aware(timestamp, "approval decision time")
+        async with self.engine.begin() as connection:
+            stored = await _require_locked_action(connection, action_id)
+            await _require_approval_interaction(
+                connection,
+                stored=stored,
+                approval_message_id=approval_message_id,
+                discord_message_id=discord_message_id,
+                source_conversation_id=source_conversation_id,
+            )
+            if stored.status != "awaiting_approval":
+                return ApprovalDecision(stored, applied=False)
+            stored = await _update_action(
+                connection,
+                action_id,
+                status="executing",
+                decided_at=timestamp,
+            )
+            return ApprovalDecision(stored, applied=True)
+
+    async def deny_approval(
+        self,
+        *,
+        action_id: UUID,
+        approval_message_id: UUID,
+        discord_message_id: str,
+        source_conversation_id: str,
+        decided_at: datetime | None = None,
+    ) -> ApprovalDecision:
+        """Atomically cancel one exactly related pending approval without execution."""
+
+        timestamp = decided_at or datetime.now(UTC)
+        _aware(timestamp, "approval decision time")
+        async with self.engine.begin() as connection:
+            stored = await _require_locked_action(connection, action_id)
+            await _require_approval_interaction(
+                connection,
+                stored=stored,
+                approval_message_id=approval_message_id,
+                discord_message_id=discord_message_id,
+                source_conversation_id=source_conversation_id,
+            )
+            if stored.status != "awaiting_approval":
+                return ApprovalDecision(stored, applied=False)
+            stored = await _update_action(
+                connection,
+                action_id,
+                status="cancelled",
+                decided_at=timestamp,
+                completed_at=timestamp,
+                result={
+                    "type": "approval_denied_v1",
+                    "reason_code": "owner_denied",
+                },
+            )
+            return ApprovalDecision(stored, applied=True)
+
     async def get(self, action_id: UUID) -> StoredAction | None:
         async with self.engine.connect() as connection:
             row = (
@@ -258,6 +570,133 @@ class ActionStore:
                 .one_or_none()
             )
         return None if row is None else _stored_action(row)
+
+    async def get_by_approval_message(
+        self,
+        approval_message_id: UUID,
+    ) -> StoredAction | None:
+        """Resolve one approval outbox row through its unique internal relation."""
+
+        async with self.engine.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        select(action).where(
+                            action.c.approval_message_id == approval_message_id
+                        )
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                return None
+            stored = _stored_action(row)
+            source_conversation_id = await connection.scalar(
+                select(message.c.source_conversation_id).where(
+                    message.c.id == stored.origin_message_id
+                )
+            )
+            if not isinstance(source_conversation_id, str):
+                raise ActionPersistenceDefect(
+                    "approval action origin message does not exist"
+                )
+            await _require_approval_message(
+                connection,
+                approval_message_id=approval_message_id,
+                source_conversation_id=source_conversation_id,
+            )
+            return stored
+
+    async def gmail_draft_creation_action(
+        self,
+        *,
+        draft_id: str,
+        thread_id: str,
+        jarvis_effect_id: str,
+    ) -> UUID | None:
+        """Resolve the unique successful Jarvis creation behind a send snapshot."""
+
+        if (
+            any(
+                not value or len(value.encode("utf-8")) > 1_024
+                for value in (draft_id, thread_id)
+            )
+            or _HEX_DIGEST.fullmatch(jarvis_effect_id) is None
+        ):
+            raise ValueError("Gmail draft creation identity is invalid")
+        async with self.engine.connect() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        select(action.c.id)
+                        .where(
+                            action.c.tool_name == "gmail.create_draft",
+                            action.c.status == "succeeded",
+                            action.c.result["type"].as_string() == "Success",
+                            action.c.result["value"]["draft_id"].as_string()
+                            == draft_id,
+                            action.c.result["value"]["thread_id"].as_string()
+                            == thread_id,
+                            action.c.result["value"]["jarvis_effect_id"].as_string()
+                            == jarvis_effect_id,
+                        )
+                        .order_by(action.c.id)
+                        .limit(2)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        if len(rows) > 1:
+            raise ActionPersistenceDefect(
+                "Gmail draft maps to multiple creation actions"
+            )
+        return None if not rows else cast(UUID, rows[0])
+
+    async def approval_discord_message_id(self, action_id: UUID) -> str:
+        """Return the exact delivered Discord message related to an approval."""
+
+        discord_message_id = await self.approval_discord_message_id_or_none(action_id)
+        if discord_message_id is None:
+            raise ActionPersistenceDefect(
+                "approval message has no canonical Discord delivery ID"
+            )
+        return discord_message_id
+
+    async def approval_discord_message_id_or_none(self, action_id: UUID) -> str | None:
+        """Return a validated delivery ID, or null for an undelivered approval."""
+
+        async with self.engine.connect() as connection:
+            stored = await _require_locked_action(connection, action_id)
+            if stored.approval_message_id is None:
+                raise ActionPersistenceDefect("action has no approval message")
+            origin_conversation_id = await connection.scalar(
+                select(message.c.source_conversation_id).where(
+                    message.c.id == stored.origin_message_id
+                )
+            )
+            if not isinstance(origin_conversation_id, str):
+                raise ActionPersistenceDefect("approval action origin is missing")
+            row = await _require_approval_message(
+                connection,
+                approval_message_id=stored.approval_message_id,
+                source_conversation_id=origin_conversation_id,
+            )
+        discord_message_id = row["source_message_id"]
+        if discord_message_id is None:
+            return None
+        if (
+            not isinstance(discord_message_id, str)
+            or not discord_message_id.isascii()
+            or not discord_message_id.isdecimal()
+            or int(discord_message_id) <= 0
+            or str(int(discord_message_id)) != discord_message_id
+        ):
+            raise ActionPersistenceDefect(
+                "approval message has no canonical Discord delivery ID"
+            )
+        return discord_message_id
 
     async def executing(self) -> tuple[StoredAction, ...]:
         async with self.engine.connect() as connection:
@@ -439,7 +878,7 @@ class ActionStore:
                     "OR (stranded_message.trace->'settlement'"
                     "->>'conclusion_kind' = 'suspension' "
                     "AND stranded_message.trace->'settlement'"
-                    "->>'outcome' = 'system'))))"
+                    "->>'outcome' IN ('system', 'user')))))"
                 ),
             )
             claim_id = await connection.scalar(
@@ -1267,15 +1706,19 @@ class ActionPositionRecorder:
         action_id: UUID,
         implementation_revision: str,
         max_external_attempts: int,
+        preclaimed_approval: bool = False,
     ) -> None:
         if not implementation_revision:
             raise ValueError("implementation revision must not be empty")
         if type(max_external_attempts) is not int or max_external_attempts <= 0:
             raise ValueError("maximum external attempts must be a positive integer")
+        if type(preclaimed_approval) is not bool:
+            raise ValueError("preclaimed approval marker must be boolean")
         self._store = store
         self._action_id = action_id
         self._implementation_revision = implementation_revision
         self._max_external_attempts = max_external_attempts
+        self._preclaimed_approval = preclaimed_approval
         self._reservation: Reservation | None = None
         self._reservation_accepted: bool | None = None
         self._settlement: Settlement | None = None
@@ -1315,9 +1758,21 @@ class ActionPositionRecorder:
                 False,
                 _recovery_external_attempts(stored),
             )
+        approved_not_entered = (
+            stored.status == "executing"
+            and stored.approval_message_id is not None
+            and stored.decided_at is not None
+            and stored.attempts == 0
+        )
+        if self._preclaimed_approval and not approved_not_entered:
+            raise ValueError("action is not the newly preclaimed approval")
         return PositionState(
             None,
-            stored.status in {"executing", "uncertain"},
+            stored.status == "uncertain"
+            or (
+                stored.status == "executing"
+                and not (self._preclaimed_approval and approved_not_entered)
+            ),
             _recovery_external_attempts(stored),
         )
 
@@ -1364,13 +1819,24 @@ class ActionPositionRecorder:
                     False,
                     _recovery_external_attempts(stored),
                 )
-            if stored.status in {"executing", "uncertain"}:
+            approved_not_entered = (
+                self._preclaimed_approval
+                and stored.status == "executing"
+                and stored.approval_message_id is not None
+                and stored.decided_at is not None
+                and stored.attempts == 0
+            )
+            if self._preclaimed_approval and not approved_not_entered:
+                raise ValueError("action is not the newly preclaimed approval")
+            if stored.status in {"executing", "uncertain"} and not (
+                approved_not_entered
+            ):
                 return PositionState(
                     None,
                     True,
                     _recovery_external_attempts(stored),
                 )
-            if stored.status != "queued":
+            if stored.status != "queued" and not approved_not_entered:
                 raise ValueError("action is not eligible for executor entry")
             if stored.attempts >= stored.execution_contract.max_attempts:
                 raise ValueError("action attempt ceiling is exhausted")
@@ -1786,6 +2252,80 @@ async def _require_locked_action(
     return stored
 
 
+async def _require_approval_message(
+    connection: AsyncConnection,
+    *,
+    approval_message_id: UUID,
+    source_conversation_id: str,
+    approval_text: str | None = None,
+    created_at: datetime | None = None,
+    discord_message_id: str | None = None,
+) -> RowMapping:
+    row = (
+        (
+            await connection.execute(
+                select(message)
+                .where(message.c.id == approval_message_id)
+                .with_for_update()
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        raise ActionPersistenceDefect("approval message does not exist")
+    if (
+        row["role"] != "assistant"
+        or row["source"] != "discord"
+        or row["source_conversation_id"] != source_conversation_id
+        or row["processed_at"] is None
+        or row["processing_attempts"] != 0
+        or row["processing_parked_at"] is not None
+        or row["remembered_at"] is not None
+        or row["trace"] != {}
+    ):
+        raise ActionPersistenceDefect("approval message relationship is invalid")
+    if approval_text is not None and (
+        row["text"] != approval_text
+        or row["created_at"] != created_at
+        or row["processed_at"] != created_at
+    ):
+        raise ActionPersistenceDefect("approval message identity has different content")
+    if (
+        discord_message_id is not None
+        and row["source_message_id"] != discord_message_id
+    ):
+        raise ActionPersistenceDefect("approval interaction message does not match")
+    return row
+
+
+async def _require_approval_interaction(
+    connection: AsyncConnection,
+    *,
+    stored: StoredAction,
+    approval_message_id: UUID,
+    discord_message_id: str,
+    source_conversation_id: str,
+) -> None:
+    if not discord_message_id or discord_message_id != discord_message_id.strip():
+        raise ValueError("Discord message ID must be non-empty and canonical")
+    if (
+        not source_conversation_id
+        or source_conversation_id != source_conversation_id.strip()
+    ):
+        raise ValueError("source conversation ID must be non-empty and canonical")
+    if stored.approval_message_id != approval_message_id:
+        raise ActionPersistenceDefect(
+            "approval interaction targets a different message"
+        )
+    await _require_approval_message(
+        connection,
+        approval_message_id=approval_message_id,
+        source_conversation_id=source_conversation_id,
+        discord_message_id=discord_message_id,
+    )
+
+
 async def _update_action(
     connection: AsyncConnection,
     action_id: UUID,
@@ -1907,8 +2447,24 @@ def _validate_stored_action(stored: StoredAction) -> None:
     terminal = stored.status in {"succeeded", "failed", "uncertain", "cancelled"}
     if terminal != (stored.completed_at is not None):
         raise ValueError("stored action terminal timestamp is inconsistent")
+    if stored.decided_at is not None:
+        _aware(stored.decided_at, "stored action decision time")
+    if stored.completed_at is not None:
+        _aware(stored.completed_at, "stored action completion time")
     if stored.status == "awaiting_approval" and stored.approval_message_id is None:
         raise ValueError("approval action is missing its message")
+    if stored.status == "awaiting_approval" and (
+        stored.attempts != 0
+        or stored.decided_at is not None
+        or stored.result is not None
+    ):
+        raise ValueError("pending approval has invalid execution state")
+    if (
+        stored.approval_message_id is not None
+        and stored.status != "awaiting_approval"
+        and stored.decided_at is None
+    ):
+        raise ValueError("decided approval action is missing its decision time")
     if stored.status in {"succeeded", "failed", "uncertain"} and stored.result is None:
         raise ValueError("resolved action is missing its result")
     if stored.result is not None:
@@ -2137,7 +2693,7 @@ def _is_stranded_settlement(value: dict[str, object]) -> bool:
         or not outcome
         or not (
             conclusion_kind == "stopped"
-            or (conclusion_kind == "suspension" and outcome == "system")
+            or (conclusion_kind == "suspension" and outcome in {"system", "user"})
         )
         or not (conclusion_message_id is None or isinstance(conclusion_message_id, str))
     ):
@@ -2258,6 +2814,8 @@ __all__ = [
     "ActionPositionRecorder",
     "ActionStatus",
     "ActionStore",
+    "ApprovalDecision",
+    "ApprovalInsert",
     "ClaimedSchedule",
     "ExecutionContract",
     "ResolutionInsert",

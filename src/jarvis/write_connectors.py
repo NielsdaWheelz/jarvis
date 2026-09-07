@@ -1,4 +1,4 @@
-"""Bounded host-owned Google connectors for Slice 5 automatic writes."""
+"""Bounded host-owned Google write connectors."""
 
 from __future__ import annotations
 
@@ -40,6 +40,8 @@ from jarvis.write_tools import (
     GmailContent,
     GmailCreateDraftInput,
     GmailDraftSuccess,
+    GmailSendDraftInput,
+    GmailSendDraftSuccess,
     GmailUpdateDraftInput,
     Mailbox,
     Reminder,
@@ -57,6 +59,8 @@ _GMAIL_CREATE_SCAN_MAX_RAW_GETS = 40
 _GMAIL_CREATE_SCAN_MAX_BYTES = 16 * 1024 * 1024
 _GMAIL_CREATE_SCAN_MAX_SECONDS = 30.0
 _MAX_THREAD_MESSAGES = 100
+_GMAIL_SEND_MAX_BYTES = 16 * 1024 * 1024
+_GMAIL_SEND_MAX_SECONDS = 30.0
 
 
 class GoogleAccessTokens(Protocol):
@@ -159,6 +163,13 @@ class _GmailDraftScan:
     complete: bool
     next_page_token: Literal["absent", "present", "invalid", "unknown"]
     malformed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _GmailThreadScan:
+    messages: tuple[_ObservedDraft, ...]
+    bounded_complete: bool
+    thread_complete: bool
 
 
 @dataclass(slots=True)
@@ -647,6 +658,55 @@ class GoogleWriteConnector:
             raise TimeoutError("Gmail draft update needs reconciliation") from exc
         return WriteResponse(result, attempts)
 
+    async def gmail_send_draft(
+        self,
+        value: GmailSendDraftInput,
+        effect_id: UUID,
+        attempt_budget: WriteAttemptBudget,
+    ) -> WriteResponse[GmailSendDraftSuccess]:
+        observed, attempts = await self._get_draft(
+            value.draft_id,
+            action_id=effect_id,
+            attempt_budget=attempt_budget,
+            prior_attempts=0,
+        )
+        if (
+            observed.result.draft_id != value.draft_id
+            or observed.result.thread_id != value.thread_id
+            or observed.result.jarvis_effect_id != value.jarvis_effect_id
+            or observed.result.content_digest != gmail_content_digest(value.content)
+        ):
+            raise WriteConnectorFailure("draft_changed", attempts=attempts)
+        payload, used = await self._request_json(
+            "POST",
+            f"{GMAIL_API_BASE_URL}/users/me/drafts/send",
+            body={"id": value.draft_id},
+            mutation=True,
+            action_id=effect_id,
+            attempt_budget=attempt_budget,
+            prior_attempts=attempts,
+            errors={
+                400: "invalid_recipient",
+                404: "draft_not_found",
+                409: "draft_changed",
+                429: "rate_limited",
+            },
+        )
+        attempts += used
+        try:
+            result = GmailSendDraftSuccess(
+                sent_message_id=_string(payload, "id"),
+                thread_id=_string(payload, "threadId"),
+                jarvis_effect_id=value.jarvis_effect_id,
+                content_digest=gmail_content_digest(value.content),
+                sent_at=self._now_utc(),
+            )
+            if result.thread_id != value.thread_id:
+                raise ValueError("Gmail returned a different thread")
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise TimeoutError("Gmail draft send needs reconciliation") from exc
+        return WriteResponse(result, attempts)
+
     async def calendar_create_event(
         self,
         value: CalendarCreateEventInput,
@@ -964,7 +1024,7 @@ class GoogleWriteConnector:
                 if exc.code == "draft_not_found":
                     completed += 1
                     try:
-                        messages, complete = await self._thread_messages(
+                        scan = await self._thread_messages(
                             basis.thread_id,
                             basis.jarvis_effect_id,
                             draft_id=basis.draft_id,
@@ -973,15 +1033,15 @@ class GoogleWriteConnector:
                         continue
                     exact = [
                         item
-                        for item in messages
+                        for item in scan.messages
                         if item.result.content_digest == desired
                     ]
                     conflicts = [
                         item
-                        for item in messages
+                        for item in scan.messages
                         if item.result.content_digest != desired
                     ]
-                    if len(exact) == 1 and not conflicts and complete:
+                    if len(exact) == 1 and not conflicts and scan.bounded_complete:
                         return ReconciliationResult(
                             "succeeded",
                             "one-exact-message-in-known-thread",
@@ -1009,17 +1069,121 @@ class GoogleWriteConnector:
             "uncertain", "draft-missing-or-observations-incomplete"
         )
 
+    async def reconcile_gmail_send(
+        self, value: GmailSendDraftInput
+    ) -> ReconciliationResult[GmailSendDraftSuccess]:
+        expected_digest = gmail_content_digest(value.content)
+        byte_budget = _ResponseByteBudget(_GMAIL_SEND_MAX_BYTES)
+        safe_absence_observations = 0
+        completed_observations = 0
+        conflicting_evidence = False
+        conflicting_draft = False
+        try:
+            async with asyncio.timeout(_GMAIL_SEND_MAX_SECONDS):
+                for delay in RECONCILIATION_DELAYS_SECONDS:
+                    if delay:
+                        await self._sleep(delay)
+                    draft: _ObservedDraft | None = None
+                    draft_missing = False
+                    try:
+                        draft, _ = await self._get_draft(
+                            value.draft_id, response_byte_budget=byte_budget
+                        )
+                    except WriteConnectorFailure as exc:
+                        if exc.code == "draft_not_found":
+                            draft_missing = True
+                    try:
+                        scan = await self._thread_messages(
+                            value.thread_id,
+                            value.jarvis_effect_id,
+                            draft_id=value.draft_id,
+                            response_byte_budget=byte_budget,
+                        )
+                    except WriteConnectorFailure:
+                        if byte_budget.remaining == 0:
+                            break
+                        continue
+                    completed_observations += 1
+                    if draft is not None and (
+                        draft.result.draft_id != value.draft_id
+                        or draft.result.thread_id != value.thread_id
+                        or draft.result.jarvis_effect_id != value.jarvis_effect_id
+                        or draft.result.content_digest != expected_digest
+                    ):
+                        conflicting_draft = True
+                    thread_evidence = [
+                        item
+                        for item in scan.messages
+                        if draft is None
+                        or item.result.message_id != draft.result.message_id
+                    ]
+                    conflicts = [
+                        item
+                        for item in thread_evidence
+                        if item.result.content_digest != expected_digest
+                        or item.result.thread_id != value.thread_id
+                    ]
+                    exact = [
+                        item
+                        for item in thread_evidence
+                        if item.result.content_digest == expected_digest
+                        and item.result.thread_id == value.thread_id
+                    ]
+                    if len(exact) > 1 or conflicts:
+                        conflicting_evidence = True
+                        if byte_budget.remaining == 0:
+                            break
+                        continue
+                    if len(exact) == 1 and scan.bounded_complete:
+                        if not conflicting_evidence and not conflicting_draft:
+                            match = exact[0].result
+                            return ReconciliationResult(
+                                "succeeded",
+                                "one-exact-message-in-known-thread",
+                                GmailSendDraftSuccess(
+                                    sent_message_id=match.message_id,
+                                    thread_id=match.thread_id,
+                                    jarvis_effect_id=match.jarvis_effect_id,
+                                    content_digest=match.content_digest,
+                                    sent_at=self._now_utc(),
+                                ),
+                            )
+                    if draft is not None and scan.thread_complete and not exact:
+                        safe_absence_observations += 1
+                    elif draft_missing:
+                        safe_absence_observations = -1
+                    if byte_budget.remaining == 0:
+                        break
+        except TimeoutError:
+            return ReconciliationResult(
+                "uncertain",
+                "gmail-send-reconciliation-elapsed-bound-with-incomplete-evidence",
+            )
+        if conflicting_evidence or conflicting_draft:
+            return ReconciliationResult("uncertain", "conflicting-gmail-send-evidence")
+        if completed_observations == len(
+            RECONCILIATION_DELAYS_SECONDS
+        ) and safe_absence_observations == len(RECONCILIATION_DELAYS_SECONDS):
+            return ReconciliationResult(
+                "absent", "exact-draft-remained-and-complete-known-thread-had-no-send"
+            )
+        return ReconciliationResult(
+            "uncertain", "gmail-send-observations-incomplete-or-draft-missing"
+        )
+
     async def _thread_messages(
         self,
         thread_id: str,
         target_effect_id: str,
         *,
         draft_id: str,
-    ) -> tuple[list[_ObservedDraft], bool]:
+        response_byte_budget: _ResponseByteBudget | None = None,
+    ) -> _GmailThreadScan:
         payload, attempts = await self._request_json(
             "GET",
             f"{GMAIL_API_BASE_URL}/users/me/threads/{quote(thread_id, safe='')}",
-            params={"format": "raw"},
+            params={"format": "minimal"},
+            response_byte_budget=response_byte_budget,
             errors={404: "thread_not_found", 429: "rate_limited"},
         )
         if _string(payload, "id") != thread_id:
@@ -1028,22 +1192,64 @@ class GoogleWriteConnector:
         if not isinstance(raw_messages, list):
             raise WriteConnectorFailure("provider_unavailable", attempts=attempts)
         raw_messages = cast("list[object]", raw_messages)
-        complete = len(raw_messages) <= _MAX_THREAD_MESSAGES
+        thread_complete = len(raw_messages) <= _MAX_THREAD_MESSAGES
         messages: list[_ObservedDraft] = []
+        seen_message_ids: set[str] = set()
+        message_ids: list[str] = []
         for raw in raw_messages[:_MAX_THREAD_MESSAGES]:
             if not isinstance(raw, dict):
-                return messages, False
-            wrapped: dict[str, object] = {
-                "id": draft_id,
-                "message": cast("dict[str, object]", raw),
-            }
+                return _GmailThreadScan(tuple(messages), False, False)
+            item = cast("dict[str, object]", raw)
             try:
+                message_id = _string(item, "id")
+                if len(message_id.encode()) > 1_024 or message_id in seen_message_ids:
+                    raise ValueError("Gmail thread message identity is malformed")
+            except ValueError:
+                return _GmailThreadScan(tuple(messages), False, False)
+            seen_message_ids.add(message_id)
+            message_ids.append(message_id)
+        for message_id in message_ids:
+            try:
+                item, _ = await self._request_json(
+                    "GET",
+                    f"{GMAIL_API_BASE_URL}/users/me/messages/"
+                    f"{quote(message_id, safe='')}",
+                    params={"format": "raw"},
+                    response_byte_budget=response_byte_budget,
+                    errors={404: "provider_unavailable", 429: "rate_limited"},
+                )
+                labels_value = item.get("labelIds")
+                if (
+                    _string(item, "id") != message_id
+                    or _string(item, "threadId") != thread_id
+                    or not isinstance(labels_value, list)
+                ):
+                    raise ValueError("Gmail raw message is malformed")
+                labels = cast("list[object]", labels_value)
+                if (
+                    len(labels) > 100
+                    or any(
+                        not isinstance(label, str)
+                        or not label
+                        or len(label.encode()) > 128
+                        for label in labels
+                    )
+                    or len(set(cast("list[str]", labels))) != len(labels)
+                ):
+                    raise ValueError("Gmail raw message labels are malformed")
+                wrapped: dict[str, object] = {"id": draft_id, "message": item}
                 if _raw_effect(wrapped) != target_effect_id:
                     continue
-                messages.append(_parse_draft(wrapped, observed_at=self._now_utc()))
-            except (TypeError, ValueError, ValidationError):
-                return messages, False
-        return messages, complete
+                observed = _parse_draft(wrapped, observed_at=self._now_utc())
+                messages.append(
+                    _ObservedDraft(
+                        observed.result,
+                        observed.content,
+                    )
+                )
+            except (TypeError, ValueError, ValidationError, WriteConnectorFailure):
+                return _GmailThreadScan(tuple(messages), False, False)
+        return _GmailThreadScan(tuple(messages), True, thread_complete)
 
     async def _validate_parent(
         self,
@@ -1092,6 +1298,7 @@ class GoogleWriteConnector:
         action_id: UUID | None = None,
         attempt_budget: WriteAttemptBudget | None = None,
         prior_attempts: int = 0,
+        response_byte_budget: _ResponseByteBudget | None = None,
     ) -> tuple[_ObservedDraft, int]:
         payload, attempts = await self._request_json(
             "GET",
@@ -1100,6 +1307,7 @@ class GoogleWriteConnector:
             action_id=action_id,
             attempt_budget=attempt_budget,
             prior_attempts=prior_attempts,
+            response_byte_budget=response_byte_budget,
             errors={404: "draft_not_found", 429: "rate_limited"},
         )
         try:

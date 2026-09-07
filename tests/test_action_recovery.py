@@ -158,6 +158,9 @@ class _NeverWriteProvider:
     async def gmail_update_draft(self, *args: object) -> Never:
         raise AssertionError(args)
 
+    async def gmail_send_draft(self, *args: object) -> Never:
+        raise AssertionError(args)
+
     async def calendar_create_event(self, *args: object) -> Never:
         raise AssertionError(args)
 
@@ -199,6 +202,9 @@ class _SuccessfulUpdateProvider:
         self.budgets: list[WriteAttemptBudget] = []
 
     async def gmail_create_draft(self, *args: object) -> Never:
+        raise AssertionError(args)
+
+    async def gmail_send_draft(self, *args: object) -> Never:
         raise AssertionError(args)
 
     async def gmail_update_draft(

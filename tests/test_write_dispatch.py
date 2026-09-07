@@ -54,6 +54,7 @@ from jarvis.write_connectors import (
     CalendarCurrentSnapshot,
     ReconciliationResult,
     gmail_content_digest,
+    gmail_effect_id,
 )
 from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate, WriteGateDecision
@@ -122,6 +123,16 @@ class _Provider:
         self, value: object, effect_id: UUID, attempts: WriteAttemptBudget
     ) -> object:
         raise AssertionError((value, effect_id, attempts))
+
+    async def gmail_send_draft(
+        self,
+        value: GmailSendDraftInput,
+        effect_id: UUID,
+        attempts: WriteAttemptBudget,
+    ) -> WriteResponse[object]:
+        del value, attempts
+        self.effects.append(effect_id)
+        raise AssertionError("approval-required Gmail send executed directly")
 
     async def calendar_create_event(
         self, value: object, effect_id: UUID, attempts: WriteAttemptBudget
@@ -246,10 +257,19 @@ class _FailingCheckpoint:
 class _ActionSpy:
     def __init__(self) -> None:
         self.inserts = 0
+        self.creation_id = uuid4()
 
     async def insert_automatic(self, **kwargs: object) -> object:
         self.inserts += 1
         raise AssertionError(kwargs)
+
+    async def insert_awaiting_approval(self, **kwargs: object) -> object:
+        self.inserts += 1
+        return kwargs
+
+    async def gmail_draft_creation_action(self, **kwargs: object) -> UUID:
+        del kwargs
+        return self.creation_id
 
 
 class _Google:
@@ -372,6 +392,7 @@ def _dispatcher(
         google_write=cast("Any", google),
         read=ReadToolDispatcher(host_secrets=()),
         owner_timezone="UTC",
+        source_conversation_id="synthetic-channel",
         verified_owner_only_calendar_ids=("owner@example.invalid",),
         host_secrets=(),
     )
@@ -608,7 +629,7 @@ async def test_host_action_resolution_cannot_authorize_a_write(
     )
 
 
-async def test_approval_required_send_creates_no_action_or_effect() -> None:
+async def test_approval_required_send_suspends_with_one_action_and_no_effect() -> None:
     owner_id = uuid4()
     provider = _Provider()
     binding, plan = _plan(provider, ToolId("gmail.send_draft"))
@@ -627,14 +648,14 @@ async def test_approval_required_send_creates_no_action_or_effect() -> None:
         GmailSendDraftInput(
             draft_id="synthetic-draft",
             thread_id="synthetic-thread",
-            jarvis_effect_id="a" * 64,
+            jarvis_effect_id=gmail_effect_id(actions.creation_id),
             content=_content(),
         ),
     )
 
-    assert isinstance(result, DispatchCompleted)
-    assert result.result == {"type": "Failure", "error": {"type": "ToolUnavailable"}}
-    assert actions.inserts == 0
+    assert isinstance(result, DispatchSuspended)
+    assert result.waiting_for is WaitingFor.user
+    assert actions.inserts == 1
     assert provider.effects == []
 
 

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
+import discord
 from llm_agent_kernel import (
     AdmissionToken,
     AgentDefinition,
@@ -57,6 +58,7 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
+from jarvis.approval_runtime import ApprovalActionHandler
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.context import (
     IsolatedRecaller,
@@ -71,12 +73,14 @@ from jarvis.definitions import (
     Slice3Definitions,
     Slice4Definitions,
     Slice5Definitions,
+    Slice6Definitions,
 )
 from jarvis.discord import (
     CatchUpResult,
     Control,
     DeliveryFailed,
     DeliveryResult,
+    DiscordApprovalInteraction,
     DiscordOwnerMessage,
 )
 from jarvis.history import PostgresCanonicalHistory
@@ -814,6 +818,7 @@ class JarvisThreadRunner:
             | Slice3Definitions
             | Slice4Definitions
             | Slice5Definitions
+            | Slice6Definitions
         ),
         history: PostgresCanonicalHistory,
         dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
@@ -837,7 +842,13 @@ class JarvisThreadRunner:
         self._memory_dispatcher_factory = memory_dispatcher_factory
         self._rememberer = rememberer
         if isinstance(
-            definitions, Slice3Definitions | Slice4Definitions | Slice5Definitions
+            definitions,
+            (
+                Slice3Definitions
+                | Slice4Definitions
+                | Slice5Definitions
+                | Slice6Definitions
+            ),
         ) and (
             not isinstance(admission, RootTrackingAdmissionPort)
             or memory is None
@@ -917,7 +928,12 @@ class JarvisThreadRunner:
         recaller = None
         if isinstance(
             self._definitions,
-            Slice3Definitions | Slice4Definitions | Slice5Definitions,
+            (
+                Slice3Definitions
+                | Slice4Definitions
+                | Slice5Definitions
+                | Slice6Definitions
+            ),
         ):
             assert isinstance(self._admission, RootTrackingAdmissionPort)
             assert self._memory is not None
@@ -1062,6 +1078,7 @@ class JarvisService:
         scheduled_wakes: ScheduledWakeStore | None = None,
         action_plan: FrozenToolPlan | None = None,
         action_recovery: ActionRecoveryPort | None = None,
+        approval_handler: ApprovalActionHandler | None = None,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -1078,6 +1095,7 @@ class JarvisService:
             raise ValueError("scheduled wakes require exactly one current action plan")
         self._action_plan = action_plan
         self._action_recovery = action_recovery
+        self._approval_handler = approval_handler
         self._gateway = gateway
         self._sleep = sleep
         self._dream_sleep = dream_sleep
@@ -1140,6 +1158,41 @@ class JarvisService:
                 await self._paused.set_paused(False)
 
         self._work.set()
+
+    async def receive_approval_interaction(
+        self,
+        event: discord.Interaction,
+        interaction: DiscordApprovalInteraction,
+    ) -> None:
+        """Claim one configured component before serial effect execution."""
+
+        if self._approval_handler is None or await self._paused.is_paused():
+            return
+        claimed = await self._approval_handler.claim_and_acknowledge(
+            event,
+            interaction,
+        )
+        if claimed is None:
+            return
+        async with self._execution_mutex:
+            cancellation = CancellationToken()
+            async with self._active_lock:
+                self._active_cancellation = cancellation
+                if await self._paused.is_paused():
+                    cancellation.cancel()
+            if cancellation.cancelled:
+                async with self._active_lock:
+                    if self._active_cancellation is cancellation:
+                        self._active_cancellation = None
+                self._work.set()
+                return
+            try:
+                await self._approval_handler.complete(claimed, cancellation)
+            finally:
+                async with self._active_lock:
+                    if self._active_cancellation is cancellation:
+                        self._active_cancellation = None
+            self._work.set()
 
     async def gateway_ready(self) -> CatchUpResult:
         """Boundedly catch up from the canonical Discord watermark."""

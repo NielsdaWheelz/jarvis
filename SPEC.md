@@ -368,6 +368,14 @@ messages or placed in a host-generated attachment; the final host-owned message
 carries Approve and Deny and clearly identifies the preceding material as the
 complete payload.
 
+The v1 implementation uses one bounded host-generated UTF-8 text attachment for
+every supported approval, including short ones. It contains a deterministic
+JSON rendering of the action ID, canonical tool name, and every validated stored
+argument; JSON string escapes preserve the exact stored text. The short
+component-bearing message identifies that attachment as the complete payload.
+The attachment is limited to 1,000,000 bytes. Oversize or non-exact rendering
+fails before action creation or functional component presentation.
+
 An approval-bearing tool without a host renderer fails closed. A model rationale
 MAY be shown as separately labelled commentary but never substitutes for the
 rendered action.
@@ -398,7 +406,25 @@ Approval is deliberately simple:
 
 The invoking Discord user, guild, and channel must match deployment
 configuration. The interaction's Discord message ID must match the `message`
-referenced by `approval_message_id`. Free-form text never counts as approval.
+referenced by `approval_message_id`. Each opaque custom component ID binds the
+action ID, internal approval-message ID, and exactly one of Approve or Deny. Host
+code validates that complete relationship and the current `awaiting_approval`
+state before accepting a decision. Free-form text never counts as approval.
+
+The durable state transition commits before the Discord acknowledgement. The
+acknowledgement is a public `discord.py` interaction-response edit that disables
+both components. Only then may slow external execution begin. If the process
+stops after the claim or the acknowledgement fails, startup first disables the
+known message through the narrow host Discord REST binding and then resumes the
+approved action through its existing durable position; it does not replay the
+originating model turn.
+
+If a pending approval is incompatible at startup, a delivered message is first
+disabled and the action is then cancelled and reported. An undelivered one is
+cancelled without a Discord edit; its existing canonical outbox row is delivered
+once with the complete former payload and only disabled Approve and Deny
+components, followed by the ordinary cancellation resolution. It can never
+become executable, and no pending outbox row is falsified or stranded.
 
 Action states are exactly:
 
@@ -453,6 +479,16 @@ to terminal `uncertain`; even a complete bounded enumeration cannot prove
 non-creation. Gmail draft-create reconciliation therefore never returns
 `absent`, requeues the action, or authorizes another create request.
 
+If `gmail.update_draft` recovery finds that the known draft disappeared, it
+fetches the known thread once with `format=minimal` and then fetches up to one
+hundred enumerated messages individually with `messages.get(format=raw)`. It
+does not search the mailbox or assume an ordering. One unique, fully processed
+effect-header and desired-content match proves the update's outcome; duplicate,
+conflicting, malformed, or incompletely processed evidence cannot. The bounded
+thread-read shape and message ceiling are revisioned binding-policy inputs, so
+changing them rotates the binding identity without inventing a new public tool
+or implementation name.
+
 Repeated calls with identical arguments are permitted. Duplicate prevention
 comes from source-message deduplication, atomic action state transitions, the
 action ID as a provider idempotency key where supported, and tool-specific
@@ -505,16 +541,32 @@ Gmail send uses the provider's draft flow:
 4. Immediately before sending, fetch the live draft and require it to match the
    snapshot exactly; a mismatch fails the action and requires a new proposal.
 5. Send by `draftId` after approval.
-6. On an ambiguous result, perform bounded re-reads: check whether the draft
-   remains, then fetch the known thread and inspect raw messages for the exact
-   `X-Jarvis-Effect-ID` before deciding whether a repeat is proved safe. Any
-   match must be compared with the immutable normalized snapshot; multiple or
-   conflicting matches are `uncertain`, not success.
+6. On an ambiguous result, perform three observations separated by fixed `0`,
+   `2`, and `8` second backoffs. Each observation inspects the known draft,
+   fetches the known thread with `format=minimal`, and fetches at most one
+   hundred enumerated messages individually with `messages.get(format=raw)`.
+   The whole reconciliation procedure is bounded to thirty seconds, sixteen
+   MiB of accepted response bodies, the ordinary two-MiB per-response cap, and
+   at most 102 provider reads per observation. It performs no mailbox search
+   and assumes no thread-message ordering.
+7. Compare every selected message carrying the exact `X-Jarvis-Effect-ID` with
+   the immutable normalized snapshot, excluding only the current live draft's
+   message ID. After every message in the selected bounded observation is
+   validly processed, one unique exact header-and-content match proves success
+   even when the draft remains or the thread contains an unprocessed tail beyond
+   one hundred messages. No Gmail label is required. Multiple observed matches
+   or any observed conflicting match do not prove success.
+8. Repeat only when all three observations show the exact unchanged draft and
+   a complete known thread with no matching non-draft message, repetition is
+   safe, and immutable attempt capacity remains. Malformed, transient, partially
+   processed, duplicate, or conflicting evidence cannot prove absence. If the
+   reconciliation elapsed bound ends the procedure with incomplete evidence,
+   or the complete procedure otherwise cannot decide, record terminal
+   `uncertain`, present safe evidence, and ask the owner to inspect Gmail. The
+   original mutation timeout alone decides neither retry nor uncertainty.
 
 The exact reconciliation behavior for new and existing threads MUST be verified
-against the live integration in Slice 0. Only if the complete reconciliation
-procedure cannot establish an outcome does the action become terminal
-`uncertain`; Jarvis presents its evidence and asks the owner to inspect Gmail.
+against the live integration.
 
 ## 6. Memory
 

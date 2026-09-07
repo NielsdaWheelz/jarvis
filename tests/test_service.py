@@ -23,12 +23,14 @@ from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
 from jarvis.discord import (
+    ApprovalComponentDecision,
     CatchUpResult,
     Control,
     DeliveryFailed,
     DeliveryFailureKind,
     DeliveryResult,
     DeliverySucceeded,
+    DiscordApprovalInteraction,
     DiscordOwnerMessage,
 )
 from jarvis.messages import InboundInsert, PendingControl, StoredMessage
@@ -326,6 +328,129 @@ class _Gateway:
 class _InspectableService(JarvisService):
     async def drain_once(self) -> None:
         await self._drain()
+
+    @asynccontextmanager
+    async def hold_execution(self):  # type: ignore[no-untyped-def]
+        async with self._execution_mutex:
+            yield
+
+
+class _ApprovalHandler:
+    def __init__(self) -> None:
+        self.claimed = asyncio.Event()
+        self.completed = asyncio.Event()
+
+    async def claim_and_acknowledge(self, event: object, interaction: object) -> object:
+        del event, interaction
+        self.claimed.set()
+        return object()
+
+    async def complete(
+        self,
+        claimed: object,
+        cancellation: CancellationToken,
+    ) -> bool:
+        del claimed
+        assert not cancellation.cancelled
+        self.completed.set()
+        return True
+
+
+async def test_approval_acknowledgement_precedes_serial_effect_execution(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    handler = _ApprovalHandler()
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _Ingress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _Runner()),
+        approval_handler=cast("Any", handler),
+        gateway=_Gateway(),
+    )
+    interaction = DiscordApprovalInteraction(
+        action_id=uuid4(),
+        approval_message_id=uuid4(),
+        decision=ApprovalComponentDecision.APPROVE,
+        discord_message_id="123",
+    )
+
+    async with service.hold_execution():
+        task = asyncio.create_task(
+            service.receive_approval_interaction(cast("Any", object()), interaction)
+        )
+        await asyncio.wait_for(handler.claimed.wait(), timeout=1)
+        assert not handler.completed.is_set()
+
+    await asyncio.wait_for(task, timeout=1)
+    assert handler.completed.is_set()
+
+
+class _CancellableApprovalHandler(_ApprovalHandler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.execution_started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.cancellation_observed = False
+
+    async def complete(
+        self,
+        claimed: object,
+        cancellation: CancellationToken,
+    ) -> bool:
+        del claimed
+        self.execution_started.set()
+        await self.release.wait()
+        self.cancellation_observed = True
+        assert cancellation.cancelled
+        return False
+
+
+async def test_pause_cancels_approved_action_before_external_entry(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    paused = PausedState(paused_path)
+    handler = _CancellableApprovalHandler()
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _Ingress()),
+        paused=paused,
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _Runner()),
+        approval_handler=cast("Any", handler),
+        gateway=_Gateway(),
+    )
+    approval = DiscordApprovalInteraction(
+        action_id=uuid4(),
+        approval_message_id=uuid4(),
+        decision=ApprovalComponentDecision.APPROVE,
+        discord_message_id="123",
+    )
+    task = asyncio.create_task(
+        service.receive_approval_interaction(cast("Any", object()), approval)
+    )
+    await asyncio.wait_for(handler.execution_started.wait(), timeout=1)
+
+    await service.receive_owner_message(
+        DiscordOwnerMessage(
+            "43",
+            "33",
+            "pause",
+            datetime(2026, 9, 7, 18, tzinfo=UTC),
+            Control.PAUSE,
+        )
+    )
+    handler.release.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert await paused.is_paused()
+    assert handler.cancellation_observed
+    assert not handler.completed.is_set()
 
 
 class _NoWorkRunner(_Runner):

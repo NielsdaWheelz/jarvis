@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime, timedelta
@@ -27,7 +28,7 @@ from llm_tools import (
 from llm_tools.execution import ParsedJson
 from llm_tools.testing import InMemoryBudgetState
 from pydantic import ValidationError
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -38,6 +39,7 @@ from jarvis.actions import (
     ExecutionContract,
 )
 from jarvis.db import action, create_engine, message
+from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.schedule_tools import (
     SCHEDULE_WAKE_SPEC,
     ScheduleTarget,
@@ -86,7 +88,11 @@ def _contract(
     )
 
 
-async def _origin(engine: AsyncEngine) -> UUID:
+async def _origin(
+    engine: AsyncEngine,
+    *,
+    source_conversation_id: str | None = None,
+) -> UUID:
     identifier = uuid4()
     async with engine.begin() as connection:
         await connection.execute(
@@ -95,7 +101,9 @@ async def _origin(engine: AsyncEngine) -> UUID:
                 role="owner",
                 text="synthetic owner request",
                 source="discord",
-                source_conversation_id=f"synthetic-actions-{identifier}",
+                source_conversation_id=(
+                    source_conversation_id or f"synthetic-actions-{identifier}"
+                ),
                 source_message_id=str(uuid4()),
                 created_at=datetime.now(UTC),
                 processed_at=None,
@@ -250,6 +258,376 @@ async def test_action_identity_is_immutable_and_idempotent(
         action_id=identifier,
         result={"type": "test_cleanup_v1", "reason_code": "synthetic"},
     )
+
+
+@postgres
+async def test_approval_action_and_message_insert_atomically_and_idempotently(
+    engine: AsyncEngine,
+) -> None:
+    conversation_id = f"synthetic-approval-{uuid4()}"
+    origin = await _origin(engine, source_conversation_id=conversation_id)
+    arguments = {"value": "synthetic approval"}
+    contract = _contract(arguments, (origin,))
+    action_id = uuid4()
+    created_at = datetime.now(UTC)
+    store = ActionStore(engine)
+
+    first = await store.insert_awaiting_approval(
+        tool_name=ToolId("synthetic.approval_write"),
+        arguments=arguments,
+        execution_contract=contract,
+        origin_message_id=origin,
+        approval_text="Approve the complete synthetic payload?",
+        source_conversation_id=conversation_id,
+        action_id=action_id,
+        created_at=created_at,
+    )
+    assert first.action_inserted
+    assert first.message_inserted
+    assert first.action.status == "awaiting_approval"
+    assert first.action.approval_message_id == first.message_id
+    async with engine.connect() as connection:
+        approval = (
+            (
+                await connection.execute(
+                    select(message).where(message.c.id == first.message_id)
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert approval["role"] == "assistant"
+    assert approval["source"] == "discord"
+    assert approval["source_conversation_id"] == conversation_id
+    assert approval["source_message_id"] is None
+    assert approval["processed_at"] == created_at
+    assert await store.get_by_approval_message(first.message_id) == first.action
+    assert await store.get_by_approval_message(uuid4()) is None
+
+    await MessageStore(engine).mark_delivered(
+        message_id=first.message_id,
+        source_message_id="synthetic-discord-approval",
+    )
+    second = await store.insert_awaiting_approval(
+        tool_name=ToolId("synthetic.approval_write"),
+        arguments=arguments,
+        execution_contract=contract,
+        origin_message_id=origin,
+        approval_text="Approve the complete synthetic payload?",
+        source_conversation_id=conversation_id,
+        action_id=action_id,
+        created_at=created_at,
+    )
+    assert second.action == first.action
+    assert not second.action_inserted
+    assert not second.message_inserted
+
+    with pytest.raises(ActionPersistenceDefect):
+        await store.insert_awaiting_approval(
+            tool_name=ToolId("synthetic.approval_write"),
+            arguments=arguments,
+            execution_contract=contract,
+            origin_message_id=origin,
+            approval_text="Different synthetic approval text.",
+            source_conversation_id=conversation_id,
+            action_id=action_id,
+            created_at=created_at,
+        )
+
+
+@postgres
+async def test_failed_approval_insert_rolls_back_its_message(
+    engine: AsyncEngine,
+) -> None:
+    conversation_id = f"synthetic-approval-rollback-{uuid4()}"
+    origin = await _origin(engine, source_conversation_id=conversation_id)
+    arguments = {"value": "automatic"}
+    contract = _contract(arguments, (origin,))
+    action_id = uuid4()
+    created_at = datetime.now(UTC)
+    store = ActionStore(engine)
+    await store.insert_automatic(
+        tool_name=ToolId("synthetic.write"),
+        arguments=arguments,
+        execution_contract=contract,
+        origin_message_id=origin,
+        action_id=action_id,
+        created_at=created_at,
+    )
+
+    with pytest.raises(ActionPersistenceDefect):
+        await store.insert_awaiting_approval(
+            tool_name=ToolId("synthetic.write"),
+            arguments=arguments,
+            execution_contract=contract,
+            origin_message_id=origin,
+            approval_text="Synthetic approval that must roll back.",
+            source_conversation_id=conversation_id,
+            action_id=action_id,
+            created_at=created_at,
+        )
+    async with engine.connect() as connection:
+        count = await connection.scalar(
+            select(func.count())
+            .select_from(message)
+            .where(message.c.text == "Synthetic approval that must roll back.")
+        )
+    assert count == 0
+
+
+@postgres
+async def test_approval_claim_is_exact_and_executor_entry_is_separate(
+    engine: AsyncEngine,
+) -> None:
+    conversation_id = f"synthetic-approval-claim-{uuid4()}"
+    origin = await _origin(engine, source_conversation_id=conversation_id)
+    arguments = {"value": "synthetic approval"}
+    contract = _contract(arguments, (origin,))
+    store = ActionStore(engine)
+    inserted = await store.insert_awaiting_approval(
+        tool_name=ToolId("synthetic.approval_write"),
+        arguments=arguments,
+        execution_contract=contract,
+        origin_message_id=origin,
+        approval_text="Approve the synthetic effect?",
+        source_conversation_id=conversation_id,
+    )
+    assert await store.pending_approvals(source_conversation_id=conversation_id) == (
+        inserted.action,
+    )
+
+    with pytest.raises(ActionPersistenceDefect):
+        await store.claim_approval(
+            action_id=inserted.action.id,
+            approval_message_id=inserted.message_id,
+            discord_message_id="not-delivered",
+            source_conversation_id=conversation_id,
+        )
+    await MessageStore(engine).mark_delivered(
+        message_id=inserted.message_id,
+        source_message_id="synthetic-discord-claim",
+    )
+    with pytest.raises(ActionPersistenceDefect):
+        await store.claim_approval(
+            action_id=inserted.action.id,
+            approval_message_id=uuid4(),
+            discord_message_id="synthetic-discord-claim",
+            source_conversation_id=conversation_id,
+        )
+    with pytest.raises(ActionPersistenceDefect):
+        await store.claim_approval(
+            action_id=inserted.action.id,
+            approval_message_id=inserted.message_id,
+            discord_message_id="synthetic-discord-claim",
+            source_conversation_id="different-channel",
+        )
+
+    decided_at = datetime.now(UTC)
+    claimed = await store.claim_approval(
+        action_id=inserted.action.id,
+        approval_message_id=inserted.message_id,
+        discord_message_id="synthetic-discord-claim",
+        source_conversation_id=conversation_id,
+        decided_at=decided_at,
+    )
+    assert claimed.applied
+    assert claimed.action.status == "executing"
+    assert claimed.action.decided_at == decided_at
+    assert claimed.action.attempts == 0
+    duplicate = await store.claim_approval(
+        action_id=inserted.action.id,
+        approval_message_id=inserted.message_id,
+        discord_message_id="synthetic-discord-claim",
+        source_conversation_id=conversation_id,
+    )
+    assert not duplicate.applied
+    assert duplicate.action == claimed.action
+    assert await store.pending_approvals(source_conversation_id=conversation_id) == ()
+    assert await store.approved_not_entered() == (claimed.action,)
+
+    recorder = ActionPositionRecorder(
+        store=store,
+        action_id=claimed.action.id,
+        implementation_revision=contract.implementation_revision,
+        max_external_attempts=2,
+        preclaimed_approval=True,
+    )
+    recovered = ActionPositionRecorder(
+        store=store,
+        action_id=claimed.action.id,
+        implementation_revision=contract.implementation_revision,
+        max_external_attempts=2,
+    )
+    recovered_position = await recovered.occupy(
+        position=claimed.action.position,
+        tool_id=claimed.action.tool_name,
+        tool_contract_revision=contract.tool_contract_revision,
+        policy_revision=contract.policy_revision,
+        plan_revision=contract.plan_revision,
+        input_digest=contract.input_digest,
+        replay_policy=contract.replay_policy,
+    )
+    assert recovered_position.uncertain
+    occupied = await recorder.occupy(
+        position=claimed.action.position,
+        tool_id=claimed.action.tool_name,
+        tool_contract_revision=contract.tool_contract_revision,
+        policy_revision=contract.policy_revision,
+        plan_revision=contract.plan_revision,
+        input_digest=contract.input_digest,
+        replay_policy=contract.replay_policy,
+    )
+    assert not occupied.uncertain
+    await recorder.dispatch_started(
+        position=claimed.action.position,
+        replay_policy=ReplayPolicy.ReDispatchable,
+    )
+    entered = await store.get(claimed.action.id)
+    assert entered is not None
+    assert entered.status == "executing"
+    assert entered.attempts == 1
+    assert await store.approved_not_entered() == ()
+    await store.resolve_reconciliation(
+        action_id=entered.id,
+        status="failed",
+        result={"type": "Failure", "error": {"type": "SyntheticCleanup"}},
+    )
+
+
+@postgres
+async def test_deny_is_safe_and_approve_deny_race_has_one_winner(
+    engine: AsyncEngine,
+) -> None:
+    store = ActionStore(engine)
+    conversation_id = f"synthetic-deny-{uuid4()}"
+    origin = await _origin(engine, source_conversation_id=conversation_id)
+    arguments = {"value": "deny synthetic approval"}
+    denied = await store.insert_awaiting_approval(
+        tool_name=ToolId("synthetic.approval_write"),
+        arguments=arguments,
+        execution_contract=_contract(arguments, (origin,)),
+        origin_message_id=origin,
+        approval_text="Deny the synthetic effect.",
+        source_conversation_id=conversation_id,
+    )
+    await MessageStore(engine).mark_delivered(
+        message_id=denied.message_id,
+        source_message_id="synthetic-discord-deny",
+    )
+    decision = await store.deny_approval(
+        action_id=denied.action.id,
+        approval_message_id=denied.message_id,
+        discord_message_id="synthetic-discord-deny",
+        source_conversation_id=conversation_id,
+    )
+    assert decision.applied
+    assert decision.action.status == "cancelled"
+    assert decision.action.attempts == 0
+    assert decision.action.completed_at == decision.action.decided_at
+    assert decision.action.result == {
+        "type": "approval_denied_v1",
+        "reason_code": "owner_denied",
+    }
+    duplicate = await store.deny_approval(
+        action_id=denied.action.id,
+        approval_message_id=denied.message_id,
+        discord_message_id="synthetic-discord-deny",
+        source_conversation_id=conversation_id,
+    )
+    assert not duplicate.applied
+
+    race_conversation = f"synthetic-approval-race-{uuid4()}"
+    race_origin = await _origin(
+        engine,
+        source_conversation_id=race_conversation,
+    )
+    race_arguments = {"value": "race synthetic approval"}
+    racing = await store.insert_awaiting_approval(
+        tool_name=ToolId("synthetic.approval_write"),
+        arguments=race_arguments,
+        execution_contract=_contract(race_arguments, (race_origin,)),
+        origin_message_id=race_origin,
+        approval_text="Resolve the synthetic race.",
+        source_conversation_id=race_conversation,
+    )
+    await MessageStore(engine).mark_delivered(
+        message_id=racing.message_id,
+        source_message_id="synthetic-discord-race",
+    )
+    approve, deny = await asyncio.gather(
+        store.claim_approval(
+            action_id=racing.action.id,
+            approval_message_id=racing.message_id,
+            discord_message_id="synthetic-discord-race",
+            source_conversation_id=race_conversation,
+        ),
+        store.deny_approval(
+            action_id=racing.action.id,
+            approval_message_id=racing.message_id,
+            discord_message_id="synthetic-discord-race",
+            source_conversation_id=race_conversation,
+        ),
+    )
+    assert sum(value.applied for value in (approve, deny)) == 1
+    final = await store.get(racing.action.id)
+    assert final is not None
+    assert final.status in {"executing", "cancelled"}
+    if final.status == "executing":
+        await store.resolve_reconciliation(
+            action_id=final.id,
+            status="failed",
+            result={"type": "Failure", "error": {"type": "SyntheticCleanup"}},
+        )
+
+
+@postgres
+async def test_user_suspended_approval_lineage_is_repairable(
+    engine: AsyncEngine,
+) -> None:
+    store = ActionStore(engine)
+    conversation_id = f"synthetic-approval-repair-{uuid4()}"
+    origin = await _origin(engine, source_conversation_id=conversation_id)
+    arguments = {"value": "repair synthetic approval"}
+    inserted = await store.insert_awaiting_approval(
+        tool_name=ToolId("synthetic.approval_write"),
+        arguments=arguments,
+        execution_contract=_contract(arguments, (origin,)),
+        origin_message_id=origin,
+        approval_text="Approve or deny the synthetic repair action.",
+        source_conversation_id=conversation_id,
+    )
+    await MessageStore(engine).mark_delivered(
+        message_id=inserted.message_id,
+        source_message_id="synthetic-discord-repair",
+    )
+    denied = await store.deny_approval(
+        action_id=inserted.action.id,
+        approval_message_id=inserted.message_id,
+        discord_message_id="synthetic-discord-repair",
+        source_conversation_id=conversation_id,
+    )
+    settlement = SettlementTrace(
+        run_id=f"approval:{denied.action.execution_contract.claim_id}",
+        through_checkpoint=str(origin),
+        conclusion_kind="suspension",
+        outcome="user",
+    ).as_json(inserted.message_id)
+    async with engine.begin() as connection:
+        await connection.execute(
+            update(message)
+            .where(message.c.id == origin)
+            .values(processed_at=datetime.now(UTC), trace={"settlement": settlement})
+        )
+
+    assert await store.unreported_terminal(source_conversation_id=conversation_id) == (
+        denied.action,
+    )
+    repaired = await store.finish_recovered_origin(
+        action_id=denied.action.id,
+        source_conversation_id=conversation_id,
+        text="Synthetic approval was denied.",
+    )
+    assert repaired.inserted
 
 
 @postgres

@@ -6,7 +6,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from llm_tools import Available, ExecutionContext, ToolEffect, ToolId, Unavailable
+from llm_tools import Available, ExecutionContext, ToolEffect, ToolId
 from pydantic import ValidationError
 
 from jarvis.write_tools import (
@@ -18,6 +18,8 @@ from jarvis.write_tools import (
     GmailContent,
     GmailCreateDraftInput,
     GmailDraftSuccess,
+    GmailSendDraftInput,
+    GmailSendDraftSuccess,
     Mailbox,
     WriteAttemptBudget,
     WriteResponse,
@@ -56,6 +58,25 @@ class _Provider:
         self, value: object, effect_id: UUID, attempts: WriteAttemptBudget
     ) -> object:
         raise AssertionError((value, effect_id, attempts))
+
+    async def gmail_send_draft(
+        self,
+        value: GmailSendDraftInput,
+        effect_id: UUID,
+        attempts: WriteAttemptBudget,
+    ) -> WriteResponse[GmailSendDraftSuccess]:
+        del value
+        self.called = effect_id
+        return WriteResponse(
+            GmailSendDraftSuccess(
+                sent_message_id="sent-message",
+                thread_id="thread",
+                jarvis_effect_id="a" * 64,
+                content_digest="b" * 64,
+                sent_at=NOW,
+            ),
+            2,
+        )
 
     async def calendar_create_event(
         self, value: object, effect_id: UUID, attempts: WriteAttemptBudget
@@ -132,8 +153,26 @@ def test_write_manifest_is_exact_closed_and_redispatchable() -> None:
     send = next(
         binding for binding in bindings if binding.spec.id == GMAIL_SEND_DRAFT_SPEC.id
     )
-    assert isinstance(send.execute, Unavailable)
-    assert "Slice 6" in send.execute.private_reason
+    assert isinstance(send.execute, Available)
+    assert send.policy_inputs["authority"] == "approval-required"
+    assert send.policy_inputs["reconciliation_backoff_seconds"] == (0, 2, 8)
+    assert send.policy_inputs["reconciliation_list_pages"] == 0
+    assert send.policy_inputs["reconciliation_max_elapsed_seconds"] == 30
+    assert send.policy_inputs["reconciliation_max_observations"] == 3
+    assert send.policy_inputs["reconciliation_max_provider_reads_per_observation"] == (
+        102
+    )
+    assert send.policy_inputs["reconciliation_max_response_bytes_per_read"] == (
+        2 * 1024 * 1024
+    )
+    assert send.policy_inputs["reconciliation_max_response_bytes"] == 16 * 1024 * 1024
+    assert send.policy_inputs["reconciliation_max_thread_messages"] == 100
+    assert send.policy_inputs["reconciliation_thread_minimal_gets_per_observation"] == 1
+    assert (
+        send.policy_inputs["reconciliation_thread_raw_message_gets_per_observation"]
+        == 100
+    )
+    assert send.policy_inputs["mailbox_search"] is False
 
 
 def test_mailbox_normalizes_only_domain_and_rejects_header_injection() -> None:
@@ -184,3 +223,37 @@ async def test_binding_requires_action_id_as_position_and_effect_id() -> None:
         await binding.execute.handler(
             GmailCreateDraftInput(content=_content()), bad_context
         )
+
+
+@pytest.mark.asyncio
+async def test_send_binding_executes_only_at_the_action_effect_position() -> None:
+    provider = _Provider()
+    binding = gmail_write_family(cast("Any", provider)).bindings[2]
+    assert binding.spec.id == ToolId("gmail.send_draft")
+    assert isinstance(binding.execute, Available)
+
+    def grant(tool_id: ToolId) -> SimpleNamespace:
+        return SimpleNamespace(id=tool_id, limits=binding.spec.limits)
+
+    context = cast(
+        "ExecutionContext",
+        SimpleNamespace(
+            effect_id=str(ACTION_ID),
+            position=str(ACTION_ID),
+            grant=SimpleNamespace(id=binding.spec.id, limits=binding.spec.limits),
+            plan=SimpleNamespace(grant=grant),
+        ),
+    )
+    result = await binding.execute.handler(
+        GmailSendDraftInput(
+            draft_id="draft",
+            thread_id="thread",
+            jarvis_effect_id="a" * 64,
+            content=_content(),
+        ),
+        context,
+    )
+
+    assert result.actual_attempts == 2
+    assert result.value.sent_message_id == "sent-message"
+    assert provider.called == ACTION_ID

@@ -1,4 +1,4 @@
-"""Closed Slice 5 Gmail draft and Calendar write contracts."""
+"""Closed Gmail draft and Calendar write contracts."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from llm_tools import (
     ToolId,
     ToolLimits,
     ToolSpec,
-    Unavailable,
     canonical_json_bytes,
 )
 from pydantic import (
@@ -472,6 +471,13 @@ class GoogleWriteProvider(Protocol):
         attempt_budget: WriteAttemptBudget,
     ) -> WriteResponse[GmailDraftSuccess]: ...
 
+    async def gmail_send_draft(
+        self,
+        value: GmailSendDraftInput,
+        effect_id: UUID,
+        attempt_budget: WriteAttemptBudget,
+    ) -> WriteResponse[GmailSendDraftSuccess]: ...
+
     async def calendar_create_event(
         self,
         value: CalendarCreateEventInput,
@@ -531,7 +537,8 @@ GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     summary="Send one exact unchanged Gmail draft after owner approval.",
     documentation=PromptDocument(
         "This consequential communication always requires the host-owned Approve or "
-        "Deny flow. Slice 5 declares the exact contract but cannot execute it."
+        "Deny flow. Send only the exact unchanged draft represented by these "
+        "immutable arguments."
     ),
     input_type=GmailSendDraftInput,
     success_type=GmailSendDraftSuccess,
@@ -665,6 +672,7 @@ def _binding[InputT, SuccessT, ErrorT](
     policy_inputs: dict[str, object],
     *,
     implementation_revision: str | None = None,
+    authority: str = "automatic-write-gated",
 ) -> ToolBinding[InputT, SuccessT, ErrorT]:
     async def execute(
         value: InputT, context: ExecutionContext
@@ -681,7 +689,7 @@ def _binding[InputT, SuccessT, ErrorT](
         policy_epoch=PolicyEpoch("jarvis-write-v1"),
         policy_inputs={
             "action_max_attempts": WRITE_ACTION_MAX_ATTEMPTS,
-            "authority": "automatic-write-gated",
+            "authority": authority,
             **policy_inputs,
         },
     )
@@ -712,20 +720,37 @@ def gmail_write_family(provider: GoogleWriteProvider) -> ToolFamily:
                 {
                     "conflict_check": "exact-normalized-content-digest",
                     "effect_header": "preserve-X-Jarvis-Effect-ID",
+                    "reconciliation_max_thread_messages": 100,
+                    "reconciliation_thread_read": (
+                        "threads.get(format=minimal)-then-messages.get(format=raw)"
+                    ),
                     "send": False,
                 },
             ),
-            ToolBinding(
-                spec=GMAIL_SEND_DRAFT_SPEC,
-                execute=Unavailable("Slice 6 approval execution is not implemented"),
-                replay_policy=ReplayPolicy.ReDispatchable,
-                implementation_revision="jarvis-gmail-send_draft-v1",
-                policy_epoch=PolicyEpoch("jarvis-write-v1"),
-                policy_inputs={
-                    "action_max_attempts": WRITE_ACTION_MAX_ATTEMPTS,
-                    "authority": "approval-required-unavailable-slice-5",
+            _binding(
+                GMAIL_SEND_DRAFT_SPEC,
+                provider.gmail_send_draft,
+                {
+                    "reconciliation_backoff_seconds": [0, 2, 8],
+                    "reconciliation_list_pages": 0,
+                    "reconciliation_max_elapsed_seconds": 30,
+                    "reconciliation_max_observations": 3,
+                    "reconciliation_positive_proof": (
+                        "one-exact-match-after-bounded-candidates-processed-"
+                        "with-no-conflicting-evidence"
+                    ),
+                    "reconciliation_max_provider_reads_per_observation": 102,
+                    "reconciliation_max_response_bytes_per_read": 2 * 1024 * 1024,
+                    "reconciliation_max_response_bytes": 16 * 1024 * 1024,
+                    "reconciliation_max_thread_messages": 100,
+                    "reconciliation_thread_minimal_gets_per_observation": 1,
+                    "reconciliation_thread_raw_message_gets_per_observation": 100,
                     "effect_header": "preserve-X-Jarvis-Effect-ID",
+                    "mailbox_search": False,
+                    "pre_send_check": "exact-normalized-snapshot",
                 },
+                implementation_revision="jarvis-gmail-send_draft-v1",
+                authority="approval-required",
             ),
         ),
     )

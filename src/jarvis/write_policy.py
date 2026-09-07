@@ -1,4 +1,4 @@
-"""Deterministic Slice 5 write authority and gate projections."""
+"""Deterministic write authority and AutomaticWriteGate projections."""
 
 from __future__ import annotations
 
@@ -169,7 +169,7 @@ def write_effect_descriptor(
                 ),
             ),
         )
-    raise ValueError("validated Write has no Slice 5 gate projection")
+    raise ValueError("validated Write has no gate projection")
 
 
 def _gmail_descriptor(

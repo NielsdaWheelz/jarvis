@@ -1,4 +1,4 @@
-"""Gate, classify, persist, execute, and reconcile Slice 5 Writes."""
+"""Gate, classify, persist, execute, and reconcile durable Writes."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ from jarvis.actions import (
     StoredAction,
 )
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.approval import ApprovalRenderError, render_approval
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
 from jarvis.read_dispatch import ReadToolDispatcher, contains_secret
@@ -54,6 +55,7 @@ from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     GoogleWriteConnector,
     ReconciliationResult,
+    gmail_effect_id,
 )
 from jarvis.write_gate import AutomaticWriteGate, GateOwnerInput
 from jarvis.write_policy import classify_write, write_effect_descriptor
@@ -62,6 +64,7 @@ from jarvis.write_tools import (
     CalendarDeleteEventInput,
     CalendarUpdateEventInput,
     GmailCreateDraftInput,
+    GmailSendDraftInput,
     GmailUpdateDraftInput,
 )
 
@@ -76,7 +79,11 @@ class ScheduleChanged(Protocol):
     def __call__(self) -> None: ...
 
 
-class _NoTelemetry:
+class ApprovalDisabler(Protocol):
+    async def __call__(self, action: StoredAction) -> None: ...
+
+
+class NoTelemetry:
     def event(self, name: str, attributes: dict[str, object]) -> None:
         del name, attributes
 
@@ -93,6 +100,7 @@ class WriteToolDispatcher:
         google_write: GoogleWriteConnector,
         read: ReadToolDispatcher,
         owner_timezone: str,
+        source_conversation_id: str,
         verified_owner_only_calendar_ids: tuple[str, ...],
         host_secrets: tuple[str, ...],
         schedule_changed: ScheduleChanged = lambda: None,
@@ -103,6 +111,7 @@ class WriteToolDispatcher:
         self._google_write = google_write
         self._read = read
         self._owner_timezone = owner_timezone
+        self._source_conversation_id = source_conversation_id
         self._verified_calendar_ids = verified_owner_only_calendar_ids
         self._host_secrets = host_secrets
         self._schedule_changed = schedule_changed
@@ -131,7 +140,7 @@ class WriteToolDispatcher:
             or binding.replay_policy is not ReplayPolicy.ReDispatchable
             or not isinstance(lineage, DispatchLineage)
         ):
-            raise ToolDispatchDefect("Slice 5 Write lacks thread lineage")
+            raise ToolDispatchDefect("Write lacks thread lineage")
         tool_id = binding.spec.id
         try:
             if plan.catalog_view.binding(tool_id) is not binding:
@@ -161,6 +170,11 @@ class WriteToolDispatcher:
         if contains_secret(arguments, self._host_secrets):
             return DispatchCompleted(dict(_INVALID_INPUT))
 
+        if isinstance(validated_input, GmailSendDraftInput) and not (
+            await gmail_send_basis_is_current(self._actions, validated_input)
+        ):
+            return DispatchCompleted(dict(_UNAVAILABLE))
+
         live_event = None
         if isinstance(
             validated_input, CalendarUpdateEventInput | CalendarDeleteEventInput
@@ -178,7 +192,7 @@ class WriteToolDispatcher:
             verified_owner_only_calendar_ids=self._verified_calendar_ids,
             live_calendar_event=live_event,
         )
-        if authority != "automatic":
+        if authority == "rejected":
             return DispatchCompleted(dict(_UNAVAILABLE))
         if cancellation.cancelled:
             raise asyncio.CancelledError
@@ -201,6 +215,22 @@ class WriteToolDispatcher:
                 map(str, gate.supporting_owner_message_ids)
             ),
         )
+        if authority == "approval_required":
+            try:
+                presentation = render_approval(action_id, tool_id, validated_input)
+            except ApprovalRenderError:
+                return DispatchCompleted(dict(_UNAVAILABLE))
+            await self._actions.insert_awaiting_approval(
+                tool_name=tool_id,
+                arguments=arguments,
+                execution_contract=contract,
+                origin_message_id=UUID(str(lineage.input_ids[0])),
+                approval_text=presentation.content,
+                source_conversation_id=self._source_conversation_id,
+                action_id=action_id,
+            )
+            return DispatchSuspended(HostRef(str(action_id)), WaitingFor.user)
+
         execute_after = None
         if isinstance(validated_input, ScheduleWakeInput) and isinstance(
             validated_input.request, ScheduleCreateRequest
@@ -235,7 +265,7 @@ class WriteToolDispatcher:
                     principal=Principal("jarvis-owner"),
                     scope=Scope("automatic-write"),
                     cancellation=cancellation,
-                    telemetry=_NoTelemetry(),
+                    telemetry=NoTelemetry(),
                 ),
             )
         except (RecoveryRequired, asyncio.CancelledError):
@@ -256,17 +286,51 @@ class ActionRecovery:
         plan: FrozenToolPlan,
         source_conversation_id: str,
         schedule_changed: ScheduleChanged = lambda: None,
+        approval_disabler: ApprovalDisabler | None = None,
     ) -> None:
         self._actions = actions
         self._google_write = google_write
         self._plan = plan
         self._source_conversation_id = source_conversation_id
         self._schedule_changed = schedule_changed
+        self._approval_disabler = approval_disabler
 
     async def recover(self, *, allow_queued_execution: bool = True) -> int:
         if type(allow_queued_execution) is not bool:
             raise ValueError("queued recovery selection must be boolean")
         recovered: set[UUID] = set()
+        for pending in await self._actions.pending_approvals(
+            source_conversation_id=self._source_conversation_id,
+            limit=100,
+        ):
+            compatible = True
+            try:
+                binding = self._binding(pending)
+                value = binding.spec.input_type.model_validate(pending.arguments)
+                render_approval(pending.id, pending.tool_name, value)
+                if isinstance(value, GmailSendDraftInput):
+                    compatible = await gmail_send_basis_is_current(self._actions, value)
+            except (ApprovalRenderError, RuntimeError, ValueError):
+                compatible = False
+            if compatible:
+                continue
+            discord_message_id = (
+                await self._actions.approval_discord_message_id_or_none(pending.id)
+            )
+            if discord_message_id is not None:
+                if self._approval_disabler is None:
+                    raise RuntimeError(
+                        "delivered incompatible approval requires a component disabler"
+                    )
+                await self._approval_disabler(pending)
+            await self._actions.cancel_nonexecuting(
+                action_id=pending.id,
+                result={
+                    "type": "action_cancelled_v1",
+                    "reason_code": "incompatible_execution_contract",
+                },
+            )
+            recovered.add(pending.id)
         for scheduled in await self._actions.executing_schedule_receipts(limit=100):
             try:
                 self._binding(scheduled)
@@ -304,9 +368,24 @@ class ActionRecovery:
                     group,
                     key=lambda value: value.execution_contract.model_step_ordinal,
                 )
+                for value in ordered:
+                    if (
+                        value.approval_message_id is not None
+                        and value.status == "cancelled"
+                        and value.result
+                        == {
+                            "type": "approval_denied_v1",
+                            "reason_code": "owner_denied",
+                        }
+                    ):
+                        if self._approval_disabler is None:
+                            raise RuntimeError(
+                                "denied recovery requires a Discord component disabler"
+                            )
+                        await self._approval_disabler(value)
                 await self._actions.finish_recovered_origins(
                     reports=tuple(
-                        (value.id, _resolution_text(value)) for value in ordered
+                        (value.id, action_resolution_text(value)) for value in ordered
                     ),
                     source_conversation_id=self._source_conversation_id,
                 )
@@ -333,11 +412,39 @@ class ActionRecovery:
                 },
             )
             return
+        value = binding.spec.input_type.model_validate(stored.arguments)
+        if isinstance(value, GmailSendDraftInput) and not (
+            await gmail_send_basis_is_current(self._actions, value)
+        ):
+            current = await self._require(stored.id)
+            if current.status != "queued":
+                raise RuntimeError("executing Gmail send lost its creation basis")
+            await self._actions.cancel_nonexecuting(
+                action_id=current.id,
+                result={
+                    "type": "action_cancelled_v1",
+                    "reason_code": "invalid_gmail_send_creation_basis",
+                },
+            )
+            return
         maximum_transitions = stored.execution_contract.max_attempts * 2 + 1
         for _ in range(maximum_transitions):
             current = await self._require(stored.id)
             if current.status in {"succeeded", "failed", "uncertain", "cancelled"}:
                 return
+            if (
+                current.status == "executing"
+                and current.approval_message_id is not None
+                and current.decided_at is not None
+                and current.attempts == 0
+            ):
+                if self._approval_disabler is None:
+                    raise RuntimeError(
+                        "approved recovery requires a Discord component disabler"
+                    )
+                await self._approval_disabler(current)
+                if not allow_queued_execution:
+                    return
             if str(current.tool_name) == "schedule.wake":
                 if current.result is not None:
                     if (
@@ -510,7 +617,7 @@ class ActionRecovery:
                     principal=Principal("jarvis-owner"),
                     scope=Scope("automatic-write-recovery"),
                     cancellation=CancellationToken(),
-                    telemetry=_NoTelemetry(),
+                    telemetry=NoTelemetry(),
                 ),
             )
         except RecoveryRequired:
@@ -550,33 +657,18 @@ class ActionRecovery:
                     old_content_digest=cast(str, basis["old_content_digest"]),
                 ),
             )
+        if isinstance(value, GmailSendDraftInput):
+            return await self._google_write.reconcile_gmail_send(value)
         if isinstance(value, CalendarCreateEventInput):
             return await self._google_write.reconcile_calendar_create(value, stored.id)
         if isinstance(value, CalendarUpdateEventInput):
             return await self._google_write.reconcile_calendar_update(value)
         if isinstance(value, CalendarDeleteEventInput):
             return await self._google_write.reconcile_calendar_delete(value)
-        raise RuntimeError("action has no Slice 5 reconciliation procedure")
+        raise RuntimeError("action has no reconciliation procedure")
 
     def _binding(self, stored: StoredAction) -> ToolBinding[Any, Any, Any]:
-        try:
-            binding = self._plan.catalog_view.binding(stored.tool_name)
-            self._plan.grant(stored.tool_name)
-            binding.spec.input_type.model_validate(stored.arguments)
-        except (KeyError, ValueError) as exc:
-            raise RuntimeError("stored action tool is no longer selectable") from exc
-        contract = stored.execution_contract
-        if (
-            binding.spec.effect is not ToolEffect.Write
-            or binding.spec.tool_contract_revision != contract.tool_contract_revision
-            or binding.implementation_revision != contract.implementation_revision
-            or binding.policy_revision != contract.policy_revision
-            or self._plan.plan_revision != contract.plan_revision
-            or binding.replay_policy is not contract.replay_policy
-            or raw_input_digest(ParsedJson(stored.arguments)) != contract.input_digest
-        ):
-            raise RuntimeError("stored action execution contract is incompatible")
-        return binding
+        return require_current_action_binding(stored, self._plan)
 
     async def _require(self, action_id: UUID) -> StoredAction:
         stored = await self._actions.get(action_id)
@@ -604,7 +696,7 @@ def _gate_owner_inputs(values: tuple[Any, ...]) -> tuple[GateOwnerInput, ...]:
     return tuple(result)
 
 
-def _resolution_text(stored: StoredAction) -> str:
+def action_resolution_text(stored: StoredAction) -> str:
     evidence = "Validated provider or local success receipt recorded."
     instruction = ""
     if stored.status == "queued" and stored.tool_name == ToolId("schedule.wake"):
@@ -678,6 +770,48 @@ def _resolution_text(stored: StoredAction) -> str:
             separators=(",", ":"),
             sort_keys=True,
         )
+    )
+
+
+def require_current_action_binding(
+    stored: StoredAction,
+    plan: FrozenToolPlan,
+) -> ToolBinding[Any, Any, Any]:
+    """Revalidate one immutable stored invocation against the current plan."""
+
+    try:
+        binding = plan.catalog_view.binding(stored.tool_name)
+        plan.grant(stored.tool_name)
+        binding.spec.input_type.model_validate(stored.arguments)
+    except (KeyError, ValueError) as exc:
+        raise RuntimeError("stored action tool is no longer selectable") from exc
+    contract = stored.execution_contract
+    if (
+        binding.spec.effect is not ToolEffect.Write
+        or binding.spec.tool_contract_revision != contract.tool_contract_revision
+        or binding.implementation_revision != contract.implementation_revision
+        or binding.policy_revision != contract.policy_revision
+        or plan.plan_revision != contract.plan_revision
+        or binding.replay_policy is not contract.replay_policy
+        or raw_input_digest(ParsedJson(stored.arguments)) != contract.input_digest
+    ):
+        raise RuntimeError("stored action execution contract is incompatible")
+    return binding
+
+
+async def gmail_send_basis_is_current(
+    actions: ActionStore,
+    value: GmailSendDraftInput,
+) -> bool:
+    """Require the send header and thread to originate at Jarvis draft creation."""
+
+    creation_id = await actions.gmail_draft_creation_action(
+        draft_id=value.draft_id,
+        thread_id=value.thread_id,
+        jarvis_effect_id=value.jarvis_effect_id,
+    )
+    return creation_id is not None and gmail_effect_id(creation_id) == (
+        value.jarvis_effect_id
     )
 
 
@@ -755,6 +889,21 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
                     "jarvis_effect_id",
                     "content_digest",
                     "observed_at",
+                ),
+            ),
+        }
+    if tool_name == "gmail.send_draft":
+        value = _success_result_value(result)
+        return {
+            "type": "gmail_sent",
+            **_safe_fields(
+                value,
+                (
+                    "sent_message_id",
+                    "thread_id",
+                    "jarvis_effect_id",
+                    "content_digest",
+                    "sent_at",
                 ),
             ),
         }
@@ -865,4 +1014,11 @@ def _safe_atom(value: object, maximum_bytes: int) -> str:
     return f"{prefix}…#{digest}"
 
 
-__all__ = ["ActionRecovery", "WriteToolDispatcher"]
+__all__ = [
+    "ActionRecovery",
+    "NoTelemetry",
+    "WriteToolDispatcher",
+    "action_resolution_text",
+    "gmail_send_basis_is_current",
+    "require_current_action_binding",
+]

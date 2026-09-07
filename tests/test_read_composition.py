@@ -148,10 +148,10 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         "a692ba611f8dfbd76e04996fc62fb0e6af05245e791c704ab3184d443bb03318"
     )
     assert definitions.main.session_compatibility_revision == (
-        "3cfd944608017249a0e1effbf5cd5fe3b389020a200a217a69c43990173ee6c8"
+        "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851"
     )
     assert definitions.main.fingerprint == (
-        "3112c3308a845b6609a696dd45dcc79de662f98409828585049f569ae7a08755"
+        "a86f4ca46a13a2c7e555425e6754e4203d12a3c31e414e715ae6bde7dc4a44af"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (

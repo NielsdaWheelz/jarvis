@@ -1,19 +1,21 @@
-# Slice 5 operations
+# Slice 6 operations
 
-Jarvis Slice 5 is one Python 3.12 process, one PostgreSQL database, and one
+Jarvis Slice 6 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
 is the exact v1 catalog in SPEC 7.3. The selected Main plan contains the nine
-external reads and six automatic writes; `gmail.send_draft` remains unavailable
-and no approval-bearing plan is selectable until Slice 6. The isolated memory
-roles receive only `memory.search` and `memory.open`, and AutomaticWriteGate has
-an empty plan. Run Jarvis as a dedicated unprivileged OS user in UTC.
+external reads and all seven writes. Gmail send and shared, unknown-calendar, or
+attendee-bearing Calendar writes use the host-owned approval path; the six Slice
+5 writes retain their documented automatic cases. The isolated memory roles
+receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
+plan, and scheduled-wake turns retain the nine-read plan. Run Jarvis as a
+dedicated unprivileged OS user in UTC.
 
 For every owner input, recall begins with exactly one kernel-dispatched
 deterministic `memory.search` call and its typed observation. The isolated
 recaller may then adaptively use `memory.search` and `memory.open`; operations
 must not replace the initial kernel dispatch with a host-side repository read.
 
-Slice 5 names the requested-wake model tool and durable action
+Jarvis names the requested-wake model tool and durable action
 `schedule.wake`. Operational queries must use that exact value for
 `action.tool_name`. The host-authored due input deliberately retains the
 distinct protocol value `message.source = schedule_wake`; do not migrate or
@@ -49,11 +51,12 @@ is also added to the host-side Web secret-rejection set. Configuration fixes
 procedure in SPEC 7.2.
 
 Set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` to the unique comma-separated IDs
-whose live ACLs the operator has verified are owner-only. Slice 5 automatically
+whose live ACLs the operator has verified are owner-only. Jarvis automatically
 executes Calendar writes only for one of those IDs, only with no attendees and
 no attendee notification, and only after AutomaticWriteGate allows the current
-owner request. Unknown, shared, stale, or attendee-bearing work fails closed;
-Slice 5 does not present or execute an approval.
+owner request. Unknown/shared-calendar and attendee-bearing or notifying work
+requires Approve or Deny; a stale update/delete snapshot fails closed before
+presentation.
 
 Apply the schema and initialize the private state once:
 
@@ -70,6 +73,57 @@ for an operator-controlled shell and must never be logged or pasted into model
 context. Install `deploy/jarvis.service` after adjusting its paths, then start
 the service. A deployment-wide PostgreSQL advisory lock makes a second process
 fail rather than overlap.
+
+## Approval operation
+
+Approval is available only while `jarvis serve` owns the deployment. A current
+owner request first passes AutomaticWriteGate. Host policy then renders the
+validated Gmail send or approval-required Calendar arguments, atomically stores
+the `awaiting_approval` action plus its assistant outbox row, and durably
+suspends the model turn. No provider session or worker remains blocked while
+waiting.
+
+Every approval is delivered with one host-generated UTF-8 text attachment. The
+attachment is the complete deterministic JSON payload and is bounded to 1,000,000
+bytes. Inspect it in full; the short message's only components are Approve and
+Deny. The attachment includes all To/Cc/Bcc recipients, subject, and complete
+email body, or every Calendar writable value. Free-form replies such as `yes`,
+`approve`, or `send it` never decide the action.
+
+Only the configured owner may click in the configured guild/channel. Jarvis
+checks the component's action and internal-message IDs, the live Discord message
+ID, and current action state. It atomically records the decision, acknowledges
+by disabling both components, and only then enters slow execution. Deny records
+`cancelled` and performs no external operation. Approval messages are
+host-owned; never edit them or decide an action directly in PostgreSQL.
+
+Gmail send is available only for a draft with immutable Jarvis draft-creation
+lineage. Immediately before send, Jarvis fetches the known draft and compares
+its thread, effect header, recipients, subject, and complete body with the
+approved snapshot. Any mismatch sends nothing. Ambiguous recovery reads the
+known draft in three observations separated by fixed `0`, `2`, and `8` second
+backoffs. Each observation fetches the known thread with `format=minimal` and
+fetches at most one hundred enumerated messages individually with
+`messages.get(format=raw)`; it never performs a mailbox search or assumes thread
+ordering. Excluding only the current live draft message ID, one unique observed
+exact effect-header/content match proves success after every selected bounded
+message is processed, even when the draft remains or the thread has an
+unprocessed tail beyond one hundred messages; no Gmail label is required.
+Repetition requires three complete observations proving that the exact unchanged
+draft remains and the complete thread has no matching non-draft message, plus
+remaining immutable attempt capacity. Duplicate,
+conflicting, malformed, transient, or partially processed evidence cannot prove
+absence. The original send timeout decides nothing by itself. Expiry of the
+separate thirty-second, sixteen-MiB reconciliation procedure is bounded
+exhaustion with incomplete evidence and yields safe terminal uncertainty plus an
+owner-inspection request.
+
+This path can issue up to 102 provider reads per observation and 306 across all
+three. That bounded latency and quota cost is accepted to avoid relying on Gmail
+search indexing or undocumented list ordering. Gmail draft-update recovery uses
+the same minimal-thread plus at-most-one-hundred raw-message expansion if its
+known draft disappears; that read shape and ceiling are revisioned policy
+inputs, while the unshipped v1 implementation name remains unchanged.
 
 ## Verification
 
@@ -98,6 +152,19 @@ unused and its existing parent must be mode 0700. The Codex state-root base is
 the private existing directory above the `codex/<profile>` provider scope; do
 not copy its authentication into the checkout or process environment. The Codex
 child receives an empty environment from the production adapter.
+
+Slice 6 live Gmail send and shared-calendar trials use the exact production
+catalog, action recorder, renderers, handler, connector, recovery path, and a
+dedicated Discord Gateway session while holding the deployment lock. The
+configured owner must click every real Approve or Deny component. Qualification
+code may inject an ambiguous provider response after acceptance, but it must not
+simulate the interaction, call the decision store directly, or bypass the
+component relationship. The Calendar trial creates, updates, and deletes its
+event through three distinct approved actions; cleanup never bypasses Calendar
+approval. Use only the configured owner-controlled recipient and calendar, and
+remove every synthetic email, event, and Discord message after recording
+sanitized evidence. A missing or failed cleanup remains an explicit operator
+obligation in the qualification report.
 
 Run the AutomaticWriteGate matrix once with no retries. It submits five
 synthetic-safe prompt-injection denials and three direct-owner usability cases
@@ -367,11 +434,27 @@ the service schedules the next capacity reset rather than requiring new owner
 traffic. Host action-resolution and scheduled-wake rows are never memory-work
 targets.
 
-Slice 5 never executes approval-required work. `gmail.send_draft` is unavailable
-and absent from the selected plan; a shared/unknown-calendar or attendee-bearing
-write creates no external effect. Do not resolve those requests by editing the
-action table or enabling an unavailable binding. Deploy Slice 6 only after its
-approval presentation and interaction gates are fully qualified.
+An undelivered approval outbox row remains pending with null
+`source_message_id`; startup rerenders it from the action and reuses the same
+enforced nonce. A delivered `awaiting_approval` row remains safely clickable
+after restart because the component contains durable action/internal-message
+identity and the Gateway revalidates the stored Discord message relationship.
+Startup cancels and reports a pending action whose renderer, arguments,
+draft-creation basis, or execution contract is no longer compatible. It first
+disables an already-delivered approval. An undelivered one is cancelled without
+a Discord edit, then its canonical outbox row delivers once with a complete
+cancelled-payload attachment and disabled Approve and Deny before the ordinary
+cancellation resolution. No delivery ID is invented and no functional component
+is shown.
+
+If Approve committed but the process stopped before executor entry, the action
+remains `executing` with zero attempts. Startup first disables the known Discord
+components through the narrow REST binding, then resumes that occupied action;
+the executor increments `attempts` only at its actual entry. A later
+interruption uses the complete tool-specific reconciliation path before any
+evidence-proven repeat. Denial and every terminal approval result use the
+ordinary idempotent action-resolution row and visible model or deterministic
+fallback.
 Successful outbox delivery drains every current batch. A row that exhausts its
 finite delivery retry schedule remains pending and stops that drain; the next
 startup or ingress signal retries it with the same persisted UUID and nonce.
@@ -383,8 +466,12 @@ owner message without adding non-canonical cursor state.
 
 `stop` and `pause` are exact, case-insensitive owner messages handled by the
 host. `resume` clears the durable pause. Ordinary process termination cannot
-undo an external effect; Slice 5 reconciles effectful action rows before any
+undo an external effect; Jarvis reconciles effectful action rows before any
 repeat.
+
+Slice 7 remains separate: this document does not claim always-on deployment,
+backup/restore qualification, seven-day owner acceptance, or final production
+sign-off.
 
 If a configuration defect parks input, first stop the service and correct the
 defect. Then clear only the reviewed UUIDs while the command owns the deployment

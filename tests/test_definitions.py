@@ -157,28 +157,28 @@ def _assert_codex_closed_schema(node: object) -> None:
             _assert_codex_closed_schema(child)
 
 
-def test_manifest_publishes_exact_slice5_dependency_and_role_revisions() -> None:
+def test_manifest_publishes_exact_slice6_dependency_and_role_revisions() -> None:
     manifest = load_session_manifest()
     assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
     assert manifest["application_session_contract_revision"] == "jarvis-slice-3-v1"
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
-        == "jarvis-main-slice-5-v1"
+        == "jarvis-main-slice-6-v1"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
-        == "jarvis-recaller-slice-4-v16"
+        == "jarvis-recaller-slice-4-v17"
     )
     assert session_compatibility_revision(manifest, "recaller") == (
-        "0fede7ec8ab388ce3f6105c61a33d46f8a2912b026a9b00e292862615bfa39b3"
+        "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["dreamer"]
-        == "jarvis-dreamer-slice-4-v5"
+        == "jarvis-dreamer-slice-4-v6"
     )
     assert session_compatibility_revision(manifest, "dreamer") == (
-        "9a4a5404789ea51172d8cb429e31a875fecad1ced5f7fb39b39f18f872a12122"
+        "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d"
     )
     previous_recaller = {**manifest}
     previous_recaller_roles = dict(
@@ -220,7 +220,7 @@ def test_manifest_publishes_exact_slice5_dependency_and_role_revisions() -> None
         )
     original = session_compatibility_revision(manifest, "main")
     assert (
-        original == "3cfd944608017249a0e1effbf5cd5fe3b389020a200a217a69c43990173ee6c8"
+        original == "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851"
     )
 
     previous = {**manifest}

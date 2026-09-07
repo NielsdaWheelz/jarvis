@@ -70,8 +70,13 @@ The adapter:
 - Delivers pending assistant messages and records Discord message IDs.
 - Starts typing state promptly while a turn runs.
 - Renders host-owned Approve and Deny messages from stored action arguments.
+- Delivers the complete deterministic UTF-8 JSON approval payload as one bounded
+  text attachment; arbitrary payload text never becomes message Markdown.
+- Accepts only opaque components binding the action and internal approval-message
+  IDs from the configured owner, guild, and channel, then verifies the live
+  Discord message ID against that stored relationship.
 - Atomically claims or denies component interactions, then immediately
-  acknowledges them and disables their components before external work.
+  acknowledges them by disabling both components before external work.
 - Prevents model tools from editing host-owned approval messages.
 - Exposes no model-callable Discord tools. Ingress, `say` delivery, typing state,
   host approval presentation, and editing Jarvis's own approval message are
@@ -455,15 +460,15 @@ Capability plans are closed by role:
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
 
-The implemented Slice 5 maximum catalog contains exactly the nine Gmail,
-Calendar, Maps, and public-Web reads; `memory.search` and `memory.open`; six
-automatic writes; and the unavailable Slice 6 `gmail.send_draft` declaration.
-The selected Main plan contains the nine external reads plus
-`gmail.create_draft`, `gmail.update_draft`, the three Calendar writes, and
-`schedule.wake`. The scheduled-wake plan contains only the nine external reads.
-Recaller, rememberer, and dreamer contain only the two memory reads, and
-AutomaticWriteGate has an empty plan. No approval-bearing plan is selectable in
-Slice 5.
+The implemented Slice 6 maximum catalog contains exactly the nine Gmail,
+Calendar, Maps, and public-Web reads; `memory.search` and `memory.open`; and all
+seven v1 writes. The selected Main plan contains the nine external reads plus
+`gmail.create_draft`, `gmail.update_draft`, `gmail.send_draft`, the three
+Calendar writes, and `schedule.wake`. The scheduled-wake plan contains only the
+nine external reads. Recaller, rememberer, and dreamer contain only the two
+memory reads, and AutomaticWriteGate has an empty plan. The approval-bearing
+Main plan is selectable only after its exact catalog, HostTable, tightening,
+budget, durable suspension, rendering, resolution, and recovery paths qualify.
 
 The host:
 
@@ -621,6 +626,16 @@ or incomplete evidence, transient failure, or no match—including after a
 complete enumeration—also settles `uncertain`, creates the idempotent host
 resolution, and never returns the action to `queued`.
 
+Gmail draft-update recovery normally decides from the known draft. If that draft
+has disappeared, it fetches the known thread as minimal metadata and then reads
+up to one hundred enumerated messages individually as raw. It assumes no
+ordering and performs no mailbox search. One unique effect-header and exact
+desired-content match in a fully processed bounded observation proves the
+outcome; duplicate, conflicting, malformed, or incompletely processed evidence
+does not. The read shape and ceiling are revisioned policy inputs: this provider
+correction rotates the binding identity while retaining the unshipped v1 public
+tool and implementation revision.
+
 `tool_name`, `arguments`, `execution_contract`, and `origin_message_id` never
 change after insertion. V1 tool names have no mandatory version suffix. The
 closed host-authored execution contract records the exact tool, policy, plan,
@@ -637,17 +652,35 @@ introduced only when coexistence is required.
 The model step contains a canonical tool call and arguments only. When policy
 requires approval:
 
-1. Insert the action and host-owned approval message in one transaction.
-2. Store the internal message ID as `approval_message_id`.
-3. Load the action's immutable validated arguments.
-4. Resolve the current declaration, revalidate the stored arguments and
-   execution contract, and select the host renderer for `tool_name`.
-5. Render every recipient, audience, and transmitted value.
-6. Deliver the pending message with Approve and Deny.
+1. Resolve the selected declaration and host renderer, and render the exact
+   validated arguments before creating durable state.
+2. Insert the action and host-owned approval message in one transaction, storing
+   the internal message ID as `approval_message_id` and settling the proposing
+   turn as a durable user-waiting suspension.
+3. At outbox delivery, reload the action, revalidate its immutable arguments and
+   execution contract, verify Gmail draft-creation lineage when applicable, and
+   reproduce the same host rendering.
+4. Attach one UTF-8 text file, bounded to 1,000,000 bytes, whose deterministic JSON
+   contains the action ID, canonical tool name, and every validated stored
+   argument. It therefore shows all Gmail To/Cc/Bcc recipients, subject, and
+   complete body, or the real Calendar, attendees, title, description, location,
+   start/end/timezone, recurrence, reminders, and notification choice.
+5. Deliver the short identifying message with exactly Approve and Deny. Their
+   custom IDs bind the action and internal approval-message IDs.
 
-For content exceeding one Discord message, the renderer may split the material
-or attach a host-generated text file. The final component-bearing message states
-that the entire preceding payload is what Approve executes.
+On a click, the Gateway validates configured owner/guild/channel identity and
+parses the closed component ID. The action transaction verifies the Discord
+message ID against the stored approval message and atomically moves Approve to
+`executing` or Deny to `cancelled`. A public interaction-response edit
+acknowledges the click and disables both components before the execution mutex
+admits slow work. Duplicate and racing clicks fail the state claim. Free-form
+messages never enter this path.
+
+Startup disables a delivered incompatible approval before cancelling and
+reporting it. If it was never delivered, startup cancels it and the outbox sends
+the unchanged canonical approval message with a complete cancelled-payload
+attachment and disabled components before the cancellation resolution. This
+keeps the delivery watermark truthful without exposing a functional approval.
 
 There is no model preview field and no stored preview column.
 
@@ -676,17 +709,36 @@ recipient/subject/body snapshot before approval. After approval and before
 dispatch, the executor fetches the live draft. A mismatch fails without sending
 and requires a new proposal. After an ambiguous send:
 
-1. Check whether the draft still exists.
-2. Fetch the known thread and inspect raw messages for the exact Jarvis effect
-   header, then compare any match with the normalized snapshot; multiple or
-   conflicting matches are not success.
-3. Perform the binding's bounded re-read sequence before deciding.
-4. Repeat only when evidence proves the send did not occur and repeating is safe.
-5. Otherwise record terminal `uncertain`, present the evidence, and ask the owner
-   to inspect Gmail.
+1. Make three observations separated by fixed `0`, `2`, and `8` second backoffs.
+   Inspect the known draft first; an exact unchanged draft is evidence toward
+   absence, while changed or malformed state is not.
+2. In each observation, fetch the known thread with `format=minimal`, select at
+   most one hundred enumerated IDs without assuming ordering, and fetch each
+   selected message with `messages.get(format=raw)`. The whole procedure permits
+   at most 102 provider reads per observation, sixteen MiB of accepted response
+   bodies, the ordinary two-MiB per-response cap, and thirty seconds.
+3. Compare each selected message carrying the exact Jarvis effect header with
+   the normalized immutable snapshot, excluding only the current live draft's
+   message ID. Once every selected bounded message is processed, one unique
+   observed exact header-and-content match proves success even when the draft
+   remains or the thread has an unprocessed tail beyond one hundred messages.
+   No Gmail label is required. Duplicate observed matches or any observed
+   conflict do not prove success.
+4. Repeat only when all three observations prove that the exact unchanged draft
+   remains and the complete thread has no matching non-draft message, repeating
+   is safe, and immutable attempt capacity remains. Malformed, transient, partially
+   processed, duplicate, or conflicting evidence cannot prove absence.
+5. The original send timeout merely starts reconciliation. Expiry of the
+   separate thirty-second reconciliation bound exhausts that procedure with
+   incomplete evidence; it does not act as proof of absence. A still-undecidable
+   completed or elapsed-bound procedure becomes terminal `uncertain`, presents
+   only safe evidence, and asks the owner to inspect Gmail.
 
-Slice 0 validates the exact behavior of the existing Gmail integration for new
-and reply threads.
+Qualification validates the exact behavior for new and reply threads. The
+bounded raw-message expansion can make an ambiguous send expensive—up to 306
+provider reads across three observations—but avoids Gmail search-index
+correctness assumptions. A positive match within a fully processed hundred-row
+selection remains decisive; absence beyond that ceiling remains unknowable.
 
 ## Persistence
 
@@ -801,6 +853,9 @@ Each path is an ordinary function over explicit database state.
   Slice 1 retry/backoff policy. A delayed recovery may rarely repeat ordinary
   text but cannot duplicate an action effect.
 - Approval-rendering failure: create no functional Approve component.
+- Approval decision committed but acknowledgement interrupted: leave the action
+  durable, disable the known components during startup recovery, then resume or
+  reconcile without replaying the originating model turn.
 - Interrupted turn with no effect: replay; interrupted turn with an originating
   action: resume/reconcile without model replay.
 - Action left `executing`: reconcile before any repeat.

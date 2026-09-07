@@ -725,6 +725,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                         google_write=composition.google_write,
                         read=ReadToolDispatcher(host_secrets=settings.host_secrets),
                         owner_timezone=settings.owner_timezone,
+                        source_conversation_id=conversation_id,
                         verified_owner_only_calendar_ids=(
                             settings.verified_owner_only_calendar_ids
                         ),

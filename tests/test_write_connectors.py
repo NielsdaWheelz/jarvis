@@ -28,6 +28,8 @@ from jarvis.write_tools import (
     CalendarWritableEvent,
     GmailContent,
     GmailCreateDraftInput,
+    GmailReplyTo,
+    GmailSendDraftInput,
     GmailUpdateDraftInput,
     Mailbox,
     Reminder,
@@ -83,6 +85,63 @@ def _content(*, subject: str = "Synthetic") -> GmailContent:
         body_text="Synthetic body without an implicit newline.",
         reply_to=None,
     )
+
+
+def _send_value(*, content: GmailContent | None = None) -> GmailSendDraftInput:
+    return GmailSendDraftInput(
+        draft_id="draft",
+        thread_id="thread",
+        jarvis_effect_id=gmail_effect_id(ACTION_ID),
+        content=content or _content(),
+    )
+
+
+def _draft_json(
+    content: GmailContent,
+    *,
+    effect_id: str | None = None,
+    draft_id: str = "draft",
+    message_id: str = "draft-message",
+    thread_id: str = "thread",
+) -> dict[str, object]:
+    return {
+        "id": draft_id,
+        "message": {
+            "id": message_id,
+            "threadId": thread_id,
+            "raw": cast("Any", write_connectors)._gmail_raw(
+                content, effect_id or gmail_effect_id(ACTION_ID)
+            ),
+        },
+    }
+
+
+def _thread_json(
+    *messages: tuple[str, GmailContent, str], thread_id: str = "thread"
+) -> dict[str, object]:
+    return {
+        "id": thread_id,
+        "messages": [
+            {"id": message_id, "labelIds": ["SENT"]}
+            for message_id, _content, _effect_id in messages
+        ],
+    }
+
+
+def _message_json(
+    message_id: str,
+    content: GmailContent,
+    effect_id: str,
+    *,
+    thread_id: str = "thread",
+    labels: tuple[str, ...] = ("SENT",),
+) -> dict[str, object]:
+    return {
+        "id": message_id,
+        "threadId": thread_id,
+        "labelIds": list(labels),
+        "raw": cast("Any", write_connectors)._gmail_raw(content, effect_id),
+    }
 
 
 def _event(*, summary: str = "Synthetic event") -> CalendarWritableEvent:
@@ -1339,15 +1398,25 @@ async def test_gmail_update_inspects_known_thread_after_disappearance() -> None:
             )
         if request.url.path.endswith("/drafts/draft"):
             return httpx.Response(404, request=request)
-        assert request.url.path.endswith("/threads/thread")
+        if request.url.path.endswith("/threads/thread"):
+            assert request.url.params["format"] == "minimal"
+            return httpx.Response(
+                200,
+                json={
+                    "id": "thread",
+                    "messages": [{"id": "sent-message", "threadId": "thread"}],
+                },
+                request=request,
+            )
+        assert request.url.path.endswith("/messages/sent-message")
         assert request.url.params["format"] == "raw"
         return httpx.Response(
             200,
             json={
-                "id": "thread",
-                "messages": [
-                    {"id": "sent-message", "threadId": "thread", "raw": desired_raw}
-                ],
+                "id": "sent-message",
+                "threadId": "thread",
+                "labelIds": ["SENT"],
+                "raw": desired_raw,
             },
             request=request,
         )
@@ -1387,6 +1456,7 @@ async def test_gmail_update_inspects_known_thread_after_disappearance() -> None:
         "/gmail/v1/users/me/drafts",
         "/gmail/v1/users/me/drafts/draft",
         "/gmail/v1/users/me/threads/thread",
+        "/gmail/v1/users/me/messages/sent-message",
     ]
     assert result.outcome == "succeeded"
     assert result.evidence == "one-exact-message-in-known-thread"
@@ -1396,3 +1466,701 @@ async def test_gmail_update_inspects_known_thread_after_disappearance() -> None:
     assert result.value.thread_id == "thread"
     assert result.value.jarvis_effect_id == gmail_effect_id(ACTION_ID)
     assert result.value.content_digest == gmail_content_digest(replacement)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    [
+        _content(),
+        GmailContent(
+            to=(Mailbox(name=None, address="recipient@example.invalid"),),
+            cc=(),
+            bcc=(),
+            subject="Synthetic reply",
+            body_text="Synthetic reply body.",
+            reply_to=GmailReplyTo(
+                thread_id="thread",
+                parent_message_id="parent-message",
+                parent_rfc822_message_id="<parent@example.invalid>",
+            ),
+        ),
+    ],
+    ids=("new-thread", "existing-thread"),
+)
+async def test_gmail_send_preflights_exact_draft_then_sends_known_id(
+    content: GmailContent,
+) -> None:
+    requests: list[httpx.Request] = []
+    staged: list[tuple[UUID, int]] = []
+
+    async def stage_attempts(
+        *, action_id: UUID, actual_external_attempts: int
+    ) -> object:
+        staged.append((action_id, actual_external_attempts))
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            assert request.url.path.endswith("/users/me/drafts/draft")
+            assert dict(request.url.params) == {"format": "raw"}
+            return httpx.Response(200, json=_draft_json(content), request=request)
+        assert request.method == "POST"
+        assert request.url.path.endswith("/users/me/drafts/send")
+        assert cast("dict[str, object]", json.loads(await request.aread())) == {
+            "id": "draft"
+        }
+        return httpx.Response(
+            200,
+            json={"id": "sent-message", "threadId": "thread"},
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=stage_attempts,
+            now=lambda: NOW,
+        ).gmail_send_draft(_send_value(content=content), ACTION_ID, ATTEMPTS)
+
+    assert [request.method for request in requests] == ["GET", "POST"]
+    assert staged == [(ACTION_ID, 1), (ACTION_ID, 2)]
+    assert result.attempts == 2
+    assert result.value.sent_message_id == "sent-message"
+    assert result.value.thread_id == "thread"
+    assert result.value.jarvis_effect_id == gmail_effect_id(ACTION_ID)
+    assert result.value.content_digest == gmail_content_digest(content)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mismatch", ["content", "effect", "thread"])
+async def test_gmail_send_snapshot_mismatch_never_sends(mismatch: str) -> None:
+    requests: list[httpx.Request] = []
+    content = _content(subject="Changed") if mismatch == "content" else _content()
+    effect = "f" * 64 if mismatch == "effect" else gmail_effect_id(ACTION_ID)
+    thread = "different-thread" if mismatch == "thread" else "thread"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.method == "GET"
+        return httpx.Response(
+            200,
+            json=_draft_json(content, effect_id=effect, thread_id=thread),
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        with pytest.raises(WriteConnectorFailure) as raised:
+            await GoogleWriteConnector(
+                client=client,
+                tokens=cast("Any", _Tokens()),
+                stage_gmail_update_basis=_stage,
+                stage_external_attempts=_stage_attempts,
+                now=lambda: NOW,
+            ).gmail_send_draft(_send_value(), ACTION_ID, ATTEMPTS)
+
+    assert raised.value.code == "draft_changed"
+    assert raised.value.attempts == 1
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_ambiguous_mutation_requires_reconciliation() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=_draft_json(_content()), request=request)
+        raise httpx.ReadTimeout("synthetic lost response", request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        with pytest.raises(TimeoutError, match="reconciliation"):
+            await GoogleWriteConnector(
+                client=client,
+                tokens=cast("Any", _Tokens()),
+                stage_gmail_update_basis=_stage,
+                stage_external_attempts=_stage_attempts,
+                now=lambda: NOW,
+            ).gmail_send_draft(_send_value(), ACTION_ID, ATTEMPTS)
+
+    assert [request.method for request in requests] == ["GET", "POST"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    [
+        _content(),
+        GmailContent(
+            to=(Mailbox(name=None, address="recipient@example.invalid"),),
+            cc=(),
+            bcc=(),
+            subject="Synthetic reply",
+            body_text="Synthetic reply body.",
+            reply_to=GmailReplyTo(
+                thread_id="thread",
+                parent_message_id="parent-message",
+                parent_rfc822_message_id="<parent@example.invalid>",
+            ),
+        ),
+    ],
+    ids=("new-thread", "existing-thread"),
+)
+async def test_gmail_send_reconciliation_finds_one_exact_known_thread_message(
+    content: GmailContent,
+) -> None:
+    paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        assert "q" not in request.url.params
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(200, json=_draft_json(content), request=request)
+        if request.url.path.endswith("/threads/thread"):
+            assert dict(request.url.params) == {"format": "minimal"}
+            return httpx.Response(
+                200,
+                json=_thread_json(
+                    ("sent-message", content, gmail_effect_id(ACTION_ID))
+                ),
+                request=request,
+            )
+        assert request.url.path.endswith("/messages/sent-message")
+        assert dict(request.url.params) == {"format": "raw"}
+        return httpx.Response(
+            200,
+            json=_message_json(
+                "sent-message",
+                content,
+                gmail_effect_id(ACTION_ID),
+                labels=("DRAFT",),
+            ),
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=lambda _: pytest.fail("exact evidence must finish immediately"),
+        ).reconcile_gmail_send(_send_value(content=content))
+
+    assert paths == [
+        "/gmail/v1/users/me/drafts/draft",
+        "/gmail/v1/users/me/threads/thread",
+        "/gmail/v1/users/me/messages/sent-message",
+    ]
+    assert result.outcome == "succeeded"
+    assert result.evidence == "one-exact-message-in-known-thread"
+    assert result.value is not None
+    assert result.value.sent_message_id == "sent-message"
+    assert result.value.content_digest == gmail_content_digest(content)
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_exact_message_with_conflicting_live_draft_is_uncertain() -> (
+    None
+):
+    delays: list[float] = []
+    draft_reads = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal draft_reads
+        if request.url.path.endswith("/drafts/draft"):
+            draft_reads += 1
+            return httpx.Response(
+                200,
+                json=_draft_json(_content(subject="Conflicting live draft")),
+                request=request,
+            )
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(
+                200,
+                json=_thread_json(
+                    ("sent-message", _content(), gmail_effect_id(ACTION_ID))
+                ),
+                request=request,
+            )
+        assert request.url.path.endswith("/messages/sent-message")
+        return httpx.Response(
+            200,
+            json=_message_json(
+                "sent-message",
+                _content(),
+                gmail_effect_id(ACTION_ID),
+                labels=(),
+            ),
+            request=request,
+        )
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert result.outcome == "uncertain"
+    assert result.evidence == "conflicting-gmail-send-evidence"
+    assert result.value is None
+    assert draft_reads == 3
+    assert delays == [2.0, 8.0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("evidence", ["multiple", "conflict", "incomplete"])
+async def test_gmail_send_reconciliation_handles_bounded_match_evidence(
+    evidence: str,
+) -> None:
+    effect = gmail_effect_id(ACTION_ID)
+    calls = 0
+
+    if evidence == "multiple":
+        messages = (
+            ("sent-1", _content(), effect),
+            ("sent-2", _content(), effect),
+        )
+    elif evidence == "conflict":
+        messages = (("sent-1", _content(subject="Different"), effect),)
+    else:
+        messages = (
+            ("sent-1", _content(), effect),
+            *((f"other-{index}", _content(), "f" * 64) for index in range(100)),
+        )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(404, request=request)
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(200, json=_thread_json(*messages), request=request)
+        message_id = request.url.path.rsplit("/", 1)[-1]
+        raw = next(item for item in messages if item[0] == message_id)
+        return httpx.Response(
+            200, json=_message_json(raw[0], raw[1], raw[2]), request=request
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    if evidence == "incomplete":
+        assert result.outcome == "succeeded"
+        assert result.value is not None
+        assert calls == 102
+    else:
+        assert result.outcome == "uncertain"
+        assert result.value is None
+        assert calls == (12 if evidence == "multiple" else 9)
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_reconciliation_processes_exactly_one_hundred_messages() -> (
+    None
+):
+    effect = gmail_effect_id(ACTION_ID)
+    messages = (
+        *((f"other-{index}", _content(), "f" * 64) for index in range(99)),
+        ("sent-message", _content(), effect),
+    )
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(404, request=request)
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(200, json=_thread_json(*messages), request=request)
+        message_id = request.url.path.rsplit("/", 1)[-1]
+        raw = next(item for item in messages if item[0] == message_id)
+        return httpx.Response(
+            200, json=_message_json(raw[0], raw[1], raw[2]), request=request
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert calls == 102
+    assert result.outcome == "succeeded"
+    assert result.value is not None
+    assert result.value.sent_message_id == "sent-message"
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_reconciliation_enforces_cumulative_response_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths: list[str] = []
+    message = ("sent-message", _content(), gmail_effect_id(ACTION_ID))
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(404, request=request)
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(200, json=_thread_json(message), request=request)
+        return httpx.Response(
+            200,
+            json=_message_json(message[0], message[1], message[2]),
+            request=request,
+        )
+
+    monkeypatch.setattr(write_connectors, "_GMAIL_SEND_MAX_BYTES", 256)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert paths == [
+        "/gmail/v1/users/me/drafts/draft",
+        "/gmail/v1/users/me/threads/thread",
+        "/gmail/v1/users/me/messages/sent-message",
+    ]
+    assert result.outcome == "uncertain"
+    assert result.value is None
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_reconciliation_raw_message_transient_is_incomplete() -> None:
+    calls = 0
+    message = ("sent-message", _content(), gmail_effect_id(ACTION_ID))
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(404, request=request)
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(200, json=_thread_json(message), request=request)
+        return httpx.Response(503, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert calls == 9
+    assert result.outcome == "uncertain"
+    assert result.value is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tail", ["malformed", "transient"])
+async def test_gmail_send_unique_exact_with_incomplete_later_message_is_uncertain(
+    tail: str,
+) -> None:
+    effect = gmail_effect_id(ACTION_ID)
+    messages = (
+        ("sent-message", _content(), effect),
+        ("malformed-message", _content(), "f" * 64),
+    )
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(404, request=request)
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(200, json=_thread_json(*messages), request=request)
+        if request.url.path.endswith("/messages/malformed-message"):
+            if tail == "transient":
+                return httpx.Response(503, request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "malformed-message",
+                    "threadId": "thread",
+                    "raw": "not-base64",
+                },
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json=_message_json("sent-message", _content(), effect),
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert calls == 12
+    assert result.outcome == "uncertain"
+    assert result.value is None
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_reconciliation_proves_safe_absence_only_after_all_reads() -> (
+    None
+):
+    delays: list[float] = []
+    paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(200, json=_draft_json(_content()), request=request)
+        return httpx.Response(200, json=_thread_json(), request=request)
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert paths == [
+        path
+        for _ in range(3)
+        for path in (
+            "/gmail/v1/users/me/drafts/draft",
+            "/gmail/v1/users/me/threads/thread",
+        )
+    ]
+    assert delays == [2.0, 8.0]
+    assert result.outcome == "absent"
+    assert result.evidence == (
+        "exact-draft-remained-and-complete-known-thread-had-no-send"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("draft_status", [404, 503])
+async def test_gmail_send_reconciliation_never_uses_absence_or_transient_as_proof(
+    draft_status: int,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(draft_status, request=request)
+        return httpx.Response(200, json=_thread_json(), request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert result.outcome == "uncertain"
+    assert result.evidence == "gmail-send-observations-incomplete-or-draft-missing"
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_exact_sent_message_survives_transient_draft_read() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(503, request=request)
+        if request.url.path.endswith("/threads/thread"):
+            return httpx.Response(
+                200,
+                json=_thread_json(
+                    ("sent-message", _content(), gmail_effect_id(ACTION_ID))
+                ),
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json=_message_json("sent-message", _content(), gmail_effect_id(ACTION_ID)),
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=_no_sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert result.outcome == "succeeded"
+    assert result.value is not None
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_reconciliation_enforces_total_elapsed_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path.endswith("/drafts/draft"):
+            return httpx.Response(200, json=_draft_json(_content()), request=request)
+        return httpx.Response(200, json=_thread_json(), request=request)
+
+    async def sleep(_: float) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(write_connectors, "_GMAIL_SEND_MAX_SECONDS", 0.01)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=_stage_attempts,
+            now=lambda: NOW,
+            sleep=sleep,
+        ).reconcile_gmail_send(_send_value())
+
+    assert paths == [
+        "/gmail/v1/users/me/drafts/draft",
+        "/gmail/v1/users/me/threads/thread",
+    ]
+    assert result.outcome == "uncertain"
+    assert result.evidence == (
+        "gmail-send-reconciliation-elapsed-bound-with-incomplete-evidence"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_stages_recovered_lifetime_external_attempts() -> None:
+    staged: list[int] = []
+
+    async def stage_attempts(
+        *, action_id: UUID, actual_external_attempts: int
+    ) -> object:
+        assert action_id == ACTION_ID
+        staged.append(actual_external_attempts)
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=_draft_json(_content()), request=request)
+        return httpx.Response(
+            200,
+            json={"id": "sent-message", "threadId": "thread"},
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleWriteConnector(
+            client=client,
+            tokens=cast("Any", _Tokens()),
+            stage_gmail_update_basis=_stage,
+            stage_external_attempts=stage_attempts,
+            now=lambda: NOW,
+        ).gmail_send_draft(_send_value(), ACTION_ID, WriteAttemptBudget(2, 2))
+
+    assert result.attempts == 2
+    assert staged == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_remaining_external_attempt_ceiling_blocks_send() -> None:
+    methods: list[str] = []
+    staged: list[int] = []
+
+    async def stage_attempts(
+        *, action_id: UUID, actual_external_attempts: int
+    ) -> object:
+        assert action_id == ACTION_ID
+        staged.append(actual_external_attempts)
+        return None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
+        assert request.method == "GET"
+        return httpx.Response(200, json=_draft_json(_content()), request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        with pytest.raises(WriteConnectorFailure) as raised:
+            await GoogleWriteConnector(
+                client=client,
+                tokens=cast("Any", _Tokens()),
+                stage_gmail_update_basis=_stage,
+                stage_external_attempts=stage_attempts,
+                now=lambda: NOW,
+            ).gmail_send_draft(_send_value(), ACTION_ID, WriteAttemptBudget(3, 1))
+
+    assert raised.value.code == "provider_unavailable"
+    assert raised.value.attempts == 1
+    assert methods == ["GET"]
+    assert staged == [4]

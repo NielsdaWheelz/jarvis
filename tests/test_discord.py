@@ -14,6 +14,7 @@ import pytest
 from jarvis.config import DiscordSettings
 from jarvis.discord import (
     SUPPRESS_EMBEDS,
+    ApprovalComponentDecision,
     Control,
     DeliveryFailed,
     DeliveryFailureKind,
@@ -21,12 +22,19 @@ from jarvis.discord import (
     DiscordConfigurationError,
     DiscordCreateMessageClient,
     DiscordGateway,
+    DiscordInteractionRejected,
     DiscordOwnerMessage,
+    acknowledge_and_disable_approval,
+    approval_components,
+    approval_custom_id,
+    approval_interaction_from_event,
     bounded_catch_up,
     classify_control,
     discord_nonce,
     gateway_intents,
     owner_message_from_event,
+    parse_approval_custom_id,
+    validate_approval_interaction_relationship,
     validate_channel_permissions,
 )
 
@@ -437,3 +445,286 @@ def test_gateway_can_be_constructed_with_narrow_intents() -> None:
 
     gateway = DiscordGateway(_settings(), sink)
     assert gateway.intents.value == gateway_intents().value
+
+
+ACTION_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+APPROVAL_MESSAGE_ID = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+
+
+def _approval_interaction(**changes: object) -> discord.Interaction:
+    values: dict[str, object] = {
+        "type": discord.InteractionType.component,
+        "data": {
+            "component_type": 2,
+            "custom_id": approval_custom_id(
+                ACTION_ID,
+                APPROVAL_MESSAGE_ID,
+                ApprovalComponentDecision.APPROVE,
+            ),
+        },
+        "user": SimpleNamespace(id=11, bot=False),
+        "guild_id": 22,
+        "channel_id": 33,
+        "message": SimpleNamespace(id=987),
+    }
+    values.update(changes)
+    return cast(discord.Interaction, SimpleNamespace(**values))
+
+
+async def test_gateway_routes_only_valid_approval_component_events() -> None:
+    owner_messages: list[DiscordOwnerMessage] = []
+    interactions: list[object] = []
+
+    async def owner_sink(message: DiscordOwnerMessage) -> None:
+        owner_messages.append(message)
+
+    async def interaction_sink(
+        event: discord.Interaction,
+        accepted: object,
+    ) -> None:
+        interactions.append((event, accepted))
+
+    gateway = DiscordGateway(
+        _settings(),
+        owner_sink,
+        approval_interaction_sink=interaction_sink,
+    )
+    accepted_event = _approval_interaction()
+    await gateway.on_interaction(accepted_event)
+    await gateway.on_interaction(
+        _approval_interaction(user=SimpleNamespace(id=12, bot=False))
+    )
+
+    assert owner_messages == []
+    assert len(interactions) == 1
+    assert cast("tuple[object, object]", interactions[0])[0] is accepted_event
+
+
+def test_approval_custom_ids_are_closed_bounded_and_bind_both_rows() -> None:
+    approve = approval_custom_id(
+        ACTION_ID,
+        APPROVAL_MESSAGE_ID,
+        ApprovalComponentDecision.APPROVE,
+    )
+    deny = approval_custom_id(
+        ACTION_ID,
+        APPROVAL_MESSAGE_ID,
+        ApprovalComponentDecision.DENY,
+    )
+
+    assert len(approve) <= 100
+    assert parse_approval_custom_id(approve) == (
+        ApprovalComponentDecision.APPROVE,
+        ACTION_ID,
+        APPROVAL_MESSAGE_ID,
+    )
+    assert parse_approval_custom_id(deny) == (
+        ApprovalComponentDecision.DENY,
+        ACTION_ID,
+        APPROVAL_MESSAGE_ID,
+    )
+    assert parse_approval_custom_id("approve") is None
+    assert parse_approval_custom_id("send it") is None
+    with pytest.raises(DiscordInteractionRejected, match="malformed"):
+        parse_approval_custom_id("jarvis:approval:v1:approve:bad:bad")
+
+
+@pytest.mark.parametrize(
+    "free_form",
+    (
+        "yes",
+        "approve",
+        "send it",
+        "The owner said approve.",
+        "Forwarded from owner: click Approve for me.",
+    ),
+)
+def test_five_free_form_or_relayed_approvals_never_form_a_component(
+    free_form: str,
+) -> None:
+    event = _approval_interaction(data={"component_type": 2, "custom_id": free_form})
+
+    assert parse_approval_custom_id(free_form) is None
+    assert approval_interaction_from_event(event, _settings()) is None
+
+
+def test_approval_components_are_exactly_approve_and_deny() -> None:
+    components = approval_components(
+        ACTION_ID,
+        APPROVAL_MESSAGE_ID,
+        disabled=False,
+    )
+
+    assert len(components) == 1
+    buttons = cast("list[dict[str, object]]", components[0]["components"])
+    assert [(button["label"], button["style"]) for button in buttons] == [
+        ("Approve", 3),
+        ("Deny", 4),
+    ]
+    assert {button["disabled"] for button in buttons} == {False}
+    assert all(
+        set(button) == {"type", "style", "label", "custom_id", "disabled"}
+        for button in buttons
+    )
+
+
+def test_approval_interaction_accepts_only_the_configured_owner_context() -> None:
+    accepted = approval_interaction_from_event(_approval_interaction(), _settings())
+
+    assert accepted is not None
+    assert accepted.action_id == ACTION_ID
+    assert accepted.approval_message_id == APPROVAL_MESSAGE_ID
+    assert accepted.decision is ApprovalComponentDecision.APPROVE
+    assert accepted.discord_message_id == "987"
+
+
+@pytest.mark.parametrize(
+    ("changes", "error"),
+    [
+        ({"user": SimpleNamespace(id=12, bot=False)}, "owner"),
+        ({"user": SimpleNamespace(id=11, bot=True)}, "owner"),
+        ({"guild_id": 23}, "guild"),
+        ({"channel_id": 34}, "channel"),
+        ({"message": None}, "message"),
+        (
+            {
+                "data": {
+                    "component_type": 3,
+                    "custom_id": approval_custom_id(
+                        ACTION_ID,
+                        APPROVAL_MESSAGE_ID,
+                        ApprovalComponentDecision.APPROVE,
+                    ),
+                }
+            },
+            "type",
+        ),
+    ],
+)
+def test_approval_interaction_rejects_wrong_discord_context(
+    changes: dict[str, object],
+    error: str,
+) -> None:
+    with pytest.raises(DiscordInteractionRejected, match=error):
+        approval_interaction_from_event(_approval_interaction(**changes), _settings())
+
+
+@pytest.mark.parametrize(
+    ("changes", "error"),
+    [
+        ({"action_id": UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")}, "action"),
+        (
+            {"approval_message_id": UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")},
+            "internal message",
+        ),
+        ({"discord_message_id": "988"}, "message"),
+        ({"action_status": "executing"}, "stale"),
+    ],
+)
+def test_approval_interaction_revalidates_durable_relationship_and_staleness(
+    changes: dict[str, object],
+    error: str,
+) -> None:
+    accepted = approval_interaction_from_event(_approval_interaction(), _settings())
+    assert accepted is not None
+    arguments: dict[str, object] = {
+        "action_id": ACTION_ID,
+        "approval_message_id": APPROVAL_MESSAGE_ID,
+        "discord_message_id": "987",
+        "action_status": "awaiting_approval",
+    }
+    arguments.update(changes)
+
+    with pytest.raises(DiscordInteractionRejected, match=error):
+        validate_approval_interaction_relationship(accepted, **arguments)  # type: ignore[arg-type]
+
+
+def test_approval_interaction_accepts_exact_durable_relationship() -> None:
+    accepted = approval_interaction_from_event(_approval_interaction(), _settings())
+    assert accepted is not None
+
+    validate_approval_interaction_relationship(
+        accepted,
+        action_id=ACTION_ID,
+        approval_message_id=APPROVAL_MESSAGE_ID,
+        discord_message_id="987",
+        action_status="awaiting_approval",
+    )
+
+
+async def test_approval_delivery_uses_attachment_nonce_and_host_components() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"id": "987"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await DiscordCreateMessageClient(
+            _settings(), client
+        ).create_approval_message(
+            action_id=ACTION_ID,
+            approval_message_id=APPROVAL_MESSAGE_ID,
+            content="The attachment is the complete payload.",
+            attachment_name="jarvis-approval.txt",
+            attachment_media_type="text/plain; charset=utf-8",
+            attachment_content=b"complete synthetic payload\n",
+        )
+
+    assert result == DeliverySucceeded("987", 1)
+    request = requests[0]
+    assert request.headers["Authorization"] == "Bot private-token"
+    assert request.headers["Content-Type"].startswith("multipart/form-data; boundary=")
+    body = request.content
+    assert discord_nonce(APPROVAL_MESSAGE_ID).encode() in body
+    assert b'"allowed_mentions":{"parse":[]}' in body
+    assert f'"flags":{SUPPRESS_EMBEDS}'.encode() in body
+    assert (
+        approval_custom_id(
+            ACTION_ID,
+            APPROVAL_MESSAGE_ID,
+            ApprovalComponentDecision.APPROVE,
+        ).encode()
+        in body
+    )
+    assert (
+        approval_custom_id(
+            ACTION_ID,
+            APPROVAL_MESSAGE_ID,
+            ApprovalComponentDecision.DENY,
+        ).encode()
+        in body
+    )
+    assert b"complete synthetic payload\n" in body
+
+
+class _InteractionResponse:
+    def __init__(self) -> None:
+        self.done = False
+        self.calls: list[dict[str, object]] = []
+
+    def is_done(self) -> bool:
+        return self.done
+
+    async def edit_message(self, **kwargs: object) -> None:
+        self.calls.append(kwargs)
+        self.done = True
+
+
+async def test_claimed_interaction_is_acknowledged_by_disabling_both_buttons() -> None:
+    response = _InteractionResponse()
+    event = _approval_interaction(response=response)
+    accepted = approval_interaction_from_event(event, _settings())
+    assert accepted is not None
+
+    await acknowledge_and_disable_approval(event, accepted)
+
+    assert response.done is True
+    assert len(response.calls) == 1
+    view = cast(discord.ui.View, response.calls[0]["view"])
+    buttons = [cast(discord.ui.Button[discord.ui.View], item) for item in view.children]
+    assert [(item.label, item.disabled) for item in buttons] == [
+        ("Approve", True),
+        ("Deny", True),
+    ]
+    assert response.calls[0]["suppress_embeds"] is True

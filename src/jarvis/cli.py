@@ -30,16 +30,21 @@ from jarvis.actions import ActionStore
 from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
-    slice3_admission_limits,
     slice5_admission_limits,
+    slice6_admission_limits,
+)
+from jarvis.approval_runtime import (
+    ApprovalActionHandler,
+    ApprovalAwareDiscordDelivery,
+    ApprovalRecoveryDisabler,
 )
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.definitions import (
     Slice4Definitions,
     build_slice4_definitions,
-    build_slice5_definitions,
     build_slice5_write_gate,
+    build_slice6_definitions,
 )
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
@@ -70,7 +75,7 @@ from jarvis.service import (
 )
 from jarvis.settings import Settings
 from jarvis.state import PausedState
-from jarvis.write_composition import build_slice5_composition
+from jarvis.write_composition import build_slice6_composition
 from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate
 
@@ -187,7 +192,7 @@ def initialize_state(settings: Settings) -> None:
     PausedState.initialize(settings.paused_state_path)
     RollingAdmissionPort.initialize(
         settings.admission_journal_path,
-        slice5_admission_limits(settings.maximum_batch_size),
+        slice6_admission_limits(settings.maximum_batch_size),
     )
 
 
@@ -216,12 +221,12 @@ async def serve(settings: Settings) -> None:
             try:
                 RollingAdmissionPort.migrate_limits(
                     settings.admission_journal_path,
-                    previous=slice3_admission_limits(settings.maximum_batch_size),
-                    current=slice5_admission_limits(settings.maximum_batch_size),
+                    previous=slice5_admission_limits(settings.maximum_batch_size),
+                    current=slice6_admission_limits(settings.maximum_batch_size),
                 )
                 admission_store = RollingAdmissionPort(
                     settings.admission_journal_path,
-                    slice5_admission_limits(settings.maximum_batch_size),
+                    slice6_admission_limits(settings.maximum_batch_size),
                 )
                 recovered = await admission_store.recover_orphans()
                 if recovered:
@@ -260,7 +265,7 @@ async def serve(settings: Settings) -> None:
                         profile_key=settings.codex_profile_key,
                         model=settings.codex_model,
                     )
-                    composition = build_slice5_composition(
+                    composition = build_slice6_composition(
                         settings=settings,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
@@ -273,7 +278,7 @@ async def serve(settings: Settings) -> None:
                             provisional_gate.fingerprint
                         ),
                     )
-                    definitions = build_slice5_definitions(
+                    definitions = build_slice6_definitions(
                         catalog=composition.catalog,
                         profile_key=settings.codex_profile_key,
                         model=settings.codex_model,
@@ -338,6 +343,7 @@ async def serve(settings: Settings) -> None:
                                     host_secrets=settings.host_secrets
                                 ),
                                 owner_timezone=settings.owner_timezone,
+                                source_conversation_id=str(settings.discord.channel_id),
                                 verified_owner_only_calendar_ids=(
                                     settings.verified_owner_only_calendar_ids
                                 ),
@@ -353,8 +359,13 @@ async def serve(settings: Settings) -> None:
                         memory_dispatcher_factory=MemoryToolDispatcher,
                         rememberer=rememberer,
                     )
-                    delivery = DiscordCreateMessageClient(
+                    discord_delivery = DiscordCreateMessageClient(
                         settings.discord, discord_http
+                    )
+                    delivery = ApprovalAwareDiscordDelivery(
+                        actions=actions,
+                        plan=definitions.plans["main"],
+                        discord=discord_delivery,
                     )
                     wake_timer: ProcessLocalWakeTimer | None = None
                     action_recovery = ActionRecovery(
@@ -367,6 +378,15 @@ async def serve(settings: Settings) -> None:
                             if wake_timer is not None
                             else None
                         ),
+                        approval_disabler=ApprovalRecoveryDisabler(
+                            actions=actions,
+                            discord=discord_delivery,
+                        ),
+                    )
+                    approval_handler = ApprovalActionHandler(
+                        actions=actions,
+                        plan=definitions.plans["main"],
+                        source_conversation_id=str(settings.discord.channel_id),
                     )
                     service = JarvisService(
                         settings=settings,
@@ -379,6 +399,7 @@ async def serve(settings: Settings) -> None:
                         scheduled_wakes=actions,
                         action_plan=definitions.plans["main"],
                         action_recovery=action_recovery,
+                        approval_handler=approval_handler,
                     )
                     wake_timer = ProcessLocalWakeTimer(
                         store=actions,
@@ -410,6 +431,9 @@ async def serve(settings: Settings) -> None:
                         settings.discord,
                         service.receive_owner_message,
                         ready_handler=ready,
+                        approval_interaction_sink=(
+                            service.receive_approval_interaction
+                        ),
                     )
                     service.bind_gateway(gateway)
                     worker = asyncio.create_task(
@@ -471,10 +495,10 @@ async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
         async with deployment_ownership(engine):
             if await MemoryStore(engine).raw_memory_count() == 0:
                 return None
-            limits = slice5_admission_limits(settings.maximum_batch_size)
+            limits = slice6_admission_limits(settings.maximum_batch_size)
             RollingAdmissionPort.migrate_limits(
                 settings.admission_journal_path,
-                previous=slice3_admission_limits(settings.maximum_batch_size),
+                previous=slice5_admission_limits(settings.maximum_batch_size),
                 current=limits,
             )
             admission_store = RollingAdmissionPort(

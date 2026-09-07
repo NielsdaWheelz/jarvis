@@ -48,6 +48,30 @@ Jarvis is one Python application and one PostgreSQL database. Components below
 are code boundaries, not independently deployed services unless an existing
 integration requires one.
 
+## Physical deployment
+
+V1 runs on the existing Hetzner `dev-server`, never on the Nexus production
+host. Jarvis is a host-native systemd service under a dedicated `jarvis` Unix
+account. Immutable releases live at `/opt/jarvis/releases/<git-commit>` and an
+atomic `/opt/jarvis/current` symlink selects one release. Runtime state lives in
+`/var/lib/jarvis`; root-owned configuration and credentials live in
+`/etc/jarvis`. The application opens no public listener and is administered
+only over the host's existing tailnet boundary.
+
+The host's native PostgreSQL 16 remains loopback-only. Jarvis receives its own
+database plus separate migrator and runtime roles; it does not share schemas,
+roles, or credentials with another application. Daily application backups are
+encrypted before an off-host copy is written. The dev-server convergence repo
+owns only common host prerequisites, UTC, the service account, and base
+directories. Jarvis owns releases, its exact locked environment, database
+lifecycle, migrations, service definition, backup, restore, and recovery.
+
+Development and CI workloads share the host but not Jarvis's Unix identity,
+release tree, service lifecycle, or database roles. This accepted v1 coupling
+is bounded with systemd resource controls, disk-headroom checks, and restore
+qualification. The release uses its pinned Codex SDK and never the developer's
+user-global Codex binary.
+
 `llm-agent-kernel` is a pinned independent library, not another service or
 state owner. It supplies contained Codex session choreography, strict serial
 protocol, mid-loop polling, settlement, and bounded run machinery.

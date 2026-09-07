@@ -13,7 +13,11 @@ named explicitly; no criterion disappears or is weakened silently.
 
 ## A1. Repository and deployment
 
-- [ ] **A1.1** The server uses Python 3.12 with a reproducible lockfile.
+- [ ] **A1.1** The existing Hetzner `dev-server` runs Jarvis from an immutable
+      host-native release under a dedicated `jarvis` account using Python 3.12
+      and a reproducible lockfile. Jarvis opens no public listener, is not owned
+      by rootless Docker, and the Nexus production host and application state
+      remain untouched.
 - [ ] **A1.2** `llm-agent-kernel`, `provider-runtime`, and `llm-tools` use
       qualified pinned git revisions, not the user's mutable local worktrees.
 - [ ] **A1.3** A clean checkout can be configured without modifying Ariel,
@@ -419,9 +423,14 @@ These criteria are **live** where they call Gmail or Discord.
 ## A7. Recovery and operations
 
 - [ ] **A7.1** A daily encrypted backup includes all four application tables and
-      required connector state; at least one copy is off-host.
+      required connector state; encryption occurs before upload and at least
+      one copy is in separate off-host object storage under backup-only
+      credentials that grant no provider or Nexus authority.
 - [ ] **A7.2** Restore into a clean PostgreSQL instance preserves message IDs,
-      raw memory IDs/text/timestamps, and action effects/status/results.
+      raw memory IDs/text/timestamps, and action effects/status/results. The
+      acceptance report records the production host, release commit, Python,
+      PostgreSQL, and pgvector identities, UTC state, loopback database binding,
+      systemd isolation/resource controls, and post-reboot recovery.
 - [ ] **A7.3** Derived summaries and embeddings can be completely regenerated
       after restore.
 - [ ] **A7.4** Restored `succeeded`, `failed`, `uncertain`, and `cancelled` actions

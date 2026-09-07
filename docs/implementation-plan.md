@@ -397,10 +397,25 @@ production sign-off remain outside this slice.
 
 Deliver:
 
-- Always-on Linux deployment.
-- Secret and configuration procedure.
-- Daily encrypted backup and off-host copy.
-- Clean-host restore test.
+- Host-native systemd deployment on the existing Hetzner `dev-server` under a
+  dedicated `jarvis` account, with immutable releases under `/opt/jarvis`,
+  durable state under `/var/lib/jarvis`, root-owned configuration under
+  `/etc/jarvis`, and no public listener.
+- A documented ownership boundary: the `dev-server` repository converges UTC,
+  system packages, PostgreSQL/pgvector availability, the service account, and
+  base directories; Jarvis owns releases, credentials, database roles,
+  migrations, service lifecycle, and backup/restore. Nexus production remains
+  untouched.
+- Secret and configuration procedure that uses the release's pinned Codex SDK,
+  not the host's mutable global Codex installation.
+- Daily encrypted backup and off-host copy using credentials separate from
+  provider and Nexus credentials.
+- Clean-host PostgreSQL restore test plus release/state reconstruction.
+- Pre-deployment housekeeping with exact targets, active CI/container checks,
+  disk-headroom acceptance, UTC convergence, recorded PostgreSQL/pgvector
+  versions, and a controlled pending-kernel reboot.
+- systemd restart/resource controls and verification that development/rootless
+  Docker lifecycle operations do not own or restart Jarvis.
 - Agent-definition-compatible Codex session resume through `provider-runtime`
   plus recovery after deleting every provider session reference.
 - Restart/crash qualification for poison attempts, no automatic rearm, rolling
@@ -411,7 +426,8 @@ Deliver:
 - Dated acceptance report.
 
 Exit: every non-waived mandatory criterion in `docs/acceptance.md` passes and the
-owner signs off.
+owner signs off. The seven-day period starts only after the exact production
+release is enabled and every preceding Slice 7 gate passes.
 
 ## Deferred slices
 

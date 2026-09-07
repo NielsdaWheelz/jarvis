@@ -5,11 +5,11 @@ configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and develops durable memory through a simple remember/retrieve/dream loop.
 
-This repository is specification-first. Slice 4 implements the bounded
-conversation skeleton, automatic Gmail, Calendar, Maps, and public-Web reads,
-permanent raw memory with isolated recall and remembering, and disposable
-lineage-grounded summaries with stopped rebuild. External writes, approvals,
-and scheduled wakes remain intentionally absent.
+This repository is specification-first. Slices 0 through 6 implement and
+qualify the bounded conversation skeleton, automatic reads and gated writes,
+permanent raw memory, isolated recall/remembering/dreaming, requested wakes,
+and Approve/Deny execution. Slice 7 owns production deployment, backup/restore,
+recovery qualification, and the seven-day owner acceptance period.
 
 ## V1 in one paragraph
 
@@ -57,15 +57,16 @@ ADR that also updates every affected normative document in the same change.
 
 ## Status
 
-- Baseline date: 2026-09-05
-- Status: v1 specification frozen; Slices 0 through 4 complete and qualified;
-  later slices remain intentionally absent
-- Intended deployment: personal, single-user, always-on Linux service
+- Baseline date: 2026-09-07
+- Status: v1 specification frozen; Slices 0 through 6 complete and qualified;
+  Slice 7 production acceptance remains
+- Intended deployment: isolated host-native service on the existing Hetzner
+  `dev-server`, with native loopback PostgreSQL and encrypted off-host backup
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 
-## Slice 4 development
+## Development and verification
 
 Development requires Python 3.12, `uv` 0.11.28, Docker, and PostgreSQL with the
 `vector` extension. Start the pinned database image, create a disposable test

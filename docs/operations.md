@@ -1,4 +1,4 @@
-# Slice 6 operations
+# Operations through Slice 6
 
 Jarvis Slice 6 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
@@ -9,6 +9,28 @@ attendee-bearing Calendar writes use the host-owned approval path; the six Slice
 receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
 plan, and scheduled-wake turns retain the nine-read plan. Run Jarvis as a
 dedicated unprivileged OS user in UTC.
+
+## Approved production target
+
+Slice 7 will deploy the exact accepted release as a host-native systemd service
+on the existing Hetzner `dev-server`. The target uses a dedicated `jarvis` Unix
+account, immutable releases under `/opt/jarvis/releases`, durable state under
+`/var/lib/jarvis`, root-owned configuration under `/etc/jarvis`, and a
+dedicated database and roles in native loopback-only PostgreSQL 16. Jarvis opens
+no public listener and is not part of the rootless Docker lifecycle.
+
+The dev-server convergence repository owns shared host prerequisites, UTC, the
+service account, and base directories. This repository owns application
+release/rollback, the locked environment and pinned Codex SDK, credentials,
+database roles and migrations, the systemd unit, backup/restore, and recovery.
+Nexus production state is out of scope even though both systems are owned by the
+same user.
+
+This section records the accepted target; it does not claim that Slice 7 has
+already implemented or qualified deployment. Before activation, Slice 7 must
+perform exact-target housekeeping, converge UTC, qualify the installed
+PostgreSQL/pgvector versions, complete the pending host reboot, establish daily
+encrypted off-host backup, and pass a clean-host restore.
 
 For every owner input, recall begins with exactly one kernel-dispatched
 deterministic `memory.search` call and its typed observation. The isolated
@@ -469,9 +491,9 @@ host. `resume` clears the durable pause. Ordinary process termination cannot
 undo an external effect; Jarvis reconciles effectful action rows before any
 repeat.
 
-Slice 7 remains separate: this document does not claim always-on deployment,
-backup/restore qualification, seven-day owner acceptance, or final production
-sign-off.
+Slice 7 remains separate: the approved devbox target above does not itself
+claim always-on deployment, backup/restore qualification, seven-day owner
+acceptance, or final production sign-off.
 
 If a configuration defect parks input, first stop the service and correct the
 defect. Then clear only the reviewed UUIDs while the command owns the deployment

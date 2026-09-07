@@ -1447,7 +1447,10 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 - Scheduling: systemd timer or a small ordinary process timer.
 - Testing: pytest, Hypothesis where useful, library-supplied test doubles, and
   synthetic or redacted connector fixtures.
-- Deployment: one always-on Linux host and PostgreSQL.
+- Deployment: one host-native systemd service on the existing Hetzner
+  `dev-server`, plus a dedicated database and least-privilege roles in its
+  native loopback-only PostgreSQL 16. Jarvis opens no public listener. It MUST
+  NOT run on the Nexus production host or share Nexus application state.
 
 Because the reused refresh grant is revoked, the one replacement offline OAuth
 consent MUST request only:
@@ -1500,12 +1503,29 @@ installation MUST lock the exact commit rather than import a sibling worktree.
 All three MUST be git dependencies, not path dependencies. Jarvis MUST NOT modify or
 restore the user's existing library worktrees.
 
-The host and PostgreSQL run in UTC. Owner-local time comes from required IANA
-timezone configuration included once when each cognitive session opens. The
-context port adds one host-generated `as_of` instant per newly admitted input
+The `dev-server` host and PostgreSQL run in UTC. Owner-local time comes from
+required IANA timezone configuration included once when each cognitive session
+opens. The context port adds one host-generated `as_of` instant per newly admitted input
 batch or background job; a compatible batch appended mid-loop gets its own
 instant. Tool-only continuations and embedding calls receive no repeated clock.
 Stable prompt material precedes dynamic time.
+
+The physical deployment uses a dedicated `jarvis` Unix account,
+`/opt/jarvis/releases/<git-commit>` with an atomic `/opt/jarvis/current`
+symlink, durable state under `/var/lib/jarvis`, and root-owned configuration
+under `/etc/jarvis`. The release MUST use its locked environment and pinned
+Codex SDK rather than the devbox user's global AI-tool installation. The
+`dev-server` repository owns shared host prerequisites and base directories;
+this repository owns releases, configuration, credentials, database roles and
+migrations, the systemd unit, and backup/restore. Co-location grants no access
+to Nexus credentials, files, database, or services.
+
+Production activation requires the installed PostgreSQL and pgvector identities
+to be recorded and qualified against the release. Daily backups MUST be
+encrypted before leaving the host and copied using separate credentials to
+off-host storage. Development/CI and Jarvis share a failure domain; bounded
+systemd resources, disk-headroom checks, and tested restore are the accepted v1
+controls.
 
 ## 9. Persistence
 

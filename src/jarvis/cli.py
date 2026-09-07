@@ -26,16 +26,20 @@ from llm_agent_kernel import (
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from jarvis.actions import ActionStore
 from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
     slice3_admission_limits,
+    slice5_admission_limits,
 )
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.definitions import (
     Slice4Definitions,
     build_slice4_definitions,
+    build_slice5_definitions,
+    build_slice5_write_gate,
 )
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
@@ -46,6 +50,7 @@ from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
+from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.rebuild import (
@@ -65,6 +70,9 @@ from jarvis.service import (
 )
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+from jarvis.write_composition import build_slice5_composition
+from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
+from jarvis.write_gate import AutomaticWriteGate
 
 LOGGER = logging.getLogger(__name__)
 
@@ -179,8 +187,18 @@ def initialize_state(settings: Settings) -> None:
     PausedState.initialize(settings.paused_state_path)
     RollingAdmissionPort.initialize(
         settings.admission_journal_path,
-        slice3_admission_limits(settings.maximum_batch_size),
+        slice5_admission_limits(settings.maximum_batch_size),
     )
+
+
+async def recover_startup_actions(
+    *,
+    action_recovery: ActionRecovery,
+    paused: PausedState,
+    messages: MessageStore,
+) -> int:
+    inactive = await paused.is_paused() or await messages.circuit_is_open()
+    return await action_recovery.recover(allow_queued_execution=not inactive)
 
 
 async def serve(settings: Settings) -> None:
@@ -196,9 +214,14 @@ async def serve(settings: Settings) -> None:
     try:
         async with deployment_ownership(engine):
             try:
+                RollingAdmissionPort.migrate_limits(
+                    settings.admission_journal_path,
+                    previous=slice3_admission_limits(settings.maximum_batch_size),
+                    current=slice5_admission_limits(settings.maximum_batch_size),
+                )
                 admission_store = RollingAdmissionPort(
                     settings.admission_journal_path,
-                    slice3_admission_limits(settings.maximum_batch_size),
+                    slice5_admission_limits(settings.maximum_batch_size),
                 )
                 recovered = await admission_store.recover_orphans()
                 if recovered:
@@ -228,11 +251,16 @@ async def serve(settings: Settings) -> None:
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
                     memory = MemoryStore(engine)
+                    actions = ActionStore(engine)
                     embedder = OpenAIEmbedder(
                         settings.embedding_openai_api_key,
                         http_client=embedding_http,
                     )
-                    catalog = build_slice3_catalog(
+                    provisional_gate, _ = build_slice5_write_gate(
+                        profile_key=settings.codex_profile_key,
+                        model=settings.codex_model,
+                    )
+                    composition = build_slice5_composition(
                         settings=settings,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
@@ -240,13 +268,24 @@ async def serve(settings: Settings) -> None:
                         brave_http=brave_http,
                         memory_repository=PostgresMemoryRepository(engine),
                         memory_embedder=embedder,
+                        actions=actions,
+                        automatic_write_gate_definition_fingerprint=(
+                            provisional_gate.fingerprint
+                        ),
                     )
-                    definitions = build_slice4_definitions(
-                        catalog=catalog,
+                    definitions = build_slice5_definitions(
+                        catalog=composition.catalog,
                         profile_key=settings.codex_profile_key,
                         model=settings.codex_model,
                         owner_timezone=settings.owner_timezone,
                     )
+                    if (
+                        definitions.automatic_write_gate.fingerprint
+                        != provisional_gate.fingerprint
+                    ):
+                        raise StartupDefect(
+                            "write-gate definition changed during composition"
+                        )
                     kernel_runtime = build_kernel_runtime(
                         provider_state_root=settings.codex_state_root,
                         private_cwd_parent=settings.provider_cwd_parent,
@@ -257,6 +296,12 @@ async def serve(settings: Settings) -> None:
                     admission = RootTrackingAdmissionPort(admission_store)
                     store = MessageStore(engine)
                     history = PostgresCanonicalHistory(engine)
+                    gate = AutomaticWriteGate(
+                        definition=definitions.automatic_write_gate,
+                        plan=definitions.plans["automatic_write_gate"],
+                        admission=admission,
+                        provider=kernel_runtime.provider,
+                    )
                     rememberer = RemembererWorker(
                         definition=definitions.rememberer,
                         plan=definitions.plans["rememberer"],
@@ -283,8 +328,26 @@ async def serve(settings: Settings) -> None:
                         kernel_runtime=kernel_runtime,
                         definitions=definitions,
                         history=history,
-                        dispatcher_factory=lambda: ReadToolDispatcher(
-                            host_secrets=settings.host_secrets
+                        checkpoint_dispatcher_factory=lambda checkpoint: (
+                            WriteToolDispatcher(
+                                checkpoint=checkpoint,
+                                gate=gate,
+                                actions=actions,
+                                google_write=composition.google_write,
+                                read=ReadToolDispatcher(
+                                    host_secrets=settings.host_secrets
+                                ),
+                                owner_timezone=settings.owner_timezone,
+                                verified_owner_only_calendar_ids=(
+                                    settings.verified_owner_only_calendar_ids
+                                ),
+                                host_secrets=settings.host_secrets,
+                                schedule_changed=lambda: (
+                                    wake_timer.notify_changed()
+                                    if wake_timer is not None
+                                    else None
+                                ),
+                            )
                         ),
                         memory=memory,
                         memory_dispatcher_factory=MemoryToolDispatcher,
@@ -292,6 +355,18 @@ async def serve(settings: Settings) -> None:
                     )
                     delivery = DiscordCreateMessageClient(
                         settings.discord, discord_http
+                    )
+                    wake_timer: ProcessLocalWakeTimer | None = None
+                    action_recovery = ActionRecovery(
+                        actions=actions,
+                        google_write=composition.google_write,
+                        plan=definitions.plans["main"],
+                        source_conversation_id=str(settings.discord.channel_id),
+                        schedule_changed=lambda: (
+                            wake_timer.notify_changed()
+                            if wake_timer is not None
+                            else None
+                        ),
                     )
                     service = JarvisService(
                         settings=settings,
@@ -301,7 +376,25 @@ async def serve(settings: Settings) -> None:
                         runner=runner,
                         background=rememberer,
                         dreamer=dreamer,
+                        scheduled_wakes=actions,
+                        action_plan=definitions.plans["main"],
+                        action_recovery=action_recovery,
                     )
+                    wake_timer = ProcessLocalWakeTimer(
+                        store=actions,
+                        on_due=lambda _: service.request_work(),
+                    )
+                    service.bind_wake_timer(wake_timer)
+                    recovered_actions = await recover_startup_actions(
+                        action_recovery=action_recovery,
+                        paused=paused,
+                        messages=store,
+                    )
+                    if recovered_actions:
+                        LOGGER.warning(
+                            "Recovered interrupted actions: count=%d",
+                            recovered_actions,
+                        )
 
                     async def ready() -> None:
                         result = await service.gateway_ready()
@@ -378,7 +471,12 @@ async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
         async with deployment_ownership(engine):
             if await MemoryStore(engine).raw_memory_count() == 0:
                 return None
-            limits = slice3_admission_limits(settings.maximum_batch_size)
+            limits = slice5_admission_limits(settings.maximum_batch_size)
+            RollingAdmissionPort.migrate_limits(
+                settings.admission_journal_path,
+                previous=slice3_admission_limits(settings.maximum_batch_size),
+                current=limits,
+            )
             admission_store = RollingAdmissionPort(
                 settings.admission_journal_path,
                 limits,

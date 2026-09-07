@@ -261,9 +261,11 @@ in Slice 0.
 
 ## A5. Memory
 
-- [ ] **A5.1** The recaller runs before every owner-authored human input and may
-      correctly return an empty schema-valid bundle through its isolated
-      one-shot terminal result.
+- [ ] **A5.1** Recall runs before every owner-authored human input and begins with
+      exactly one kernel-dispatched deterministic `memory.search` typed
+      observation before adaptive recaller search/open. The isolated recaller may
+      correctly return an empty schema-valid bundle through its one-shot terminal
+      result.
 - [ ] **A5.2** Full-text search finds an exact or rare-keyword memory.
 - [ ] **A5.3** Semantic search finds relevant memory with no important shared
       query keyword.
@@ -306,7 +308,7 @@ These criteria are **live** where they call Gmail or Discord.
 
 - [ ] **A6.1** Catalogued reads and ordinary responses or requested wake notices
       in the configured Discord channel execute automatically. Email drafts,
-      verified owner-only no-attendee calendar work, and `schedule_wake` execute
+      verified owner-only no-attendee calendar work, and `schedule.wake` execute
       automatically after the required owner-grounding gate. Discord transport
       operations create no action rows.
 - [ ] **A6.2** An email send becomes `awaiting_approval` and does not send before
@@ -370,7 +372,7 @@ These criteria are **live** where they call Gmail or Discord.
       IDs for the occupied position. Stored arguments and contract are
       revalidated before rendering, execution, replay, or reconciliation;
       unsupported or invalid non-executing work is cancelled and reported.
-- [ ] **A6.16** `schedule_wake` creates an exact due wake and cancels a named
+- [ ] **A6.16** `schedule.wake` creates an exact due wake and cancels a named
       queued wake. A requested wake becomes eligible at its stored instant and
       after restart when overdue. Claiming it creates exactly one host input from
       the immutable stored instruction and requested instant; it does not invoke
@@ -379,7 +381,9 @@ These criteria are **live** where they call Gmail or Discord.
       immutable creation receipt while status remains queued; recorder replay
       returns that receipt at every later lifecycle status, and due processing
       writes only a separate closed concluded/cancelled/failed wake outcome; the
-      lifecycle status agrees with that variant and never becomes uncertain. A
+      lifecycle status agrees with that variant and never becomes uncertain.
+      The host input retains exact `message.source = schedule_wake`; that
+      protocol value is distinct from the canonical tool ID. A
       queued schedule without a valid receipt never fires. Cancellation is a
       separate gated action with its own ID/position/receipt and can cancel only
       a queued original. No generic

@@ -204,6 +204,13 @@ memory.search(query, lexical_limit, semantic_limit)
 memory.open(identities)
 ```
 
+Before provider I/O, the kernel dispatches one `memory.search` under the exact
+frozen recaller plan and supplies its typed observation. Its deterministic query
+is the trimmed canonical owner input, bounded to 2,048 Unicode code points and
+4,096 UTF-8 bytes. If truncation is necessary, Jarvis preserves UTF-8-safe head
+and tail portions separated by ` ... ` and removes complete code points from
+the larger encoded portion until both bounds hold.
+
 Search covers both tables and returns the union of full-text and vector results.
 The host deduplicates identical `(table_kind, id)` results but does not suppress a
 raw memory merely because a selected summary cites it.

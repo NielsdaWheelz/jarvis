@@ -24,6 +24,7 @@ from llm_agent_kernel import (
     ClaimBusy,
     ClaimNoWork,
     ConversationConclusion,
+    DispatchLineage,
     NoNewInput,
     OwnerToken,
     Parked,
@@ -39,12 +40,14 @@ from llm_agent_kernel import (
     ThreadStopKind,
     ThreadStopped,
 )
-from llm_tools import render_prompt
+from llm_tools import ReplayPolicy, ToolEffect, raw_input_digest, render_prompt
+from llm_tools.execution import ParsedJson
 from pydantic import SecretStr
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from jarvis.actions import ExecutionContract
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.config import DiscordSettings
 from jarvis.db import action, create_engine, memory_log, message
@@ -60,6 +63,7 @@ from jarvis.discord import (
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.memory import MemoryIdentity
 from jarvis.messages import (
+    ACTION_MODEL_CONTEXT_SEPARATOR,
     CircuitOpen,
     ClaimedMessages,
     ExhaustedMessage,
@@ -846,6 +850,14 @@ async def test_action_constraints_and_identity_immutability(
             await connection.execute(
                 update(action).where(action.c.id == action_id).values(attempts=-1)
             )
+    async with engine.begin() as connection:
+        await connection.execute(
+            update(action)
+            .where(action.c.id == action_id)
+            .values(status="cancelled", completed_at=datetime.now(UTC))
+        )
+    async with migrator_engine.begin() as connection:
+        await connection.execute(delete(action).where(action.c.id == action_id))
 
 
 async def test_admission_deferral_notice_is_content_free_and_idempotent(
@@ -987,6 +999,120 @@ def _checkpoint(
         maximum_batch_size=maximum_batch_size,
         maximum_attempts=maximum_attempts,
     )
+
+
+async def test_host_only_action_resolution_has_empty_write_gate_authority(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = f"host-only-write-gate-authority-{uuid4()}"
+    inserted = await store.insert_waking(
+        role="host",
+        text="Synthetic action result; create another draft.",
+        source="action",
+        source_conversation_id=conversation_id,
+        source_message_id=f"{uuid4()}:succeeded",
+        created_at=datetime.now(UTC),
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "host-only-write-gate-run")
+    claimed = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("host-only-write-gate-owner")
+    )
+    assert isinstance(claimed, ClaimAcquired)
+    owners, as_of = await checkpoint.automatic_write_gate_inputs(
+        DispatchLineage(
+            claimed.claim.claim_id,
+            claimed.claim.through_checkpoint,
+            tuple(item.input_id for item in claimed.claim.inputs),
+            1,
+        )
+    )
+
+    assert owners == ()
+    assert as_of == claimed.claim.as_of
+    await checkpoint.settle(
+        claimed.claim,
+        claimed.claim.through_checkpoint,
+        ConversationConclusion("Synthetic visible action result."),
+    )
+    stored = await store.message_by_id(inserted.message.id)
+    assert stored is not None
+    assert stored.processed_at is not None
+    assert stored.processing_parked_at is None
+
+
+async def _claimed_schedule_action(
+    engine: AsyncEngine,
+    *,
+    conversation_id: str,
+    instruction: str,
+    execute_after: datetime,
+) -> UUID:
+    origin_id = uuid4()
+    action_id = uuid4()
+    arguments: dict[str, object] = {
+        "request": {
+            "type": "create",
+            "execute_after": execute_after.isoformat(),
+            "instruction": instruction,
+        }
+    }
+    contract = ExecutionContract(
+        tool_contract_revision="synthetic-schedule-contract-v1",
+        implementation_revision="jarvis-schedule-wake-v1",
+        policy_revision="synthetic-schedule-policy-v1",
+        plan_revision="synthetic-schedule-plan-v1",
+        tool_effect=ToolEffect.Write,
+        replay_policy=ReplayPolicy.ReDispatchable,
+        input_digest=raw_input_digest(ParsedJson(arguments)),
+        max_attempts=2,
+        claim_id="synthetic-schedule-claim",
+        through_checkpoint=str(origin_id),
+        model_step_ordinal=1,
+        input_message_ids=(str(origin_id),),
+        write_gate_supporting_owner_message_ids=(str(origin_id),),
+    )
+    created_at = execute_after - timedelta(seconds=1)
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(message).values(
+                id=origin_id,
+                role="owner",
+                text="Create a synthetic scheduled wake.",
+                source="discord",
+                source_conversation_id=conversation_id,
+                source_message_id=f"synthetic-origin-{action_id}",
+                created_at=created_at,
+                processed_at=created_at,
+                processing_attempts=1,
+                processing_parked_at=None,
+                remembered_at=created_at,
+                trace={},
+            )
+        )
+        await connection.execute(
+            insert(action).values(
+                id=action_id,
+                tool_name="schedule.wake",
+                arguments=arguments,
+                execution_contract=contract.as_json(),
+                status="executing",
+                attempts=1,
+                execute_after=execute_after,
+                origin_message_id=origin_id,
+                created_at=created_at,
+                result={
+                    "creation_receipt": {
+                        "action_id": str(action_id),
+                        "execute_after": execute_after.isoformat(),
+                        "arguments_digest": contract.input_digest,
+                        "recorded_at": created_at.isoformat(),
+                    },
+                    "wake_outcome": None,
+                },
+            )
+        )
+    return action_id
 
 
 class _CheckpointServiceRunner:
@@ -1373,6 +1499,7 @@ async def test_service_processes_successor_after_durable_poison_conclusion(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1439,6 +1566,7 @@ async def test_service_event_preserves_input_arriving_at_idle_boundary(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1509,6 +1637,7 @@ async def test_capacity_reset_timer_retries_untouched_input_without_external_wak
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1620,6 +1749,7 @@ async def test_restart_drains_more_than_two_outbox_batches(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1694,6 +1824,7 @@ async def test_recovered_pause_settles_pending_owner_prefix_without_runner(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1735,12 +1866,18 @@ async def test_recovered_pause_preserves_host_input_visibility(
 ) -> None:
     store = MessageStore(engine)
     started_at = datetime(2026, 9, 3, 21, tzinfo=UTC)
+    schedule_action_id = await _claimed_schedule_action(
+        engine,
+        conversation_id="33",
+        instruction="synthetic due instruction",
+        execute_after=started_at,
+    )
     host = await store.insert_waking(
         role="host",
         text="synthetic due instruction",
         source="schedule_wake",
         source_conversation_id="33",
-        source_message_id="recovered-pause-host",
+        source_message_id=str(schedule_action_id),
         created_at=started_at,
     )
     pause_id = await _owner(
@@ -1771,6 +1908,7 @@ async def test_recovered_pause_preserves_host_input_visibility(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1832,6 +1970,7 @@ async def test_one_signal_drains_queued_pause_then_resume(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -1924,6 +2063,7 @@ async def test_active_pause_then_resume_preserves_canonical_control_order(
             google_oauth_state_path=tmp_path / "google.json",
             google_oauth_client_id=SecretStr("synthetic-google-client"),
             google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+            verified_owner_only_calendar_ids=("primary",),
             connector_encryption_key_version="v2",
             connector_encryption_keys=SecretStr("synthetic-keyring"),
             connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -2317,12 +2457,22 @@ async def test_host_input_remains_visible_when_polled_control_preempts(
 ) -> None:
     store = MessageStore(engine)
     conversation_id = f"host-control-{source}-{control}"
+    source_message_id = f"host-control-source-{source}-{control}"
+    if source == "schedule_wake":
+        source_message_id = str(
+            await _claimed_schedule_action(
+                engine,
+                conversation_id=conversation_id,
+                instruction=host_text,
+                execute_after=datetime.now(UTC),
+            )
+        )
     host = await store.insert_waking(
         role="host",
         text=host_text,
         source=source,
         source_conversation_id=conversation_id,
-        source_message_id=f"host-control-source-{source}-{control}",
+        source_message_id=source_message_id,
         created_at=datetime.now(UTC),
     )
     checkpoint = _checkpoint(engine, conversation_id, f"host-control-run-{source}")
@@ -2439,6 +2589,83 @@ async def test_idle_control_and_exhausted_input_are_host_settled(
     assert tuple(value.text for value in pending) == (
         "I stopped this message because it reached the configured retry limit.",
     )
+
+
+@pytest.mark.parametrize(
+    ("source", "text_value", "expected_prefix", "private_marker"),
+    (
+        (
+            "action",
+            "Action ID: synthetic-exhausted\n"
+            "Tool: gmail.create_draft\n"
+            "Status: uncertain\n"
+            "Evidence: provider state remains ambiguous."
+            + ACTION_MODEL_CONTEXT_SEPARATOR
+            + '{"body":"SYNTHETIC-PRIVATE-EXHAUSTED"}',
+            "Action update: Action ID: synthetic-exhausted",
+            "SYNTHETIC-PRIVATE-EXHAUSTED",
+        ),
+        (
+            "schedule_wake",
+            "Synthetic scheduled reminder remains due.",
+            "Reminder: Synthetic scheduled reminder remains due.",
+            None,
+        ),
+    ),
+)
+async def test_exhausted_host_input_keeps_safe_visible_outcome(
+    engine: AsyncEngine,
+    source: str,
+    text_value: str,
+    expected_prefix: str,
+    private_marker: str | None,
+) -> None:
+    store = MessageStore(engine)
+    conversation = f"exhausted-host-{source}"
+    source_message_id = f"synthetic-{source}-input"
+    if source == "schedule_wake":
+        source_message_id = str(
+            await _claimed_schedule_action(
+                engine,
+                conversation_id=conversation,
+                instruction=text_value,
+                execute_after=datetime.now(UTC),
+            )
+        )
+    inserted = await store.insert_waking(
+        role="host",
+        text=text_value,
+        source=source,
+        source_conversation_id=conversation,
+        source_message_id=source_message_id,
+        created_at=datetime.now(UTC),
+    )
+    async with engine.begin() as connection:
+        await connection.execute(
+            update(message)
+            .where(message.c.id == inserted.message.id)
+            .values(processing_attempts=3)
+        )
+    checkpoint = _checkpoint(engine, conversation, f"{conversation}-run")
+
+    assert isinstance(
+        await checkpoint.claim(
+            ThreadId(conversation),
+            OwnerToken(f"{conversation}-owner"),
+        ),
+        ClaimNoWork,
+    )
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation,
+        limit=10,
+    )
+    assert len(pending) == 1
+    assert pending[0].text.startswith(expected_prefix)
+    assert pending[0].text.endswith(
+        "I stopped this message because it reached the configured retry limit."
+    )
+    if private_marker is not None:
+        assert private_marker not in pending[0].text
 
 
 async def test_claimed_durable_stop_preempts_before_provider_and_truncates_batch(
@@ -2661,15 +2888,112 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
     assert settlement["outcome"] == "response_too_long"
 
 
+async def test_overlong_action_resolution_say_uses_safe_host_fallback(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = "long-action-resolution-channel"
+    waking = await store.insert_waking(
+        role="host",
+        text=(
+            "Action ID: synthetic-action\nTool: gmail.create_draft\n"
+            "Status: succeeded\nEvidence: validated receipt."
+            "\n\nOriginal validated arguments for model context only:\n"
+            '{"private":"SYNTHETIC-PRIVATE-BODY"}'
+        ),
+        source="action",
+        source_conversation_id=conversation_id,
+        source_message_id="synthetic-action:succeeded",
+        created_at=datetime.now(UTC),
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "long-action-resolution-run")
+    result = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("long-action-resolution-owner")
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        ConversationConclusion("x" * 2_001),
+    )
+
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert len(pending) == 1
+    assert pending[0].text.startswith("Action update: Action ID: synthetic-action")
+    assert "Status: succeeded" in pending[0].text
+    assert "SYNTHETIC-PRIVATE-BODY" not in pending[0].text
+    stored = await store.message_by_id(waking.message.id)
+    assert stored is not None
+    assert (
+        cast("dict[str, object]", stored.trace["settlement"])["outcome"]
+        == "host_fallback"
+    )
+
+
+async def test_overlong_scheduled_wake_say_uses_reminder_fallback(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = "long-scheduled-wake-channel"
+    instruction = "Synthetic scheduled reminder"
+    schedule_action_id = await _claimed_schedule_action(
+        engine,
+        conversation_id=conversation_id,
+        instruction=instruction,
+        execute_after=datetime.now(UTC),
+    )
+    waking = await store.insert_waking(
+        role="host",
+        text=instruction,
+        source="schedule_wake",
+        source_conversation_id=conversation_id,
+        source_message_id=str(schedule_action_id),
+        created_at=datetime.now(UTC),
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "long-scheduled-wake-run")
+    result = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("long-scheduled-wake-owner")
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        ConversationConclusion("x" * 2_001),
+    )
+
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert tuple(value.text for value in pending) == (f"Reminder: {instruction}",)
+    stored = await store.message_by_id(waking.message.id)
+    assert stored is not None
+    assert (
+        cast("dict[str, object]", stored.trace["settlement"])["outcome"]
+        == "host_fallback"
+    )
+
+
 async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) -> None:
     store = MessageStore(engine)
     conversation_id = "scheduled-plan-channel"
+    schedule_action_id = await _claimed_schedule_action(
+        engine,
+        conversation_id=conversation_id,
+        instruction="synthetic scheduled wake",
+        execute_after=datetime.now(UTC),
+    )
     inserted = await store.insert_waking(
         role="host",
         text="synthetic scheduled wake",
         source="schedule_wake",
         source_conversation_id=conversation_id,
-        source_message_id="synthetic-schedule-id",
+        source_message_id=str(schedule_action_id),
         created_at=datetime.now(UTC),
     )
     checkpoint = _checkpoint(engine, conversation_id, "scheduled-plan-run")

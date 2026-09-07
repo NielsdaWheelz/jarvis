@@ -228,7 +228,7 @@ after its schema is valid.
 
 ### 4.4 Proactivity and stop control
 
-V1 has one user-facing proactive trigger: a due `schedule_wake` action created
+V1 has one user-facing proactive trigger: a due `schedule.wake` action created
 from the owner's natural-language request. A wake becomes eligible at its exact
 requested instant; if Jarvis was offline, it becomes eligible on startup. There
 are no generic quiet hours, periodic connector polls, notification batching,
@@ -247,6 +247,9 @@ below) and marking the wake `succeeded` occur in the same transaction; an
 interrupted due-wake row is safe to resume without recreating the action.
 The terminal transaction appends a separate `wake_outcome` to `result`; it never
 overwrites the creation receipt returned by the original tool call.
+
+The canonical tool and `action.tool_name` are `schedule.wake`. The distinct
+host protocol discriminator remains exactly `message.source = schedule_wake`.
 
 Inbound email, calendar changes, Maps data, and non-owner Discord activity do not
 directly start model turns. A proactive turn receives the scheduled-wake event
@@ -284,7 +287,7 @@ Jarvis acts without approval for:
 - `gmail.create_draft` and `gmail.update_draft`, without sending.
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
-- Creating or cancelling a `schedule_wake`.
+- Creating or cancelling a `schedule.wake`.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -432,6 +435,24 @@ for uncertainty. There is no blind retry or execution lease; `attempts` records
 the rare evidence-authorized repeat rather than authorizing one, and no tool may
 configure an unlimited ceiling.
 
+Ambiguous `gmail.create_draft` recovery is deliberately stricter. Each of three
+observations, separated by fixed `0`, `2`, and `8` second backoffs, enumerates at
+most five unfiltered `users.drafts.list` pages with `maxResults=8`, collects at
+most forty unique draft IDs without assuming provider ordering, and fetches at
+most those forty candidates with `drafts.get(format=raw)`. The whole procedure is
+limited to thirty seconds, sixteen MiB of accepted response bodies in aggregate,
+and the ordinary two-MiB per-response cap. It records whether enumeration ended
+with an absent, present, invalid, or unknown `nextPageToken`, but never records
+the token itself and never uses `q` or another Gmail search-index query. Exactly
+one observed `X-Jarvis-Effect-ID` plus matching normalized immutable content,
+with no observed duplicate or conflict, proves success even if pagination was
+incomplete. Multiple observed matches or a matching header with conflicting
+content exhaust to terminal `uncertain`. Without that positive proof, malformed
+or transient evidence, an incomplete enumeration, and zero matches also exhaust
+to terminal `uncertain`; even a complete bounded enumeration cannot prove
+non-creation. Gmail draft-create reconciliation therefore never returns
+`absent`, requeues the action, or authorizes another create request.
+
 Repeated calls with identical arguments are permitted. Duplicate prevention
 comes from source-message deduplication, atomic action state transitions, the
 action ID as a provider idempotency key where supported, and tool-specific
@@ -569,11 +590,20 @@ role invoked through an isolated `llm-agent-kernel` one-shot run, with memory
 search and open tools only. Its closed structured output contract requires a
 `finish.result` memory bundle.
 
+Each owner-input recall begins with exactly one kernel-dispatched deterministic
+`memory.search` call under the frozen recaller plan. Its schema-validated typed
+result is the recaller's first observation. The recaller then adaptively searches
+or opens memory as needed; Jarvis does not bypass kernel dispatch for the initial
+read. The query is the trimmed canonical owner input when it fits both 2,048
+Unicode code points and 4,096 UTF-8 bytes. Otherwise Jarvis deterministically
+keeps UTF-8-safe head and tail portions separated by ` ... `, removing complete
+Unicode code points from the larger encoded portion until both bounds hold.
+
 It:
 
-1. Searches raw memories and summaries with PostgreSQL full-text and vector
-   similarity search.
-2. May issue multiple or reformulated searches.
+1. Starts from the deterministic search's raw-memory and summary candidates,
+   produced through PostgreSQL full-text and vector similarity search.
+2. May issue multiple or reformulated searches after that initial observation.
 3. Deduplicates only identical `(table_kind, id)` candidates.
 4. Uses model judgment to select a compact relevant bundle.
 5. Preserves memory IDs, timestamps, and summary lineage.
@@ -719,7 +749,12 @@ it.
   owner-bumped Jarvis session-contract revision, and the exact
   `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
   excludes secrets, input, host time, and per-run subset plans. Normally every
-  pin participates exactly in the revision. The sole v1 exception is the
+  pin participates exactly in the revision. One v1 exception is the
+  `llm-agent-kernel@09a1af093479aa92f3e783f4b4a7cc38e301a4a7` initial-read
+  release: when every other pin is unchanged, revision derivation uses its
+  certified-compatible predecessor
+  `llm-agent-kernel@7f3a9b145e68ba23c8aafad08500e9c452a9faef` so only roles
+  whose own contract changed rotate. The other v1 exception is the
   upstream-certified compatible pair
   `llm-agent-kernel@09f08df2970121ababe973b0e92d6901dd40da9e` and
   `provider-runtime@f477dcdcad03c30019576203d4eb8a3581a6d32f`: when every
@@ -952,7 +987,7 @@ V1 exposes exactly the following canonical model tools:
 | `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | Main | Automatic only for a no-attendee event on a verified owner-only calendar; otherwise approval required |
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
-| `schedule_wake` | Main | Write; automatic |
+| `schedule.wake` | Main | Write; automatic |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
 The Slice 2 Jarvis-owned read result unions are exactly:
@@ -975,6 +1010,9 @@ catalogued Gmail, Calendar, Maps, and public-Web reads.
 Recall, remember, and dream one-shot plans contain exactly `memory.search` and
 `memory.open`; AutomaticWriteGate has an empty plan. Every plan is frozen for its
 run and may never exceed its envelope.
+Owner-input recall begins by having the kernel dispatch exactly one deterministic
+`memory.search` call under that recaller plan and provide its typed observation;
+the recaller may then adaptively call `memory.search` or `memory.open`.
 
 Every Jarvis-owned entry above initially declares
 `implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
@@ -1149,7 +1187,7 @@ arguments. A match is success; a conflict is never overwritten or retried
 blindly. Calendar update and delete reconcile through their known provider event
 ID and live state under the same rule.
 
-`schedule_wake` uses one closed tagged schema: create with an exact
+`schedule.wake` uses one closed tagged schema: create with an exact
 `execute_after` instant and instruction, or cancel with the target queued wake's
 action ID. A create action's closed `result` has two independently managed
 members:
@@ -1183,7 +1221,7 @@ occupied position regardless of the later action status. Due execution changes
 only lifecycle status and `wake_outcome`; it never overwrites
 `creation_receipt`.
 
-Cancellation is a separate gated `schedule_wake` cancel action with its own ID,
+Cancellation is a separate gated `schedule.wake` cancel action with its own ID,
 position, attempt ceiling, and closed
 `cancelled(target_action_id, recorded_at)` receipt. In one transaction it targets
 a queued original, records the cancel action as succeeded, moves the original to
@@ -1386,7 +1424,7 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `670da13ff0cfe766f36d8966e0575db0f7525143`
+  `09a1af093479aa92f3e783f4b4a7cc38e301a4a7`
 - `llm-calling` / `provider-runtime`:
   `2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
@@ -1559,7 +1597,7 @@ approval, execution, reconciliation, and receipts.
 - Host code resolves the current declaration and validates stored arguments and
   execution contract again before approval rendering and execution.
 - `execute_after` is nullable; null means immediately eligible, while a timestamp
-  supports `schedule_wake` without another table.
+  supports `schedule.wake` without another table.
 - `approval_message_id` is nullable and unique when present. It points to the
   host-owned approval `message` and is required while status is
   `awaiting_approval`.
@@ -1734,7 +1772,7 @@ Frozen decisions:
   reusable but non-canonical provider sessions.
 - Existing Google and Discord integrations are reused.
 - The exact minimal v1 tool catalog in section 7.3.
-- Only owner-requested `schedule_wake` actions initiate user-facing proactive
+- Only owner-requested `schedule.wake` actions initiate user-facing proactive
   turns.
 - Python, PostgreSQL, pgvector, `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools`.

@@ -9,6 +9,7 @@ from uuid import UUID
 from llm_agent_kernel import (
     CancellationToken,
     DispatchCompleted,
+    InitialReadDispatchLineage,
     IsolatedDispatchLineage,
     ToolDispatchDefect,
     ToolDispatchLineage,
@@ -17,7 +18,6 @@ from llm_tools import (
     BudgetState,
     ExecutionContext,
     FrozenToolPlan,
-    InvocationPosition,
     ParsedJson,
     Principal,
     Scope,
@@ -76,7 +76,9 @@ class MemoryToolDispatcher:
         cancellation: CancellationToken,
         lineage: ToolDispatchLineage,
     ) -> DispatchCompleted:
-        if not isinstance(lineage, IsolatedDispatchLineage):
+        if not isinstance(
+            lineage, IsolatedDispatchLineage | InitialReadDispatchLineage
+        ):
             raise ToolDispatchDefect("memory tools require isolated dispatch lineage")
         tool_id = binding.spec.id
         if tool_id not in MEMORY_TOOL_IDS or binding.spec.effect is not ToolEffect.Read:
@@ -100,9 +102,7 @@ class MemoryToolDispatcher:
                     plan=plan,
                     grant=plan.grant(tool_id),
                     catalog_view=plan.catalog_view,
-                    position=InvocationPosition(
-                        f"isolated:{lineage.run_id}:step:{lineage.model_step_ordinal}"
-                    ),
+                    position=lineage.position,
                     recorder=self._recorder,
                     effect_id=None,
                     budgets=budgets,

@@ -17,6 +17,7 @@ from llm_agent_kernel import (
     AgentDefinition,
     CancellationToken,
     DispatchCompleted,
+    DispatchLineage,
     DispatchResult,
     HostInput,
     InputId,
@@ -31,6 +32,7 @@ from llm_agent_kernel import (
     ThreadOutcome,
     ThreadStopKind,
     ThreadStopped,
+    ToolDispatchDefect,
     ToolDispatchLineage,
     ToolDispatchPort,
     run_one_shot,
@@ -49,6 +51,7 @@ from llm_tools import (
     canonical_json_bytes,
 )
 
+from jarvis.actions import ClaimedSchedule, ScheduleStateChanged
 from jarvis.admission import (
     ExactToolBudgetFactory,
     RollingAdmissionPort,
@@ -67,6 +70,7 @@ from jarvis.definitions import (
     Slice2Definitions,
     Slice3Definitions,
     Slice4Definitions,
+    Slice5Definitions,
 )
 from jarvis.discord import (
     CatchUpResult,
@@ -86,6 +90,7 @@ from jarvis.memory import (
     SummaryMutationBatch,
 )
 from jarvis.messages import InboundInsert, MessageStore, PendingControl, StoredMessage
+from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
@@ -189,6 +194,10 @@ class CapturingReadDispatcher:
         cancellation: CancellationToken,
         lineage: ToolDispatchLineage,
     ) -> DispatchResult:
+        if not isinstance(lineage, DispatchLineage):
+            raise ToolDispatchDefect(
+                "main observation capture requires continuing-thread lineage"
+            )
         result = await self._delegate.dispatch(
             binding=binding,
             validated_input=validated_input,
@@ -804,9 +813,14 @@ class JarvisThreadRunner:
             | Slice2Definitions
             | Slice3Definitions
             | Slice4Definitions
+            | Slice5Definitions
         ),
         history: PostgresCanonicalHistory,
         dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
+        checkpoint_dispatcher_factory: Callable[
+            [PostgresInputCheckpoint], ToolDispatchPort
+        ]
+        | None = None,
         memory: MemoryStore | None = None,
         memory_dispatcher_factory: Callable[[], MemoryReadDispatcherPort] | None = None,
         rememberer: RemembererWorker | None = None,
@@ -818,10 +832,13 @@ class JarvisThreadRunner:
         self._definitions = definitions
         self._history = history
         self._dispatcher_factory = dispatcher_factory
+        self._checkpoint_dispatcher_factory = checkpoint_dispatcher_factory
         self._memory = memory
         self._memory_dispatcher_factory = memory_dispatcher_factory
         self._rememberer = rememberer
-        if isinstance(definitions, Slice3Definitions | Slice4Definitions) and (
+        if isinstance(
+            definitions, Slice3Definitions | Slice4Definitions | Slice5Definitions
+        ) and (
             not isinstance(admission, RootTrackingAdmissionPort)
             or memory is None
             or memory_dispatcher_factory is None
@@ -874,9 +891,10 @@ class JarvisThreadRunner:
 
         run_id = RunId(str(uuid4()))
         thread_id = ThreadId(str(self._settings.discord.channel_id))
-        dispatcher = CapturingReadDispatcher(self._dispatcher_factory())
+        dispatcher: CapturingReadDispatcher | None = None
 
         def on_settlement(owner_message_ids: tuple[UUID, ...]) -> None:
+            assert dispatcher is not None
             material_context = dispatcher.take_material_sections()
             if owner_message_ids and self._rememberer is not None:
                 self._rememberer.enqueue(owner_message_ids, material_context)
@@ -891,8 +909,16 @@ class JarvisThreadRunner:
             maximum_attempts=self._definitions.main.limits.max_no_progress_attempts,
             on_settlement=on_settlement,
         )
+        dispatcher = CapturingReadDispatcher(
+            self._checkpoint_dispatcher_factory(checkpoints)
+            if self._checkpoint_dispatcher_factory is not None
+            else self._dispatcher_factory()
+        )
         recaller = None
-        if isinstance(self._definitions, Slice3Definitions | Slice4Definitions):
+        if isinstance(
+            self._definitions,
+            Slice3Definitions | Slice4Definitions | Slice5Definitions,
+        ):
             assert isinstance(self._admission, RootTrackingAdmissionPort)
             assert self._memory is not None
             assert self._memory_dispatcher_factory is not None
@@ -1006,6 +1032,20 @@ class GatewayPort(Protocol):
     def typing(self) -> AbstractAsyncContextManager[None]: ...
 
 
+class ScheduledWakeStore(Protocol):
+    async def claim_next_due_schedule(
+        self,
+        *,
+        plan: FrozenToolPlan,
+        source_conversation_id: str,
+        now: datetime | None = None,
+    ) -> ClaimedSchedule | ScheduleStateChanged | None: ...
+
+
+class ActionRecoveryPort(Protocol):
+    async def recover(self, *, allow_queued_execution: bool = True) -> int: ...
+
+
 class JarvisService:
     """Serial host coordinator for Gateway ingress, kernel work, and delivery."""
 
@@ -1019,6 +1059,9 @@ class JarvisService:
         runner: ThreadRunner,
         background: BackgroundWorkerPort | None = None,
         dreamer: BackgroundWorkerPort | None = None,
+        scheduled_wakes: ScheduledWakeStore | None = None,
+        action_plan: FrozenToolPlan | None = None,
+        action_recovery: ActionRecoveryPort | None = None,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -1030,6 +1073,11 @@ class JarvisService:
         self._runner = runner
         self._background = background
         self._dreamer = dreamer
+        self._scheduled_wakes = scheduled_wakes
+        if (scheduled_wakes is None) != (action_plan is None):
+            raise ValueError("scheduled wakes require exactly one current action plan")
+        self._action_plan = action_plan
+        self._action_recovery = action_recovery
         self._gateway = gateway
         self._sleep = sleep
         self._dream_sleep = dream_sleep
@@ -1042,6 +1090,9 @@ class JarvisService:
         self._background_cancellation: CancellationToken | None = None
         self._reset_task: asyncio.Task[None] | None = None
         self._dream_timer_task: asyncio.Task[None] | None = None
+        self._wake_timer: ProcessLocalWakeTimer | None = None
+        self._wake_timer_task: asyncio.Task[None] | None = None
+        self._wake_cancellation: CancellationToken | None = None
         self._dream_due = False
 
     def bind_gateway(self, gateway: GatewayPort) -> None:
@@ -1050,6 +1101,11 @@ class JarvisService:
         if self._gateway is not None:
             raise RuntimeError("the Discord Gateway is already bound")
         self._gateway = gateway
+
+    def bind_wake_timer(self, timer: ProcessLocalWakeTimer) -> None:
+        if self._wake_timer is not None or self._scheduled_wakes is None:
+            raise RuntimeError("the scheduled-wake timer cannot be bound")
+        self._wake_timer = timer
 
     async def receive_owner_message(self, incoming: DiscordOwnerMessage) -> None:
         """Persist/deduplicate ingress before applying host control."""
@@ -1131,10 +1187,20 @@ class JarvisService:
                 self._dream_timer(),
                 name="jarvis-dream-timer",
             )
+        if self._wake_timer is not None:
+            self._wake_cancellation = CancellationToken()
+            self._wake_timer_task = asyncio.create_task(
+                self._wake_timer.run(self._wake_cancellation),
+                name="jarvis-scheduled-wake-timer",
+            )
+            self._wake_timer_task.add_done_callback(lambda _task: self._work.set())
         try:
             while not self._shutdown.is_set():
                 await self._work.wait()
                 self._work.clear()
+                if self._wake_timer_task is not None and self._wake_timer_task.done():
+                    self._wake_timer_task.result()
+                    raise RuntimeError("the scheduled-wake timer stopped unexpectedly")
                 await self._drain()
         finally:
             if self._dream_timer_task is not None:
@@ -1144,6 +1210,12 @@ class JarvisService:
                     return_exceptions=True,
                 )
                 self._dream_timer_task = None
+            if self._wake_cancellation is not None:
+                self._wake_cancellation.cancel()
+            if self._wake_timer_task is not None:
+                await asyncio.gather(self._wake_timer_task, return_exceptions=True)
+                self._wake_timer_task = None
+                self._wake_cancellation = None
 
     def request_work(self) -> None:
         self._work.set()
@@ -1160,6 +1232,8 @@ class JarvisService:
             self._reset_task.cancel()
         if self._dream_timer_task is not None:
             self._dream_timer_task.cancel()
+        if self._wake_cancellation is not None:
+            self._wake_cancellation.cancel()
 
     async def _drain(self) -> None:
         async with self._execution_mutex:
@@ -1202,11 +1276,29 @@ class JarvisService:
                             return
                     await self.flush_delivery()
                     continue
-                elif (
+                inactive = (
                     await self._paused.is_paused()
                     or await self._store.circuit_is_open()
-                ):
+                )
+                recovered_actions = await self._recover_actions(
+                    allow_queued_execution=not inactive
+                )
+                if inactive:
                     return
+                if recovered_actions:
+                    continue
+                if self._scheduled_wakes is not None:
+                    assert self._action_plan is not None
+                    claimed = await self._scheduled_wakes.claim_next_due_schedule(
+                        plan=self._action_plan,
+                        source_conversation_id=str(self._settings.discord.channel_id),
+                    )
+                    if claimed is not None:
+                        if self._wake_timer is not None:
+                            self._wake_timer.notify_changed()
+                        if isinstance(claimed, ScheduleStateChanged):
+                            await self._recover_actions(allow_queued_execution=False)
+                        continue
                 cancellation = CancellationToken()
                 async with self._active_lock:
                     self._active_cancellation = cancellation
@@ -1258,6 +1350,20 @@ class JarvisService:
                 ):
                     return
 
+    async def _recover_actions(self, *, allow_queued_execution: bool) -> int:
+        if self._action_recovery is None:
+            return 0
+        recovered_actions = await self._action_recovery.recover(
+            allow_queued_execution=allow_queued_execution
+        )
+        if recovered_actions:
+            LOGGER.warning(
+                "Recovered interrupted actions: count=%d",
+                recovered_actions,
+            )
+            await self.flush_delivery()
+        return recovered_actions
+
     async def _run_background_once(
         self,
         worker: BackgroundWorkerPort | None,
@@ -1307,6 +1413,7 @@ class JarvisService:
 
 
 __all__ = [
+    "ActionRecoveryPort",
     "BackgroundDeferred",
     "DeliveryFlushResult",
     "DiscordCursorPort",
@@ -1317,6 +1424,7 @@ __all__ = [
     "PendingControlPort",
     "PreflightDeferred",
     "RemembererWorker",
+    "ScheduledWakeStore",
     "Slice1ThreadRunner",
     "flush_pending_deliveries",
 ]

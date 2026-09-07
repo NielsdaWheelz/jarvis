@@ -31,9 +31,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from jarvis._atomic_json import read_private_json, replace_private_json
 from jarvis.definitions import (
+    SLICE1_KERNEL_LIMITS,
     SLICE2_KERNEL_LIMITS,
     SLICE3_RECALL_KERNEL_LIMITS,
     SLICE3_REMEMBER_KERNEL_LIMITS,
+    SLICE5_KERNEL_LIMITS,
+    SLICE5_PLAN_TOOL_LIMITS,
 )
 
 
@@ -167,6 +170,56 @@ class RollingAdmissionPort:
                 "schema_version": "jarvis-admission.v1",
             },
         )
+
+    @classmethod
+    def migrate_limits(
+        cls,
+        path: Path,
+        *,
+        previous: RollingAdmissionLimits,
+        current: RollingAdmissionLimits,
+    ) -> bool:
+        """Conservatively enlarge an existing stopped deployment's reservations."""
+
+        try:
+            value = read_private_json(path)
+            if value is None:
+                raise ValueError("admission journal is missing")
+            journal = _Journal.model_validate(value)
+            if journal.schema_version != "jarvis-admission.v1":
+                raise ValueError("admission journal version is invalid")
+            if journal.configuration == current.json():
+                _validate_journal(journal, current)
+                return False
+            if journal.configuration != previous.json():
+                raise ValueError("admission journal has an unexpected configuration")
+            _validate_journal(journal, previous)
+            deltas = (
+                current.serial_child_turns - previous.serial_child_turns,
+                current.serial_child_input_tokens - previous.serial_child_input_tokens,
+                current.serial_child_output_tokens
+                - previous.serial_child_output_tokens,
+            )
+            if any(value < 0 for value in deltas):
+                raise ValueError("admission migration cannot reduce reserved capacity")
+            for root in journal.reservations:
+                if root.thread_id is None:
+                    continue
+                root.reserved_turns += deltas[0]
+                root.reserved_input_tokens += deltas[1]
+                root.reserved_output_tokens += deltas[2]
+                if root.state == "interrupted":
+                    root.actual_turns = root.reserved_turns
+                    root.actual_input_tokens = root.reserved_input_tokens
+                    root.actual_output_tokens = root.reserved_output_tokens
+            journal.configuration = current.json()
+            _validate_journal(journal, current)
+            replace_private_json(path, journal.model_dump(mode="json"))
+            return True
+        except (OSError, TypeError, ValueError) as error:
+            raise AdmissionStateDefect(
+                "admission journal cannot migrate to Slice 5 limits"
+            ) from error
 
     async def preflight(
         self,
@@ -515,6 +568,55 @@ def slice3_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
         ),
         max_output_tokens=(
             maximum_foreground_output_tokens
+            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
+            + root_output_overshoot
+        ),
+        serial_child_turns=serial_child_turns,
+        serial_child_input_tokens=serial_child_input_tokens,
+        serial_child_output_tokens=serial_child_output_tokens,
+    )
+
+
+def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
+    if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
+        raise ValueError("maximum owner inputs must be a positive integer")
+    root_input_overshoot = 32_768
+    root_output_overshoot = 8_192
+    maximum_gate_calls = SLICE5_PLAN_TOOL_LIMITS.max_calls
+    serial_child_turns = (
+        maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
+        + maximum_gate_calls * SLICE1_KERNEL_LIMITS.max_provider_turns
+    )
+    serial_child_input_tokens = maximum_owner_inputs * (
+        SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+    ) + maximum_gate_calls * (
+        SLICE1_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+    )
+    serial_child_output_tokens = maximum_owner_inputs * (
+        SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+    ) + maximum_gate_calls * (
+        SLICE1_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+    )
+    foreground_turns = SLICE5_KERNEL_LIMITS.max_provider_turns + serial_child_turns
+    foreground_input = (
+        SLICE5_KERNEL_LIMITS.max_provider_input_tokens
+        + root_input_overshoot
+        + serial_child_input_tokens
+    )
+    foreground_output = (
+        SLICE5_KERNEL_LIMITS.max_provider_output_tokens
+        + root_output_overshoot
+        + serial_child_output_tokens
+    )
+    return RollingAdmissionLimits(
+        max_turns=foreground_turns + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns,
+        max_input_tokens=(
+            foreground_input
+            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_input_tokens
+            + root_input_overshoot
+        ),
+        max_output_tokens=(
+            foreground_output
             + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
             + root_output_overshoot
         ),
@@ -1026,4 +1128,5 @@ __all__ = [
     "RollingAdmissionPort",
     "RootTrackingAdmissionPort",
     "slice3_admission_limits",
+    "slice5_admission_limits",
 ]

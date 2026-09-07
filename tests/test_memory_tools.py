@@ -12,6 +12,7 @@ from llm_agent_kernel import (
     Checkpoint,
     ClaimId,
     DispatchLineage,
+    InitialReadDispatchLineage,
     InputId,
     IsolatedDispatchLineage,
     RunId,
@@ -20,7 +21,9 @@ from llm_agent_kernel import (
 from llm_tools import (
     CapabilityProfile,
     HostTable,
+    InvocationPosition,
     ProfileId,
+    Reservation,
     ToolCatalog,
     ToolEffect,
     ToolGrant,
@@ -77,6 +80,18 @@ class _Embedder:
         if self.vector is not None:
             return (self.vector,)
         return ((1.0, *([0.0] * (EMBEDDING_DIMENSION - 1))),)
+
+
+class _CapturingBudget(InMemoryBudgetState):
+    def __init__(self) -> None:
+        super().__init__(MEMORY_TOOL_RUN_LIMITS)
+        self.positions: list[InvocationPosition] = []
+
+    async def reserve(
+        self, position: InvocationPosition, reservation: Reservation
+    ) -> bool:
+        self.positions.append(position)
+        return await super().reserve(position, reservation)
 
 
 class _Repository:
@@ -257,6 +272,31 @@ async def test_maximum_search_and_open_results_fit_their_declared_limits() -> No
     for completed in (searched, opened):
         size = len(canonical_json_bytes(cast("Any", completed.result)))
         assert 32_768 < size <= MAX_MEMORY_READ_OUTPUT_BYTES
+
+
+async def test_initial_read_forwards_the_kernel_owned_invocation_position() -> None:
+    repository = _Repository(_row())
+    catalog, plan = _catalog_and_plan(repository, _Embedder())
+    dispatcher = MemoryToolDispatcher()
+    budgets = _CapturingBudget()
+    lineage = InitialReadDispatchLineage(RunId("initial-memory-run"))
+
+    completed = await dispatcher.dispatch(
+        binding=catalog.binding(MEMORY_SEARCH_SPEC.id),
+        validated_input=MemorySearchInput(
+            query="synthetic query",
+            lexical_limit=5,
+            semantic_limit=5,
+        ),
+        plan=plan,
+        budgets=budgets,
+        cancellation=CancellationToken(),
+        lineage=lineage,
+    )
+
+    assert completed.result["type"] == "Success"
+    assert budgets.positions == [lineage.position]
+    assert dispatcher.evidence.search_calls == 1
 
 
 async def test_search_embedding_failure_falls_back_to_lexical_success() -> None:

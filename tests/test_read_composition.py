@@ -66,6 +66,7 @@ def _settings(tmp_path: Path) -> Settings:
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-google-client"),
         google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        verified_owner_only_calendar_ids=("primary",),
         connector_encryption_key_version="v2",
         connector_encryption_keys=SecretStr(json.dumps({"v2": key})),
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -147,10 +148,10 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         "a692ba611f8dfbd76e04996fc62fb0e6af05245e791c704ab3184d443bb03318"
     )
     assert definitions.main.session_compatibility_revision == (
-        "91806d3ee93b4ae51864dee630cb46b9b4e1fb71098bed43b6482c357602274b"
+        "3cfd944608017249a0e1effbf5cd5fe3b389020a200a217a69c43990173ee6c8"
     )
     assert definitions.main.fingerprint == (
-        "99281036878042737ce44d0aa0e25c715d42fc4737a02188762755d67917372b"
+        "3112c3308a845b6609a696dd45dcc79de662f98409828585049f569ae7a08755"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (

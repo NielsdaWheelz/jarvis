@@ -23,6 +23,7 @@ def _environment(tmp_path: Path) -> dict[str, str]:
         "JARVIS_GOOGLE_OAUTH_STATE_PATH": str(tmp_path / "google.json"),
         "JARVIS_GOOGLE_OAUTH_CLIENT_ID": "synthetic-google-client",
         "JARVIS_GOOGLE_OAUTH_CLIENT_SECRET": "synthetic-google-secret",
+        "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS": "primary",
         "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION": "v2",
         "JARVIS_CONNECTOR_ENCRYPTION_KEYS": "synthetic-keyring",
         "JARVIS_CONNECTOR_ENCRYPTION_SECRET": "synthetic-encryption-secret",
@@ -47,6 +48,7 @@ def test_settings_compose_discord_and_derive_private_paths(tmp_path: Path) -> No
     assert settings.session_reference_path == tmp_path / "runtime" / "session-ref.json"
     assert settings.provider_cwd_parent == tmp_path / "runtime" / "provider-cwd"
     assert settings.google_oauth_state_path == tmp_path / "google.json"
+    assert settings.verified_owner_only_calendar_ids == ("primary",)
     assert "synthetic-maps-key" in settings.host_secrets
     rendered = repr(settings)
     assert "private-token" not in rendered
@@ -62,6 +64,7 @@ def test_settings_compose_discord_and_derive_private_paths(tmp_path: Path) -> No
         ("JARVIS_MAXIMUM_BATCH_SIZE", "101"),
         ("JARVIS_DELIVERY_BATCH_SIZE", "101"),
         ("JARVIS_DREAM_INTERVAL_SECONDS", "59"),
+        ("JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS", "primary,primary"),
     ],
 )
 def test_settings_reject_invalid_host_bounds(

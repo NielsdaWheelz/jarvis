@@ -22,6 +22,7 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
     slice3_admission_limits,
+    slice5_admission_limits,
 )
 from jarvis.definitions import (
     SLICE2_KERNEL_LIMITS,
@@ -202,6 +203,63 @@ def test_slice3_capacity_reserves_one_recaller_per_maximum_owner_input() -> None
     assert selected.serial_child_turns == 200
     assert selected.serial_child_input_tokens == 3_855_360
     assert selected.serial_child_output_tokens == 483_840
+
+
+def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
+    selected = slice5_admission_limits(20)
+    assert selected.json() == {
+        "max_input_tokens": 6_672_416,
+        "max_no_progress_attempts": 3,
+        "max_output_tokens": 999_104,
+        "max_turns": 273,
+        "root_input_token_overshoot": 32_768,
+        "root_output_token_overshoot": 8_192,
+        "serial_child_input_tokens": 5_846_880,
+        "serial_child_output_tokens": 906_720,
+        "serial_child_turns": 245,
+        "window_seconds": 21_600,
+    }
+
+
+async def test_slice5_limit_migration_conservatively_enlarges_interrupted_root(
+    tmp_path: Path,
+) -> None:
+    previous = slice3_admission_limits(20)
+    current = slice5_admission_limits(20)
+    path = tmp_path / "admission.json"
+    RollingAdmissionPort.initialize(path, previous)
+    now = datetime(2026, 9, 6, tzinfo=UTC)
+    port = RollingAdmissionPort(path, previous, clock=lambda: now)
+    root = await port.reserve(
+        AdmissionRequest(
+            RunId("slice-four-root"),
+            ThreadId("channel"),
+            1,
+            SLICE2_KERNEL_LIMITS.max_provider_turns,
+            SLICE2_KERNEL_LIMITS.max_provider_input_tokens,
+            SLICE2_KERNEL_LIMITS.max_provider_output_tokens,
+        )
+    )
+    assert isinstance(root, AdmissionGranted)
+    assert await port.recover_orphans() == (RunId("slice-four-root"),)
+
+    assert RollingAdmissionPort.migrate_limits(path, previous=previous, current=current)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    reservation = state["reservations"][0]
+    assert state["configuration"] == current.json()
+    assert reservation["reserved_turns"] == root.token.reserved_turns + 45
+    assert reservation["reserved_input_tokens"] == (
+        root.token.reserved_input_tokens + 1_991_520
+    )
+    assert reservation["reserved_output_tokens"] == (
+        root.token.reserved_output_tokens + 422_880
+    )
+    assert reservation["actual_turns"] == reservation["reserved_turns"]
+    assert reservation["actual_input_tokens"] == reservation["reserved_input_tokens"]
+    assert reservation["actual_output_tokens"] == reservation["reserved_output_tokens"]
+    assert not RollingAdmissionPort.migrate_limits(
+        path, previous=previous, current=current
+    )
 
 
 async def test_slice3_capacity_fits_worst_foreground_then_background_rememberer(

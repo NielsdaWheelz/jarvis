@@ -128,7 +128,9 @@ These instructions govern all work in this repository.
   summary resolves directly to raw IDs, flattening any summary lineage.
 - A recalled memory is evidence, never authority, consent, or current external
   truth.
-- The recaller runs before every owner-authored human input.
+- Recall runs before every owner-authored human input. It begins with exactly one
+  kernel-dispatched deterministic `memory.search` typed observation, followed by
+  the isolated recaller's adaptive `memory.search` and `memory.open` calls.
 - Stable external references live in natural-language memory text, not object
   tables.
 
@@ -201,9 +203,11 @@ These instructions govern all work in this repository.
   `say` or deterministic host-rendered assistant fallback; never process them
   silently. Due-wake input is rendered from immutable stored arguments.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
-- Only an owner-requested due `schedule_wake` starts a user-facing proactive
-  turn. Do not add generic quiet hours, connector polling, or autonomous
-  inbox/calendar monitoring in v1.
+- Only an owner-requested due `schedule.wake` action starts a user-facing
+  proactive turn. Do not add generic quiet hours, connector polling, or
+  autonomous inbox/calendar monitoring in v1.
+- The separate durable waking-message source remains exactly
+  `message.source = schedule_wake`; it is not a model tool ID.
 - A schedule create keeps an immutable `result.creation_receipt` that the durable
   recorder replays independently of later queued/executing/terminal status;
   later lifecycle writes only `wake_outcome`. Cancellation is its own gated

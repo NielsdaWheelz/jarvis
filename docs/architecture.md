@@ -136,8 +136,10 @@ For each owner message:
    provider I/O. Because the preflight and claim ran under the same execution
    mutex, the adapter raises `AdmissionStateDefect` for a later inconsistent
    capacity result and the kernel parks the claim.
-7. Snapshot one host `as_of` instant and run the recaller in a fresh isolated
-   read-only kernel one-shot run.
+7. Snapshot one host `as_of` instant and start the fresh isolated read-only
+   kernel recaller one-shot. The kernel first dispatches exactly one deterministic
+   `memory.search` typed observation, then continues the recaller's adaptive
+   search/open loop.
 8. Through the context adapter, select canonical product context and give the
    kernel a provider-neutral continuation or bootstrap package.
 9. The kernel opens/resumes the real contained `AgentRuntime` session, consumes
@@ -261,13 +263,16 @@ set, currently only `gpt-5.6-terra`. Model-set membership does not enter the
 session revision because the selected model already enters the immutable
 definition fingerprint. Secret bytes, current input, host time, and per-run
 subset plans do not rotate the session.
-The exact kernel `09f08df2970121ababe973b0e92d6901dd40da9e` plus
-provider-runtime `f477dcdcad03c30019576203d4eb8a3581a6d32f` usage-fix pair is
-the sole certified compatibility exception. With every other pin unchanged,
-Jarvis atomically canonicalizes those two values to their predecessor pair only
-for session-revision derivation. The manifest and startup checks still record
-and require the active revisions. A partial pair, another dependency change, or
-an application/role contract change rotates normally.
+There are two certified v1 compatibility exceptions. With every other pin
+unchanged, the active initial-read kernel
+`09a1af093479aa92f3e783f4b4a7cc38e301a4a7` is canonicalized to its compatible
+predecessor `7f3a9b145e68ba23c8aafad08500e9c452a9faef` only for
+session-revision derivation. The other exception atomically canonicalizes the
+kernel `09f08df2970121ababe973b0e92d6901dd40da9e` plus provider-runtime
+`f477dcdcad03c30019576203d4eb8a3581a6d32f` usage-fix pair to its predecessor
+pair. The manifest and startup checks still record and require the active
+revisions. A partial pair, another dependency change, or an application/role
+contract change rotates normally.
 Configuration accepts only an exact model in the manifest and rejects the
 retired `gpt-5.4` route before ingress, admission, or provider/tool I/O. The
 qualified set has no fixed cardinality, but release qualification requires at
@@ -353,9 +358,11 @@ saved session-reference port; host code commits or recomputes their results.
 
 The recaller opens a fresh session and receives the owner input, bounded recent
 context, owner timezone, and the turn's `as_of`. Its frozen capability plan
-contains only memory search and memory open. It may issue several queries and
-returns a schema-valid `finish.result` bundle of raw memories and summaries, or
-an explicit empty bundle.
+contains only memory search and memory open. Recall begins with exactly one
+kernel-dispatched deterministic `memory.search` call and its schema-validated
+typed observation. From that observation, the recaller may adaptively issue
+further searches or open exact rows. It returns a schema-valid `finish.result`
+bundle of raw memories and summaries, or an explicit empty bundle.
 
 ### Main agent
 
@@ -441,18 +448,22 @@ Discord is the conversation adapter and has no model-callable declarations.
 
 Capability plans are closed by role:
 
-- Main: the catalogued Gmail, Calendar, Maps, Web, and `schedule_wake` tools.
+- Main: the catalogued Gmail, Calendar, Maps, Web, and `schedule.wake` tools.
 - Recaller, rememberer, and dreamer: `memory.search` and `memory.open` only.
 - AutomaticWriteGate: no tools.
 
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
 
-The implemented Slice 4 catalog contains exactly the nine Gmail, Calendar, Maps,
-and public-Web reads plus `memory.search` and `memory.open`. Main and the dormant
-scheduled-wake plan expose only the nine external reads. Recaller, rememberer,
-and dreamer expose only the two memory reads. External writes and scheduling are
-unavailable product scope, not dead bindings in a published plan.
+The implemented Slice 5 maximum catalog contains exactly the nine Gmail,
+Calendar, Maps, and public-Web reads; `memory.search` and `memory.open`; six
+automatic writes; and the unavailable Slice 6 `gmail.send_draft` declaration.
+The selected Main plan contains the nine external reads plus
+`gmail.create_draft`, `gmail.update_draft`, the three Calendar writes, and
+`schedule.wake`. The scheduled-wake plan contains only the nine external reads.
+Recaller, rememberer, and dreamer contain only the two memory reads, and
+AutomaticWriteGate has an empty plan. No approval-bearing plan is selectable in
+Slice 5.
 
 The host:
 
@@ -595,6 +606,21 @@ proved absence becomes `failed` and unresolved evidence becomes `uncertain`.
 reconciliation procedure is exhausted and the evidence still cannot decide; a
 timeout alone is insufficient.
 
+Gmail draft-create recovery is the tool-specific no-repeat case. It performs
+three fixed observations with `0`, `2`, and `8` second backoffs. Each observation
+enumerates at most five unfiltered pages of eight draft IDs, without assuming
+listing order, and fetches at most forty unique candidates as bounded raw
+messages. A thirty-second whole-procedure deadline, sixteen-MiB aggregate body
+budget, and the shared two-MiB per-response cap bound the work. Pagination
+evidence records only whether `nextPageToken` was absent, present, invalid, or
+unknown. The procedure never sends `q` and never relies on Gmail search indexing.
+One observed exact effect header and normalized-content match, with no observed
+duplicate or conflict, proves success even when pagination is incomplete. An
+observed conflict always settles `uncertain`. Without positive proof, malformed
+or incomplete evidence, transient failure, or no match—including after a
+complete enumeration—also settles `uncertain`, creates the idempotent host
+resolution, and never returns the action to `queued`.
+
 `tool_name`, `arguments`, `execution_contract`, and `origin_message_id` never
 change after insertion. V1 tool names have no mandatory version suffix. The
 closed host-authored execution contract records the exact tool, policy, plan,
@@ -718,7 +744,8 @@ boundary.
 No workflow framework exists. The kernel's bounded in-process drain does not
 persist a workflow graph, own product state, or wait durably for approvals.
 
-- A small timer selects queued `schedule_wake` rows whose `execute_after` is due.
+- A small timer selects queued `schedule.wake` action rows whose `execute_after`
+  is due.
 - A schedule-create binding atomically stores an immutable `creation_receipt` in
   `result` while leaving product status queued. The action-backed `llm-tools`
   recorder replays that receipt for the original occupied tool position
@@ -727,8 +754,9 @@ persist a workflow graph, own product state, or wait durably for approvals.
 - A requested wake becomes eligible at its stored instant, or on startup when
   that instant passed during downtime; no generic quiet-hours transform exists.
 - Claiming a due wake atomically marks it `executing` and inserts one idempotent
-  host waking message keyed by `(schedule_wake, action.id)`, rendered from the
-  immutable stored instruction and requested instant. The proactive run or its
+  host waking message keyed by `(message.source = schedule_wake, action.id)`,
+  rendered from the immutable stored instruction and requested instant. The
+  proactive run or its
   deterministic visible fallback processes that row and marks the action
   `succeeded` in one transaction, adding closed
   `wake_outcome.concluded(conclusion_message_id, recorded_at)` without replacing

@@ -1,4 +1,4 @@
-"""Top-level host settings through Slice 4."""
+"""Top-level host settings through Slice 5."""
 
 from __future__ import annotations
 
@@ -52,6 +52,11 @@ class Settings(BaseModel):
     maps_api_key: SecretStr = Field(repr=False)
     brave_api_key: SecretStr = Field(repr=False)
     embedding_openai_api_key: SecretStr = Field(repr=False)
+    verified_owner_only_calendar_ids: tuple[str, ...] = Field(
+        min_length=1,
+        max_length=32,
+        repr=False,
+    )
     embedding_model: Literal["text-embedding-3-small"] = EMBEDDING_MODEL
     embedding_dimension: Literal[1536] = EMBEDDING_DIMENSION
     maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
@@ -188,6 +193,23 @@ class Settings(BaseModel):
                 raise ConfigurationError(f"{name} must be a positive integer")
             return value
 
+        calendar_ids = tuple(
+            value.strip()
+            for value in required("JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS").split(",")
+        )
+        if (
+            not calendar_ids
+            or any(
+                not value or len(value.encode("utf-8")) > 1_024
+                for value in calendar_ids
+            )
+            or len(set(calendar_ids)) != len(calendar_ids)
+        ):
+            raise ConfigurationError(
+                "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS must be a unique, "
+                "non-empty comma-separated list"
+            )
+
         embedding_model = required("JARVIS_EMBEDDING_MODEL")
         if embedding_model != EMBEDDING_MODEL:
             raise ConfigurationError(
@@ -236,6 +258,7 @@ class Settings(BaseModel):
                 embedding_openai_api_key=SecretStr(
                     required("JARVIS_EMBEDDING_OPENAI_API_KEY")
                 ),
+                verified_owner_only_calendar_ids=calendar_ids,
                 embedding_model=EMBEDDING_MODEL,
                 embedding_dimension=EMBEDDING_DIMENSION,
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),

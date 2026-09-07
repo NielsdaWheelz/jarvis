@@ -4,15 +4,20 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
+import pytest
 from llm_agent_kernel import (
     CancellationToken,
+    InitialReadDispatchLineage,
     ProviderUsage,
     RunId,
     RunMetrics,
     ThreadNoWork,
+    ThreadStopKind,
+    ThreadStopped,
+    ToolDispatchDefect,
 )
 from pydantic import SecretStr
 
@@ -29,6 +34,7 @@ from jarvis.discord import (
 from jarvis.messages import InboundInsert, PendingControl, StoredMessage
 from jarvis.service import (
     BackgroundDeferred,
+    CapturingReadDispatcher,
     IngressStore,
     JarvisService,
     ThreadRunner,
@@ -55,6 +61,7 @@ def _settings(tmp_path: Path) -> Settings:
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-google-client"),
         google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        verified_owner_only_calendar_ids=("primary",),
         connector_encryption_key_version="v2",
         connector_encryption_keys=SecretStr("synthetic-keyring"),
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -79,6 +86,30 @@ def _stored(text: str, *, identifier: UUID | None = None) -> StoredMessage:
         remembered_at=None,
         trace={},
     )
+
+
+async def test_main_observation_capture_rejects_isolated_lineage() -> None:
+    class Delegate:
+        def __init__(self) -> None:
+            self.called = False
+
+        async def dispatch(self, **kwargs: object) -> object:
+            del kwargs
+            self.called = True
+            raise AssertionError("isolated dispatch must be rejected before delegation")
+
+    delegate = Delegate()
+    dispatcher = CapturingReadDispatcher(cast(Any, delegate))
+    with pytest.raises(ToolDispatchDefect, match="continuing-thread lineage"):
+        await dispatcher.dispatch(
+            binding=cast(Any, object()),
+            validated_input=object(),
+            plan=cast(Any, object()),
+            budgets=cast(Any, object()),
+            cancellation=CancellationToken(),
+            lineage=InitialReadDispatchLineage(RunId("initial-read")),
+        )
+    assert not delegate.called
 
 
 class _DeliveryStore:
@@ -319,6 +350,129 @@ class _BlockingBackground:
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
         cancellation.cancel()
+
+
+class _PauseIngress(_Ingress):
+    async def insert_waking(self, **kwargs: object) -> InboundInsert:
+        inserted = await super().insert_waking(**kwargs)  # type: ignore[arg-type]
+        incoming = self.inserted[-1]
+        if incoming.control is Control.PAUSE:
+            self.controls.append(PendingControl(inserted.message.id, "pause", False))
+        return inserted
+
+
+class _PostActionPauseRunner(_Runner):
+    def __init__(self, store: _PauseIngress) -> None:
+        super().__init__()
+        self._store = store
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.active = False
+        self.runs = 0
+
+    async def run(self, cancellation: CancellationToken) -> ThreadStopped:
+        self.runs += 1
+        self.active = True
+        self.started.set()
+        await self.release.wait()
+        assert cancellation.cancelled
+        self.active = False
+        return ThreadStopped(
+            RunMetrics(RunId("post-action-pause"), 1, ProviderUsage(), 0.01, True),
+            ThreadStopKind.preempted,
+        )
+
+    async def settle_control(self, message_id: UUID, control: Control) -> bool:
+        assert control is Control.PAUSE
+        assert self._store.controls[0].message_id == message_id
+        self._store.controls.pop(0)
+        return True
+
+
+class _PostActionRecovery:
+    def __init__(self, runner: _PostActionPauseRunner) -> None:
+        self.runner = runner
+        self.calls = 0
+        self.allow_queued_execution: list[bool] = []
+
+    async def recover(self, *, allow_queued_execution: bool = True) -> int:
+        assert not self.runner.active
+        self.calls += 1
+        self.allow_queued_execution.append(allow_queued_execution)
+        return 1 if self.calls == 2 else 0
+
+
+async def test_pause_after_action_recovers_before_paused_service_returns(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    store = _PauseIngress()
+    runner = _PostActionPauseRunner(store)
+    recovery = _PostActionRecovery(runner)
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, store),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, runner),
+        action_recovery=recovery,
+        gateway=_Gateway(),
+    )
+    drain = asyncio.create_task(service.drain_once())
+    await asyncio.wait_for(runner.started.wait(), timeout=1)
+    await service.receive_owner_message(
+        DiscordOwnerMessage(
+            "42",
+            "33",
+            "pause",
+            datetime(2026, 9, 3, 18, tzinfo=UTC),
+            Control.PAUSE,
+        )
+    )
+    runner.release.set()
+    await asyncio.wait_for(drain, timeout=1)
+
+    assert runner.runs == 1
+    assert recovery.calls == 2
+    assert recovery.allow_queued_execution == [True, False]
+    assert store.controls == []
+    assert await PausedState(paused_path).is_paused()
+
+
+class _CircuitIngress(_Ingress):
+    async def circuit_is_open(self) -> bool:
+        return True
+
+
+class _RecoveryModeRecorder:
+    def __init__(self) -> None:
+        self.allow_queued_execution: list[bool] = []
+
+    async def recover(self, *, allow_queued_execution: bool = True) -> int:
+        self.allow_queued_execution.append(allow_queued_execution)
+        return 0
+
+
+async def test_open_circuit_runs_only_reconciliation_recovery(
+    tmp_path: Path,
+) -> None:
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    recovery = _RecoveryModeRecorder()
+    service = _InspectableService(
+        settings=_settings(tmp_path),
+        store=cast(IngressStore, _CircuitIngress()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _Runner()),
+        action_recovery=recovery,
+        gateway=_Gateway(),
+    )
+
+    await service.drain_once()
+
+    assert recovery.allow_queued_execution == [False]
 
 
 async def test_gateway_ready_catches_up_after_canonical_watermark(

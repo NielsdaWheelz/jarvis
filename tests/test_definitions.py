@@ -157,52 +157,70 @@ def _assert_codex_closed_schema(node: object) -> None:
             _assert_codex_closed_schema(child)
 
 
-def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None:
+def test_manifest_publishes_exact_slice5_dependency_and_role_revisions() -> None:
     manifest = load_session_manifest()
     assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
     assert manifest["application_session_contract_revision"] == "jarvis-slice-3-v1"
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
-        == "jarvis-main-slice-3-v1"
+        == "jarvis-main-slice-5-v1"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
-        == "jarvis-recaller-slice-4-v11"
+        == "jarvis-recaller-slice-4-v16"
     )
     assert session_compatibility_revision(manifest, "recaller") == (
-        "ecc242e4e685b2d4d0ad04422b0241dc0beac514928aa3a9d3a791b8861091cb"
+        "0fede7ec8ab388ce3f6105c61a33d46f8a2912b026a9b00e292862615bfa39b3"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["dreamer"]
         == "jarvis-dreamer-slice-4-v5"
     )
     assert session_compatibility_revision(manifest, "dreamer") == (
-        "07d8a1396abb6070fd577721bb3aecdbe21233fac3332daa2e10e0cb4a5793c4"
+        "9a4a5404789ea51172d8cb429e31a875fecad1ced5f7fb39b39f18f872a12122"
     )
     previous_recaller = {**manifest}
     previous_recaller_roles = dict(
         cast("dict[str, object]", previous_recaller["role_contract_revisions"])
     )
-    previous_recaller_roles["recaller"] = "jarvis-recaller-slice-4-v10"
+    previous_recaller_roles["recaller"] = "jarvis-recaller-slice-4-v11"
     previous_recaller["role_contract_revisions"] = previous_recaller_roles
     assert session_compatibility_revision(previous_recaller, "recaller") == (
-        "f2af5c739f4277c72c139236d411148a62d13c0e1dd0cb0fe158b933c4acca59"
+        "5f989b6f9045374e821155cb2be19daf27be50131effd633d0e4c57d8727ed93"
     )
     for role in ("main", "rememberer", "dreamer", "automatic_write_gate"):
         assert session_compatibility_revision(previous_recaller, role) == (
             session_compatibility_revision(manifest, role)
         )
     assert manifest["dependencies"] == {
-        "llm-agent-kernel": "670da13ff0cfe766f36d8966e0575db0f7525143",
+        "llm-agent-kernel": "09a1af093479aa92f3e783f4b4a7cc38e301a4a7",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",
         "provider-runtime": "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd",
     }
+    predecessor_kernel = {**manifest}
+    predecessor_kernel_dependencies = dict(
+        cast("dict[str, object]", predecessor_kernel["dependencies"])
+    )
+    predecessor_kernel_dependencies["llm-agent-kernel"] = (
+        "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
+    )
+    predecessor_kernel["dependencies"] = predecessor_kernel_dependencies
+    for role in (
+        "main",
+        "recaller",
+        "rememberer",
+        "dreamer",
+        "automatic_write_gate",
+    ):
+        assert session_compatibility_revision(predecessor_kernel, role) == (
+            session_compatibility_revision(manifest, role)
+        )
     original = session_compatibility_revision(manifest, "main")
     assert (
-        original == "91806d3ee93b4ae51864dee630cb46b9b4e1fb71098bed43b6482c357602274b"
+        original == "3cfd944608017249a0e1effbf5cd5fe3b389020a200a217a69c43990173ee6c8"
     )
 
     previous = {**manifest}
@@ -212,7 +230,7 @@ def test_manifest_revision_preserves_only_the_certified_usage_fix_pair() -> None
     previous_roles["main"] = "jarvis-main-slice-2-v2"
     previous["role_contract_revisions"] = previous_roles
     assert session_compatibility_revision(previous, "main") == (
-        "e618f4158dc5e7b221f1d2f6a5ac5b8a035d72d9264bdefdf1afe008e24b2406"
+        "72adbeb8a9932a894b00e05e7f79aefd13dfd1d7a3d5b7c5a8331e199071d1ea"
     )
 
     historical = {**manifest}

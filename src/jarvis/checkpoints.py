@@ -22,6 +22,7 @@ from llm_agent_kernel import (
     ClaimNoWork,
     ClaimResult,
     ConversationConclusion,
+    DispatchLineage,
     HostConclusion,
     HostInput,
     InputClaim,
@@ -60,6 +61,7 @@ from jarvis.messages import (
     NoMessages,
     SettlementTrace,
     StoredMessage,
+    render_host_fallback,
 )
 
 _REASON_SEPARATOR = re.compile(r"[^a-z0-9]+")
@@ -73,9 +75,13 @@ class _ActiveClaim:
     message_ids: tuple[UUID, ...]
     checkpoint: Checkpoint
     host_inputs: tuple[StoredMessage, ...]
+    admitted_inputs: tuple[HostInput, ...]
+    current_as_of: datetime
     pending_control: Literal["stop", "pause"] | None = None
     offered_message_ids: tuple[UUID, ...] = ()
     offered_host_inputs: tuple[StoredMessage, ...] = ()
+    offered_inputs: tuple[HostInput, ...] = ()
+    offered_as_of: datetime | None = None
     offered_checkpoint: Checkpoint | None = None
     batch_as_of: dict[tuple[InputId, ...], datetime] | None = None
 
@@ -146,6 +152,41 @@ class PostgresInputCheckpoint:
                 raise CheckpointStateDefect(
                     "batch clock lookup names an unknown input batch"
                 ) from error
+
+    async def automatic_write_gate_inputs(
+        self,
+        lineage: DispatchLineage,
+    ) -> tuple[tuple[HostInput, ...], datetime]:
+        """Return only current owner inputs and the latest admitted batch clock."""
+
+        async with self._lock:
+            active = self._active
+            if active is None or active.claim.claim_id != lineage.claim_id:
+                raise CheckpointStateDefect("write gate lineage has no active claim")
+            if active.offered_checkpoint == lineage.through_checkpoint:
+                self._promote_offered(active)
+            if active.checkpoint != lineage.through_checkpoint:
+                raise CheckpointStateDefect("write gate lineage checkpoint is stale")
+            if (
+                tuple(item.input_id for item in active.admitted_inputs)
+                != lineage.input_ids
+            ):
+                raise CheckpointStateDefect("write gate lineage input IDs differ")
+            owners = tuple(
+                item
+                for item in active.admitted_inputs
+                if item.sections.sections
+                and str(item.sections.sections[0].kind) == "owner_input"
+            )
+            if not owners:
+                if (
+                    active.route == "interactive"
+                    and active.host_inputs
+                    and all(item.source == "action" for item in active.host_inputs)
+                ):
+                    return (), active.current_as_of
+                raise CheckpointStateDefect("write gate has no current owner authority")
+            return owners, active.current_as_of
 
     async def settle_idle_control(
         self,
@@ -228,6 +269,8 @@ class PostgresInputCheckpoint:
                 host_inputs=tuple(
                     value for value in selected_messages if value.role == "host"
                 ),
+                admitted_inputs=claim.inputs,
+                current_as_of=claim.as_of,
                 pending_control=pending_control,
                 batch_as_of={
                     tuple(item.input_id for item in claim.inputs): claim.as_of,
@@ -303,6 +346,8 @@ class PostgresInputCheckpoint:
             active.offered_host_inputs = tuple(
                 value for value in result.messages if value.role == "host"
             )
+            active.offered_inputs = appended
+            active.offered_as_of = result.as_of
             new_checkpoint = Checkpoint(result.through_checkpoint)
             active.offered_checkpoint = new_checkpoint
             assert active.batch_as_of is not None
@@ -326,22 +371,35 @@ class PostgresInputCheckpoint:
                 claim, through_checkpoint, promote_offered=True
             )
             kind, outcome, conclusion_text = _conclusion(conclusion)
-            if conclusion_text is None and active.host_inputs:
-                conclusion_text = _host_fallback_text(
-                    active.host_inputs[0],
+            if active.host_inputs and not (kind == "conversation" and outcome == "say"):
+                conclusion_text = render_host_fallback(
+                    source=active.host_inputs[0].source,
+                    text=active.host_inputs[0].text,
                     maximum_characters=self._maximum_response_characters,
+                    suffix=conclusion_text,
                 )
-                kind = "conversation"
-                outcome = "host_fallback"
+                if not (kind == "suspension" and outcome == "system"):
+                    kind = "conversation"
+                    outcome = "host_fallback"
             if (
                 conclusion_text is not None
                 and len(conclusion_text) > self._maximum_response_characters
             ):
-                kind = "stopped"
-                outcome = "response_too_long"
-                conclusion_text = (
-                    "I stopped because the response exceeded Discord's message limit."
-                )
+                if active.host_inputs:
+                    conclusion_text = render_host_fallback(
+                        source=active.host_inputs[0].source,
+                        text=active.host_inputs[0].text,
+                        maximum_characters=self._maximum_response_characters,
+                    )
+                    kind = "conversation"
+                    outcome = "host_fallback"
+                else:
+                    kind = "stopped"
+                    outcome = "response_too_long"
+                    conclusion_text = (
+                        "I stopped because the response exceeded Discord's message "
+                        "limit."
+                    )
             conclusion_message_id = None
             if conclusion_text is not None:
                 identity = json.dumps(
@@ -398,8 +456,9 @@ class PostgresInputCheckpoint:
                     "Paused." if active.pending_control == "pause" else "Stopped."
                 )
                 if active.host_inputs:
-                    control_text = _host_fallback_text(
-                        active.host_inputs[0],
+                    control_text = render_host_fallback(
+                        source=active.host_inputs[0].source,
+                        text=active.host_inputs[0].text,
                         maximum_characters=self._maximum_response_characters,
                         suffix=control_text,
                     )
@@ -436,6 +495,21 @@ class PostgresInputCheckpoint:
 
     async def _settle_exhausted(self, exhausted: ExhaustedMessage) -> None:
         value = exhausted.message
+        conclusion_text = (
+            render_host_fallback(
+                source=value.source,
+                text=value.text,
+                maximum_characters=self._maximum_response_characters,
+                suffix=(
+                    "I stopped this message because it reached the configured "
+                    "retry limit."
+                ),
+            )
+            if value.role == "host"
+            else (
+                "I stopped this message because it reached the configured retry limit."
+            )
+        )
         await self._store.settle(
             consumed_message_ids=(value.id,),
             source_conversation_id=str(self._thread_id),
@@ -445,9 +519,7 @@ class PostgresInputCheckpoint:
                 conclusion_kind="stopped",
                 outcome="attempts_exhausted",
             ),
-            conclusion_text=(
-                "I stopped this message because it reached the configured retry limit."
-            ),
+            conclusion_text=conclusion_text,
             conclusion_message_id=uuid5(
                 NAMESPACE_URL,
                 f"jarvis-poison-v1:{value.id}:{self._maximum_attempts}",
@@ -489,15 +561,25 @@ class PostgresInputCheckpoint:
             and active.offered_checkpoint is not None
             and through_checkpoint == active.offered_checkpoint
         ):
-            active.message_ids += active.offered_message_ids
-            active.host_inputs += active.offered_host_inputs
-            active.checkpoint = active.offered_checkpoint
-            active.offered_message_ids = ()
-            active.offered_host_inputs = ()
-            active.offered_checkpoint = None
+            self._promote_offered(active)
         if through_checkpoint != active.checkpoint:
             raise CheckpointStateDefect("checkpoint watermark is stale or unknown")
         return active
+
+    @staticmethod
+    def _promote_offered(active: _ActiveClaim) -> None:
+        if active.offered_checkpoint is None or active.offered_as_of is None:
+            raise CheckpointStateDefect("offered input metadata is incomplete")
+        active.message_ids += active.offered_message_ids
+        active.host_inputs += active.offered_host_inputs
+        active.admitted_inputs += active.offered_inputs
+        active.current_as_of = active.offered_as_of
+        active.checkpoint = active.offered_checkpoint
+        active.offered_message_ids = ()
+        active.offered_host_inputs = ()
+        active.offered_inputs = ()
+        active.offered_as_of = None
+        active.offered_checkpoint = None
 
 
 def _host_input(value: StoredMessage) -> HostInput:
@@ -560,21 +642,6 @@ def _control_conclusion_id(message_ids: tuple[UUID, ...], reason: str) -> UUID:
         NAMESPACE_URL,
         "jarvis-control-v1:" + ",".join(map(str, message_ids)) + f":{reason}",
     )
-
-
-def _host_fallback_text(
-    waking: StoredMessage,
-    *,
-    maximum_characters: int,
-    suffix: str | None = None,
-) -> str:
-    prefix = "Reminder: " if waking.source == "schedule_wake" else "Action update: "
-    tail = f"\n{suffix}" if suffix is not None else ""
-    available = maximum_characters - len(tail)
-    fallback = prefix + waking.text
-    if len(fallback) > available:
-        fallback = fallback[: max(0, available - 1)] + "…"
-    return fallback + tail
 
 
 __all__ = ["PostgresInputCheckpoint"]

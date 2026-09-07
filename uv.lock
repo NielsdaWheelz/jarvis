@@ -520,7 +520,7 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.1" },
     { name = "discord-py", specifier = "==2.7.1" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=670da13ff0cfe766f36d8966e0575db0f7525143" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=09a1af093479aa92f3e783f4b4a7cc38e301a4a7" },
     { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=9e6d155f3b64f03495911435b7cae8b8d131f9a2" },
     { name = "openai-codex", specifier = "==0.144.4" },
     { name = "openai-codex-cli-bin", specifier = "==0.144.4" },
@@ -582,7 +582,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=670da13ff0cfe766f36d8966e0575db0f7525143#670da13ff0cfe766f36d8966e0575db0f7525143" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=09a1af093479aa92f3e783f4b4a7cc38e301a4a7#09a1af093479aa92f3e783f4b4a7cc38e301a4a7" }
 dependencies = [
     { name = "llm-tools" },
     { name = "openai-codex" },

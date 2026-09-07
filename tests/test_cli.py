@@ -4,12 +4,18 @@ import json
 import stat
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
 
-from jarvis.cli import StartupDefect, initialize_state, main
+from jarvis.cli import (
+    StartupDefect,
+    initialize_state,
+    main,
+    recover_startup_actions,
+)
 from jarvis.config import DiscordSettings
 from jarvis.settings import Settings
 
@@ -31,6 +37,7 @@ def _settings(tmp_path: Path) -> Settings:
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-google-client"),
         google_oauth_client_secret=SecretStr("synthetic-google-secret"),
+        verified_owner_only_calendar_ids=("primary",),
         connector_encryption_key_version="v2",
         connector_encryption_keys=SecretStr("synthetic-keyring"),
         connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
@@ -72,6 +79,44 @@ def test_initialize_state_rejects_nonprivate_runtime_directory(tmp_path: Path) -
     settings.runtime_state_directory.chmod(0o755)
     with pytest.raises(StartupDefect):
         initialize_state(settings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("paused", "circuit_open", "expected"),
+    ((True, False, False), (False, True, False), (False, False, True)),
+)
+async def test_startup_recovery_enters_queued_writes_only_while_active(
+    paused: bool,
+    circuit_open: bool,
+    expected: bool,
+) -> None:
+    class _Paused:
+        async def is_paused(self) -> bool:
+            return paused
+
+    class _Messages:
+        async def circuit_is_open(self) -> bool:
+            return circuit_open
+
+    class _Recovery:
+        def __init__(self) -> None:
+            self.calls: list[bool] = []
+
+        async def recover(self, *, allow_queued_execution: bool = True) -> int:
+            self.calls.append(allow_queued_execution)
+            return 1
+
+    recovery = _Recovery()
+    assert (
+        await recover_startup_actions(
+            action_recovery=cast("Any", recovery),
+            paused=cast("Any", _Paused()),
+            messages=cast("Any", _Messages()),
+        )
+        == 1
+    )
+    assert recovery.calls == [expected]
 
 
 def test_cli_rejects_retired_model_before_serve_or_runtime_io(

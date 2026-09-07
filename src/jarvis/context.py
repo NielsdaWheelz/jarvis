@@ -13,6 +13,7 @@ from llm_agent_kernel import (
     Checkpoint,
     ContextSourceDefect,
     HostInput,
+    InitialReadCall,
     InputClaim,
     InputId,
     OneShotCompleted,
@@ -31,6 +32,7 @@ from llm_tools import (
     PromptSectionKind,
     PromptSections,
     PromptText,
+    ToolId,
     render_prompt,
 )
 
@@ -38,6 +40,7 @@ from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
 from jarvis.definitions import RecallResult
 from jarvis.memory import MemoryIdentity, StoredMemory, StoredMemorySummary
 from jarvis.memory_dispatch import MemoryDispatchEvidence
+from jarvis.memory_tools import MemorySearchInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +163,14 @@ class IsolatedRecaller:
             provider=self._provider,
             dispatcher=dispatcher,
             budget_factory=ExactToolBudgetFactory(),
+            initial_read=InitialReadCall(
+                ToolId("memory.search"),
+                MemorySearchInput(
+                    query=_initial_recall_query(owner_input),
+                    lexical_limit=10,
+                    semantic_limit=10,
+                ).model_dump(mode="json"),
+            ),
             parent_admission=await self._admission.active_root(),
             cancellation=cancellation,
         )
@@ -181,7 +192,9 @@ class IsolatedRecaller:
         terminal_outcome = (
             "completed" if isinstance(outcome, OneShotCompleted) else outcome.type.value
         )
-        if isinstance(outcome, OneShotCompleted):
+        if isinstance(outcome, OneShotCompleted) and search_calls == 0:
+            terminal_outcome = "missing_search"
+        elif isinstance(outcome, OneShotCompleted):
             try:
                 result = RecallResult.model_validate(outcome.result)
             except (TypeError, ValueError):
@@ -404,6 +417,40 @@ def _is_owner_input(value: HostInput) -> bool:
     return any(
         str(section.kind) == "owner_input" for section in value.sections.sections
     )
+
+
+def _initial_recall_query(owner_input: HostInput) -> str:
+    owner_sections = tuple(
+        section
+        for section in owner_input.sections.sections
+        if str(section.kind) == "owner_input"
+    )
+    if (
+        len(owner_sections) != 1
+        or not isinstance(owner_sections[0].body, PromptText)
+        or not owner_sections[0].body.text.strip()
+    ):
+        raise ContextSourceDefect("owner input has no canonical text for recall")
+    text = owner_sections[0].body.text.strip()
+    if len(text) <= 2_048 and len(text.encode()) <= 4_096:
+        return text
+    marker = " ... "
+    if len(text) > 2_048:
+        prefix = text[:1_022]
+        suffix = text[-1_021:]
+    else:
+        split = len(text) // 2
+        prefix = text[:split]
+        suffix = text[split:]
+    while (
+        len(prefix) + len(marker) + len(suffix) > 2_048
+        or len((prefix + marker + suffix).encode()) > 4_096
+    ):
+        if len(prefix.encode()) >= len(suffix.encode()):
+            prefix = prefix[:-1]
+        else:
+            suffix = suffix[1:]
+    return prefix + marker + suffix
 
 
 def _memory_sections(memories: tuple[StoredMemory, ...]) -> PromptSections:

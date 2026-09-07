@@ -243,7 +243,9 @@ class ReadToolDispatcher:
         if not hasattr(validated_input, "model_dump"):
             raise ToolDispatchDefect("kernel supplied an invalid decoded tool input")
         value = cast("Any", validated_input).model_dump(mode="json")
-        if str(tool_id).startswith("web.") and self._contains_secret(value):
+        if str(tool_id).startswith("web.") and contains_secret(
+            value, self._host_secrets
+        ):
             return DispatchCompleted(dict(_INVALID_INPUT))
         position = _position(lineage)
         try:
@@ -268,39 +270,40 @@ class ReadToolDispatcher:
             raise ToolDispatchDefect("automatic read dispatch failed") from exc
         return DispatchCompleted(result)
 
-    def _contains_secret(self, value: object) -> bool:
-        if isinstance(value, str):
-            pending = [value]
-            seen: set[str] = set()
-            while pending:
-                candidate = pending.pop()
-                if candidate in seen:
-                    continue
-                seen.add(candidate)
-                if any(secret in candidate for secret in self._host_secrets):
-                    return True
-                if _SECRET_PATTERN.search(candidate) is not None:
-                    return True
-                pending.extend((unquote(candidate), unquote_plus(candidate)))
-            return False
-        if isinstance(value, dict):
-            items = cast("dict[object, object]", value).values()
-            return any(self._contains_secret(item) for item in items)
-        if isinstance(value, list):
-            return any(
-                self._contains_secret(item) for item in cast("list[object]", value)
-            )
-        return False
-
 
 def _position(lineage: ToolDispatchLineage) -> InvocationPosition:
     if isinstance(lineage, DispatchLineage):
         return InvocationPosition(
             f"thread:{lineage.claim_id}:step:{lineage.model_step_ordinal}"
         )
-    return InvocationPosition(
-        f"isolated:{lineage.run_id}:step:{lineage.model_step_ordinal}"
-    )
+    return lineage.position
 
 
-__all__ = ["ReadToolDispatcher", "RunReadRecorder"]
+def contains_secret(value: object, host_secrets: tuple[str, ...]) -> bool:
+    if isinstance(value, str):
+        pending = [value]
+        seen: set[str] = set()
+        while pending:
+            candidate = pending.pop()
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if any(secret and secret in candidate for secret in host_secrets):
+                return True
+            if _SECRET_PATTERN.search(candidate) is not None:
+                return True
+            pending.extend((unquote(candidate), unquote_plus(candidate)))
+        return False
+    if isinstance(value, dict):
+        return any(
+            contains_secret(item, host_secrets)
+            for item in cast("dict[object, object]", value).values()
+        )
+    if isinstance(value, list):
+        return any(
+            contains_secret(item, host_secrets) for item in cast("list[object]", value)
+        )
+    return False
+
+
+__all__ = ["ReadToolDispatcher", "RunReadRecorder", "contains_secret"]

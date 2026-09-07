@@ -22,6 +22,9 @@ ClaimRoute = Literal["interactive", "scheduled_wake"]
 MAX_TRACE_BYTES = 16_384
 MAX_REASON_CODE_LENGTH = 64
 MAX_DISCORD_MESSAGE_CHARACTERS = 2_000
+ACTION_MODEL_CONTEXT_SEPARATOR = (
+    "\n\nOriginal validated arguments for model context only:\n"
+)
 _REASON_CODE = re.compile(r"^[a-z0-9][a-z0-9_:-]*$")
 
 
@@ -531,6 +534,31 @@ class MessageStore:
                     .returning(*message.c)
                 )
                 conclusion = _stored_message(result.mappings().one())
+            scheduled = tuple(
+                value for value in stored_rows if value.source == "schedule_wake"
+            )
+            if scheduled:
+                if len(scheduled) != 1 or assistant_id is None:
+                    raise PersistenceDefect(
+                        "scheduled wake requires one visible conclusion"
+                    )
+                source_message_id = scheduled[0].source_message_id
+                if source_message_id is None:
+                    raise PersistenceDefect("scheduled wake has no action identity")
+                try:
+                    schedule_action_id = UUID(source_message_id)
+                except ValueError as exc:
+                    raise PersistenceDefect(
+                        "scheduled wake action identity is invalid"
+                    ) from exc
+                from jarvis.actions import finish_schedule_conclusion
+
+                await finish_schedule_conclusion(
+                    connection,
+                    action_id=schedule_action_id,
+                    conclusion_message_id=assistant_id,
+                    recorded_at=settlement_time,
+                )
             await connection.execute(
                 update(message)
                 .where(message.c.id.in_(consumed_message_ids))
@@ -1219,12 +1247,13 @@ class MessageStore:
             ).as_json(conclusion_id)
             host_inputs = tuple(value for value in prefix if value.role == "host")
             for index, waking in enumerate(host_inputs):
+                visibility_id = uuid5(
+                    NAMESPACE_URL,
+                    f"jarvis-recovered-host-v1:{waking.id}:{message_id}:{control}",
+                )
                 await connection.execute(
                     insert(message).values(
-                        id=uuid5(
-                            NAMESPACE_URL,
-                            f"jarvis-recovered-host-v1:{waking.id}:{message_id}:{control}",
-                        ),
+                        id=visibility_id,
                         role="assistant",
                         text=_host_visibility_text(waking),
                         source="discord",
@@ -1238,6 +1267,23 @@ class MessageStore:
                         trace={},
                     )
                 )
+                if waking.source == "schedule_wake":
+                    if waking.source_message_id is None:
+                        raise PersistenceDefect("scheduled wake has no action identity")
+                    try:
+                        schedule_action_id = UUID(waking.source_message_id)
+                    except ValueError as exc:
+                        raise PersistenceDefect(
+                            "scheduled wake action identity is invalid"
+                        ) from exc
+                    from jarvis.actions import finish_schedule_conclusion
+
+                    await finish_schedule_conclusion(
+                        connection,
+                        action_id=schedule_action_id,
+                        conclusion_message_id=visibility_id,
+                        recorded_at=settlement_time,
+                    )
             result = await connection.execute(
                 insert(message)
                 .values(
@@ -1405,11 +1451,42 @@ def _replace_attempts(value: StoredMessage, attempt_number: int) -> StoredMessag
 
 
 def _host_visibility_text(waking: StoredMessage) -> str:
-    prefix = "Reminder: " if waking.source == "schedule_wake" else "Action update: "
-    value = prefix + waking.text
-    if len(value) <= MAX_DISCORD_MESSAGE_CHARACTERS:
-        return value
-    return value[: MAX_DISCORD_MESSAGE_CHARACTERS - 1] + "…"
+    return render_host_fallback(
+        source=waking.source,
+        text=waking.text,
+        maximum_characters=MAX_DISCORD_MESSAGE_CHARACTERS,
+    )
+
+
+def host_safe_text(waking: StoredMessage) -> str:
+    if waking.source != "action":
+        return waking.text
+    return waking.text.partition(ACTION_MODEL_CONTEXT_SEPARATOR)[0]
+
+
+def render_host_fallback(
+    *,
+    source: str,
+    text: str,
+    maximum_characters: int,
+    suffix: str | None = None,
+) -> str:
+    if source not in {"action", "schedule_wake"}:
+        raise ValueError("host fallback requires an action or scheduled wake")
+    if type(maximum_characters) is not int or maximum_characters <= 0:
+        raise ValueError("host fallback bound must be a positive integer")
+    safe_text = (
+        text.partition(ACTION_MODEL_CONTEXT_SEPARATOR)[0]
+        if source == "action"
+        else text
+    )
+    prefix = "Reminder: " if source == "schedule_wake" else "Action update: "
+    tail = f"\n{suffix}" if suffix is not None else ""
+    available = maximum_characters - len(tail)
+    fallback = prefix + safe_text
+    if len(fallback) > available:
+        fallback = fallback[: max(0, available - 1)] + "…"
+    return fallback + tail
 
 
 def _bounded_trace(value: dict[str, object]) -> None:

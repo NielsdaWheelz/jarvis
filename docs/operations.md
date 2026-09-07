@@ -1,11 +1,23 @@
-# Slice 4 operations
+# Slice 5 operations
 
-Jarvis Slice 4 is one Python 3.12 process, one PostgreSQL database, and one
-configured Discord guild channel. It has no HTTP listener. Its model-callable
-catalog contains exactly the nine automatic external reads plus the two memory
-reads in SPEC 7.3. The main role receives only the external reads; the isolated
-recaller and rememberer receive only `memory.search` and `memory.open`. Run it
-as a dedicated unprivileged OS user in UTC.
+Jarvis Slice 5 is one Python 3.12 process, one PostgreSQL database, and one
+configured Discord guild channel. It has no HTTP listener. Its maximum catalog
+is the exact v1 catalog in SPEC 7.3. The selected Main plan contains the nine
+external reads and six automatic writes; `gmail.send_draft` remains unavailable
+and no approval-bearing plan is selectable until Slice 6. The isolated memory
+roles receive only `memory.search` and `memory.open`, and AutomaticWriteGate has
+an empty plan. Run Jarvis as a dedicated unprivileged OS user in UTC.
+
+For every owner input, recall begins with exactly one kernel-dispatched
+deterministic `memory.search` call and its typed observation. The isolated
+recaller may then adaptively use `memory.search` and `memory.open`; operations
+must not replace the initial kernel dispatch with a host-side repository read.
+
+Slice 5 names the requested-wake model tool and durable action
+`schedule.wake`. Operational queries must use that exact value for
+`action.tool_name`. The host-authored due input deliberately retains the
+distinct protocol value `message.source = schedule_wake`; do not migrate or
+rewrite that source value.
 
 ## Install and configure
 
@@ -35,6 +47,13 @@ is also added to the host-side Web secret-rejection set. Configuration fixes
 `JARVIS_EMBEDDING_MODEL=text-embedding-3-small` and
 `JARVIS_EMBEDDING_DIMENSION=1536`; changing either requires the stopped rebuild
 procedure in SPEC 7.2.
+
+Set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` to the unique comma-separated IDs
+whose live ACLs the operator has verified are owner-only. Slice 5 automatically
+executes Calendar writes only for one of those IDs, only with no attendees and
+no attendee notification, and only after AutomaticWriteGate allows the current
+owner request. Unknown, shared, stale, or attendee-bearing work fails closed;
+Slice 5 does not present or execute an approval.
 
 Apply the schema and initialize the private state once:
 
@@ -79,6 +98,52 @@ unused and its existing parent must be mode 0700. The Codex state-root base is
 the private existing directory above the `codex/<profile>` provider scope; do
 not copy its authentication into the checkout or process environment. The Codex
 child receives an empty environment from the production adapter.
+
+Run the AutomaticWriteGate matrix once with no retries. It submits five
+synthetic-safe prompt-injection denials and three direct-owner usability cases
+through the exact isolated empty-plan production role. Its output contains only
+decisions, counts, role/plan/schema identities, usage, and timings:
+
+```sh
+JARVIS_CODEX_MODEL=gpt-5.6-terra \
+JARVIS_CODEX_PROFILE_KEY=jarvis-runtime \
+JARVIS_CODEX_STATE_ROOT=/private/existing/agent-state \
+JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/slice5-gate-runtime \
+  uv run python scripts/qualify_write_gate.py --confirm-paid
+```
+
+Run the live Gmail and Calendar mutations against their own empty database. The
+qualifier creates and updates one unsent draft, creates/updates/deletes one
+no-attendee event on the explicitly named verified owner-only calendar, checks
+provider reconciliation and one action per effect, and removes every external
+artifact in `finally`. The artificial post-receipt Gmail-create reconciliation
+may report either the exact positive match or bounded uncertainty when the
+unordered sample omits it; the qualifier rejects `absent`, requires the original
+action to remain at one executor entry, and never repeats the create:
+
+```sh
+JARVIS_LIVE_WRITES=1 \
+JARVIS_LIVE_WRITE_CALENDAR_ID=primary \
+  uv run python scripts/qualify_writes.py
+```
+
+Run the paid scheduled-wake and Discord qualification against another empty
+database and fresh private runtime. It covers a separate schedule cancellation,
+exact due-time timer behavior, overdue restart behavior, a real read-only Terra
+proactive run with no recall, deterministic visible fallbacks, idempotent host
+messages, atomic wake outcomes, and live Discord delivery. It deletes every
+created Discord message before reporting success:
+
+```sh
+JARVIS_PROACTIVITY_LIVE=1 \
+JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice5-proactivity-runtime \
+  uv run python scripts/qualify_proactivity.py
+```
+
+All three commands require the ordinary production settings documented above.
+The write and proactivity databases and all private runtime directories are
+qualification evidence; retain their exact names in the Slice 5 report until an
+operator explicitly authorizes disposal.
 
 First run all nine live read operations through the production catalog,
 dispatcher, frozen Main plan, and exact budget. The configured Gmail query must
@@ -167,9 +232,10 @@ Run the Slice 3 memory qualifier against its own empty, freshly migrated
 database. The script inserts only the frozen redacted fixture corpus, embeds it
 through the production provider-runtime port, proves the embedding credential
 is rejected for generation, runs every owner-approved recall case through a
-fresh isolated Terra recaller, and runs a fresh isolated zero-memory rememberer
-that must advance its owner watermark without adding a memory or action. The
-runtime-state directory must not exist before the command.
+fresh isolated Terra recaller whose first typed observation comes from the one
+kernel-dispatched deterministic `memory.search`, and runs a fresh isolated
+zero-memory rememberer that must advance its owner watermark without adding a
+memory or action. The runtime-state directory must not exist before the command.
 
 ```sh
 JARVIS_MEMORY_LIVE=1 \
@@ -266,7 +332,29 @@ owner-side mutation.
 
 ## Restart and recovery
 
-Startup performs bounded Discord catch-up, retries persisted assistant rows
+Startup first reconciles every queued or executing action whose original turn
+cannot safely resume. Each exact current binding and immutable execution
+contract must still match. Provider reads never increment executor entries;
+re-execution occurs only after tool-specific evidence proves absence and safety
+and both immutable ceilings still permit it. Unresolved evidence becomes
+terminal `uncertain`; receipt-backed scheduled wakes resume their local
+lifecycle and never become uncertain. Missing action-resolution inputs are
+inserted idempotently before ordinary message work begins.
+
+`gmail.create_draft` is never repeated after an ambiguous provider result. Its
+three bounded observations use `users.drafts.list` without `q`, traverse at most
+five pages of eight unordered IDs per observation, and fetch at most forty raw
+candidates. The entire procedure is capped at thirty seconds and sixteen MiB of
+accepted response bodies, in addition to the shared two-MiB response cap. An
+observed exact effect-header and normalized-content match without an observed
+duplicate or conflict proves success even if pagination is incomplete; every
+unresolved path, including a complete enumeration with no match, becomes
+terminal `uncertain` and produces the ordinary idempotent action-resolution message.
+`nextPageToken` is recorded only as absent, present, invalid, or unknown, never by
+value. Operators must inspect Gmail before choosing to make a later, distinct
+owner-requested action; recovery never requeues the original create.
+
+Startup then performs bounded Discord catch-up, retries persisted assistant rows
 whose `source_message_id` is null, releases orphaned admission concurrency
 without refunding its rolling charge, and scans unprocessed, unparked waking
 rows. A compatible main-session reference is resumed. A missing, incompatible,
@@ -278,6 +366,12 @@ damaged trace cannot establish a group. Background admission delay is silent;
 the service schedules the next capacity reset rather than requiring new owner
 traffic. Host action-resolution and scheduled-wake rows are never memory-work
 targets.
+
+Slice 5 never executes approval-required work. `gmail.send_draft` is unavailable
+and absent from the selected plan; a shared/unknown-calendar or attendee-bearing
+write creates no external effect. Do not resolve those requests by editing the
+action table or enabling an unavailable binding. Deploy Slice 6 only after its
+approval presentation and interaction gates are fully qualified.
 Successful outbox delivery drains every current batch. A row that exhausts its
 finite delivery retry schedule remains pending and stops that drain; the next
 startup or ingress signal retries it with the same persisted UUID and nonce.
@@ -289,8 +383,8 @@ owner message without adding non-canonical cursor state.
 
 `stop` and `pause` are exact, case-insensitive owner messages handled by the
 host. `resume` clears the durable pause. Ordinary process termination cannot
-undo an external effect; later slices reconcile effectful action rows before
-any repeat.
+undo an external effect; Slice 5 reconciles effectful action rows before any
+repeat.
 
 If a configuration defect parks input, first stop the service and correct the
 defect. Then clear only the reviewed UUIDs while the command owns the deployment

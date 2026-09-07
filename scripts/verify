@@ -23,9 +23,9 @@ install_environment="$(mktemp -d)"
 trap 'rm -rf -- "$kernel_checkout" "$provider_checkout" "$tools_checkout" "$artifact_directory" "$install_environment"' EXIT
 git -C "$kernel_checkout" init --quiet
 git -C "$kernel_checkout" remote add origin https://github.com/NielsdaWheelz/llm-agent-kernel.git
-git -C "$kernel_checkout" fetch --quiet --depth=1 origin 670da13ff0cfe766f36d8966e0575db0f7525143
+git -C "$kernel_checkout" fetch --quiet --depth=1 origin 09a1af093479aa92f3e783f4b4a7cc38e301a4a7
 git -C "$kernel_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 670da13ff0cfe766f36d8966e0575db0f7525143
+test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 09a1af093479aa92f3e783f4b4a7cc38e301a4a7
 uv run --project "$kernel_checkout" --frozen --all-groups pytest -q "$kernel_checkout"
 git -C "$provider_checkout" init --quiet
 git -C "$provider_checkout" remote add origin https://github.com/NielsdaWheelz/llm-calling.git

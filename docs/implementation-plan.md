@@ -36,7 +36,7 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The implemented public kernel pin
-  `670da13ff0cfe766f36d8966e0575db0f7525143`, with exact
+  `09a1af093479aa92f3e783f4b4a7cc38e301a4a7`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2
@@ -254,6 +254,9 @@ Deliver:
   isolated rememberer after every eligible completed turn; both use one-shot
   execution, touch no input-checkpoint or saved-session port, and return closed
   structured `finish.result` payloads.
+- Exactly one kernel-dispatched deterministic `memory.search` typed observation
+  starts each owner-input recall before the recaller adaptively searches or opens
+  memory.
 - Exact recaller and rememberer `RunLimits` plus plan-aware factory conformance
   before those plans become selectable.
 - Stable external-reference convention.
@@ -304,7 +307,7 @@ Deliver:
 - Action-derived Calendar create IDs plus get-and-compare reconciliation for
   create/update/delete ambiguity.
 - Automatic/approval classification owned by host code.
-- Owner-requested `schedule_wake` with closed create/cancel variants, exact
+- Owner-requested `schedule.wake` with closed create/cancel variants, exact
   due-time and restart behavior; no generic quiet hours, connector polling, or
   autonomous inbox/calendar monitor.
 - Immutable schedule `creation_receipt` plus separate `wake_outcome`; recorder

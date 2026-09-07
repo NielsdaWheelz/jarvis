@@ -13,7 +13,7 @@ dependencies = [
   "cryptography==50.0.1",
   "discord.py==2.7.1",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@670da13ff0cfe766f36d8966e0575db0f7525143",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@09a1af093479aa92f3e783f4b4a7cc38e301a4a7",
   "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@9e6d155f3b64f03495911435b7cae8b8d131f9a2",
   "openai-codex-cli-bin==0.144.4",
   "openai-codex==0.144.4",

@@ -203,6 +203,7 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr(sentinels[2]),
         google_oauth_client_secret=SecretStr(sentinels[3]),
+        verified_owner_only_calendar_ids=("primary",),
         connector_encryption_key_version="v2",
         connector_encryption_keys=SecretStr(sentinels[4]),
         connector_encryption_secret=SecretStr(sentinels[6]),

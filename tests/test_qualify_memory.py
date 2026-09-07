@@ -172,6 +172,14 @@ async def test_noncompleted_recaller_reports_only_validated_terminal_reason() ->
     assert "private-content" not in trace.failure_reason()
 
 
+def test_missing_search_is_a_distinct_noncompleted_recaller_reason() -> None:
+    trace = _NoopRecallTrace()
+    trace.terminal_outcome = "missing_search"
+
+    assert not trace.completed()
+    assert trace.failure_reason() == "recaller_terminal_missing_search"
+
+
 async def test_recall_failure_reports_only_frozen_case_progress() -> None:
     _, cases = load_recall_set(
         ROOT / "eval" / "recall-memories.jsonl",

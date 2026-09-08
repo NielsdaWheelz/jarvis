@@ -43,6 +43,7 @@ not implementation suggestions.
 | [0036](0036-default-calendar-reads-to-primary.md) | Default Calendar list reads to the owner's primary calendar | Superseded by 0037 after the owner clarified the all-calendar product requirement |
 | [0037](0037-read-and-use-all-owner-calendars.md) | Read and target every owner-visible Google calendar | Accepted; adds bounded live discovery and supersedes primary-only event listing |
 | [0038](0038-truthful-terminals-and-bounded-calendar-completeness.md) | Use typed truthful terminals and host-owned bounded Calendar completeness | Accepted; supersedes 0037's event cap/pagination and amends the Main terminal contract |
+| [0039](0039-personalize-only-the-main-agent.md) | Give Main the owner's voice and stable personal context | Accepted; amends the Main role and public-Web search behavior |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

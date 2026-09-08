@@ -1389,8 +1389,8 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "4070db6fd9045814b3e0ad6983fa12f0c40decf4bfb0b87b96c656b4ccdba819",
-            "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
+            "943b6bfde410b1b6f40115ed6358906a2937e632204b4644667cf162c1438a05",
+            "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
             "c20d8261d4def068b21779f0e20dfa5bc9a8d27fb3c7da5281ad8fbc2d762873",
             "80ab5204387c887c6b8e833ec6d15aa26ba4ab85a10947fde6f2e5b845a03a97",
             "aa076bdbc2f8052cb075dc97bfb94dcbc1a7f770183babc90870c83e5abb6eb8",

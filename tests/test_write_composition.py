@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import httpx
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
-from llm_tools import Available, ToolId, Unavailable, canonical_json_bytes
+from llm_tools import Available, PromptText, ToolId, Unavailable, canonical_json_bytes
 from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
@@ -239,8 +239,8 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "44f01904cbc1f90c79fb2732157d8e2a670d3bb9086c0b07feb0565799261119",
-            "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
+            "77c50af3488787790eec4010dab3cd5023cac14d7e7db1f1f81a1edf7e068367",
+            "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
             "f6fcee15b541de2b168f11c81bed628d1dc8931dcc8a35eb2b39420b67f40558",
             "35ccd2c976fc33adccea0351cabd362f06262efd17806630b4237b907959621a",
             "1c6994d109c8232187d671dd2e4f6a5cc52cf907dcf39810464264e611bd02cc",
@@ -376,6 +376,36 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     assert isinstance(definitions.main.output_contract, StructuredOutput)
     assert definitions.main.output_contract.name == "jarvis_terminal"
     assert definitions.main.output_contract.result_type is JarvisTerminal
+    main_body = definitions.main.role.instructions.sections[0].body
+    assert isinstance(main_body, PromptText)
+    main_instructions = main_body.text
+    assert "write all prose responses in lowercase" in main_instructions
+    assert "never use horizontal rules or emojis" in main_instructions
+    assert "critique the owner's ideas assertively" in main_instructions
+    assert "do not search the public web unless the owner explicitly requests" in (
+        main_instructions
+    )
+    owner_context = definitions.main.stable_context.sections
+    assert len(owner_context) == 1
+    assert owner_context[0].kind == "owner_context"
+    owner_body = owner_context[0].body
+    assert isinstance(owner_body, PromptText)
+    assert "neuroscientist by training" in owner_body.text
+    assert "maintain an accurate view of active commitments" in owner_body.text
+    assert "proactively surface what deserves attention" in owner_body.text
+    for role in (
+        definitions.recaller,
+        definitions.rememberer,
+        definitions.dreamer,
+        definitions.automatic_write_gate,
+    ):
+        rendered = "\n".join(
+            section.body.text if isinstance(section.body, PromptText) else ""
+            for sections in (role.role.instructions, role.stable_context)
+            for section in sections.sections
+        )
+        assert "neuroscientist by training" not in rendered
+        assert "write all prose responses in lowercase" not in rendered
     assert definitions.main.maximum_profile.run_limits.max_external_attempts == 243
     assert definitions.plans["main"].profile.run_limits.max_external_attempts == 242
     assert (
@@ -406,8 +436,8 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "e0b060ccf3bcf166da63a52e2f1994a706adf95c3c6a0188067391c42c25588e",
-            "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
+            "161e217619ac16fd67b989975950a9919a1d97ba50155e263cf964f9afd70cb7",
+            "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
             "d54b036c1ca8408ae2e5240e4b811fbef787216e07dfd2a565ecfb34dcf79ecd",
             "5ddd256d9d78f1c71ffc4db97ba823f81323e482535e8166199411f472af727e",
             "3e5f65bf8403e72bc7d3d3e912f7d2197872c5dac4dc3373665bc39c7debbc20",

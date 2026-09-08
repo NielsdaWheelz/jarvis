@@ -410,6 +410,13 @@ fresh recalled memory on owner turns and the capability descriptions exposed
 for every turn. It emits the strict structured step grammar defined once in
 [SPEC section 7.4](../SPEC.md#74-model-step-protocol-and-bounded-drain).
 
+Main alone receives the owner-approved conversational voice in its role
+instructions and the stable owner profile in its `owner_context`. The other
+cognitive roles receive neither. A change to either value changes Main's
+definition fingerprint and role-contract revision, causing a cold bootstrap;
+it does not change a tool plan or database schema. Public-Web search is
+model-callable only when the current owner input explicitly requests it.
+
 The pinned kernel projects that logical grammar into Codex's closed nullable
 provider-wire envelope and converts the selected payload back before semantic
 validation. Tool arguments are one strictly decoded JSON-object string at that

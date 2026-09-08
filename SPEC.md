@@ -26,8 +26,8 @@ V1 MUST:
    channel.
 2. Reuse the user's working Discord, Gmail, Google Calendar, and Google Maps
    integrations without avoidable reauthorization.
-3. Use bounded public-Web search and page reading when live external evidence is
-   needed.
+3. Use bounded public-Web search only when the owner explicitly requests a Web
+   search, and bounded page reading when the owner supplies or requests a page.
 4. Persist conversation history independently of Discord and provider sessions.
 5. Recall relevant durable memory before every owner-authored human input.
 6. Append useful durable memories after completed owner turns.
@@ -138,10 +138,22 @@ V1 has no slash commands. The only custom action components are:
 - **Approve**
 - **Deny**
 
-Reliability outranks personality. Jarvis SHOULD be direct, calm, resourceful,
-and willing to act. It SHOULD avoid ceremonial progress reports, needless menus,
-agent theatre, and notifications without plausible benefit. Silence is a valid
-result.
+Reliability outranks personality. Main's visible prose MUST use the owner-approved
+voice: informal, thoughtful, dry, terse, precise, candid, willing to disagree,
+explicit about uncertainty, and erudite when the subject warrants it. Prose is
+lowercase except for all-caps emphasis and deliberate initial-letter
+capitalization. Exact quotations, code, identifiers, URLs, names, titles, and
+other case-sensitive source material retain accurate casing. Main MUST NOT use
+horizontal rules or emojis. Bluntness MUST remain proportionate rather than
+becoming reflexive abuse. Jarvis SHOULD avoid ceremonial progress reports,
+needless menus, agent theatre, and notifications without plausible benefit.
+Silence is a valid result.
+
+Main MUST NOT call `web.search` unless the current owner input explicitly asks
+for a Web search. It MAY automatically inspect authorized private sources such
+as memory, Gmail, Calendar, and Maps when needed to answer or act. This is a
+product-use rule in addition to the host's fixed capability and authority
+boundaries.
 
 Main has no model-visible conversational `say` terminal. It uses the kernel's
 existing structured-output path and returns exactly one closed terminal result:
@@ -892,10 +904,13 @@ separate third-party property.
 
 Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
 isolated sessions. They MUST NOT share the main session or one another's
-history.
+history. Main alone receives the stable owner profile and conversational voice.
+Internal roles retain narrow task-specific instructions and MUST NOT inherit
+either.
 
 Jarvis owns product context selection and supplies canonical application data to
-the kernel `ContextSourcePort`: stable instructions, bounded completed message
+the kernel `ContextSourcePort`: Main's stable owner profile, stable instructions,
+bounded completed message
 history, current admitted inputs and source timestamps, recalled memories with
 IDs and timestamps when the owner-input recaller ran, granted capability
 descriptions, the owner IANA timezone, and one host-generated `as_of` instant. The kernel

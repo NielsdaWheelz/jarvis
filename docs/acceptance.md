@@ -137,13 +137,17 @@ in Slice 0.
 
 - [ ] **A3.1** Jarvis searches and reads a Gmail conversation.
 - [ ] **A3.2** Jarvis creates an email draft automatically.
-- [ ] **A3.3** Jarvis reads the live calendar. A 50-event final-code probe
+- [ ] **A3.3** Jarvis reads every live reader-or-better calendar, including
+      hidden CalendarList entries, under a 50-calendar bound. A 50-event final-code probe
       observes at least three normal events with `end.type=unspecified` and
       returns each payload-free rather than rejecting it or exposing Google's
       compatibility end; output reports only counts and no event content or ID.
-      The model-visible `calendar.list_events` input contains no `calendar_id`,
-      the host reads Google's `primary` calendar, and an ordinary owner request
-      naming no calendar receives a grounded answer without an ID clarification.
+      The model-visible `calendar.list_events` input contains no `calendar_id`;
+      the host performs bounded CalendarList discovery and aggregate event reads.
+      `calendar.list_calendars` returns exact IDs and human display names for
+      targeted work. An ordinary owner request naming no calendar receives a
+      grounded answer without an ID clarification. Partial failures and
+      truncation are explicit and must be disclosed.
 - [ ] **A3.4** Jarvis creates, edits, and removes a no-attendee event on a
       verified owner-only calendar without approval. Create uses the exact
       action-derived Google event ID from SPEC section 7.3; an injected lost
@@ -254,8 +258,8 @@ in Slice 0.
       local-filesystem, Gmail organization, Discord, delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.
-      Calendar list/get publish their v2 output contracts and binding
-      implementations: every normal event has a required direct
+      Calendar discovery v1, aggregate list v4, and get v2 publish their exact
+      output contracts and binding implementations: every normal event has a required direct
       timed/all-day/unspecified tagged end. The
       affected catalogs, maximum and selected profiles, plans, HostTables, Main
       definition fingerprint, and Main session revision are newly frozen; an

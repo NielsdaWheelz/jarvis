@@ -1107,7 +1107,7 @@ async def test_foreground_cancels_in_flight_derived_embedding(
 
 
 def test_slice3_role_contract_constants_are_exact_and_disjoint() -> None:
-    assert len(SLICE2_READ_IDS) == 9
+    assert len(SLICE2_READ_IDS) == 10
     assert len(SLICE3_MEMORY_READ_IDS) == 2
     assert set(SLICE2_READ_IDS).isdisjoint(SLICE3_MEMORY_READ_IDS)
     assert set(SLICE3_MEMORY_READ_IDS) == {
@@ -1389,11 +1389,11 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "5e32aeba6c39a32896da9faa3d468ea008183c482ff0d4d3d2bc89caebc83ce8",
-            "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2",
-            "b149718cfd23c87ee0230a2745f937fc96c6b62e3e50407a049ed5a37f9a4246",
-            "093848e75b0365052acae433bd1b70fbb03cc24da27ada3a25206c9d8ae2555b",
-            "5dea6e5e94989bf350b36616f8ca2193a067e1c3bdcc4867f519e6db3ea5777e",
+            "b0816e08fb25e33f2df41aec7d8a8e8d37a69a1eb9fce104e3f99f54a1448da7",
+            "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987",
+            "d8ed415ca62a4b6579e86bf2e279c06685e554ab9dc526c484185ff7c5d9c11a",
+            "c923b88e74f7f5baf3b6cedaa37a9af23bd2491591d778a96b6a4b326c56e4ea",
+            "391f46f1b859f0faa9b0c6af632768b54892602112259ab511009e039fbc71e3",
         ),
         "recaller": (
             "f9478d77a15c438cd34508bcbbe5679b85a56372681a4db03c76b516dabde0db",
@@ -1436,20 +1436,20 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
         SLICE3_MEMORY_READ_IDS
     )
     assert definitions.main.maximum_profile.run_limits == RunLimits(
-        max_calls=9,
-        max_external_attempts=21,
-        max_input_bytes=69_672,
-        max_output_bytes=1_114_112,
+        max_calls=10,
+        max_external_attempts=123,
+        max_input_bytes=73_768,
+        max_output_bytes=1_376_256,
         max_in_flight=1,
-        max_elapsed_seconds=150.0,
+        max_elapsed_seconds=205.0,
     )
     assert definitions.plans["main"].profile.run_limits == RunLimits(
-        max_calls=9,
-        max_external_attempts=20,
-        max_input_bytes=69_672,
-        max_output_bytes=262_144,
+        max_calls=10,
+        max_external_attempts=122,
+        max_input_bytes=73_768,
+        max_output_bytes=524_288,
         max_in_flight=1,
-        max_elapsed_seconds=150.0,
+        max_elapsed_seconds=205.0,
     )
     assert definitions.main.limits == KernelLimits(
         max_provider_turns=12,

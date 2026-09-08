@@ -29,22 +29,27 @@ from pydantic import ValidationError
 from jarvis._atomic_json import read_private_json, replace_private_json
 from jarvis.read_tools import (
     CALENDAR_API_BASE_URL,
+    CALENDAR_EVENT_CONCURRENCY,
     GMAIL_API_BASE_URL,
+    MAX_CALENDAR_LIST_ENTRIES,
     PLACE_DETAILS_FIELD_MASK,
     PLACES_API_BASE_URL,
     PLACES_SEARCH_FIELD_MASK,
-    PRIMARY_CALENDAR_ID,
     ROUTES_API_URL,
     ROUTES_FIELD_MASK,
     AllDayEventTime,
     CalendarCancelledEvent,
+    CalendarEventReadFailure,
     CalendarGetEventInput,
     CalendarGetEventSuccess,
+    CalendarListCalendarsInput,
+    CalendarListCalendarsSuccess,
     CalendarListEventsInput,
     CalendarListEventsSuccess,
     CalendarNormalEvent,
     CalendarObservedWritableEvent,
     CalendarParticipant,
+    CalendarReference,
     ConnectorFailure,
     Coordinates,
     GmailAttachment,
@@ -93,6 +98,13 @@ _MAX_TOKEN_ENVELOPE_CHARS = (
     len(_TOKEN_ENVELOPE_PREFIX) + (4 * _MAX_TOKEN_CIPHERTEXT_BYTES + 2) // 3
 )
 _TokenField = Literal["access_token", "refresh_token"]
+type _CalendarFailureType = Literal[
+    "CalendarNotFound",
+    "InvalidRange",
+    "RateLimited",
+    "ProviderUnavailable",
+    "ProviderResponseTooLarge",
+]
 
 
 class GoogleCredentialDefect(RuntimeError):
@@ -541,6 +553,34 @@ class GoogleReadConnector:
             raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
         return ReadResponse(result, attempts)
 
+    async def calendar_list_calendars(
+        self, value: CalendarListCalendarsInput
+    ) -> ReadResponse[CalendarListCalendarsSuccess]:
+        del value
+        payload, attempts = await self._get(
+            f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
+            params={
+                "maxResults": 50,
+                "minAccessRole": "reader",
+                "showDeleted": "false",
+                "showHidden": "true",
+            },
+        )
+        try:
+            calendars, truncated = _calendar_references(payload)
+            result = CalendarListCalendarsSuccess(
+                calendars=calendars,
+                truncated=truncated,
+                observed_at=self._observed_at(),
+            )
+        except _ProviderTooLarge as exc:
+            raise ConnectorFailure(
+                "provider_response_too_large", attempts=attempts
+            ) from exc
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+        return ReadResponse(result, attempts)
+
     async def calendar_list_events(
         self, value: CalendarListEventsInput
     ) -> ReadResponse[CalendarListEventsSuccess]:
@@ -551,30 +591,115 @@ class GoogleReadConnector:
             raise ConnectorFailure("invalid_range", attempts=0) from None
         if time_min >= time_max:
             raise ConnectorFailure("invalid_range", attempts=0)
-        calendar_id = quote(PRIMARY_CALENDAR_ID, safe="")
-        payload, attempts = await self._get(
-            f"{CALENDAR_API_BASE_URL}/calendars/{calendar_id}/events",
+        list_payload, attempts = await self._get(
+            f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
             params={
-                "maxResults": value.max_results,
-                "orderBy": "startTime",
-                "showDeleted": "true",
-                "singleEvents": "true",
-                "timeMax": _rfc3339(time_max),
-                "timeMin": _rfc3339(time_min),
-                "timeZone": value.time_zone,
+                "maxResults": 50,
+                "minAccessRole": "reader",
+                "showDeleted": "false",
+                "showHidden": "true",
             },
-            not_found="calendar_not_found",
-            invalid_request="invalid_range",
         )
         try:
-            items = _array(payload.get("items", []), "Calendar events")
-            events = tuple(
-                _calendar_event(PRIMARY_CALENDAR_ID, item)
-                for item in items[: value.max_results]
+            calendars, calendars_truncated = _calendar_references(list_payload)
+        except _ProviderTooLarge as exc:
+            raise ConnectorFailure(
+                "provider_response_too_large", attempts=attempts
+            ) from exc
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+
+        semaphore = asyncio.Semaphore(CALENDAR_EVENT_CONCURRENCY)
+
+        async def read_calendar(
+            calendar: CalendarReference,
+        ) -> tuple[
+            tuple[CalendarNormalEvent | CalendarCancelledEvent, ...],
+            CalendarEventReadFailure | None,
+            bool,
+            int,
+        ]:
+            async with semaphore:
+                calendar_attempts = 0
+                try:
+                    payload, calendar_attempts = await self._get(
+                        f"{CALENDAR_API_BASE_URL}/calendars/"
+                        f"{quote(calendar.calendar_id, safe='')}/events",
+                        params={
+                            "maxResults": value.max_results,
+                            "orderBy": "startTime",
+                            "showDeleted": "true",
+                            "singleEvents": "true",
+                            "timeMax": _rfc3339(time_max),
+                            "timeMin": _rfc3339(time_min),
+                            "timeZone": value.time_zone,
+                        },
+                        not_found="calendar_not_found",
+                        invalid_request="invalid_range",
+                    )
+                    items = _array(payload.get("items", []), "Calendar events")
+                    events = tuple(
+                        _calendar_event(calendar.calendar_id, item)
+                        for item in items[: value.max_results]
+                    )
+                    return (
+                        events,
+                        None,
+                        _has_next_page(payload) or len(items) > value.max_results,
+                        calendar_attempts,
+                    )
+                except _ProviderTooLarge:
+                    return (
+                        (),
+                        CalendarEventReadFailure(
+                            calendar_id=calendar.calendar_id,
+                            error="ProviderResponseTooLarge",
+                        ),
+                        False,
+                        calendar_attempts,
+                    )
+                except ConnectorFailure as exc:
+                    return (
+                        (),
+                        CalendarEventReadFailure(
+                            calendar_id=calendar.calendar_id,
+                            error=_calendar_failure_type(exc.code),
+                        ),
+                        False,
+                        exc.attempts,
+                    )
+                except (TypeError, ValueError, ValidationError):
+                    return (
+                        (),
+                        CalendarEventReadFailure(
+                            calendar_id=calendar.calendar_id,
+                            error="ProviderUnavailable",
+                        ),
+                        False,
+                        calendar_attempts,
+                    )
+
+        results = await asyncio.gather(*(read_calendar(item) for item in calendars))
+        all_events: list[CalendarNormalEvent | CalendarCancelledEvent] = []
+        failures: list[CalendarEventReadFailure] = []
+        truncated = calendars_truncated
+        for events, failure, calendar_truncated, calendar_attempts in results:
+            attempts += calendar_attempts
+            all_events.extend(events)
+            if failure is not None:
+                failures.append(failure)
+            truncated = truncated or calendar_truncated
+        try:
+            all_events.sort(
+                key=lambda event: _calendar_event_sort_key(event, value.time_zone)
             )
+            if len(all_events) > value.max_results:
+                truncated = True
             result = CalendarListEventsSuccess(
-                events=events,
-                truncated=_has_next_page(payload) or len(items) > value.max_results,
+                calendars=calendars,
+                events=tuple(all_events[: value.max_results]),
+                failures=tuple(sorted(failures, key=lambda item: item.calendar_id)),
+                truncated=truncated,
                 observed_at=self._observed_at(),
             )
         except _ProviderTooLarge as exc:
@@ -927,6 +1052,63 @@ def _has_next_page(value: Mapping[str, object]) -> bool:
     if not isinstance(token, str):
         raise ValueError("provider pagination token is malformed")
     return bool(token)
+
+
+def _provider_boolean(value: Mapping[str, object], key: str, *, default: bool) -> bool:
+    result = value.get(key, default)
+    if type(result) is not bool:
+        raise ValueError(f"provider field {key} is malformed")
+    return result
+
+
+def _calendar_references(
+    payload: Mapping[str, object],
+) -> tuple[tuple[CalendarReference, ...], bool]:
+    items = _array(payload.get("items", []), "Calendar list")
+    truncated = _has_next_page(payload) or len(items) > MAX_CALENDAR_LIST_ENTRIES
+    calendars: list[CalendarReference] = []
+    seen: set[str] = set()
+    for raw in items[:MAX_CALENDAR_LIST_ENTRIES]:
+        item = _mapping(raw, "Calendar list entry")
+        calendar_id = _exact(_required_string(item, "id"), 1_024)
+        if calendar_id in seen:
+            raise ValueError("Calendar list contains a duplicate identity")
+        seen.add(calendar_id)
+        display_name = item.get("summaryOverride", item.get("summary"))
+        if display_name is not None and not isinstance(display_name, str):
+            raise ValueError("Calendar display name is malformed")
+        time_zone = item.get("timeZone")
+        if time_zone is not None and not isinstance(time_zone, str):
+            raise ValueError("Calendar time zone is malformed")
+        calendars.append(
+            CalendarReference(
+                calendar_id=calendar_id,
+                display_name=(
+                    _exact(display_name, 1_024)
+                    if isinstance(display_name, str)
+                    else None
+                ),
+                time_zone=(
+                    _exact(time_zone, 255) if isinstance(time_zone, str) else None
+                ),
+                access_role=cast("Any", _required_string(item, "accessRole")),
+                primary=_provider_boolean(item, "primary", default=False),
+                hidden=_provider_boolean(item, "hidden", default=False),
+                selected=_provider_boolean(item, "selected", default=False),
+            )
+        )
+    return tuple(calendars), truncated
+
+
+def _calendar_failure_type(code: str) -> _CalendarFailureType:
+    failures: dict[str, _CalendarFailureType] = {
+        "calendar_not_found": "CalendarNotFound",
+        "invalid_range": "InvalidRange",
+        "rate_limited": "RateLimited",
+        "provider_unavailable": "ProviderUnavailable",
+        "provider_response_too_large": "ProviderResponseTooLarge",
+    }
+    return failures.get(code, "ProviderUnavailable")
 
 
 def _required_string(value: Mapping[str, object], key: str) -> str:
@@ -1307,6 +1489,23 @@ def _calendar_event(
         ),
         updated_at=_instant(_required_string(event, "updated")),
     )
+
+
+def _calendar_event_sort_key(
+    event: CalendarNormalEvent | CalendarCancelledEvent, time_zone: str
+) -> tuple[datetime, str, str]:
+    if isinstance(event, CalendarCancelledEvent):
+        return datetime.max.replace(tzinfo=UTC), event.calendar_id, event.event_id
+    start = event.writable.start
+    if isinstance(start, TimedEventTime):
+        instant = start.date_time.astimezone(UTC)
+    else:
+        instant = datetime.combine(
+            start.date,
+            datetime.min.time(),
+            tzinfo=ZoneInfo(time_zone),
+        ).astimezone(UTC)
+    return instant, event.calendar_id, event.event_id
 
 
 def _calendar_time(value: object) -> TimedEventTime | AllDayEventTime:

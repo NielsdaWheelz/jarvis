@@ -13,7 +13,7 @@
   "role_contract_revisions": {
     "automatic_write_gate": "jarvis-automatic-write-gate-slice-5-v1",
     "dreamer": "jarvis-dreamer-slice-4-v6",
-    "main": "jarvis-main-primary-calendar-v1",
+    "main": "jarvis-main-all-calendars-v1",
     "recaller": "jarvis-recaller-slice-4-v17",
     "rememberer": "jarvis-rememberer-slice-3-v1"
   },

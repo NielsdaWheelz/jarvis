@@ -142,7 +142,7 @@ async def test_memory_role_catalog_accepts_inert_synthetic_connector_settings(
         for client in clients:
             await client.aclose()
 
-    assert len(catalog.tool_ids) == 11
+    assert len(catalog.tool_ids) == 12
     assert catalog.binding(ToolId("memory.search")).implementation_revision == (
         "jarvis-memory-search-v1"
     )

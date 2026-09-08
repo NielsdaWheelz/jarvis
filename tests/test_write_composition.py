@@ -145,6 +145,7 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         ToolId("gmail.update_draft"),
         ToolId("gmail.send_draft"),
         ToolId("calendar.list_events"),
+        ToolId("calendar.list_calendars"),
         ToolId("calendar.get_event"),
         ToolId("calendar.create_event"),
         ToolId("calendar.update_event"),
@@ -237,11 +238,11 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "461bcd7869afdf1f9b13e9a89ad76a2cf282a872617422af249ff8c2720fcd37",
-            "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2",
-            "23b2ab5935247f889ce2eed802e611cce5db08886a1857f53db8d36415126d78",
-            "9cf6e28034acb433b41f827210ef8a9cec0a8b86640e5ba57ac32f39073e67b6",
-            "58a61d03fa3f48ebcb3bb06b5ef2220da33601421de4d539df48cbcb265fb9fa",
+            "861610abca5a25b03bce4975ea54fceb012f789dcdb07774d57ffb640407d520",
+            "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987",
+            "62a5ea9bd4f2e5420725625e569dc6292bfb71d21a04b0efb5d4c9dfac08f684",
+            "02473011615c07ef815e9c151941849c99d1ad4ab3dfd6d161c744247cc8787c",
+            "f463157144528634f575d7559ba649126b3bb6f4c5175c6e4a069c6ae1e2f1fc",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
@@ -276,8 +277,8 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         definitions.plans["scheduled_wake"].profile.profile_revision,
         definitions.plans["scheduled_wake"].plan_revision,
     ) == (
-        "501c186a0ee9fba6d1ab61a0a48b9f3c714298f212e6152a17a15fdefb9931f4",
-        "d9299ed99514f2af3a5c385c16823412cd48055fba082b23ef605d9eaabd7e6c",
+        "8ec8947be4ef5d83a03414e8e2da9859129ea76e152030ad764c19073284ef79",
+        "9803cfafecdb9aad10623b89c25d7c2bb9ebfab0cd95fb49c0cae711d93726bb",
     )
 
 
@@ -395,11 +396,11 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "2978d5b784c5352e1fb875b1be3b53b66d59831d86e3e6dfdc3efa3ad226edb0",
-            "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2",
-            "d9f8d3804c31b7c7214ac7fd4953fc764148c3b34eb2285c2601e739a7676780",
-            "5ab9f39d51cc7a59025a5b229bbb79912c26259ac671a1d2d5e0ec10ad4d07f9",
-            "c28001c8d1823384b229660afa505592c5ff98c16b4450399c7a71c9b72246a4",
+            "5e443bc1daf30bcac87fc8e0202f7399b75db47fd48ea21099e7667fc9e83c24",
+            "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987",
+            "e498e7bdbaef729aca8af16e1bf283a84177354df4e50d9070ace76ca3f0ea33",
+            "aafe5d6de827f02d7a62741e908f346592d5203ce214df3ccc076d4da2f45db5",
+            "bebcc756a26cfb03e67b5658efd18a53cd3cbf228567771436f36e14a3d19ae8",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
@@ -434,6 +435,6 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         definitions.plans["scheduled_wake"].profile.profile_revision,
         definitions.plans["scheduled_wake"].plan_revision,
     ) == (
-        "501c186a0ee9fba6d1ab61a0a48b9f3c714298f212e6152a17a15fdefb9931f4",
-        "d9299ed99514f2af3a5c385c16823412cd48055fba082b23ef605d9eaabd7e6c",
+        "8ec8947be4ef5d83a03414e8e2da9859129ea76e152030ad764c19073284ef79",
+        "9803cfafecdb9aad10623b89c25d7c2bb9ebfab0cd95fb49c0cae711d93726bb",
     )

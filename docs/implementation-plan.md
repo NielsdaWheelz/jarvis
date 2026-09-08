@@ -196,7 +196,7 @@ turn is safely replayed, and input racing with idle is never stranded.
 
 ## Slice 2: read tools
 
-Status: complete and qualified on 2026-09-04. The strengthened all-nine
+Status: complete and qualified on 2026-09-04. The strengthened original nine-read
 compound-linkage gate and final verifier passed. The dated
 [qualification report](qualification/2026-09-04-slice-2.md) records the exact
 dependencies, frozen identities, deterministic verification, sanitized live
@@ -216,8 +216,10 @@ Deliver:
   model-authored ID or prose, bounded corrective feedback, and a separate `say`
   only after the model observes its result.
 - `gmail.search` and `gmail.read_thread` bindings.
-- `calendar.list_events` v3 and `calendar.get_event` v2 bindings. List exposes no
-  calendar ID and selects Google's `primary` calendar host-side. Normal observed
+- `calendar.list_calendars` v1, `calendar.list_events` v4, and
+  `calendar.get_event` v2 bindings after ADR 0037 superseded the original
+  primary-only v3 list. List exposes no calendar ID and aggregates the bounded
+  live reader-or-better CalendarList host-side. Normal observed
   ends are a required direct timed/all-day/unspecified tagged union. Google's
   true flag discards its compatibility end and returns the payload-free
   unspecified variant, while false or missing requires a parsed end. The final

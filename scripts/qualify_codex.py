@@ -118,6 +118,10 @@ class _UnavailableReads:
         del value
         return await self._fail()
 
+    async def calendar_list_calendars(self, value: object) -> Any:
+        del value
+        return await self._fail()
+
     async def calendar_list_events(self, value: object) -> Any:
         del value
         return await self._fail()

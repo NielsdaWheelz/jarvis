@@ -1046,7 +1046,7 @@ V1 exposes exactly the following canonical model tools:
 | `gmail.search`, `gmail.read_thread` | Main | Read; automatic |
 | `gmail.create_draft`, `gmail.update_draft` | Main | Write; automatic |
 | `gmail.send_draft` | Main | Write; approval required |
-| `calendar.list_events`, `calendar.get_event` | Main | Read; automatic |
+| `calendar.list_calendars`, `calendar.list_events`, `calendar.get_event` | Main | Read; automatic |
 | `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | Main | Automatic only for a no-attendee event on a verified owner-only calendar; otherwise approval required |
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
@@ -1059,7 +1059,8 @@ The Slice 2 Jarvis-owned read result unions are exactly:
 |---|---|
 | `gmail.search` | `InvalidQuery`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
 | `gmail.read_thread` | `ThreadNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
-| `calendar.list_events` | `CalendarNotFound`, `InvalidRange`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `calendar.list_calendars` | `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| `calendar.list_events` | `InvalidRange`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
 | `calendar.get_event` | `EventNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
 | `maps.search_places` | `InvalidQuery`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
 | `maps.get_place` | `PlaceNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
@@ -1079,17 +1080,20 @@ the recaller may then adaptively call `memory.search` or `memory.open`.
 
 `calendar.list_events` takes only aware `time_min`, aware `time_max`, an IANA
 `time_zone`, and `max_results` from 1 through 50. It exposes no provider calendar
-ID. The host always reads the authenticated account's Google `primary` calendar
-and returns that exact target on each event for a later `calendar.get_event`
-call. An ordinary unspecified Calendar request therefore means the owner's
-primary calendar; Jarvis MUST NOT ask the owner for a provider calendar ID.
-Alternate-calendar discovery and aggregate-calendar reads are outside v1.
+ID. The host reads `users/me/calendarList` with reader-or-better access,
+non-deleted entries, hidden entries included, and a hard 50-calendar bound, then
+reads the requested range from every returned calendar. Jarvis MUST NOT ask the
+owner for a provider calendar ID. `calendar.list_calendars` exposes that same
+bounded live set, with an exact stable ID, nullable display name and IANA time
+zone, access role, and primary/hidden/selected flags, so a human calendar name
+can be resolved for targeted reads or writes. Neither result is persisted.
 
 Every Jarvis-owned entry above initially declares
 `implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
-with hyphens. The Calendar list binding is
-`jarvis-calendar-list_events-v3` after ADR 0036's host-owned primary-calendar
-selection; the Calendar get binding remains `jarvis-calendar-get_event-v2`
+with hyphens. Calendar discovery is `jarvis-calendar-list_calendars-v1`; the
+Calendar list binding is `jarvis-calendar-list_events-v4` after ADR 0037's
+bounded all-calendar aggregation; the Calendar get binding remains
+`jarvis-calendar-get_event-v2`
 after ADR 0029's observed-end correction. The model-facing tool IDs remain
 unversioned.
 Reviewers MUST reject
@@ -1123,12 +1127,13 @@ character references exactly once; plain text is never treated as markup.
 
 The production Brave binding uses the pinned `llm-tools`
 `operation_deadline_seconds=12.0` policy. Each selectable Slice 2 frozen plan
-tightens `web.search` to one external attempt and the aggregate external-attempt
-budget to 20 while retaining `BilledOnce`; the maximum role definition retains
-the declaration maximum of two attempts and the exact nine-read sum of 21.
+tightens `web.search` to one external attempt and retains `BilledOnce`; its
+aggregate limits are ten calls, 122 external attempts, 73,768 input bytes,
+524,288 output bytes, one in-flight model-tool call, and 205 seconds. The
+maximum role definition permits 123 attempts and 1,376,256 output bytes.
 Jarvis adds no second deadline wrapper.
 
-The seven Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
+The eight Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
 addition to their tool-specific failures. Provider JSON is rejected before
 parsing when its decoded body exceeds two mebibytes. Stable identifiers and
 values are never truncated: an overlong provider ID, email address, timestamp,
@@ -1157,9 +1162,10 @@ returned text is at most 64 KiB, and at most 50 mailboxes per address field and
 preferred; inline HTML is converted to inert text only as fallback. Jarvis does
 not fetch a Gmail `attachmentId`, execute HTML, or load a subresource.
 
-Calendar reads return a closed tagged event union. List always targets Google's
-special `primary` calendar alias host-side; the model supplies no calendar ID.
-A normal `type = event`
+Calendar reads return a closed tagged event union. List obtains at most 50
+reader-or-better CalendarList entries, including hidden calendars, and reads
+their event ranges with at most ten concurrent Google requests. The model
+supplies no calendar ID. A normal `type = event`
 snapshot has exact `calendar_id`, `event_id`, and `etag` strings of at most 1024
 bytes, `status = confirmed | tentative`, the bounded observed writable event
 projection,
@@ -1171,9 +1177,12 @@ recurrence strings of 1024 bytes, at most 50 attendees, default-reminder state,
 and at most ten email/popup reminders from zero through 40,320 minutes. A sparse
 cancelled provider resource is represented separately as `type = cancelled`
 with exact bounded calendar/event IDs, nullable bounded etag, and nullable aware
-`updated_at`; missing normal-event fields are not invented. A list returns at
-most 50 events and reports provider pagination/count truncation. A get may return
-either variant; event fields are never shortened.
+`updated_at`; missing normal-event fields are not invented. A list returns the
+scanned Calendar references, at most 50 globally chronological events, and an
+explicit bounded per-calendar failure list. Sparse cancelled events sort last.
+Calendar pagination, event pagination, or global clipping reports truncation.
+One failed calendar does not erase truthful completed observations from other
+calendars. A get may return either variant; event fields are never shortened.
 The observed end is a direct closed union of the existing `TimedEventTime` and
 `AllDayEventTime` plus payload-free
 `UnspecifiedEventEnd {type = unspecified}`; all three share the `type`
@@ -1198,12 +1207,15 @@ spring-forward time is malformed upstream. If Google omits `timeZone` for an
 already-aware `dateTime`, Jarvis preserves the instant and emits canonical
 `UTC`; an offset-free value without a zone is malformed. Normalization performs
 no additional provider request.
-The Calendar get contract and binding remain v2. The Calendar list contract and
-binding are v3 because host-owned primary selection removes `calendar_id` from
-its input. Affected catalogs, maximum and selected profiles, plans, HostTables,
-and definition fingerprints are recomposed. The Main role session-contract
-revision is `jarvis-main-primary-calendar-v1`, which cold-bootstraps an older
-continuing session; unaffected isolated role revisions do not change.
+The Calendar get contract and binding remain v2. Discovery is v1. The Calendar
+list contract and binding are v4 because the result includes current Calendar
+metadata, aggregate events, and partial failures. Affected catalogs, maximum
+and selected profiles, plans, HostTables, run/admission budgets, and definition
+fingerprints are recomposed. The Main role session-contract revision is
+`jarvis-main-all-calendars-v1`, which cold-bootstraps an older continuing
+session; unaffected isolated role revisions do not change. Event aggregation
+permits at most 102 external attempts and 60 seconds; discovery permits two
+attempts and 15 seconds.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire

@@ -2,12 +2,12 @@
 
 Jarvis Slice 6 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
-is the exact v1 catalog in SPEC 7.3. The selected Main plan contains the nine
+is the exact v1 catalog in SPEC 7.3. The selected Main plan contains the ten
 external reads and all seven writes. Gmail send and shared, unknown-calendar, or
 attendee-bearing Calendar writes use the host-owned approval path; the six Slice
 5 writes retain their documented automatic cases. The isolated memory roles
 receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
-plan, and scheduled-wake turns retain the nine-read plan. Run Jarvis as a
+plan, and scheduled-wake turns retain the ten-read plan. Run Jarvis as a
 dedicated unprivileged OS user in UTC.
 
 ## Approved production target
@@ -271,11 +271,14 @@ The write and proactivity databases and all private runtime directories are
 qualification evidence; retain their exact names in the Slice 5 report until an
 operator explicitly authorizes disposal.
 
-First run all nine live read operations through the production catalog,
+First run all ten live read operations through the production catalog,
 dispatcher, frozen Main plan, and exact budget. The configured Gmail query must
 match a thread. The Calendar probe requests 50 events and must contain at least
 three normal events with `end.type=unspecified`; its sanitized output
-reports only event totals and that count. The Maps query
+reports only calendar/event totals and that count. It must also prove that
+CalendarList discovery ran with hidden reader-or-better entries enabled and
+that aggregate results identify their source calendars without printing names
+or IDs. The Maps query
 must match a destination reachable from the origin, and the Web query's first
 result must be a public readable page. The output contains counts and contract
 identities only, never retrieved content or stable provider IDs.
@@ -287,6 +290,18 @@ JARVIS_LIVE_MAPS_QUERY='configured synthetic destination' \
 JARVIS_LIVE_MAPS_ORIGIN='configured synthetic origin' \
 JARVIS_LIVE_WEB_QUERY='IANA reserved domains' \
   uv run python scripts/qualify_reads.py
+```
+
+For an all-calendar-only release or deployment check, run the focused probe
+through the same production catalog, dispatcher, frozen plan, and budget. It
+requires at least two discovered calendars by default, proves the aggregate
+scan covers the same calendar set, rejects truncation or a partial failure, and
+prints counts and identities only:
+
+```sh
+JARVIS_CALENDAR_LIVE=1 \
+JARVIS_LIVE_MIN_CALENDARS=2 \
+  uv run python scripts/qualify_calendars.py
 ```
 
 `qualify_codex.py` performs the three required paid consumer probes in one run:

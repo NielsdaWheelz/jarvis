@@ -38,6 +38,7 @@ from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
     AddressLocation,
     CalendarGetEventInput,
+    CalendarListCalendarsInput,
     CalendarListEventsInput,
     GmailReadThreadInput,
     GmailSearchInput,
@@ -155,6 +156,16 @@ async def _run(settings: Settings) -> dict[str, object]:
             ),
         )
 
+        calendar_discovery = await read(
+            "calendar.list_calendars",
+            CalendarListCalendarsInput(),
+        )
+        calendars = cast("list[dict[str, object]]", calendar_discovery["calendars"])
+        if not calendars or not all(
+            isinstance(item.get("calendar_id"), str) for item in calendars
+        ):
+            raise QualificationFailure("calendar.list_calendars", "no_calendar")
+
         calendar_list = await read(
             "calendar.list_events",
             CalendarListEventsInput(
@@ -246,7 +257,7 @@ async def _run(settings: Settings) -> dict[str, object]:
             raise QualificationFailure("actions", "automatic_read_created_action")
         if tuple(ToolId(item) for item in calls) != SLICE2_READ_IDS:
             raise QualificationFailure("dispatch", "unexpected_tool_sequence")
-        if dispatcher.recorder.terminal_count != 9:
+        if dispatcher.recorder.terminal_count != 10:
             raise QualificationFailure("dispatch", "incomplete_terminal_record")
         if dispatcher.recorder.uncertain_count != 0:
             raise QualificationFailure("dispatch", "uncertain_read")
@@ -278,6 +289,7 @@ async def _run(settings: Settings) -> dict[str, object]:
             },
             "reads": {
                 "calendar": {
+                    "calendars": len(calendars),
                     "events": len(events),
                     "get_event": True,
                     "unspecified_end_events": unspecified_end_events,

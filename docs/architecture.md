@@ -494,12 +494,12 @@ Capability plans are closed by role:
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
 
-The implemented Slice 6 maximum catalog contains exactly the nine Gmail,
+The implemented Slice 6 maximum catalog contains exactly the ten Gmail,
 Calendar, Maps, and public-Web reads; `memory.search` and `memory.open`; and all
-seven v1 writes. The selected Main plan contains the nine external reads plus
+seven v1 writes. The selected Main plan contains the ten external reads plus
 `gmail.create_draft`, `gmail.update_draft`, `gmail.send_draft`, the three
 Calendar writes, and `schedule.wake`. The scheduled-wake plan contains only the
-nine external reads. Recaller, rememberer, and dreamer contain only the two
+ten external reads. Recaller, rememberer, and dreamer contain only the two
 memory reads, and AutomaticWriteGate has an empty plan. The approval-bearing
 Main plan is selectable only after its exact catalog, HostTable, tightening,
 budget, durable suspension, rendering, resolution, and recovery paths qualify.
@@ -536,10 +536,10 @@ only through Jarvis's checkpoint adapter.
 
 Slice 2 constructs a fresh non-durable read recorder and exact plan budget for
 each run under the existing execution mutex. Its definition maximum is exactly
-9 calls, 21 external attempts, 69,672 input bytes, 1,114,112 output bytes, one
-in-flight call, and 150 seconds. Selectable plans retain all nine calls but
-tighten `web.search` to one attempt, `web.read` to 65,536 output bytes, and the
-aggregate to 20 attempts and 262,144 output bytes. A Web secret gate recursively
+10 calls, 123 external attempts, 73,768 input bytes, 1,376,256 output bytes, one
+in-flight model-tool call, and 205 seconds. Selectable plans retain all ten calls
+but tighten `web.search` to one attempt, `web.read` to 65,536 output bytes, and
+the aggregate to 122 attempts and 524,288 output bytes. A Web secret gate recursively
 checks raw and percent/query-decoded string leaves before recorder, budget,
 executor, or provider entry. Reads terminalize only in run-local state and never
 insert `action`.
@@ -550,11 +550,15 @@ requires a concrete parsed end. True produces the unspecified variant and
 discards Google's compatibility end, for every normal event type; start remains
 required. Sparse cancelled events remain separate. The three-branch observed
 projection is deliberately not a future create/update input, which retains the
-unchanged two-branch concrete end and address-required attendees. Both Calendar
-bindings are implementation v2, and the recomposed
-catalog/profile/plan/HostTable identities plus Main role contract v3 force a
-continuing-session cold bootstrap without changing isolated roles or database
-state.
+unchanged two-branch concrete end and address-required attendees. Calendar
+discovery lists every non-deleted reader-or-better CalendarList entry, including
+hidden entries, with a hard 50-calendar bound. Aggregate event reads fan out
+with concurrency ten, merge globally in chronological order, cap the result at
+50, and retain explicit per-calendar failures. Discovery is binding v1,
+aggregate list is v4, and get remains v2. Recomposed
+catalog/profile/plan/HostTable identities plus the
+`jarvis-main-all-calendars-v1` role contract force a continuing-session cold
+bootstrap without changing isolated roles or database state.
 
 Google OAuth, Google API, Maps, Brave, and Discord each use a dedicated
 host-owned HTTP client with environment proxy trust and automatic redirects

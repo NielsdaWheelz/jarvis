@@ -209,15 +209,15 @@ def test_slice3_capacity_reserves_one_recaller_per_maximum_owner_input() -> None
 def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
     selected = slice5_admission_limits(20)
     assert selected.json() == {
-        "max_input_tokens": 6_672_416,
+        "max_input_tokens": 6_805_184,
         "max_no_progress_attempts": 3,
-        "max_output_tokens": 999_104,
-        "max_turns": 273,
+        "max_output_tokens": 1_027_296,
+        "max_turns": 276,
         "root_input_token_overshoot": 32_768,
         "root_output_token_overshoot": 8_192,
-        "serial_child_input_tokens": 5_846_880,
-        "serial_child_output_tokens": 906_720,
-        "serial_child_turns": 245,
+        "serial_child_input_tokens": 5_979_648,
+        "serial_child_output_tokens": 934_912,
+        "serial_child_turns": 248,
         "window_seconds": 21_600,
     }
 
@@ -225,15 +225,15 @@ def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
 def test_slice6_capacity_reserves_recallers_and_every_write_gate() -> None:
     selected = slice6_admission_limits(20)
     assert selected.json() == {
-        "max_input_tokens": 13_417_600,
+        "max_input_tokens": 13_683_136,
         "max_no_progress_attempts": 3,
-        "max_output_tokens": 2_030_400,
-        "max_turns": 542,
+        "max_output_tokens": 2_086_784,
+        "max_turns": 548,
         "root_input_token_overshoot": 32_768,
         "root_output_token_overshoot": 8_192,
-        "serial_child_input_tokens": 5_979_648,
-        "serial_child_output_tokens": 934_912,
-        "serial_child_turns": 248,
+        "serial_child_input_tokens": 6_112_416,
+        "serial_child_output_tokens": 963_104,
+        "serial_child_turns": 251,
         "window_seconds": 21_600,
     }
 
@@ -347,12 +347,12 @@ async def test_slice5_limit_migration_conservatively_enlarges_interrupted_root(
     state = json.loads(path.read_text(encoding="utf-8"))
     reservation = state["reservations"][0]
     assert state["configuration"] == current.json()
-    assert reservation["reserved_turns"] == root.token.reserved_turns + 45
+    assert reservation["reserved_turns"] == root.token.reserved_turns + 48
     assert reservation["reserved_input_tokens"] == (
-        root.token.reserved_input_tokens + 1_991_520
+        root.token.reserved_input_tokens + 2_124_288
     )
     assert reservation["reserved_output_tokens"] == (
-        root.token.reserved_output_tokens + 422_880
+        root.token.reserved_output_tokens + 451_072
     )
     assert reservation["actual_turns"] == reservation["reserved_turns"]
     assert reservation["actual_input_tokens"] == reservation["reserved_input_tokens"]

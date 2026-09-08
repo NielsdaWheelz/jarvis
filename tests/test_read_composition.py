@@ -139,19 +139,19 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     )
     assert definitions.main.maximum_profile.run_limits == SLICE2_TOOL_LIMITS
     declared = tuple(catalog.spec(tool_id).limits for tool_id in SLICE2_READ_IDS)
-    assert sum(limit.max_input_bytes for limit in declared) == 69_672
-    assert sum(limit.max_output_bytes for limit in declared) == 1_114_112
-    assert sum(limit.max_attempts for limit in declared) == 21
-    assert sum(limit.deadline_seconds for limit in declared) == 150.0
+    assert sum(limit.max_input_bytes for limit in declared) == 73_768
+    assert sum(limit.max_output_bytes for limit in declared) == 1_376_256
+    assert sum(limit.max_attempts for limit in declared) == 123
+    assert sum(limit.deadline_seconds for limit in declared) == 205.0
     assert definitions.main.limits == SLICE2_KERNEL_LIMITS
     assert definitions.main.maximum_profile.profile_revision == (
-        "4bd28b0c871150edf9bc09954c0df67b3f07a8d088ef4b56ef7dd20560239b86"
+        "0f8dbbb494806c67f927f87d87759423c88b1d1607a2c90546767062ca6419a8"
     )
     assert definitions.main.session_compatibility_revision == (
-        "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2"
+        "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987"
     )
     assert definitions.main.fingerprint == (
-        "dfe6bf3618b09ec3c02e97bbf62c36ca830ef6a778569e09b1c767f28bcf9cd3"
+        "0134c4baa6e851b3160b554498f17ada3c16bb65119470416a33a3f5e5974ceb"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (
@@ -159,12 +159,12 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     )
     exact_revisions = {
         "main": (
-            "c25b7e21bfa49db7f87bd17b92e3aeb2601ccb426d34c4310e58675427d7764e",
-            "565037c9dcc0cb87a987b8179fd9f07374a3fc7a821c07548478b3c02bc7c2ca",
+            "ef4bbda3d577f897c7108f81ae4320677a498436fac84fd93816f488f3334fe0",
+            "34e06c98a7ddc728b8cee24dc476ca9d038d3c577b619da4fa744fd2a5e1e404",
         ),
         "scheduled_wake": (
-            "c0832f6891e0fe4e7b38b93607f7baec66f848cb02a622a638cc4f4f0c0e2881",
-            "df2be4627286a9f7326b4e4a5d278e7b4014d6e4adeaea7cddb441044cbf366d",
+            "f0b3becea0ca3ab980b7c5e4729cc518e49f8c6885a252658f4a4b0799b0bf2d",
+            "b76b7621936bc7d2a599a553b358b1cd7ed21e9f74977c04ebd87a71ffa839b4",
         ),
     }
     for name, (profile_revision, plan_revision) in exact_revisions.items():
@@ -187,13 +187,16 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
                 )
             )
         )
-        assert published["count"] == 9
+        assert published["count"] == 10
         assert published["profile_revision"] == profile_revision
         assert published["plan_revision"] == plan_revision
         published_tools = {tool["id"]: tool for tool in published["tools"]}
         calendar_contracts = {
+            "calendar.list_calendars": (
+                "08cc652b133c80a30ee2e9c3be2c64d2321f00533805a4a56213ce95fd911817"
+            ),
             "calendar.list_events": (
-                "eaa9c46273debf37d8d8ac051817dbcb9e3477ee8d3646277ee5e84f676e12ad"
+                "d6e83b94e430e0dc61573299ed80fee5fb332f191c9d6b8d52c9c40ede644720"
             ),
             "calendar.get_event": (
                 "15dfc456377fe4eaff7de42292c9cddc5a97b1190baa7e7196cb4f1e287f0087"
@@ -202,16 +205,19 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         for tool_name, contract_revision in calendar_contracts.items():
             tool_id = ToolId(tool_name)
             binding = plan.catalog_view.binding(tool_id)
-            assert binding.policy_inputs["observed_end"] == (
-                "missing-or-false-parses-end;"
-                "true-becomes-unspecified-and-discards-compatibility-end"
-            )
+            if tool_name != "calendar.list_calendars":
+                assert binding.policy_inputs["observed_end"] == (
+                    "missing-or-false-parses-end;"
+                    "true-becomes-unspecified-and-discards-compatibility-end"
+                )
             assert published_tools[tool_name]["tool_contract_revision"] == (
                 contract_revision
             )
             expected_implementation = (
-                "jarvis-calendar-list_events-v3"
+                "jarvis-calendar-list_events-v4"
                 if tool_name == "calendar.list_events"
+                else "jarvis-calendar-list_calendars-v1"
+                if tool_name == "calendar.list_calendars"
                 else "jarvis-calendar-get_event-v2"
             )
             assert published_tools[tool_name]["implementation_revision"] == (
@@ -247,6 +253,9 @@ def test_slice2_definition_rejects_unavailable_web_bindings() -> None:
             raise AssertionError(value)
 
         async def gmail_read_thread(self, value: object) -> object:
+            raise AssertionError(value)
+
+        async def calendar_list_calendars(self, value: object) -> object:
             raise AssertionError(value)
 
         async def calendar_list_events(self, value: object) -> object:

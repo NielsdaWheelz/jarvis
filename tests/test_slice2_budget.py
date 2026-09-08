@@ -61,6 +61,10 @@ class _FailingReads:
         del value
         return await self._fail("gmail.read_thread")
 
+    async def calendar_list_calendars(self, value: object) -> Any:
+        del value
+        return await self._fail("calendar.list_calendars")
+
     async def calendar_list_events(self, value: object) -> Any:
         del value
         return await self._fail("calendar.list_events")

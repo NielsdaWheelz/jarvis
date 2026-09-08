@@ -39,6 +39,7 @@ not implementation suggestions.
 | [0032](0032-stream-encrypted-backups-to-dedicated-r2.md) | Stream encrypted backups to dedicated off-host R2 storage and restore only into clean state | Superseded by 0033 before activation |
 | [0033](0033-defer-backups-and-host-reboot.md) | Deploy without a reboot and defer backup/restore beyond v1 | Accepted; supersedes 0032 and amends 0031/Slice 7 |
 | [0034](0034-reserve-two-foreground-envelopes.md) | Reserve two worst-case foreground envelopes in each rolling admission window | Accepted; amends admission and Slice 7 |
+| [0035](0035-contain-codex-app-server-authority.md) | Own and fail closed on the complete Codex App Server authority surface | Accepted; supersedes the active provider/kernel pins and strengthens 0020/0026 containment |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

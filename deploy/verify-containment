@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+
+ssh "$target" bash -s <<'REMOTE'
+set -euo pipefail
+
+for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
+  /etc/jarvis/migration.env; do
+  sudo test -f "$file"
+  sudo test ! -L "$file"
+  observed="$(sudo stat -c '%U:%G:%a' "$file")"
+  [[ "$observed" == root:root:600 ]]
+  if sudo -u jarvis test -r "$file"; then
+    printf 'Jarvis service identity can read root-managed secret file: %s\n' \
+      "$file" >&2
+    exit 1
+  fi
+done
+
+sudo systemctl is-active --quiet jarvis.service
+pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
+[[ "$pid" =~ ^[1-9][0-9]*$ ]]
+if sudo -u jarvis dd if="/proc/$pid/environ" of=/dev/null status=none 2>/dev/null; then
+  printf 'same-identity process inspection is not blocked\n' >&2
+  exit 1
+fi
+
+sudo test "$(sudo systemctl show --property=ProtectProc --value jarvis.service)" = \
+  ptraceable
+sudo test "$(sudo systemctl show --property=ProcSubset --value jarvis.service)" = pid
+sudo test "$(sudo systemctl show --property=LimitCORE --value jarvis.service)" = 0
+sudo -u jarvis test -r \
+  /var/lib/jarvis/agent-state/codex/jarvis-runtime/auth.json
+
+printf 'Jarvis connector-secret and process-inspection boundary passed.\n'
+REMOTE

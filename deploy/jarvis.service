@@ -33,6 +33,8 @@ ProtectControlGroups=true
 ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
+ProtectProc=ptraceable
+ProcSubset=pid
 ReadWritePaths=/var/lib/jarvis
 RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
@@ -43,6 +45,7 @@ TasksMax=256
 CPUQuota=200%
 MemoryHigh=2G
 MemoryMax=3G
+LimitCORE=0
 OOMPolicy=stop
 
 [Install]

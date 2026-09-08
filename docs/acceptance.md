@@ -31,8 +31,8 @@ named explicitly; no criterion disappears or is weakened silently.
       context, and ordinary logs.
 - [ ] **A1.7** A second Jarvis instance against the same deployment refuses to
       start while the first holds the ownership lock.
-- [ ] **A1.8** Startup refuses mismatched pinned kernel, Codex SDK, or runtime
-      versions.
+- [ ] **A1.8** Startup refuses mismatched pinned kernel, provider-runtime,
+      `llm-tools`, Codex SDK/CLI, or kernel base-instruction identity.
 - [x] **A1.9** A dated Slice 0 qualification report records the exact tool
       manifest and schemas, live authority classification, credential
       ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID
@@ -97,8 +97,10 @@ named explicitly; no criterion disappears or is weakened silently.
       before replay. Every definition has a non-empty manifest-derived
       `session_compatibility_revision`; changing its application contract,
       selected role contract, or a pinned dependency rotates the fingerprint,
-      except that ADR 0027's exact atomic kernel/provider usage-fix pair retains
-      its certified predecessor identity. Qualified-model membership is not a
+      except that ADR 0027's exact atomic kernel/provider usage-fix pair and ADR
+      0035's containment pair retain their certified predecessor application
+      identity. The latter still rotates every definition fingerprint through
+      the kernel base-instruction identity. Qualified-model membership is not a
       revision input because the selected model independently participates in
       the agent-definition fingerprint.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
@@ -183,8 +185,12 @@ in Slice 0.
       or tool I/O.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
-- [ ] **A4.3** Codex receives no connector, Brave, or embedding credential and
-      its child environment contains none.
+- [ ] **A4.3** Codex receives no connector, Brave, Discord, Maps, embedding,
+      database, Google OAuth, or connector-encryption credential and its child
+      environment contains none. Production root-owned mode-0600 environment
+      files are unreadable to `jarvis`; its non-dumpable parent environment is
+      unreadable from a same-identity child. The child retains only its required
+      Codex local-account state.
 - [ ] **A4.4** The real `AgentRuntime` request uses `JsonSchemaAgentOutput`, a
       private empty read-only cwd containing no repository source, no additional
       directories, disabled network, denied approval, empty copied environment,
@@ -204,12 +210,16 @@ in Slice 0.
       `llm-tools` validation.
       Unsupported structured-result schemas fail before provider I/O. No
       parallel or multi-call path exists.
-- [ ] **A4.6** The production adapter consumes `AgentRuntime.stream_turn` and
-      never calls its event-discarding `run_turn` convenience projection. A
-      scripted `AgentToolUse` or `AgentPermissionRequest` event fails and
-      discards the confined session, returns no terminal to the Jarvis loop, and
-      causes no host dispatch or conclusion, while a scripted native reasoning
-      passthrough event does not. Streaming `AgentText` is never delivered.
+- [ ] **A4.6** The production adapter consumes `AgentRuntime.stream_turn` over
+      the provider-owned direct App Server transport and never calls its
+      event-discarding `run_turn` convenience projection. The retained custom
+      `exec` incident, every audited native authority class, and denied server
+      requests normalize to `AgentToolUse` or `AgentPermissionRequest`; either
+      fails and discards the session with no accepted terminal or host dispatch.
+      Unknown requests/items/notifications, malformed identity, or a terminal
+      after authority activity is a fatal `ProtocolDefect`. Only the explicit
+      bounded/redacted inert `AgentNative` whitelist survives. Streaming
+      `AgentText` is never executable or delivered.
 - [ ] **A4.7** `KernelLimits` bound provider turns, repairs, cooperative time at
       safe boundaries, reported usage, and cumulative newly rendered kernel
       context bytes. Provider turns receive the remaining cooperative deadline;
@@ -262,6 +272,14 @@ in Slice 0.
       admission, provider I/O, or tool I/O. Every recorded route runs the paid
       consumer probes against the exact release code and lock, and at least one
       route currently supported by the provider passes.
+- [ ] **A4.15** Every definition fingerprints the exact qualified kernel base
+      instruction and every provider request contains it before separate Jarvis
+      role material. Its bytes count toward the provider-system ceiling. The
+      containment dependency upgrade cold-bootstraps old fingerprints while
+      preserving the application `session_compatibility_revision`. A live
+      adversarial shell/exec probe causes zero host effect; any observed
+      authority event yields only the truthful host-authored runtime-failure
+      response.
 
 ## A5. Memory
 
@@ -429,8 +447,9 @@ These criteria are **live** where they call Gmail or Discord.
       application schema.
 - [ ] **A7.2** The acceptance report records the production host, release commit,
       Python, PostgreSQL, pgvector, and running-kernel identities; UTC state;
-      loopback database binding; systemd isolation/resource controls; process
-      restart recovery; and the deferred newer-kernel reboot. Deployment does
+      loopback database binding; root-only environment files; non-dumpable
+      parent and systemd `/proc`/resource controls; process restart recovery;
+      and the deferred newer-kernel reboot. Deployment does
       not interrupt the owner's tmux sessions or live Codex processes.
 - [ ] **A7.3** Derived summaries and embeddings can be completely regenerated
       from the preserved local raw memory log.
@@ -525,7 +544,8 @@ The report records:
   digests.
 - Main-session continuation, compatible resume, and lost-session bootstrap
   results.
-- Exact AgentRuntime containment request, native-event fail-stop, upgraded
+- Exact AgentRuntime request, direct App Server transport classification,
+  kernel base-instruction identity, native-authority/unknown-event fail-stop, upgraded
   `llm-tools` public-seam qualification, action/schedule-recorder mapping,
   AutomaticWriteGate isolation/adversarial results, and multi-run
   admission/crash/poison results.

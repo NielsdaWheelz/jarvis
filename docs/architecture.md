@@ -76,7 +76,9 @@ user-global Codex binary.
 `llm-agent-kernel` is a pinned independent library, not another service or
 state owner. It supplies contained Codex session choreography, strict serial
 protocol, mid-loop polling, settlement, and bounded run machinery.
-`provider-runtime` remains the provider/session implementation and `llm-tools`
+`provider-runtime` remains the provider/session implementation. It owns the
+direct Codex App Server stdio JSON-RPC transport behind the stable
+`AgentRuntime` API and closed-world native event/request classification. `llm-tools`
 remains the prompt-section, contract, implementation-identity, grant,
 validation, and tool-execution implementation. Jarvis owns every product and
 persistence adapter.
@@ -293,8 +295,15 @@ set, currently only `gpt-5.6-terra`. Model-set membership does not enter the
 session revision because the selected model already enters the immutable
 definition fingerprint. Secret bytes, current input, host time, and per-run
 subset plans do not rotate the session.
-There are two certified v1 compatibility exceptions. With every other pin
-unchanged, the active initial-read kernel
+There are three certified v1 compatibility exceptions. The active containment
+pair—kernel `21084bec674023ea572950a18dde464506ea37ad` and provider-runtime
+`4ddced3bb5487ce988858c4c6d45d2e5ee0acad9`—canonicalizes to the
+initial-read predecessor pair only for application session-revision derivation.
+The kernel-owned base instruction still enters every definition fingerprint,
+so every old native session cold-bootstraps without a redundant Jarvis revision
+bump. The AutomaticWriteGate fingerprint is also a Write-binding policy input,
+so its rotation deliberately recomposes affected main profiles, plans, and
+HostTables. With every other pin unchanged, the earlier initial-read kernel
 `09a1af093479aa92f3e783f4b4a7cc38e301a4a7` is canonicalized to its compatible
 predecessor `7f3a9b145e68ba23c8aafad08500e9c452a9faef` only for
 session-revision derivation. The other exception atomically canonicalizes the
@@ -792,11 +801,17 @@ pending explicit operator reset. Alembic may own its bookkeeping table.
 ## Provider containment
 
 Codex runs under the exact policy in [SPEC section 7.5](../SPEC.md#75-codex-containment):
-the real `AgentRuntime` lane with `JsonSchemaAgentOutput`, a private empty
+the real `AgentRuntime` lane with a provider-owned direct App Server transport,
+`JsonSchemaAgentOutput`, a private empty
 read-only cwd, no additional directories, network, copied environment, or MCP,
 deny-mode approval, disabled native built-ins and Web, and no connector, Brave,
-or embedding credentials. The SDK-required `allowed_tools=("*",)` sentinel is
+or embedding credentials. The compatibility API's `allowed_tools=("*",)` sentinel is
 not authority.
+
+The kernel prepends its qualified contained-structured-agent base instruction
+to every provider request and fingerprints its identity. Jarvis separately
+bounds the combined kernel and application system material. This instruction is
+defense in depth, not the authority boundary.
 
 The confined Codex child still has no native network or Web search. A structured
 `web.search` or `web.read` request returns to the Jarvis host, which applies the
@@ -807,16 +822,31 @@ The application consumes normalized provider events:
 
 - Production drives `AgentRuntime.stream_turn`; the terminal-only `run_turn`
   convenience projection is forbidden because it discards these events.
-- Normal lifecycle, reasoning, warning, and planning passthrough events do not
-  fail a turn.
-- Any `AgentToolUse` or `AgentPermissionRequest` fails the confined turn.
+- Only the provider's audited bounded/redacted inert lifecycle, reasoning,
+  warning, status, and planning whitelist survives as `AgentNative`.
+- Command, file, MCP, custom/dynamic, collaboration, Web, image, sleep, and hook
+  activity becomes `AgentToolUse`; permission and elicitation requests are
+  denied and become `AgentPermissionRequest`.
+- Any authority event, unknown request/item/notification, identity mismatch, or
+  terminal after authority activity fails the confined turn.
 - A failed session is discarded and no terminal is returned to the Jarvis loop.
 - Streaming text is not delivered; only a validated terminal structured step
   from a fully inspected clean stream crosses into Jarvis.
 
 An attempted native tool can therefore fail a turn even when the sandbox denied
 its effect. The event is the drift signal; containment is the sandbox and process
-boundary.
+boundary. Code Mode is contained/detected rather than asserted impossible before
+its first observable event. Protocol drift intentionally becomes an availability
+failure. Jarvis turns that failure into host-owned visible text and never accepts
+the model terminal.
+
+Production environment files are root-owned mode 0600. systemd reads them for
+the Jarvis host; the `jarvis` identity cannot read them directly. Jarvis becomes
+non-dumpable before opening a provider child, systemd exposes only a ptraceable
+`/proc` subset, and the child receives a replacement credential-free
+environment. The child retains access to its own Codex login and may see
+encrypted/non-secret files readable by its service identity. Read-only provider
+containment alone is not a general host-confidentiality boundary.
 
 ## Scheduling
 

@@ -62,14 +62,16 @@ deploy/install-private-state
 ```
 
 `deploy/provision-database` creates `jarvis_migrator` and `jarvis_runtime`, a
-database owned by the migrator, and two split root-owned credential files. The
-service receives only `database-runtime.env`; migrations receive
-`migration.env`. It refuses a partial credential state or an existing database
-whose credentials are unknown.
+database owned by the migrator, and two split root-owned mode-0600 credential
+files. The service identity cannot read either file directly. systemd reads
+`database-runtime.env` for the service and a bounded transient migration unit
+reads `migration.env`. It refuses a partial credential state or an existing
+database whose credentials are unknown.
 
 `deploy/install-private-state` defaults to the ignored, mode-0600 qualified
 files under `.secrets/`. It validates the exact key roster, builds the static
-production settings, and installs `/etc/jarvis/jarvis.env`, encrypted Google
+production settings, and installs root-owned mode-0600
+`/etc/jarvis/jarvis.env`, encrypted Google
 connector state, Codex `auth.json`, and the stable installation identity without
 printing their values. Override its `JARVIS_SOURCE_*` paths only to name an
 equivalent private source. The Codex profile is `jarvis-runtime` at
@@ -90,11 +92,14 @@ AutomaticWriteGate allows the current owner request. Every other case requires
 Approve or Deny.
 
 Install the exact committed release without activating it, then atomically run
-migrations, initialize host state, select the release, and enable the service:
+migrations and initialization in systemd one-shots that inject the root-only
+environment after changing to the `jarvis` identity. Finally select the release
+and enable the service:
 
 ```sh
 deploy/install-release
 deploy/activate-release "$(git rev-parse HEAD)"
+deploy/verify-containment
 ```
 
 `install-release` archives only tracked `HEAD`, builds with `uv sync --frozen
@@ -106,10 +111,24 @@ content-free runtime state once, atomically changes `/opt/jarvis/current`, and
 starts the service. A PostgreSQL advisory lock makes a second process fail
 rather than overlap.
 
+`verify-containment` runs after activation without printing secret values. It
+proves the three environment files are root-owned mode 0600 and unreadable by
+the service identity, verifies the active systemd `/proc` and core-dump
+controls, and confirms a same-identity process cannot read the non-dumpable
+Jarvis parent environment. Access to the Codex profile itself is expected; that
+is the provider's sole required credential. The direct provider child receives
+a replacement environment containing none of the Jarvis host credentials.
+
 Do not activate an older release across an incompatible migration or a
 non-terminal action contract. A same-schema rollback may select an already
 installed release through `deploy/activate-release <commit>` only after the
 service is stopped and the action ledger is inspected.
+
+ADR 0035 rotates the AutomaticWriteGate fingerprint and therefore every Write
+binding policy that commits to it. Before this cutover, prove the production
+action ledger contains no `queued`, `awaiting_approval`, or `executing` row made
+under the predecessor identity. A terminal historical action remains evidence
+and is never rewritten.
 
 ## Approval operation
 

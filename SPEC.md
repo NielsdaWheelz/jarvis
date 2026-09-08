@@ -730,10 +730,11 @@ application capabilities. It MUST NOT duplicate either dependency.
 
 Responsibilities are fixed:
 
-- `provider-runtime` owns Codex local-account authentication, native
-  `AgentRuntime` open/stream/close lifecycle, `PermissionPolicy`, native
-  options, structured-output lowering, normalized events and usage, quota
-  exhaustion, and opaque session references. Production consumes
+- `provider-runtime` owns Codex local-account authentication, the direct Codex
+  App Server stdio JSON-RPC transport behind the stable `AgentRuntime`
+  open/stream/close interface, server-request denial, `PermissionPolicy`, native
+  options, structured-output lowering, closed-world event normalization and
+  usage, quota exhaustion, and opaque session references. Production consumes
   `stream_turn`; it never uses the terminal-only `run_turn` convenience
   projection because that hides authority events.
 - `llm-tools` owns typed prompt sections, declarations, bindings, frozen
@@ -801,7 +802,14 @@ it.
   owner-bumped Jarvis session-contract revision, and the exact
   `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
   excludes secrets, input, host time, and per-run subset plans. Normally every
-  pin participates exactly in the revision. One v1 exception is the
+  pin participates exactly in the revision. The current containment pair
+  `llm-agent-kernel@21084bec674023ea572950a18dde464506ea37ad` and
+  `provider-runtime@4ddced3bb5487ce988858c4c6d45d2e5ee0acad9` is a certified
+  application-session-compatible exception: revision derivation uses the
+  initial-read predecessor pair while the kernel-owned base-instruction
+  identity rotates every definition fingerprint and therefore cold-bootstraps
+  every affected session. Jarvis MUST NOT also bump its application or role
+  session revision solely for this release. The earlier v1 exception is the
   `llm-agent-kernel@09a1af093479aa92f3e783f4b4a7cc38e301a4a7` initial-read
   release: when every other pin is unchanged, revision derivation uses its
   certified-compatible predecessor
@@ -811,8 +819,8 @@ it.
   `llm-agent-kernel@09f08df2970121ababe973b0e92d6901dd40da9e` and
   `provider-runtime@f477dcdcad03c30019576203d4eb8a3581a6d32f`: when every
   other pin is unchanged, revision derivation atomically uses their predecessor
-  values so existing native sessions remain compatible. Either pin changed
-  alone or any other dependency change rotates normally.
+  values so existing native sessions remain compatible. A partial certified
+  pair or any other dependency change rotates normally.
 - Qualified-model membership does not participate in
   `session_compatibility_revision`. The exact selected model already
   participates in the immutable agent-definition fingerprint, so a model
@@ -1374,7 +1382,9 @@ settlement, parking, and cleanup may finish later, after which the next safe
 boundary prevents further work. Jarvis MUST NOT put a blunt outer timeout around
 a `Write`. `max_new_context_bytes` excludes provider system/developer material,
 output-schema transport overhead, retained native history, and provider
-compaction; Jarvis bounds and qualifies those surfaces separately. The frozen
+compaction; Jarvis bounds and qualifies those surfaces separately. The
+kernel-owned contained-agent base instruction counts inside Jarvis's independent
+system-material ceiling and its exact identity is qualified. The frozen
 `llm_tools.RunLimits` alone own tool calls, attempts, input/output bytes,
 concurrency, and tool deadlines, with `max_in_flight = 1`. Jarvis and the kernel
 MUST NOT double-charge these budgets. V1 has no parallel dispatch,
@@ -1390,26 +1400,63 @@ writable project checkout, MCP server, or direct execution-authority tool
 channel.
 
 Jarvis uses only `provider_runtime.agent_runtime.AgentRuntime` with
-`JsonSchemaAgentOutput`. Every session uses a private empty absolute cwd,
+`JsonSchemaAgentOutput`. Its pinned provider owns the direct App Server
+transport; `transport="sdk"` remains an opaque compatibility route label, not a
+claim that the public Python SDK owns request handling. Every session uses a
+private empty absolute cwd,
 read-only filesystem policy, no additional directories, disabled network,
 approval mode `deny`, an empty copied environment, no MCP servers,
 `CodexNativeOptions(builtin_tools="disabled")`, and disabled native Web search.
-The Codex `allowed_tools=("*",)` sentinel required by the pinned SDK is present
+The Codex `allowed_tools=("*",)` sentinel required by the compatibility API is present
 only for runtime compatibility; it grants no Jarvis authority.
+
+The kernel prepends its immutable 682-byte contained-structured-agent
+instruction to every new, resumed, reconstructed, threaded, isolated, and
+initial-Read request. Application instructions remain separate and cannot
+remove it. The exact instruction identity is
+`llm-agent-kernel-contained-structured-agent-v1:sha256:1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7`.
+Prompt obedience is defense in depth; typed provider events and host policy own
+authority.
 
 The provider adapter MUST drive and inspect the public `stream_turn` event
 stream. It MUST NOT call `AgentRuntime.run_turn` in production: that convenience
 method projects only the terminal and discards the intermediate events needed
 to enforce this boundary.
 
-An `AgentToolUse` or `AgentPermissionRequest` event fails the confined turn,
+The provider recognizes only its audited inert notification/item whitelist.
+Command, file, MCP, dynamic/custom, collaboration/sub-agent, Web, image,
+generation, sleep, hook, and defensive function-output activity becomes
+`AgentToolUse`. Permission, user-input, and MCP-elicitation requests are denied
+and become `AgentPermissionRequest`. An unknown request receives JSON-RPC
+`-32601`; any unknown item, notification, lifecycle transition, malformed or
+mismatched identity, or terminal following authority activity is a fatal
+`ProtocolDefect`. Generic `AgentNative` fallback is forbidden.
+
+An `AgentToolUse`, `AgentPermissionRequest`, or `ProtocolDefect` fails the confined turn,
 taints and discards the session, returns no terminal to the Jarvis loop, and
 permits no host dispatch or model-authored conclusion. Native passthrough events
-such as reasoning deltas and planning items do not. Streaming `AgentText` is
-never delivered; only the validated terminal structured step from a fully
-inspected clean stream can become a Jarvis response.
+are limited to the audited bounded/redacted inert set. Streaming `AgentText` is
+never delivered or executable; only the provider-selected completed
+`final_answer` and then the kernel-validated structured step from a fully
+inspected clean stream can become a Jarvis response. A stopped provider turn
+produces a truthful host-authored visible failure and never accepts a model
+terminal.
 
-The Linux deployment SHOULD run Codex under a dedicated unprivileged OS user.
+Native Code Mode is contained and detected, not claimed impossible before its
+first observable event. The exact Codex 0.144.4 executable, disabled features,
+no-network/read-only sandbox, empty child environment, private cwd, closed event
+classifier, and fail-stop session invalidation are one qualified unit. Protocol
+drift deliberately breaks availability until audited.
+
+The Linux deployment runs Jarvis and its Codex child under the dedicated
+unprivileged `jarvis` account. Root-managed environment files are mode 0600 and
+unreadable to that account; systemd injects their values only into the Jarvis
+host. Before opening any provider child, Jarvis marks itself non-dumpable. The
+Codex child receives a replacement environment, cannot read the parent
+`/proc/<pid>/environ`, and can read only its own required Codex authentication
+state plus non-secret/encrypted application files permitted by the OS. Provider
+read-only containment is not, by itself, a general host-confidentiality
+boundary.
 
 ### 7.6 Concurrency
 
@@ -1485,9 +1532,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `09a1af093479aa92f3e783f4b4a7cc38e301a4a7`
+  `21084bec674023ea572950a18dde464506ea37ad`
 - `llm-calling` / `provider-runtime`:
-  `2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd`
+  `4ddced3bb5487ce988858c4c6d45d2e5ee0acad9`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The kernel directly certifies and pins `openai-codex==0.144.4`; Jarvis's frozen
@@ -1519,7 +1566,7 @@ Stable prompt material precedes dynamic time.
 The physical deployment uses a dedicated `jarvis` Unix account,
 `/opt/jarvis/releases/<git-commit>` with an atomic `/opt/jarvis/current`
 symlink, durable state under `/var/lib/jarvis`, and root-owned configuration
-under `/etc/jarvis`. The release MUST use its locked environment and pinned
+mode 0600 under `/etc/jarvis`. The release MUST use its locked environment and pinned
 Codex SDK rather than the devbox user's global AI-tool installation. The
 `dev-server` repository owns shared host prerequisites and base directories;
 this repository owns releases, configuration, credentials, database roles and

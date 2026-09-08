@@ -35,15 +35,21 @@ Deliver:
   service-manager credential files.
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
-- The implemented public kernel pin
-  `09a1af093479aa92f3e783f4b4a7cc38e301a4a7`, with exact
+- The active implemented public kernel pin
+  `21084bec674023ea572950a18dde464506ea37ad`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2
   Web deadline and extraction corrections, invocation-local provider usage,
   and superseding pins. The exact invocation-local usage-fix pair preserves the
   existing session-compatibility revision under its upstream-certified atomic
-  exception; it does not recompose a frozen plan or HostTable.
+  exception. ADR 0035 records the later provider transport and kernel base
+  instruction containment pair; it preserves that application revision while
+  the fingerprinted kernel instruction cold-bootstraps all roles. Because
+  Jarvis intentionally commits the AutomaticWriteGate definition fingerprint
+  into Write binding policy, the containment release also rotates affected
+  main catalogs, profiles, plans, and HostTables without changing tool
+  contracts or implementations.
 - The completed `llm-tools` upgrade exposing qualified public pure
   argument validation, frozen-plan/catalog consistency and full tightening,
   exact `HostTable` publication, and async durable executor/recorder seams; pin

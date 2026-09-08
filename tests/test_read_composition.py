@@ -151,7 +151,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851"
     )
     assert definitions.main.fingerprint == (
-        "a86f4ca46a13a2c7e555425e6754e4203d12a3c31e414e715ae6bde7dc4a44af"
+        "ec621c6da89e8f0f6180625396a6906919e70b06f1334452feab8ea6e5bd4eea"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (

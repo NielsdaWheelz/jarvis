@@ -6,6 +6,8 @@ from typing import cast
 
 import pytest
 from llm_agent_kernel import (
+    KERNEL_BASE_INSTRUCTION,
+    KERNEL_BASE_INSTRUCTION_IDENTITY,
     AgentDefinition,
     ConversationalOutput,
     FinishStep,
@@ -194,20 +196,23 @@ def test_manifest_publishes_exact_slice6_dependency_and_role_revisions() -> None
             session_compatibility_revision(manifest, role)
         )
     assert manifest["dependencies"] == {
-        "llm-agent-kernel": "09a1af093479aa92f3e783f4b4a7cc38e301a4a7",
+        "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd",
+        "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
     }
-    predecessor_kernel = {**manifest}
-    predecessor_kernel_dependencies = dict(
-        cast("dict[str, object]", predecessor_kernel["dependencies"])
+    pre_containment_release = {**manifest}
+    pre_containment_dependencies = dict(
+        cast("dict[str, object]", pre_containment_release["dependencies"])
     )
-    predecessor_kernel_dependencies["llm-agent-kernel"] = (
-        "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
+    pre_containment_dependencies["llm-agent-kernel"] = (
+        "09a1af093479aa92f3e783f4b4a7cc38e301a4a7"
     )
-    predecessor_kernel["dependencies"] = predecessor_kernel_dependencies
+    pre_containment_dependencies["provider-runtime"] = (
+        "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd"
+    )
+    pre_containment_release["dependencies"] = pre_containment_dependencies
     for role in (
         "main",
         "recaller",
@@ -215,7 +220,24 @@ def test_manifest_publishes_exact_slice6_dependency_and_role_revisions() -> None
         "dreamer",
         "automatic_write_gate",
     ):
-        assert session_compatibility_revision(predecessor_kernel, role) == (
+        assert session_compatibility_revision(pre_containment_release, role) == (
+            session_compatibility_revision(manifest, role)
+        )
+
+    initial_read_predecessor = {**pre_containment_release}
+    initial_read_predecessor_dependencies = dict(pre_containment_dependencies)
+    initial_read_predecessor_dependencies["llm-agent-kernel"] = (
+        "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
+    )
+    initial_read_predecessor["dependencies"] = initial_read_predecessor_dependencies
+    for role in (
+        "main",
+        "recaller",
+        "rememberer",
+        "dreamer",
+        "automatic_write_gate",
+    ):
+        assert session_compatibility_revision(initial_read_predecessor, role) == (
             session_compatibility_revision(manifest, role)
         )
     original = session_compatibility_revision(manifest, "main")
@@ -322,6 +344,11 @@ def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
 
 
 def test_provider_native_material_has_independent_bounds() -> None:
+    assert KERNEL_BASE_INSTRUCTION_IDENTITY == (
+        "llm-agent-kernel-contained-structured-agent-v1:sha256:"
+        "1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7"
+    )
+    kernel_system_bytes = len(KERNEL_BASE_INSTRUCTION.encode())
     definitions = build_slice1_definitions(
         profile_key="jarvis-test",
         model="gpt-5.6-terra",
@@ -337,7 +364,7 @@ def test_provider_native_material_has_independent_bounds() -> None:
         validate_native_context_bounds(
             definition,
             NativeContextLimits(
-                max_system_bytes=16,
+                max_system_bytes=kernel_system_bytes + 16,
                 max_developer_bytes=16,
                 max_output_schema_bytes=32_768,
             ),
@@ -352,7 +379,7 @@ def test_provider_native_material_has_independent_bounds() -> None:
         validate_native_context_bounds(
             definition,
             NativeContextLimits(
-                max_system_bytes=16,
+                max_system_bytes=16_384,
                 max_developer_bytes=16,
                 max_output_schema_bytes=32_768,
             ),
@@ -362,7 +389,7 @@ def test_provider_native_material_has_independent_bounds() -> None:
         validate_native_context_bounds(
             definitions.main,
             NativeContextLimits(
-                max_system_bytes=16,
+                max_system_bytes=16_384,
                 max_developer_bytes=16,
                 max_output_schema_bytes=1,
             ),

@@ -21,14 +21,25 @@ for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
 done
 
 sudo systemctl stop jarvis.service 2>/dev/null || true
-sudo -u jarvis bash -c \
-  'set -a; source /etc/jarvis/migration.env; set +a; cd "$1"; exec .venv/bin/alembic -c alembic.ini upgrade head' \
-  bash "$release"
+migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
+sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property="WorkingDirectory=$release" \
+  --property=EnvironmentFile=/etc/jarvis/migration.env \
+  "$release/.venv/bin/alembic" -c alembic.ini upgrade head
 if ! sudo test -f /var/lib/jarvis/runtime/paused.json && \
   ! sudo test -f /var/lib/jarvis/runtime/admission.json; then
-  sudo -u jarvis bash -c \
-    'set -a; source /etc/jarvis/jarvis.env; set +a; cd "$1"; exec .venv/bin/jarvis initialize-state' \
-    bash "$release"
+  initialize_unit="jarvis-initialize-${commit:0:12}-$RANDOM"
+  sudo systemd-run --quiet --wait --collect --unit="$initialize_unit" \
+    --property=Type=oneshot \
+    --property=User=jarvis \
+    --property=Group=jarvis \
+    --property="WorkingDirectory=$release" \
+    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+    "$release/.venv/bin/jarvis" initialize-state
 else
   sudo test -f /var/lib/jarvis/runtime/paused.json
   sudo test -f /var/lib/jarvis/runtime/admission.json

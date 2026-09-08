@@ -12,6 +12,8 @@ from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from llm_agent_kernel import (
+    KERNEL_BASE_INSTRUCTION,
+    KERNEL_BASE_INSTRUCTION_IDENTITY,
     AgentDefinition,
     AgentRole,
     BatchAsOfMode,
@@ -50,10 +52,14 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchem
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "09a1af093479aa92f3e783f4b4a7cc38e301a4a7",
+    "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd",
+    "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
 }
+EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY = (
+    "llm-agent-kernel-contained-structured-agent-v1:sha256:"
+    "1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7"
+)
 EXPECTED_PACKAGE_VERSIONS = {
     "openai-codex": "0.144.4",
     "openai-codex-cli-bin": "0.144.4",
@@ -1536,6 +1542,19 @@ def session_compatibility_revision(manifest: dict[str, object], role_id: str) ->
     if type(application_revision) is not str or not application_revision.strip():
         raise ValueError("application session contract revision must not be empty")
     if dependencies == {
+        "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
+        "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
+        "openai-codex": "0.144.4",
+        "openai-codex-cli-bin": "0.144.4",
+        "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+    }:
+        # This release narrows provider authority and prepends a fingerprinted
+        # kernel instruction. It changes definition fingerprints (and therefore
+        # cold-bootstraps sessions) without changing Jarvis's application-level
+        # continuation contract.
+        dependencies["llm-agent-kernel"] = "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
+        dependencies["provider-runtime"] = "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd"
+    if dependencies == {
         "llm-agent-kernel": "09a1af093479aa92f3e783f4b4a7cc38e301a4a7",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
@@ -1564,7 +1583,11 @@ def session_compatibility_revision(manifest: dict[str, object], role_id: str) ->
 def validate_native_context_bounds(
     definition: AgentDefinition, limits: NativeContextLimits
 ) -> None:
-    system_bytes = sum(len(part.text.encode()) for part in definition.provider.system)
+    if KERNEL_BASE_INSTRUCTION_IDENTITY != EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY:
+        raise ValueError("kernel base instruction identity is not qualified")
+    system_bytes = len(KERNEL_BASE_INSTRUCTION.encode()) + sum(
+        len(part.text.encode()) for part in definition.provider.system
+    )
     developer_bytes = sum(
         len(part.text.encode()) for part in definition.provider.developer
     )
@@ -1610,6 +1633,8 @@ def session_generation_limit(
 def verify_runtime_dependencies() -> None:
     if sys.version_info[:2] != (3, 12):
         raise RuntimeError("Jarvis requires Python 3.12")
+    if KERNEL_BASE_INSTRUCTION_IDENTITY != EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY:
+        raise RuntimeError("kernel base instruction is not at its qualified identity")
     for name, expected in EXPECTED_GIT_PINS.items():
         distribution = importlib.metadata.distribution(name)
         direct_url = distribution.read_text("direct_url.json")
@@ -1635,6 +1660,7 @@ def _text_sections(kind: str, text: str) -> PromptSections:
 __all__ = [
     "DEFAULT_NATIVE_CONTEXT_LIMITS",
     "EXPECTED_GIT_PINS",
+    "EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY",
     "EXPECTED_PACKAGE_VERSIONS",
     "QUALIFIED_CODEX_MODELS",
     "ROUTE_CONTEXT_TOKEN_FLOORS",

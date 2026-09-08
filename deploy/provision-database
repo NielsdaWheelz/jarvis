@@ -54,11 +54,14 @@ SQL
     "$runtime_password" >"$scratch/database-runtime.env"
   printf 'JARVIS_MIGRATION_DATABASE_URL=postgresql+psycopg://jarvis_migrator:%s@127.0.0.1:5432/jarvis\n' \
     "$migrator_password" >"$scratch/migration.env"
-  sudo install -m 0640 -o root -g jarvis \
+  sudo install -m 0600 -o root -g root \
     "$scratch/database-runtime.env" /etc/jarvis/database-runtime.env
-  sudo install -m 0640 -o root -g jarvis \
+  sudo install -m 0600 -o root -g root \
     "$scratch/migration.env" /etc/jarvis/migration.env
 fi
+
+sudo chown root:root "${files[@]}"
+sudo chmod 0600 "${files[@]}"
 
 sudo -n -u postgres psql -Atd jarvis -c "SHOW TimeZone" | grep -Fxq UTC
 sudo -n -u postgres psql -Atd jarvis -c \

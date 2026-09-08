@@ -620,7 +620,10 @@ def _conclusion(conclusion: HostConclusion) -> tuple[str, str, str | None]:
             ),
             "cancelled": "Stopped.",
             "protocol_error": "I stopped because the model response stayed invalid.",
-            "provider_error": "I stopped after repeated provider failures.",
+            "provider_error": (
+                "I stopped because the model runtime failed. I did not accept its "
+                "final response."
+            ),
             "quota_exhausted": (
                 "I stopped because Codex capacity is currently exhausted."
             ),

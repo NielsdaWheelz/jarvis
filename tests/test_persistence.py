@@ -34,6 +34,8 @@ from llm_agent_kernel import (
     RunId,
     RunMetrics,
     SettleMoreInput,
+    StoppedConclusion,
+    StopReason,
     ThreadCompleted,
     ThreadId,
     ThreadNoWork,
@@ -2886,6 +2888,39 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
     typed_trace = cast(dict[str, object], trace)
     settlement = cast(dict[str, object], typed_trace["settlement"])
     assert settlement["outcome"] == "response_too_long"
+
+
+async def test_checkpoint_exposes_a_truthful_host_owned_provider_failure(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = "provider-failure-channel"
+    await _owner(
+        store,
+        "provider-failure-input",
+        source_conversation_id=conversation_id,
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "provider-failure-run")
+    result = await checkpoint.claim(
+        ThreadId(conversation_id),
+        OwnerToken("provider-failure-owner"),
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        StoppedConclusion(StopReason.provider_error),
+    )
+
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert tuple(value.text for value in pending) == (
+        "I stopped because the model runtime failed. I did not accept its final "
+        "response.",
+    )
 
 
 async def test_overlong_action_resolution_say_uses_safe_host_fallback(

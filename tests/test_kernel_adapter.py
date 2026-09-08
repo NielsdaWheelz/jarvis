@@ -141,6 +141,17 @@ def test_installed_runtime_dependencies_match_qualified_pins() -> None:
     verify_runtime_dependencies()
 
 
+def test_runtime_dependency_check_rejects_kernel_instruction_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "jarvis.definitions.KERNEL_BASE_INSTRUCTION_IDENTITY",
+        "unqualified",
+    )
+    with pytest.raises(RuntimeError, match="kernel base instruction"):
+        verify_runtime_dependencies()
+
+
 async def test_runtime_bundle_uses_production_contained_provider(
     tmp_path: Path,
 ) -> None:

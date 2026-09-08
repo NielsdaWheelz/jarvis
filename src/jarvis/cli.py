@@ -56,6 +56,7 @@ from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
 from jarvis.proactivity import ProcessLocalWakeTimer
+from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.rebuild import (
@@ -209,6 +210,7 @@ async def recover_startup_actions(
 async def serve(settings: Settings) -> None:
     """Own the deployment and run the one Discord channel service."""
 
+    deny_same_identity_process_inspection()
     _validate_runtime_layout(settings)
     engine = create_engine(settings.database_url.get_secret_value())
     kernel_runtime = None

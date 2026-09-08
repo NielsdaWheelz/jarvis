@@ -113,7 +113,7 @@ sudo install -d -m 0700 -o jarvis -g jarvis \
   /var/lib/jarvis/agent-state \
   /var/lib/jarvis/agent-state/codex \
   /var/lib/jarvis/agent-state/codex/jarvis-runtime
-sudo install -m 0640 -o root -g jarvis "$remote/jarvis.env" /etc/jarvis/jarvis.env
+sudo install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
 sudo install -m 0600 -o jarvis -g jarvis \
   "$remote/google-oauth-state.json" \
   /var/lib/jarvis/connectors/google-oauth-state.json

@@ -61,3 +61,14 @@ def test_database_provisioning_splits_runtime_backup_and_restore_authority() -> 
     assert "PGUSER=jarvis_backup" in program
     assert "PGUSER=jarvis_migrator" in program
     assert "REVOKE ALL ON DATABASE jarvis FROM PUBLIC" in program
+
+
+def test_operator_application_commands_enter_the_immutable_release() -> None:
+    activation = (REPOSITORY / "deploy" / "activate-release").read_text(
+        encoding="utf-8"
+    )
+    initialization = (REPOSITORY / "deploy" / "initialize-backup").read_text(
+        encoding="utf-8"
+    )
+    assert activation.count('cd "$1"') == 2
+    assert 'cd "$1"' in initialization

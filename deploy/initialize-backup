@@ -26,7 +26,8 @@ sudo -u jarvis bash -c '
   source /etc/jarvis/backup-database.env
   source /etc/jarvis/backup.env
   set +a
-  "$1/.venv/bin/python" - <<"PY"
+  cd "$1"
+  .venv/bin/python - <<"PY"
 from jarvis.backup import BackupEnvironment
 
 BackupEnvironment.from_env()

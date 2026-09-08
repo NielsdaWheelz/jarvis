@@ -23,7 +23,7 @@ done
 
 sudo systemctl stop jarvis.service 2>/dev/null || true
 sudo -u jarvis bash -c \
-  'set -a; source /etc/jarvis/migration.env; set +a; exec "$1/.venv/bin/alembic" -c "$1/alembic.ini" upgrade head' \
+  'set -a; source /etc/jarvis/migration.env; set +a; cd "$1"; exec .venv/bin/alembic -c alembic.ini upgrade head' \
   bash "$release"
 sudo -n -u postgres psql -v ON_ERROR_STOP=1 -d jarvis <<'SQL'
 GRANT CONNECT ON DATABASE jarvis TO jarvis_backup;
@@ -34,7 +34,7 @@ SQL
 if ! sudo test -f /var/lib/jarvis/runtime/paused.json && \
   ! sudo test -f /var/lib/jarvis/runtime/admission.json; then
   sudo -u jarvis bash -c \
-    'set -a; source /etc/jarvis/jarvis.env; set +a; exec "$1/.venv/bin/jarvis" initialize-state' \
+    'set -a; source /etc/jarvis/jarvis.env; set +a; cd "$1"; exec .venv/bin/jarvis initialize-state' \
     bash "$release"
 else
   sudo test -f /var/lib/jarvis/runtime/paused.json

@@ -34,16 +34,43 @@ from jarvis.definitions import (
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.read_dispatch import ReadToolDispatcher
-from jarvis.read_tools import CalendarListCalendarsInput, CalendarListEventsInput
+from jarvis.read_tools import (
+    CalendarCoverage,
+    CalendarListCalendarsInput,
+    CalendarListEventsInput,
+)
 from jarvis.settings import Settings
 from jarvis.write_composition import build_slice6_catalog
 
 
 class QualificationFailure(RuntimeError):
-    def __init__(self, stage: str, reason: str) -> None:
+    def __init__(
+        self,
+        stage: str,
+        reason: str,
+        *,
+        coverage: CalendarCoverage | None = None,
+    ) -> None:
         super().__init__(stage)
         self.stage = stage
         self.reason = reason
+        self.coverage = coverage
+
+
+def _failure_result(error: QualificationFailure) -> dict[str, object]:
+    failure: dict[str, object] = {"reason": error.reason, "stage": error.stage}
+    if error.coverage is not None:
+        failure["coverage"] = {
+            "calendars_completed": error.coverage.calendars_completed,
+            "calendars_discovered": error.coverage.calendars_discovered,
+            "matched_events": error.coverage.matched_events,
+            "reasons": list(error.coverage.reasons),
+        }
+    return {
+        "failure": failure,
+        "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+        "status": "failed",
+    }
 
 
 def _minimum_calendars() -> int:
@@ -165,18 +192,19 @@ async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
         }
         if scanned_ids != calendar_ids:
             raise QualificationFailure("calendar.list_events", "calendar_set_changed")
-        failures = cast("list[dict[str, object]]", aggregate.get("failures"))
-        if failures:
-            raise QualificationFailure("calendar.list_events", "partial_failure")
         events = cast("list[dict[str, object]]", aggregate.get("events"))
-        coverage = cast("dict[str, object]", aggregate.get("coverage"))
-        if coverage.get("complete") is not True or coverage.get("reasons") != []:
-            raise QualificationFailure("calendar.list_events", "incomplete_coverage")
-        if coverage.get("calendars_discovered") != len(calendars):
+        coverage = CalendarCoverage.model_validate(aggregate.get("coverage"))
+        if not coverage.complete:
+            raise QualificationFailure(
+                "calendar.list_events",
+                "incomplete_coverage",
+                coverage=coverage,
+            )
+        if coverage.calendars_discovered != len(calendars):
             raise QualificationFailure("calendar.list_events", "coverage_discovery")
-        if coverage.get("calendars_completed") != len(calendars):
+        if coverage.calendars_completed != len(calendars):
             raise QualificationFailure("calendar.list_events", "coverage_completion")
-        if coverage.get("matched_events") != len(events):
+        if coverage.matched_events != len(events):
             raise QualificationFailure("calendar.list_events", "coverage_match_count")
         if len(events) <= 50:
             raise QualificationFailure("calendar.list_events", "too_few_events")
@@ -208,7 +236,7 @@ async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
                     {cast(str, item["calendar_id"]) for item in events}
                 ),
                 "events": len(events),
-                "coverage": coverage,
+                "coverage": coverage.model_dump(mode="json"),
                 "hidden": sum(item.get("hidden") is True for item in calendars),
                 "primary": sum(item.get("primary") is True for item in calendars),
                 "roles": dict(sorted(roles.items())),
@@ -248,11 +276,7 @@ def main() -> int:
             )
         result = asyncio.run(_run(Settings.from_env(), _minimum_calendars()))
     except QualificationFailure as exc:
-        result = {
-            "failure": {"reason": exc.reason, "stage": exc.stage},
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
-            "status": "failed",
-        }
+        result = _failure_result(exc)
     except BaseException as exc:
         result = {
             "failure": {"reason": type(exc).__name__, "stage": "setup"},

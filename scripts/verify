@@ -66,4 +66,6 @@ uv venv --python 3.12 "$install_environment"
 uv pip install --python "$install_environment/bin/python" "${wheels[0]}"
 "$install_environment/bin/python" -c "import jarvis"
 "$install_environment/bin/jarvis" --help >/dev/null
+"$install_environment/bin/jarvis-backup" --help >/dev/null
+"$install_environment/bin/jarvis-restore" --help >/dev/null
 uv run pip-audit --local

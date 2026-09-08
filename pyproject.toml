@@ -26,6 +26,8 @@ dependencies = [
 
 [project.scripts]
 jarvis = "jarvis.cli:main"
+jarvis-backup = "jarvis.backup:backup_main"
+jarvis-restore = "jarvis.backup:restore_main"
 
 [dependency-groups]
 dev = [

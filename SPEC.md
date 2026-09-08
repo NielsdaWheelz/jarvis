@@ -1445,6 +1445,9 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 - Public Web: reuse `llm-tools` `web.search` with its Brave adapter and
   `web.read` with its bounded safe reader.
 - Scheduling: systemd timer or a small ordinary process timer.
+- Backup and restore: PostgreSQL 16 custom-format dumps streamed through the
+  Ubuntu-packaged Restic client to one dedicated Cloudflare R2 bucket/prefix.
+  Restic performs client-side authenticated encryption before upload.
 - Testing: pytest, Hypothesis where useful, library-supplied test doubles, and
   synthetic or redacted connector fixtures.
 - Deployment: one host-native systemd service on the existing Hetzner
@@ -1522,10 +1525,16 @@ to Nexus credentials, files, database, or services.
 
 Production activation requires the installed PostgreSQL and pgvector identities
 to be recorded and qualified against the release. Daily backups MUST be
-encrypted before leaving the host and copied using separate credentials to
-off-host storage. Development/CI and Jarvis share a failure domain; bounded
-systemd resources, disk-headroom checks, and tested restore are the accepted v1
-controls.
+encrypted before leaving the host and copied using separate, bucket-scoped
+Object Read & Write credentials to a dedicated off-host Cloudflare R2
+bucket/prefix. The backup bundle streams the exact four-table data-only dump,
+encrypted Google connector state, and content-free pause/admission journals;
+it excludes every application/backup credential and all disposable Codex state.
+V1 performs no automatic snapshot deletion or pruning. Restore requires an exact
+snapshot and release, an empty migrated database, an empty state target, and
+separately recovered credentials. Development/CI and Jarvis share a failure
+domain; bounded systemd resources, disk-headroom checks, and tested restore are
+the accepted v1 controls.
 
 ## 9. Persistence
 
@@ -1722,6 +1731,16 @@ respectively to the full associated data
 value of exactly 32 bytes is the key, and every other decoded length is reduced
 with SHA-256. A refresh atomically replaces state in this same format.
 
+The required backup set contains the data from all four application tables,
+that encrypted Google handoff, `paused.json`, and `admission.json`. The small
+filesystem journals and PostgreSQL snapshot do not share a cross-resource
+transaction: a restore may therefore retain a conservative stale pause or
+admission reservation, but cannot turn a terminal action into executable work.
+The main provider session reference, provider-native state, credentials,
+embeddings, and indexes are not required recovery authority. Summary rows may
+be present in the database snapshot, but all derived memory remains deletable
+and rebuildable after restore.
+
 ## 10. Existing integrations
 
 V1 reuses the working Discord, Gmail, Google Calendar, and Google Maps
@@ -1795,8 +1814,10 @@ product-domain code.
 
 - Secrets remain outside model context, PostgreSQL, fixtures, and ordinary logs.
 - PostgreSQL and private service ports are not publicly exposed.
-- Backups run at least daily, include all four application tables and required
-  connector state, and retain an encrypted off-host copy.
+- Backups run at least daily, stream all four application tables plus required
+  connector/host state through Restic client-side encryption, and retain an
+  off-host copy under Jarvis-only R2 credentials. V1 never prunes snapshots
+  automatically.
 - A restore test occurs before acceptance and proves raw memory plus conversation
   history survive and derived memory can be rebuilt.
 - A database backup alone is insufficient to act as the owner; credentials are

@@ -408,8 +408,9 @@ Deliver:
   untouched.
 - Secret and configuration procedure that uses the release's pinned Codex SDK,
   not the host's mutable global Codex installation.
-- Daily encrypted backup and off-host copy using credentials separate from
-  provider and Nexus credentials.
+- Daily streamed Restic backup to a dedicated Cloudflare R2 bucket/prefix using
+  bucket-scoped credentials separate from provider and Nexus credentials, with
+  no automatic pruning in v1.
 - Clean-host PostgreSQL restore test plus release/state reconstruction.
 - Pre-deployment housekeeping with exact targets, active CI/container checks,
   disk-headroom acceptance, UTC convergence, recorded PostgreSQL/pgvector

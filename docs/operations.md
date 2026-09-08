@@ -45,56 +45,100 @@ rewrite that source value.
 
 ## Install and configure
 
-Install the locked environment from a clean checkout:
+The production cutover is split into preparation, installation, and activation.
+None of the preparation scripts starts Jarvis. First converge and verify the
+shared host boundary from the `dev-server` repository. An apply may report a
+deferred reboot while operator tmux sessions exist; complete that reboot at the
+controlled cutover, not during preparation.
+
+From a clean, committed Jarvis checkout, provision the dedicated database and
+transfer only the already-qualified private application state:
 
 ```sh
-uv sync --frozen --no-dev
+deploy/provision-database
+deploy/install-private-state
 ```
 
-Copy `.env.example` to a service-manager credential file outside the checkout,
-replace every placeholder, and make the file readable only by the service user.
-For database access, it contains only the least-privilege `jarvis_runtime`
-login. Keep the
-separate migrator login represented by `.env.migration.example` in an
-operator-only credential file; never load it into the Jarvis service.
-The Codex state-root base must be an absolute, existing mode-0700 directory.
-The profile named by `JARVIS_CODEX_PROFILE_KEY` must already contain the
-owner's local-account authentication at the provider-runtime layout
-`<state-root-base>/codex/<profile>/auth.json`. The Jarvis runtime directory may
-be absent or an existing mode-0700 directory when it is initialized. Supply the
-qualified mode-0600 Google OAuth state plus the exact Google client,
-connector-encryption, Maps, and Brave settings shown in `.env.example`. They
-remain host-owned and never enter Codex context or child-process environment.
-The required `JARVIS_EMBEDDING_OPENAI_API_KEY` is the already-qualified OpenAI
-project key restricted to embeddings. It remains in the host process only and
-is also added to the host-side Web secret-rejection set. Configuration fixes
-`JARVIS_EMBEDDING_MODEL=text-embedding-3-small` and
-`JARVIS_EMBEDDING_DIMENSION=1536`; changing either requires the stopped rebuild
-procedure in SPEC 7.2.
+`deploy/provision-database` creates `jarvis_migrator`, `jarvis_runtime`, and
+`jarvis_backup`, a database owned by the migrator, and four split root-owned
+credential files. The service receives only `database-runtime.env`; migrations
+receive `migration.env`; the timer receives only the SELECT-only
+`backup-database.env`; manual restore receives `restore-database.env`. It
+refuses a partial credential state or an existing database whose credentials
+are unknown.
 
-Set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` to the unique comma-separated IDs
-whose live ACLs the operator has verified are owner-only. Jarvis automatically
-executes Calendar writes only for one of those IDs, only with no attendees and
-no attendee notification, and only after AutomaticWriteGate allows the current
-owner request. Unknown/shared-calendar and attendee-bearing or notifying work
-requires Approve or Deny; a stale update/delete snapshot fails closed before
-presentation.
+`deploy/install-private-state` defaults to the ignored, mode-0600 qualified
+files under `.secrets/`. It validates the exact key roster, builds the static
+production settings, and installs `/etc/jarvis/jarvis.env`, encrypted Google
+connector state, Codex `auth.json`, and the stable installation identity without
+printing their values. Override its `JARVIS_SOURCE_*` paths only to name an
+equivalent private source. The Codex profile is `jarvis-runtime` at
+`/var/lib/jarvis/agent-state/codex/jarvis-runtime`; do not copy provider session
+databases, logs, caches, goals, or memories.
 
-Apply the schema and initialize the private state once:
+The qualified Google client, connector-encryption, Maps, Brave, Discord, and
+embedding settings remain host-owned and never enter model context or the Codex
+child environment. `JARVIS_EMBEDDING_OPENAI_API_KEY` is the qualified OpenAI
+project key restricted to embeddings. The deployment fixes
+`text-embedding-3-small` at 1,536 dimensions. Changing either requires the
+stopped rebuild procedure in SPEC 7.2.
+
+Set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` only to unique calendar IDs whose
+live ACLs the operator verified as owner-only. Jarvis automatically executes
+Calendar writes only for those IDs, without attendees or notification, after
+AutomaticWriteGate allows the current owner request. Every other case requires
+Approve or Deny.
+
+Create a dedicated private R2 bucket and an Object Read & Write token scoped to
+that bucket only. Do not reuse a Nexus bucket or credential. On the operator
+machine, create ignored mode-0600 `.secrets/jarvis-backup-r2.env` with exactly
+`RESTIC_REPOSITORY`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`, and
+`.secrets/jarvis-restic-password` with one high-entropy newline-terminated
+value. Preserve the Restic password in the owner's independent secret store,
+then install both without printing their values:
 
 ```sh
-JARVIS_MIGRATION_DATABASE_URL=postgresql://... uv run alembic upgrade head
-set -a
-. /path/to/private/jarvis.env
-set +a
-uv run jarvis initialize-state
+deploy/install-backup-secrets
 ```
 
-Load secrets with the service manager in production; the `env` example is only
-for an operator-controlled shell and must never be logged or pasted into model
-context. Install `deploy/jarvis.service` after adjusting its paths, then start
-the service. A deployment-wide PostgreSQL advisory lock makes a second process
-fail rather than overlap.
+The repository is a path-style URL of the form
+`s3:https://<account>.r2.cloudflarestorage.com/<bucket>/<jarvis-prefix>`.
+Install the exact committed release without activating it, initialize or reopen
+Restic repository format 2 as `jarvis`, then atomically run migrations,
+initialize host state, select the release, and enable the service and daily
+timer:
+
+```sh
+deploy/install-release
+deploy/initialize-backup "$(git rev-parse HEAD)"
+deploy/activate-release "$(git rev-parse HEAD)"
+```
+
+Apply 30-day R2 Bucket Lock rules to `config`, `data/`, `index/`, `keys/`, and
+`snapshots/`; leave `locks/` unlocked. The S3 token cannot administer this
+retention policy.
+
+`install-release` archives only tracked `HEAD`, builds with `uv sync --frozen
+--no-dev --no-editable`, verifies dependency identity and CLI import, records
+the commit/tree/lock digest, root-owns the completed tree, and installs inactive
+units. It refuses tracked changes. `activate-release` requires every split
+credential, migrates as `jarvis_migrator`, grants the backup role SELECT only,
+initializes content-free runtime state once, checks the Restic repository,
+atomically changes `/opt/jarvis/current`, and starts the units. A PostgreSQL
+advisory lock makes a second process fail rather than overlap.
+
+After activation, force the first backup rather than waiting for the timer and
+record the returned snapshot ID without logging its contents:
+
+```sh
+ssh dev-server-deploy sudo systemctl start jarvis-backup.service
+ssh dev-server systemctl --no-pager --full status jarvis.service jarvis-backup.timer
+```
+
+Do not activate an older release across an incompatible migration or a
+non-terminal action contract. A same-schema rollback may select an already
+installed release through `deploy/activate-release <commit>` only after the
+service is stopped and the action ledger is inspected.
 
 ## Approval operation
 
@@ -515,9 +559,40 @@ rows as part of that repair.
 
 ## Backup and logs
 
-Back up all four application tables daily and retain an encrypted off-host copy.
+`jarvis-backup.timer` runs daily at 04:15 UTC with up to fifteen minutes of
+random delay and catches up a missed run after downtime. The SELECT-only
+database login creates a custom-format, data-only dump of exactly the four
+application tables. `jarvis-backup` streams that dump, encrypted Google state,
+and content-free pause/admission journals into one manifest-bearing tar, then
+streams the tar to Restic. Restic encrypts before R2 receives any repository
+object. A successful run requires a full snapshot ID and `restic check`.
+
+The temporary plaintext dump is private under `/var/lib/jarvis` and removed on
+exit. Database size does not become Python memory use. No scheduled forget,
+prune, or retention deletion runs in v1. Monitor object usage and change this
+only through a tested ADR.
+
+To restore, install the exact release but do not start it. Create a new empty
+database, migrate it with that release, and create an empty private state root.
+Load `/etc/jarvis/restore-database.env` plus `/etc/jarvis/backup.env`, set
+`JARVIS_RELEASE_COMMIT` to the backed-up commit and the two `JARVIS_RESTORE_*`
+paths to the clean target, then run:
+
+```sh
+/opt/jarvis/releases/<commit>/.venv/bin/jarvis-restore <full-snapshot-id>
+```
+
+Restore rejects release drift, a nonempty or wrong table roster, altered or
+extra bundle members, links, path traversal, missing state, and digest failure.
+It restores PostgreSQL data in one transaction and installs state only in the
+clean target. Re-supply `/etc/jarvis` and Codex authentication separately,
+reconcile any restored `executing` action before enabling execution, then run
+the stopped `rebuild-memory` procedure and restart acceptance probes. On any
+failed restore, discard that exact clean database/state target and restart from
+the beginning; never merge it into production state.
+
 Credentials and disposable provider session state are supplied separately and
-must not be placed in the database backup. Ordinary logs contain event types,
+must not be placed in a backup snapshot. Ordinary logs contain event types,
 bounded IDs, counts, and reason codes only—not messages, prompts, memory text,
 tool payloads, tokens, or credentials.
 

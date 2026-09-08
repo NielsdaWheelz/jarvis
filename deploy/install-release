@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+builder_user="${JARVIS_DEPLOY_BUILDER_USER:-niels}"
+
+for command_name in git scp ssh; do
+  command -v "$command_name" >/dev/null 2>&1 || {
+    printf 'missing deployment command: %s\n' "$command_name" >&2
+    exit 1
+  }
+done
+
+git -C "$repo_dir" diff-index --quiet HEAD -- || {
+  printf 'tracked Jarvis files are dirty\n' >&2
+  exit 1
+}
+commit="$(git -C "$repo_dir" rev-parse --verify 'HEAD^{commit}')"
+tree="$(git -C "$repo_dir" rev-parse --verify 'HEAD^{tree}')"
+lock_sha256="$(shasum -a 256 "$repo_dir/uv.lock" | awk '{print $1}')"
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+[[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+[[ "$lock_sha256" =~ ^[0-9a-f]{64}$ ]]
+
+archive="$(mktemp "${TMPDIR:-/tmp}/jarvis-release.XXXXXX.tar")"
+cleanup() {
+  case "$archive" in
+  "${TMPDIR:-/tmp}"/jarvis-release.*.tar) rm -f -- "$archive" ;;
+  *) return 1 ;;
+  esac
+}
+trap cleanup EXIT HUP INT TERM
+git -C "$repo_dir" archive --format=tar --output="$archive" HEAD
+
+remote_archive="$(ssh "$target" mktemp /tmp/jarvis-release.XXXXXX.tar)"
+case "$remote_archive" in
+/tmp/jarvis-release.*.tar) ;;
+*)
+  printf 'remote returned an unsafe staging path\n' >&2
+  exit 1
+  ;;
+esac
+scp -q "$archive" "$target:$remote_archive"
+
+ssh "$target" bash -s -- \
+  "$commit" "$tree" "$lock_sha256" "$builder_user" "$remote_archive" <<'REMOTE'
+set -euo pipefail
+commit="$1"
+tree="$2"
+lock_sha256="$3"
+builder_user="$4"
+archive="$5"
+release="/opt/jarvis/releases/$commit"
+
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+[[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+[[ "$lock_sha256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$builder_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+case "$archive" in /tmp/jarvis-release.*.tar) ;; *) exit 1 ;; esac
+[[ -f "$archive" && ! -L "$archive" ]]
+
+cleanup_archive() {
+  rm -f -- "$archive"
+}
+trap cleanup_archive EXIT HUP INT TERM
+
+if sudo test -e "$release"; then
+  sudo test -f "$release/RELEASE.json"
+  observed="$(sudo python3 - "$release/RELEASE.json" <<'PY'
+import json
+import pathlib
+import sys
+
+value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print("|".join((value["commit"], value["tree"], value["uv_lock_sha256"])))
+PY
+)"
+  [[ "$observed" == "$commit|$tree|$lock_sha256" ]]
+  printf 'Release already installed: %s\n' "$commit"
+  exit 0
+fi
+
+sudo install -d -m 0755 -o "$builder_user" -g "$builder_user" "$release"
+complete=0
+cleanup_release() {
+  if ((complete == 0)); then
+    case "$release" in
+    /opt/jarvis/releases/[0-9a-f][0-9a-f]*) sudo rm -rf -- "$release" ;;
+    *) return 1 ;;
+    esac
+  fi
+}
+trap 'cleanup_release; cleanup_archive' EXIT HUP INT TERM
+sudo -u "$builder_user" tar --extract --file "$archive" --directory "$release"
+sudo -u "$builder_user" /home/niels/.local/bin/uv sync \
+  --directory "$release" --frozen --no-dev --no-editable
+sudo -u "$builder_user" "$release/.venv/bin/python" - <<'PY'
+from jarvis.definitions import verify_runtime_dependencies
+
+verify_runtime_dependencies()
+PY
+sudo -u "$builder_user" "$release/.venv/bin/jarvis" --help >/dev/null
+sudo -u "$builder_user" python3 - \
+  "$release/RELEASE.json" "$commit" "$tree" "$lock_sha256" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+value = {
+    "commit": sys.argv[2],
+    "tree": sys.argv[3],
+    "uv_lock_sha256": sys.argv[4],
+}
+path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+path.chmod(0o644)
+PY
+sudo chown -R root:root "$release"
+sudo chmod -R go-w "$release"
+sudo install -m 0644 -o root -g root \
+  "$release/deploy/jarvis.service" /etc/systemd/system/jarvis.service
+sudo install -m 0644 -o root -g root \
+  "$release/deploy/jarvis-backup.service" /etc/systemd/system/jarvis-backup.service
+sudo install -m 0644 -o root -g root \
+  "$release/deploy/jarvis-backup.timer" /etc/systemd/system/jarvis-backup.timer
+sudo systemctl daemon-reload
+complete=1
+printf 'Installed inactive release: %s\n' "$commit"
+REMOTE

@@ -1,25 +1,16 @@
 [Unit]
-Description=Jarvis single-channel assistant
+Description=Encrypted off-host Jarvis backup
 After=network-online.target postgresql.service
 Wants=network-online.target
-StartLimitIntervalSec=900
-StartLimitBurst=3
 
 [Service]
-Type=simple
+Type=oneshot
 User=jarvis
 Group=jarvis
-WorkingDirectory=/opt/jarvis/current
-EnvironmentFile=/etc/jarvis/database-runtime.env
-EnvironmentFile=/etc/jarvis/jarvis.env
-Environment=TZ=UTC
-Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/jarvis/current/.venv/bin/jarvis serve
-Restart=on-failure
-RestartSec=5
-KillSignal=SIGINT
-SuccessExitStatus=130
-TimeoutStopSec=360
+EnvironmentFile=/etc/jarvis/backup-database.env
+EnvironmentFile=/etc/jarvis/backup.env
+Environment=JARVIS_RELEASE_METADATA_PATH=/opt/jarvis/current/RELEASE.json
+ExecStart=/opt/jarvis/current/.venv/bin/jarvis-backup
 UMask=0077
 NoNewPrivileges=true
 AmbientCapabilities=
@@ -39,11 +30,9 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictSUIDSGID=true
 LockPersonality=true
 SystemCallArchitectures=native
-TasksMax=256
-CPUQuota=200%
-MemoryHigh=2G
-MemoryMax=3G
-OOMPolicy=stop
-
-[Install]
-WantedBy=multi-user.target
+TasksMax=64
+CPUQuota=100%
+MemoryMax=1G
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

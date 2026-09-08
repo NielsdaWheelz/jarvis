@@ -36,6 +36,7 @@ not implementation suggestions.
 | [0029](0029-represent-calendar-unspecified-ends.md) | Represent observed Calendar events whose end is unspecified | Accepted; supersedes 0027's concrete-end requirement for observed normal events |
 | [0030](0030-namespace-the-scheduled-wake-tool.md) | Namespace the scheduled-wake tool while preserving its message source | Accepted; amends the tool spelling in 0014, 0015, and 0019 |
 | [0031](0031-deploy-v1-on-the-existing-devbox.md) | Deploy v1 on the existing devbox with an isolated host-native service and database | Accepted; amends deployment, operations, and Slice 7 |
+| [0032](0032-stream-encrypted-backups-to-dedicated-r2.md) | Stream encrypted backups to dedicated off-host R2 storage and restore only into clean state | Accepted; amends backup, restore, and Slice 7 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

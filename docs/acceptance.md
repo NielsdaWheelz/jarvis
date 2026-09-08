@@ -422,10 +422,12 @@ These criteria are **live** where they call Gmail or Discord.
 
 ## A7. Recovery and operations
 
-- [ ] **A7.1** A daily encrypted backup includes all four application tables and
-      required connector state; encryption occurs before upload and at least
-      one copy is in separate off-host object storage under backup-only
-      credentials that grant no provider or Nexus authority.
+- [ ] **A7.1** A daily streamed Restic backup includes all four application
+      tables, required encrypted connector state, and the content-free pause and
+      admission journals; encryption occurs before upload and at least one copy
+      is in a dedicated Cloudflare R2 bucket/prefix under bucket-scoped
+      credentials that grant no provider, Cloudflare administration, other-R2,
+      or Nexus authority. V1 performs no automatic snapshot deletion or prune.
 - [ ] **A7.2** Restore into a clean PostgreSQL instance preserves message IDs,
       raw memory IDs/text/timestamps, and action effects/status/results. The
       acceptance report records the production host, release commit, Python,
@@ -442,8 +444,9 @@ These criteria are **live** where they call Gmail or Discord.
       ordinary response after delayed ambiguous acknowledgement. It resumes a
       configuration-compatible main session when possible and cold bootstraps
       from canonical context when not.
-- [ ] **A7.6** A database backup contains no usable Google, Discord, Codex,
-      Brave, or embedding credential.
+- [ ] **A7.6** A backup snapshot contains no usable Google, Discord, Codex,
+      Brave, Maps, embedding, PostgreSQL, R2, Restic, or connector-encryption
+      credential and no disposable provider state.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private
       message, email body, memory text, or secret.
 - [ ] **A7.8** Protocol, run-budget, quota, explicit-stop, and repeated-provider

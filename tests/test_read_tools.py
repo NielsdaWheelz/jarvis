@@ -43,8 +43,10 @@ from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
     AUTOMATIC_READ_TOOL_IDS,
     AllDayEventTime,
+    CalendarCoverage,
     CalendarListCalendarsInput,
     CalendarListEventsInput,
+    CalendarListEventsSuccess,
     CalendarNormalEvent,
     EventTime,
     GmailSearchInput,
@@ -140,7 +142,7 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
             _assert_closed(spec.declared_error_schema.semantic)
         if not str(tool_id).startswith("web."):
             if tool_id == ToolId("calendar.list_events"):
-                expected_revision = "jarvis-calendar-list_events-v4"
+                expected_revision = "jarvis-calendar-list_events-v5"
             elif tool_id == ToolId("calendar.list_calendars"):
                 expected_revision = "jarvis-calendar-list_calendars-v1"
             elif str(tool_id).startswith("calendar."):
@@ -245,16 +247,35 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
         ]
         == "explicit-per-calendar-v1"
     )
+    calendar_list_events_policy = catalog.binding(
+        ToolId("calendar.list_events")
+    ).policy_inputs
+    assert calendar_list_events_policy["coverage"] == "calendar-coverage-v1"
+    assert calendar_list_events_policy["event_page_size"] == 250
+    assert calendar_list_events_policy["event_order"] == (
+        "chronological-cancelled-last-calendar-id-event-id-v1"
+    )
+    assert calendar_list_events_policy["max_event_page_requests"] == 100
+    assert calendar_list_events_policy["max_events"] == 200
+    assert calendar_list_events_policy["max_success_bytes"] == 262_144
+    assert calendar_list_events_policy["operation_deadline_seconds"] == 55.0
+    assert calendar_list_events_policy["output_clipping"] == (
+        "canonical-json-largest-chronological-whole-event-prefix-v1"
+    )
+    assert calendar_list_events_policy["pagination"] == "calendar-id-rounds-v1"
     assert (
         catalog.binding(ToolId("calendar.list_events")).implementation_revision
-        == "jarvis-calendar-list_events-v4"
+        == "jarvis-calendar-list_events-v5"
     )
     assert (
         catalog.binding(ToolId("calendar.get_event")).policy_inputs["observed_end"]
         == calendar_end_policy
     )
+    assert catalog.spec(ToolId("calendar.list_events")).limits == ToolLimits(
+        8_192, 262_144, 202, 60.0
+    )
     assert catalog.spec(ToolId("calendar.list_events")).tool_contract_revision == (
-        "d6e83b94e430e0dc61573299ed80fee5fb332f191c9d6b8d52c9c40ede644720"
+        "1573dab5638dc407fbf7c9144696ca78e0c0a43ed79922d35be96c4206ec8037"
     )
     assert catalog.spec(ToolId("calendar.list_calendars")).tool_contract_revision == (
         "08cc652b133c80a30ee2e9c3be2c64d2321f00533805a4a56213ce95fd911817"
@@ -267,7 +288,6 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
 def test_calendar_list_contract_has_no_provider_calendar_id() -> None:
     schema = compile_schema(CalendarListEventsInput).semantic
     assert set(schema["properties"]) == {
-        "max_results",
         "time_max",
         "time_min",
         "time_zone",
@@ -280,6 +300,103 @@ def test_calendar_list_contract_has_no_provider_calendar_id() -> None:
         "required": [],
         "type": "object",
     }
+    with pytest.raises(ValidationError):
+        CalendarListEventsInput.model_validate(
+            {
+                "time_min": "2026-09-08T00:00:00Z",
+                "time_max": "2026-09-09T00:00:00Z",
+                "time_zone": "UTC",
+                "max_results": 50,
+            }
+        )
+    success_schema = compile_schema(CalendarListEventsSuccess).semantic
+    assert set(success_schema["properties"]) == {
+        "calendars",
+        "coverage",
+        "events",
+        "failures",
+        "observed_at",
+    }
+    with pytest.raises(ValidationError):
+        CalendarListEventsSuccess.model_validate(
+            {
+                "calendars": [],
+                "events": [],
+                "failures": [],
+                "coverage": {
+                    "complete": True,
+                    "reasons": [],
+                    "calendars_discovered": 0,
+                    "calendars_completed": 0,
+                    "matched_events": 0,
+                },
+                "observed_at": "2026-09-08T00:00:00Z",
+                "truncated": False,
+            }
+        )
+
+
+def test_calendar_coverage_contract_is_closed_and_cross_field_strict() -> None:
+    schema = compile_schema(CalendarCoverage).semantic
+
+    assert set(schema["properties"]) == {
+        "calendars_completed",
+        "calendars_discovered",
+        "complete",
+        "matched_events",
+        "reasons",
+    }
+    _assert_closed(schema)
+    assert (
+        CalendarCoverage(
+            complete=True,
+            reasons=(),
+            calendars_discovered=35,
+            calendars_completed=35,
+            matched_events=71,
+        ).matched_events
+        == 71
+    )
+    invalid = (
+        {
+            "complete": True,
+            "reasons": ("calendar_limit",),
+            "calendars_discovered": 1,
+            "calendars_completed": 1,
+            "matched_events": 0,
+        },
+        {
+            "complete": False,
+            "reasons": (),
+            "calendars_discovered": 1,
+            "calendars_completed": 1,
+            "matched_events": 0,
+        },
+        {
+            "complete": False,
+            "reasons": ("event_limit", "calendar_limit"),
+            "calendars_discovered": 1,
+            "calendars_completed": 1,
+            "matched_events": 201,
+        },
+        {
+            "complete": False,
+            "reasons": ("deadline",),
+            "calendars_discovered": 1,
+            "calendars_completed": 2,
+            "matched_events": None,
+        },
+        {
+            "complete": False,
+            "reasons": ("deadline",),
+            "calendars_discovered": 1,
+            "calendars_completed": 0,
+            "matched_events": 0,
+        },
+    )
+    for value in invalid:
+        with pytest.raises(ValidationError):
+            CalendarCoverage.model_validate(value)
 
 
 def test_observed_end_three_variant_union_strictly_round_trips() -> None:

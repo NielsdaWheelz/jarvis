@@ -846,9 +846,9 @@ async def _run_zero_memory_rememberer(
                 processing_attempts=1,
                 trace={
                     "settlement": {
-                        "conclusion_kind": "conversation",
+                        "conclusion_kind": "silent",
                         "conclusion_message_id": None,
-                        "outcome": "say",
+                        "outcome": "silent",
                         "run_id": "qualification-settled-owner-input",
                         "through_checkpoint": str(owner_id),
                     }

@@ -146,6 +146,13 @@ These are accepted knowingly, not overlooked.
   tagged domain variant rather than Google's compatibility end. This preserves
   truth but requires consumers to handle the third observed-end variant; the
   Main session cold-bootstraps once for the corrected v2 contract.
+- Calendar event listing uses host-owned bounded pagination and returns typed
+  completeness rather than a model-selected limit or truncation guess. It may
+  use more Google requests and still reports unusually dense ranges as partial
+  at the fixed page/event/byte/deadline bounds.
+- Production Main returns a typed structured terminal which Jarvis renders as an
+  answer, partial result, question, failure, or silence. Discord typing is the
+  only synchronous progress signal; there is no terminal in-progress promise.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed. Rotating or discarding

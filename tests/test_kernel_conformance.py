@@ -36,6 +36,7 @@ from llm_agent_kernel import (
     SettleMoreInput,
     StoppedConclusion,
     StopReason,
+    StructuredOutput,
     ThreadCompleted,
     ThreadId,
     ThreadStopKind,
@@ -99,9 +100,10 @@ from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.messages import Settlement as MessageSettlement
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import ConnectorFailure, compose_read_catalog
-from jarvis.service import JarvisThreadRunner, Slice1ThreadRunner
+from jarvis.service import JarvisThreadRunner
 from jarvis.session import AtomicSessionRefPort
 from jarvis.settings import Settings
+from jarvis.terminal import JarvisTerminal
 
 AS_OF = datetime(2026, 9, 3, 12, tzinfo=UTC)
 THREAD_ID = ThreadId("discord-channel-1")
@@ -342,6 +344,16 @@ def _definitions() -> Any:
     )
 
 
+def _with_structured_main(definitions: Any) -> Any:
+    return replace(
+        definitions,
+        main=replace(
+            definitions.main,
+            output_contract=StructuredOutput("jarvis_terminal", JarvisTerminal),
+        ),
+    )
+
+
 class _UnavailableReads:
     async def _fail(self) -> Any:
         raise ConnectorFailure("provider_unavailable", attempts=1)
@@ -565,7 +577,6 @@ async def test_slice2_compound_reads_are_serial_and_observed_before_say(
                 "time_min": "2026-09-04T12:00:00Z",
                 "time_max": "2026-09-04T13:00:00Z",
                 "time_zone": "UTC",
-                "max_results": 1,
             },
         },
         {
@@ -940,6 +951,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
     catalog, definitions = _slice2_definitions(slow_search_deadline=12.0)
+    definitions = _with_structured_main(definitions)
     assert definitions.plans["main"].grant(ToolId("web.search")).limits == (
         SLICE2_WEB_SEARCH_LIMITS
     )
@@ -979,7 +991,6 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
                     "time_min": "2026-09-04T12:00:00Z",
                     "time_max": "2026-09-04T13:00:00Z",
                     "time_zone": "UTC",
-                    "max_results": 1,
                 },
             },
             {
@@ -1001,7 +1012,15 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
                 "tool_id": "web.read",
                 "arguments": {"url": "https://public.example/"},
             },
-            {"type": "say", "text": "The compound reads completed boundedly."},
+            {
+                "type": "finish",
+                "result": {
+                    "response": {
+                        "type": "answered",
+                        "text": "The compound reads completed boundedly.",
+                    }
+                },
+            },
         ]
     )
     provider = CodexProvider(
@@ -1067,7 +1086,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     assert parked_at is None
     settlement = trace["settlement"]
     assert settlement["conclusion_kind"] == "conversation"
-    assert settlement["outcome"] == "say"
+    assert settlement["outcome"] == "answered"
     assert assistant_text == "The compound reads completed boundedly."
     assert action_count_after == action_count_before
     assert frozenset(catalog.tool_ids) == frozenset(SLICE2_READ_IDS)
@@ -1120,10 +1139,12 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    definitions = build_slice1_definitions(
-        profile_key=settings.codex_profile_key,
-        model=settings.codex_model,
-        owner_timezone=settings.owner_timezone,
+    definitions = _with_structured_main(
+        build_slice1_definitions(
+            profile_key=settings.codex_profile_key,
+            model=settings.codex_model,
+            owner_timezone=settings.owner_timezone,
+        )
     )
     references = AtomicSessionRefPort(
         settings.session_reference_path,
@@ -1140,7 +1161,19 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     )
     history = PostgresCanonicalHistory(engine)
 
-    first_runtime = _Runtime([{"type": "say", "text": "speculative answer"}])
+    first_runtime = _Runtime(
+        [
+            {
+                "type": "finish",
+                "result": {
+                    "response": {
+                        "type": "answered",
+                        "text": "speculative answer",
+                    }
+                },
+            }
+        ]
+    )
     first_provider = CodexProvider(
         cast(AgentRuntime, first_runtime),
         cwd_parent=tmp_path,
@@ -1154,7 +1187,7 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     )
     try:
         with pytest.raises(_Crash):
-            await Slice1ThreadRunner(
+            await JarvisThreadRunner(
                 settings=settings,
                 store=crash_store,
                 admission=RollingAdmissionPort(
@@ -1185,7 +1218,19 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     assert attempt == 1
     assert processed_at is None
 
-    second_runtime = _Runtime([{"type": "say", "text": "recovered answer"}])
+    second_runtime = _Runtime(
+        [
+            {
+                "type": "finish",
+                "result": {
+                    "response": {
+                        "type": "answered",
+                        "text": "recovered answer",
+                    }
+                },
+            }
+        ]
+    )
     second_provider = CodexProvider(
         cast(AgentRuntime, second_runtime),
         cwd_parent=tmp_path,
@@ -1199,7 +1244,7 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     )
     store = MessageStore(engine)
     try:
-        recovered = await Slice1ThreadRunner(
+        recovered = await JarvisThreadRunner(
             settings=settings,
             store=store,
             admission=RollingAdmissionPort(
@@ -1312,7 +1357,7 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
         limits,
     )
     try:
-        outcome = await Slice1ThreadRunner(
+        outcome = await JarvisThreadRunner(
             settings=settings,
             store=store,
             admission=admission,
@@ -1358,7 +1403,7 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
                 CheckpointStateDefect,
                 match="cognitive circuit is parked",
             ):
-                await Slice1ThreadRunner(
+                await JarvisThreadRunner(
                     settings=settings,
                     store=store,
                     admission=RollingAdmissionPort(

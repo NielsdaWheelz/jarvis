@@ -21,18 +21,22 @@ from llm_agent_kernel import (
 from llm_tools import ToolId
 from sqlalchemy import func, select
 
+from jarvis.actions import ActionStore
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
-    build_slice2_definitions,
+    build_slice5_write_gate,
+    build_slice6_definitions,
     verify_runtime_dependencies,
 )
-from jarvis.read_composition import build_read_catalog
+from jarvis.embeddings import OpenAIEmbedder
+from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import CalendarListCalendarsInput, CalendarListEventsInput
 from jarvis.settings import Settings
+from jarvis.write_composition import build_slice6_catalog
 
 
 class QualificationFailure(RuntimeError):
@@ -43,7 +47,7 @@ class QualificationFailure(RuntimeError):
 
 
 def _minimum_calendars() -> int:
-    raw = os.environ.get("JARVIS_LIVE_MIN_CALENDARS", "2")
+    raw = os.environ.get("JARVIS_LIVE_MIN_CALENDARS", "35")
     try:
         value = int(raw)
     except ValueError:
@@ -56,19 +60,30 @@ def _minimum_calendars() -> int:
 async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
     verify_runtime_dependencies()
     clients = tuple(
-        httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(4)
+        httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(5)
     )
     engine = create_engine(settings.database_url.get_secret_value())
     stage = "composition"
     try:
-        catalog = build_read_catalog(
+        gate, _ = build_slice5_write_gate(
+            profile_key=settings.codex_profile_key,
+            model=settings.codex_model,
+        )
+        catalog = build_slice6_catalog(
             settings=settings,
             google_oauth_http=clients[0],
             google_api_http=clients[1],
             maps_http=clients[2],
             brave_http=clients[3],
+            memory_repository=PostgresMemoryRepository(engine),
+            memory_embedder=OpenAIEmbedder(
+                settings.embedding_openai_api_key,
+                http_client=clients[4],
+            ),
+            actions=ActionStore(engine),
+            automatic_write_gate_definition_fingerprint=gate.fingerprint,
         )
-        definitions = build_slice2_definitions(
+        definitions = build_slice6_definitions(
             catalog=catalog,
             profile_key=settings.codex_profile_key,
             model=settings.codex_model,
@@ -136,10 +151,9 @@ async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
         aggregate = await read(
             "calendar.list_events",
             CalendarListEventsInput(
-                time_min=now - timedelta(days=30),
-                time_max=now + timedelta(days=365),
+                time_min=now - timedelta(days=7),
+                time_max=now + timedelta(days=7),
                 time_zone=settings.owner_timezone,
-                max_results=50,
             ),
             2,
         )
@@ -155,6 +169,17 @@ async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
         if failures:
             raise QualificationFailure("calendar.list_events", "partial_failure")
         events = cast("list[dict[str, object]]", aggregate.get("events"))
+        coverage = cast("dict[str, object]", aggregate.get("coverage"))
+        if coverage.get("complete") is not True or coverage.get("reasons") != []:
+            raise QualificationFailure("calendar.list_events", "incomplete_coverage")
+        if coverage.get("calendars_discovered") != len(calendars):
+            raise QualificationFailure("calendar.list_events", "coverage_discovery")
+        if coverage.get("calendars_completed") != len(calendars):
+            raise QualificationFailure("calendar.list_events", "coverage_completion")
+        if coverage.get("matched_events") != len(events):
+            raise QualificationFailure("calendar.list_events", "coverage_match_count")
+        if len(events) <= 50:
+            raise QualificationFailure("calendar.list_events", "too_few_events")
         if any(item.get("calendar_id") not in calendar_ids for item in events):
             raise QualificationFailure("calendar.list_events", "unknown_event_calendar")
 
@@ -183,7 +208,7 @@ async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
                     {cast(str, item["calendar_id"]) for item in events}
                 ),
                 "events": len(events),
-                "events_truncated": aggregate.get("truncated"),
+                "coverage": coverage,
                 "hidden": sum(item.get("hidden") is True for item in calendars),
                 "primary": sum(item.get("primary") is True for item in calendars),
                 "roles": dict(sorted(roles.items())),

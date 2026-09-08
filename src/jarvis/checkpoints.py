@@ -21,7 +21,6 @@ from llm_agent_kernel import (
     ClaimId,
     ClaimNoWork,
     ClaimResult,
-    ConversationConclusion,
     DispatchLineage,
     HostConclusion,
     HostInput,
@@ -40,6 +39,7 @@ from llm_agent_kernel import (
     SettleMoreInput,
     SettleResult,
     StoppedConclusion,
+    StructuredConclusion,
     SuspensionConclusion,
     ThreadId,
 )
@@ -52,6 +52,7 @@ from llm_tools import (
     PromptSections,
     PromptText,
 )
+from provider_runtime.agent_runtime import thaw_json_value
 
 from jarvis.messages import (
     CircuitOpen,
@@ -63,6 +64,7 @@ from jarvis.messages import (
     StoredMessage,
     render_host_fallback,
 )
+from jarvis.terminal import JarvisTerminal, TurnEvidence, render_terminal
 
 _REASON_SEPARATOR = re.compile(r"[^a-z0-9]+")
 
@@ -99,6 +101,7 @@ class PostgresInputCheckpoint:
         scheduled_wake_plan: FrozenToolPlan,
         maximum_batch_size: int,
         maximum_attempts: int,
+        turn_evidence: TurnEvidence,
         maximum_response_characters: int = 2_000,
         on_settlement: Callable[[tuple[UUID, ...]], None] | None = None,
     ) -> None:
@@ -118,6 +121,7 @@ class PostgresInputCheckpoint:
         self._scheduled_wake_plan = scheduled_wake_plan
         self._maximum_batch_size = maximum_batch_size
         self._maximum_attempts = maximum_attempts
+        self._turn_evidence = turn_evidence
         self._maximum_response_characters = maximum_response_characters
         self._on_settlement = on_settlement
         self._lock = asyncio.Lock()
@@ -370,8 +374,12 @@ class PostgresInputCheckpoint:
             active = self._require_active(
                 claim, through_checkpoint, promote_offered=True
             )
-            kind, outcome, conclusion_text = _conclusion(conclusion)
-            if active.host_inputs and not (kind == "conversation" and outcome == "say"):
+            kind, outcome, conclusion_text = _conclusion(
+                conclusion, self._turn_evidence
+            )
+            if active.host_inputs and (
+                kind != "conversation" or conclusion_text is None
+            ):
                 conclusion_text = render_host_fallback(
                     source=active.host_inputs[0].source,
                     text=active.host_inputs[0].text,
@@ -433,9 +441,9 @@ class PostgresInputCheckpoint:
             )
             self._record_consumed(active.message_ids)
             owner_group: tuple[UUID, ...] = ()
-            if (
-                kind == "conversation" and outcome in {"say", "finish", "host_fallback"}
-            ) or (kind == "suspension" and outcome == "user"):
+            if kind in {"conversation", "silent"} or (
+                kind == "suspension" and outcome == "user"
+            ):
                 owner_group = self._record_consumed_owners(active)
             self._active = None
             if self._on_settlement is not None:
@@ -606,13 +614,21 @@ def _host_input(value: StoredMessage) -> HostInput:
     )
 
 
-def _conclusion(conclusion: HostConclusion) -> tuple[str, str, str | None]:
-    if isinstance(conclusion, ConversationConclusion):
-        return (
-            "conversation",
-            "say" if conclusion.text is not None else "finish",
-            conclusion.text,
-        )
+def _conclusion(
+    conclusion: HostConclusion,
+    evidence: TurnEvidence,
+) -> tuple[str, str, str | None]:
+    if isinstance(conclusion, StructuredConclusion):
+        terminal = JarvisTerminal.model_validate(thaw_json_value(conclusion.result))
+        try:
+            rendered = render_terminal(terminal, evidence)
+        except ValueError:
+            return (
+                "stopped",
+                "response_too_long",
+                "I stopped because the response exceeded Discord's message limit.",
+            )
+        return rendered.conclusion_kind, rendered.outcome, rendered.content
     if isinstance(conclusion, StoppedConclusion):
         messages = {
             "budget_exhausted": (
@@ -632,7 +648,7 @@ def _conclusion(conclusion: HostConclusion) -> tuple[str, str, str | None]:
         return "stopped", conclusion.reason.value, messages[conclusion.reason.value]
     if isinstance(conclusion, SuspensionConclusion):
         return "suspension", conclusion.waiting_for.value, None
-    raise CheckpointStateDefect("the conversational thread returned structured output")
+    raise CheckpointStateDefect("the Main thread returned an unsupported conclusion")
 
 
 def _reason_code(reason: str) -> str:

@@ -92,7 +92,8 @@ family. The adapter MAY:
 
 - Receive and boundedly catch up owner messages from the configured channel.
 - Start typing state promptly while a turn runs.
-- Deliver ordinary text, Markdown, links, and code snippets produced by `say`.
+- Deliver ordinary text, Markdown, links, and code snippets from the
+  host-rendered Main terminal result.
 - Deliver proactive messages under section 4.4.
 - Deliver host-rendered approval messages and plain-text payload attachments.
 - Edit its own approval message to disable Approve and Deny after a decision.
@@ -141,6 +142,35 @@ Reliability outranks personality. Jarvis SHOULD be direct, calm, resourceful,
 and willing to act. It SHOULD avoid ceremonial progress reports, needless menus,
 agent theatre, and notifications without plausible benefit. Silence is a valid
 result.
+
+Main has no model-visible conversational `say` terminal. It uses the kernel's
+existing structured-output path and returns exactly one closed terminal result:
+`answered`, `partial`, `needs_input`, `failed`, or `silent`. The host renders
+that result deterministically. No terminal variant means work is still in
+progress. A terminal response MUST NOT imply future work unless a durable action
+has already been committed and the kernel suspended on that reference. Discord
+typing is the only synchronous progress indication.
+
+The closed `JarvisTerminal` root contains one `response` discriminated by
+`type`: `answered` has non-empty `text`; `partial` has non-empty `text`, a
+non-empty at-most-500-character `limitation`, and a nullable non-empty
+at-most-500-character `question`; `needs_input` has at-most-1000-character
+`context` and one non-empty at-most-500-character `question`; `failed` has one
+non-empty `explanation`; and `silent` has only
+`reason = owner_needs_no_response`. Text and explanation retain the existing
+Discord response limit. The host renders complete answers unchanged and owns
+the fixed labels for every other visible branch, checking the final rendered
+Discord bound before persistence.
+
+An incomplete typed collection observation cannot be rendered as `answered` or
+`silent`. Jarvis conservatively renders it as a visible partial result with a
+host-owned limitation. Semantic prose quality remains prompt- and
+evaluation-governed; Jarvis MUST NOT add a phrase matcher or second-model critic.
+The run-local evidence value contains only typed incompleteness reasons and
+counts and is discarded at settlement/release. Visible terminal variants settle
+as `conclusion_kind = conversation` with their type as the trace outcome;
+`silent` settles as kind/outcome `silent`. Every settled owner variant remains
+eligible for remembering.
 
 ### 4.3 Central conversation history
 
@@ -223,8 +253,8 @@ deterministic host-authored stopped conclusion and is consumed; cleanup never
 silently creates a fresh-budget successor.
 
 The host promptly shows a typing indicator before model work. V1 does not stream
-partial structured model output into Discord; a `say` step is delivered only
-after its schema is valid.
+partial structured model output into Discord; the host delivers only a complete,
+validated, rendered Main terminal.
 
 ### 4.4 Proactivity and stop control
 
@@ -514,8 +544,8 @@ as opaque host reference, canonical tool name, original validated arguments,
 resolved action state, and safe result/evidence. This is sufficient to continue
 after provider-session loss without replaying the original write.
 
-An action-resolution input must produce a visible owner notice. If the main
-model returns `finish` or fails before `say`, Jarvis's terminal-finalization
+An action-resolution input must produce a visible owner notice. If Main returns
+`silent` or fails before a renderable terminal, Jarvis's terminal-finalization
 adapter persists a deterministic host-authored assistant fallback rendered from
 the action ID, tool, resolved state, and safe normalized result, then processes
 the host row. For `uncertain`, that fallback includes the safe reconciliation
@@ -667,13 +697,14 @@ not assume that the summary preserves the detail that made the raw memory useful
 
 ### 6.4 Rememberer
 
-After every settled input group containing owner messages that reached `say`,
-`finish`, or created an action awaiting approval, the rememberer receives all
-consumed owner messages, the persisted conclusion, material tool/action context,
-and relevant existing memories. It may search and open memory before returning
-zero or more new raw memory strings as a schema-validated `finish.result` from an
-isolated one-shot run. Host action-resolution and scheduled-wake rows may supply
-context but are not themselves memory-work targets.
+After every settled input group containing owner messages that reached any valid
+Main terminal or created an action awaiting approval, the rememberer receives
+all consumed owner messages, the persisted conclusion, material tool/action
+context, and relevant existing memories. It may search and open memory before
+returning zero or more new raw memory strings as a schema-validated
+`finish.result` from an isolated one-shot run. Host action-resolution and
+scheduled-wake rows may supply context but are not themselves memory-work
+targets.
 
 The rememberer should retain information likely to save future explanation:
 preferences, decisions, unresolved intentions, persistent circumstances,
@@ -762,8 +793,8 @@ run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
 persistent peer agents or general delegation. The main definition is
-`continuing` with a conversational output contract and the exact main catalog as
-its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
+`continuing` with a closed structured terminal contract and the exact main
+catalog as its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
 `isolated` one-shot definitions with closed structured output contracts. The
 first three have memory-read envelopes; AutomaticWriteGate has an empty tool
 envelope. Jarvis supplies one frozen plan per run; it may narrow but never expand
@@ -1078,21 +1109,22 @@ Owner-input recall begins by having the kernel dispatch exactly one deterministi
 `memory.search` call under that recaller plan and provide its typed observation;
 the recaller may then adaptively call `memory.search` or `memory.open`.
 
-`calendar.list_events` takes only aware `time_min`, aware `time_max`, an IANA
-`time_zone`, and `max_results` from 1 through 50. It exposes no provider calendar
-ID. The host reads `users/me/calendarList` with reader-or-better access,
-non-deleted entries, hidden entries included, and a hard 50-calendar bound, then
-reads the requested range from every returned calendar. Jarvis MUST NOT ask the
-owner for a provider calendar ID. `calendar.list_calendars` exposes that same
-bounded live set, with an exact stable ID, nullable display name and IANA time
-zone, access role, and primary/hidden/selected flags, so a human calendar name
-can be resolved for targeted reads or writes. Neither result is persisted.
+`calendar.list_events` takes only aware `time_min`, aware `time_max`, and an IANA
+`time_zone`. It exposes neither a provider calendar ID nor a model-selected
+result bound. The host reads `users/me/calendarList` with reader-or-better
+access, non-deleted entries, hidden entries included, and a hard 50-calendar
+bound, then reads the requested range from every returned calendar. Jarvis MUST
+NOT ask the owner for a provider calendar ID. `calendar.list_calendars` exposes
+that same bounded live set, with an exact stable ID, nullable display name and
+IANA time zone, access role, and primary/hidden/selected flags, so a human
+calendar name can be resolved for targeted reads or writes. Neither result is
+persisted.
 
 Every Jarvis-owned entry above initially declares
 `implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
 with hyphens. Calendar discovery is `jarvis-calendar-list_calendars-v1`; the
-Calendar list binding is `jarvis-calendar-list_events-v4` after ADR 0037's
-bounded all-calendar aggregation; the Calendar get binding remains
+Calendar list binding is `jarvis-calendar-list_events-v5` after ADR 0038's
+bounded pagination and coverage hard cut; the Calendar get binding remains
 `jarvis-calendar-get_event-v2`
 after ADR 0029's observed-end correction. The model-facing tool IDs remain
 unversioned.
@@ -1128,9 +1160,9 @@ character references exactly once; plain text is never treated as markup.
 The production Brave binding uses the pinned `llm-tools`
 `operation_deadline_seconds=12.0` policy. Each selectable Slice 2 frozen plan
 tightens `web.search` to one external attempt and retains `BilledOnce`; its
-aggregate limits are ten calls, 122 external attempts, 73,768 input bytes,
+aggregate limits are ten calls, 222 external attempts, 73,768 input bytes,
 524,288 output bytes, one in-flight model-tool call, and 205 seconds. The
-maximum role definition permits 123 attempts and 1,376,256 output bytes.
+maximum role definition permits 223 attempts and 1,376,256 output bytes.
 Jarvis adds no second deadline wrapper.
 
 The eight Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
@@ -1165,7 +1197,11 @@ not fetch a Gmail `attachmentId`, execute HTML, or load a subresource.
 Calendar reads return a closed tagged event union. List obtains at most 50
 reader-or-better CalendarList entries, including hidden calendars, and reads
 their event ranges with at most ten concurrent Google requests. The model
-supplies no calendar ID. A normal `type = event`
+supplies no calendar ID or result bound. Event reads use pages of 250 and follow
+`nextPageToken` in deterministic calendar-ID rounds, with at most 100 event-page
+requests and a connector-owned 55-second deadline inside the executor's
+60-second fence. Including discovery and the existing refresh behavior, the
+tool permits at most 202 external attempts. A normal `type = event`
 snapshot has exact `calendar_id`, `event_id`, and `etag` strings of at most 1024
 bytes, `status = confirmed | tentative`, the bounded observed writable event
 projection,
@@ -1178,11 +1214,22 @@ and at most ten email/popup reminders from zero through 40,320 minutes. A sparse
 cancelled provider resource is represented separately as `type = cancelled`
 with exact bounded calendar/event IDs, nullable bounded etag, and nullable aware
 `updated_at`; missing normal-event fields are not invented. A list returns the
-scanned Calendar references, at most 50 globally chronological events, and an
-explicit bounded per-calendar failure list. Sparse cancelled events sort last.
-Calendar pagination, event pagination, or global clipping reports truncation.
-One failed calendar does not erase truthful completed observations from other
-calendars. A get may return either variant; event fields are never shortened.
+scanned Calendar references, at most 200 globally chronological whole events,
+an explicit bounded per-calendar failure list, and a closed `coverage` value.
+Sparse cancelled events sort last. The canonical success envelope remains at
+most 262,144 bytes. Stable event fields are never shortened; whole events are
+omitted at a count or byte bound.
+
+Calendar coverage contains `complete`, sorted unique `reasons`,
+`calendars_discovered`, `calendars_completed`, and nullable `matched_events`.
+Reasons are exactly `calendar_limit`, `calendar_failure`, `event_page_limit`,
+`event_limit`, `output_byte_limit`, and `deadline`. `complete` is true exactly
+when reasons are empty: discovery is untruncated, every selected page is
+exhausted, every selected Calendar succeeds, and no result bound clips the
+observation. `matched_events` is non-null only when every in-scope event page was
+exhausted. One failed calendar does not erase truthful completed observations
+from other calendars, but makes coverage partial. A get may return either
+variant; event fields are never shortened.
 The observed end is a direct closed union of the existing `TimedEventTime` and
 `AllDayEventTime` plus payload-free
 `UnspecifiedEventEnd {type = unspecified}`; all three share the `type`
@@ -1208,16 +1255,15 @@ already-aware `dateTime`, Jarvis preserves the instant and emits canonical
 `UTC`; an offset-free value without a zone is malformed. Normalization performs
 no additional provider request.
 The Calendar get contract and binding remain v2. Discovery is v1. The Calendar
-list contract and binding are v4 because the result includes current Calendar
-metadata, aggregate events, and partial failures. Affected catalogs, maximum
-and selected profiles, plans, HostTables, run/admission budgets, and definition
-fingerprints are recomposed. The Main role session-contract revision is
-`jarvis-main-all-calendars-v1`, which cold-bootstraps an older continuing
-session; unaffected isolated role revisions do not change. Event aggregation
-permits at most 102 external attempts and 60 seconds; discovery permits two
-attempts and 15 seconds. Stopped startup recognizes the exact preceding Slice 6
-admission envelope and atomically enlarges its retained foreground reservations
-by one isolated write-gate allowance; an unknown configuration fails closed.
+list contract and binding are v5 because its fixed host bound, paging, typed
+coverage, and result schema replace v4. Affected catalogs, maximum and selected
+profiles, plans, HostTables, role/output contracts, and definition fingerprints
+are recomposed. The Main session-contract revision advances and cold-bootstraps
+an older continuing session; unaffected isolated roles do not change. Event
+aggregation permits at most 202 external attempts and retains the 60-second
+executor fence; discovery permits two attempts and 15 seconds. Provider-turn,
+model-call, and write-gate ceilings do not change, so the rolling admission
+journal requires no migration.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire
@@ -1381,15 +1427,18 @@ the validated proposal. It uses `action.id` as both the `llm-tools`
 observation with no action or dispatch. The executor returns a bounded completed
 `ToolResult`, which becomes input to the next model turn, or Jarvis durably
 accepts the work and returns a suspension waiting for the owner or system
-reconciliation. Only after a completed observation may the model make a separate
-truthful `say`.
+reconciliation. Only after a completed observation may Main make a separate
+truthful structured terminal.
 
-The main conversational definition forbids `finish.result`. Each internal
-structured definition forbids `say` and requires `finish.result` to match its
-closed schema. Internal `Pure`/`Read` calls may use attempt-scoped positions and
-non-durable recording; consequently a `Read + BilledOnce` operation may be
-billed again after a crash. V1 accepts that bounded cost instead of a generic
-durable observation store.
+The Main definition forbids `say` and requires `finish.result` to match the
+closed `JarvisTerminal` schema from section 4.2. Jarvis consumes the kernel's
+existing `StructuredConclusion`, applies the run-local incomplete-observation
+policy, and host-renders the result before canonical settlement. Each internal
+structured definition likewise forbids `say` and requires `finish.result` to
+match its own closed schema. Internal `Pure`/`Read` calls may use attempt-scoped
+positions and non-durable recording; consequently a `Read + BilledOnce`
+operation may be billed again after a crash. V1 accepts that bounded cost
+instead of a generic durable observation store.
 
 The main model never classifies authority. Jarvis policy selects the plan,
 requires current-owner grounding, and maps an allowed write into its product
@@ -1416,7 +1465,9 @@ system-material ceiling and its exact identity is qualified. The frozen
 concurrency, and tool deadlines, with `max_in_flight = 1`. Jarvis and the kernel
 MUST NOT double-charge these budgets. V1 has no parallel dispatch,
 multi-call step, or model-authored progress narration; Discord typing state is
-the progress indicator.
+the progress indicator. The kernel retains its general `say` branch for other
+consumers, but the Jarvis Main definition makes that branch unavailable. Jarvis
+adds no second model protocol.
 
 The grammar has no approval preview. Host rendering is specified in section 5.3.
 
@@ -1892,6 +1943,9 @@ product-domain code.
   across that reboot.
 - Jarvis uses live tools for current external state and distinguishes that state
   from recalled memory.
+- Discord typing is the only synchronous progress signal. A persisted Main
+  terminal is final unless it names an already committed suspended action;
+  collection completeness comes from typed host evidence, never model prose.
 - External success comes from a provider receipt or reconciliation evidence,
   never a model assertion.
 - Failed and uncertain actions are reported honestly.
@@ -1925,6 +1979,8 @@ Acceptance includes:
 Frozen decisions:
 
 - One visible Jarvis and natural Discord interaction.
+- One host-rendered typed Main terminal with no production `say` or in-progress
+  variant; incomplete typed evidence is visibly partial.
 - One configured Discord channel with no v1 server-organization tools.
 - Exactly four application tables.
 - Central conversation history with a persistent Discord outbox, recent-window
@@ -1933,6 +1989,8 @@ Frozen decisions:
   reusable but non-canonical provider sessions.
 - Existing Google and Discord integrations are reused.
 - The exact minimal v1 tool catalog in section 7.3.
+- Host-owned bounded Calendar pagination and machine-readable coverage, with no
+  model-selected result limit or legacy truncation boolean.
 - Only owner-requested `schedule.wake` actions initiate user-facing proactive
   turns.
 - Python, PostgreSQL, pgvector, `llm-agent-kernel`, `provider-runtime`, and

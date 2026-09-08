@@ -64,11 +64,13 @@ These instructions govern all work in this repository.
   revision and exact dependency pins.
 - Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
   isolated sessions.
-- The kernel owns the exact `say | call_tool | finish` model-step grammar,
-  validates the entire step and pure arguments before dispatch, and permits
-  exactly one serial call per step. `call_tool` carries no user-facing text or
-  model-authored call/effect ID. Internal one-shot roles use plans containing no
-  `ToolEffect.Write` and closed structured `finish.result` contracts.
+- The kernel owns the exact model-step grammar, validates the entire step and
+  pure arguments before dispatch, and permits exactly one serial call per step.
+  Active Main uses the kernel's structured-output path, so it has no `say`
+  terminal and returns one closed `finish.result` for host rendering.
+  `call_tool` carries no user-facing text or model-authored call/effect ID.
+  Internal one-shot roles use plans containing no `ToolEffect.Write` and closed
+  structured `finish.result` contracts.
   The kernel also owns the Codex-compatible provider-wire envelope and strict
   decoding of its JSON-string tool arguments; Jarvis consumes logical steps and
   MUST NOT duplicate or bypass that wire adapter.
@@ -226,8 +228,9 @@ These instructions govern all work in this repository.
   reconciliation elapsed bound exhausts that bounded procedure with incomplete
   evidence and becomes terminal uncertainty.
 - Host action-resolution and scheduled-wake inputs must produce a visible
-  `say` or deterministic host-rendered assistant fallback; never process them
-  silently. Due-wake input is rendered from immutable stored arguments.
+  structured terminal or deterministic host-rendered assistant fallback; never
+  process them silently. Due-wake input is rendered from immutable stored
+  arguments.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
 - Only an owner-requested due `schedule.wake` action starts a user-facing
   proactive turn. Do not add generic quiet hours, connector polling, or

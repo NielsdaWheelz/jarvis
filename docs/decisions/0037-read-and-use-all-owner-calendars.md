@@ -5,6 +5,10 @@ Status: Accepted, 2026-09-08
 Supersedes: ADR 0036's primary-only Calendar list decision; amends ADR 0014's
 minimal tool catalog
 
+Superseded in part by ADR 0038: its Calendar event-list input/result bound,
+pagination, coverage, and v4 identity are historical. Calendar discovery,
+all-calendar scope, write targeting, and authority remain active.
+
 ## Context
 
 ADR 0036 corrected Jarvis's first production Calendar failure by making an

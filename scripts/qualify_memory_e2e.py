@@ -667,7 +667,6 @@ async def _select_live_resources(
                 time_min=now - timedelta(days=_CALENDAR_WINDOW_DAYS),
                 time_max=now + timedelta(days=_CALENDAR_WINDOW_DAYS),
                 time_zone=owner_timezone,
-                max_results=50,
             ),
             run_id=run_id,
             ordinal=3,

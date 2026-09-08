@@ -166,7 +166,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
-        == "jarvis-main-all-calendars-v1"
+        == "jarvis-main-truthful-terminals-v1"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
@@ -242,7 +242,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
         )
     original = session_compatibility_revision(manifest, "main")
     assert (
-        original == "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987"
+        original == "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3"
     )
 
     previous = {**manifest}

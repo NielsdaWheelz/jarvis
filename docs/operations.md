@@ -273,12 +273,13 @@ operator explicitly authorizes disposal.
 
 First run all ten live read operations through the production catalog,
 dispatcher, frozen Main plan, and exact budget. The configured Gmail query must
-match a thread. The Calendar probe requests 50 events and must contain at least
-three normal events with `end.type=unspecified`; its sanitized output
-reports only calendar/event totals and that count. It must also prove that
-CalendarList discovery ran with hidden reader-or-better entries enabled and
-that aggregate results identify their source calendars without printing names
-or IDs. The Maps query
+match a thread. The Calendar probe uses the fixed host result bound and must
+contain at least three normal events with `end.type=unspecified`; its sanitized
+output reports only calendar/event totals, typed coverage, and that count. It
+must also prove that CalendarList discovery ran with hidden reader-or-better
+entries enabled, followed every selected page within the bound, and that
+aggregate results identify their source calendars without printing names or
+IDs. The Maps query
 must match a destination reachable from the origin, and the Web query's first
 result must be a public readable page. The output contains counts and contract
 identities only, never retrieved content or stable provider IDs.
@@ -294,13 +295,13 @@ JARVIS_LIVE_WEB_QUERY='IANA reserved domains' \
 
 For an all-calendar-only release or deployment check, run the focused probe
 through the same production catalog, dispatcher, frozen plan, and budget. It
-requires at least two discovered calendars by default, proves the aggregate
-scan covers the same calendar set, rejects truncation or a partial failure, and
-prints counts and identities only:
+requires the observed 35 calendars by default, proves the aggregate scan covers
+the same calendar set, requires complete typed coverage and more than 50 events
+in the centered two-week window, and prints counts and identities only:
 
 ```sh
 JARVIS_CALENDAR_LIVE=1 \
-JARVIS_LIVE_MIN_CALENDARS=2 \
+JARVIS_LIVE_MIN_CALENDARS=35 \
   uv run python scripts/qualify_calendars.py
 ```
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
-from llm_agent_kernel import SessionMode, require_host_plan
+from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
 from llm_tools import Available, ToolId, Unavailable, canonical_json_bytes
 from pydantic import SecretStr
 
@@ -28,6 +28,7 @@ from jarvis.definitions import (
     build_slice6_definitions,
 )
 from jarvis.settings import Settings
+from jarvis.terminal import JarvisTerminal
 from jarvis.write_composition import build_slice5_catalog, build_slice6_catalog
 
 
@@ -238,11 +239,11 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "861610abca5a25b03bce4975ea54fceb012f789dcdb07774d57ffb640407d520",
-            "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987",
-            "62a5ea9bd4f2e5420725625e569dc6292bfb71d21a04b0efb5d4c9dfac08f684",
-            "02473011615c07ef815e9c151941849c99d1ad4ab3dfd6d161c744247cc8787c",
-            "f463157144528634f575d7559ba649126b3bb6f4c5175c6e4a069c6ae1e2f1fc",
+            "4a6d4025a4381272933a19b0d7ecac88e3c40254a1790911bfec81d4974fee14",
+            "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
+            "cb1d1cc785a363690c280c9cc242413cfac63f37b6d048a6723f91fb8dcc555d",
+            "b004837d15ad64b7acefca0e8ddf0a190c5c827e8d7a6471851bdec9f6a09477",
+            "273bfe6776b76224ad847bedb74e8c1b8ef63bc106f83af0766d1dce33a88854",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
@@ -277,8 +278,8 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         definitions.plans["scheduled_wake"].profile.profile_revision,
         definitions.plans["scheduled_wake"].plan_revision,
     ) == (
-        "8ec8947be4ef5d83a03414e8e2da9859129ea76e152030ad764c19073284ef79",
-        "9803cfafecdb9aad10623b89c25d7c2bb9ebfab0cd95fb49c0cae711d93726bb",
+        "3f23cb2c2ab7bb8aeae7f3db986b0866e7d073c3700d1475c07fa8b98dbcf3d1",
+        "f06327431661c45a5e39ecba3ce319b59f041d3a49052242e2a5865f9ea463f3",
     )
 
 
@@ -372,6 +373,15 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     assert not definitions.automatic_write_gate.maximum_profile.grants
     assert not definitions.plans["automatic_write_gate"].profile.grants
     assert definitions.main.session_mode is SessionMode.continuing
+    assert isinstance(definitions.main.output_contract, StructuredOutput)
+    assert definitions.main.output_contract.name == "jarvis_terminal"
+    assert definitions.main.output_contract.result_type is JarvisTerminal
+    assert definitions.main.maximum_profile.run_limits.max_external_attempts == 243
+    assert definitions.plans["main"].profile.run_limits.max_external_attempts == 242
+    assert (
+        definitions.plans["scheduled_wake"].profile.run_limits.max_external_attempts
+        == 222
+    )
     for role in ("recaller", "rememberer", "dreamer", "automatic_write_gate"):
         assert getattr(definitions, role).session_mode is SessionMode.isolated
     for name in definitions.plans:
@@ -396,11 +406,11 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "5e443bc1daf30bcac87fc8e0202f7399b75db47fd48ea21099e7667fc9e83c24",
-            "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987",
-            "e498e7bdbaef729aca8af16e1bf283a84177354df4e50d9070ace76ca3f0ea33",
-            "aafe5d6de827f02d7a62741e908f346592d5203ce214df3ccc076d4da2f45db5",
-            "bebcc756a26cfb03e67b5658efd18a53cd3cbf228567771436f36e14a3d19ae8",
+            "f3a92b8a10eb6e4aa969be2cd821c342cf8ee41edac08538514c7e71ab404487",
+            "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
+            "36b40805a5c765bb1166430dd831d8a85b54c2a9a1908dc674f7768426a12641",
+            "efcf7ab27b3e93a178f8a6dab871215bcb622b8a97ba34cfc88863d4333a4628",
+            "a5977061e7b170de320d232136a3513bece68d0a8b9dccc4ada45c4574b2c384",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
@@ -435,6 +445,6 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         definitions.plans["scheduled_wake"].profile.profile_revision,
         definitions.plans["scheduled_wake"].plan_revision,
     ) == (
-        "8ec8947be4ef5d83a03414e8e2da9859129ea76e152030ad764c19073284ef79",
-        "9803cfafecdb9aad10623b89c25d7c2bb9ebfab0cd95fb49c0cae711d93726bb",
+        "d094a0ca320fbc298f4e5f1afb0186819c556b67e2001995a7732e8d63ceb85d",
+        "f592506aeaca3845004c2d66a932c1b43559d79df8ccc318c21a260d91196f81",
     )

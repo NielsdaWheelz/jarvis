@@ -14,7 +14,6 @@ from llm_agent_kernel import (
     Checkpoint,
     ClaimAcquired,
     ClaimId,
-    ConversationConclusion,
     DispatchCompleted,
     DispatchLineage,
     DispatchSuspended,
@@ -22,6 +21,7 @@ from llm_agent_kernel import (
     InputId,
     OwnerToken,
     RunId,
+    StructuredConclusion,
     ThreadId,
     WaitingFor,
 )
@@ -50,6 +50,7 @@ from jarvis.db import action, create_engine, message
 from jarvis.definitions import build_slice5_write_gate
 from jarvis.messages import MessageStore
 from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.terminal import TurnEvidence
 from jarvis.write_connectors import (
     CalendarCurrentSnapshot,
     ReconciliationResult,
@@ -577,6 +578,7 @@ async def test_host_action_resolution_cannot_authorize_a_write(
         scheduled_wake_plan=plan,
         maximum_batch_size=10,
         maximum_attempts=3,
+        turn_evidence=TurnEvidence(),
     )
     claimed = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("host-action-resolution-owner")
@@ -625,7 +627,14 @@ async def test_host_action_resolution_cannot_authorize_a_write(
     await checkpoint.settle(
         claimed.claim,
         claimed.claim.through_checkpoint,
-        ConversationConclusion("Synthetic action result acknowledged."),
+        StructuredConclusion(
+            {
+                "response": {
+                    "type": "answered",
+                    "text": "Synthetic action result acknowledged.",
+                }
+            }
+        ),
     )
 
 

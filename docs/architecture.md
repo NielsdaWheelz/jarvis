@@ -21,7 +21,7 @@ configured Discord #general
                     ▼                                 ▼
        provider-runtime / Codex                 call_tool dispatch
                     │                                 │
-               say / finish                    Jarvis policy
+            structured terminal                Jarvis policy
                     │                                 │
                     ▼                       Write? ─► isolated
           message / Discord                 AutomaticWriteGate
@@ -105,7 +105,7 @@ The adapter:
 - Atomically claims or denies component interactions, then immediately
   acknowledges them by disabling both components before external work.
 - Prevents model tools from editing host-owned approval messages.
-- Exposes no model-callable Discord tools. Ingress, `say` delivery, typing state,
+- Exposes no model-callable Discord tools. Ingress, terminal delivery, typing state,
   host approval presentation, and editing Jarvis's own approval message are
   adapter operations.
 
@@ -132,7 +132,7 @@ Discord event
 ### Outbound
 
 ```text
-validated say or host-rendered response
+validated structured terminal or host-rendered response
 → insert assistant message with source_message_id null
 → derive deterministic nonce from message.id
 → create with the same nonce and enforce_nonce=true
@@ -191,8 +191,8 @@ For each owner message:
 13. Run the rememberer later through a fresh admitted isolated kernel run,
     yielding to new owner work.
 
-A turn is eligible for remembering after `say`, `finish`, or creation of an
-action awaiting approval. This includes a turn whose visible response is a
+A turn is eligible for remembering after any valid Main terminal or creation of
+an action awaiting approval. This includes a turn whose visible response is a
 host-rendered approval message rather than model-authored prose.
 
 At startup, a waking owner or host row with null `processed_at` and null
@@ -221,7 +221,7 @@ original validated arguments, resolution, and safe evidence. Startup repairs a m
 resolution row from terminal action state before becoming idle.
 
 Action-resolution and scheduled-wake host inputs require visible delivery. If
-the main model finishes silently or fails before `say`, Jarvis finalization
+Main returns `silent` or fails before a renderable terminal, Jarvis finalization
 persists a deterministic assistant fallback from the host row's safe fields and
 processes both together. The fallback for uncertainty includes reconciliation
 evidence; the fallback for a wake includes the stored reminder instruction.
@@ -383,8 +383,8 @@ rolling capacity charge until expiry. Corruption fails closed.
 ## Cognitive roles
 
 These are five immutable kernel agent definitions, not a general subagent or
-persistent-peer system. The main role is a continuing thread run with a
-conversational output contract and a maximum envelope equal to the exact main
+persistent-peer system. The main role is a continuing thread run with a closed
+structured terminal contract and a maximum envelope equal to the exact main
 catalog. Recaller, rememberer, dreamer, and AutomaticWriteGate are fixed isolated
 one-shot runs with closed structured output contracts. The first three have
 memory-read envelopes; the gate has none. Jarvis supplies a frozen subset plan
@@ -407,7 +407,7 @@ bundle of raw memories and summaries, or an explicit empty bundle.
 
 The main agent normally continues the channel's existing session. It receives
 fresh recalled memory on owner turns and the capability descriptions exposed
-for every turn. It emits the strict step grammar defined once in
+for every turn. It emits the strict structured step grammar defined once in
 [SPEC section 7.4](../SPEC.md#74-model-step-protocol-and-bounded-drain).
 
 The pinned kernel projects that logical grammar into Codex's closed nullable
@@ -422,7 +422,7 @@ The main agent never owns credentials or policy classification. Host code
 supplies product dispatch and policy. The kernel validates the whole step and
 the pure `llm-tools` seam validates its one proposed call before dispatch. Calls
 execute serially. `call_tool` carries no user-facing text; after the model
-observes the bounded result, it may issue a separate truthful `say`.
+observes the bounded result, it may issue one truthful structured terminal.
 
 ### AutomaticWriteGate
 
@@ -536,10 +536,10 @@ only through Jarvis's checkpoint adapter.
 
 Slice 2 constructs a fresh non-durable read recorder and exact plan budget for
 each run under the existing execution mutex. Its definition maximum is exactly
-10 calls, 123 external attempts, 73,768 input bytes, 1,376,256 output bytes, one
+10 calls, 223 external attempts, 73,768 input bytes, 1,376,256 output bytes, one
 in-flight model-tool call, and 205 seconds. Selectable plans retain all ten calls
 but tighten `web.search` to one attempt, `web.read` to 65,536 output bytes, and
-the aggregate to 122 attempts and 524,288 output bytes. A Web secret gate recursively
+the aggregate to 222 attempts and 524,288 output bytes. A Web secret gate recursively
 checks raw and percent/query-decoded string leaves before recorder, budget,
 executor, or provider entry. Reads terminalize only in run-local state and never
 insert `action`.
@@ -552,13 +552,17 @@ required. Sparse cancelled events remain separate. The three-branch observed
 projection is deliberately not a future create/update input, which retains the
 unchanged two-branch concrete end and address-required attendees. Calendar
 discovery lists every non-deleted reader-or-better CalendarList entry, including
-hidden entries, with a hard 50-calendar bound. Aggregate event reads fan out
-with concurrency ten, merge globally in chronological order, cap the result at
-50, and retain explicit per-calendar failures. Discovery is binding v1,
-aggregate list is v4, and get remains v2. Recomposed
-catalog/profile/plan/HostTable identities plus the
-`jarvis-main-all-calendars-v1` role contract force a continuing-session cold
-bootstrap without changing isolated roles or database state.
+hidden entries, with a hard 50-calendar bound. Aggregate event reads page in
+deterministic calendar-ID rounds with concurrency ten, a 250-event provider page,
+100 event-page requests, a 55-second connector deadline inside the 60-second
+executor fence, and 202 total external attempts including discovery and refresh.
+They merge globally in chronological order and return at most 200 whole events
+inside the 262,144-byte canonical envelope. A typed coverage value reports
+calendar/page/failure/count/byte/deadline incompleteness; exact fields are never
+shortened. Discovery is binding v1, aggregate list is v5, and get remains v2.
+Recomposed catalog/profile/plan/HostTable and Main output/role identities force
+a continuing-session cold bootstrap without changing isolated roles or database
+state.
 
 Google OAuth, Google API, Maps, Brave, and Discord each use a dedicated
 host-owned HTTP client with environment proxy trust and automatic redirects
@@ -568,7 +572,9 @@ default-auth, or connector state.
 
 ## Kernel protocol and drain
 
-`llm-agent-kernel` parses exactly `say`, `call_tool`, or `finish`. A
+`llm-agent-kernel` parses exactly `say`, `call_tool`, or `finish`. Jarvis's
+active Main definition uses the existing structured-output contract, so `say`
+is unavailable and a terminal is one validated `finish.result`. A
 `call_tool` contains one canonical ID and arguments and no prose, preview,
 authority, approval instruction, or model-authored call/effect ID. Unknown
 fields fail. `provider-runtime` first enforces the declared JSON schema; the
@@ -578,7 +584,8 @@ or dispatch. Protocol-invalid output executes nothing and receives only bounded
 corrective context.
 
 Calls execute one at a time. A bounded completed observation returns to the
-next provider turn, and only a later `say` can describe its actual outcome. A
+next provider turn, and only a later structured terminal can describe its actual
+outcome. A
 durably accepted approval or reconciliation need returns `suspended(host_ref,
 waiting_for)`, settles the proposing input, and releases live resources. A
 later action-resolution host row contains the action ID, tool, original
@@ -600,7 +607,11 @@ system/developer material, schema transport, retained native history, and
 provider compaction, which Jarvis sizes separately. `llm_tools.RunLimits` alone
 own tool calls, attempts, bytes, `max_in_flight = 1`, and tool elapsed limits. V1
 has no parallel or multi-call path and no model-authored progress narration;
-Discord typing state is host activity.
+Discord typing state is host activity. A run-local evidence value records only
+typed incomplete-collection reasons and counts. At settlement, the host renders
+the closed `answered | partial | needs_input | failed | silent` Main result and
+conservatively promotes `answered` or `silent` to a visible partial result when
+Calendar evidence is incomplete. It never reparses model prose.
 
 ## Action lifecycle
 

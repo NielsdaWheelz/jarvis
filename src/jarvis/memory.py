@@ -465,22 +465,25 @@ class MemoryStore:
                             message.c.processed_at.is_not(None),
                             message.c.remembered_at.is_(None),
                             or_(
-                                message.c.trace["settlement"].contains(
-                                    {
-                                        "conclusion_kind": "conversation",
-                                        "outcome": "say",
-                                    }
+                                *(
+                                    message.c.trace["settlement"].contains(
+                                        {
+                                            "conclusion_kind": "conversation",
+                                            "outcome": outcome,
+                                        }
+                                    )
+                                    for outcome in (
+                                        "answered",
+                                        "partial",
+                                        "needs_input",
+                                        "failed",
+                                        "host_fallback",
+                                    )
                                 ),
                                 message.c.trace["settlement"].contains(
                                     {
-                                        "conclusion_kind": "conversation",
-                                        "outcome": "finish",
-                                    }
-                                ),
-                                message.c.trace["settlement"].contains(
-                                    {
-                                        "conclusion_kind": "conversation",
-                                        "outcome": "host_fallback",
+                                        "conclusion_kind": "silent",
+                                        "outcome": "silent",
                                     }
                                 ),
                                 message.c.trace["settlement"].contains(
@@ -876,8 +879,12 @@ def _settlement_identity(trace: dict[str, object]) -> SettlementIdentity | None:
 def _eligible_settlement(identity: SettlementIdentity) -> bool:
     return (
         identity.conclusion_kind == "conversation"
-        and identity.outcome in {"say", "finish", "host_fallback"}
-    ) or (identity.conclusion_kind == "suspension" and identity.outcome == "user")
+        and identity.outcome
+        in {"answered", "partial", "needs_input", "failed", "host_fallback"}
+    ) or (identity.conclusion_kind, identity.outcome) in {
+        ("silent", "silent"),
+        ("suspension", "user"),
+    }
 
 
 def _rememberer_target(row: RowMapping) -> RemembererTarget:

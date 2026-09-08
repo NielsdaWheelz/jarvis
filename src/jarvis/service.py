@@ -95,8 +95,10 @@ from jarvis.memory import (
 )
 from jarvis.messages import InboundInsert, MessageStore, PendingControl, StoredMessage
 from jarvis.proactivity import ProcessLocalWakeTimer
+from jarvis.read_tools import CalendarListEventsSuccess
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+from jarvis.terminal import TurnEvidence
 
 LOGGER = logging.getLogger(__name__)
 
@@ -182,10 +184,11 @@ class EmbeddingPort(Protocol):
 
 
 class CapturingReadDispatcher:
-    """Keep bounded completed Main observations only for the immediate rememberer."""
+    """Capture bounded Main observations and terminal evidence."""
 
-    def __init__(self, delegate: ToolDispatchPort) -> None:
+    def __init__(self, delegate: ToolDispatchPort, evidence: TurnEvidence) -> None:
         self._delegate = delegate
+        self._evidence = evidence
         self._observations: list[tuple[str, int, object]] = []
 
     async def dispatch(
@@ -211,6 +214,20 @@ class CapturingReadDispatcher:
             lineage=lineage,
         )
         if isinstance(result, DispatchCompleted):
+            if (
+                str(binding.spec.id) == "calendar.list_events"
+                and result.result.get("type") == "Success"
+            ):
+                calendar = CalendarListEventsSuccess.model_validate(
+                    result.result.get("value")
+                )
+                coverage = calendar.coverage
+                self._evidence.record_calendar_incompleteness(
+                    reasons=coverage.reasons,
+                    calendars_discovered=coverage.calendars_discovered,
+                    calendars_completed=coverage.calendars_completed,
+                    matched_events=coverage.matched_events,
+                )
             self._observations.append(
                 (
                     str(binding.spec.id),
@@ -902,6 +919,7 @@ class JarvisThreadRunner:
 
         run_id = RunId(str(uuid4()))
         thread_id = ThreadId(str(self._settings.discord.channel_id))
+        turn_evidence = TurnEvidence()
         dispatcher: CapturingReadDispatcher | None = None
 
         def on_settlement(owner_message_ids: tuple[UUID, ...]) -> None:
@@ -918,12 +936,14 @@ class JarvisThreadRunner:
             scheduled_wake_plan=self._definitions.plans["scheduled_wake"],
             maximum_batch_size=self._settings.maximum_batch_size,
             maximum_attempts=self._definitions.main.limits.max_no_progress_attempts,
+            turn_evidence=turn_evidence,
             on_settlement=on_settlement,
         )
         dispatcher = CapturingReadDispatcher(
             self._checkpoint_dispatcher_factory(checkpoints)
             if self._checkpoint_dispatcher_factory is not None
-            else self._dispatcher_factory()
+            else self._dispatcher_factory(),
+            turn_evidence,
         )
         recaller = None
         if isinstance(
@@ -986,10 +1006,6 @@ class JarvisThreadRunner:
                 duration_seconds=metrics.duration_seconds,
             )
         return outcome
-
-
-# Compatibility name for the shipped Slice 1 tests and qualification records.
-Slice1ThreadRunner = JarvisThreadRunner
 
 
 def _control_value(control: Control) -> Literal["stop", "pause", "resume"]:
@@ -1478,6 +1494,5 @@ __all__ = [
     "PreflightDeferred",
     "RemembererWorker",
     "ScheduledWakeStore",
-    "Slice1ThreadRunner",
     "flush_pending_deliveries",
 ]

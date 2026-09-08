@@ -771,7 +771,7 @@ def _rememberer_group() -> RemembererGroup:
         str(OWNER_ID),
         str(MEMORY_ID),
         "conversation",
-        "say",
+        "answered",
     )
     return RemembererGroup(
         (
@@ -1389,11 +1389,11 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "b0816e08fb25e33f2df41aec7d8a8e8d37a69a1eb9fce104e3f99f54a1448da7",
-            "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987",
-            "d8ed415ca62a4b6579e86bf2e279c06685e554ab9dc526c484185ff7c5d9c11a",
-            "c923b88e74f7f5baf3b6cedaa37a9af23bd2491591d778a96b6a4b326c56e4ea",
-            "391f46f1b859f0faa9b0c6af632768b54892602112259ab511009e039fbc71e3",
+            "247aed42f323a5e478a1fef216a66247b2e9c2854238b411dfd66c498dbeb0eb",
+            "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
+            "0d8a94e26bfdfb0c2f4bec0baf378837cf58120d1125f7c3dad28e8248c56e6b",
+            "1d5c8686139e87c2ef4e5d348cb556a7cf6c3daba1b6f349084bb0f70386ecd2",
+            "b45448bd89ffe54cddea0fb787d56de1c45ad5a348dd90ccf15f0aab882337ef",
         ),
         "recaller": (
             "f9478d77a15c438cd34508bcbbe5679b85a56372681a4db03c76b516dabde0db",
@@ -1437,7 +1437,7 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
     )
     assert definitions.main.maximum_profile.run_limits == RunLimits(
         max_calls=10,
-        max_external_attempts=123,
+        max_external_attempts=223,
         max_input_bytes=73_768,
         max_output_bytes=1_376_256,
         max_in_flight=1,
@@ -1445,7 +1445,7 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
     )
     assert definitions.plans["main"].profile.run_limits == RunLimits(
         max_calls=10,
-        max_external_attempts=122,
+        max_external_attempts=222,
         max_input_bytes=73_768,
         max_output_bytes=524_288,
         max_in_flight=1,

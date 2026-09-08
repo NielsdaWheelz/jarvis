@@ -23,7 +23,6 @@ from llm_agent_kernel import (
     ClaimAcquired,
     ClaimBusy,
     ClaimNoWork,
-    ConversationConclusion,
     DispatchLineage,
     NoNewInput,
     OwnerToken,
@@ -36,6 +35,7 @@ from llm_agent_kernel import (
     SettleMoreInput,
     StoppedConclusion,
     StopReason,
+    StructuredConclusion,
     ThreadCompleted,
     ThreadId,
     ThreadNoWork,
@@ -77,6 +77,7 @@ from jarvis.messages import (
 from jarvis.service import JarvisService, PreflightDeferred, flush_pending_deliveries
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+from jarvis.terminal import TurnEvidence
 
 DATABASE_URL = os.environ.get("JARVIS_TEST_DATABASE_URL")
 MIGRATION_DATABASE_URL = os.environ.get("JARVIS_TEST_MIGRATION_DATABASE_URL")
@@ -448,7 +449,7 @@ async def test_settlement_and_delivery_are_one_way_watermarks(
         run_id="run-settlement",
         through_checkpoint=str(second_id),
         conclusion_kind="conversation",
-        outcome="say",
+        outcome="answered",
         provider_trace_ids=("provider-trace",),
         provider_turns=1,
         input_tokens=12,
@@ -531,7 +532,7 @@ async def test_delayed_restart_delivery_reuses_persisted_identity(
     await checkpoint.settle(
         claimed.claim,
         claimed.claim.through_checkpoint,
-        ConversationConclusion("synthetic delayed-restart answer"),
+        _answered("synthetic delayed-restart answer"),
     )
     pending = await store.pending_delivery(
         source_conversation_id=conversation_id,
@@ -929,7 +930,7 @@ async def test_post_run_metrics_fill_is_idempotent(engine: AsyncEngine) -> None:
             run_id="metrics-run",
             through_checkpoint=str(input_id),
             conclusion_kind="conversation",
-            outcome="say",
+            outcome="answered",
         ),
         conclusion_text="synthetic metrics conclusion",
     )
@@ -961,7 +962,7 @@ async def test_post_run_metrics_fill_is_idempotent(engine: AsyncEngine) -> None:
         "through_checkpoint": str(input_id),
         "conclusion_message_id": settlement["conclusion_message_id"],
         "conclusion_kind": "conversation",
-        "outcome": "say",
+        "outcome": "answered",
         "provider_turns": 2,
         "input_tokens": 25,
         "output_tokens": 10,
@@ -986,6 +987,7 @@ def _checkpoint(
     maximum_attempts: int = 3,
     maximum_batch_size: int = 10,
     store: MessageStore | None = None,
+    evidence: TurnEvidence | None = None,
 ) -> PostgresInputCheckpoint:
     definitions = build_slice1_definitions(
         profile_key="synthetic-profile",
@@ -1000,6 +1002,183 @@ def _checkpoint(
         scheduled_wake_plan=definitions.plans["scheduled_wake"],
         maximum_batch_size=maximum_batch_size,
         maximum_attempts=maximum_attempts,
+        turn_evidence=evidence or TurnEvidence(),
+    )
+
+
+def _answered(text: str) -> StructuredConclusion:
+    return StructuredConclusion({"response": {"type": "answered", "text": text}})
+
+
+def _silent() -> StructuredConclusion:
+    return StructuredConclusion(
+        {
+            "response": {
+                "type": "silent",
+                "reason": "owner_needs_no_response",
+            }
+        }
+    )
+
+
+def _overlong_rendered_terminal() -> StructuredConclusion:
+    return StructuredConclusion(
+        {
+            "response": {
+                "type": "partial",
+                "text": "x" * 2_000,
+                "limitation": "Synthetic bounded limitation.",
+                "question": None,
+            }
+        }
+    )
+
+
+async def test_structured_terminal_settles_exact_disposition_and_remains_memorable(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = f"structured-terminal-{uuid4()}"
+    owner_id = await _owner(
+        store,
+        "structured-terminal-input",
+        source_conversation_id=conversation_id,
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "structured-terminal-run")
+    result = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("structured-terminal-owner")
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        StructuredConclusion(
+            {
+                "response": {
+                    "type": "needs_input",
+                    "context": "I found two plausible calendars.",
+                    "question": "Which one do you mean?",
+                }
+            }
+        ),
+    )
+
+    stored = await store.message_by_id(owner_id)
+    assert stored is not None
+    settlement = cast("dict[str, object]", stored.trace["settlement"])
+    assert settlement["conclusion_kind"] == "conversation"
+    assert settlement["outcome"] == "needs_input"
+    assert checkpoint.consumed_owner_message_ids == (owner_id,)
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert tuple(value.text for value in pending) == (
+        "I found two plausible calendars.\n\nI need one detail: Which one do you mean?",
+    )
+
+
+async def test_incomplete_calendar_evidence_promotes_answer_to_partial(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = f"partial-calendar-{uuid4()}"
+    owner_id = await _owner(
+        store,
+        "partial-calendar-input",
+        source_conversation_id=conversation_id,
+    )
+    evidence = TurnEvidence()
+    evidence.record_calendar_incompleteness(
+        reasons=("event_limit",),
+        calendars_discovered=35,
+        calendars_completed=35,
+        matched_events=241,
+    )
+    checkpoint = _checkpoint(
+        engine,
+        conversation_id,
+        "partial-calendar-run",
+        evidence=evidence,
+    )
+    result = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("partial-calendar-owner")
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        StructuredConclusion(
+            {
+                "response": {
+                    "type": "answered",
+                    "text": "The first observed event starts at 09:00.",
+                }
+            }
+        ),
+    )
+
+    stored = await store.message_by_id(owner_id)
+    assert stored is not None
+    settlement = cast("dict[str, object]", stored.trace["settlement"])
+    assert settlement["conclusion_kind"] == "conversation"
+    assert settlement["outcome"] == "partial"
+    assert checkpoint.consumed_owner_message_ids == (owner_id,)
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert len(pending) == 1
+    assert pending[0].text.startswith("Partial result — ")
+    assert "35 of 35 calendar scans completed" in pending[0].text
+    assert pending[0].text.endswith("The first observed event starts at 09:00.")
+
+
+async def test_host_input_cannot_settle_with_a_silent_structured_terminal(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = f"host-silent-{uuid4()}"
+    waking = await store.insert_waking(
+        role="host",
+        text="Synthetic action succeeded.",
+        source="action",
+        source_conversation_id=conversation_id,
+        source_message_id=f"{uuid4()}:succeeded",
+        created_at=datetime.now(UTC),
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "host-silent-run")
+    result = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("host-silent-owner")
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        StructuredConclusion(
+            {
+                "response": {
+                    "type": "silent",
+                    "reason": "owner_needs_no_response",
+                }
+            }
+        ),
+    )
+
+    stored = await store.message_by_id(waking.message.id)
+    assert stored is not None
+    settlement = cast("dict[str, object]", stored.trace["settlement"])
+    assert settlement["conclusion_kind"] == "conversation"
+    assert settlement["outcome"] == "host_fallback"
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert tuple(value.text for value in pending) == (
+        "Action update: Synthetic action succeeded.",
     )
 
 
@@ -1035,7 +1214,7 @@ async def test_host_only_action_resolution_has_empty_write_gate_authority(
     await checkpoint.settle(
         claimed.claim,
         claimed.claim.through_checkpoint,
-        ConversationConclusion("Synthetic visible action result."),
+        _answered("Synthetic visible action result."),
     )
     stored = await store.message_by_id(inserted.message.id)
     assert stored is not None
@@ -1159,7 +1338,7 @@ class _CheckpointServiceRunner:
         await checkpoint.settle(
             result.claim,
             result.claim.through_checkpoint,
-            ConversationConclusion("synthetic successor answer"),
+            _answered("synthetic successor answer"),
         )
         return ThreadCompleted(
             RunMetrics(
@@ -1363,7 +1542,7 @@ class _IdleBoundaryRunner:
         await checkpoint.settle(
             result.claim,
             result.claim.through_checkpoint,
-            ConversationConclusion("synthetic idle-race answer"),
+            _answered("synthetic idle-race answer"),
         )
         self.input_processed.set()
         return ThreadCompleted(
@@ -1421,7 +1600,7 @@ class _DeferredThenCheckpointRunner:
         await checkpoint.settle(
             result.claim,
             result.claim.through_checkpoint,
-            ConversationConclusion("synthetic answer after capacity reset"),
+            _answered("synthetic answer after capacity reset"),
         )
         self.input_processed.set()
         return ThreadCompleted(
@@ -2146,7 +2325,7 @@ async def test_checkpoint_settlement_retry_reuses_conclusion_identity(
         OwnerToken("settlement-ack-loss-owner"),
     )
     assert isinstance(claimed, ClaimAcquired)
-    conclusion = ConversationConclusion("synthetic durable answer")
+    conclusion = _answered("synthetic durable answer")
 
     with pytest.raises(ConnectionError, match="lost settlement acknowledgement"):
         await checkpoint.settle(
@@ -2251,7 +2430,7 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
     settled = await checkpoint.settle(
         claim,
         polled.new_checkpoint,
-        ConversationConclusion("synthetic answer"),
+        _answered("synthetic answer"),
     )
     assert checkpoint.consumed_message_ids == (first_id, second_id)
     assert checkpoint.consumed_owner_message_ids == (first_id, second_id)
@@ -2296,6 +2475,7 @@ async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
         scheduled_wake_plan=definitions.plans["scheduled_wake"],
         maximum_batch_size=2,
         maximum_attempts=3,
+        turn_evidence=TurnEvidence(),
         on_settlement=groups.append,
     )
     first = await checkpoint.claim(
@@ -2311,7 +2491,7 @@ async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
     settled = await checkpoint.settle(
         first.claim,
         first.claim.through_checkpoint,
-        ConversationConclusion("first answer"),
+        _answered("first answer"),
     )
     assert isinstance(settled, SettleMoreInput)
 
@@ -2328,7 +2508,7 @@ async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
     await checkpoint.settle(
         second.claim,
         second.claim.through_checkpoint,
-        ConversationConclusion("second answer"),
+        _answered("second answer"),
     )
 
     assert groups == [(first_id,), (second_id,)]
@@ -2770,7 +2950,7 @@ async def test_final_poll_append_is_left_for_next_run(engine: AsyncEngine) -> No
     settlement = await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion("valid answer before the raced input"),
+        _answered("valid answer before the raced input"),
     )
     assert isinstance(settlement, SettleMoreInput)
     assert checkpoint.consumed_message_ids == (first_id,)
@@ -2809,7 +2989,7 @@ async def test_resume_arriving_during_claim_is_host_settled_not_appended(
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion("synthetic answer"),
+        _answered("synthetic answer"),
     )
     history = await PostgresCanonicalHistory(engine).completed_history(
         ThreadId(conversation_id),
@@ -2870,7 +3050,7 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion("x" * 2_001),
+        _overlong_rendered_terminal(),
     )
     assert checkpoint.consumed_owner_message_ids == ()
     pending = await store.pending_delivery(
@@ -2923,7 +3103,7 @@ async def test_checkpoint_exposes_a_truthful_host_owned_provider_failure(
     )
 
 
-async def test_overlong_action_resolution_say_uses_safe_host_fallback(
+async def test_overlong_action_resolution_terminal_uses_safe_host_fallback(
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2950,7 +3130,7 @@ async def test_overlong_action_resolution_say_uses_safe_host_fallback(
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion("x" * 2_001),
+        _overlong_rendered_terminal(),
     )
 
     pending = await store.pending_delivery(
@@ -2969,7 +3149,7 @@ async def test_overlong_action_resolution_say_uses_safe_host_fallback(
     )
 
 
-async def test_overlong_scheduled_wake_say_uses_reminder_fallback(
+async def test_overlong_scheduled_wake_terminal_uses_reminder_fallback(
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2998,20 +3178,74 @@ async def test_overlong_scheduled_wake_say_uses_reminder_fallback(
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion("x" * 2_001),
+        _overlong_rendered_terminal(),
     )
 
     pending = await store.pending_delivery(
         source_conversation_id=conversation_id,
         limit=10,
     )
-    assert tuple(value.text for value in pending) == (f"Reminder: {instruction}",)
+    assert tuple(value.text for value in pending) == (
+        f"Reminder: {instruction}\n"
+        "I stopped because the response exceeded Discord's message limit.",
+    )
     stored = await store.message_by_id(waking.message.id)
     assert stored is not None
     assert (
         cast("dict[str, object]", stored.trace["settlement"])["outcome"]
         == "host_fallback"
     )
+
+
+async def test_scheduled_wake_cannot_settle_with_a_silent_structured_terminal(
+    engine: AsyncEngine,
+) -> None:
+    store = MessageStore(engine)
+    conversation_id = f"scheduled-silent-{uuid4()}"
+    instruction = "Synthetic scheduled reminder"
+    schedule_action_id = await _claimed_schedule_action(
+        engine,
+        conversation_id=conversation_id,
+        instruction=instruction,
+        execute_after=datetime.now(UTC),
+    )
+    waking = await store.insert_waking(
+        role="host",
+        text=instruction,
+        source="schedule_wake",
+        source_conversation_id=conversation_id,
+        source_message_id=str(schedule_action_id),
+        created_at=datetime.now(UTC),
+    )
+    checkpoint = _checkpoint(engine, conversation_id, "scheduled-silent-run")
+    result = await checkpoint.claim(
+        ThreadId(conversation_id), OwnerToken("scheduled-silent-owner")
+    )
+    assert isinstance(result, ClaimAcquired)
+
+    await checkpoint.settle(
+        result.claim,
+        result.claim.through_checkpoint,
+        StructuredConclusion(
+            {
+                "response": {
+                    "type": "silent",
+                    "reason": "owner_needs_no_response",
+                }
+            }
+        ),
+    )
+
+    stored = await store.message_by_id(waking.message.id)
+    assert stored is not None
+    settlement = cast("dict[str, object]", stored.trace["settlement"])
+    assert settlement["conclusion_kind"] == "conversation"
+    assert settlement["outcome"] == "host_fallback"
+    pending = await store.pending_delivery(
+        source_conversation_id=conversation_id,
+        limit=10,
+    )
+    assert tuple(value.text for value in pending) == (f"Reminder: {instruction}",)
 
 
 async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) -> None:
@@ -3041,7 +3275,7 @@ async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) 
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion(None),
+        _silent(),
     )
     assert checkpoint.consumed_message_ids == (inserted.message.id,)
     assert checkpoint.consumed_owner_message_ids == ()
@@ -3054,7 +3288,7 @@ async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) 
     )
 
 
-async def test_promoted_action_host_finish_gets_visible_fallback_and_one_host_per_run(
+async def test_promoted_action_host_silent_gets_visible_fallback_and_one_host_per_run(
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3095,7 +3329,7 @@ async def test_promoted_action_host_finish_gets_visible_fallback_and_one_host_pe
     settled = await checkpoint.settle(
         result.claim,
         polled.new_checkpoint,
-        ConversationConclusion(None),
+        _silent(),
     )
     assert isinstance(settled, SettleMoreInput)
     pending = await store.pending_delivery(
@@ -3117,7 +3351,7 @@ async def test_promoted_action_host_finish_gets_visible_fallback_and_one_host_pe
     )
 
 
-async def test_owner_only_finish_remains_silent(engine: AsyncEngine) -> None:
+async def test_owner_only_silent_terminal_remains_silent(engine: AsyncEngine) -> None:
     store = MessageStore(engine)
     conversation_id = "owner-silent-finish-channel"
     await _owner(
@@ -3134,7 +3368,7 @@ async def test_owner_only_finish_remains_silent(engine: AsyncEngine) -> None:
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        ConversationConclusion(None),
+        _silent(),
     )
     assert not await store.pending_delivery(
         source_conversation_id=conversation_id,

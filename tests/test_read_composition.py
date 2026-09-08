@@ -141,17 +141,17 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     declared = tuple(catalog.spec(tool_id).limits for tool_id in SLICE2_READ_IDS)
     assert sum(limit.max_input_bytes for limit in declared) == 73_768
     assert sum(limit.max_output_bytes for limit in declared) == 1_376_256
-    assert sum(limit.max_attempts for limit in declared) == 123
+    assert sum(limit.max_attempts for limit in declared) == 223
     assert sum(limit.deadline_seconds for limit in declared) == 205.0
     assert definitions.main.limits == SLICE2_KERNEL_LIMITS
     assert definitions.main.maximum_profile.profile_revision == (
-        "0f8dbbb494806c67f927f87d87759423c88b1d1607a2c90546767062ca6419a8"
+        "50f04129c5d85dc07dc0eea6ef17772ff242af01f38b5cd72eb32cbf9bc5f4a1"
     )
     assert definitions.main.session_compatibility_revision == (
-        "87a2793ad5e535f940cd75b40da729f9d291d3b5c2524880cb7190272d13c987"
+        "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3"
     )
     assert definitions.main.fingerprint == (
-        "0134c4baa6e851b3160b554498f17ada3c16bb65119470416a33a3f5e5974ceb"
+        "0dceb7b387c2b4c3e31a9ae26a5a90e309ccbfb33d303469c4d6cea516407ab7"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (
@@ -159,12 +159,12 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     )
     exact_revisions = {
         "main": (
-            "ef4bbda3d577f897c7108f81ae4320677a498436fac84fd93816f488f3334fe0",
-            "34e06c98a7ddc728b8cee24dc476ca9d038d3c577b619da4fa744fd2a5e1e404",
+            "6b7b8f2c658d3d44b5cf71ab402a5009b031cbe8dfe8b8e1318baa617e402b23",
+            "199248f54c19eb9741ac40972ea4b1950a556aabea4927f97951ce1c132e627e",
         ),
         "scheduled_wake": (
-            "f0b3becea0ca3ab980b7c5e4729cc518e49f8c6885a252658f4a4b0799b0bf2d",
-            "b76b7621936bc7d2a599a553b358b1cd7ed21e9f74977c04ebd87a71ffa839b4",
+            "89af1e9a7ab3827352840ebae9a35848763f02b2ba097d6f3f4831dbdee388cb",
+            "79670eaeb2d481e0eca70f0be2704d0d472e81498565d4a06135acf672230ed3",
         ),
     }
     for name, (profile_revision, plan_revision) in exact_revisions.items():
@@ -196,7 +196,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
                 "08cc652b133c80a30ee2e9c3be2c64d2321f00533805a4a56213ce95fd911817"
             ),
             "calendar.list_events": (
-                "d6e83b94e430e0dc61573299ed80fee5fb332f191c9d6b8d52c9c40ede644720"
+                "1573dab5638dc407fbf7c9144696ca78e0c0a43ed79922d35be96c4206ec8037"
             ),
             "calendar.get_event": (
                 "15dfc456377fe4eaff7de42292c9cddc5a97b1190baa7e7196cb4f1e287f0087"
@@ -214,7 +214,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
                 contract_revision
             )
             expected_implementation = (
-                "jarvis-calendar-list_events-v4"
+                "jarvis-calendar-list_events-v5"
                 if tool_name == "calendar.list_events"
                 else "jarvis-calendar-list_calendars-v1"
                 if tool_name == "calendar.list_calendars"

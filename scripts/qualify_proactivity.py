@@ -20,10 +20,10 @@ import httpx
 from llm_agent_kernel import (
     CancellationToken,
     ClaimAcquired,
-    ConversationConclusion,
     DispatchResult,
     OwnerToken,
     RunId,
+    StructuredConclusion,
     ThreadCompleted,
     ThreadId,
     ToolDispatchLineage,
@@ -67,9 +67,9 @@ from jarvis.definitions import (
     EXPECTED_PACKAGE_VERSIONS,
     QUALIFIED_CODEX_MODELS,
     SLICE2_READ_IDS,
-    Slice5Definitions,
-    build_slice5_definitions,
+    Slice6Definitions,
     build_slice5_write_gate,
+    build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.discord import (
@@ -99,7 +99,8 @@ from jarvis.service import (
     flush_pending_deliveries,
 )
 from jarvis.settings import Settings
-from jarvis.write_composition import build_slice5_composition
+from jarvis.terminal import TurnEvidence
+from jarvis.write_composition import build_slice6_composition
 from jarvis.write_dispatch import WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate
 
@@ -191,7 +192,7 @@ def assert_sanitized_output(
         raise QualificationFailure("output", "private_value_exposed")
 
 
-def proactive_plan_evidence(definitions: Slice5Definitions) -> dict[str, object]:
+def proactive_plan_evidence(definitions: Slice6Definitions) -> dict[str, object]:
     scheduled = definitions.plans["scheduled_wake"]
     if definitions.plans["proactive"] is not scheduled:
         raise QualificationFailure("plan", "proactive_alias_changed")
@@ -363,7 +364,7 @@ async def _execute_schedule(
 async def _fallback_next_host(
     *,
     messages: MessageStore,
-    definitions: Slice5Definitions,
+    definitions: Slice6Definitions,
     conversation_id: str,
     expected_plan_revision: str,
 ) -> None:
@@ -375,6 +376,7 @@ async def _fallback_next_host(
         scheduled_wake_plan=definitions.plans["scheduled_wake"],
         maximum_batch_size=1,
         maximum_attempts=definitions.main.limits.max_no_progress_attempts,
+        turn_evidence=TurnEvidence(),
     )
     claimed = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("slice5-qualification-owner")
@@ -386,7 +388,14 @@ async def _fallback_next_host(
     await checkpoint.settle(
         claimed.claim,
         claimed.claim.through_checkpoint,
-        ConversationConclusion(None),
+        StructuredConclusion(
+            {
+                "response": {
+                    "type": "silent",
+                    "reason": "owner_needs_no_response",
+                }
+            }
+        ),
     )
 
 
@@ -503,7 +512,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     profile_key=settings.codex_profile_key,
                     model=settings.codex_model,
                 )
-                composition = build_slice5_composition(
+                composition = build_slice6_composition(
                     settings=settings,
                     google_oauth_http=google_oauth_http,
                     google_api_http=google_api_http,
@@ -516,7 +525,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                         provisional_gate.fingerprint
                     ),
                 )
-                definitions = build_slice5_definitions(
+                definitions = build_slice6_definitions(
                     catalog=composition.catalog,
                     profile_key=settings.codex_profile_key,
                     model=settings.codex_model,
@@ -541,8 +550,8 @@ async def _run(settings: Settings) -> dict[str, object]:
                     trace=SettlementTrace(
                         run_id="slice5-proactivity-authority",
                         through_checkpoint=str(origin.message.id),
-                        conclusion_kind="conversation",
-                        outcome="finish",
+                        conclusion_kind="silent",
+                        outcome="silent",
                     ),
                     conclusion_text=None,
                     settled_at=now,
@@ -864,7 +873,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 overdue_wake = waking_by_id[overdue_claim.waking_message_id]
                 resolution_wake = waking_by_id[first_resolution.message_id]
                 for row, expected_outcome in (
-                    (exact_wake, "say"),
+                    (exact_wake, "answered"),
                     (overdue_wake, "host_fallback"),
                     (resolution_wake, "host_fallback"),
                 ):

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
 import stat
 import traceback
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -12,6 +14,7 @@ from typing import Any, cast
 import httpx
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from llm_tools import canonical_json_bytes
 
 from jarvis.connectors import (
     GOOGLE_AAD_NAMESPACE,
@@ -55,7 +58,10 @@ SCOPES = [
 
 
 class _Tokens:
-    async def access_token(self) -> tuple[str, int]:
+    async def access_token(
+        self, *, attempt_started: Callable[[], None] | None = None
+    ) -> tuple[str, int]:
+        del attempt_started
         return "host-google-token", 0
 
     def invalidate_access_token(self) -> None:
@@ -465,18 +471,54 @@ async def test_calendar_normal_and_sparse_cancelled_normalization() -> None:
                 time_min=NOW,
                 time_max=NOW + timedelta(days=1),
                 time_zone="America/Los_Angeles",
-                max_results=2,
             )
         )
     assert result.attempts == 2
     assert result.value.calendars[0].calendar_id == "primary-id"
     assert result.value.failures == ()
+    assert result.value.coverage.complete is True
+    assert result.value.coverage.matched_events == 2
     normal = result.value.events[0]
     assert isinstance(normal, CalendarNormalEvent)
     assert isinstance(normal.writable.start, TimedEventTime)
     assert isinstance(normal.writable.end, TimedEventTime)
     assert normal.writable.start.time_zone == "UTC"
     assert result.value.events[1].type == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_calendar_event_attempts_include_each_token_refresh() -> None:
+    class RefreshingTokens(_Tokens):
+        async def access_token(
+            self, *, attempt_started: Callable[[], None] | None = None
+        ) -> tuple[str, int]:
+            if attempt_started is not None:
+                attempt_started()
+            return "host-google-token", 1
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": "a", "accessRole": "reader"}]},
+                request=request,
+            )
+        return httpx.Response(200, json={"items": []}, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", RefreshingTokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    assert result.attempts == 4
 
 
 @pytest.mark.asyncio
@@ -609,15 +651,6 @@ async def test_calendar_events_aggregate_chronologically_with_partial_failures()
                 time_min=NOW - timedelta(days=1),
                 time_max=NOW + timedelta(days=1),
                 time_zone="UTC",
-                max_results=10,
-            )
-        )
-        clipped = await connector.calendar_list_events(
-            CalendarListEventsInput(
-                time_min=NOW - timedelta(days=1),
-                time_max=NOW + timedelta(days=1),
-                time_zone="UTC",
-                max_results=1,
             )
         )
 
@@ -627,9 +660,305 @@ async def test_calendar_events_aggregate_chronologically_with_partial_failures()
     assert tuple((item.calendar_id, item.error) for item in result.value.failures) == (
         ("c", "CalendarNotFound"),
     )
-    assert result.value.truncated is False
-    assert tuple(item.calendar_id for item in clipped.value.events) == ("b",)
-    assert clipped.value.truncated is True
+    assert result.value.coverage.complete is False
+    assert result.value.coverage.reasons == ("calendar_failure",)
+    assert result.value.coverage.calendars_discovered == 3
+    assert result.value.coverage.calendars_completed == 2
+    assert result.value.coverage.matched_events is None
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_complete_35_calendar_round_pagination() -> None:
+    requests: list[tuple[str, str | None]] = []
+    active = 0
+    maximum_active = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal active, maximum_active
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": f"c{index:02}", "accessRole": "reader"}
+                        for index in reversed(range(35))
+                    ]
+                },
+                request=request,
+            )
+        calendar_id = request.url.path.split("/")[-2]
+        page_token = request.url.params.get("pageToken")
+        requests.append((calendar_id, page_token))
+        assert request.url.params["maxResults"] == "250"
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+        index = int(calendar_id[1:]) * 2 + (1 if page_token is None else 0)
+        instant = NOW + timedelta(minutes=index)
+        payload: dict[str, object] = {
+            "items": [
+                {
+                    "id": f"event-{calendar_id}-{page_token or 'first'}",
+                    "etag": f"etag-{calendar_id}-{page_token or 'first'}",
+                    "status": "confirmed",
+                    "summary": calendar_id,
+                    "start": {"dateTime": instant.isoformat()},
+                    "end": {"dateTime": (instant + timedelta(minutes=1)).isoformat()},
+                    "updated": NOW.isoformat(),
+                }
+            ]
+        }
+        if page_token is None:
+            payload["nextPageToken"] = "second"
+        return httpx.Response(200, json=payload, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW - timedelta(days=1),
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    assert result.attempts == 71
+    assert maximum_active == 10
+    assert requests[:35] == [(f"c{index:02}", None) for index in range(35)]
+    assert requests[35:] == [(f"c{index:02}", "second") for index in range(35)]
+    assert len(result.value.events) == 70
+    assert result.value.coverage.model_dump(mode="json") == {
+        "complete": True,
+        "reasons": [],
+        "calendars_discovered": 35,
+        "calendars_completed": 35,
+        "matched_events": 70,
+    }
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_reports_event_page_limit() -> None:
+    page_counts = {"a": 0, "b": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "b", "accessRole": "reader"},
+                        {"id": "a", "accessRole": "reader"},
+                    ],
+                },
+                request=request,
+            )
+        calendar_id = request.url.path.split("/")[-2]
+        page_counts[calendar_id] += 1
+        return httpx.Response(
+            200,
+            json={"items": [], "nextPageToken": str(page_counts[calendar_id])},
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    assert result.attempts == 101
+    assert page_counts == {"a": 50, "b": 50}
+    assert result.value.coverage.complete is False
+    assert result.value.coverage.reasons == ("event_page_limit",)
+    assert result.value.coverage.calendars_completed == 0
+    assert result.value.coverage.matched_events is None
+
+
+@pytest.mark.asyncio
+async def test_calendar_list_pagination_is_explicitly_partial() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [{"id": "a", "accessRole": "reader"}],
+                    "nextPageToken": "more-calendars",
+                },
+                request=request,
+            )
+        return httpx.Response(200, json={"items": []}, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    assert result.value.coverage.model_dump(mode="json") == {
+        "complete": False,
+        "reasons": ["calendar_limit"],
+        "calendars_discovered": 1,
+        "calendars_completed": 1,
+        "matched_events": 0,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("event_count", "description_bytes", "expected_reasons"),
+    [
+        (201, 0, ("event_limit",)),
+        (20, 16_000, ("output_byte_limit",)),
+    ],
+)
+async def test_calendar_events_reports_event_and_output_byte_clipping(
+    event_count: int,
+    description_bytes: int,
+    expected_reasons: tuple[str, ...],
+) -> None:
+    descriptions = ["x" * description_bytes for _ in range(event_count)]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": "a", "accessRole": "reader"}]},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": f"event-{index:03}",
+                        "etag": f"etag-{index:03}",
+                        "status": "confirmed",
+                        "summary": "Synthetic",
+                        "description": description,
+                        "start": {
+                            "dateTime": (NOW + timedelta(minutes=index)).isoformat()
+                        },
+                        "end": {
+                            "dateTime": (NOW + timedelta(minutes=index + 1)).isoformat()
+                        },
+                        "updated": NOW.isoformat(),
+                    }
+                    for index, description in enumerate(descriptions)
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    envelope = {
+        "type": "Success",
+        "value": result.value.model_dump(mode="json"),
+    }
+    assert len(canonical_json_bytes(envelope)) <= 262_144
+    assert 0 < len(result.value.events) <= 200
+    assert result.value.coverage.reasons == expected_reasons
+    assert result.value.coverage.matched_events == event_count
+    assert len(result.value.events) < event_count
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_reports_connector_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("jarvis.connectors.CALENDAR_EVENT_DEADLINE_SECONDS", 0.05)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": "a", "accessRole": "reader"}]},
+                request=request,
+            )
+        await asyncio.sleep(1)
+        return httpx.Response(200, json={"items": []}, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    assert result.attempts == 2
+    assert result.value.coverage.reasons == ("deadline",)
+    assert result.value.coverage.calendars_completed == 0
+    assert result.value.coverage.matched_events is None
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_propagates_caller_cancellation() -> None:
+    page_started = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": "a", "accessRole": "reader"}]},
+                request=request,
+            )
+        page_started.set()
+        await asyncio.sleep(10)
+        return httpx.Response(200, json={"items": []}, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        task = asyncio.create_task(
+            GoogleReadConnector(
+                client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+            ).calendar_list_events(
+                CalendarListEventsInput(
+                    time_min=NOW,
+                    time_max=NOW + timedelta(days=1),
+                    time_zone="UTC",
+                )
+            )
+        )
+        await page_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 @pytest.mark.asyncio
@@ -736,7 +1065,6 @@ async def test_unrepresentable_input_instants_fail_before_provider_io() -> None:
                     time_min=too_early,
                     time_max=NOW,
                     time_zone="UTC",
-                    max_results=1,
                 )
             )
         maps = MapsReadConnector(client=client, api_key="maps", now=lambda: NOW)
@@ -1319,7 +1647,6 @@ async def test_google_status_and_network_failures_are_declared(
                         time_min=NOW,
                         time_max=NOW + timedelta(hours=1),
                         time_zone="UTC",
-                        max_results=1,
                     )
                 )
             else:

@@ -24,16 +24,19 @@ from llm_agent_kernel import (
 from llm_tools import ToolId, WebReadInput, WebSearchInput
 from sqlalchemy import func, select
 
+from jarvis.actions import ActionStore
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
     SLICE2_READ_IDS,
-    build_slice2_definitions,
+    build_slice5_write_gate,
+    build_slice6_definitions,
     verify_runtime_dependencies,
 )
-from jarvis.read_composition import build_read_catalog
+from jarvis.embeddings import OpenAIEmbedder
+from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
     AddressLocation,
@@ -48,6 +51,7 @@ from jarvis.read_tools import (
     PlaceLocation,
 )
 from jarvis.settings import Settings
+from jarvis.write_composition import build_slice6_catalog
 
 
 class QualificationFailure(RuntimeError):
@@ -81,19 +85,30 @@ async def _run(settings: Settings) -> dict[str, object]:
     web_query = _required("JARVIS_LIVE_WEB_QUERY")
     now = datetime.now(UTC)
     clients = tuple(
-        httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(4)
+        httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(5)
     )
     engine = create_engine(settings.database_url.get_secret_value())
     stage = "composition"
     try:
-        catalog = build_read_catalog(
+        gate, _ = build_slice5_write_gate(
+            profile_key=settings.codex_profile_key,
+            model=settings.codex_model,
+        )
+        catalog = build_slice6_catalog(
             settings=settings,
             google_oauth_http=clients[0],
             google_api_http=clients[1],
             maps_http=clients[2],
             brave_http=clients[3],
+            memory_repository=PostgresMemoryRepository(engine),
+            memory_embedder=OpenAIEmbedder(
+                settings.embedding_openai_api_key,
+                http_client=clients[4],
+            ),
+            actions=ActionStore(engine),
+            automatic_write_gate_definition_fingerprint=gate.fingerprint,
         )
-        definitions = build_slice2_definitions(
+        definitions = build_slice6_definitions(
             catalog=catalog,
             profile_key=settings.codex_profile_key,
             model=settings.codex_model,
@@ -165,6 +180,8 @@ async def _run(settings: Settings) -> dict[str, object]:
             isinstance(item.get("calendar_id"), str) for item in calendars
         ):
             raise QualificationFailure("calendar.list_calendars", "no_calendar")
+        if calendar_discovery.get("truncated") is not False:
+            raise QualificationFailure("calendar.list_calendars", "truncated")
 
         calendar_list = await read(
             "calendar.list_events",
@@ -172,10 +189,19 @@ async def _run(settings: Settings) -> dict[str, object]:
                 time_min=now - timedelta(days=30),
                 time_max=now + timedelta(days=365),
                 time_zone=settings.owner_timezone,
-                max_results=50,
             ),
         )
         events = cast("list[dict[str, object]]", calendar_list["events"])
+        calendar_coverage = cast("dict[str, object]", calendar_list.get("coverage"))
+        coverage_reasons = cast("list[str]", calendar_coverage.get("reasons"))
+        if set(coverage_reasons) & {
+            "calendar_failure",
+            "deadline",
+            "event_page_limit",
+        }:
+            raise QualificationFailure("calendar.list_events", "incomplete_scan")
+        if calendar_coverage.get("calendars_completed") != len(calendars):
+            raise QualificationFailure("calendar.list_events", "incomplete_scan")
         unspecified_end_events = sum(
             item.get("type") == "event"
             and isinstance(item.get("writable"), dict)
@@ -290,6 +316,7 @@ async def _run(settings: Settings) -> dict[str, object]:
             "reads": {
                 "calendar": {
                     "calendars": len(calendars),
+                    "coverage": calendar_coverage,
                     "events": len(events),
                     "get_event": True,
                     "unspecified_end_events": unspecified_end_events,

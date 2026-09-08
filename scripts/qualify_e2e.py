@@ -18,21 +18,30 @@ import discord
 import httpx
 from llm_agent_kernel import (
     CancellationToken,
+    DispatchCompleted,
     DispatchResult,
     ThreadCompleted,
     ToolDispatchLineage,
+    ToolDispatchPort,
 )
 from llm_tools import BudgetState, FrozenToolPlan, ToolBinding, WebReadInput
 from sqlalchemy import RowMapping, func, select
 
-from jarvis.admission import RollingAdmissionLimits, RollingAdmissionPort
+from jarvis.actions import ActionStore
+from jarvis.admission import (
+    RollingAdmissionPort,
+    RootTrackingAdmissionPort,
+    slice5_admission_limits,
+)
+from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.db import action, create_engine, memory_log, memory_summary, message
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
     QUALIFIED_CODEX_MODELS,
-    SLICE2_KERNEL_LIMITS,
-    build_slice2_definitions,
+    SLICE6_KERNEL_LIMITS,
+    build_slice5_write_gate,
+    build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.discord import (
@@ -42,11 +51,14 @@ from jarvis.discord import (
     DiscordGateway,
     DiscordOwnerMessage,
 )
+from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import build_kernel_runtime
+from jarvis.memory import MemoryStore
+from jarvis.memory_dispatch import MemoryToolDispatcher
+from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
-from jarvis.read_composition import build_read_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
     CalendarGetEventInput,
@@ -55,9 +67,12 @@ from jarvis.read_tools import (
     MapsGetPlaceInput,
     PlaceLocation,
 )
-from jarvis.service import JarvisService, JarvisThreadRunner
+from jarvis.service import JarvisService, JarvisThreadRunner, RemembererWorker
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+from jarvis.write_composition import build_slice6_composition
+from jarvis.write_dispatch import WriteToolDispatcher
+from jarvis.write_gate import AutomaticWriteGate
 
 _SUPPORTED_ROUTES = frozenset(QUALIFIED_CODEX_MODELS)
 _MAX_CATCH_UP_PAGE = 100
@@ -137,8 +152,8 @@ class _RecordingDelivery:
 
 
 class _RecordingDispatcher:
-    def __init__(self, host_secrets: tuple[str, ...]) -> None:
-        self.inner = ReadToolDispatcher(host_secrets=host_secrets)
+    def __init__(self, inner: ToolDispatchPort) -> None:
+        self.inner = inner
         self.successful_tool_ids: list[str] = []
         self._gmail_thread_ids: set[str] = set()
         self._calendar_event_ids: set[tuple[str, str]] = set()
@@ -233,7 +248,10 @@ class _RecordingDispatcher:
             cancellation=cancellation,
             lineage=lineage,
         )
-        if result.result.get("type") == "Success":
+        if (
+            isinstance(result, DispatchCompleted)
+            and result.result.get("type") == "Success"
+        ):
             tool_id = str(binding.spec.id)
             value = cast("dict[str, object]", result.result["value"])
             self._record_success(
@@ -341,7 +359,7 @@ async def _run(settings: Settings) -> dict[str, object]:
     settings.runtime_state_directory.mkdir(mode=0o700)
     settings.provider_cwd_parent.mkdir(mode=0o700)
     PausedState.initialize(settings.paused_state_path)
-    admission_limits = RollingAdmissionLimits()
+    admission_limits = slice5_admission_limits(settings.maximum_batch_size)
     RollingAdmissionPort.initialize(
         settings.admission_journal_path,
         admission_limits,
@@ -352,19 +370,13 @@ async def _run(settings: Settings) -> dict[str, object]:
         private_cwd_parent=settings.provider_cwd_parent,
         session_ref_path=settings.session_reference_path,
         model=settings.codex_model,
-        kernel_limits=SLICE2_KERNEL_LIMITS,
+        kernel_limits=SLICE6_KERNEL_LIMITS,
     )
     google_oauth_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     google_api_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     maps_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     brave_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    catalog = build_read_catalog(
-        settings=settings,
-        google_oauth_http=google_oauth_http,
-        google_api_http=google_api_http,
-        maps_http=maps_http,
-        brave_http=brave_http,
-    )
+    embedding_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
     chosen: DiscordOwnerMessage | None = None
     non_control_candidates = 0
     catch_up_open = True
@@ -382,21 +394,85 @@ async def _run(settings: Settings) -> dict[str, object]:
 
     try:
         async with deployment_ownership(engine):
-            admission = RollingAdmissionPort(
-                settings.admission_journal_path,
-                admission_limits,
+            admission = RootTrackingAdmissionPort(
+                RollingAdmissionPort(
+                    settings.admission_journal_path,
+                    admission_limits,
+                )
             )
-            definitions = build_slice2_definitions(
-                catalog=catalog,
+            actions = ActionStore(engine)
+            memory = MemoryStore(engine)
+            embedder = OpenAIEmbedder(
+                settings.embedding_openai_api_key,
+                http_client=embedding_http,
+            )
+            provisional_gate, _ = build_slice5_write_gate(
+                profile_key=settings.codex_profile_key,
+                model=settings.codex_model,
+            )
+            composition = build_slice6_composition(
+                settings=settings,
+                google_oauth_http=google_oauth_http,
+                google_api_http=google_api_http,
+                maps_http=maps_http,
+                brave_http=brave_http,
+                memory_repository=PostgresMemoryRepository(engine),
+                memory_embedder=embedder,
+                actions=actions,
+                automatic_write_gate_definition_fingerprint=(
+                    provisional_gate.fingerprint
+                ),
+            )
+            definitions = build_slice6_definitions(
+                catalog=composition.catalog,
                 profile_key=settings.codex_profile_key,
                 model=settings.codex_model,
                 owner_timezone=settings.owner_timezone,
             )
+            if (
+                definitions.automatic_write_gate.fingerprint
+                != provisional_gate.fingerprint
+            ):
+                raise RuntimeError("write-gate definition changed during composition")
             store = MessageStore(engine)
+            gate = AutomaticWriteGate(
+                definition=definitions.automatic_write_gate,
+                plan=definitions.plans["automatic_write_gate"],
+                admission=admission,
+                provider=kernel_runtime.provider,
+            )
+            rememberer = RemembererWorker(
+                definition=definitions.rememberer,
+                plan=definitions.plans["rememberer"],
+                admission=admission,
+                provider=kernel_runtime.provider,
+                dispatcher_factory=MemoryToolDispatcher,
+                memory=memory,
+                messages=store,
+                embedder=embedder,
+                maximum_messages_per_group=settings.maximum_batch_size,
+            )
             dispatchers: list[_RecordingDispatcher] = []
 
-            def dispatcher_factory() -> _RecordingDispatcher:
-                dispatcher = _RecordingDispatcher(settings.host_secrets)
+            def dispatcher_factory(
+                checkpoint: PostgresInputCheckpoint,
+            ) -> _RecordingDispatcher:
+                dispatcher = _RecordingDispatcher(
+                    WriteToolDispatcher(
+                        checkpoint=checkpoint,
+                        gate=gate,
+                        actions=actions,
+                        google_write=composition.google_write,
+                        read=ReadToolDispatcher(host_secrets=settings.host_secrets),
+                        owner_timezone=settings.owner_timezone,
+                        source_conversation_id=str(settings.discord.channel_id),
+                        verified_owner_only_calendar_ids=(
+                            settings.verified_owner_only_calendar_ids
+                        ),
+                        host_secrets=settings.host_secrets,
+                        schedule_changed=lambda: None,
+                    )
+                )
                 dispatchers.append(dispatcher)
                 return dispatcher
 
@@ -407,7 +483,10 @@ async def _run(settings: Settings) -> dict[str, object]:
                 kernel_runtime=kernel_runtime,
                 definitions=definitions,
                 history=PostgresCanonicalHistory(engine),
-                dispatcher_factory=dispatcher_factory,
+                checkpoint_dispatcher_factory=dispatcher_factory,
+                memory=memory,
+                memory_dispatcher_factory=MemoryToolDispatcher,
+                rememberer=rememberer,
             )
             async with httpx.AsyncClient(
                 trust_env=False,
@@ -480,12 +559,12 @@ async def _run(settings: Settings) -> dict[str, object]:
                             reservation.get("actual_output_tokens"),
                         )
                         expected_reserved = (
-                            SLICE2_KERNEL_LIMITS.max_provider_turns
+                            SLICE6_KERNEL_LIMITS.max_provider_turns
                             + admission_limits.serial_child_turns,
-                            SLICE2_KERNEL_LIMITS.max_provider_input_tokens
+                            SLICE6_KERNEL_LIMITS.max_provider_input_tokens
                             + admission_limits.root_input_token_overshoot
                             + admission_limits.serial_child_input_tokens,
-                            SLICE2_KERNEL_LIMITS.max_provider_output_tokens
+                            SLICE6_KERNEL_LIMITS.max_provider_output_tokens
                             + admission_limits.root_output_token_overshoot
                             + admission_limits.serial_child_output_tokens,
                         )
@@ -575,7 +654,13 @@ async def _run(settings: Settings) -> dict[str, object]:
                                 "persisted_response_marker_missing"
                             )
                         settlement = cast(dict[str, object], owner.trace["settlement"])
-                        if settlement.get("conclusion_message_id") != str(assistant.id):
+                        terminal_outcome = settlement.get("outcome")
+                        if (
+                            settlement.get("conclusion_kind") != "conversation"
+                            or terminal_outcome != "answered"
+                            or settlement.get("conclusion_message_id")
+                            != str(assistant.id)
+                        ):
                             raise QualificationCheckFailed(
                                 "settlement_response_mismatch"
                             )
@@ -661,6 +746,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                                 },
                                 "zero_actions": True,
                                 "useful_reply": True,
+                                "terminal_outcome": terminal_outcome,
                                 "visible_count": visible,
                             },
                             "usage": {
@@ -782,6 +868,7 @@ async def _run(settings: Settings) -> dict[str, object]:
         await google_api_http.aclose()
         await maps_http.aclose()
         await brave_http.aclose()
+        await embedding_http.aclose()
         await kernel_runtime.close()
         await engine.dispose()
 

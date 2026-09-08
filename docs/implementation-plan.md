@@ -200,7 +200,9 @@ Status: complete and qualified on 2026-09-04. The strengthened original nine-rea
 compound-linkage gate and final verifier passed. The dated
 [qualification report](qualification/2026-09-04-slice-2.md) records the exact
 dependencies, frozen identities, deterministic verification, sanitized live
-provider evidence, and accepted trade-offs.
+provider evidence, and accepted trade-offs. ADR 0038 later hard-cuts the active
+Main terminal and `calendar.list_events` contracts; that amendment belongs to
+Slice 7 and does not rewrite the historical Slice 2 evidence.
 
 Deliver:
 
@@ -211,20 +213,20 @@ Deliver:
   plan becomes selectable.
 - No Discord declarations in the model tool catalog; conversation delivery stays
   in the adapter.
-- Kernel-owned strict `call_tool | say | finish` schema, complete semantic and
-  pure-argument validation before mutation, exactly one serial call with no
-  model-authored ID or prose, bounded corrective feedback, and a separate `say`
-  only after the model observes its result.
+- Kernel-owned strict step schema, complete semantic and pure-argument
+  validation before mutation, exactly one serial call with no model-authored ID
+  or prose, bounded corrective feedback, and—after ADR 0038—an active Main
+  terminal only through validated `finish.result`.
 - `gmail.search` and `gmail.read_thread` bindings.
-- `calendar.list_calendars` v1, `calendar.list_events` v4, and
+- `calendar.list_calendars` v1, `calendar.list_events` v5, and
   `calendar.get_event` v2 bindings after ADR 0037 superseded the original
   primary-only v3 list. List exposes no calendar ID and aggregates the bounded
   live reader-or-better CalendarList host-side. Normal observed
   ends are a required direct timed/all-day/unspecified tagged union. Google's
   true flag discards its compatibility end and returns the payload-free
-  unspecified variant, while false or missing requires a parsed end. The final
-  live read gate requests 50 events and proves at least three sanitized
-  qualified-account unspecified-end cases.
+  unspecified variant, while false or missing requires a parsed end. The
+  current bounded paginator and typed coverage contract are specified by ADR
+  0038; its focused live gate proves a complete greater-than-50-event result.
 - `maps.search_places`, `maps.get_place`, and `maps.directions` bindings.
 - Pinned `llm-tools` `web.search` and `web.read` bindings under Jarvis-owned
   credentials, information-flow policy, and budgets.
@@ -432,10 +434,21 @@ Deliver:
   Docker lifecycle operations do not own or restart Jarvis.
 - Agent-definition-compatible Codex session resume through `provider-runtime`
   plus recovery after deleting every provider session reference.
+- ADR 0038's hard-cut Main terminal: reuse kernel `StructuredOutput`, render one
+  typed `answered | partial | needs_input | failed | silent` result host-side,
+  retain typing as the only synchronous progress indicator, and remove the
+  production conversational-`say` path and compatibility aliases.
+- ADR 0038's Calendar v5 hard cut: remove model-selected result size and the
+  boolean truncation result, page deterministically inside the connector, return
+  typed coverage and at most 200 whole events/262,144 encoded bytes, and promote
+  incomplete answers to visible partial content without scheduling phantom work.
 - Restart/crash qualification for poison attempts, no automatic rearm, rolling
   admission settlement, corrupt-journal fail-closed behavior, and explicit
   operator reset while the service is stopped.
 - Complete acceptance run.
+- One 80/20 proof per changed boundary: schema, Google connector, kernel/Jarvis
+  composition, Discord delivery, live Calendar, and one paid end-to-end prompt.
+  Carry forward unchanged dependency and unrelated connector qualifications.
 - Seven-day owner acceptance period.
 - Dated acceptance report.
 

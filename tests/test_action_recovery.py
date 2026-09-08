@@ -57,6 +57,7 @@ from jarvis.messages import (
     host_safe_text,
 )
 from jarvis.schedule_tools import schedule_family
+from jarvis.terminal import TurnEvidence
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     ReconciliationResult,
@@ -1351,6 +1352,7 @@ async def test_suspended_write_after_action_input_preserves_prior_visibility(
         scheduled_wake_plan=plan,
         maximum_batch_size=10,
         maximum_attempts=3,
+        turn_evidence=TurnEvidence(),
     )
     claimed = await checkpoint.claim(
         ThreadId(conversation),
@@ -1632,12 +1634,16 @@ async def test_processed_stranded_action_outcome_gets_one_resolution(
 
 
 @pytest.mark.parametrize(
-    ("outcome", "conclusion_text"),
-    (("say", "Synthetic owner-visible result."), ("finish", None)),
+    ("conclusion_kind", "outcome", "conclusion_text"),
+    (
+        ("conversation", "answered", "Synthetic owner-visible result."),
+        ("silent", "silent", None),
+    ),
 )
 @postgres
 async def test_completed_live_conversation_does_not_create_recovery_resolution(
     engine: AsyncEngine,
+    conclusion_kind: str,
     outcome: str,
     conclusion_text: str | None,
 ) -> None:
@@ -1661,7 +1667,7 @@ async def test_completed_live_conversation_does_not_create_recovery_resolution(
         trace=SettlementTrace(
             run_id=f"synthetic-conversation-{outcome}",
             through_checkpoint=str(owner),
-            conclusion_kind="conversation",
+            conclusion_kind=conclusion_kind,
             outcome=outcome,
         ),
         conclusion_text=conclusion_text,
@@ -2164,7 +2170,7 @@ async def test_recovered_schedule_cancel_reloads_timer_and_keeps_later_wake(
                             "through_checkpoint": str(owner),
                             "conclusion_message_id": str(uuid4()),
                             "conclusion_kind": "conversation",
-                            "outcome": "say",
+                            "outcome": "answered",
                         }
                     }
                 )

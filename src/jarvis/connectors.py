@@ -24,14 +24,20 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from llm_tools import canonical_json_bytes
 from pydantic import ValidationError
 
 from jarvis._atomic_json import read_private_json, replace_private_json
 from jarvis.read_tools import (
     CALENDAR_API_BASE_URL,
     CALENDAR_EVENT_CONCURRENCY,
+    CALENDAR_EVENT_DEADLINE_SECONDS,
+    CALENDAR_EVENT_PAGE_SIZE,
     GMAIL_API_BASE_URL,
+    MAX_CALENDAR_EVENT_PAGE_REQUESTS,
+    MAX_CALENDAR_EVENTS,
     MAX_CALENDAR_LIST_ENTRIES,
+    MAX_CALENDAR_SUCCESS_BYTES,
     PLACE_DETAILS_FIELD_MASK,
     PLACES_API_BASE_URL,
     PLACES_SEARCH_FIELD_MASK,
@@ -39,6 +45,8 @@ from jarvis.read_tools import (
     ROUTES_FIELD_MASK,
     AllDayEventTime,
     CalendarCancelledEvent,
+    CalendarCoverage,
+    CalendarCoverageReason,
     CalendarEventReadFailure,
     CalendarGetEventInput,
     CalendarGetEventSuccess,
@@ -251,7 +259,9 @@ class GoogleTokenManager:
         self._expires_at: datetime | None = None
         self._force_refresh = False
 
-    async def access_token(self) -> tuple[str, int]:
+    async def access_token(
+        self, *, attempt_started: Callable[[], None] | None = None
+    ) -> tuple[str, int]:
         now = self._now()
         if now.tzinfo is None:
             raise RuntimeError("Google credential clock must be aware")
@@ -291,6 +301,8 @@ class GoogleTokenManager:
                 "Google credential state is malformed"
             ) from exc
         try:
+            if attempt_started is not None:
+                attempt_started()
             async with (
                 asyncio.timeout(4.0),
                 self._client.stream(
@@ -591,15 +603,44 @@ class GoogleReadConnector:
             raise ConnectorFailure("invalid_range", attempts=0) from None
         if time_min >= time_max:
             raise ConnectorFailure("invalid_range", attempts=0)
-        list_payload, attempts = await self._get(
-            f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
-            params={
-                "maxResults": 50,
-                "minAccessRole": "reader",
-                "showDeleted": "false",
-                "showHidden": "true",
-            },
-        )
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + CALENDAR_EVENT_DEADLINE_SECONDS
+        attempts = 0
+
+        def attempted() -> None:
+            nonlocal attempts
+            attempts += 1
+
+        try:
+            list_payload, _ = await asyncio.wait_for(
+                self._get(
+                    f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
+                    params={
+                        "maxResults": 50,
+                        "minAccessRole": "reader",
+                        "showDeleted": "false",
+                        "showHidden": "true",
+                    },
+                    attempt_started=attempted,
+                ),
+                timeout=max(0.0, deadline - loop.time()),
+            )
+        except TimeoutError:
+            result = CalendarListEventsSuccess(
+                calendars=(),
+                events=(),
+                failures=(),
+                coverage=CalendarCoverage(
+                    complete=False,
+                    reasons=("deadline",),
+                    calendars_discovered=0,
+                    calendars_completed=0,
+                    matched_events=None,
+                ),
+                observed_at=self._observed_at(),
+            )
+            return ReadResponse(result, attempts)
         try:
             calendars, calendars_truncated = _calendar_references(list_payload)
         except _ProviderTooLarge as exc:
@@ -611,42 +652,51 @@ class GoogleReadConnector:
 
         semaphore = asyncio.Semaphore(CALENDAR_EVENT_CONCURRENCY)
 
-        async def read_calendar(
-            calendar: CalendarReference,
+        async def read_page(
+            calendar: CalendarReference, page_token: str | None
         ) -> tuple[
             tuple[CalendarNormalEvent | CalendarCancelledEvent, ...],
             CalendarEventReadFailure | None,
-            bool,
-            int,
+            str | None,
         ]:
             async with semaphore:
-                calendar_attempts = 0
+                page_attempts = 0
+
+                def page_attempted() -> None:
+                    nonlocal page_attempts
+                    page_attempts += 1
+                    attempted()
+
                 try:
-                    payload, calendar_attempts = await self._get(
+                    params: dict[str, str | int] = {
+                        "maxResults": CALENDAR_EVENT_PAGE_SIZE,
+                        "orderBy": "startTime",
+                        "showDeleted": "true",
+                        "singleEvents": "true",
+                        "timeMax": _rfc3339(time_max),
+                        "timeMin": _rfc3339(time_min),
+                        "timeZone": value.time_zone,
+                    }
+                    if page_token is not None:
+                        params["pageToken"] = page_token
+                    payload, _ = await self._get(
                         f"{CALENDAR_API_BASE_URL}/calendars/"
                         f"{quote(calendar.calendar_id, safe='')}/events",
-                        params={
-                            "maxResults": value.max_results,
-                            "orderBy": "startTime",
-                            "showDeleted": "true",
-                            "singleEvents": "true",
-                            "timeMax": _rfc3339(time_max),
-                            "timeMin": _rfc3339(time_min),
-                            "timeZone": value.time_zone,
-                        },
+                        params=params,
                         not_found="calendar_not_found",
                         invalid_request="invalid_range",
+                        attempt_started=page_attempted,
                     )
                     items = _array(payload.get("items", []), "Calendar events")
-                    events = tuple(
-                        _calendar_event(calendar.calendar_id, item)
-                        for item in items[: value.max_results]
-                    )
+                    if len(items) > CALENDAR_EVENT_PAGE_SIZE:
+                        raise _ProviderTooLarge
                     return (
-                        events,
+                        tuple(
+                            _calendar_event(calendar.calendar_id, item)
+                            for item in items
+                        ),
                         None,
-                        _has_next_page(payload) or len(items) > value.max_results,
-                        calendar_attempts,
+                        _next_page_token(payload),
                     )
                 except _ProviderTooLarge:
                     return (
@@ -655,18 +705,18 @@ class GoogleReadConnector:
                             calendar_id=calendar.calendar_id,
                             error="ProviderResponseTooLarge",
                         ),
-                        False,
-                        calendar_attempts,
+                        None,
                     )
                 except ConnectorFailure as exc:
+                    for _ in range(max(0, exc.attempts - page_attempts)):
+                        attempted()
                     return (
                         (),
                         CalendarEventReadFailure(
                             calendar_id=calendar.calendar_id,
                             error=_calendar_failure_type(exc.code),
                         ),
-                        False,
-                        exc.attempts,
+                        None,
                     )
                 except (TypeError, ValueError, ValidationError):
                     return (
@@ -675,33 +725,138 @@ class GoogleReadConnector:
                             calendar_id=calendar.calendar_id,
                             error="ProviderUnavailable",
                         ),
-                        False,
-                        calendar_attempts,
+                        None,
                     )
 
-        results = await asyncio.gather(*(read_calendar(item) for item in calendars))
         all_events: list[CalendarNormalEvent | CalendarCancelledEvent] = []
-        failures: list[CalendarEventReadFailure] = []
-        truncated = calendars_truncated
-        for events, failure, calendar_truncated, calendar_attempts in results:
-            attempts += calendar_attempts
-            all_events.extend(events)
-            if failure is not None:
-                failures.append(failure)
-            truncated = truncated or calendar_truncated
+        failures: dict[str, CalendarEventReadFailure] = {}
+        completed: set[str] = set()
+        pending_pages: list[tuple[CalendarReference, str | None]] = [
+            (calendar, None)
+            for calendar in sorted(calendars, key=lambda item: item.calendar_id)
+        ]
+        page_requests = 0
+        deadline_reached = False
+        page_limit_reached = False
+
+        while pending_pages:
+            if loop.time() >= deadline:
+                deadline_reached = True
+                break
+            remaining_requests = MAX_CALENDAR_EVENT_PAGE_REQUESTS - page_requests
+            if remaining_requests <= 0:
+                page_limit_reached = True
+                break
+            batch = pending_pages[:remaining_requests]
+            if len(batch) != len(pending_pages):
+                page_limit_reached = True
+            page_requests += len(batch)
+            tasks = [
+                asyncio.create_task(read_page(calendar, page_token))
+                for calendar, page_token in batch
+            ]
+            try:
+                done, waiting = await asyncio.wait(
+                    tasks,
+                    timeout=max(0.0, deadline - loop.time()),
+                )
+            except asyncio.CancelledError:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+            if waiting:
+                for task in waiting:
+                    task.cancel()
+                await asyncio.gather(*waiting, return_exceptions=True)
+                deadline_reached = True
+
+            next_round: list[tuple[CalendarReference, str | None]] = []
+            for (calendar, _), task in zip(batch, tasks, strict=True):
+                if task not in done:
+                    continue
+                events, failure, page_token = task.result()
+                all_events.extend(events)
+                if failure is not None:
+                    failures[calendar.calendar_id] = failure
+                elif page_token is None:
+                    completed.add(calendar.calendar_id)
+                else:
+                    next_round.append((calendar, page_token))
+            if loop.time() >= deadline:
+                deadline_reached = True
+            if deadline_reached or page_limit_reached:
+                break
+            pending_pages = next_round
+
         try:
             all_events.sort(
                 key=lambda event: _calendar_event_sort_key(event, value.time_zone)
             )
-            if len(all_events) > value.max_results:
-                truncated = True
-            result = CalendarListEventsSuccess(
-                calendars=calendars,
-                events=tuple(all_events[: value.max_results]),
-                failures=tuple(sorted(failures, key=lambda item: item.calendar_id)),
-                truncated=truncated,
-                observed_at=self._observed_at(),
+            reasons: set[CalendarCoverageReason] = set()
+            if calendars_truncated:
+                reasons.add("calendar_limit")
+            if failures:
+                reasons.add("calendar_failure")
+            if page_limit_reached:
+                reasons.add("event_page_limit")
+            if deadline_reached:
+                reasons.add("deadline")
+            pages_exhausted = (
+                not failures
+                and not page_limit_reached
+                and not deadline_reached
+                and len(completed) == len(calendars)
             )
+            matched_events = len(all_events) if pages_exhausted else None
+            if len(all_events) > MAX_CALENDAR_EVENTS:
+                reasons.add("event_limit")
+            selected_events = tuple(all_events[:MAX_CALENDAR_EVENTS])
+            observed_at = self._observed_at()
+            ordered_failures = tuple(
+                failures[calendar_id] for calendar_id in sorted(failures)
+            )
+
+            def success(
+                events: tuple[CalendarNormalEvent | CalendarCancelledEvent, ...],
+                coverage_reasons: set[CalendarCoverageReason],
+            ) -> CalendarListEventsSuccess:
+                return CalendarListEventsSuccess(
+                    calendars=calendars,
+                    events=events,
+                    failures=ordered_failures,
+                    coverage=CalendarCoverage(
+                        complete=not coverage_reasons,
+                        reasons=tuple(sorted(coverage_reasons)),
+                        calendars_discovered=len(calendars),
+                        calendars_completed=len(completed),
+                        matched_events=matched_events,
+                    ),
+                    observed_at=observed_at,
+                )
+
+            result = success(selected_events, reasons)
+            envelope = {"type": "Success", "value": result.model_dump(mode="json")}
+            if len(canonical_json_bytes(envelope)) > MAX_CALENDAR_SUCCESS_BYTES:
+                reasons.add("output_byte_limit")
+                first_count = (
+                    len(selected_events)
+                    if matched_events != len(selected_events)
+                    else len(selected_events) - 1
+                )
+                for event_count in range(first_count, -1, -1):
+                    result = success(selected_events[:event_count], reasons)
+                    envelope = {
+                        "type": "Success",
+                        "value": result.model_dump(mode="json"),
+                    }
+                    if (
+                        len(canonical_json_bytes(envelope))
+                        <= MAX_CALENDAR_SUCCESS_BYTES
+                    ):
+                        break
+                else:
+                    raise _ProviderTooLarge
         except _ProviderTooLarge as exc:
             raise ConnectorFailure(
                 "provider_response_too_large", attempts=attempts
@@ -742,9 +897,14 @@ class GoogleReadConnector:
         params: Mapping[str, str | int] | None = None,
         not_found: str | None = None,
         invalid_request: str | None = None,
+        attempt_started: Callable[[], None] | None = None,
     ) -> tuple[dict[str, object], int]:
-        token, refresh_attempts = await self._tokens.access_token()
+        token, refresh_attempts = await self._tokens.access_token(
+            attempt_started=attempt_started
+        )
         try:
+            if attempt_started is not None:
+                attempt_started()
             async with (
                 asyncio.timeout(8.0),
                 self._client.stream(
@@ -1046,12 +1206,16 @@ async def _google_forbidden_code(response: httpx.Response, *, attempts: int) -> 
 
 
 def _has_next_page(value: Mapping[str, object]) -> bool:
+    return _next_page_token(value) is not None
+
+
+def _next_page_token(value: Mapping[str, object]) -> str | None:
     token = value.get("nextPageToken")
     if token is None:
-        return False
-    if not isinstance(token, str):
+        return None
+    if not isinstance(token, str) or not token:
         raise ValueError("provider pagination token is malformed")
-    return bool(token)
+    return token
 
 
 def _provider_boolean(value: Mapping[str, object], key: str, *, default: bool) -> bool:

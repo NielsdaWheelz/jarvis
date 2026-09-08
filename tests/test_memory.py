@@ -71,7 +71,7 @@ def _settlement(run_id: str, checkpoint: UUID) -> dict[str, object]:
         "through_checkpoint": str(checkpoint),
         "conclusion_message_id": str(uuid4()),
         "conclusion_kind": "conversation",
-        "outcome": "say",
+        "outcome": "answered",
         "provider_turns": 1,
     }
 
@@ -510,26 +510,42 @@ async def test_sweep_groups_shared_settlement_and_falls_back_per_damaged_row(
     assert remembered_id not in selected_ids
 
 
-async def test_sweep_excludes_ineligible_settled_owner_outcomes(
+async def test_sweep_includes_every_structured_owner_terminal_and_excludes_controls(
     engine: AsyncEngine,
 ) -> None:
     store = MemoryStore(engine)
     started_at = datetime(2026, 9, 4, 13, 30, tzinfo=UTC)
-    eligible = _settlement("eligible-finish-run", uuid4())
-    eligible["outcome"] = "finish"
-    eligible_id = await _stored_message(
-        engine,
-        role="owner",
-        created_at=started_at,
-        settlement=eligible,
-    )
+    eligible_ids: list[UUID] = []
+    for index, outcome in enumerate(
+        (
+            "answered",
+            "partial",
+            "needs_input",
+            "failed",
+            "host_fallback",
+            "silent",
+        )
+    ):
+        eligible = _settlement(f"eligible-{outcome}-run", uuid4())
+        eligible["conclusion_kind"] = (
+            "silent" if outcome == "silent" else "conversation"
+        )
+        eligible["outcome"] = outcome
+        eligible_ids.append(
+            await _stored_message(
+                engine,
+                role="owner",
+                created_at=started_at + timedelta(seconds=index),
+                settlement=eligible,
+            )
+        )
     stopped = _settlement("stopped-run", uuid4())
     stopped["conclusion_kind"] = "stopped"
     stopped["outcome"] = "cancelled"
     stopped_id = await _stored_message(
         engine,
         role="owner",
-        created_at=started_at + timedelta(seconds=1),
+        created_at=started_at + timedelta(seconds=6),
         settlement=stopped,
     )
     control = _settlement("control-run", uuid4())
@@ -538,7 +554,7 @@ async def test_sweep_excludes_ineligible_settled_owner_outcomes(
     control_id = await _stored_message(
         engine,
         role="owner",
-        created_at=started_at + timedelta(seconds=2),
+        created_at=started_at + timedelta(seconds=7),
         settlement=control,
     )
 
@@ -548,7 +564,7 @@ async def test_sweep_excludes_ineligible_settled_owner_outcomes(
     )
     selected_ids = {target.id for group in groups for target in group.targets}
 
-    assert eligible_id in selected_ids
+    assert set(eligible_ids) <= selected_ids
     assert stopped_id not in selected_ids
     assert control_id not in selected_ids
     with pytest.raises(MemoryPersistenceDefect, match="eligible conclusion"):

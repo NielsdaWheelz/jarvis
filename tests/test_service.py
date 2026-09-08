@@ -4,13 +4,19 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
 from llm_agent_kernel import (
     CancellationToken,
+    Checkpoint,
+    ClaimId,
+    DispatchCompleted,
+    DispatchLineage,
     InitialReadDispatchLineage,
+    InputId,
     ProviderUsage,
     RunId,
     RunMetrics,
@@ -19,6 +25,7 @@ from llm_agent_kernel import (
     ThreadStopped,
     ToolDispatchDefect,
 )
+from llm_tools import ToolId
 from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
@@ -44,6 +51,7 @@ from jarvis.service import (
 )
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+from jarvis.terminal import TurnEvidence
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -101,7 +109,7 @@ async def test_main_observation_capture_rejects_isolated_lineage() -> None:
             raise AssertionError("isolated dispatch must be rejected before delegation")
 
     delegate = Delegate()
-    dispatcher = CapturingReadDispatcher(cast(Any, delegate))
+    dispatcher = CapturingReadDispatcher(cast(Any, delegate), TurnEvidence())
     with pytest.raises(ToolDispatchDefect, match="continuing-thread lineage"):
         await dispatcher.dispatch(
             binding=cast(Any, object()),
@@ -112,6 +120,56 @@ async def test_main_observation_capture_rejects_isolated_lineage() -> None:
             lineage=InitialReadDispatchLineage(RunId("initial-read")),
         )
     assert not delegate.called
+
+
+async def test_main_observation_capture_records_typed_calendar_incompleteness() -> None:
+    class Delegate:
+        async def dispatch(self, **kwargs: object) -> DispatchCompleted:
+            del kwargs
+            return DispatchCompleted(
+                {
+                    "type": "Success",
+                    "value": {
+                        "calendars": [],
+                        "events": [],
+                        "failures": [],
+                        "coverage": {
+                            "complete": False,
+                            "reasons": ["calendar_limit"],
+                            "calendars_discovered": 0,
+                            "calendars_completed": 0,
+                            "matched_events": 0,
+                        },
+                        "observed_at": "2026-09-08T19:00:00Z",
+                    },
+                }
+            )
+
+    evidence = TurnEvidence()
+    dispatcher = CapturingReadDispatcher(cast(Any, Delegate()), evidence)
+    await dispatcher.dispatch(
+        binding=cast(
+            Any,
+            SimpleNamespace(spec=SimpleNamespace(id=ToolId("calendar.list_events"))),
+        ),
+        validated_input=object(),
+        plan=cast(Any, object()),
+        budgets=cast(Any, object()),
+        cancellation=CancellationToken(),
+        lineage=DispatchLineage(
+            ClaimId("claim"),
+            Checkpoint("checkpoint"),
+            (InputId("input"),),
+            1,
+        ),
+    )
+
+    assert len(evidence.calendar_incompleteness) == 1
+    incomplete = evidence.calendar_incompleteness[0]
+    assert incomplete.reasons == ("calendar_limit",)
+    assert incomplete.calendars_discovered == 0
+    assert incomplete.calendars_completed == 0
+    assert incomplete.matched_events == 0
 
 
 class _DeliveryStore:

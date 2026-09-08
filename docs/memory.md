@@ -136,8 +136,8 @@ contradictory recollections together.
 The rememberer runs once after a settled input group containing one or more
 owner messages that:
 
-- Produced a validated `say`.
-- Finished silently through `finish`.
+- Settled through a validated `answered`, `partial`, `needs_input`, `failed`, or
+  `silent` terminal.
 - Created an action awaiting approval and a host-rendered approval message.
 
 It opens a fresh isolated Codex session and receives every consumed owner

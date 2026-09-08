@@ -104,7 +104,15 @@ named explicitly; no criterion disappears or is weakened silently.
       revision input because the selected model independently participates in
       the agent-definition fingerprint.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
-      output is streamed into Discord.
+      output is streamed into Discord. Active Main has no `say` terminal and
+      returns one closed structured `answered | partial | needs_input | failed |
+      silent` result. The host renders it deterministically. There is no
+      in-progress variant, and an incomplete Calendar observation promotes
+      `answered` or `silent` to a visible partial response. A deterministic
+      threaded tool-loop, action-suspension, host-input fallback, settlement,
+      restart, and cold-bootstrap proof passes. One paid production prompt
+      produces useful final content with no unsupported continuation or later
+      phantom message.
 - [ ] **A2.12** `processed_at` is set only with a durable turn conclusion. Claims
       are non-empty and contain a host-selected plan. Compatible owner input
       arriving mid-loop is polled and appears exactly once before the next
@@ -138,16 +146,26 @@ in Slice 0.
 - [ ] **A3.1** Jarvis searches and reads a Gmail conversation.
 - [ ] **A3.2** Jarvis creates an email draft automatically.
 - [ ] **A3.3** Jarvis reads every live reader-or-better calendar, including
-      hidden CalendarList entries, under a 50-calendar bound. A 50-event final-code probe
+      hidden CalendarList entries, under a 50-calendar bound. A final-code probe
       observes at least three normal events with `end.type=unspecified` and
       returns each payload-free rather than rejecting it or exposing Google's
       compatibility end; output reports only counts and no event content or ID.
       The model-visible `calendar.list_events` input contains no `calendar_id`;
-      the host performs bounded CalendarList discovery and aggregate event reads.
+      it also contains no result bound. The host performs bounded CalendarList
+      discovery and deterministic event pagination with at most ten concurrent
+      requests, 100 event-page requests, 202 external attempts, and the stated
+      deadline/count/byte bounds. A deterministic 35-calendar, multi-page,
+      greater-than-50-event case returns chronological complete coverage; a
+      table-driven case proves every partial reason, exact attempts, whole-event
+      clipping, and cancellation propagation.
       `calendar.list_calendars` returns exact IDs and human display names for
       targeted work. An ordinary owner request naming no calendar receives a
-      grounded answer without an ID clarification. Partial failures and
-      truncation are explicit and must be disclosed.
+      grounded answer without an ID clarification. The typed coverage value is
+      complete only after discovery and every selected page are exhausted with
+      no failure or clipping. Partial failures and bounds are explicit and must
+      be disclosed. A live two-week production read spanning all 35 current
+      calendars and more than 50 events must be complete or expose the exact
+      legitimate bound that prevents acceptance.
 - [ ] **A3.4** Jarvis creates, edits, and removes a no-attendee event on a
       verified owner-only calendar without approval. Create uses the exact
       action-derived Google event ID from SPEC section 7.3; an injected lost
@@ -179,9 +197,8 @@ in Slice 0.
       or provider fallback. The main definition is `continuing`; recaller,
       rememberer, dreamer, and AutomaticWriteGate definitions are isolated
       one-shot runs, always open fresh, and never touch an input-checkpoint or
-      saved-session port. The main output contract is conversational; each
-      internal role has a closed
-      structured result schema. Recall/remember/dream roles have memory-read
+      saved-session port. Active Main and every internal role have closed
+      structured result schemas. Recall/remember/dream roles have memory-read
       maximum envelopes; AutomaticWriteGate has an empty envelope. Every run
       plan is publicly proven internally consistent with its exact catalog view
       and to tighten its definition envelope in full; internal plans contain no
@@ -207,13 +224,13 @@ in Slice 0.
       unknown fields and validates the whole step, output contract, frozen
       binding, and pure arguments before output or dispatch. `call_tool` has one
       tool, executes serially, and accepts no prose, model call/effect ID,
-      preview, authority, approval, or delivery field. A separate `say` may
-      describe only an observed outcome. Structured roles accept only a
-      schema-valid `finish.result`; the main role rejects terminal result
-      payloads. Its Codex wire schema has one closed object root, four required
-      envelope fields, nullable unselected branches, and only closed nested
-      objects. JSON-string tool arguments reject duplicate keys, non-JSON
-      numeric constants, and non-object roots before independent logical and
+      preview, authority, approval, or delivery field. A conversational kernel
+      consumer may use `say` only after observing an outcome; Jarvis Main instead
+      accepts only a schema-valid structured `finish.result` and rejects `say`.
+      Its Codex wire schema has one closed object root, four required envelope
+      fields, nullable unselected branches, and only closed nested objects.
+      JSON-string tool arguments reject duplicate keys, non-JSON numeric
+      constants, and non-object roots before independent logical and
       `llm-tools` validation.
       Unsupported structured-result schemas fail before provider I/O. No
       parallel or multi-call path exists.
@@ -258,7 +275,7 @@ in Slice 0.
       local-filesystem, Gmail organization, Discord, delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.
-      Calendar discovery v1, aggregate list v4, and get v2 publish their exact
+      Calendar discovery v1, aggregate list v5, and get v2 publish their exact
       output contracts and binding implementations: every normal event has a required direct
       timed/all-day/unspecified tagged end. The
       affected catalogs, maximum and selected profiles, plans, HostTables, Main
@@ -303,7 +320,8 @@ in Slice 0.
 - [ ] **A5.5** The recaller may issue multiple searches and open a summary's raw
       sources.
 - [ ] **A5.6** The rememberer runs once per settled input group containing owner
-      messages after `say`, `finish`, or an approval proposal. It receives every
+      messages after an `answered`, `partial`, `needs_input`, `failed`, or
+      `silent` terminal, or an approval proposal. It receives every
       consumed owner message plus persisted response/tool context and returns a
       schema-valid isolated one-shot result even when it chooses no memory.
 - [ ] **A5.7** A successful zero-memory result sets `remembered_at` on every

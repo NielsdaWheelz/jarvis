@@ -153,7 +153,6 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
                 time_min=NOW,
                 time_max=NOW + timedelta(hours=1),
                 time_zone="UTC",
-                max_results=1,
             ),
         ),
         (

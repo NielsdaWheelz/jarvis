@@ -121,10 +121,6 @@ sudo chown -R root:root "$release"
 sudo chmod -R go-w "$release"
 sudo install -m 0644 -o root -g root \
   "$release/deploy/jarvis.service" /etc/systemd/system/jarvis.service
-sudo install -m 0644 -o root -g root \
-  "$release/deploy/jarvis-backup.service" /etc/systemd/system/jarvis-backup.service
-sudo install -m 0644 -o root -g root \
-  "$release/deploy/jarvis-backup.timer" /etc/systemd/system/jarvis-backup.timer
 sudo systemctl daemon-reload
 complete=1
 printf 'Installed inactive release: %s\n' "$commit"

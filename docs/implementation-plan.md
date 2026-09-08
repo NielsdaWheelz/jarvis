@@ -390,7 +390,7 @@ Exit: Deny sends nothing; Approve sends the exact rendered email once; a shared
 calendar change is also rendered exactly; an ambiguous result is reconciled or
 reported without blind retry.
 
-Slice 7 deployment, backup/restore, seven-day owner acceptance, and final
+Slice 7 deployment, seven-day owner acceptance, and final
 production sign-off remain outside this slice.
 
 ## Slice 7: production acceptance
@@ -404,24 +404,23 @@ Deliver:
 - A documented ownership boundary: the `dev-server` repository converges UTC,
   system packages, PostgreSQL/pgvector availability, the service account, and
   base directories; Jarvis owns releases, credentials, database roles,
-  migrations, service lifecycle, and backup/restore. Nexus production remains
+  migrations and service lifecycle. Nexus production remains
   untouched.
 - Secret and configuration procedure that uses the release's pinned Codex SDK,
   not the host's mutable global Codex installation.
-- Daily streamed Restic backup to a dedicated Cloudflare R2 bucket/prefix using
-  bucket-scoped credentials separate from provider and Nexus credentials, with
-  no automatic pruning in v1.
-- Clean-host PostgreSQL restore test plus release/state reconstruction.
+- Explicit verification that no v1 backup role, credential, timer, or restore
+  command exists, with the owner-accepted total-loss trade-off recorded.
 - Pre-deployment housekeeping with exact targets, active CI/container checks,
   disk-headroom acceptance, UTC convergence, recorded PostgreSQL/pgvector
-  versions, and a controlled pending-kernel reboot.
+  versions, and a recorded pending-kernel reboot deferred to an owner-selected
+  maintenance window without interrupting current tmux/Codex work.
 - systemd restart/resource controls and verification that development/rootless
   Docker lifecycle operations do not own or restart Jarvis.
 - Agent-definition-compatible Codex session resume through `provider-runtime`
   plus recovery after deleting every provider session reference.
 - Restart/crash qualification for poison attempts, no automatic rearm, rolling
   admission settlement, corrupt-journal fail-closed behavior, and explicit
-  operator reset on a clean restore.
+  operator reset while the service is stopped.
 - Complete acceptance run.
 - Seven-day owner acceptance period.
 - Dated acceptance report.

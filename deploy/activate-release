@@ -15,8 +15,7 @@ release="/opt/jarvis/releases/$commit"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
 sudo test -f "$release/RELEASE.json"
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
-  /etc/jarvis/migration.env /etc/jarvis/backup-database.env \
-  /etc/jarvis/backup.env /etc/jarvis/restic-password; do
+  /etc/jarvis/migration.env; do
   sudo test -f "$file"
   sudo test ! -L "$file"
 done
@@ -25,12 +24,6 @@ sudo systemctl stop jarvis.service 2>/dev/null || true
 sudo -u jarvis bash -c \
   'set -a; source /etc/jarvis/migration.env; set +a; cd "$1"; exec .venv/bin/alembic -c alembic.ini upgrade head' \
   bash "$release"
-sudo -n -u postgres psql -v ON_ERROR_STOP=1 -d jarvis <<'SQL'
-GRANT CONNECT ON DATABASE jarvis TO jarvis_backup;
-GRANT USAGE ON SCHEMA public TO jarvis_backup;
-GRANT SELECT ON TABLE action, memory_log, memory_summary, message TO jarvis_backup;
-SQL
-
 if ! sudo test -f /var/lib/jarvis/runtime/paused.json && \
   ! sudo test -f /var/lib/jarvis/runtime/admission.json; then
   sudo -u jarvis bash -c \
@@ -41,17 +34,11 @@ else
   sudo test -f /var/lib/jarvis/runtime/admission.json
 fi
 
-sudo -u jarvis bash -c \
-  'set -a; source /etc/jarvis/backup-database.env; source /etc/jarvis/backup.env; set +a; exec /usr/bin/restic snapshots --latest 1 >/dev/null' \
-  bash
-
 temporary="/opt/jarvis/.current-$commit"
 sudo rm -f -- "$temporary"
 sudo ln -s "releases/$commit" "$temporary"
 sudo mv -Tf "$temporary" /opt/jarvis/current
 sudo systemctl enable --now jarvis.service
-sudo systemctl enable --now jarvis-backup.timer
 sudo systemctl is-active --quiet jarvis.service
-sudo systemctl is-active --quiet jarvis-backup.timer
 printf 'Activated Jarvis release: %s\n' "$commit"
 REMOTE

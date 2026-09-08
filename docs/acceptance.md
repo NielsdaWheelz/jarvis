@@ -422,21 +422,21 @@ These criteria are **live** where they call Gmail or Discord.
 
 ## A7. Recovery and operations
 
-- [ ] **A7.1** A daily streamed Restic backup includes all four application
-      tables, required encrypted connector state, and the content-free pause and
-      admission journals; encryption occurs before upload and at least one copy
-      is in a dedicated Cloudflare R2 bucket/prefix under bucket-scoped
-      credentials that grant no provider, Cloudflare administration, other-R2,
-      or Nexus authority. V1 performs no automatic snapshot deletion or prune.
-- [ ] **A7.2** Restore into a clean PostgreSQL instance preserves message IDs,
-      raw memory IDs/text/timestamps, and action effects/status/results. The
-      acceptance report records the production host, release commit, Python,
-      PostgreSQL, and pgvector identities, UTC state, loopback database binding,
-      systemd isolation/resource controls, and post-reboot recovery.
+- [ ] **A7.1** V1 deploys with no application backup, restore command, Restic/R2
+      credential, backup database role, or backup timer. The owner explicitly
+      accepts that loss of the devbox, disk, or database can permanently lose
+      Jarvis state; backup remains addable later without changing the four-table
+      application schema.
+- [ ] **A7.2** The acceptance report records the production host, release commit,
+      Python, PostgreSQL, pgvector, and running-kernel identities; UTC state;
+      loopback database binding; systemd isolation/resource controls; process
+      restart recovery; and the deferred newer-kernel reboot. Deployment does
+      not interrupt the owner's tmux sessions or live Codex processes.
 - [ ] **A7.3** Derived summaries and embeddings can be completely regenerated
-      after restore.
-- [ ] **A7.4** Restored `succeeded`, `failed`, `uncertain`, and `cancelled` actions
-      do not become executable; restored `executing` actions reconcile first.
+      from the preserved local raw memory log.
+- [ ] **A7.4** After process restart, `succeeded`, `failed`, `uncertain`, and
+      `cancelled` actions do not become executable; `executing` actions reconcile
+      before any evidence-proven repeat.
 - [ ] **A7.5** Jarvis resumes Discord operation, boundedly catches up owner input,
       and retries pending assistant rows with null `source_message_id` after
       restart using the deterministic enforced nonce and the finite delivery
@@ -444,9 +444,9 @@ These criteria are **live** where they call Gmail or Discord.
       ordinary response after delayed ambiguous acknowledgement. It resumes a
       configuration-compatible main session when possible and cold bootstraps
       from canonical context when not.
-- [ ] **A7.6** A backup snapshot contains no usable Google, Discord, Codex,
-      Brave, Maps, embedding, PostgreSQL, R2, Restic, or connector-encryption
-      credential and no disposable provider state.
+- [ ] **A7.6** PostgreSQL contains no usable Google, Discord, Codex, Brave, Maps,
+      embedding, PostgreSQL, or connector-encryption credential and no
+      disposable provider state.
 - [ ] **A7.7** Ordinary logs and checked-in transcripts contain no real private
       message, email body, memory text, or secret.
 - [ ] **A7.8** Protocol, run-budget, quota, explicit-stop, and repeated-provider
@@ -531,5 +531,5 @@ The report records:
 - Integration operations and credential ownership.
 - Signed Slice 0 qualification report revision.
 - Recall scores before and after rebuild.
-- Backup/restore result.
+- Explicit no-backup risk acceptance and absence of backup authority.
 - Known limitations, explicit waivers, and owner sign-off.

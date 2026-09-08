@@ -1,10 +1,14 @@
 # ADR 0032: Stream encrypted backups to dedicated R2 storage
 
-- Status: Accepted
+- Status: Superseded by ADR 0033
 - Date: 2026-09-07
 - Amends: SPEC sections 8, 9.3, and 11; acceptance A7; Slice 7
 - Owner approval: the owner approved implementing backup and deployment on the
   existing devbox in this conversation on 2026-09-07
+
+This record is retained as history. ADR 0033 removes backup and restore from v1
+before activation; none of the credentials, repository, or snapshots described
+below was created.
 
 ## Context
 

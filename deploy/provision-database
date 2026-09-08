@@ -8,8 +8,6 @@ set -euo pipefail
 files=(
   /etc/jarvis/database-runtime.env
   /etc/jarvis/migration.env
-  /etc/jarvis/backup-database.env
-  /etc/jarvis/restore-database.env
 )
 present=0
 for file in "${files[@]}"; do
@@ -32,16 +30,14 @@ if ((present == 0)); then
   fi
   runtime_password="$(openssl rand -hex 32)"
   migrator_password="$(openssl rand -hex 32)"
-  backup_password="$(openssl rand -hex 32)"
   sudo -n -u postgres psql -v ON_ERROR_STOP=1 -d postgres <<SQL
 CREATE ROLE jarvis_migrator LOGIN PASSWORD '$migrator_password';
 CREATE ROLE jarvis_runtime LOGIN PASSWORD '$runtime_password';
-CREATE ROLE jarvis_backup LOGIN PASSWORD '$backup_password';
 SQL
   sudo -n -u postgres createdb --owner=jarvis_migrator jarvis
   sudo -n -u postgres psql -v ON_ERROR_STOP=1 -d jarvis <<'SQL'
 REVOKE ALL ON DATABASE jarvis FROM PUBLIC;
-GRANT CONNECT ON DATABASE jarvis TO jarvis_migrator, jarvis_runtime, jarvis_backup;
+GRANT CONNECT ON DATABASE jarvis TO jarvis_migrator, jarvis_runtime;
 CREATE EXTENSION vector;
 SQL
 
@@ -58,34 +54,16 @@ SQL
     "$runtime_password" >"$scratch/database-runtime.env"
   printf 'JARVIS_MIGRATION_DATABASE_URL=postgresql+psycopg://jarvis_migrator:%s@127.0.0.1:5432/jarvis\n' \
     "$migrator_password" >"$scratch/migration.env"
-  {
-    printf 'PGHOST=127.0.0.1\n'
-    printf 'PGPORT=5432\n'
-    printf 'PGDATABASE=jarvis\n'
-    printf 'PGUSER=jarvis_backup\n'
-    printf 'PGPASSWORD=%s\n' "$backup_password"
-  } >"$scratch/backup-database.env"
-  {
-    printf 'PGHOST=127.0.0.1\n'
-    printf 'PGPORT=5432\n'
-    printf 'PGDATABASE=jarvis\n'
-    printf 'PGUSER=jarvis_migrator\n'
-    printf 'PGPASSWORD=%s\n' "$migrator_password"
-  } >"$scratch/restore-database.env"
   sudo install -m 0640 -o root -g jarvis \
     "$scratch/database-runtime.env" /etc/jarvis/database-runtime.env
   sudo install -m 0640 -o root -g jarvis \
     "$scratch/migration.env" /etc/jarvis/migration.env
-  sudo install -m 0640 -o root -g jarvis \
-    "$scratch/backup-database.env" /etc/jarvis/backup-database.env
-  sudo install -m 0640 -o root -g jarvis \
-    "$scratch/restore-database.env" /etc/jarvis/restore-database.env
 fi
 
 sudo -n -u postgres psql -Atd jarvis -c "SHOW TimeZone" | grep -Fxq UTC
 sudo -n -u postgres psql -Atd jarvis -c \
   "SELECT extversion FROM pg_extension WHERE extname = 'vector'" | grep -Fxq 0.8.6
-for role in jarvis_migrator jarvis_runtime jarvis_backup; do
+for role in jarvis_migrator jarvis_runtime; do
   sudo -n -u postgres psql -Atd postgres -c \
     "SELECT 1 FROM pg_roles WHERE rolname = '$role' AND rolcanlogin" | grep -Fxq 1
 done

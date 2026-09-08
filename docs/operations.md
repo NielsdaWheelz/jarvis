@@ -22,15 +22,17 @@ no public listener and is not part of the rootless Docker lifecycle.
 The dev-server convergence repository owns shared host prerequisites, UTC, the
 service account, and base directories. This repository owns application
 release/rollback, the locked environment and pinned Codex SDK, credentials,
-database roles and migrations, the systemd unit, backup/restore, and recovery.
+database roles and migrations, the systemd unit, and recovery.
 Nexus production state is out of scope even though both systems are owned by the
 same user.
 
 This section records the accepted target; it does not claim that Slice 7 has
 already implemented or qualified deployment. Before activation, Slice 7 must
-perform exact-target housekeeping, converge UTC, qualify the installed
-PostgreSQL/pgvector versions, complete the pending host reboot, establish daily
-encrypted off-host backup, and pass a clean-host restore.
+perform exact-target housekeeping, converge UTC, and qualify the installed
+PostgreSQL/pgvector versions. The pending host reboot is explicitly deferred:
+Jarvis does not require it, and a reboot would terminate the owner's current
+tmux sessions and live Codex processes. V1 deliberately has no backup or restore
+path and accepts possible total loss of local Jarvis state.
 
 For every owner input, recall begins with exactly one kernel-dispatched
 deterministic `memory.search` call and its typed observation. The isolated
@@ -48,8 +50,8 @@ rewrite that source value.
 The production cutover is split into preparation, installation, and activation.
 None of the preparation scripts starts Jarvis. First converge and verify the
 shared host boundary from the `dev-server` repository. An apply may report a
-deferred reboot while operator tmux sessions exist; complete that reboot at the
-controlled cutover, not during preparation.
+deferred reboot while operator tmux sessions exist; record it and leave the host
+running until the owner selects a separate maintenance window.
 
 From a clean, committed Jarvis checkout, provision the dedicated database and
 transfer only the already-qualified private application state:
@@ -59,13 +61,11 @@ deploy/provision-database
 deploy/install-private-state
 ```
 
-`deploy/provision-database` creates `jarvis_migrator`, `jarvis_runtime`, and
-`jarvis_backup`, a database owned by the migrator, and four split root-owned
-credential files. The service receives only `database-runtime.env`; migrations
-receive `migration.env`; the timer receives only the SELECT-only
-`backup-database.env`; manual restore receives `restore-database.env`. It
-refuses a partial credential state or an existing database whose credentials
-are unknown.
+`deploy/provision-database` creates `jarvis_migrator` and `jarvis_runtime`, a
+database owned by the migrator, and two split root-owned credential files. The
+service receives only `database-runtime.env`; migrations receive
+`migration.env`. It refuses a partial credential state or an existing database
+whose credentials are unknown.
 
 `deploy/install-private-state` defaults to the ignored, mode-0600 qualified
 files under `.secrets/`. It validates the exact key roster, builds the static
@@ -89,53 +89,22 @@ Calendar writes only for those IDs, without attendees or notification, after
 AutomaticWriteGate allows the current owner request. Every other case requires
 Approve or Deny.
 
-Create a dedicated private R2 bucket and an Object Read & Write token scoped to
-that bucket only. Do not reuse a Nexus bucket or credential. On the operator
-machine, create ignored mode-0600 `.secrets/jarvis-backup-r2.env` with exactly
-`RESTIC_REPOSITORY`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`, and
-`.secrets/jarvis-restic-password` with one high-entropy newline-terminated
-value. Preserve the Restic password in the owner's independent secret store,
-then install both without printing their values:
-
-```sh
-deploy/install-backup-secrets
-```
-
-The repository is a path-style URL of the form
-`s3:https://<account>.r2.cloudflarestorage.com/<bucket>/<jarvis-prefix>`.
-Install the exact committed release without activating it, initialize or reopen
-Restic repository format 2 as `jarvis`, then atomically run migrations,
-initialize host state, select the release, and enable the service and daily
-timer:
+Install the exact committed release without activating it, then atomically run
+migrations, initialize host state, select the release, and enable the service:
 
 ```sh
 deploy/install-release
-deploy/initialize-backup "$(git rev-parse HEAD)"
 deploy/activate-release "$(git rev-parse HEAD)"
 ```
 
-Apply 30-day R2 Bucket Lock rules to `<jarvis-prefix>/config`,
-`<jarvis-prefix>/data/`, `<jarvis-prefix>/index/`,
-`<jarvis-prefix>/keys/`, and `<jarvis-prefix>/snapshots/`; leave
-`<jarvis-prefix>/locks/` unlocked. The S3 token cannot administer this
-retention policy.
-
 `install-release` archives only tracked `HEAD`, builds with `uv sync --frozen
 --no-dev --no-editable`, verifies dependency identity and CLI import, records
-the commit/tree/lock digest, root-owns the completed tree, and installs inactive
-units. It refuses tracked changes. `activate-release` requires every split
-credential, migrates as `jarvis_migrator`, grants the backup role SELECT only,
-initializes content-free runtime state once, checks the Restic repository,
-atomically changes `/opt/jarvis/current`, and starts the units. A PostgreSQL
-advisory lock makes a second process fail rather than overlap.
-
-After activation, force the first backup rather than waiting for the timer and
-record the returned snapshot ID without logging its contents:
-
-```sh
-ssh dev-server-deploy sudo systemctl start jarvis-backup.service
-ssh dev-server systemctl --no-pager --full status jarvis.service jarvis-backup.timer
-```
+the commit/tree/lock digest, root-owns the completed tree, and installs the
+inactive service unit. It refuses tracked changes. `activate-release` requires
+both split database credentials, migrates as `jarvis_migrator`, initializes
+content-free runtime state once, atomically changes `/opt/jarvis/current`, and
+starts the service. A PostgreSQL advisory lock makes a second process fail
+rather than overlap.
 
 Do not activate an older release across an incompatible migration or a
 non-terminal action contract. A same-schema rollback may select an already
@@ -538,8 +507,8 @@ undo an external effect; Jarvis reconciles effectful action rows before any
 repeat.
 
 Slice 7 remains separate: the approved devbox target above does not itself
-claim always-on deployment, backup/restore qualification, seven-day owner
-acceptance, or final production sign-off.
+claim always-on deployment, seven-day owner acceptance, or final production
+sign-off.
 
 If a configuration defect parks input, first stop the service and correct the
 defect. Then clear only the reviewed UUIDs while the command owns the deployment
@@ -559,47 +528,22 @@ replace only `admission.json` with a freshly initialized journal using the same
 checked-in limits. Do not delete the session reference, pause state, or database
 rows as part of that repair.
 
-## Backup and logs
+## Data durability and logs
 
-`jarvis-backup.timer` runs daily at 04:15 UTC with up to fifteen minutes of
-random delay and catches up a missed run after downtime. The SELECT-only
-database login creates a custom-format, data-only dump of exactly the four
-application tables. `jarvis-backup` streams that dump, encrypted Google state,
-and content-free pause/admission journals into one manifest-bearing tar, then
-streams the tar to Restic. Restic encrypts before R2 receives any repository
-object. A successful run requires a full snapshot ID and `restic check`.
+V1 has no backup, restore command, Restic repository, R2 credential, backup
+database role, or backup timer. There is no `jarvis-restic-password`; do not
+invent or provision one. Loss or unrecoverable corruption of the devbox, its
+disk, or the Jarvis database can permanently lose conversation, memory, action,
+and runtime state. This is an explicit one-user-prototype trade-off. Add backup
+as a later slice when retained production state justifies its operational and
+qualification cost; doing so does not require changing the four application
+tables.
 
-The temporary plaintext dump is private under `/var/lib/jarvis` and removed on
-exit. Database size does not become Python memory use. No scheduled forget,
-prune, or retention deletion runs in v1. Monitor object usage and change this
-only through a tested ADR.
-
-To restore, install the exact release but do not start it. Create a new empty
-database, migrate it with that release, and create an empty private state root.
-Load `/etc/jarvis/restore-database.env` plus `/etc/jarvis/backup.env`, set
-`JARVIS_RELEASE_COMMIT` to the backed-up commit and the two `JARVIS_RESTORE_*`
-paths to the clean target, then run:
-
-```sh
-/opt/jarvis/releases/<commit>/.venv/bin/jarvis-restore <full-snapshot-id>
-```
-
-Restore rejects release drift, a nonempty or wrong table roster, altered or
-extra bundle members, links, path traversal, missing state, and digest failure.
-It restores PostgreSQL data in one transaction and installs state only in the
-clean target. Re-supply `/etc/jarvis` and Codex authentication separately,
-reconcile any restored `executing` action before enabling execution, then run
-the stopped `rebuild-memory` procedure and restart acceptance probes. On any
-failed restore, discard that exact clean database/state target and restart from
-the beginning; never merge it into production state.
-
-Credentials and disposable provider session state are supplied separately and
-must not be placed in a backup snapshot. Ordinary logs contain event types,
-bounded IDs, counts, and reason codes only—not messages, prompts, memory text,
-tool payloads, tokens, or credentials.
+Ordinary logs contain event types, bounded IDs, counts, and reason codes
+only—not messages, prompts, memory text, tool payloads, tokens, or credentials.
 
 Raw memory is permanent and grows without a deletion path in v1. Embeddings and
-full-text indexes are derived, but backups must retain every `memory_log` row.
+full-text indexes are derived and can be rebuilt while the local raw log exists.
 Embedding ingestion, rebuilds, and semantic search queries disclose their input
 text to the metered embedding processor. An embedding outage leaves new vectors
 null; lexical recall remains available and the bounded backfill retries later.

@@ -35,8 +35,9 @@ not implementation suggestions.
 | [0028](0028-qualify-current-local-account-models.md) | Qualify the exact current ChatGPT local-account model set without fixing its cardinality | Accepted; supersedes 0026's two-current-route conclusion while preserving its wire/schema decision |
 | [0029](0029-represent-calendar-unspecified-ends.md) | Represent observed Calendar events whose end is unspecified | Accepted; supersedes 0027's concrete-end requirement for observed normal events |
 | [0030](0030-namespace-the-scheduled-wake-tool.md) | Namespace the scheduled-wake tool while preserving its message source | Accepted; amends the tool spelling in 0014, 0015, and 0019 |
-| [0031](0031-deploy-v1-on-the-existing-devbox.md) | Deploy v1 on the existing devbox with an isolated host-native service and database | Accepted; amends deployment, operations, and Slice 7 |
-| [0032](0032-stream-encrypted-backups-to-dedicated-r2.md) | Stream encrypted backups to dedicated off-host R2 storage and restore only into clean state | Accepted; amends backup, restore, and Slice 7 |
+| [0031](0031-deploy-v1-on-the-existing-devbox.md) | Deploy v1 on the existing devbox with an isolated host-native service and database | Accepted; backup/reboot portions superseded by 0033 |
+| [0032](0032-stream-encrypted-backups-to-dedicated-r2.md) | Stream encrypted backups to dedicated off-host R2 storage and restore only into clean state | Superseded by 0033 before activation |
+| [0033](0033-defer-backups-and-host-reboot.md) | Deploy without a reboot and defer backup/restore beyond v1 | Accepted; supersedes 0032 and amends 0031/Slice 7 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

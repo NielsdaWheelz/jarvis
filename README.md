@@ -8,8 +8,9 @@ and develops durable memory through a simple remember/retrieve/dream loop.
 This repository is specification-first. Slices 0 through 6 implement and
 qualify the bounded conversation skeleton, automatic reads and gated writes,
 permanent raw memory, isolated recall/remembering/dreaming, requested wakes,
-and Approve/Deny execution. Slice 7 owns production deployment, backup/restore,
-recovery qualification, and the seven-day owner acceptance period.
+and Approve/Deny execution. Slice 7 owns production deployment, recovery
+qualification, and the seven-day owner acceptance period. Backup and restore
+are deliberately deferred beyond v1.
 
 ## V1 in one paragraph
 
@@ -61,7 +62,7 @@ ADR that also updates every affected normative document in the same change.
 - Status: v1 specification frozen; Slices 0 through 6 complete and qualified;
   Slice 7 production acceptance remains
 - Intended deployment: isolated host-native service on the existing Hetzner
-  `dev-server`, with native loopback PostgreSQL and encrypted off-host backup
+  `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`

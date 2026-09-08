@@ -59,21 +59,18 @@ atomic `/opt/jarvis/current` symlink selects one release. Runtime state lives in
 only over the host's existing tailnet boundary.
 
 The host's native PostgreSQL 16 remains loopback-only. Jarvis receives its own
-database plus separate migrator, runtime, and SELECT-only backup roles; restore
-uses the migrator only in an operator-controlled shell. It does not share
-schemas, roles, or credentials with another application. A daily systemd timer
-streams the exact four-table custom PostgreSQL dump and required encrypted
-connector/content-free runtime state through Restic client-side encryption into
-a dedicated Cloudflare R2 bucket/prefix. No credential or disposable Codex state
-enters the snapshot. The dev-server convergence repo
+database plus separate migrator and runtime roles. It does not share schemas,
+roles, or credentials with another application. V1 deliberately has no backup
+or restore path and accepts possible total loss of local Jarvis state. The
+dev-server convergence repo
 owns only common host prerequisites, UTC, the service account, and base
 directories. Jarvis owns releases, its exact locked environment, database
-lifecycle, migrations, service definition, backup, restore, and recovery.
+lifecycle, migrations, service definition, and recovery.
 
 Development and CI workloads share the host but not Jarvis's Unix identity,
 release tree, service lifecycle, or database roles. This accepted v1 coupling
-is bounded with systemd resource controls, disk-headroom checks, and restore
-qualification. The release uses its pinned Codex SDK and never the developer's
+is bounded with systemd resource controls and disk-headroom checks. The release
+uses its pinned Codex SDK and never the developer's
 user-global Codex binary.
 
 `llm-agent-kernel` is a pinned independent library, not another service or

@@ -1445,9 +1445,9 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 - Public Web: reuse `llm-tools` `web.search` with its Brave adapter and
   `web.read` with its bounded safe reader.
 - Scheduling: systemd timer or a small ordinary process timer.
-- Backup and restore: PostgreSQL 16 custom-format dumps streamed through the
-  Ubuntu-packaged Restic client to one dedicated Cloudflare R2 bucket/prefix.
-  Restic performs client-side authenticated encryption before upload.
+- Backup and restore: deliberately deferred beyond v1. Loss of the devbox,
+  database, or disk can permanently lose Jarvis state; adding backup later does
+  not require an application-schema change.
 - Testing: pytest, Hypothesis where useful, library-supplied test doubles, and
   synthetic or redacted connector fixtures.
 - Deployment: one host-native systemd service on the existing Hetzner
@@ -1520,21 +1520,17 @@ under `/etc/jarvis`. The release MUST use its locked environment and pinned
 Codex SDK rather than the devbox user's global AI-tool installation. The
 `dev-server` repository owns shared host prerequisites and base directories;
 this repository owns releases, configuration, credentials, database roles and
-migrations, the systemd unit, and backup/restore. Co-location grants no access
+migrations, and the systemd unit. Co-location grants no access
 to Nexus credentials, files, database, or services.
 
 Production activation requires the installed PostgreSQL and pgvector identities
-to be recorded and qualified against the release. Daily backups MUST be
-encrypted before leaving the host and copied using separate, bucket-scoped
-Object Read & Write credentials to a dedicated off-host Cloudflare R2
-bucket/prefix. The backup bundle streams the exact four-table data-only dump,
-encrypted Google connector state, and content-free pause/admission journals;
-it excludes every application/backup credential and all disposable Codex state.
-V1 performs no automatic snapshot deletion or pruning. Restore requires an exact
-snapshot and release, an empty migrated database, an empty state target, and
-separately recovered credentials. Development/CI and Jarvis share a failure
-domain; bounded systemd resources, disk-headroom checks, and tested restore are
-the accepted v1 controls.
+to be recorded and qualified against the release. It does not require a host
+reboot: a pending newer kernel is recorded and applied only during a later
+owner-selected maintenance window. V1 creates no backup credentials, backup
+role, backup timer, snapshot, or restore promise. Development/CI, PostgreSQL,
+and Jarvis share one failure domain; bounded systemd resources, disk-headroom
+checks, and explicit acceptance of possible total state loss are the v1
+controls.
 
 ## 9. Persistence
 
@@ -1709,8 +1705,8 @@ Existing connector credentials, cursors, and adapter state remain in their
 current owned stores. Owner/guild/channel identity and the paused flag live in
 deployment or host configuration. The main `AgentSessionRef` and immutable
 agent-definition fingerprint live in private runtime state outside PostgreSQL
-through the kernel `SessionRefPort`. Provider session state is non-canonical,
-rebuildable, and excluded from required backups. A second atomically replaced
+through the kernel `SessionRefPort`. Provider session state is non-canonical and
+rebuildable. A second atomically replaced
 private runtime journal stores the bounded rolling admission window for all
 cognitive work. It contains reservation/run IDs, windows, counters, timestamps,
 reserved/actual capacity, and state only—no prompts or user content. Clean exits
@@ -1731,15 +1727,12 @@ respectively to the full associated data
 value of exactly 32 bytes is the key, and every other decoded length is reduced
 with SHA-256. A refresh atomically replaces state in this same format.
 
-The required backup set contains the data from all four application tables,
-that encrypted Google handoff, `paused.json`, and `admission.json`. The small
-filesystem journals and PostgreSQL snapshot do not share a cross-resource
-transaction: a restore may therefore retain a conservative stale pause or
-admission reservation, but cannot turn a terminal action into executable work.
-The main provider session reference, provider-native state, credentials,
-embeddings, and indexes are not required recovery authority. Summary rows may
-be present in the database snapshot, but all derived memory remains deletable
-and rebuildable after restore.
+V1 has no backup or restore path. The main provider session reference,
+provider-native state, embeddings, summaries, and indexes are noncanonical or
+derived, and memory rebuild remains available while the local raw log survives.
+If backup is added later, its exact canonical state, credential exclusions, and
+cross-resource consistency contract require a new accepted ADR and restore
+test.
 
 ## 10. Existing integrations
 
@@ -1814,14 +1807,12 @@ product-domain code.
 
 - Secrets remain outside model context, PostgreSQL, fixtures, and ordinary logs.
 - PostgreSQL and private service ports are not publicly exposed.
-- Backups run at least daily, stream all four application tables plus required
-  connector/host state through Restic client-side encryption, and retain an
-  off-host copy under Jarvis-only R2 credentials. V1 never prunes snapshots
-  automatically.
-- A restore test occurs before acceptance and proves raw memory plus conversation
-  history survive and derived memory can be rebuilt.
-- A database backup alone is insufficient to act as the owner; credentials are
-  re-supplied separately.
+- V1 has no backup or restore mechanism. Operations record the accepted risk
+  that host, disk, or database loss may permanently destroy Jarvis state.
+- Production activation does not reboot the shared devbox. A pending kernel
+  update remains explicit operational debt for an owner-selected maintenance
+  window; tmux sessions and their live processes are not treated as recoverable
+  across that reboot.
 - Jarvis uses live tools for current external state and distinguishes that state
   from recalled memory.
 - External success comes from a provider receipt or reconciliation evidence,

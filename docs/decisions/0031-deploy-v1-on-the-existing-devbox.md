@@ -3,14 +3,15 @@
 - Status: Accepted
 - Date: 2026-09-07
 - Amends: SPEC sections 8, 11, and 12; acceptance A1 and A7; Slice 7
+- Amended by: ADR 0033 removes the backup/restore and mandatory-reboot portions
 - Owner approval: the owner approved the existing Hetzner devbox as Jarvis's
   v1 production host on 2026-09-07
 
 ## Context
 
 Jarvis needs one always-on Linux process, PostgreSQL with pgvector, outbound
-access to its qualified providers, durable local state, and encrypted off-host
-backup. The owner already operates a private Hetzner devbox over Tailscale.
+access to its qualified providers and durable local state. The owner already
+operates a private Hetzner devbox over Tailscale.
 That host has four CPUs, 7.6 GiB RAM, native PostgreSQL 16 bound to loopback,
 and sufficient capacity after ordinary housekeeping.
 
@@ -42,8 +43,6 @@ Hetzner dev-server (tailnet-administered; no Jarvis listener)
 ├── jarvis.service                   host-native systemd unit
 └── native PostgreSQL 16 on loopback
     └── dedicated Jarvis database and least-privilege roles
-
-encrypted daily backup ─────────────► separate off-host object storage
 ```
 
 Jarvis runs host-native under systemd, not in the developer's rootless Docker
@@ -56,8 +55,8 @@ The `dev-server` repository owns only shared host convergence: UTC host time,
 required system packages, the dedicated service account and base directories,
 and compatible PostgreSQL/pgvector availability. Jarvis owns its immutable
 application release, virtual environment, configuration contract, credentials,
-database and roles, migrations, systemd service definition, backup/restore
-commands, and application health/recovery procedures. Neither repository reads
+database and roles, migrations, systemd service definition, and application
+health/recovery procedures. Neither repository reads
 or mutates Nexus application state.
 
 The host and PostgreSQL run in UTC. Jarvis continues to render owner-local time
@@ -79,8 +78,7 @@ Benefits:
   PostgreSQL, and materially more headroom than Nexus production.
 - A dedicated account, release tree, database, and service keep Jarvis
   operationally separate without inventing orchestration.
-- Moving later is straightforward because canonical state is PostgreSQL plus
-  connector/runtime state covered by the restore contract.
+- Moving later remains possible by adding a deliberate export/restore contract.
 
 Accepted costs:
 
@@ -90,10 +88,8 @@ Accepted costs:
   that coupling.
 - Host-native PostgreSQL is shared infrastructure, although Jarvis has a
   separate database and roles.
-- The first production cut requires host housekeeping, UTC convergence,
-  pgvector qualification, and a reboot for the pending kernel update.
-- A future move to a dedicated host may require one tested backup/restore, but
-  no product schema or provider-session promise changes.
+- The pending kernel update remains unapplied until an owner-selected reboot.
+- V1 has no backup; devbox or database loss can permanently lose Jarvis state.
 
 ## Rejected alternatives
 
@@ -110,10 +106,10 @@ Accepted costs:
 ## Migration and acceptance
 
 Slice 7 must prove a clean immutable install on `dev-server`, one active
-instance, restart and reboot recovery, loopback-only database access, exact
-dependency and pgvector identities, bounded resource use, encrypted daily
-off-host backup, and clean-host restore. The seven-day owner acceptance period
-starts only after those gates pass and the production service is enabled.
+instance, process restart recovery, loopback-only database access, exact
+dependency and pgvector identities, and bounded resource use. It records the
+pending host reboot and accepted no-backup risk. The seven-day owner acceptance
+period starts after those gates pass and the production service is enabled.
 
 Historical Slice 0–6 qualification reports remain byte-identical. This ADR
 chooses the production target; it does not retroactively claim Linux deployment

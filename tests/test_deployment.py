@@ -69,3 +69,4 @@ def test_private_environment_is_root_only_and_has_a_live_boundary_check() -> Non
     assert "root:root:600" in verifier
     assert 'if sudo -u jarvis test -r "$file"' in verifier
     assert "/proc/$pid/environ" in verifier
+    assert "inspection_blocked" in verifier

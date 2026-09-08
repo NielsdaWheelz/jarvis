@@ -1,4 +1,4 @@
-# Operations through Slice 6
+# Production operations
 
 Jarvis Slice 6 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
@@ -12,7 +12,7 @@ dedicated unprivileged OS user in UTC.
 
 ## Approved production target
 
-Slice 7 will deploy the exact accepted release as a host-native systemd service
+Slice 7 deployed the exact accepted release as a host-native systemd service
 on the existing Hetzner `dev-server`. The target uses a dedicated `jarvis` Unix
 account, immutable releases under `/opt/jarvis/releases`, durable state under
 `/var/lib/jarvis`, root-owned configuration under `/etc/jarvis`, and a
@@ -26,10 +26,10 @@ database roles and migrations, the systemd unit, and recovery.
 Nexus production state is out of scope even though both systems are owned by the
 same user.
 
-This section records the accepted target; it does not claim that Slice 7 has
-already implemented or qualified deployment. Before activation, Slice 7 must
-perform exact-target housekeeping, converge UTC, and qualify the installed
-PostgreSQL/pgvector versions. The pending host reboot is explicitly deferred:
+The dated [production deployment report](qualification/2026-09-08-production-deployment.md)
+records the completed exact-target housekeeping, UTC convergence, installed
+PostgreSQL/pgvector qualification, containment correction, and activation. The
+seven-day owner acceptance period remains in progress. The pending host reboot is explicitly deferred:
 Jarvis does not require it, and a reboot would terminate the owner's current
 tmux sessions and live Codex processes. V1 deliberately has no backup or restore
 path and accepts possible total loss of local Jarvis state.
@@ -115,7 +115,10 @@ rather than overlap.
 proves the three environment files are root-owned mode 0600 and unreadable by
 the service identity, verifies the active systemd `/proc` and core-dump
 controls, and confirms a same-identity process cannot read the non-dumpable
-Jarvis parent environment. Access to the Codex profile itself is expected; that
+Jarvis parent environment before accepting the deployment. It tolerates only
+the bounded service-start interval before Python establishes that process-local
+control; no provider child is opened before the control succeeds. Access to the
+Codex profile itself is expected; that
 is the provider's sole required credential. The direct provider child receives
 a replacement environment containing none of the Jarvis host credentials.
 
@@ -532,9 +535,8 @@ host. `resume` clears the durable pause. Ordinary process termination cannot
 undo an external effect; Jarvis reconciles effectful action rows before any
 repeat.
 
-Slice 7 remains separate: the approved devbox target above does not itself
-claim always-on deployment, seven-day owner acceptance, or final production
-sign-off.
+The production service is now always-on. Final v1 sign-off remains separate
+until the owner completes the seven-day personal acceptance criteria.
 
 If a configuration defect parks input, first stop the service and correct the
 defect. Then clear only the reviewed UUIDs while the command owns the deployment

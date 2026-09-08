@@ -22,7 +22,16 @@ done
 sudo systemctl is-active --quiet jarvis.service
 pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
 [[ "$pid" =~ ^[1-9][0-9]*$ ]]
-if sudo -u jarvis dd if="/proc/$pid/environ" of=/dev/null status=none 2>/dev/null; then
+inspection_blocked=0
+for _attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if ! sudo -u jarvis dd if="/proc/$pid/environ" of=/dev/null status=none \
+    2>/dev/null; then
+    inspection_blocked=1
+    break
+  fi
+  sleep 0.5
+done
+if ((inspection_blocked == 0)); then
   printf 'same-identity process inspection is not blocked\n' >&2
   exit 1
 fi

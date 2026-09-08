@@ -401,6 +401,11 @@ production sign-off remain outside this slice.
 
 ## Slice 7: production acceptance
 
+Status: deployed and all pre-observation gates passed on 2026-09-08. The
+[production deployment report](qualification/2026-09-08-production-deployment.md)
+is the durable evidence. The required seven-day owner acceptance period is in
+progress and cannot complete before 2026-09-15.
+
 Deliver:
 
 - Host-native systemd deployment on the existing Hetzner `dev-server` under a

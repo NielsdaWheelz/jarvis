@@ -109,6 +109,14 @@ high watermark, and 3 GiB hard memory limit. Jarvis opens no listener.
 No Jarvis backup role, backup unit, Restic binary, R2 credential, snapshot, or
 restore promise exists. This is the owner-approved v1 data-loss trade-off.
 
+Final housekeeping removed the 532 MB inactive release
+`79340d2dc6b935006ae9d3ce61438a10c6ed333b` after proving it was neither current
+nor the immediate rollback target. It is reproducible from its Git commit. The
+current release and predecessor `088e1d9efc8af7deab72b487b80cf54e7301d274`
+remain installed. The disposable local live-probe database was removed, and its
+private runtime directory was moved to the operator Trash after the sanitized
+evidence above was recorded.
+
 ## Real Discord catch-up and restart
 
 The owner message sent while Jarvis was stopped remained in Discord. On first

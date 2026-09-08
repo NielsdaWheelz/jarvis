@@ -59,6 +59,7 @@ release="/opt/jarvis/releases/$commit"
 [[ "$builder_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
 case "$archive" in /tmp/jarvis-release.*.tar) ;; *) exit 1 ;; esac
 [[ -f "$archive" && ! -L "$archive" ]]
+chmod 0644 "$archive"
 
 cleanup_archive() {
   rm -f -- "$archive"

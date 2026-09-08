@@ -1215,7 +1215,9 @@ fingerprints are recomposed. The Main role session-contract revision is
 `jarvis-main-all-calendars-v1`, which cold-bootstraps an older continuing
 session; unaffected isolated role revisions do not change. Event aggregation
 permits at most 102 external attempts and 60 seconds; discovery permits two
-attempts and 15 seconds.
+attempts and 15 seconds. Stopped startup recognizes the exact preceding Slice 6
+admission envelope and atomically enlarges its retained foreground reservations
+by one isolated write-gate allowance; an unknown configuration fails closed.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire

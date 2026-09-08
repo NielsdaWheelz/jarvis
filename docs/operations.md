@@ -509,9 +509,11 @@ targets.
 Production rolling admission holds two complete worst-case foreground
 envelopes plus one Rememberer allowance in each six-hour window. This lets one
 full reservation coexist with up to one foreground envelope of already-settled
-actual use. A changed admission configuration is intentionally incompatible
-with an existing journal: stop the service, preserve the content-free old
-journal as evidence, initialize a new one with the exact release, and restart.
+actual use. The all-calendar release recognizes only its exact preceding Slice
+6 envelope and atomically enlarges retained foreground reservations by one
+isolated write-gate allowance while the service is stopped. An already-current
+journal is unchanged. Every other changed configuration fails closed; preserve
+it for diagnosis rather than guessing or deleting capacity evidence.
 
 An undelivered approval outbox row remains pending with null
 `source_message_id`; startup rerenders it from the action and reuses the same

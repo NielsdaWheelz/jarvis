@@ -178,12 +178,15 @@ class RollingAdmissionPort:
         cls,
         path: Path,
         *,
-        previous: RollingAdmissionLimits,
+        previous: RollingAdmissionLimits | tuple[RollingAdmissionLimits, ...],
         current: RollingAdmissionLimits,
     ) -> bool:
         """Conservatively enlarge an existing stopped deployment's reservations."""
 
         try:
+            candidates = previous if isinstance(previous, tuple) else (previous,)
+            if not candidates:
+                raise ValueError("admission migration requires a predecessor")
             value = read_private_json(path)
             if value is None:
                 raise ValueError("admission journal is missing")
@@ -193,14 +196,21 @@ class RollingAdmissionPort:
             if journal.configuration == current.json():
                 _validate_journal(journal, current)
                 return False
-            if journal.configuration != previous.json():
+            matched = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if journal.configuration == candidate.json()
+                ),
+                None,
+            )
+            if matched is None:
                 raise ValueError("admission journal has an unexpected configuration")
-            _validate_journal(journal, previous)
+            _validate_journal(journal, matched)
             deltas = (
-                current.serial_child_turns - previous.serial_child_turns,
-                current.serial_child_input_tokens - previous.serial_child_input_tokens,
-                current.serial_child_output_tokens
-                - previous.serial_child_output_tokens,
+                current.serial_child_turns - matched.serial_child_turns,
+                current.serial_child_input_tokens - matched.serial_child_input_tokens,
+                current.serial_child_output_tokens - matched.serial_child_output_tokens,
             )
             if any(value < 0 for value in deltas):
                 raise ValueError("admission migration cannot reduce reserved capacity")
@@ -220,7 +230,7 @@ class RollingAdmissionPort:
             return True
         except (OSError, TypeError, ValueError) as error:
             raise AdmissionStateDefect(
-                "admission journal cannot migrate to Slice 5 limits"
+                "admission journal cannot migrate to current limits"
             ) from error
 
     async def preflight(
@@ -682,6 +692,39 @@ def slice6_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
         serial_child_turns=serial_child_turns,
         serial_child_input_tokens=serial_child_input_tokens,
         serial_child_output_tokens=serial_child_output_tokens,
+    )
+
+
+def pre_all_calendar_slice6_admission_limits(
+    maximum_owner_inputs: int,
+) -> RollingAdmissionLimits:
+    """Return the exact Slice 6 envelope used by the preceding production release."""
+
+    current = slice6_admission_limits(maximum_owner_inputs)
+    removed_gate_turns = SLICE1_KERNEL_LIMITS.max_provider_turns
+    removed_gate_input = (
+        SLICE1_KERNEL_LIMITS.max_provider_input_tokens
+        + current.root_input_token_overshoot
+    )
+    removed_gate_output = (
+        SLICE1_KERNEL_LIMITS.max_provider_output_tokens
+        + current.root_output_token_overshoot
+    )
+    return RollingAdmissionLimits(
+        window_seconds=current.window_seconds,
+        max_turns=current.max_turns - 2 * removed_gate_turns,
+        max_input_tokens=current.max_input_tokens - 2 * removed_gate_input,
+        max_output_tokens=current.max_output_tokens - 2 * removed_gate_output,
+        max_no_progress_attempts=current.max_no_progress_attempts,
+        root_input_token_overshoot=current.root_input_token_overshoot,
+        root_output_token_overshoot=current.root_output_token_overshoot,
+        serial_child_turns=current.serial_child_turns - removed_gate_turns,
+        serial_child_input_tokens=(
+            current.serial_child_input_tokens - removed_gate_input
+        ),
+        serial_child_output_tokens=(
+            current.serial_child_output_tokens - removed_gate_output
+        ),
     )
 
 
@@ -1186,6 +1229,7 @@ __all__ = [
     "RollingAdmissionLimits",
     "RollingAdmissionPort",
     "RootTrackingAdmissionPort",
+    "pre_all_calendar_slice6_admission_limits",
     "slice3_admission_limits",
     "slice5_admission_limits",
     "slice6_admission_limits",

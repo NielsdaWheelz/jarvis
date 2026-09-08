@@ -30,6 +30,7 @@ from jarvis.actions import ActionStore
 from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
+    pre_all_calendar_slice6_admission_limits,
     slice5_admission_limits,
     slice6_admission_limits,
 )
@@ -223,7 +224,12 @@ async def serve(settings: Settings) -> None:
             try:
                 RollingAdmissionPort.migrate_limits(
                     settings.admission_journal_path,
-                    previous=slice5_admission_limits(settings.maximum_batch_size),
+                    previous=(
+                        pre_all_calendar_slice6_admission_limits(
+                            settings.maximum_batch_size
+                        ),
+                        slice5_admission_limits(settings.maximum_batch_size),
+                    ),
                     current=slice6_admission_limits(settings.maximum_batch_size),
                 )
                 admission_store = RollingAdmissionPort(
@@ -500,7 +506,12 @@ async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
             limits = slice6_admission_limits(settings.maximum_batch_size)
             RollingAdmissionPort.migrate_limits(
                 settings.admission_journal_path,
-                previous=slice5_admission_limits(settings.maximum_batch_size),
+                previous=(
+                    pre_all_calendar_slice6_admission_limits(
+                        settings.maximum_batch_size
+                    ),
+                    slice5_admission_limits(settings.maximum_batch_size),
+                ),
                 current=limits,
             )
             admission_store = RollingAdmissionPort(

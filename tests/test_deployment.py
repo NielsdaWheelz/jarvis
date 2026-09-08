@@ -56,6 +56,10 @@ def test_operator_application_commands_enter_the_immutable_release() -> None:
     assert "EnvironmentFile=/etc/jarvis/migration.env" in activation
     assert "EnvironmentFile=/etc/jarvis/jarvis.env" in activation
     assert "WorkingDirectory=$release" in activation
+    assert "systemctl reset-failed jarvis.service" in activation
+    assert "SubState" in activation
+    assert "NRestarts" in activation
+    assert "MainPID" in activation
 
 
 def test_private_environment_is_root_only_and_has_a_live_boundary_check() -> None:

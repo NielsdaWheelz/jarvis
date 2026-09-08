@@ -79,6 +79,10 @@ binding is v1. The exact catalog grows from nine to ten external reads. All
 affected catalogs, profiles, plans, HostTables, run budgets, admission bounds,
 and definition fingerprints are recomposed. Main's role contract advances to
 `jarvis-main-all-calendars-v1`, so older continuing sessions cold-bootstrap.
+At stopped startup, the exact preceding Slice 6 rolling-admission envelope is
+recognized and conservatively enlarged in place; each retained foreground root
+receives exactly one additional isolated write-gate allowance. Any other
+unrecognized journal configuration still fails closed.
 There is no database migration, new table, new OAuth grant, workflow, polling
 loop, or periodic connector reconciliation.
 

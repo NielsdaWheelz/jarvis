@@ -784,8 +784,10 @@ reservation records run/root IDs, windows, counters, timestamps,
 reserved/actual capacity, and state but no user payload. Clean exit refunds
 unused capacity. Startup under the deployment lock marks orphaned reservations
 interrupted and releases the live slot while retaining turn/token charge until
-window expiry. Missing or corrupt admission state fails closed pending explicit
-operator reset. Alembic may own its bookkeeping table.
+window expiry. The six-hour production ceiling holds two complete foreground
+envelopes plus one Rememberer allowance while retaining one-live-root serial
+execution. Missing, incompatible, or corrupt admission state fails closed
+pending explicit operator reset. Alembic may own its bookkeeping table.
 
 ## Provider containment
 

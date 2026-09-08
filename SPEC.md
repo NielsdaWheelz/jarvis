@@ -973,9 +973,12 @@ reservations interrupted and releases their live concurrency slot, but retains
 their turn/token charge until the rolling window expires. Missing or corrupt
 state fails closed until explicit operator reset. Finite window and capacity
 values, including allowances for each admitted child role, are mandatory
-configuration; Slice 0 records the chosen values. The subscription AgentRuntime
-lane has no normalized priceable `CallMeta`; Jarvis does not invent a dollar
-estimate.
+configuration. The six-hour production ceiling contains exactly two complete
+worst-case foreground envelopes plus one Rememberer allowance: one full
+foreground reservation can coexist with up to one foreground envelope of prior
+settled actual use. Individual run limits and the one-live-root rule are
+unchanged. The subscription AgentRuntime lane has no normalized priceable
+`CallMeta`; Jarvis does not invent a dollar estimate.
 
 Preflight capacity denial performs no provider I/O and does not claim or
 increment an input. Under the same execution mutex, the later kernel admission

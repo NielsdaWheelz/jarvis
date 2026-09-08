@@ -458,8 +458,11 @@ These criteria are **live** where they call Gmail or Discord.
       cognitive provider invocation. Before I/O, the content-free journal
       durably reserves one root slot plus finite maximum root/serial-child turns
       and configured normalized tokens. Clean exits settle actual usage and
-      refund unused capacity; quota and ordinary failures do likewise. A corrupt
-      journal fails closed. A configuration or plan-budget defect calls the
+      refund unused capacity; quota and ordinary failures do likewise. The
+      six-hour ceiling contains two complete worst-case foreground envelopes
+      plus one Rememberer allowance, and a normally settled production turn
+      does not prevent the next full reservation. A corrupt journal fails
+      closed. A configuration or plan-budget defect calls the
       checkpoint park transaction, stamps `processing_parked_at` on the claimed
       unprocessed batch, and starts no new cognitive work.
 - [ ] **A7.10** Multi-run race fixtures cover mid-loop compatible input, stop

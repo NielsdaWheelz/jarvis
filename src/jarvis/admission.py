@@ -659,15 +659,23 @@ def slice6_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
         + root_output_overshoot
         + serial_child_output_tokens
     )
+    # One envelope is held for the next worst-case foreground turn while one
+    # envelope bounds already-settled usage in the rolling window. Without the
+    # second envelope, a normal completed turn can make a conversational service
+    # unable to reserve its next run until the entire window expires.
+    rolling_foreground_envelopes = 2
     return RollingAdmissionLimits(
-        max_turns=foreground_turns + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns,
+        max_turns=(
+            rolling_foreground_envelopes * foreground_turns
+            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns
+        ),
         max_input_tokens=(
-            foreground_input
+            rolling_foreground_envelopes * foreground_input
             + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_input_tokens
             + root_input_overshoot
         ),
         max_output_tokens=(
-            foreground_output
+            rolling_foreground_envelopes * foreground_output
             + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
             + root_output_overshoot
         ),

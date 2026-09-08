@@ -471,6 +471,13 @@ the service schedules the next capacity reset rather than requiring new owner
 traffic. Host action-resolution and scheduled-wake rows are never memory-work
 targets.
 
+Production rolling admission holds two complete worst-case foreground
+envelopes plus one Rememberer allowance in each six-hour window. This lets one
+full reservation coexist with up to one foreground envelope of already-settled
+actual use. A changed admission configuration is intentionally incompatible
+with an existing journal: stop the service, preserve the content-free old
+journal as evidence, initialize a new one with the exact release, and restart.
+
 An undelivered approval outbox row remains pending with null
 `source_message_id`; startup rerenders it from the action and reuses the same
 enforced nonce. A delivered `awaiting_approval` row remains safely clickable

@@ -225,10 +225,10 @@ def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
 def test_slice6_capacity_reserves_recallers_and_every_write_gate() -> None:
     selected = slice6_admission_limits(20)
     assert selected.json() == {
-        "max_input_tokens": 6_805_184,
+        "max_input_tokens": 13_417_600,
         "max_no_progress_attempts": 3,
-        "max_output_tokens": 1_027_296,
-        "max_turns": 276,
+        "max_output_tokens": 2_030_400,
+        "max_turns": 542,
         "root_input_token_overshoot": 32_768,
         "root_output_token_overshoot": 8_192,
         "serial_child_input_tokens": 5_979_648,
@@ -236,6 +236,48 @@ def test_slice6_capacity_reserves_recallers_and_every_write_gate() -> None:
         "serial_child_turns": 248,
         "window_seconds": 21_600,
     }
+
+
+async def test_slice6_capacity_admits_after_a_normal_completed_turn(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "admission.json"
+    selected = slice6_admission_limits(20)
+    RollingAdmissionPort.initialize(path, selected)
+    port = RollingAdmissionPort(
+        path,
+        selected,
+        clock=lambda: datetime(2026, 9, 8, tzinfo=UTC),
+    )
+
+    first = await port.reserve(
+        AdmissionRequest(
+            RunId("bootstrap"),
+            ThreadId("channel-1"),
+            1,
+            18,
+            600_000,
+            60_000,
+        )
+    )
+    assert isinstance(first, AdmissionGranted)
+    await port.settle(
+        first.token,
+        AdmissionUsage(
+            15,
+            ProviderUsage(input_tokens=158_906, output_tokens=1_689),
+            90.0,
+        ),
+    )
+
+    assert (
+        await port.preflight(
+            maximum_turns=18,
+            maximum_input_tokens=600_000,
+            maximum_output_tokens=60_000,
+        )
+        is None
+    )
 
 
 async def test_slice6_limit_migration_reserves_the_new_approval_write_gate(

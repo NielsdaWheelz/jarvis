@@ -141,6 +141,9 @@ in Slice 0.
       observes at least three normal events with `end.type=unspecified` and
       returns each payload-free rather than rejecting it or exposing Google's
       compatibility end; output reports only counts and no event content or ID.
+      The model-visible `calendar.list_events` input contains no `calendar_id`,
+      the host reads Google's `primary` calendar, and an ordinary owner request
+      naming no calendar receives a grounded answer without an ID clarification.
 - [ ] **A3.4** Jarvis creates, edits, and removes a no-attendee event on a
       verified owner-only calendar without approval. Create uses the exact
       action-derived Google event ID from SPEC section 7.3; an injected lost

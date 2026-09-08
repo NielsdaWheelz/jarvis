@@ -1077,11 +1077,21 @@ Owner-input recall begins by having the kernel dispatch exactly one deterministi
 `memory.search` call under that recaller plan and provide its typed observation;
 the recaller may then adaptively call `memory.search` or `memory.open`.
 
+`calendar.list_events` takes only aware `time_min`, aware `time_max`, an IANA
+`time_zone`, and `max_results` from 1 through 50. It exposes no provider calendar
+ID. The host always reads the authenticated account's Google `primary` calendar
+and returns that exact target on each event for a later `calendar.get_event`
+call. An ordinary unspecified Calendar request therefore means the owner's
+primary calendar; Jarvis MUST NOT ask the owner for a provider calendar ID.
+Alternate-calendar discovery and aggregate-calendar reads are outside v1.
+
 Every Jarvis-owned entry above initially declares
 `implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
-with hyphens. The Slice 2 Calendar read bindings are
-`jarvis-calendar-list_events-v2` and `jarvis-calendar-get_event-v2` after the
-ADR 0029 observed-end correction. The model-facing tool IDs remain unversioned.
+with hyphens. The Calendar list binding is
+`jarvis-calendar-list_events-v3` after ADR 0036's host-owned primary-calendar
+selection; the Calendar get binding remains `jarvis-calendar-get_event-v2`
+after ADR 0029's observed-end correction. The model-facing tool IDs remain
+unversioned.
 Reviewers MUST reject
 a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
@@ -1147,7 +1157,9 @@ returned text is at most 64 KiB, and at most 50 mailboxes per address field and
 preferred; inline HTML is converted to inert text only as fallback. Jarvis does
 not fetch a Gmail `attachmentId`, execute HTML, or load a subresource.
 
-Calendar reads return a closed tagged event union. A normal `type = event`
+Calendar reads return a closed tagged event union. List always targets Google's
+special `primary` calendar alias host-side; the model supplies no calendar ID.
+A normal `type = event`
 snapshot has exact `calendar_id`, `event_id`, and `etag` strings of at most 1024
 bytes, `status = confirmed | tentative`, the bounded observed writable event
 projection,
@@ -1186,11 +1198,12 @@ spring-forward time is malformed upstream. If Google omits `timeZone` for an
 already-aware `dateTime`, Jarvis preserves the instant and emits canonical
 `UTC`; an offset-free value without a zone is malformed. Normalization performs
 no additional provider request.
-The corrected Calendar output contracts and binding implementations are v2.
-Affected catalogs, maximum and selected profiles, plans, HostTables, and
-definition fingerprints are recomposed. The Main role session-contract revision
-is `jarvis-main-slice-2-v3`, which cold-bootstraps an older continuing session;
-unaffected isolated role revisions do not change.
+The Calendar get contract and binding remain v2. The Calendar list contract and
+binding are v3 because host-owned primary selection removes `calendar_id` from
+its input. Affected catalogs, maximum and selected profiles, plans, HostTables,
+and definition fingerprints are recomposed. The Main role session-contract
+revision is `jarvis-main-primary-calendar-v1`, which cold-bootstraps an older
+continuing session; unaffected isolated role revisions do not change.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire

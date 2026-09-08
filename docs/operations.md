@@ -283,7 +283,6 @@ identities only, never retrieved content or stable provider IDs.
 ```sh
 JARVIS_LIVE_READS=1 \
 JARVIS_LIVE_GMAIL_QUERY='newer_than:365d' \
-JARVIS_LIVE_CALENDAR_ID=primary \
 JARVIS_LIVE_MAPS_QUERY='configured synthetic destination' \
 JARVIS_LIVE_MAPS_ORIGIN='configured synthetic origin' \
 JARVIS_LIVE_WEB_QUERY='IANA reserved domains' \
@@ -387,7 +386,6 @@ event, and proves that neither cycle creates actions or duplicate memory text.
 JARVIS_MEMORY_E2E_LIVE=1 \
 JARVIS_MAXIMUM_BATCH_SIZE=1 \
 JARVIS_MEMORY_E2E_GMAIL_QUERY='newer_than:365d' \
-JARVIS_MEMORY_E2E_CALENDAR_ID=primary \
 JARVIS_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_memory_e2e \
 JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-e2e-runtime \
   uv run python scripts/qualify_memory_e2e.py

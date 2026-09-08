@@ -558,7 +558,6 @@ async def test_slice2_compound_reads_are_serial_and_observed_before_say(
             "type": "call_tool",
             "tool_id": "calendar.list_events",
             "arguments": {
-                "calendar_id": "primary",
                 "time_min": "2026-09-04T12:00:00Z",
                 "time_max": "2026-09-04T13:00:00Z",
                 "time_zone": "UTC",
@@ -973,7 +972,6 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
                 "type": "call_tool",
                 "tool_id": "calendar.list_events",
                 "arguments": {
-                    "calendar_id": "primary",
                     "time_min": "2026-09-04T12:00:00Z",
                     "time_max": "2026-09-04T13:00:00Z",
                     "time_zone": "UTC",

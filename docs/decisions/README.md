@@ -40,6 +40,7 @@ not implementation suggestions.
 | [0033](0033-defer-backups-and-host-reboot.md) | Deploy without a reboot and defer backup/restore beyond v1 | Accepted; supersedes 0032 and amends 0031/Slice 7 |
 | [0034](0034-reserve-two-foreground-envelopes.md) | Reserve two worst-case foreground envelopes in each rolling admission window | Accepted; amends admission and Slice 7 |
 | [0035](0035-contain-codex-app-server-authority.md) | Own and fail closed on the complete Codex App Server authority surface | Accepted; supersedes the active provider/kernel pins and strengthens 0020/0026 containment |
+| [0036](0036-default-calendar-reads-to-primary.md) | Default Calendar list reads to the owner's primary calendar | Accepted; removes provider calendar IDs from `calendar.list_events` and advances its contract/binding to v3 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

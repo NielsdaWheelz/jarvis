@@ -216,7 +216,8 @@ Deliver:
   model-authored ID or prose, bounded corrective feedback, and a separate `say`
   only after the model observes its result.
 - `gmail.search` and `gmail.read_thread` bindings.
-- `calendar.list_events` and `calendar.get_event` v2 bindings. Normal observed
+- `calendar.list_events` v3 and `calendar.get_event` v2 bindings. List exposes no
+  calendar ID and selects Google's `primary` calendar host-side. Normal observed
   ends are a required direct timed/all-day/unspecified tagged union. Google's
   true flag discards its compatibility end and returns the payload-free
   unspecified variant, while false or missing requires a parsed end. The final

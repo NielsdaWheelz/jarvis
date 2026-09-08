@@ -418,6 +418,7 @@ async def test_malformed_gmail_mailbox_header_is_provider_unavailable(
 async def test_calendar_normal_and_sparse_cancelled_normalization() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert await request.aread() == b""
+        assert request.url.path == "/calendar/v3/calendars/primary/events"
         return httpx.Response(
             200,
             json={
@@ -445,7 +446,6 @@ async def test_calendar_normal_and_sparse_cancelled_normalization() -> None:
         )
         result = await connector.calendar_list_events(
             CalendarListEventsInput(
-                calendar_id="primary",
                 time_min=NOW,
                 time_max=NOW + timedelta(days=1),
                 time_zone="America/Los_Angeles",
@@ -561,7 +561,6 @@ async def test_unrepresentable_input_instants_fail_before_provider_io() -> None:
         with pytest.raises(ConnectorFailure) as calendar:
             await google.calendar_list_events(
                 CalendarListEventsInput(
-                    calendar_id="primary",
                     time_min=too_early,
                     time_max=NOW,
                     time_zone="UTC",
@@ -1129,7 +1128,6 @@ async def test_google_status_and_network_failures_are_declared(
             elif operation == "calendar.list_events":
                 await connector.calendar_list_events(
                     CalendarListEventsInput(
-                        calendar_id="primary",
                         time_min=NOW,
                         time_max=NOW + timedelta(hours=1),
                         time_zone="UTC",

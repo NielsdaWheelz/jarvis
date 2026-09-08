@@ -622,7 +622,6 @@ async def _select_live_resources(
     definitions: Slice4Definitions,
     host_secrets: tuple[str, ...],
     gmail_query: str,
-    calendar_id: str,
     owner_timezone: str,
 ) -> LiveResources:
     dispatcher = ReadToolDispatcher(host_secrets=host_secrets)
@@ -665,7 +664,6 @@ async def _select_live_resources(
             budgets=budgets,
             tool_id="calendar.list_events",
             validated_input=CalendarListEventsInput(
-                calendar_id=calendar_id,
                 time_min=now - timedelta(days=_CALENDAR_WINDOW_DAYS),
                 time_max=now + timedelta(days=_CALENDAR_WINDOW_DAYS),
                 time_zone=owner_timezone,
@@ -831,9 +829,7 @@ async def cleanup_cycle_runtime(
         ) from cleanup_error
 
 
-async def _run(
-    settings: Settings, gmail_query: str, calendar_id: str
-) -> dict[str, object]:
+async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
     verify_runtime_dependencies()
     _validate_settings(settings)
     settings.runtime_state_directory.mkdir(mode=0o700)
@@ -885,7 +881,6 @@ async def _run(
                 definitions=definitions,
                 host_secrets=settings.host_secrets,
                 gmail_query=gmail_query,
-                calendar_id=calendar_id,
                 owner_timezone=settings.owner_timezone,
             )
             first_input, second_input, required_uris = owner_inputs(resources)
@@ -1162,7 +1157,6 @@ async def _run(
                 (
                     *settings.host_secrets,
                     gmail_query,
-                    calendar_id,
                     resources.gmail_thread_id,
                     resources.gmail_message_id,
                     resources.calendar_event_id,
@@ -1190,8 +1184,7 @@ def main() -> int:
             raise ValueError("live qualification requires JARVIS_MEMORY_E2E_LIVE=1")
         settings = Settings.from_env()
         gmail_query = _required("JARVIS_MEMORY_E2E_GMAIL_QUERY")
-        calendar_id = _required("JARVIS_MEMORY_E2E_CALENDAR_ID")
-        result = asyncio.run(_run(settings, gmail_query, calendar_id))
+        result = asyncio.run(_run(settings, gmail_query))
     except QualificationFailure as error:
         result = {
             "failure": {

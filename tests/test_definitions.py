@@ -159,14 +159,14 @@ def _assert_codex_closed_schema(node: object) -> None:
             _assert_codex_closed_schema(child)
 
 
-def test_manifest_publishes_exact_slice6_dependency_and_role_revisions() -> None:
+def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     manifest = load_session_manifest()
     assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
     assert manifest["application_session_contract_revision"] == "jarvis-slice-3-v1"
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
-        == "jarvis-main-slice-6-v1"
+        == "jarvis-main-primary-calendar-v1"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
@@ -242,7 +242,7 @@ def test_manifest_publishes_exact_slice6_dependency_and_role_revisions() -> None
         )
     original = session_compatibility_revision(manifest, "main")
     assert (
-        original == "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851"
+        original == "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2"
     )
 
     previous = {**manifest}

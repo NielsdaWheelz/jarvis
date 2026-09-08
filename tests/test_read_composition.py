@@ -145,13 +145,13 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     assert sum(limit.deadline_seconds for limit in declared) == 150.0
     assert definitions.main.limits == SLICE2_KERNEL_LIMITS
     assert definitions.main.maximum_profile.profile_revision == (
-        "a692ba611f8dfbd76e04996fc62fb0e6af05245e791c704ab3184d443bb03318"
+        "4bd28b0c871150edf9bc09954c0df67b3f07a8d088ef4b56ef7dd20560239b86"
     )
     assert definitions.main.session_compatibility_revision == (
-        "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851"
+        "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2"
     )
     assert definitions.main.fingerprint == (
-        "ec621c6da89e8f0f6180625396a6906919e70b06f1334452feab8ea6e5bd4eea"
+        "dfe6bf3618b09ec3c02e97bbf62c36ca830ef6a778569e09b1c767f28bcf9cd3"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (
@@ -159,12 +159,12 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     )
     exact_revisions = {
         "main": (
-            "aaa8123aaea49aac41b789370c99808947f5b94bf9125a268ebb7a5ce85be81e",
-            "2aead8abf031179c063b2f633f6ffd5edfa3438e4b6a412698a445de801fa56b",
+            "c25b7e21bfa49db7f87bd17b92e3aeb2601ccb426d34c4310e58675427d7764e",
+            "565037c9dcc0cb87a987b8179fd9f07374a3fc7a821c07548478b3c02bc7c2ca",
         ),
         "scheduled_wake": (
-            "c36f48dedb37866f07a310b7d2b5ec0b534b7a951fe7bb34f15773fa1264b23e",
-            "c52e74580f9378058011393e28002d89133e0dd617734218e690cd67e25ae55b",
+            "c0832f6891e0fe4e7b38b93607f7baec66f848cb02a622a638cc4f4f0c0e2881",
+            "df2be4627286a9f7326b4e4a5d278e7b4014d6e4adeaea7cddb441044cbf366d",
         ),
     }
     for name, (profile_revision, plan_revision) in exact_revisions.items():
@@ -193,7 +193,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         published_tools = {tool["id"]: tool for tool in published["tools"]}
         calendar_contracts = {
             "calendar.list_events": (
-                "f9521f50c1f38b944a1b9b434920cffad599bbae3f4b4617bdfc39b8075f9d6a"
+                "eaa9c46273debf37d8d8ac051817dbcb9e3477ee8d3646277ee5e84f676e12ad"
             ),
             "calendar.get_event": (
                 "15dfc456377fe4eaff7de42292c9cddc5a97b1190baa7e7196cb4f1e287f0087"
@@ -209,8 +209,13 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
             assert published_tools[tool_name]["tool_contract_revision"] == (
                 contract_revision
             )
+            expected_implementation = (
+                "jarvis-calendar-list_events-v3"
+                if tool_name == "calendar.list_events"
+                else "jarvis-calendar-get_event-v2"
+            )
             assert published_tools[tool_name]["implementation_revision"] == (
-                f"jarvis-{tool_name.replace('.', '-')}-v2"
+                expected_implementation
             )
             assert published_tools[tool_name]["policy_revision"] == (
                 binding.policy_revision

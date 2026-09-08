@@ -1389,11 +1389,11 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "c1afcac72ec8700f9b7b92b67ccdbf0451720e368962481469457fa2489276a4",
-            "f4f195437e7af8a1fa56c90f246b1550ff03243369ac33189a099e785d3f4851",
-            "c6aca9bd0c34b4c607656f06295ef148c02c99667d5005b3b6f4cb36dac76cfb",
-            "938e95934d054c05a0526e3d7259cafb6e816cec97a5013ce767d4db755b4d5d",
-            "16f677462102a5729096c8c0f12626d61f49c58947b09839d3af2cdd00ae1058",
+            "5e32aeba6c39a32896da9faa3d468ea008183c482ff0d4d3d2bc89caebc83ce8",
+            "0dc1db50855ec9f25ab82caf3c0302f64cd323250148e7e2c46f8f08031355e2",
+            "b149718cfd23c87ee0230a2745f937fc96c6b62e3e50407a049ed5a37f9a4246",
+            "093848e75b0365052acae433bd1b70fbb03cc24da27ada3a25206c9d8ae2555b",
+            "5dea6e5e94989bf350b36616f8ca2193a067e1c3bdcc4867f519e6db3ea5777e",
         ),
         "recaller": (
             "f9478d77a15c438cd34508bcbbe5679b85a56372681a4db03c76b516dabde0db",

@@ -75,7 +75,6 @@ def _implementation() -> dict[str, str]:
 async def _run(settings: Settings) -> dict[str, object]:
     verify_runtime_dependencies()
     gmail_query = _required("JARVIS_LIVE_GMAIL_QUERY")
-    calendar_id = _required("JARVIS_LIVE_CALENDAR_ID")
     maps_query = _required("JARVIS_LIVE_MAPS_QUERY")
     maps_origin = _required("JARVIS_LIVE_MAPS_ORIGIN")
     web_query = _required("JARVIS_LIVE_WEB_QUERY")
@@ -159,7 +158,6 @@ async def _run(settings: Settings) -> dict[str, object]:
         calendar_list = await read(
             "calendar.list_events",
             CalendarListEventsInput(
-                calendar_id=calendar_id,
                 time_min=now - timedelta(days=30),
                 time_max=now + timedelta(days=365),
                 time_zone=settings.owner_timezone,
@@ -193,10 +191,13 @@ async def _run(settings: Settings) -> dict[str, object]:
         )
         if event is None:
             raise QualificationFailure("calendar.list_events", "no_normal_event")
+        event_calendar_id = event.get("calendar_id")
+        if not isinstance(event_calendar_id, str):
+            raise QualificationFailure("calendar.list_events", "invalid_calendar_id")
         await read(
             "calendar.get_event",
             CalendarGetEventInput(
-                calendar_id=calendar_id,
+                calendar_id=event_calendar_id,
                 event_id=cast(str, event["event_id"]),
             ),
         )

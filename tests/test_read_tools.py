@@ -43,6 +43,7 @@ from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
     AUTOMATIC_READ_TOOL_IDS,
     AllDayEventTime,
+    CalendarListEventsInput,
     CalendarNormalEvent,
     EventTime,
     GmailSearchInput,
@@ -134,10 +135,13 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
         if spec.declared_error_schema is not None:
             _assert_closed(spec.declared_error_schema.semantic)
         if not str(tool_id).startswith("web."):
-            assert binding.implementation_revision == (
-                f"jarvis-{str(tool_id).replace('.', '-')}-"
-                f"{'v2' if str(tool_id).startswith('calendar.') else 'v1'}"
-            )
+            if tool_id == ToolId("calendar.list_events"):
+                expected_revision = "jarvis-calendar-list_events-v3"
+            elif str(tool_id).startswith("calendar."):
+                expected_revision = f"jarvis-{str(tool_id).replace('.', '-')}-v2"
+            else:
+                expected_revision = f"jarvis-{str(tool_id).replace('.', '-')}-v1"
+            assert binding.implementation_revision == expected_revision
             assert binding.replay_policy is (
                 ReplayPolicy.ReDispatchable
                 if str(tool_id).startswith(("gmail.", "calendar."))
@@ -209,15 +213,36 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
         == calendar_end_policy
     )
     assert (
+        catalog.binding(ToolId("calendar.list_events")).policy_inputs[
+            "calendar_selection"
+        ]
+        == "primary"
+    )
+    assert (
+        catalog.binding(ToolId("calendar.list_events")).implementation_revision
+        == "jarvis-calendar-list_events-v3"
+    )
+    assert (
         catalog.binding(ToolId("calendar.get_event")).policy_inputs["observed_end"]
         == calendar_end_policy
     )
     assert catalog.spec(ToolId("calendar.list_events")).tool_contract_revision == (
-        "f9521f50c1f38b944a1b9b434920cffad599bbae3f4b4617bdfc39b8075f9d6a"
+        "eaa9c46273debf37d8d8ac051817dbcb9e3477ee8d3646277ee5e84f676e12ad"
     )
     assert catalog.spec(ToolId("calendar.get_event")).tool_contract_revision == (
         "15dfc456377fe4eaff7de42292c9cddc5a97b1190baa7e7196cb4f1e287f0087"
     )
+
+
+def test_calendar_list_contract_has_no_provider_calendar_id() -> None:
+    schema = compile_schema(CalendarListEventsInput).semantic
+    assert set(schema["properties"]) == {
+        "max_results",
+        "time_max",
+        "time_min",
+        "time_zone",
+    }
+    assert set(schema["required"]) == set(schema["properties"])
 
 
 def test_observed_end_three_variant_union_strictly_round_trips() -> None:

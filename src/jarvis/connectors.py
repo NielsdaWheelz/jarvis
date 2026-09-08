@@ -33,6 +33,7 @@ from jarvis.read_tools import (
     PLACE_DETAILS_FIELD_MASK,
     PLACES_API_BASE_URL,
     PLACES_SEARCH_FIELD_MASK,
+    PRIMARY_CALENDAR_ID,
     ROUTES_API_URL,
     ROUTES_FIELD_MASK,
     AllDayEventTime,
@@ -550,7 +551,7 @@ class GoogleReadConnector:
             raise ConnectorFailure("invalid_range", attempts=0) from None
         if time_min >= time_max:
             raise ConnectorFailure("invalid_range", attempts=0)
-        calendar_id = quote(value.calendar_id, safe="")
+        calendar_id = quote(PRIMARY_CALENDAR_ID, safe="")
         payload, attempts = await self._get(
             f"{CALENDAR_API_BASE_URL}/calendars/{calendar_id}/events",
             params={
@@ -568,7 +569,7 @@ class GoogleReadConnector:
         try:
             items = _array(payload.get("items", []), "Calendar events")
             events = tuple(
-                _calendar_event(value.calendar_id, item)
+                _calendar_event(PRIMARY_CALENDAR_ID, item)
                 for item in items[: value.max_results]
             )
             result = CalendarListEventsSuccess(

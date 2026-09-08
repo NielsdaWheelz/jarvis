@@ -75,9 +75,11 @@ No automatic `forget` or `prune` policy runs in v1. The corpus is small and an
 incorrect destructive retention rule is harder to recover from than excess
 storage. The production R2 bucket should apply 30-day
 [Cloudflare Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)
-rules to Restic's immutable `config`, `data/`, `index/`, `keys/`, and
-`snapshots/` prefixes while leaving `locks/` unlocked so normal Restic lock
-cleanup works. The deployment-held S3 credential cannot administer those rules.
+rules to Restic's immutable `<jarvis-prefix>/config`,
+`<jarvis-prefix>/data/`, `<jarvis-prefix>/index/`,
+`<jarvis-prefix>/keys/`, and `<jarvis-prefix>/snapshots/` paths while leaving
+`<jarvis-prefix>/locks/` unlocked so normal Restic lock cleanup works. The
+deployment-held S3 credential cannot administer those rules.
 
 ## Consequences
 

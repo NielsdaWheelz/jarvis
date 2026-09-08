@@ -332,3 +332,22 @@ def test_restore_verifies_bundle_and_writes_only_clean_state(
         b'{"encrypted":true}\n'
     )
     assert (target / "runtime" / "paused.json").read_bytes() == b'{"paused":false}\n'
+
+
+def test_restore_rejects_a_symlinked_state_root(
+    tmp_path: Path,
+) -> None:
+    environment = BackupEnvironment.from_env(_environment(tmp_path))
+    actual = tmp_path / "actual"
+    actual.mkdir(mode=0o700)
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+
+    with pytest.raises(BackupConfigurationError, match="private"):
+        backup.restore_backup(
+            environment,
+            snapshot_id="1" * 64,
+            release_commit="f" * 40,
+            target_state_root=alias,
+            staging_parent=tmp_path / "staging",
+        )

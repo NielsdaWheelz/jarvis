@@ -114,8 +114,10 @@ deploy/initialize-backup "$(git rev-parse HEAD)"
 deploy/activate-release "$(git rev-parse HEAD)"
 ```
 
-Apply 30-day R2 Bucket Lock rules to `config`, `data/`, `index/`, `keys/`, and
-`snapshots/`; leave `locks/` unlocked. The S3 token cannot administer this
+Apply 30-day R2 Bucket Lock rules to `<jarvis-prefix>/config`,
+`<jarvis-prefix>/data/`, `<jarvis-prefix>/index/`,
+`<jarvis-prefix>/keys/`, and `<jarvis-prefix>/snapshots/`; leave
+`<jarvis-prefix>/locks/` unlocked. The S3 token cannot administer this
 retention policy.
 
 `install-release` archives only tracked `HEAD`, builds with `uv sync --frozen

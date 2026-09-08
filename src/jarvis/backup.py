@@ -237,6 +237,7 @@ def _private_directory(path: Path, *, create: bool = False) -> None:
         ) from exc
     if (
         not stat.S_ISDIR(value.st_mode)
+        or path.resolve() != path
         or stat.S_IMODE(value.st_mode) & 0o077
         or value.st_uid != os.geteuid()
     ):
@@ -252,6 +253,7 @@ def _private_credential_file(path: Path) -> None:
         raise BackupConfigurationError("backup credential file is unavailable") from exc
     if (
         not stat.S_ISREG(value.st_mode)
+        or path.resolve() != path
         or value.st_uid not in {0, os.geteuid()}
         or value.st_nlink != 1
         or stat.S_IMODE(value.st_mode) & 0o027
@@ -696,6 +698,7 @@ def restore_backup(
     _private_directory(staging_parent, create=True)
     _private_directory(environment.restic_cache_directory, create=True)
     _private_credential_file(environment.restic_password_file)
+    _private_directory(target_state_root, create=True)
     connectors_target = target_state_root / "connectors"
     runtime_target = target_state_root / "runtime"
     if connectors_target.exists() or runtime_target.exists():

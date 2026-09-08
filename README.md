@@ -139,17 +139,19 @@ These are accepted knowingly, not overlooked.
   the requested URL and host IP to the destination. The tools send no connector
   credentials or cookies and do not provide authenticated or JavaScript browsing.
 - Slice 2 gives up Brave's second automatic search attempt and caps a selectable
-  Web-read observation at 64 KiB and aggregate tool output at 256 KiB. This keeps
+  Web-read observation at 64 KiB and aggregate tool output at 768 KiB. This keeps
   billed-once search completion and native context within their hard boundaries,
   but transient search failures and unusually large compound reads fail sooner.
 - Calendar events with a provider-declared unspecified end expose a payload-free
   tagged domain variant rather than Google's compatibility end. This preserves
   truth but requires consumers to handle the third observed-end variant; the
-  Main session cold-bootstraps once for the corrected v2 contract.
+  Main session cold-bootstraps once for the corrected get-event v2 contract.
 - Calendar event listing uses host-owned bounded pagination and returns typed
-  completeness rather than a model-selected limit or truncation guess. It may
-  use more Google requests and still reports unusually dense ranges as partial
-  at the fixed page/event/byte/deadline bounds.
+  completeness rather than a model-selected limit or truncation guess. Its v6
+  result returns at most 1,500 compact overview items in 512 KiB; full details
+  require explicit `calendar.get_event` reads. It may use more Google requests
+  and still reports unusually dense ranges as partial at the fixed
+  page/event/byte/deadline bounds.
 - Production Main returns a typed structured terminal which Jarvis renders as an
   answer, partial result, question, failure, or silence. Discord typing is the
   only synchronous progress signal; there is no terminal in-progress promise.

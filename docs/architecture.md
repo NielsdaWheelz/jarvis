@@ -536,10 +536,10 @@ only through Jarvis's checkpoint adapter.
 
 Slice 2 constructs a fresh non-durable read recorder and exact plan budget for
 each run under the existing execution mutex. Its definition maximum is exactly
-10 calls, 223 external attempts, 73,768 input bytes, 1,376,256 output bytes, one
+10 calls, 223 external attempts, 73,768 input bytes, 1,638,400 output bytes, one
 in-flight model-tool call, and 205 seconds. Selectable plans retain all ten calls
 but tighten `web.search` to one attempt, `web.read` to 65,536 output bytes, and
-the aggregate to 222 attempts and 524,288 output bytes. A Web secret gate recursively
+the aggregate to 222 attempts and 786,432 output bytes. A Web secret gate recursively
 checks raw and percent/query-decoded string leaves before recorder, budget,
 executor, or provider entry. Reads terminalize only in run-local state and never
 insert `action`.
@@ -556,10 +556,13 @@ hidden entries, with a hard 50-calendar bound. Aggregate event reads page in
 deterministic calendar-ID rounds with concurrency ten, a 250-event provider page,
 100 event-page requests, a 55-second connector deadline inside the 60-second
 executor fence, and 202 total external attempts including discovery and refresh.
-They merge globally in chronological order and return at most 200 whole events
-inside the 262,144-byte canonical envelope. A typed coverage value reports
+They project compact overview records, merge globally in chronological order,
+and return at most 1,500 whole items inside the 524,288-byte canonical envelope.
+Overview items retain exact IDs, status, summary, start, observed end, and
+location; `calendar.get_event` supplies description, recurrence, people,
+reminders, etag, and update metadata on demand. A typed coverage value reports
 calendar/page/failure/count/byte/deadline incompleteness; exact fields are never
-shortened. Discovery is binding v1, aggregate list is v5, and get remains v2.
+shortened. Discovery is binding v1, aggregate list is v6, and get remains v2.
 Recomposed catalog/profile/plan/HostTable and Main output/role identities force
 a continuing-session cold bootstrap without changing isolated roles or database
 state.

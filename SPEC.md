@@ -1123,11 +1123,10 @@ persisted.
 Every Jarvis-owned entry above initially declares
 `implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
 with hyphens. Calendar discovery is `jarvis-calendar-list_calendars-v1`; the
-Calendar list binding is `jarvis-calendar-list_events-v5` after ADR 0038's
-bounded pagination and coverage hard cut; the Calendar get binding remains
-`jarvis-calendar-get_event-v2`
-after ADR 0029's observed-end correction. The model-facing tool IDs remain
-unversioned.
+Calendar list binding is `jarvis-calendar-list_events-v6` after ADR 0038's
+bounded pagination, compact overview, and coverage hard cut; the Calendar get
+binding remains `jarvis-calendar-get_event-v2` after ADR 0029's observed-end
+correction. The model-facing tool IDs remain unversioned.
 Reviewers MUST reject
 a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
@@ -1161,8 +1160,8 @@ The production Brave binding uses the pinned `llm-tools`
 `operation_deadline_seconds=12.0` policy. Each selectable Slice 2 frozen plan
 tightens `web.search` to one external attempt and retains `BilledOnce`; its
 aggregate limits are ten calls, 222 external attempts, 73,768 input bytes,
-524,288 output bytes, one in-flight model-tool call, and 205 seconds. The
-maximum role definition permits 223 attempts and 1,376,256 output bytes.
+786,432 output bytes, one in-flight model-tool call, and 205 seconds. The
+maximum role definition permits 223 attempts and 1,638,400 output bytes.
 Jarvis adds no second deadline wrapper.
 
 The eight Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
@@ -1201,24 +1200,20 @@ supplies no calendar ID or result bound. Event reads use pages of 250 and follow
 `nextPageToken` in deterministic calendar-ID rounds, with at most 100 event-page
 requests and a connector-owned 55-second deadline inside the executor's
 60-second fence. Including discovery and the existing refresh behavior, the
-tool permits at most 202 external attempts. A normal `type = event`
-snapshot has exact `calendar_id`, `event_id`, and `etag` strings of at most 1024
-bytes, `status = confirmed | tentative`, the bounded observed writable event
-projection,
-nullable organizer, and aware `updated_at`. The observed projection contains a
-summary up to 1024 bytes, nullable description up to 16 KiB, nullable location
-up to 4096 bytes, a required timed aware or all-day start, a required observed
-end, at most 20 exact
-recurrence strings of 1024 bytes, at most 50 attendees, default-reminder state,
-and at most ten email/popup reminders from zero through 40,320 minutes. A sparse
-cancelled provider resource is represented separately as `type = cancelled`
-with exact bounded calendar/event IDs, nullable bounded etag, and nullable aware
-`updated_at`; missing normal-event fields are not invented. A list returns the
-scanned Calendar references, at most 200 globally chronological whole events,
-an explicit bounded per-calendar failure list, and a closed `coverage` value.
-Sparse cancelled events sort last. The canonical success envelope remains at
-most 262,144 bytes. Stable event fields are never shortened; whole events are
-omitted at a count or byte bound.
+tool permits at most 202 external attempts. A normal compact list item has exact
+`calendar_id` and `event_id` strings of at most 1024 bytes,
+`status = confirmed | tentative`, an exact summary up to 1024 bytes, a required
+timed aware or all-day start, a required observed end, and nullable exact
+location up to 4096 bytes. A sparse cancelled list item contains only its type
+and exact bounded calendar/event IDs. A list returns the scanned Calendar
+references, at most 1,500 globally chronological whole compact items, an
+explicit bounded per-calendar failure list, and a closed `coverage` value.
+Sparse cancelled events sort last. The canonical success envelope is at most
+524,288 bytes. Stable list fields are never shortened; whole items are omitted
+at a count or byte bound. Description, recurrence, attendees, organizer,
+reminders, etag, and update metadata remain available through
+`calendar.get_event`; Main MUST use the list's exact IDs before relying on those
+omitted full details.
 
 Calendar coverage contains `complete`, sorted unique `reasons`,
 `calendars_discovered`, `calendars_completed`, and nullable `matched_events`.
@@ -1255,15 +1250,23 @@ already-aware `dateTime`, Jarvis preserves the instant and emits canonical
 `UTC`; an offset-free value without a zone is malformed. Normalization performs
 no additional provider request.
 The Calendar get contract and binding remain v2. Discovery is v1. The Calendar
-list contract and binding are v5 because its fixed host bound, paging, typed
-coverage, and result schema replace v4. Affected catalogs, maximum and selected
-profiles, plans, HostTables, role/output contracts, and definition fingerprints
-are recomposed. The Main session-contract revision advances and cold-bootstraps
-an older continuing session; unaffected isolated roles do not change. Event
+list contract and binding are v6 because its fixed host bound, paging, compact
+overview, typed coverage, and result schema replace v5. Affected catalogs,
+maximum and selected profiles, plans, HostTables, role/output contracts, and
+definition fingerprints are recomposed. ADR 0038's Main terminal contract
+already advanced the
+application session revision; the v6 binding rotates the definition fingerprint
+and cold-bootstraps without a second manual compatibility bump. Unaffected
+isolated roles do not change. Event
 aggregation permits at most 202 external attempts and retains the 60-second
-executor fence; discovery permits two attempts and 15 seconds. Provider-turn,
-model-call, and write-gate ceilings do not change, so the rolling admission
-journal requires no migration.
+executor fence; discovery permits two attempts and 15 seconds. The read and
+scheduled-read aggregate output ceiling is 786,432 bytes, leaving 262,144 bytes
+for follow-up detail reads after one maximum list result. Slice 5 and active Main
+selected output ceilings are 1,249,280 and 1,708,032 bytes. The Slice 2
+new-context ceiling is 706,144 bytes; active Main retains its sufficient
+600,000-byte ceiling.
+Provider-turn, model-call, and write-gate ceilings do not change, so the rolling
+admission journal requires no migration.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire

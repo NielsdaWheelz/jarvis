@@ -140,18 +140,18 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     assert definitions.main.maximum_profile.run_limits == SLICE2_TOOL_LIMITS
     declared = tuple(catalog.spec(tool_id).limits for tool_id in SLICE2_READ_IDS)
     assert sum(limit.max_input_bytes for limit in declared) == 73_768
-    assert sum(limit.max_output_bytes for limit in declared) == 1_376_256
+    assert sum(limit.max_output_bytes for limit in declared) == 1_638_400
     assert sum(limit.max_attempts for limit in declared) == 223
     assert sum(limit.deadline_seconds for limit in declared) == 205.0
     assert definitions.main.limits == SLICE2_KERNEL_LIMITS
     assert definitions.main.maximum_profile.profile_revision == (
-        "50f04129c5d85dc07dc0eea6ef17772ff242af01f38b5cd72eb32cbf9bc5f4a1"
+        "2b3f2ae6d30ecfdc24f2ef2acb8eee31e0f36c9a665331a78116bd35a2d223a1"
     )
     assert definitions.main.session_compatibility_revision == (
         "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3"
     )
     assert definitions.main.fingerprint == (
-        "0dceb7b387c2b4c3e31a9ae26a5a90e309ccbfb33d303469c4d6cea516407ab7"
+        "57a06633c95b9ebac869657c2a02f4c5ea1127b48d25a9503191c9922e03c9f7"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (
@@ -159,12 +159,12 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     )
     exact_revisions = {
         "main": (
-            "6b7b8f2c658d3d44b5cf71ab402a5009b031cbe8dfe8b8e1318baa617e402b23",
-            "199248f54c19eb9741ac40972ea4b1950a556aabea4927f97951ce1c132e627e",
+            "36d04911468edd8f2d3be891c3db4381faeab3fcb690339689173f238f74fd6d",
+            "e0c64c7a50416fc59e3ff5a9eb072dc7eed0a7c3ae19abe28fa625c357cf81d9",
         ),
         "scheduled_wake": (
-            "89af1e9a7ab3827352840ebae9a35848763f02b2ba097d6f3f4831dbdee388cb",
-            "79670eaeb2d481e0eca70f0be2704d0d472e81498565d4a06135acf672230ed3",
+            "9052e0a76205c60d5ec28d1d9ed810d4fdeb9d3b2a9c86dc548189f4e88752c1",
+            "82311c42f11eb1fa05d94e15f42749727dfcace2ceb72a1d8c3f1cc63b61ffa5",
         ),
     }
     for name, (profile_revision, plan_revision) in exact_revisions.items():
@@ -196,7 +196,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
                 "08cc652b133c80a30ee2e9c3be2c64d2321f00533805a4a56213ce95fd911817"
             ),
             "calendar.list_events": (
-                "1573dab5638dc407fbf7c9144696ca78e0c0a43ed79922d35be96c4206ec8037"
+                "908bb99fd8da9ea022051eddf48fb0e061712738620e6ef8842bc015dd7b7086"
             ),
             "calendar.get_event": (
                 "15dfc456377fe4eaff7de42292c9cddc5a97b1190baa7e7196cb4f1e287f0087"
@@ -214,7 +214,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
                 contract_revision
             )
             expected_implementation = (
-                "jarvis-calendar-list_events-v5"
+                "jarvis-calendar-list_events-v6"
                 if tool_name == "calendar.list_events"
                 else "jarvis-calendar-list_calendars-v1"
                 if tool_name == "calendar.list_calendars"
@@ -233,7 +233,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         require_host_plan(plan, definitions.main.maximum_profile)
     assert (
         session_generation_limit("gpt-5.6-terra", kernel_limits=SLICE2_KERNEL_LIMITS)
-        == 2
+        == 1
     )
     with pytest.raises(ValueError, match="qualified Slice 2 route"):
         build_slice2_definitions(
@@ -243,8 +243,8 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
             owner_timezone="UTC",
         )
     native_static = 16_384 + 16_384 + 32_768
-    retained = 444_000 + 40_000 + 8_192
-    assert native_static + 2 * retained == 1_049_920
+    retained = 706_144 + 40_000 + 8_192
+    assert native_static + retained == 819_872
 
 
 def test_slice2_definition_rejects_unavailable_web_bindings() -> None:

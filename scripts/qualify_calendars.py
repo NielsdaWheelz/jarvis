@@ -84,7 +84,22 @@ def _minimum_calendars() -> int:
     return value
 
 
-async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
+def _minimum_events() -> int:
+    raw = os.environ.get("JARVIS_LIVE_MIN_EVENTS", "1000")
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError("JARVIS_LIVE_MIN_EVENTS must be an integer") from None
+    if not 1 <= value <= 1_500 or str(value) != raw:
+        raise ValueError("JARVIS_LIVE_MIN_EVENTS must be canonical and in 1..1500")
+    return value
+
+
+async def _run(
+    settings: Settings,
+    minimum_calendars: int,
+    minimum_events: int,
+) -> dict[str, object]:
     verify_runtime_dependencies()
     clients = tuple(
         httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(5)
@@ -206,7 +221,7 @@ async def _run(settings: Settings, minimum_calendars: int) -> dict[str, object]:
             raise QualificationFailure("calendar.list_events", "coverage_completion")
         if coverage.matched_events != len(events):
             raise QualificationFailure("calendar.list_events", "coverage_match_count")
-        if len(events) <= 50:
+        if len(events) < minimum_events:
             raise QualificationFailure("calendar.list_events", "too_few_events")
         if any(item.get("calendar_id") not in calendar_ids for item in events):
             raise QualificationFailure("calendar.list_events", "unknown_event_calendar")
@@ -274,7 +289,9 @@ def main() -> int:
             raise ValueError(
                 "live Calendar qualification requires JARVIS_CALENDAR_LIVE=1"
             )
-        result = asyncio.run(_run(Settings.from_env(), _minimum_calendars()))
+        result = asyncio.run(
+            _run(Settings.from_env(), _minimum_calendars(), _minimum_events())
+        )
     except QualificationFailure as exc:
         result = _failure_result(exc)
     except BaseException as exc:

@@ -1389,11 +1389,11 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "247aed42f323a5e478a1fef216a66247b2e9c2854238b411dfd66c498dbeb0eb",
+            "4070db6fd9045814b3e0ad6983fa12f0c40decf4bfb0b87b96c656b4ccdba819",
             "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
-            "0d8a94e26bfdfb0c2f4bec0baf378837cf58120d1125f7c3dad28e8248c56e6b",
-            "1d5c8686139e87c2ef4e5d348cb556a7cf6c3daba1b6f349084bb0f70386ecd2",
-            "b45448bd89ffe54cddea0fb787d56de1c45ad5a348dd90ccf15f0aab882337ef",
+            "c20d8261d4def068b21779f0e20dfa5bc9a8d27fb3c7da5281ad8fbc2d762873",
+            "80ab5204387c887c6b8e833ec6d15aa26ba4ab85a10947fde6f2e5b845a03a97",
+            "aa076bdbc2f8052cb075dc97bfb94dcbc1a7f770183babc90870c83e5abb6eb8",
         ),
         "recaller": (
             "f9478d77a15c438cd34508bcbbe5679b85a56372681a4db03c76b516dabde0db",
@@ -1439,7 +1439,7 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
         max_calls=10,
         max_external_attempts=223,
         max_input_bytes=73_768,
-        max_output_bytes=1_376_256,
+        max_output_bytes=1_638_400,
         max_in_flight=1,
         max_elapsed_seconds=205.0,
     )
@@ -1447,7 +1447,7 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
         max_calls=10,
         max_external_attempts=222,
         max_input_bytes=73_768,
-        max_output_bytes=524_288,
+        max_output_bytes=786_432,
         max_in_flight=1,
         max_elapsed_seconds=205.0,
     )
@@ -1458,7 +1458,7 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
         max_cooperative_seconds=600.0,
         max_provider_input_tokens=400_000,
         max_provider_output_tokens=40_000,
-        max_new_context_bytes=444_000,
+        max_new_context_bytes=706_144,
     )
     memory_run_limits = RunLimits(
         max_calls=8,

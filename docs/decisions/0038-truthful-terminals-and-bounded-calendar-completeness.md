@@ -16,11 +16,15 @@ Production returned:
 The first sentence was true. The second was not: the kernel settled a terminal
 `say`; no continuation existed. The connector also made a normal 35-calendar,
 two-week request partial solely because the model-selectable global cap was 50.
+The first v5 live qualification then found 1,170 matching events. Returning full
+event details made the 200-event/262,144-byte v5 result partial, so the accepted
+implementation advances the list contract to a compact v6 overview and retains
+`calendar.get_event` as the existing full-detail path.
 
 Target behavior:
 
-- An ordinary bounded two-week read across the current 35 calendars returns one
-  complete, chronologically merged observation when it fits the new host bound.
+- An ordinary bounded two-week read across the current 35 calendars and observed
+  1,170-event workload returns one complete, chronologically merged observation.
 - Jarvis emits one final natural response only after the evidence it describes
   exists.
 - An incomplete read is visibly partial or asks one concrete question. It never
@@ -167,11 +171,29 @@ CalendarCoverage
 
 CalendarListEventsSuccess
   calendars: existing bounded CalendarReference tuple
-  events: existing exact CalendarEventSnapshot tuple[max 200]
+  events: CalendarListEventSnapshot tuple[max 1500]
   failures: existing bounded CalendarEventReadFailure tuple
   coverage: CalendarCoverage
   observed_at: aware UTC datetime
+
+CalendarListNormalEvent
+  type = event
+  calendar_id, event_id: exact strings[1..1024 bytes]
+  status: confirmed | tentative
+  summary: exact string[0..1024 bytes]
+  start: existing EventTime
+  end: existing ObservedEventEnd
+  location: null | exact string[0..4096 bytes]
+
+CalendarListCancelledEvent
+  type = cancelled
+  calendar_id, event_id: exact strings[1..1024 bytes]
 ```
+
+The list omits description, recurrence, attendees, organizer, reminders, etag,
+and update metadata. Main uses the exact list IDs with `calendar.get_event`
+before relying on those full details. The get contract and its full
+`CalendarEventSnapshot` remain unchanged.
 
 `matched_events` is non-null only when every in-scope event page was exhausted;
 it may exceed `len(events)` when only the response count/byte bound clipped a
@@ -187,21 +209,21 @@ The Calendar connector owns the complete operation:
 3. Follow `nextPageToken` in deterministic calendar-ID rounds until exhausted or
    the shared page/deadline bound is reached.
 4. Use at most ten concurrent Google requests.
-5. Merge all observed normal events chronologically; sparse cancellations remain
-   last. Preserve existing exact normalization and per-calendar failures.
-6. Return the largest chronological whole-event prefix fitting both 200 events
-   and the existing 262,144-byte canonical success envelope. Use the existing
+5. Project compact normal-event overviews, merge them chronologically, and keep
+   sparse cancellations last. Preserve exact list fields and per-calendar failures.
+6. Return the largest chronological whole-event prefix fitting both 1,500 events
+   and the 524,288-byte canonical success envelope. Use the existing
    `llm_tools.canonical_json_bytes`; do not invent a second serializer.
 7. Derive coverage after all observations and clipping. Never infer completeness
    from a count smaller than a requested page.
 
-Fixed v1 bounds:
+Fixed v6 bounds:
 
 - 50 calendars; 10 concurrent requests.
 - Google event page size 250.
 - 100 total event-page requests, including each calendar's first page.
-- 200 returned events.
-- 262,144 encoded success bytes.
+- 1,500 returned compact events.
+- 524,288 encoded success bytes.
 - 55-second connector-owned deadline inside the 60-second executor fence;
   caller cancellation still propagates unchanged.
 - 202 maximum external attempts: one discovery plus 100 event-page requests,
@@ -211,13 +233,22 @@ Google documents that `maxResults` is only a page size and that a non-empty
 `nextPageToken` proves incompleteness; the connector must follow that contract:
 <https://developers.google.com/workspace/calendar/api/guides/pagination>.
 
-The Calendar event-list contract and binding advance to v5. The new fields,
-limits, page size, ordering, canonical-byte clipping, and coverage derivation
-participate in contract/policy/implementation identity.
+The Calendar event-list contract and binding advance to v6. The compact
+projection, fields, limits, page size, ordering, canonical-byte clipping, and
+coverage derivation participate in contract/policy/implementation identity.
 
 The model tool catalog and authority do not change. Main maximum/selected and
-scheduled-read profiles keep the same tool IDs and call counts; only their
-external-attempt ceilings increase by 100 (243, 242, and 222 respectively).
+scheduled-read profiles keep the same tool IDs and call counts. Their
+external-attempt ceilings retain ADR 0038's v5 increase of 100 (243, 242, and
+222 respectively).
+The read/scheduled aggregate output ceiling is 786,432 bytes, preserving
+262,144 bytes for follow-up detail reads after one maximum Calendar overview.
+The Slice 2, Slice 5, and active Main maximum envelopes and the Slice 5 and
+active Main selected ceilings increase by the same 262,144-byte contract delta:
+1,638,400, 2,166,784, 2,166,784, 1,249,280, and 1,708,032 bytes respectively.
+The Slice 2 context ceiling rises to 706,144 bytes; the active Main's existing
+600,000-byte per-projection ceiling already fits one maximum observation plus
+its bounded wrapper and does not grow.
 All affected profiles, plans, HostTables, role/output contracts, and Main
 definition fingerprints are regenerated. Main cold-bootstraps once. Memory
 roles and AutomaticWriteGate do not rotate. Provider-turn admission and the
@@ -238,7 +269,7 @@ mechanics are never user-facing.
 ```text
 owner input
   -> Main StructuredOutput session
-  -> calendar.list_events v5
+  -> calendar.list_events v6
   -> Google connector discovery + bounded paginator
   -> typed Calendar coverage observation
   -> Main finish.result
@@ -298,7 +329,7 @@ Write failing tests before production edits:
 
 - Old input/result fields are rejected; the new closed schemas and cross-field
   invariants hold.
-- Thirty-five calendars and more than 50 total events yield complete coverage.
+- Thirty-five calendars and 1,170 compact events yield complete coverage.
 - Multi-page reads exhaust tokens; page, event, byte, failure, and deadline
   bounds yield exact partial reasons.
 - Paging is fair, deterministic, at most ten-wide, and settles exact attempts.
@@ -326,7 +357,7 @@ One proof per ownership boundary; no exhaustive combinatorial matrix:
 1. **Schema:** deterministic compile/decode/encode rejection and cross-field
    tests for every branch and removed legacy field.
 2. **Google connector:** one `httpx.MockTransport` happy path covers 35
-   calendars, multiple pages, >50 events, ordering, attempts, and complete
+   calendars, multiple pages, 1,170 events, ordering, attempts, and complete
    coverage; one table-driven bounded set covers a calendar failure and each
    clipping/deadline stop.
 3. **Kernel/composition:** one fake-provider threaded tool-loop proves
@@ -336,8 +367,8 @@ One proof per ownership boundary; no exhaustive combinatorial matrix:
 4. **Discord:** one deterministic outbox test proves exactly one final message
    and typing-only progress.
 5. **Live consumer:** one production-credential Calendar probe covers all 35
-   calendars and a two-week range with >50 events; it must be complete or expose
-   the exact legitimate bound that prevents acceptance.
+   calendars and a two-week range with at least 1,000 events; it must be complete
+   and report the observed count without exposing content or identifiers.
 6. **Paid end to end:** one exact production Codex/Discord prompt proves useful
    final content, correct disposition, no unsupported continuation, no action,
    and no later phantom message.
@@ -352,7 +383,7 @@ not rerun unrelated Gmail/Maps/Web/memory/write/approval matrices.
 - Exactly four application tables and the existing action/suspension model.
 - Main uses a typed structured terminal and host renderer; internal roles are
   unchanged.
-- Calendar v5 normally completes the owner's observed two-week workload in one
+- Calendar v6 normally completes the owner's observed two-week workload in one
   tool call and always proves whether it did.
 - Discord shows typing during work and exactly one settled final message after
   work.
@@ -365,7 +396,9 @@ not rerun unrelated Gmail/Maps/Web/memory/write/approval matrices.
   fingerprint, causing one cold bootstrap.
 - Calendar may use more Google requests, latency, transient memory, and quota;
   finite paging and concurrency contain this cost.
-- A 200-event/256-KiB ceiling can still make unusually dense requests partial.
+- A 1,500-event/512-KiB ceiling can still make unusually dense requests partial.
+- Questions requiring omitted event details cost explicit `calendar.get_event`
+  calls and can reach the existing finite call ceiling.
 - Host promotion is deliberately conservative: any incomplete Calendar read
   makes the whole response visibly partial even if the model used only a subset.
 - Semantic prose quality remains model-evaluated. The system proves lifecycle and

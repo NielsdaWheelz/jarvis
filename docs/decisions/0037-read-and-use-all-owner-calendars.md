@@ -113,7 +113,8 @@ Accepted costs:
   pagination infrastructure.
 - Each Calendar response retains the existing two-mebibyte wire bound, so the
   bounded worst-case transient input is materially larger than a primary-only
-  read. Model-visible output remains capped at 256 KiB.
+  read. ADR 0038 supersedes this decision's 256-KiB model-visible bound with a
+  512-KiB compact overview.
 - Listing hidden calendars may surface calendars the Google UI normally hides.
   This is intentional because the owner asked for all calendars; the `hidden`
   and `selected` flags preserve that distinction.

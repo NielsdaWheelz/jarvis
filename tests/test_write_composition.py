@@ -239,11 +239,11 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "4a6d4025a4381272933a19b0d7ecac88e3c40254a1790911bfec81d4974fee14",
+            "44f01904cbc1f90c79fb2732157d8e2a670d3bb9086c0b07feb0565799261119",
             "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
-            "cb1d1cc785a363690c280c9cc242413cfac63f37b6d048a6723f91fb8dcc555d",
-            "b004837d15ad64b7acefca0e8ddf0a190c5c827e8d7a6471851bdec9f6a09477",
-            "273bfe6776b76224ad847bedb74e8c1b8ef63bc106f83af0766d1dce33a88854",
+            "f6fcee15b541de2b168f11c81bed628d1dc8931dcc8a35eb2b39420b67f40558",
+            "35ccd2c976fc33adccea0351cabd362f06262efd17806630b4237b907959621a",
+            "1c6994d109c8232187d671dd2e4f6a5cc52cf907dcf39810464264e611bd02cc",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
@@ -278,8 +278,8 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         definitions.plans["scheduled_wake"].profile.profile_revision,
         definitions.plans["scheduled_wake"].plan_revision,
     ) == (
-        "3f23cb2c2ab7bb8aeae7f3db986b0866e7d073c3700d1475c07fa8b98dbcf3d1",
-        "f06327431661c45a5e39ecba3ce319b59f041d3a49052242e2a5865f9ea463f3",
+        "dee72e76e94f4d2e854a556472b4bdf3357b7df2499eaf9ef991f61440b596a7",
+        "27f61d3d455e4bb6c355c38fd62c20b648c17ab9ee373a89bcce3e048ea2a51f",
     )
 
 
@@ -406,11 +406,11 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "f3a92b8a10eb6e4aa969be2cd821c342cf8ee41edac08538514c7e71ab404487",
+            "e0b060ccf3bcf166da63a52e2f1994a706adf95c3c6a0188067391c42c25588e",
             "5eda5006f960249bc35d7161b98cb58c0871798adea52b017a7ac04b12930eb3",
-            "36b40805a5c765bb1166430dd831d8a85b54c2a9a1908dc674f7768426a12641",
-            "efcf7ab27b3e93a178f8a6dab871215bcb622b8a97ba34cfc88863d4333a4628",
-            "a5977061e7b170de320d232136a3513bece68d0a8b9dccc4ada45c4574b2c384",
+            "d54b036c1ca8408ae2e5240e4b811fbef787216e07dfd2a565ecfb34dcf79ecd",
+            "5ddd256d9d78f1c71ffc4db97ba823f81323e482535e8166199411f472af727e",
+            "3e5f65bf8403e72bc7d3d3e912f7d2197872c5dac4dc3373665bc39c7debbc20",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
@@ -445,6 +445,6 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         definitions.plans["scheduled_wake"].profile.profile_revision,
         definitions.plans["scheduled_wake"].plan_revision,
     ) == (
-        "d094a0ca320fbc298f4e5f1afb0186819c556b67e2001995a7732e8d63ceb85d",
-        "f592506aeaca3845004c2d66a932c1b43559d79df8ccc318c21a260d91196f81",
+        "f179a4fbd84e8f4b2fd08dd705974d99b5d3677dc0876b84e4c0a7a3f2db69ed",
+        "51fd77b3dba108933959a00430f7149a7cd6c34264639d25e6e2448e54b8f263",
     )

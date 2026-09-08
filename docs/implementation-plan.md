@@ -218,15 +218,17 @@ Deliver:
   or prose, bounded corrective feedback, and—after ADR 0038—an active Main
   terminal only through validated `finish.result`.
 - `gmail.search` and `gmail.read_thread` bindings.
-- `calendar.list_calendars` v1, `calendar.list_events` v5, and
+- `calendar.list_calendars` v1, `calendar.list_events` v6, and
   `calendar.get_event` v2 bindings after ADR 0037 superseded the original
   primary-only v3 list. List exposes no calendar ID and aggregates the bounded
   live reader-or-better CalendarList host-side. Normal observed
   ends are a required direct timed/all-day/unspecified tagged union. Google's
   true flag discards its compatibility end and returns the payload-free
   unspecified variant, while false or missing requires a parsed end. The
-  current bounded paginator and typed coverage contract are specified by ADR
-  0038; its focused live gate proves a complete greater-than-50-event result.
+  current bounded paginator, compact overview, and typed coverage contract are
+  specified by ADR 0038; its focused live gate proves complete coverage of at
+  least 1,000 events across all 35 current calendars. Full details remain an
+  explicit `calendar.get_event` read by exact returned IDs.
 - `maps.search_places`, `maps.get_place`, and `maps.directions` bindings.
 - Pinned `llm-tools` `web.search` and `web.read` bindings under Jarvis-owned
   credentials, information-flow policy, and budgets.
@@ -438,10 +440,11 @@ Deliver:
   typed `answered | partial | needs_input | failed | silent` result host-side,
   retain typing as the only synchronous progress indicator, and remove the
   production conversational-`say` path and compatibility aliases.
-- ADR 0038's Calendar v5 hard cut: remove model-selected result size and the
+- ADR 0038's Calendar v6 hard cut: remove model-selected result size and the
   boolean truncation result, page deterministically inside the connector, return
-  typed coverage and at most 200 whole events/262,144 encoded bytes, and promote
-  incomplete answers to visible partial content without scheduling phantom work.
+  typed coverage and at most 1,500 compact whole events/524,288 encoded bytes,
+  keep full details behind `calendar.get_event`, and promote incomplete answers
+  to visible partial content without scheduling phantom work.
 - Restart/crash qualification for poison attempts, no automatic rearm, rolling
   admission settlement, corrupt-journal fail-closed behavior, and explicit
   operator reset while the service is stopped.

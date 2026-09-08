@@ -33,7 +33,9 @@ from jarvis.read_tools import (
     AllDayEventTime,
     CalendarGetEventInput,
     CalendarListCalendarsInput,
+    CalendarListCancelledEvent,
     CalendarListEventsInput,
+    CalendarListNormalEvent,
     CalendarNormalEvent,
     ConnectorFailure,
     GmailReadThreadInput,
@@ -479,11 +481,132 @@ async def test_calendar_normal_and_sparse_cancelled_normalization() -> None:
     assert result.value.coverage.complete is True
     assert result.value.coverage.matched_events == 2
     normal = result.value.events[0]
-    assert isinstance(normal, CalendarNormalEvent)
-    assert isinstance(normal.writable.start, TimedEventTime)
-    assert isinstance(normal.writable.end, TimedEventTime)
-    assert normal.writable.start.time_zone == "UTC"
-    assert result.value.events[1].type == "cancelled"
+    assert isinstance(normal, CalendarListNormalEvent)
+    assert isinstance(normal.start, TimedEventTime)
+    assert isinstance(normal.end, TimedEventTime)
+    assert normal.start.time_zone == "UTC"
+    assert isinstance(result.value.events[1], CalendarListCancelledEvent)
+
+
+@pytest.mark.asyncio
+async def test_calendar_compact_list_ignores_full_only_provider_fields() -> None:
+    event = {
+        "id": "event",
+        "status": "confirmed",
+        "summary": "Synthetic",
+        "start": {"dateTime": "2026-09-04T12:00:00Z"},
+        "end": {"dateTime": "2026-09-04T13:00:00Z"},
+        "location": "Room",
+        "etag": {"malformed": True},
+        "updated": {"malformed": True},
+        "description": "x" * 20_000,
+        "recurrence": {"malformed": True},
+        "attendees": {"malformed": True},
+        "organizer": "malformed",
+        "reminders": "malformed",
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": "a", "accessRole": "reader"}]},
+                request=request,
+            )
+        if request.url.path == "/calendar/v3/calendars/a/events":
+            return httpx.Response(200, json={"items": [event]}, request=request)
+        assert request.url.path == "/calendar/v3/calendars/a/events/event"
+        return httpx.Response(200, json=event, request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        connector = GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        )
+        listed = await connector.calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+        with pytest.raises(ConnectorFailure) as raised:
+            await connector.calendar_get_event(
+                CalendarGetEventInput(calendar_id="a", event_id="event")
+            )
+
+    assert listed.value.coverage.complete is True
+    assert listed.value.events == (
+        CalendarListNormalEvent(
+            calendar_id="a",
+            event_id="event",
+            status="confirmed",
+            summary="Synthetic",
+            start=TimedEventTime(
+                date_time=datetime(2026, 9, 4, 12, tzinfo=UTC), time_zone="UTC"
+            ),
+            end=TimedEventTime(
+                date_time=datetime(2026, 9, 4, 13, tzinfo=UTC), time_zone="UTC"
+            ),
+            location="Room",
+        ),
+    )
+    assert raised.value.code == "provider_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "compact_field",
+    (
+        {"summary": "x" * 1_025},
+        {"location": "x" * 4_097},
+    ),
+)
+async def test_calendar_compact_list_rejects_oversized_returned_fields_whole(
+    compact_field: dict[str, object],
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            return httpx.Response(
+                200,
+                json={"items": [{"id": "a", "accessRole": "reader"}]},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "event",
+                        "status": "confirmed",
+                        "summary": "Synthetic",
+                        "start": {"date": "2026-09-08"},
+                        "end": {"date": "2026-09-09"},
+                        **compact_field,
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), trust_env=False
+    ) as client:
+        result = await GoogleReadConnector(
+            client=client, tokens=cast("Any", _Tokens()), now=lambda: NOW
+        ).calendar_list_events(
+            CalendarListEventsInput(
+                time_min=NOW,
+                time_max=NOW + timedelta(days=1),
+                time_zone="UTC",
+            )
+        )
+
+    assert result.value.events == ()
+    assert result.value.failures[0].error == "ProviderResponseTooLarge"
+    assert result.value.coverage.reasons == ("calendar_failure",)
+    assert result.value.coverage.matched_events is None
 
 
 @pytest.mark.asyncio
@@ -668,10 +791,11 @@ async def test_calendar_events_aggregate_chronologically_with_partial_failures()
 
 
 @pytest.mark.asyncio
-async def test_calendar_events_complete_35_calendar_round_pagination() -> None:
+async def test_calendar_events_complete_35_calendars_and_1170_events() -> None:
     requests: list[tuple[str, str | None]] = []
     active = 0
     maximum_active = 0
+    event_counts = {f"c{index:02}": 34 if index < 15 else 33 for index in range(35)}
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal active, maximum_active
@@ -694,20 +818,30 @@ async def test_calendar_events_complete_35_calendar_round_pagination() -> None:
         maximum_active = max(maximum_active, active)
         await asyncio.sleep(0)
         active -= 1
-        index = int(calendar_id[1:]) * 2 + (1 if page_token is None else 0)
-        instant = NOW + timedelta(minutes=index)
+        calendar_index = int(calendar_id[1:])
+        local_indices = (
+            range(1) if page_token is None else range(1, event_counts[calendar_id])
+        )
         payload: dict[str, object] = {
             "items": [
                 {
-                    "id": f"event-{calendar_id}-{page_token or 'first'}",
-                    "etag": f"etag-{calendar_id}-{page_token or 'first'}",
+                    "id": f"event-{local_index * 35 + calendar_index:04}",
                     "status": "confirmed",
                     "summary": calendar_id,
-                    "start": {"dateTime": instant.isoformat()},
-                    "end": {"dateTime": (instant + timedelta(minutes=1)).isoformat()},
-                    "updated": NOW.isoformat(),
+                    "start": {
+                        "dateTime": (
+                            NOW + timedelta(minutes=local_index * 35 + calendar_index)
+                        ).isoformat()
+                    },
+                    "end": {
+                        "dateTime": (
+                            NOW
+                            + timedelta(minutes=local_index * 35 + calendar_index + 1)
+                        ).isoformat()
+                    },
                 }
-            ]
+                for local_index in reversed(local_indices)
+            ],
         }
         if page_token is None:
             payload["nextPageToken"] = "second"
@@ -730,13 +864,17 @@ async def test_calendar_events_complete_35_calendar_round_pagination() -> None:
     assert maximum_active == 10
     assert requests[:35] == [(f"c{index:02}", None) for index in range(35)]
     assert requests[35:] == [(f"c{index:02}", "second") for index in range(35)]
-    assert len(result.value.events) == 70
+    assert tuple(event.event_id for event in result.value.events) == tuple(
+        f"event-{index:04}" for index in range(1_170)
+    )
+    envelope = {"type": "Success", "value": result.value.model_dump(mode="json")}
+    assert len(canonical_json_bytes(envelope)) <= 524_288
     assert result.value.coverage.model_dump(mode="json") == {
         "complete": True,
         "reasons": [],
         "calendars_discovered": 35,
         "calendars_completed": 35,
-        "matched_events": 70,
+        "matched_events": 1_170,
     }
 
 
@@ -823,19 +961,17 @@ async def test_calendar_list_pagination_is_explicitly_partial() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("event_count", "description_bytes", "expected_reasons"),
+    ("event_count", "location_bytes", "expected_reasons"),
     [
-        (201, 0, ("event_limit",)),
-        (20, 16_000, ("output_byte_limit",)),
+        (1_501, 0, ("event_limit",)),
+        (1_500, 4_096, ("output_byte_limit",)),
     ],
 )
 async def test_calendar_events_reports_event_and_output_byte_clipping(
     event_count: int,
-    description_bytes: int,
+    location_bytes: int,
     expected_reasons: tuple[str, ...],
 ) -> None:
-    descriptions = ["x" * description_bytes for _ in range(event_count)]
-
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/calendar/v3/users/me/calendarList":
             return httpx.Response(
@@ -843,27 +979,28 @@ async def test_calendar_events_reports_event_and_output_byte_clipping(
                 json={"items": [{"id": "a", "accessRole": "reader"}]},
                 request=request,
             )
+        offset = int(request.url.params.get("pageToken", "0"))
+        page_end = min(offset + 250, event_count)
+        payload: dict[str, object] = {
+            "items": [
+                {
+                    "id": f"event-{index:04}",
+                    "status": "confirmed",
+                    "summary": "Synthetic",
+                    "location": "x" * location_bytes if location_bytes else None,
+                    "start": {"dateTime": (NOW + timedelta(minutes=index)).isoformat()},
+                    "end": {
+                        "dateTime": (NOW + timedelta(minutes=index + 1)).isoformat()
+                    },
+                }
+                for index in range(offset, page_end)
+            ]
+        }
+        if page_end < event_count:
+            payload["nextPageToken"] = str(page_end)
         return httpx.Response(
             200,
-            json={
-                "items": [
-                    {
-                        "id": f"event-{index:03}",
-                        "etag": f"etag-{index:03}",
-                        "status": "confirmed",
-                        "summary": "Synthetic",
-                        "description": description,
-                        "start": {
-                            "dateTime": (NOW + timedelta(minutes=index)).isoformat()
-                        },
-                        "end": {
-                            "dateTime": (NOW + timedelta(minutes=index + 1)).isoformat()
-                        },
-                        "updated": NOW.isoformat(),
-                    }
-                    for index, description in enumerate(descriptions)
-                ]
-            },
+            json=payload,
             request=request,
         )
 
@@ -884,8 +1021,8 @@ async def test_calendar_events_reports_event_and_output_byte_clipping(
         "type": "Success",
         "value": result.value.model_dump(mode="json"),
     }
-    assert len(canonical_json_bytes(envelope)) <= 262_144
-    assert 0 < len(result.value.events) <= 200
+    assert len(canonical_json_bytes(envelope)) <= 524_288
+    assert 0 < len(result.value.events) <= 1_500
     assert result.value.coverage.reasons == expected_reasons
     assert result.value.coverage.matched_events == event_count
     assert len(result.value.events) < event_count

@@ -155,17 +155,21 @@ in Slice 0.
       discovery and deterministic event pagination with at most ten concurrent
       requests, 100 event-page requests, 202 external attempts, and the stated
       deadline/count/byte bounds. A deterministic 35-calendar, multi-page,
-      greater-than-50-event case returns chronological complete coverage; a
+      1,170-event case returns chronological complete coverage; a
       table-driven case proves every partial reason, exact attempts, whole-event
       clipping, and cancellation propagation.
+      The list returns at most 1,500 compact overview items in a 524,288-byte
+      canonical success envelope. It preserves exact IDs, status, summary,
+      start, observed end, and location; full details require
+      `calendar.get_event` with the returned IDs.
       `calendar.list_calendars` returns exact IDs and human display names for
       targeted work. An ordinary owner request naming no calendar receives a
       grounded answer without an ID clarification. The typed coverage value is
       complete only after discovery and every selected page are exhausted with
       no failure or clipping. Partial failures and bounds are explicit and must
       be disclosed. A live two-week production read spanning all 35 current
-      calendars and more than 50 events must be complete or expose the exact
-      legitimate bound that prevents acceptance.
+      calendars and at least 1,000 events must be complete; its sanitized result
+      records the observed count without content or provider IDs.
 - [ ] **A3.4** Jarvis creates, edits, and removes a no-attendee event on a
       verified owner-only calendar without approval. Create uses the exact
       action-derived Google event ID from SPEC section 7.3; an injected lost
@@ -275,12 +279,17 @@ in Slice 0.
       local-filesystem, Gmail organization, Discord, delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.
-      Calendar discovery v1, aggregate list v5, and get v2 publish their exact
-      output contracts and binding implementations: every normal event has a required direct
-      timed/all-day/unspecified tagged end. The
+      Calendar discovery v1, aggregate list v6, and get v2 publish their exact
+      output contracts and binding implementations: every compact normal list
+      item has a required direct timed/all-day/unspecified tagged end. The
       affected catalogs, maximum and selected profiles, plans, HostTables, Main
-      definition fingerprint, and Main session revision are newly frozen; an
-      older continuing session cold-bootstraps.
+      definition fingerprint, and terminal contract are newly frozen; an older
+      continuing session cold-bootstraps without a second compatibility bump for
+      the v6 binding alone. Read/scheduled, Slice 5, and active Main selected
+      aggregate output limits are respectively 786,432, 1,249,280, and
+      1,708,032 bytes; Slice 2 and active Main maximum output limits are
+      1,638,400 and 2,166,784 bytes, and the Slice 2 new-context limit is
+      706,144 bytes.
 - [ ] **A4.12** Pure `llm-tools` input validation touches no recorder, position,
       executor, or tool budget. A completed dispatch returns one bounded
       `ToolResult`; approval or reconciliation returns one durable suspension.

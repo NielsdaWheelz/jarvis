@@ -296,12 +296,13 @@ JARVIS_LIVE_WEB_QUERY='IANA reserved domains' \
 For an all-calendar-only release or deployment check, run the focused probe
 through the same production catalog, dispatcher, frozen plan, and budget. It
 requires the observed 35 calendars by default, proves the aggregate scan covers
-the same calendar set, requires complete typed coverage and more than 50 events
-in the centered two-week window, and prints counts and identities only:
+the same calendar set, requires complete typed coverage and at least 1,000 compact
+events in the centered two-week window, and prints counts and identities only:
 
 ```sh
 JARVIS_CALENDAR_LIVE=1 \
 JARVIS_LIVE_MIN_CALENDARS=35 \
+JARVIS_LIVE_MIN_EVENTS=1000 \
   uv run python scripts/qualify_calendars.py
 ```
 

@@ -52,8 +52,10 @@ from jarvis.read_tools import (
     CalendarGetEventSuccess,
     CalendarListCalendarsInput,
     CalendarListCalendarsSuccess,
+    CalendarListCancelledEvent,
     CalendarListEventsInput,
     CalendarListEventsSuccess,
+    CalendarListNormalEvent,
     CalendarNormalEvent,
     CalendarObservedWritableEvent,
     CalendarParticipant,
@@ -655,7 +657,7 @@ class GoogleReadConnector:
         async def read_page(
             calendar: CalendarReference, page_token: str | None
         ) -> tuple[
-            tuple[CalendarNormalEvent | CalendarCancelledEvent, ...],
+            tuple[CalendarListNormalEvent | CalendarListCancelledEvent, ...],
             CalendarEventReadFailure | None,
             str | None,
         ]:
@@ -692,7 +694,7 @@ class GoogleReadConnector:
                         raise _ProviderTooLarge
                     return (
                         tuple(
-                            _calendar_event(calendar.calendar_id, item)
+                            _calendar_list_event(calendar.calendar_id, item)
                             for item in items
                         ),
                         None,
@@ -728,7 +730,7 @@ class GoogleReadConnector:
                         None,
                     )
 
-        all_events: list[CalendarNormalEvent | CalendarCancelledEvent] = []
+        all_events: list[CalendarListNormalEvent | CalendarListCancelledEvent] = []
         failures: dict[str, CalendarEventReadFailure] = {}
         completed: set[str] = set()
         pending_pages: list[tuple[CalendarReference, str | None]] = [
@@ -791,7 +793,7 @@ class GoogleReadConnector:
 
         try:
             all_events.sort(
-                key=lambda event: _calendar_event_sort_key(event, value.time_zone)
+                key=lambda event: _calendar_list_event_sort_key(event, value.time_zone)
             )
             reasons: set[CalendarCoverageReason] = set()
             if calendars_truncated:
@@ -818,7 +820,9 @@ class GoogleReadConnector:
             )
 
             def success(
-                events: tuple[CalendarNormalEvent | CalendarCancelledEvent, ...],
+                events: tuple[
+                    CalendarListNormalEvent | CalendarListCancelledEvent, ...
+                ],
                 coverage_reasons: set[CalendarCoverageReason],
             ) -> CalendarListEventsSuccess:
                 return CalendarListEventsSuccess(
@@ -839,24 +843,27 @@ class GoogleReadConnector:
             envelope = {"type": "Success", "value": result.model_dump(mode="json")}
             if len(canonical_json_bytes(envelope)) > MAX_CALENDAR_SUCCESS_BYTES:
                 reasons.add("output_byte_limit")
-                first_count = (
-                    len(selected_events)
-                    if matched_events != len(selected_events)
-                    else len(selected_events) - 1
-                )
-                for event_count in range(first_count, -1, -1):
-                    result = success(selected_events[:event_count], reasons)
+                lower = 0
+                upper = len(selected_events)
+                fitting: CalendarListEventsSuccess | None = None
+                while lower <= upper:
+                    event_count = (lower + upper) // 2
+                    candidate = success(selected_events[:event_count], reasons)
                     envelope = {
                         "type": "Success",
-                        "value": result.model_dump(mode="json"),
+                        "value": candidate.model_dump(mode="json"),
                     }
                     if (
                         len(canonical_json_bytes(envelope))
                         <= MAX_CALENDAR_SUCCESS_BYTES
                     ):
-                        break
-                else:
+                        fitting = candidate
+                        lower = event_count + 1
+                    else:
+                        upper = event_count - 1
+                if fitting is None:
                     raise _ProviderTooLarge
+                result = fitting
         except _ProviderTooLarge as exc:
             raise ConnectorFailure(
                 "provider_response_too_large", attempts=attempts
@@ -1655,12 +1662,44 @@ def _calendar_event(
     )
 
 
-def _calendar_event_sort_key(
-    event: CalendarNormalEvent | CalendarCancelledEvent, time_zone: str
+def _calendar_list_event(
+    calendar_id: str, value: object
+) -> CalendarListNormalEvent | CalendarListCancelledEvent:
+    event = _mapping(value, "Calendar event")
+    event_id = _exact(_required_string(event, "id"), 1_024)
+    calendar = _exact(calendar_id, 1_024)
+    status = event.get("status")
+    if status == "cancelled":
+        return CalendarListCancelledEvent(
+            calendar_id=calendar,
+            event_id=event_id,
+        )
+    if status not in {"confirmed", "tentative"}:
+        raise ValueError("Calendar status is malformed")
+    unspecified_end = event.get("endTimeUnspecified", False)
+    if type(unspecified_end) is not bool:
+        raise ValueError("Calendar end-time state is malformed")
+    return CalendarListNormalEvent(
+        calendar_id=calendar,
+        event_id=event_id,
+        status=cast("Any", status),
+        summary=_exact(_optional_string(event, "summary", ""), 1_024),
+        start=_calendar_time(event.get("start")),
+        end=(
+            UnspecifiedEventEnd()
+            if unspecified_end
+            else _calendar_time(event.get("end"))
+        ),
+        location=_exact_optional(event, "location", 4_096),
+    )
+
+
+def _calendar_list_event_sort_key(
+    event: CalendarListNormalEvent | CalendarListCancelledEvent, time_zone: str
 ) -> tuple[datetime, str, str]:
-    if isinstance(event, CalendarCancelledEvent):
+    if isinstance(event, CalendarListCancelledEvent):
         return datetime.max.replace(tzinfo=UTC), event.calendar_id, event.event_id
-    start = event.writable.start
+    start = event.start
     if isinstance(start, TimedEventTime):
         instant = start.date_time.astimezone(UTC)
     else:

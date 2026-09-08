@@ -44,9 +44,12 @@ from jarvis.read_tools import (
     AUTOMATIC_READ_TOOL_IDS,
     AllDayEventTime,
     CalendarCoverage,
+    CalendarGetEventSuccess,
     CalendarListCalendarsInput,
+    CalendarListCancelledEvent,
     CalendarListEventsInput,
     CalendarListEventsSuccess,
+    CalendarListNormalEvent,
     CalendarNormalEvent,
     EventTime,
     GmailSearchInput,
@@ -142,7 +145,7 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
             _assert_closed(spec.declared_error_schema.semantic)
         if not str(tool_id).startswith("web."):
             if tool_id == ToolId("calendar.list_events"):
-                expected_revision = "jarvis-calendar-list_events-v5"
+                expected_revision = "jarvis-calendar-list_events-v6"
             elif tool_id == ToolId("calendar.list_calendars"):
                 expected_revision = "jarvis-calendar-list_calendars-v1"
             elif str(tool_id).startswith("calendar."):
@@ -256,26 +259,34 @@ def test_exact_slice2_catalog_and_binding_manifest() -> None:
         "chronological-cancelled-last-calendar-id-event-id-v1"
     )
     assert calendar_list_events_policy["max_event_page_requests"] == 100
-    assert calendar_list_events_policy["max_events"] == 200
-    assert calendar_list_events_policy["max_success_bytes"] == 262_144
+    assert calendar_list_events_policy["max_events"] == 1_500
+    assert calendar_list_events_policy["max_success_bytes"] == 524_288
     assert calendar_list_events_policy["operation_deadline_seconds"] == 55.0
     assert calendar_list_events_policy["output_clipping"] == (
         "canonical-json-largest-chronological-whole-event-prefix-v1"
     )
     assert calendar_list_events_policy["pagination"] == "calendar-id-rounds-v1"
+    assert calendar_list_events_policy["event_projection"] == "compact-overview-v1"
+    assert calendar_list_events_policy["full_details_tool"] == "calendar.get_event"
+    assert calendar_list_events_policy["compact_event_bounds"] == {
+        "location_bytes": 4_096,
+        "stable_id_max_bytes": 1_024,
+        "summary_bytes": 1_024,
+    }
+    assert "normal_event_bounds" not in calendar_list_events_policy
     assert (
         catalog.binding(ToolId("calendar.list_events")).implementation_revision
-        == "jarvis-calendar-list_events-v5"
+        == "jarvis-calendar-list_events-v6"
     )
     assert (
         catalog.binding(ToolId("calendar.get_event")).policy_inputs["observed_end"]
         == calendar_end_policy
     )
     assert catalog.spec(ToolId("calendar.list_events")).limits == ToolLimits(
-        8_192, 262_144, 202, 60.0
+        8_192, 524_288, 202, 60.0
     )
     assert catalog.spec(ToolId("calendar.list_events")).tool_contract_revision == (
-        "1573dab5638dc407fbf7c9144696ca78e0c0a43ed79922d35be96c4206ec8037"
+        "908bb99fd8da9ea022051eddf48fb0e061712738620e6ef8842bc015dd7b7086"
     )
     assert catalog.spec(ToolId("calendar.list_calendars")).tool_contract_revision == (
         "08cc652b133c80a30ee2e9c3be2c64d2321f00533805a4a56213ce95fd911817"
@@ -334,6 +345,70 @@ def test_calendar_list_contract_has_no_provider_calendar_id() -> None:
                 "truncated": False,
             }
         )
+
+
+def test_calendar_list_is_compact_and_get_event_retains_full_snapshot() -> None:
+    compact = CalendarListEventsSuccess.model_validate(
+        {
+            "calendars": [
+                {
+                    "calendar_id": "calendar",
+                    "display_name": None,
+                    "time_zone": None,
+                    "access_role": "reader",
+                    "primary": False,
+                    "hidden": False,
+                    "selected": False,
+                }
+            ],
+            "events": [
+                {
+                    "type": "event",
+                    "calendar_id": "calendar",
+                    "event_id": "event",
+                    "status": "confirmed",
+                    "summary": "Synthetic",
+                    "start": {"type": "all_day", "date": "2026-09-08"},
+                    "end": {"type": "all_day", "date": "2026-09-09"},
+                    "location": None,
+                },
+                {
+                    "type": "cancelled",
+                    "calendar_id": "calendar",
+                    "event_id": "cancelled",
+                },
+            ],
+            "failures": [],
+            "coverage": {
+                "complete": True,
+                "reasons": [],
+                "calendars_discovered": 1,
+                "calendars_completed": 1,
+                "matched_events": 2,
+            },
+            "observed_at": "2026-09-08T00:00:00Z",
+        }
+    )
+    assert isinstance(compact.events[0], CalendarListNormalEvent)
+    assert isinstance(compact.events[1], CalendarListCancelledEvent)
+    with pytest.raises(ValidationError):
+        CalendarListNormalEvent.model_validate(
+            {
+                **compact.events[0].model_dump(mode="json"),
+                "description": "not part of the compact contract",
+            }
+        )
+    overbound = compact.model_dump(mode="json")
+    overbound["events"] = [overbound["events"][0]] * 1_501
+    cast("dict[str, object]", overbound["coverage"])["matched_events"] = 1_501
+    with pytest.raises(ValidationError):
+        CalendarListEventsSuccess.model_validate(overbound)
+
+    full_schema = compile_schema(CalendarGetEventSuccess).semantic
+    full_text = str(full_schema)
+    assert "description" in full_text
+    assert "attendees" in full_text
+    assert "reminders" in full_text
 
 
 def test_calendar_coverage_contract_is_closed_and_cross_field_strict() -> None:

@@ -23,15 +23,16 @@ from sqlalchemy import func, select
 
 from jarvis.actions import ActionStore
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.codex_control import CodexController
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     build_slice5_write_gate,
     build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
+from jarvis.kernel import build_agent_runtime
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
@@ -68,7 +69,7 @@ def _failure_result(error: QualificationFailure) -> dict[str, object]:
         }
     return {
         "failure": failure,
-        "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+        "revisions": EXPECTED_GIT_PINS,
         "status": "failed",
     }
 
@@ -105,6 +106,12 @@ async def _run(
         httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(5)
     )
     engine = create_engine(settings.database_url.get_secret_value())
+    host = settings.codex_host_config
+    agent_runtime = build_agent_runtime(
+        provider_state_root=settings.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    )
+    actions = ActionStore(engine)
     stage = "composition"
     try:
         gate, _ = build_slice5_write_gate(
@@ -122,7 +129,12 @@ async def _run(
                 settings.embedding_openai_api_key,
                 http_client=clients[4],
             ),
-            actions=ActionStore(engine),
+            actions=actions,
+            codex=CodexController(
+                control=agent_runtime.codex,
+                host=host,
+                actions=actions,
+            ),
             automatic_write_gate_definition_fingerprint=gate.fingerprint,
         )
         definitions = build_slice6_definitions(
@@ -264,7 +276,7 @@ async def _run(
                     definitions.main.session_compatibility_revision
                 ),
             },
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "passed",
             "tool_dispatch": {
                 "calls": 2,
@@ -278,6 +290,7 @@ async def _run(
     except BaseException:
         raise QualificationFailure(stage, "unexpected_exception") from None
     finally:
+        await agent_runtime.close()
         await engine.dispose()
         for client in clients:
             await client.aclose()
@@ -297,7 +310,7 @@ def main() -> int:
     except BaseException as exc:
         result = {
             "failure": {"reason": type(exc).__name__, "stage": "setup"},
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

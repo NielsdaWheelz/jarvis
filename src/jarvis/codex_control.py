@@ -53,6 +53,7 @@ from jarvis.codex_tools import (
     CodexTurnPrefix,
     CodexTurnSnapshot,
     CodexTurnTarget,
+    canonical_absolute_path,
 )
 
 if TYPE_CHECKING:
@@ -130,13 +131,11 @@ class CodexHostConfig(_Closed):
 
 
 def _absolute(value: str) -> bool:
-    return (
-        value.startswith("/")
-        and value != "/"
-        and os.path.normpath(value) == value
-        and not any(c in value for c in ("\x00", "\n"))
-        and len(value.encode("utf-8")) <= 4096
-    )
+    try:
+        canonical_absolute_path(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -193,6 +192,10 @@ _RESOLVE_RESULT: TypeAdapter[_Resolved | _TerminalRejected] = TypeAdapter(
 
 class _UnconfirmedControl(RuntimeError):
     """BilledOnce executor persists uncertainty; not a declared retryable error."""
+
+
+class _LauncherUnavailable(RuntimeError):
+    """The helper was unavailable before a mutation could become ambiguous."""
 
 
 class CodexController:
@@ -292,15 +295,23 @@ class CodexController:
                     mutating=False,
                 )
             )
-        except ValueError:
-            # Resolve is read-only; malformed resolution never reaches creation.
+        except _LauncherUnavailable:
             raise DeclaredToolFailure(
                 CodexRejected(reason="unavailable"), actual_attempts=1
             ) from None
-        if isinstance(resolved, _TerminalRejected) or not _absolute(resolved.cwd):
+        if isinstance(resolved, _TerminalRejected):
             raise DeclaredToolFailure(
-                CodexRejected(reason="invalid_input"), actual_attempts=1
+                CodexRejected(
+                    reason=(
+                        "unauthorized"
+                        if resolved.reason == "unauthorized"
+                        else "invalid_input"
+                    )
+                ),
+                actual_attempts=1,
             )
+        if not _absolute(resolved.cwd):
+            raise RuntimeError("Codex launcher returned an invalid resolved path")
         value = value.model_copy(update={"cwd": resolved.cwd})
         await self._stage(context, "create", prefix)
         try:
@@ -317,7 +328,12 @@ class CodexController:
         thread = _thread(created)
         prefix = CodexThreadPrefix(thread=thread)
         await self._stage(context, "terminal", prefix)
-        terminal = await self._launch(value, thread)
+        try:
+            terminal = await self._launch(value, thread)
+        except _LauncherUnavailable:
+            raise DeclaredToolFailure(
+                CodexPartial(stage="terminal", prefix=prefix), actual_attempts=3
+            ) from None
         if isinstance(terminal, _TerminalRejected):
             raise DeclaredToolFailure(
                 CodexPartial(stage="terminal", prefix=prefix), actual_attempts=3
@@ -397,14 +413,19 @@ class CodexController:
         except (
             OSError,
             TimeoutError,
+        ):
+            if not sent or not mutating:
+                raise _LauncherUnavailable("Codex launcher is unavailable") from None
+            raise _UnconfirmedControl(
+                "Codex launcher response unconfirmed; never repeat"
+            ) from None
+        except (
             ValueError,
             asyncio.IncompleteReadError,
             asyncio.LimitOverrunError,
         ):
-            if not sent or not mutating:
-                return _TerminalRejected(
-                    kind="Rejected", stage="validate", reason="invalid_request"
-                ).model_dump(mode="json")
+            if not mutating:
+                raise RuntimeError("Codex launcher protocol defect") from None
             raise _UnconfirmedControl(
                 "Codex launcher response unconfirmed; never repeat"
             ) from None

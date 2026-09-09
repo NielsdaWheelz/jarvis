@@ -55,18 +55,14 @@ from jarvis.terminal import JarvisTerminal
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
+    "llm-agent-kernel": "caa8825556b4032a82d1387acbae89b3e8189930",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+    "provider-runtime": "c9ecf4d974efba2af1aed09dbdb42e76a480d4f8",
 }
 EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY = (
     "llm-agent-kernel-contained-structured-agent-v1:sha256:"
     "1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7"
 )
-EXPECTED_PACKAGE_VERSIONS = {
-    "openai-codex": "0.144.4",
-    "openai-codex-cli-bin": "0.144.4",
-}
 ROUTE_CONTEXT_TOKEN_FLOORS = MappingProxyType(
     {
         "gpt-5.6-terra": 1_050_000,
@@ -1619,9 +1615,9 @@ def load_session_manifest() -> dict[str, object]:
         "schema_version",
     }:
         raise ValueError("session compatibility manifest has an invalid shape")
-    if manifest["schema_version"] != "jarvis-session-compatibility.v2":
+    if manifest["schema_version"] != "jarvis-session-compatibility.v3":
         raise ValueError("session compatibility manifest version is unsupported")
-    if manifest["dependencies"] != {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS}:
+    if manifest["dependencies"] != EXPECTED_GIT_PINS:
         raise ValueError(
             "session compatibility manifest dependency pins do not match code"
         )
@@ -1655,36 +1651,6 @@ def session_compatibility_revision(manifest: dict[str, object], role_id: str) ->
         raise ValueError(f"session compatibility role is unknown: {role_id}")
     if type(application_revision) is not str or not application_revision.strip():
         raise ValueError("application session contract revision must not be empty")
-    if dependencies == {
-        "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
-        "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-        "openai-codex": "0.144.4",
-        "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
-    }:
-        # This release narrows provider authority and prepends a fingerprinted
-        # kernel instruction. It changes definition fingerprints (and therefore
-        # cold-bootstraps sessions) without changing Jarvis's application-level
-        # continuation contract.
-        dependencies["llm-agent-kernel"] = "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
-        dependencies["provider-runtime"] = "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd"
-    if dependencies == {
-        "llm-agent-kernel": "09a1af093479aa92f3e783f4b4a7cc38e301a4a7",
-        "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-        "openai-codex": "0.144.4",
-        "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd",
-    }:
-        dependencies["llm-agent-kernel"] = "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
-    if dependencies == {
-        "llm-agent-kernel": "09f08df2970121ababe973b0e92d6901dd40da9e",
-        "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-        "openai-codex": "0.144.4",
-        "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "f477dcdcad03c30019576203d4eb8a3581a6d32f",
-    }:
-        dependencies["llm-agent-kernel"] = "c9dac7a610636a668bbf932cc2f961c0904f9157"
-        dependencies["provider-runtime"] = "a5d9c8e0c1c851daee0731554e0a4a326d3c2819"
     value = {
         "application_session_contract_revision": application_revision,
         "dependencies": dependencies,
@@ -1760,9 +1726,6 @@ def verify_runtime_dependencies() -> None:
             raise RuntimeError(f"{name} has invalid installation provenance") from error
         if commit != expected:
             raise RuntimeError(f"{name} is not installed at its qualified revision")
-    for name, expected in EXPECTED_PACKAGE_VERSIONS.items():
-        if importlib.metadata.version(name) != expected:
-            raise RuntimeError(f"{name} is not installed at its qualified version")
 
 
 def _text_sections(kind: str, text: str) -> PromptSections:
@@ -1775,7 +1738,6 @@ __all__ = [
     "DEFAULT_NATIVE_CONTEXT_LIMITS",
     "EXPECTED_GIT_PINS",
     "EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY",
-    "EXPECTED_PACKAGE_VERSIONS",
     "QUALIFIED_CODEX_MODELS",
     "ROUTE_CONTEXT_TOKEN_FLOORS",
     "SLICE1_KERNEL_LIMITS",

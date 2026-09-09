@@ -132,10 +132,6 @@ class Settings(BaseModel):
         return self.runtime_state_directory / "session-ref.json"
 
     @property
-    def provider_cwd_parent(self) -> Path:
-        return Path(self.codex_host_config.cognition_cwd_parent)
-
-    @property
     def codex_host_config(self) -> CodexHostConfig:
         return CodexHostConfig.load(self.codex_host_config_path)
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Literal, cast
+from uuid import uuid4
 
 import pytest
 from llm_agent_kernel import (
@@ -18,7 +22,11 @@ from llm_agent_kernel import (
 )
 from llm_tools import (
     CapabilityProfile,
+    DeclaredToolFailure,
+    EffectId,
+    ExecutionContext,
     HostTable,
+    InvocationPosition,
     ProfileId,
     RunLimits,
     ToolCatalog,
@@ -28,6 +36,7 @@ from llm_tools import (
 )
 from llm_tools.testing import InMemoryBudgetState
 from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
+from provider_runtime.agent_runtime.codex_control import CodexControl
 from pydantic import ValidationError
 from websockets.asyncio.server import ServerConnection, unix_serve
 
@@ -36,7 +45,9 @@ from jarvis.codex_control import CodexController, CodexHostConfig
 from jarvis.codex_tools import (
     CODEX_TOOL_IDS,
     CodexListInput,
+    CodexPartial,
     CodexPromptInput,
+    CodexRejected,
     CodexStartInput,
     CodexThreadTarget,
     codex_family,
@@ -166,6 +177,10 @@ def test_control_input_is_closed_bounded_and_has_no_shell_or_model_options() -> 
         {"profile": "alias"},
         {"prompt": "界" * 11000},
         {"cwd": "/synthetic/../other"},
+        {"cwd": "/"},
+        {"cwd": "//synthetic/work"},
+        {"cwd": "/synthetic/work\rignored"},
+        {"cwd": "/synthetic/work\x7fignored"},
         {"name": "-option"},
     )
     for extra in variants:
@@ -178,6 +193,176 @@ def test_control_input_is_closed_bounded_and_has_no_shell_or_model_options() -> 
                 "input": {"type": "NewTurn", "text": "synthetic"},
             }
         )
+
+
+class _Actions:
+    async def stage_codex_control(self, **fields: object) -> None:
+        del fields
+
+
+def _write_context() -> ExecutionContext:
+    action_id = str(uuid4())
+    return cast(
+        "ExecutionContext",
+        SimpleNamespace(
+            effect_id=EffectId(action_id),
+            position=InvocationPosition(action_id),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    (("unauthorized", "unauthorized"), ("invalid_request", "invalid_input")),
+)
+async def test_cwd_resolver_preserves_declared_rejection_classification(
+    tmp_path: Path,
+    reason: Literal["unauthorized", "invalid_request"],
+    expected: Literal["unauthorized", "invalid_input"],
+) -> None:
+    async def helper(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        assert json.loads(await reader.readline())["kind"] == "ResolveCwd"
+        writer.write(
+            json.dumps(
+                {"kind": "Rejected", "stage": "validate", "reason": reason}
+            ).encode()
+            + b"\n"
+        )
+        await writer.drain()
+        writer.close()
+
+    with tempfile.TemporaryDirectory(prefix="jarvis-resolve-", dir="/tmp") as raw:
+        root = Path(raw)
+        async with await asyncio.start_unix_server(helper, str(root / "helper.sock")):
+            controller = CodexController(
+                control=CodexControl({}, lambda _: False),
+                host=host_config(root),
+                actions=cast("ActionStore", _Actions()),
+            )
+            with pytest.raises(DeclaredToolFailure) as raised:
+                await controller.start(
+                    CodexStartInput(
+                        profile="work",
+                        cwd=str(tmp_path),
+                        name="review",
+                        prompt="synthetic",
+                    ),
+                    _write_context(),
+                )
+
+    assert raised.value.error == CodexRejected(reason=expected)
+    assert raised.value.actual_attempts == 1
+
+
+async def test_cwd_resolver_unavailability_is_not_reported_as_invalid_input(
+    tmp_path: Path,
+) -> None:
+    controller = CodexController(
+        control=CodexControl({}, lambda _: False),
+        host=host_config(tmp_path),
+        actions=cast("ActionStore", _Actions()),
+    )
+    with pytest.raises(DeclaredToolFailure) as raised:
+        await controller.start(
+            CodexStartInput(
+                profile="work", cwd=str(tmp_path), name="review", prompt="synthetic"
+            ),
+            _write_context(),
+        )
+
+    assert raised.value.error == CodexRejected(reason="unavailable")
+    assert raised.value.actual_attempts == 1
+
+
+async def test_cwd_resolver_malformed_success_is_a_protocol_defect(
+    tmp_path: Path,
+) -> None:
+    async def helper(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        assert json.loads(await reader.readline())["kind"] == "ResolveCwd"
+        writer.write(b'{"kind":"Resolved","cwd":"/"}\n')
+        await writer.drain()
+        writer.close()
+
+    with tempfile.TemporaryDirectory(prefix="jarvis-resolve-", dir="/tmp") as raw:
+        root = Path(raw)
+        async with await asyncio.start_unix_server(helper, str(root / "helper.sock")):
+            controller = CodexController(
+                control=CodexControl({}, lambda _: False),
+                host=host_config(root),
+                actions=cast("ActionStore", _Actions()),
+            )
+            with pytest.raises(RuntimeError, match="invalid resolved path"):
+                await controller.start(
+                    CodexStartInput(
+                        profile="work",
+                        cwd=str(tmp_path),
+                        name="review",
+                        prompt="synthetic",
+                    ),
+                    _write_context(),
+                )
+
+
+async def test_terminal_launcher_unavailability_preserves_created_thread_prefix(
+    tmp_path: Path, peer: tuple[Path, ProtocolPeer]
+) -> None:
+    root, external = peer
+    socket = root / "helper.sock"
+
+    async def helper(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        assert json.loads(await reader.readline())["kind"] == "ResolveCwd"
+        socket.unlink()
+        writer.write(
+            json.dumps({"kind": "Resolved", "cwd": str(root)}).encode() + b"\n"
+        )
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_unix_server(helper, str(socket))
+    async with server:
+        async with AgentRuntime(
+            AgentRuntimeConfig(
+                state_root_base=tmp_path,
+                codex_endpoints={"work": root / "work.sock"},
+            )
+        ) as runtime:
+            controller = CodexController(
+                control=runtime.codex,
+                host=host_config(root),
+                actions=cast("ActionStore", _Actions()),
+            )
+            with pytest.raises(DeclaredToolFailure) as raised:
+                await controller.start(
+                    CodexStartInput(
+                        profile="work",
+                        cwd=str(root),
+                        name="review",
+                        prompt="synthetic",
+                    ),
+                    _write_context(),
+                )
+
+    error = raised.value.error
+    assert isinstance(error, CodexPartial)
+    assert error.model_dump(mode="json") == CodexPartial.model_validate(
+        {
+            "stage": "terminal",
+            "prefix": {
+                "type": "thread",
+                "thread": {"profile": "work", "thread_handle": THREAD},
+            },
+        }
+    ).model_dump(mode="json")
+    assert raised.value.actual_attempts == 3
+    assert external.methods.count("thread/start") == 1
+    assert external.methods.count("thread/unsubscribe") == 1
+    assert "turn/start" not in external.methods
 
 
 def test_profile_mapping_change_invalidates_frozen_control_policy() -> None:

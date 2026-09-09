@@ -70,14 +70,14 @@ lifecycle, migrations, service definition, and recovery.
 Development and CI workloads share the host but not Jarvis's Unix identity,
 release tree, service lifecycle, or database roles. This accepted v1 coupling
 is bounded with systemd resource controls and disk-headroom checks. The release
-uses its pinned Codex SDK and never the developer's
-user-global Codex binary.
+attaches only to the host-owned pinned Codex services and carries no private SDK
+runtime or bundled Codex binary.
 
 `llm-agent-kernel` is a pinned independent library, not another service or
 state owner. It supplies contained Codex session choreography, strict serial
 protocol, mid-loop polling, settlement, and bounded run machinery.
 `provider-runtime` remains the provider/session implementation. It owns the
-direct Codex App Server stdio JSON-RPC transport behind the stable
+WebSocket-over-Unix-socket Codex App Server client behind the stable
 `AgentRuntime` API and closed-world native event/request classification. `llm-tools`
 remains the prompt-section, contract, implementation-identity, grant,
 validation, and tool-execution implementation. Jarvis owns every product and
@@ -278,7 +278,7 @@ The current event appears exactly once. `llm-agent-kernel` coordinates the
 continuation/bootstrap projection and `llm-tools` typed prompt sections render
 it. XML-like markup is useful structure and provenance, not a prompt-injection
 security boundary. Provider adapters translate the rendered package into native
-inputs; selection code does not construct Codex SDK message objects.
+inputs; selection code does not construct provider-private transport objects.
 
 The configured Discord channel owns one main Codex session. Its
 `AgentSessionRef` and immutable agent-definition fingerprint live in an
@@ -290,28 +290,16 @@ session capability envelope, and the required owner-controlled
 `session_compatibility_revision`. Jarvis derives that revision from a checked-in
 canonical manifest containing the role ID, an owner-bumped application
 session-contract revision, and the exact kernel, provider-runtime, and llm-tools
-pins. Manifest schema v2 also records the exact qualified local-account model
+pins. Manifest schema v3 also records the exact qualified local-account model
 set, currently only `gpt-5.6-terra`. Model-set membership does not enter the
 session revision because the selected model already enters the immutable
 definition fingerprint. Secret bytes, current input, host time, and per-run
 subset plans do not rotate the session.
-There are three certified v1 compatibility exceptions. The active containment
-pair—kernel `21084bec674023ea572950a18dde464506ea37ad` and provider-runtime
-`4ddced3bb5487ce988858c4c6d45d2e5ee0acad9`—canonicalizes to the
-initial-read predecessor pair only for application session-revision derivation.
-The kernel-owned base instruction still enters every definition fingerprint,
-so every old native session cold-bootstraps without a redundant Jarvis revision
-bump. The AutomaticWriteGate fingerprint is also a Write-binding policy input,
-so its rotation deliberately recomposes affected main profiles, plans, and
-HostTables. With every other pin unchanged, the earlier initial-read kernel
-`09a1af093479aa92f3e783f4b4a7cc38e301a4a7` is canonicalized to its compatible
-predecessor `7f3a9b145e68ba23c8aafad08500e9c452a9faef` only for
-session-revision derivation. The other exception atomically canonicalizes the
-kernel `09f08df2970121ababe973b0e92d6901dd40da9e` plus provider-runtime
-`f477dcdcad03c30019576203d4eb8a3581a6d32f` usage-fix pair to its predecessor
-pair. The manifest and startup checks still record and require the active
-revisions. A partial pair, another dependency change, or an application/role
-contract change rotates normally.
+Schema v3 has no predecessor normalization or compatibility reader. Every pin
+participates literally, so this hard cut invalidates old definition
+fingerprints and cold-bootstraps the next cognition session. The
+AutomaticWriteGate fingerprint remains a Write-binding policy input, so its
+rotation also recomposes affected main profiles, plans, and HostTables.
 Configuration accepts only an exact model in the manifest and rejects the
 retired `gpt-5.4` route before ingress, admission, or provider/tool I/O. The
 qualified set has no fixed cardinality, but release qualification requires at
@@ -825,10 +813,10 @@ pending explicit operator reset. Alembic may own its bookkeeping table.
 
 ## Provider containment
 
-Codex runs under the exact policy in [SPEC section 7.5](../SPEC.md#75-codex-containment):
-the real `AgentRuntime` lane with a provider-owned direct App Server transport,
-`JsonSchemaAgentOutput`, a private empty
-read-only cwd, no additional directories, network, copied environment, or MCP,
+Codex cognition runs under the exact policy in [SPEC section 7.5](../SPEC.md#75-codex-containment):
+the real `AgentRuntime` lane attached to the Personal host-owned App Server over
+WebSocket on a Unix socket, `JsonSchemaAgentOutput`, an empty non-secret
+group-readable/traversable asserted-empty read-only cwd, no additional directories, network, or MCP,
 deny-mode approval, disabled native built-ins and Web, and no connector, Brave,
 or embedding credentials. The compatibility API's `allowed_tools=("*",)` sentinel is
 not authority.
@@ -867,11 +855,43 @@ the model terminal.
 
 Production environment files are root-owned mode 0600. systemd reads them for
 the Jarvis host; the `jarvis` identity cannot read them directly. Jarvis becomes
-non-dumpable before opening a provider child, systemd exposes only a ptraceable
-`/proc` subset, and the child receives a replacement credential-free
-environment. The child retains access to its own Codex login and may see
-encrypted/non-secret files readable by its service identity. Read-only provider
-containment alone is not a general host-confidentiality boundary.
+non-dumpable before opening a provider connection and systemd exposes only a
+ptraceable `/proc` subset. The shared development-UID App Server retains its
+profile's Codex login. A dedicated local group grants Jarvis only socket access
+and grants the server traversal of empty cognition directories, never Jarvis
+application state. Read-only provider containment alone is not a general
+host-confidentiality boundary.
+
+## Codex worker control
+
+Main has exactly five owner-directed controls: list, read, start, prompt, and
+interrupt. Profile and full native handles are explicit. Jarvis persists only
+its existing action evidence; Codex owns thread/turn history and tmux owns
+terminal existence. There is no worker table, transcript copy, ownership map,
+completion callback, or workflow graph.
+
+Start validates its closed lexical input, resolves an existing canonical
+permitted cwd through the host helper, creates one prompt-free native thread,
+unsubscribes the control connection, invokes the peer-authenticated host launcher
+with only profile/thread/cwd/name, revalidates the cwd, observes the exact ordinary tmux session once,
+and submits the prompt over structured RPC. The stock remote TUI attaches
+asynchronously. `Started` means thread, terminal, and native Submit were accepted,
+not TUI readiness or worker completion. Pending approvals replay when the TUI
+joins; Jarvis never answers a worker approval. Upstream provides no exclusive
+reviewer lease, so this is a trusted single-user client policy.
+
+Submit exposes native start-or-steer and returns its accepted turn handle.
+Exact Steer uses the expected turn. Interrupt uses the pinned App Server
+exact-turn precheck and observes Interrupted, natural Finished, Stale, or
+Unknown; it has no stronger core CAS claim. Every mutation is BilledOnce with
+one executor entry. Partial and Unknown outcomes retain exact known prefixes,
+and ambiguous dispatch is never repeated or reconstructed from names, cwd, or
+latest-thread inference.
+
+Worker execution is independent of the serial cognition/dispatch mutex after
+launch acceptance. Worker events cannot enter the kernel decoder or confer
+authority. Client, helper, or TUI exit closes only that connection/process; it
+does not kill the shared service or native thread.
 
 ## Scheduling
 

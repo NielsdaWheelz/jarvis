@@ -32,7 +32,7 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A1.7** A second Jarvis instance against the same deployment refuses to
       start while the first holds the ownership lock.
 - [ ] **A1.8** Startup refuses mismatched pinned kernel, provider-runtime,
-      `llm-tools`, Codex SDK/CLI, or kernel base-instruction identity.
+      `llm-tools`, Codex host mapping/version, or kernel base-instruction identity.
 - [x] **A1.9** A dated Slice 0 qualification report records the exact tool
       manifest and schemas, live authority classification, credential
       ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID
@@ -125,7 +125,7 @@ named explicitly; no criterion disappears or is weakened silently.
       explicit operator repair clears it.
 - [ ] **A2.13** Jarvis product context selection supplies plain canonical data to
       the kernel bootstrap and continuation ports. A fake stateless adapter
-      consumes the bootstrap without Codex SDK types; `llm-tools` typed prompt
+      consumes the bootstrap without provider-private transport types; `llm-tools` typed prompt
       sections preserve the current owner message exactly once and one
       host-supplied `as_of` per admitted batch; stable material includes the
       owner timezone before dynamic time; tool/protocol continuation does not
@@ -213,14 +213,15 @@ in Slice 0.
       or tool I/O.
 - [ ] **A4.2 — live.** The embedding key succeeds on the configured embedding
       endpoint and is denied on a generative endpoint.
-- [ ] **A4.3** Codex receives no connector, Brave, Discord, Maps, embedding,
-      database, Google OAuth, or connector-encryption credential and its child
-      environment contains none. Production root-owned mode-0600 environment
-      files are unreadable to `jarvis`; its non-dumpable parent environment is
-      unreadable from a same-identity child. The child retains only its required
-      Codex local-account state.
-- [ ] **A4.4** The real `AgentRuntime` request uses `JsonSchemaAgentOutput`, a
-      private empty read-only cwd containing no repository source, no additional
+- [ ] **A4.3** Codex cognition receives no connector, Brave, Discord, Maps,
+      embedding, database, Google OAuth, or connector-encryption credential.
+      Production root-owned mode-0600 environment files remain unreadable to
+      `jarvis`; its non-dumpable parent environment remains protected. The
+      host-owned Personal App Server retains only its development-account Codex
+      state. A dedicated local group grants socket access and traversal of empty
+      cognition directories, not Jarvis application state.
+- [ ] **A4.4** The real `AgentRuntime` request uses `JsonSchemaAgentOutput`, an
+      empty non-secret mode-0750 group-readable/traversable read-only cwd containing no repository source, no additional
       directories, disabled network, denied approval, empty copied environment,
       no MCP, disabled native built-ins/Web, and only the SDK-required
       `allowed_tools=("*",)` sentinel.
@@ -239,7 +240,8 @@ in Slice 0.
       Unsupported structured-result schemas fail before provider I/O. No
       parallel or multi-call path exists.
 - [ ] **A4.6** The production adapter consumes `AgentRuntime.stream_turn` over
-      the provider-owned direct App Server transport and never calls its
+      a declared WebSocket dependency and the profile-selected host-owned App
+      Server Unix socket, and never calls its
       event-discarding `run_turn` convenience projection. The retained custom
       `exec` incident, every audited native authority class, and denied server
       requests normalize to `AgentToolUse` or `AgentPermissionRequest`; either
@@ -276,7 +278,7 @@ in Slice 0.
       runs receive only the
       catalogued external reads; internal one-shots receive exactly the two
       memory reads. No plan grants `tool.search`, `tool.read`,
-      local-filesystem, Gmail organization, Discord, delegation, program
+      local-filesystem, Gmail organization, Discord, general delegation, program
       execution, or another unlisted tool. The kernel neither discovers tools
       nor classifies product authority.
       Calendar discovery v1, aggregate list v6, and get v2 publish their exact
@@ -295,7 +297,7 @@ in Slice 0.
       `ToolResult`; approval or reconciliation returns one durable suspension.
       Later resolution includes the action reference, tool, original validated
       arguments, resolved state, and safe evidence without provider history.
-- [ ] **A4.13** Active provider turns and host-tool dispatches are serialized.
+- [ ] **A4.13** Active Jarvis cognition turns and Jarvis host-tool dispatches are serialized.
       AutomaticWriteGate can run only while its main parent is paused at the
       dispatch boundary, uses a child allowance included in the root admission
       reservation, and never overlaps another provider call.
@@ -313,6 +315,23 @@ in Slice 0.
       adversarial shell/exec probe causes zero host effect; any observed
       authority event yields only the truthful host-authored runtime-failure
       response.
+- [ ] **A4.16** Main exposes exactly `codex.list`, `codex.read`, `codex.start`,
+      `codex.prompt`, and `codex.interrupt` in addition to the existing catalog;
+      scheduled and internal roles expose none. Inputs reject unknown fields,
+      invalid profiles, out-of-root cwd, shortened handles, stale exact-Steer
+      turns, generic cognition targets, and oversize content before host I/O.
+      Start first resolves an existing canonical permitted cwd through the
+      closed host helper, then creates one prompt-free native thread,
+      unsubscribes Jarvis, creates and observes one exact ordinary tmux session,
+      and performs native Submit. Launch revalidates the exact cwd.
+      `Started` does not claim asynchronous TUI attachment or worker completion.
+      Submit truthfully means start-or-steer. Interrupt reports the observed
+      Interrupted, natural Finished, Stale, or Unknown outcome without retry.
+      Worker approvals receive no Jarvis response. Every mutation is BilledOnce
+      with one executor entry; Partial/Unknown retain the exact surviving prefix,
+      and cancellation/restart/original-input reconsideration never redispatches
+      an ambiguous effect. Workers run independently without entering the
+      cognition decoder or adding a fifth table.
 
 ## A5. Memory
 
@@ -574,11 +593,11 @@ After at least seven days, the owner affirms:
 The report records:
 
 - Git revision and dependency-lock digest.
-- Kernel revision/conformance result plus Codex SDK/runtime/model and prompt
+- Kernel revision/conformance result plus Codex server/TUI/runtime/model and prompt
   digests.
 - Main-session continuation, compatible resume, and lost-session bootstrap
   results.
-- Exact AgentRuntime request, direct App Server transport classification,
+- Exact AgentRuntime request, shared App Server transport classification,
   kernel base-instruction identity, native-authority/unknown-event fail-stop, upgraded
   `llm-tools` public-seam qualification, action/schedule-recorder mapping,
   AutomaticWriteGate isolation/adversarial results, and multi-run

@@ -190,6 +190,18 @@ def _bounded_prompt(value: str) -> str:
     return _bounded_text(value, CODEX_MAX_PROMPT_BYTES)
 
 
+def canonical_absolute_path(value: str) -> str:
+    if (
+        not value.startswith("/")
+        or value.startswith("//")
+        or value == "/"
+        or os.path.normpath(value) != value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError("path must be a normalized non-root absolute path")
+    return _bounded_text(value, 4096)
+
+
 class CodexListInput(_Closed):
     profile: CodexProfile
     cursor: str | None = Field(default=None, min_length=1, max_length=4096)
@@ -213,13 +225,7 @@ class CodexStartInput(_Closed):
     @field_validator("cwd")
     @classmethod
     def bounded_cwd(cls, value: str) -> str:
-        if (
-            not value.startswith("/")
-            or os.path.normpath(value) != value
-            or "\x00" in value
-        ):
-            raise ValueError("cwd must be a normalized absolute path")
-        return _bounded_text(value, 4096)
+        return canonical_absolute_path(value)
 
     _bounded_initial_prompt = field_validator("prompt")(_bounded_prompt)
 

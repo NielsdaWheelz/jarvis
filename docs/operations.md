@@ -2,12 +2,13 @@
 
 Jarvis Slice 6 is one Python 3.12 process, one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
-is the exact v1 catalog in SPEC 7.3. The selected Main plan contains the ten
-external reads and all seven writes. Gmail send and shared, unknown-calendar, or
+is the exact v1 catalog in SPEC 7.3. The selected Main plan contains twelve
+external/native reads and ten writes. Gmail send and shared, unknown-calendar, or
 attendee-bearing Calendar writes use the host-owned approval path; the six Slice
 5 writes retain their documented automatic cases. The isolated memory roles
 receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
-plan, and scheduled-wake turns retain the ten-read plan. Run Jarvis as a
+plan, and scheduled-wake turns retain the original ten external reads without
+Codex control. Run Jarvis as a
 dedicated unprivileged OS user in UTC.
 
 ## Approved production target
@@ -21,7 +22,7 @@ no public listener and is not part of the rootless Docker lifecycle.
 
 The dev-server convergence repository owns shared host prerequisites, UTC, the
 service account, and base directories. This repository owns application
-release/rollback, the locked environment and pinned Codex SDK, credentials,
+release/rollback, its locked dependencies, credentials,
 database roles and migrations, the systemd unit, and recovery.
 Nexus production state is out of scope even though both systems are owned by the
 same user.
@@ -53,6 +54,14 @@ shared host boundary from the `dev-server` repository. An apply may report a
 deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
+That host convergence must also report one active `codex.runtime` identity for
+Codex 0.153.4, three healthy profile sockets, the closed launcher socket, and
+the mode-02750 empty cognition parent. A differing active identity is an
+operator drain/restart action, never an ordinary-apply restart. Before the hard
+cut, stop Jarvis, drain every non-terminal Codex control action and old private
+provider session, then activate the shared services without killing manual tmux
+sessions or deleting native history.
+
 From a clean, committed Jarvis checkout, provision the dedicated database and
 transfer only the already-qualified private application state:
 
@@ -72,11 +81,10 @@ database whose credentials are unknown.
 files under `.secrets/`. It validates the exact key roster, builds the static
 production settings, and installs root-owned mode-0600
 `/etc/jarvis/jarvis.env`, encrypted Google
-connector state, Codex `auth.json`, and the stable installation identity without
-printing their values. Override its `JARVIS_SOURCE_*` paths only to name an
-equivalent private source. The Codex profile is `jarvis-runtime` at
-`/var/lib/jarvis/agent-state/codex/jarvis-runtime`; do not copy provider session
-databases, logs, caches, goals, or memories.
+connector state and the stable installation identity without printing their
+values. Override its `JARVIS_SOURCE_*` paths only to name an equivalent private
+source. Codex authentication and native history remain exclusively in the
+three development-user account homes; never copy either into Jarvis state.
 
 The qualified Google client, connector-encryption, Maps, Brave, Discord, and
 embedding settings remain host-owned and never enter model context or the Codex
@@ -117,10 +125,9 @@ the service identity, verifies the active systemd `/proc` and core-dump
 controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
-control; no provider child is opened before the control succeeds. Access to the
-Codex profile itself is expected; that
-is the provider's sole required credential. The direct provider child receives
-a replacement environment containing none of the Jarvis host credentials.
+control; no provider connection is opened before the control succeeds. The
+service then receives only the non-secret profile/socket view and launcher path;
+it receives no Codex credential or development-user account-home access.
 
 Do not activate an older release across an incompatible migration or a
 non-terminal action contract. A same-schema rollback may select an already
@@ -207,10 +214,33 @@ vulnerabilities.
 
 Run every live qualification from the exact revision being recorded and against
 an empty, freshly migrated disposable database. Each runtime-state path must be
-unused and its existing parent must be mode 0700. The Codex state-root base is
-the private existing directory above the `codex/<profile>` provider scope; do
-not copy its authentication into the checkout or process environment. The Codex
-child receives an empty environment from the production adapter.
+unused and its existing parent must be mode 0700. Set
+`JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json`; that root-owned
+mapping must name the running pinned shared services and exact mode-02750
+cognition parent. Never copy Codex authentication into the checkout or process
+environment, and never start a private App Server from a qualifier.
+
+The shared-control journey is Linux-only and requires a separately prepared,
+root-owned test mapping. Its launcher and gateway must both name one fresh
+`jarvis-codex-qualify-<32-hex>` tmux `-L` wrapper; the launcher socket parent
+must use that same namespace. Use a loopback-only disposable database named
+`jarvis_codex_qualify_*` and an existing permitted development cwd:
+
+```sh
+JARVIS_CODEX_QUALIFICATION_DATABASE_URL=postgresql+psycopg://...@127.0.0.1/jarvis_codex_qualify_run \
+  uv run python scripts/qualify_codex_control.py \
+    --allow-provider-calls \
+    --allow-isolated-tmux-mutation \
+    --allow-disposable-database-writes \
+    --profile-config /etc/codex-shared-qualification/profiles.json \
+    --tmux-binary /usr/bin/tmux \
+    --socket-name jarvis-codex-qualify-0123456789abcdef0123456789abcdef \
+    --cwd /home/niels/src/personal/skidbladnir
+```
+
+The harness cleans only exact terminals it created. It still reports overall
+`NOT_RUN` until the separately owned TUI/manual-input, approval, Skid/phone,
+contained-cognition, and lost-submit restart boundaries are observed.
 
 Slice 6 live Gmail send and shared-calendar trials use the exact production
 catalog, action recorder, renderers, handler, connector, recovery path, and a
@@ -232,8 +262,8 @@ decisions, counts, role/plan/schema identities, usage, and timings:
 
 ```sh
 JARVIS_CODEX_MODEL=gpt-5.6-terra \
-JARVIS_CODEX_PROFILE_KEY=jarvis-runtime \
-JARVIS_CODEX_STATE_ROOT=/private/existing/agent-state \
+JARVIS_CODEX_PROFILE_KEY=personal \
+JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json \
 JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/slice5-gate-runtime \
   uv run python scripts/qualify_write_gate.py --confirm-paid
 ```
@@ -315,8 +345,8 @@ compatibility manifest; the current set contains only `gpt-5.6-terra`:
 ```sh
 JARVIS_CODEX_LIVE=1 \
 JARVIS_CODEX_MODEL=gpt-5.6-terra \
-JARVIS_CODEX_PROFILE_KEY=jarvis-runtime \
-JARVIS_CODEX_STATE_ROOT=/private/existing/agent-state \
+JARVIS_CODEX_PROFILE_KEY=personal \
+JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json \
 JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/terra-runtime \
 JARVIS_LIVE_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_terra_probe \
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles \
@@ -382,8 +412,8 @@ memory or action. The runtime-state directory must not exist before the command.
 ```sh
 JARVIS_MEMORY_LIVE=1 \
 JARVIS_CODEX_MODEL=gpt-5.6-terra \
-JARVIS_CODEX_PROFILE_KEY=jarvis-runtime \
-JARVIS_CODEX_STATE_ROOT=/private/existing/agent-state \
+JARVIS_CODEX_PROFILE_KEY=personal \
+JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json \
 JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-runtime \
 JARVIS_LIVE_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_memory_probe \
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles \

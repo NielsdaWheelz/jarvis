@@ -43,7 +43,6 @@ from jarvis.connectors import GoogleTokenManager
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     build_slice5_definitions,
     build_slice5_write_gate,
     verify_runtime_dependencies,
@@ -597,7 +596,7 @@ async def _run(settings: Settings, calendar_id: str) -> dict[str, object]:
                 "gmail_create_evidence": gmail_create_reconciliation.evidence,
                 "gmail_update": True,
             },
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "passed",
             "writes": {
                 "actions": len(_OPERATIONS),
@@ -683,14 +682,14 @@ def main() -> int:
         result = {
             "failure": {"reason": exc.reason, "stage": exc.stage},
             "implementation": _implementation(),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     except BaseException as exc:
         result = {
             "failure": {"reason": type(exc).__name__, "stage": stage},
             "implementation": _implementation(),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

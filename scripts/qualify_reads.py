@@ -26,16 +26,17 @@ from sqlalchemy import func, select
 
 from jarvis.actions import ActionStore
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.codex_control import CodexController
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     SLICE2_READ_IDS,
     build_slice5_write_gate,
     build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
+from jarvis.kernel import build_agent_runtime
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_tools import (
@@ -88,6 +89,12 @@ async def _run(settings: Settings) -> dict[str, object]:
         httpx.AsyncClient(trust_env=False, follow_redirects=False) for _ in range(5)
     )
     engine = create_engine(settings.database_url.get_secret_value())
+    host = settings.codex_host_config
+    agent_runtime = build_agent_runtime(
+        provider_state_root=settings.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    )
+    actions = ActionStore(engine)
     stage = "composition"
     try:
         gate, _ = build_slice5_write_gate(
@@ -105,7 +112,12 @@ async def _run(settings: Settings) -> dict[str, object]:
                 settings.embedding_openai_api_key,
                 http_client=clients[4],
             ),
-            actions=ActionStore(engine),
+            actions=actions,
+            codex=CodexController(
+                control=agent_runtime.codex,
+                host=host,
+                actions=actions,
+            ),
             automatic_write_gate_definition_fingerprint=gate.fingerprint,
         )
         definitions = build_slice6_definitions(
@@ -329,7 +341,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     "text_bytes": len(cast(str, web_read["text"]).encode()),
                 },
             },
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "passed",
             "tool_dispatch": {
                 "calls": len(calls),
@@ -344,6 +356,7 @@ async def _run(settings: Settings) -> dict[str, object]:
     except BaseException:
         raise QualificationFailure(stage, "unexpected_exception") from None
     finally:
+        await agent_runtime.close()
         await engine.dispose()
         for client in clients:
             await client.aclose()
@@ -360,14 +373,14 @@ def main() -> int:
         result = {
             "failure": {"reason": exc.reason, "stage": exc.stage},
             "implementation": _implementation(),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     except BaseException as exc:
         result = {
             "failure": {"reason": type(exc).__name__, "stage": stage},
             "implementation": _implementation(),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import grp
 import json
+import os
 import stat
 from pathlib import Path
 from types import SimpleNamespace
@@ -60,7 +62,7 @@ def _host(tmp_path: Path) -> CodexHostConfig:
             },
             "development_user": "synthetic",
             "jarvis_user": "jarvis",
-            "client_group": "codex-clients",
+            "client_group": grp.getgrgid(os.getgid()).gr_name,
             "binary": "/synthetic/codex",
             "tmux": "/synthetic/tmux",
             "cognition_cwd_parent": str(tmp_path / "cognition"),
@@ -131,6 +133,24 @@ def test_initialize_state_rejects_cognition_parent_without_setgid(
     settings = _settings(tmp_path)
     host = _host(tmp_path)
     Path(host.cognition_cwd_parent).mkdir(mode=0o750)
+
+    with pytest.raises(StartupDefect, match="cognition cwd parent"):
+        initialize_state(settings, host)
+
+    assert not settings.runtime_state_directory.exists()
+
+
+def test_initialize_state_rejects_wrong_cognition_parent_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings(tmp_path)
+    host = _host(tmp_path)
+    _create_cognition_parent(host)
+
+    def wrong_group(_name: str) -> SimpleNamespace:
+        return SimpleNamespace(gr_gid=os.getgid() + 1)
+
+    monkeypatch.setattr("jarvis.cli.grp.getgrnam", wrong_group)
 
     with pytest.raises(StartupDefect, match="cognition cwd parent"):
         initialize_state(settings, host)

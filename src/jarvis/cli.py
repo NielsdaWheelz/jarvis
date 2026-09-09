@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import grp
 import logging
+import os
 import stat
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -177,24 +179,33 @@ def _private_directory(path: Path, name: str) -> None:
         raise StartupDefect(f"{name} must be a private directory")
 
 
-def _shared_cognition_directory(path: Path) -> None:
+def _shared_cognition_directory(path: Path, group: str) -> None:
     try:
-        mode = stat.S_IMODE(path.stat().st_mode)
-    except OSError as exc:
+        metadata = path.stat()
+        group_id = grp.getgrnam(group).gr_gid
+    except (KeyError, OSError) as exc:
         raise StartupDefect("cognition cwd parent is unavailable") from exc
-    if not path.is_dir() or mode != 0o2750:
-        raise StartupDefect("cognition cwd parent must be a mode-02750 directory")
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o2750
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != group_id
+    ):
+        raise StartupDefect(
+            "cognition cwd parent must be owned by Jarvis and the configured group "
+            "with mode 02750"
+        )
 
 
 def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
-    _shared_cognition_directory(Path(host.cognition_cwd_parent))
+    _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
 
 
 def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
     """Create the private, content-free durable host state exactly once."""
 
-    _shared_cognition_directory(Path(host.cognition_cwd_parent))
+    _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     directory = settings.runtime_state_directory
     if directory.exists():
         _private_directory(directory, "runtime state directory")

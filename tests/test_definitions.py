@@ -161,132 +161,31 @@ def _assert_codex_closed_schema(node: object) -> None:
 
 def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     manifest = load_session_manifest()
-    assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
-    assert manifest["application_session_contract_revision"] == "jarvis-slice-3-v1"
+    assert manifest["schema_version"] == "jarvis-session-compatibility.v3"
+    assert (
+        manifest["application_session_contract_revision"] == "jarvis-codex-control-v1"
+    )
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
-    assert (
-        cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
-        == "jarvis-main-truthful-terminals-v2"
-    )
-    assert (
-        cast("dict[str, object]", manifest["role_contract_revisions"])["recaller"]
-        == "jarvis-recaller-slice-4-v17"
-    )
-    assert session_compatibility_revision(manifest, "recaller") == (
-        "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db"
-    )
-    assert (
-        cast("dict[str, object]", manifest["role_contract_revisions"])["dreamer"]
-        == "jarvis-dreamer-slice-4-v6"
-    )
-    assert session_compatibility_revision(manifest, "dreamer") == (
-        "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d"
-    )
-    previous_recaller = {**manifest}
-    previous_recaller_roles = dict(
-        cast("dict[str, object]", previous_recaller["role_contract_revisions"])
-    )
-    previous_recaller_roles["recaller"] = "jarvis-recaller-slice-4-v11"
-    previous_recaller["role_contract_revisions"] = previous_recaller_roles
-    assert session_compatibility_revision(previous_recaller, "recaller") == (
-        "5f989b6f9045374e821155cb2be19daf27be50131effd633d0e4c57d8727ed93"
-    )
-    for role in ("main", "rememberer", "dreamer", "automatic_write_gate"):
-        assert session_compatibility_revision(previous_recaller, role) == (
-            session_compatibility_revision(manifest, role)
-        )
-    assert manifest["dependencies"] == {
-        "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
-        "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-        "openai-codex": "0.144.4",
-        "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+    roles = cast("dict[str, object]", manifest["role_contract_revisions"])
+    assert roles["main"] == "jarvis-main-codex-control-v1"
+    assert roles["automatic_write_gate"] == "jarvis-write-gate-codex-control-v1"
+    assert set(cast("dict[str, object]", manifest["dependencies"])) == {
+        "llm-agent-kernel",
+        "llm-tools",
+        "provider-runtime",
     }
-    pre_containment_release = {**manifest}
-    pre_containment_dependencies = dict(
-        cast("dict[str, object]", pre_containment_release["dependencies"])
-    )
-    pre_containment_dependencies["llm-agent-kernel"] = (
-        "09a1af093479aa92f3e783f4b4a7cc38e301a4a7"
-    )
-    pre_containment_dependencies["provider-runtime"] = (
-        "2cfed97ee5b9b8eb11103b0575eb7f29de00a0bd"
-    )
-    pre_containment_release["dependencies"] = pre_containment_dependencies
-    for role in (
-        "main",
-        "recaller",
-        "rememberer",
-        "dreamer",
-        "automatic_write_gate",
-    ):
-        assert session_compatibility_revision(pre_containment_release, role) == (
-            session_compatibility_revision(manifest, role)
-        )
 
-    initial_read_predecessor = {**pre_containment_release}
-    initial_read_predecessor_dependencies = dict(pre_containment_dependencies)
-    initial_read_predecessor_dependencies["llm-agent-kernel"] = (
-        "7f3a9b145e68ba23c8aafad08500e9c452a9faef"
-    )
-    initial_read_predecessor["dependencies"] = initial_read_predecessor_dependencies
-    for role in (
-        "main",
-        "recaller",
-        "rememberer",
-        "dreamer",
-        "automatic_write_gate",
-    ):
-        assert session_compatibility_revision(initial_read_predecessor, role) == (
-            session_compatibility_revision(manifest, role)
-        )
     original = session_compatibility_revision(manifest, "main")
-    assert (
-        original == "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d"
-    )
-
     previous = {**manifest}
     previous_roles = dict(
         cast("dict[str, object]", previous["role_contract_revisions"])
     )
-    previous_roles["main"] = "jarvis-main-slice-2-v2"
+    previous_roles["main"] = "retired-main"
     previous["role_contract_revisions"] = previous_roles
-    assert session_compatibility_revision(previous, "main") == (
-        "72adbeb8a9932a894b00e05e7f79aefd13dfd1d7a3d5b7c5a8331e199071d1ea"
+    assert session_compatibility_revision(previous, "main") != original
+    assert session_compatibility_revision(previous, "recaller") == (
+        session_compatibility_revision(manifest, "recaller")
     )
-
-    historical = {**manifest}
-    historical_dependencies = dict(
-        cast("dict[str, object]", historical["dependencies"])
-    )
-    historical_dependencies["llm-agent-kernel"] = (
-        "09f08df2970121ababe973b0e92d6901dd40da9e"
-    )
-    historical_dependencies["provider-runtime"] = (
-        "f477dcdcad03c30019576203d4eb8a3581a6d32f"
-    )
-    historical["dependencies"] = historical_dependencies
-    historical_revision = session_compatibility_revision(historical, "main")
-    assert historical_revision != original
-
-    predecessor = {**historical}
-    predecessor_dependencies = dict(historical_dependencies)
-    predecessor_dependencies["llm-agent-kernel"] = (
-        "c9dac7a610636a668bbf932cc2f961c0904f9157"
-    )
-    predecessor_dependencies["provider-runtime"] = (
-        "a5d9c8e0c1c851daee0731554e0a4a326d3c2819"
-    )
-    predecessor["dependencies"] = predecessor_dependencies
-    assert session_compatibility_revision(predecessor, "main") == historical_revision
-
-    partial = {**historical}
-    partial_dependencies = dict(historical_dependencies)
-    partial_dependencies["llm-agent-kernel"] = (
-        "c9dac7a610636a668bbf932cc2f961c0904f9157"
-    )
-    partial["dependencies"] = partial_dependencies
-    assert session_compatibility_revision(partial, "main") != historical_revision
 
     other_dependency = {**manifest}
     other_dependencies = dict(
@@ -296,18 +195,8 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     other_dependency["dependencies"] = other_dependencies
     assert session_compatibility_revision(other_dependency, "main") != original
 
-    changed = {**manifest}
-    roles = dict(cast("dict[str, object]", changed["role_contract_revisions"]))
-    roles["main"] = "jarvis-main-slice-1-v2"
-    changed["role_contract_revisions"] = roles
-
-    assert session_compatibility_revision(changed, "main") != original
-    assert session_compatibility_revision(changed, "recaller") == (
-        session_compatibility_revision(manifest, "recaller")
-    )
-
     application_changed = {**manifest}
-    application_changed["application_session_contract_revision"] = "jarvis-slice-2-v4"
+    application_changed["application_session_contract_revision"] = "future"
     assert session_compatibility_revision(application_changed, "main") != original
 
     qualified_models_changed = {

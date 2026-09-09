@@ -53,7 +53,11 @@ from jarvis.definitions import (
     build_slice2_definitions,
     verify_runtime_dependencies,
 )
-from jarvis.kernel import EmptySlice1Dispatcher, build_kernel_runtime
+from jarvis.kernel import (
+    EmptySlice1Dispatcher,
+    build_agent_runtime,
+    build_kernel_runtime,
+)
 from jarvis.read_composition import build_read_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.settings import Settings
@@ -158,19 +162,28 @@ async def test_runtime_bundle_uses_production_contained_provider(
     provider_state = tmp_path / "provider"
     provider_state.mkdir(mode=0o700)
     cwd_parent = tmp_path / "cwd"
-    cwd_parent.mkdir(mode=0o700)
+    cwd_parent.mkdir(mode=0o750)
+    cwd_parent.chmod(0o2750)
     session_path = tmp_path / "session.json"
+    endpoints = {
+        profile: tmp_path / f"{profile}.sock"
+        for profile in ("personal", "work", "work2")
+    }
+    runtime = build_agent_runtime(
+        provider_state_root=provider_state,
+        codex_endpoints=endpoints,
+    )
 
     bundle = build_kernel_runtime(
-        provider_state_root=provider_state,
-        private_cwd_parent=cwd_parent,
+        runtime=runtime,
+        shared_cwd_parent=cwd_parent,
         session_ref_path=session_path,
         model="gpt-5.6-terra",
         kernel_limits=SLICE1_KERNEL_LIMITS,
     )
     try:
-        assert bundle.runtime.config.state_root_base == provider_state
-        assert bundle.runtime.config.max_turn_seconds == 300.0
+        assert bundle.runtime is runtime
+        assert bundle.runtime.config.codex_endpoints == endpoints
     finally:
         await bundle.close()
 
@@ -240,7 +253,8 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
     provider_state = tmp_path / "provider"
     provider_state.mkdir(mode=0o700)
     cwd_parent = tmp_path / "cwd"
-    cwd_parent.mkdir(mode=0o700)
+    cwd_parent.mkdir(mode=0o750)
+    cwd_parent.chmod(0o2750)
     recorded: list[_RecordingRuntime] = []
 
     def runtime_factory(config: AgentRuntimeConfig) -> _RecordingRuntime:
@@ -249,13 +263,17 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         return runtime
 
     monkeypatch.setattr("jarvis.kernel.AgentRuntime", runtime_factory)
-    bundle = build_kernel_runtime(
+    runtime = build_agent_runtime(
         provider_state_root=provider_state,
-        private_cwd_parent=cwd_parent,
+        codex_endpoints={"personal": tmp_path / "personal.sock"},
+        verify_dependencies=False,
+    )
+    bundle = build_kernel_runtime(
+        runtime=runtime,
+        shared_cwd_parent=cwd_parent,
         session_ref_path=tmp_path / "session.json",
         model="gpt-5.6-terra",
         kernel_limits=SLICE2_KERNEL_LIMITS,
-        verify_dependencies=False,
     )
     clients = [httpx.AsyncClient(trust_env=False) for _ in range(4)]
     catalog = build_read_catalog(
@@ -357,5 +375,5 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
     assert isinstance(request.native, CodexNativeOptions)
     assert request.native.web_search is False
     assert request.native.builtin_tools == "disabled"
-    assert recorded[0].cwd_checks == [(True, True, stat.S_IRUSR | stat.S_IXUSR)]
+    assert recorded[0].cwd_checks == [(True, True, 0o750)]
     assert recorded[0].closed is True

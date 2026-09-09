@@ -16,6 +16,7 @@ from jarvis.cli import (
     main,
     recover_startup_actions,
 )
+from jarvis.codex_control import CodexHostConfig
 from jarvis.config import DiscordSettings
 from jarvis.settings import Settings
 
@@ -30,9 +31,9 @@ def _settings(tmp_path: Path) -> Settings:
             channel_id=33,
         ),
         owner_timezone="America/Los_Angeles",
-        codex_profile_key="jarvis",
+        codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
-        codex_state_root=tmp_path / "codex",
+        codex_host_config_path=tmp_path / "codex-profiles.json",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-google-client"),
@@ -47,14 +48,53 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
+def _host(tmp_path: Path) -> CodexHostConfig:
+    return CodexHostConfig.model_validate(
+        {
+            "schema_version": 1,
+            "version": "0.153.4",
+            "package": {
+                "name": "@openai/codex",
+                "integrity": "sha512-" + "a" * 86 + "==",
+                "shasum": "a" * 40,
+            },
+            "development_user": "synthetic",
+            "jarvis_user": "jarvis",
+            "client_group": "codex-clients",
+            "binary": "/synthetic/codex",
+            "tmux": "/synthetic/tmux",
+            "cognition_cwd_parent": str(tmp_path / "cognition"),
+            "launcher_socket": str(tmp_path / "helper.sock"),
+            "profiles": {
+                profile: {
+                    "account_home": f"/synthetic/{profile}",
+                    "endpoint": f"unix://{tmp_path}/{profile}.sock",
+                    "work_roots": [str(tmp_path)],
+                }
+                for profile in ("personal", "work", "work2")
+            },
+        }
+    )
+
+
+def _create_cognition_parent(host: CodexHostConfig) -> Path:
+    path = Path(host.cognition_cwd_parent)
+    path.mkdir(mode=0o750)
+    path.chmod(0o2750)
+    return path
+
+
 def test_initialize_state_creates_private_content_free_host_state(
     tmp_path: Path,
 ) -> None:
     settings = _settings(tmp_path)
-    initialize_state(settings)
+    host = _host(tmp_path)
+    cognition = _create_cognition_parent(host)
+    initialize_state(settings, host)
 
     assert stat.S_IMODE(settings.runtime_state_directory.stat().st_mode) == 0o700
-    assert stat.S_IMODE(settings.provider_cwd_parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(cognition.stat().st_mode) == 0o2750
+    assert list(cognition.iterdir()) == []
     assert stat.S_IMODE(settings.paused_state_path.stat().st_mode) == 0o600
     assert stat.S_IMODE(settings.admission_journal_path.stat().st_mode) == 0o600
     assert json.loads(settings.paused_state_path.read_text()) == {
@@ -68,17 +108,34 @@ def test_initialize_state_creates_private_content_free_host_state(
 
 def test_initialize_state_refuses_to_replace_existing_state(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    initialize_state(settings)
+    host = _host(tmp_path)
+    _create_cognition_parent(host)
+    initialize_state(settings, host)
     with pytest.raises(StartupDefect):
-        initialize_state(settings)
+        initialize_state(settings, host)
 
 
 def test_initialize_state_rejects_nonprivate_runtime_directory(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
+    host = _host(tmp_path)
+    _create_cognition_parent(host)
     settings.runtime_state_directory.mkdir(mode=0o755)
     settings.runtime_state_directory.chmod(0o755)
     with pytest.raises(StartupDefect):
-        initialize_state(settings)
+        initialize_state(settings, host)
+
+
+def test_initialize_state_rejects_cognition_parent_without_setgid(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    host = _host(tmp_path)
+    Path(host.cognition_cwd_parent).mkdir(mode=0o750)
+
+    with pytest.raises(StartupDefect, match="cognition cwd parent"):
+        initialize_state(settings, host)
+
+    assert not settings.runtime_state_directory.exists()
 
 
 @pytest.mark.asyncio
@@ -125,9 +182,9 @@ def test_cli_rejects_retired_model_before_serve_or_runtime_io(
 ) -> None:
     serve_called = False
 
-    async def serve_spy(settings: Settings) -> None:
+    async def serve_spy(settings: Settings, host: CodexHostConfig) -> None:
         nonlocal serve_called
-        del settings
+        del settings, host
         serve_called = True
 
     environment = {
@@ -137,9 +194,9 @@ def test_cli_rejects_retired_model_before_serve_or_runtime_io(
         "JARVIS_DISCORD_GUILD_ID": "22",
         "JARVIS_DISCORD_CHANNEL_ID": "33",
         "JARVIS_OWNER_TIMEZONE": "America/Los_Angeles",
-        "JARVIS_CODEX_PROFILE_KEY": "jarvis",
+        "JARVIS_CODEX_PROFILE_KEY": "personal",
         "JARVIS_CODEX_MODEL": "gpt-5.4",
-        "JARVIS_CODEX_STATE_ROOT": str(tmp_path / "codex"),
+        "JARVIS_CODEX_HOST_CONFIG_PATH": str(tmp_path / "codex-profiles.json"),
         "JARVIS_RUNTIME_STATE_DIRECTORY": str(tmp_path / "runtime"),
         "JARVIS_GOOGLE_OAUTH_STATE_PATH": str(tmp_path / "google.json"),
         "JARVIS_GOOGLE_OAUTH_CLIENT_ID": "synthetic-google-client",
@@ -163,26 +220,40 @@ def test_cli_rejects_retired_model_before_serve_or_runtime_io(
     assert not (tmp_path / "runtime").exists()
 
 
-def test_manual_dream_cli_reports_only_mutation_counts(
+def test_manual_dream_cli_reads_one_host_snapshot_and_reports_only_mutation_counts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     settings = _settings(tmp_path)
+    host = _host(tmp_path)
+    host_reads = 0
     created = (UUID(int=1), UUID(int=2))
     removed = (UUID(int=3),)
 
-    async def run(selected: Settings) -> object:
+    def load_host(_settings: Settings) -> CodexHostConfig:
+        nonlocal host_reads
+        host_reads += 1
+        return host
+
+    async def run(selected: Settings, selected_host: CodexHostConfig) -> object:
         assert selected is settings
+        assert selected_host is host
         return SimpleNamespace(
             created_summary_ids=created,
             removed_summary_ids=removed,
         )
 
     monkeypatch.setattr(Settings, "from_env", staticmethod(lambda: settings))
+    monkeypatch.setattr(
+        Settings,
+        "codex_host_config",
+        property(load_host),
+    )
     monkeypatch.setattr("jarvis.cli.dream_once", run)
 
     assert main(("dream",)) == 0
+    assert host_reads == 1
     assert capsys.readouterr().out == "Dream completed: inserted=2 removed=1.\n"
 
 
@@ -192,15 +263,22 @@ def test_rebuild_cli_reports_only_production_corpus_counts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     settings = _settings(tmp_path)
+    host = _host(tmp_path)
 
-    async def run(selected: Settings) -> object:
+    async def run(selected: Settings, selected_host: CodexHostConfig) -> object:
         assert selected is settings
+        assert selected_host is host
         return SimpleNamespace(
             raw_memory_count=12,
             summaries_after=1,
         )
 
     monkeypatch.setattr(Settings, "from_env", staticmethod(lambda: settings))
+    monkeypatch.setattr(
+        Settings,
+        "codex_host_config",
+        property(lambda _settings: host),
+    )
     monkeypatch.setattr("jarvis.cli.rebuild_memory", run)
 
     assert main(("rebuild-memory",)) == 0

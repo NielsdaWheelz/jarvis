@@ -17,6 +17,7 @@ from llm_agent_kernel import (
     RunMetrics,
     ThreadStopKind,
 )
+from provider_fixture import model_journal
 from test_dreamer_role import build_test_slice4_definitions
 
 from jarvis.definitions import DreamResult
@@ -72,6 +73,9 @@ class _Memory:
         if not block_commit:
             self.commit_release.set()
 
+    async def snapshot_revision(self) -> str:
+        return "test-memory-snapshot-v1"
+
     async def raw_memory_count(self) -> int:
         self.raw_count_calls += 1
         return self.raw_count
@@ -105,6 +109,7 @@ async def _worker(
     definitions, _ = await build_test_slice4_definitions(tmp_path)
     return (
         DreamerWorker(
+            model_decisions=model_journal,
             definition=definitions.dreamer,
             plan=definitions.plans["dreamer"],
             admission=cast(Any, admission or _Admission()),

@@ -28,14 +28,16 @@ from llm_tools.execution import ParsedJson
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import RowMapping, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import action, message
 from jarvis.messages import (
     MAX_DISCORD_MESSAGE_CHARACTERS,
     MAX_TRACE_BYTES,
     SettlementTrace,
+    render_host_fallback,
 )
+from jarvis.ownership import Database
 
 if TYPE_CHECKING:
     from jarvis.schedule_tools import ScheduleTarget
@@ -191,7 +193,7 @@ class ScheduleStateChanged:
 class ActionStore:
     """Explicit PostgreSQL transactions over the existing action table."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         self.engine = engine
 
     async def insert_automatic(
@@ -413,6 +415,119 @@ class ActionStore:
                 action_inserted=action_inserted,
                 message_inserted=message_inserted,
             )
+
+    async def recover_pending_approval_origin(
+        self, *, action_id: UUID, source_conversation_id: str
+    ) -> bool:
+        """Finish a committed approval's original suspension before model replay."""
+        async with self.engine.begin() as connection:
+            stored = await _require_locked_action(connection, action_id)
+            if stored.status != "awaiting_approval":
+                return False
+            if stored.approval_message_id is None:
+                raise ActionPersistenceDefect("pending approval has no presentation")
+            approval = (
+                (
+                    await connection.execute(
+                        select(message).where(
+                            message.c.id == stored.approval_message_id
+                        )
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                approval is None
+                or approval["role"] != "assistant"
+                or approval["source_conversation_id"] != source_conversation_id
+            ):
+                raise ActionPersistenceDefect("pending approval presentation disagrees")
+            input_ids = tuple(map(UUID, stored.execution_contract.input_message_ids))
+            rows = (
+                (
+                    await connection.execute(
+                        select(message)
+                        .where(message.c.id.in_(input_ids))
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if len(rows) != len(input_ids) or any(
+                row["source_conversation_id"] != source_conversation_id
+                or row["role"] not in {"owner", "host"}
+                for row in rows
+            ):
+                raise ActionPersistenceDefect(
+                    "pending approval input lineage disagrees"
+                )
+            processed = tuple(row["processed_at"] is not None for row in rows)
+            if all(processed):
+                return False
+            if any(processed) or any(
+                row["processing_parked_at"] is not None for row in rows
+            ):
+                raise ActionPersistenceDefect(
+                    "pending approval input is partially settled or parked"
+                )
+            host_inputs = tuple(row for row in rows if row["role"] == "host")
+            if len(host_inputs) > 1:
+                raise ActionPersistenceDefect(
+                    "pending approval lineage contains multiple host inputs"
+                )
+            conclusion_id = stored.approval_message_id
+            conclusion_kind = "suspension"
+            outcome = "user"
+            if host_inputs:
+                waking = host_inputs[0]
+                conclusion_id = uuid5(
+                    NAMESPACE_URL,
+                    f"jarvis-approval-recovery-host-v1:{stored.id}:{waking['id']}",
+                )
+                visibility = render_host_fallback(
+                    source=waking["source"],
+                    text=waking["text"],
+                    maximum_characters=MAX_DISCORD_MESSAGE_CHARACTERS,
+                )
+                await connection.execute(
+                    postgresql_insert(message).values(
+                        id=conclusion_id,
+                        role="assistant",
+                        text=visibility,
+                        source="discord",
+                        source_conversation_id=source_conversation_id,
+                        source_message_id=None,
+                        processed_at=func.now(),
+                        trace={},
+                    )
+                )
+                conclusion_kind = "conversation"
+                outcome = "host_fallback"
+            settlement = SettlementTrace(
+                run_id=f"approval-recovery:{stored.execution_contract.claim_id}",
+                through_checkpoint=stored.execution_contract.through_checkpoint,
+                conclusion_kind=conclusion_kind,
+                outcome=outcome,
+            ).as_json(conclusion_id)
+            if any(
+                len(canonical_json_bytes({**row["trace"], "settlement": settlement}))
+                > MAX_TRACE_BYTES
+                for row in rows
+            ):
+                raise ActionPersistenceDefect(
+                    "pending approval recovery exceeds the message trace bound"
+                )
+            await connection.execute(
+                update(message)
+                .where(message.c.id.in_(input_ids))
+                .values(
+                    processed_at=func.now(),
+                    trace=message.c.trace.concat({"settlement": settlement}),
+                )
+            )
+            return True
 
     async def pending_approvals(
         self,

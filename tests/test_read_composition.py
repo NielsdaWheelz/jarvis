@@ -28,6 +28,7 @@ from llm_tools import (
     render_prompt,
     web_family,
 )
+from provider_fixture import decision_key, frozen_provider
 from pydantic import SecretStr
 
 from jarvis.admission import ExactToolBudgetFactory
@@ -43,7 +44,7 @@ from jarvis.definitions import (
     session_generation_limit,
 )
 from jarvis.read_composition import build_read_catalog
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_tools import compose_read_catalog
 from jarvis.settings import Settings
 
@@ -133,8 +134,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
 
     definitions = build_slice2_definitions(
         catalog=catalog,
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     assert definitions.main.maximum_profile.run_limits == SLICE2_TOOL_LIMITS
@@ -148,10 +148,10 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         "2b3f2ae6d30ecfdc24f2ef2acb8eee31e0f36c9a665331a78116bd35a2d223a1"
     )
     assert definitions.main.session_compatibility_revision == (
-        "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d"
+        "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2"
     )
     assert definitions.main.fingerprint == (
-        "531af90c62b5ffd2be9b16db2c3aa51b5142f67ef9d3050f6342b1ab338f71ff"
+        "cb88f78d0760cc56afe6ce6237c3abd31f159ca603d1841944658c8f68034954"
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (
@@ -238,8 +238,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
     with pytest.raises(ValueError, match="qualified Slice 2 route"):
         build_slice2_definitions(
             catalog=catalog,
-            profile_key="synthetic-profile",
-            model="gpt-5.4",
+            provider=frozen_provider("synthetic-profile", "gpt-5.4", "high"),
             owner_timezone="UTC",
         )
     native_static = 16_384 + 16_384 + 32_768
@@ -281,8 +280,7 @@ def test_slice2_definition_rejects_unavailable_web_bindings() -> None:
     with pytest.raises(ValueError, match="must all be available"):
         build_slice2_definitions(
             catalog=catalog,
-            profile_key="synthetic-profile",
-            model="gpt-5.6-terra",
+            provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
             owner_timezone="UTC",
         )
 
@@ -318,14 +316,17 @@ async def test_production_web_binding_rejects_encoded_host_secret_before_io(
         )
         definitions = build_slice2_definitions(
             catalog=catalog,
-            profile_key=settings.codex_profile_key,
-            model=settings.codex_model,
+            provider=frozen_provider(
+                settings.codex_profile_key, settings.codex_model, "high"
+            ),
             owner_timezone=settings.owner_timezone,
         )
         plan = definitions.plans["main"]
         require_host_plan(plan, definitions.main.maximum_profile)
         budgets = ExactToolBudgetFactory().create(plan)
-        dispatcher = ReadToolDispatcher(host_secrets=settings.host_secrets)
+        dispatcher = ReadToolDispatcher(
+            recorder=RunReadRecorder(), host_secrets=settings.host_secrets
+        )
         bare_key = next(
             value for value in settings.host_secrets if value.startswith("a2tr")
         )
@@ -345,6 +346,8 @@ async def test_production_web_binding_rejects_encoded_host_secret_before_io(
                 Checkpoint("checkpoint"),
                 (InputId("input"),),
                 1,
+                definition_fingerprint="a" * 64,
+                model_decision_id=decision_key(str(ClaimId("claim")), 1),
             ),
         )
         plus_result = await dispatcher.dispatch(
@@ -360,6 +363,8 @@ async def test_production_web_binding_rejects_encoded_host_secret_before_io(
                 Checkpoint("checkpoint"),
                 (InputId("input"),),
                 2,
+                definition_fingerprint="a" * 64,
+                model_decision_id=decision_key(str(ClaimId("claim")), 2),
             ),
         )
         label_result = await dispatcher.dispatch(
@@ -375,6 +380,8 @@ async def test_production_web_binding_rejects_encoded_host_secret_before_io(
                 Checkpoint("checkpoint"),
                 (InputId("input"),),
                 3,
+                definition_fingerprint="a" * 64,
+                model_decision_id=decision_key(str(ClaimId("claim")), 3),
             ),
         )
     finally:

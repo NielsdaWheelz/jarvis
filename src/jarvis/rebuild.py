@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from typing import Literal, Protocol, cast
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.admission import RollingAdmissionLimits
 from jarvis.db import memory_log, memory_summary
@@ -26,6 +25,7 @@ from jarvis.memory import (
     StoredMemory,
 )
 from jarvis.memory_retrieval import MemoryEmbedder
+from jarvis.ownership import Database
 from jarvis.recall_evaluation import (
     PostRebuildSummary,
     RecallCase,
@@ -121,7 +121,7 @@ class _RebuildStore(Protocol):
 
 
 class PostgresRebuildStore:
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         self._engine = engine
         self._memory = MemoryStore(engine)
 

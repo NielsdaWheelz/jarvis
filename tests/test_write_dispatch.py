@@ -41,6 +41,7 @@ from llm_tools import (
     ToolPlan,
 )
 from llm_tools.testing import InMemoryBudgetState
+from provider_fixture import decision_key, frozen_provider, model_journal
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -49,7 +50,7 @@ from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.db import action, create_engine, message
 from jarvis.definitions import build_slice5_write_gate
 from jarvis.messages import MessageStore
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.terminal import TurnEvidence
 from jarvis.write_connectors import (
     CalendarCurrentSnapshot,
@@ -376,6 +377,8 @@ def _lineage(owner_id: UUID) -> DispatchLineage:
         Checkpoint(str(owner_id)),
         (InputId(str(owner_id)),),
         1,
+        definition_fingerprint="a" * 64,
+        model_decision_id=decision_key(str(ClaimId(str(uuid4()))), 1),
     )
 
 
@@ -391,7 +394,7 @@ def _dispatcher(
         gate=cast("Any", gate),
         actions=cast("Any", actions),
         google_write=cast("Any", google),
-        read=ReadToolDispatcher(host_secrets=()),
+        read=ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=()),
         owner_timezone="UTC",
         source_conversation_id="synthetic-channel",
         verified_owner_only_calendar_ids=("owner@example.invalid",),
@@ -585,13 +588,13 @@ async def test_host_action_resolution_cannot_authorize_a_write(
     )
     assert isinstance(claimed, ClaimAcquired)
     gate_definition, gate_plan = build_slice5_write_gate(
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
     result = await _dispatch(
         _dispatcher(
             checkpoint=checkpoint,
             gate=AutomaticWriteGate(
+                model_decisions=model_journal,
                 definition=gate_definition,
                 plan=gate_plan,
                 admission=cast("Any", object()),
@@ -609,6 +612,8 @@ async def test_host_action_resolution_cannot_authorize_a_write(
             claimed.claim.through_checkpoint,
             tuple(item.input_id for item in claimed.claim.inputs),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(claimed.claim.claim_id), 1),
         ),
     )
 

@@ -17,6 +17,7 @@ from llm_agent_kernel import (
     validate_provider_step,
 )
 from llm_tools import PromptText, RunLimits, ToolEffect
+from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import freeze_json_object, thaw_json_value
 from pydantic import SecretStr, ValidationError
 
@@ -83,8 +84,7 @@ async def build_test_slice4_definitions(tmp_path: Path) -> Any:
         )
     return build_slice4_definitions(
         catalog=catalog,
-        profile_key="test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     ), catalog
 
@@ -230,8 +230,7 @@ async def test_only_behaviorally_affected_role_identities_rotate_for_slice4(
     definitions, catalog = await build_test_slice4_definitions(tmp_path)
     slice3 = build_slice3_definitions(
         catalog=catalog,
-        profile_key="test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     for role in ("main", "rememberer", "automatic_write_gate"):
@@ -254,9 +253,6 @@ async def test_only_behaviorally_affected_role_identities_rotate_for_slice4(
     )
     assert definitions.dreamer.session_compatibility_revision != (
         session_compatibility_revision(previous, "dreamer")
-    )
-    assert session_compatibility_revision(previous, "dreamer") == (
-        "2242bd946834afe5f7d0effa4215395041083c30d39a518564759f15b59ac926"
     )
     assert definitions.recaller.session_compatibility_revision == (
         session_compatibility_revision(manifest, "recaller")

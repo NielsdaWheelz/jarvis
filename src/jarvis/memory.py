@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -11,10 +12,23 @@ from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import RowMapping, and_, delete, func, insert, not_, or_, select, update
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from llm_tools import canonical_json_bytes
+from sqlalchemy import (
+    RowMapping,
+    and_,
+    delete,
+    func,
+    insert,
+    literal,
+    not_,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import memory_log, memory_summary, message
+from jarvis.ownership import Database
 
 MemoryTableKind = Literal["memory_log", "memory_summary"]
 
@@ -206,8 +220,25 @@ class DerivedMemoryWipe:
 class MemoryStore:
     """Direct PostgreSQL operations for canonical and derived memory state."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         self._engine = engine
+
+    async def snapshot_revision(self) -> str:
+        async with self._engine.connect() as connection:
+            identities = (
+                await connection.execute(
+                    select(literal("raw").label("kind"), memory_log.c.id)
+                    .union_all(
+                        select(literal("summary").label("kind"), memory_summary.c.id)
+                    )
+                    .order_by("kind", "id")
+                )
+            ).all()
+        return hashlib.sha256(
+            canonical_json_bytes(
+                [[kind, str(identifier)] for kind, identifier in identities]
+            )
+        ).hexdigest()
 
     async def raw_memory_count(self) -> int:
         async with self._engine.connect() as connection:

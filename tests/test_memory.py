@@ -18,6 +18,7 @@ from llm_agent_kernel import (
     RunMetrics,
 )
 from llm_tools import PromptSections
+from provider_fixture import frozen_provider, model_journal
 from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -292,10 +293,11 @@ async def test_worker_embedding_failure_preserves_committed_lexical_memory(
     limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(admission_path, limits)
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     memory = MemoryStore(engine)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=RootTrackingAdmissionPort(

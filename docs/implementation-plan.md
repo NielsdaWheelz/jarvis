@@ -36,7 +36,7 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The active implemented public kernel pin
-  `21084bec674023ea572950a18dde464506ea37ad`, with exact
+  `35f42b91bc214f556c1b5b6a36d9629ed00e574d`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2
@@ -544,7 +544,7 @@ release is enabled and every preceding Slice 7 gate passes.
 
 ## Changes requiring an ADR
 
-- A fifth application table.
+- An additional application table beyond ADR 0040's six-table roster.
 - A semantic memory field or explicit personal-domain model.
 - A workflow framework or general agent platform beyond `llm-agent-kernel`.
 - Task-scoped delegation, persistent peer agents, or a model-generated program

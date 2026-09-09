@@ -37,6 +37,7 @@ from llm_tools import (
 )
 
 from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
+from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import RecallResult
 from jarvis.memory import MemoryIdentity, StoredMemory, StoredMemorySummary
 from jarvis.memory_dispatch import MemoryDispatchEvidence
@@ -104,6 +105,10 @@ class MemoryReadDispatcherPort(ToolDispatchPort, Protocol):
     @property
     def evidence(self) -> MemoryDispatchEvidence: ...
 
+    def snapshot_model_evidence(self) -> dict[str, object]: ...
+
+    def restore_model_evidence(self, value: object) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class RecallEvidence:
@@ -124,6 +129,7 @@ class IsolatedRecaller:
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
         memory: MemoryOpenPort,
         trace: RecallTracePort,
+        model_decisions: ModelJournalFactory,
     ) -> None:
         self._definition = definition
         self._plan = plan
@@ -132,6 +138,7 @@ class IsolatedRecaller:
         self._dispatcher_factory = dispatcher_factory
         self._memory = memory
         self._trace = trace
+        self._model_decisions = model_decisions
         self._last_evidence: RecallEvidence | None = None
 
     @property
@@ -152,7 +159,11 @@ class IsolatedRecaller:
             raise ContextSourceDefect("owner input ID is not a UUID") from error
         dispatcher = self._dispatcher_factory()
         run_id = RunId(str(uuid4()))
+        decisions, as_of = await isolated_decisions(
+            self._model_decisions, dispatcher, f"jarvis-recall:{message_id}", as_of
+        )
         outcome = await run_one_shot(
+            decisions=decisions,
             run_id=run_id,
             definition=self._definition,
             inputs=(owner_input,),

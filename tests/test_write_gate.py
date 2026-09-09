@@ -24,6 +24,7 @@ from llm_agent_kernel import (
     bootstrap_context,
 )
 from llm_tools import PromptSections, ToolId
+from provider_fixture import frozen_provider, model_journal
 from pydantic import ValidationError
 
 from jarvis.admission import (
@@ -57,7 +58,7 @@ def _inputs(*texts: str) -> tuple[GateOwnerInput, ...]:
 
 def _definition_and_plan() -> tuple[object, object]:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     definition = replace(
         definitions.automatic_write_gate,
@@ -127,6 +128,7 @@ async def test_gate_uses_only_restricted_projection_and_active_root(
 
     monkeypatch.setattr("jarvis.write_gate.run_one_shot", completed)
     gate = AutomaticWriteGate(
+        model_decisions=model_journal,
         definition=cast(Any, definition),
         plan=cast(Any, plan),
         admission=admission,
@@ -135,6 +137,7 @@ async def test_gate_uses_only_restricted_projection_and_active_root(
     decision = await gate.evaluate(
         _inputs("Create the event for the owner."),
         tool_id=ToolId("calendar.create_event"),
+        operation_id="test-write-gate",
         descriptor=_descriptor(),
         owner_timezone="America/Los_Angeles",
         as_of=NOW,
@@ -180,6 +183,7 @@ async def test_relative_time_alone_requests_time_projection(
 
     monkeypatch.setattr("jarvis.write_gate.run_one_shot", denied)
     gate = AutomaticWriteGate(
+        model_decisions=model_journal,
         definition=cast(Any, definition),
         plan=cast(Any, plan),
         admission=admission,
@@ -188,6 +192,7 @@ async def test_relative_time_alone_requests_time_projection(
     decision = await gate.evaluate(
         _inputs("Create it tomorrow morning."),
         tool_id=ToolId("calendar.create_event"),
+        operation_id="test-write-gate",
         descriptor=_descriptor(),
         owner_timezone="America/Los_Angeles",
         as_of=NOW,
@@ -254,6 +259,7 @@ async def test_gate_rejects_invalid_or_noncurrent_support(
 
     monkeypatch.setattr("jarvis.write_gate.run_one_shot", completed)
     gate = AutomaticWriteGate(
+        model_decisions=model_journal,
         definition=cast(Any, definition),
         plan=cast(Any, plan),
         admission=admission,
@@ -262,6 +268,7 @@ async def test_gate_rejects_invalid_or_noncurrent_support(
     decision = await gate.evaluate(
         _inputs("First", "Second"),
         tool_id=ToolId("gmail.create_draft"),
+        operation_id="test-write-gate",
         descriptor=_descriptor(),
         owner_timezone=None,
         as_of=NOW,
@@ -290,6 +297,7 @@ async def test_gate_stops_and_empty_owner_input_fail_closed(
 
     monkeypatch.setattr("jarvis.write_gate.run_one_shot", stopped)
     gate = AutomaticWriteGate(
+        model_decisions=model_journal,
         definition=cast(Any, definition),
         plan=cast(Any, plan),
         admission=admission,
@@ -298,6 +306,7 @@ async def test_gate_stops_and_empty_owner_input_fail_closed(
     empty = await gate.evaluate(
         (),
         tool_id=ToolId("gmail.create_draft"),
+        operation_id="test-write-gate",
         descriptor=_descriptor(),
         owner_timezone=None,
         as_of=NOW,
@@ -306,6 +315,7 @@ async def test_gate_stops_and_empty_owner_input_fail_closed(
     stopped_decision = await gate.evaluate(
         _inputs("Draft the message."),
         tool_id=ToolId("gmail.create_draft"),
+        operation_id="test-write-gate",
         descriptor=_descriptor(),
         owner_timezone=None,
         as_of=NOW,
@@ -323,6 +333,7 @@ def test_gate_definition_and_descriptor_boundaries() -> None:
     definition, plan = _definition_and_plan()
     with pytest.raises(ValueError, match="input projection policy"):
         AutomaticWriteGate(
+            model_decisions=model_journal,
             definition=replace(
                 cast(Any, definition),
                 input_projection_policy=InputProjectionPolicy(),

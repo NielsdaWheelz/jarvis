@@ -27,6 +27,7 @@ from llm_agent_kernel import (
     ThreadId,
     provider_wire_schema,
 )
+from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
 from llm_tools import ToolId, canonical_json_bytes
 
 from jarvis.admission import (
@@ -41,7 +42,7 @@ from jarvis.definitions import (
     build_slice5_write_gate,
     verify_runtime_dependencies,
 )
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
 from jarvis.write_gate import (
     AutomaticWriteGate,
     EffectAudience,
@@ -368,10 +369,14 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     provider_cwd.mkdir(mode=0o700)
     stage = "composition"
     try:
-        definition, plan = build_slice5_write_gate(
+        provider_configuration = await resolve_provider_configuration(
+            state_root=arguments.state_root,
             profile_key=arguments.profile,
-            model=arguments.model,
-            reasoning_effort=arguments.reasoning_effort,
+            model_key=arguments.model,
+            reasoning=arguments.reasoning_effort,
+        )
+        definition, plan = build_slice5_write_gate(
+            provider=provider_configuration,
         )
         limits = qualification_admission_limits()
         admission_path = arguments.runtime_state_directory / "admission.json"
@@ -401,6 +406,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         evidence: list[dict[str, object]] = []
         try:
             gate = AutomaticWriteGate(
+                model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
                 definition=definition,
                 plan=plan,
                 admission=admission,
@@ -416,6 +422,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                             created_at=CREATED_AT,
                         ),
                     ),
+                    operation_id=f"synthetic-write-gate:{trial.id}",
                     tool_id=trial.tool_id,
                     descriptor=trial.descriptor,
                     owner_timezone=None,
@@ -446,6 +453,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 ),
             },
             "paid_attempts_per_case": 1,
+            "recovery": "not_qualified_disposable_synthetic_probe",
             "route": arguments.model,
             "safety": {"passed": len(safety), "total": 5},
             "status": "passed",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Never, cast
 from uuid import UUID, uuid4
@@ -65,13 +66,17 @@ from jarvis.write_connectors import (
 )
 from jarvis.write_dispatch import ActionRecovery
 from jarvis.write_tools import (
+    CalendarCreateEventInput,
+    CalendarWritableEvent,
     GmailContent,
     GmailCreateDraftInput,
     GmailDraftSuccess,
     GmailUpdateDraftInput,
     Mailbox,
+    TimedEventTime,
     WriteAttemptBudget,
     WriteResponse,
+    calendar_write_family,
     gmail_write_family,
 )
 
@@ -255,6 +260,257 @@ def _gmail_plan() -> tuple[ToolBinding[Any, Any, Any], FrozenToolPlan]:
     ).freeze(catalog)
     plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
     return catalog.binding(tool_id), plan
+
+
+def _pending_calendar_approval(
+    owner: UUID,
+) -> tuple[StoredAction, FrozenToolPlan]:
+    catalog = ToolCatalog.compose(
+        (calendar_write_family(cast("Any", _NeverWriteProvider())),)
+    )
+    tool_id = ToolId("calendar.create_event")
+    profile = CapabilityProfile(
+        ProfileId("pending_approval_recovery"),
+        (ToolGrant(tool_id, None),),
+        RunLimits(1, 8, 1_048_576, 1_048_576, 1, 60.0),
+    ).freeze(catalog)
+    plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+    binding = catalog.binding(tool_id)
+    arguments = CalendarCreateEventInput(
+        calendar_id="shared@example.invalid",
+        event=CalendarWritableEvent(
+            summary="Synthetic approval recovery",
+            description=None,
+            location=None,
+            start=TimedEventTime(date_time=NOW, time_zone="UTC"),
+            end=TimedEventTime(date_time=NOW + timedelta(hours=1), time_zone="UTC"),
+            recurrence=(),
+            attendees=(),
+            use_default_reminders=True,
+            reminders=(),
+        ),
+        notify_attendees=False,
+    ).model_dump(mode="json")
+    return StoredAction(
+        id=uuid4(),
+        tool_name=tool_id,
+        arguments=arguments,
+        execution_contract=_contract(
+            arguments,
+            (owner,),
+            tool_contract_revision=binding.spec.tool_contract_revision,
+            implementation_revision=binding.implementation_revision,
+            policy_revision=binding.policy_revision,
+            plan_revision=plan.plan_revision,
+        ),
+        status="awaiting_approval",
+        attempts=0,
+        execute_after=None,
+        origin_message_id=owner,
+        approval_message_id=uuid4(),
+        created_at=NOW,
+        decided_at=None,
+        completed_at=None,
+        result=None,
+    ), plan
+
+
+async def test_pending_approval_recovery_closes_original_input_before_main() -> None:
+    pending, plan = _pending_calendar_approval(uuid4())
+
+    class Store:
+        def __init__(self) -> None:
+            self.input_pending = True
+            self.recovered: list[UUID] = []
+
+        async def pending_approvals(self, **kwargs: object) -> tuple[StoredAction, ...]:
+            return (pending,)
+
+        async def recover_pending_approval_origin(
+            self, *, action_id: UUID, source_conversation_id: str
+        ) -> bool:
+            assert source_conversation_id == "approval-recovery"
+            assert action_id == pending.id
+            if not self.input_pending:
+                return False
+            self.input_pending = False
+            self.recovered.append(action_id)
+            return True
+
+        async def executing_schedule_receipts(self, **kwargs: object) -> tuple[()]:
+            return ()
+
+        async def recovery_candidates(self, **kwargs: object) -> tuple[()]:
+            return ()
+
+        async def unreported_terminal(self, **kwargs: object) -> tuple[()]:
+            return ()
+
+    store = Store()
+    recovery = ActionRecovery(
+        actions=cast("Any", store),
+        google_write=cast("Any", _NeverWriteProvider()),
+        plan=plan,
+        source_conversation_id="approval-recovery",
+    )
+    assert await recovery.recover() == 1
+    assert not store.input_pending
+    assert store.recovered == [pending.id]
+    assert await recovery.recover() == 0
+
+
+@postgres
+@pytest.mark.parametrize("with_host_input", (False, True))
+async def test_committed_pending_approval_blocks_completed_model_replay(
+    engine: AsyncEngine,
+    with_host_input: bool,
+) -> None:
+    from llm_agent_kernel import Checkpoint, InputId
+    from llm_agent_kernel.decisions import ModelDecisionRequest, ModelDecisionScope
+    from provider_runtime.agent_runtime import AgentSessionRef, AgentTerminal
+
+    from jarvis.decisions import PostgresModelDecisionJournal
+    from jarvis.messages import NoMessages
+    from jarvis.ownership import deployment_ownership
+
+    async with deployment_ownership(engine) as database:
+        conversation = f"approval-crash-{uuid4()}"
+        messages = MessageStore(database)
+        owner = (
+            await messages.insert_waking(
+                role="owner",
+                text="Create this event after my approval.",
+                source="discord",
+                source_conversation_id=conversation,
+                source_message_id=str(uuid4()),
+                created_at=NOW,
+            )
+        ).message.id
+        pending, plan = _pending_calendar_approval(owner)
+        original_inputs = (owner,)
+        if with_host_input:
+            host = (
+                await messages.insert_waking(
+                    role="host",
+                    text=(
+                        "The previous event was created."
+                        + ACTION_MODEL_CONTEXT_SEPARATOR
+                        + "private model-only evidence"
+                    ),
+                    source="action",
+                    source_conversation_id=conversation,
+                    source_message_id=str(uuid4()),
+                    created_at=NOW - timedelta(seconds=1),
+                )
+            ).message.id
+            original_inputs = (host, owner)
+            pending = replace(
+                pending,
+                execution_contract=ExecutionContract.model_validate(
+                    {
+                        **pending.execution_contract.as_json(),
+                        "input_message_ids": list(map(str, original_inputs)),
+                    }
+                ),
+            )
+        actions = ActionStore(database)
+        approval = await actions.insert_awaiting_approval(
+            tool_name=pending.tool_name,
+            arguments=pending.arguments,
+            execution_contract=pending.execution_contract,
+            origin_message_id=owner,
+            approval_text="Original persisted approval",
+            source_conversation_id=conversation,
+            action_id=pending.id,
+            created_at=NOW,
+        )
+        request = ModelDecisionRequest(
+            scope=ModelDecisionScope(
+                ThreadId(conversation), InputId(str(original_inputs[0]))
+            ),
+            ordinal=1,
+            definition_fingerprint="f" * 64,
+            plan_revision=plan.plan_revision,
+            input_ids=tuple(InputId(str(value)) for value in original_inputs),
+            through_checkpoint=Checkpoint(str(owner)),
+            as_of=NOW,
+            model_step_ordinal_before=0,
+            protocol_repairs=0,
+            canonical_content=("original request",),
+            submitted_content=("original request",),
+        )
+        journal = PostgresModelDecisionJournal(database)
+        await journal.arm(request)
+        await journal.complete(
+            request,
+            AgentTerminal(
+                status="succeeded",
+                failure=None,
+                final_text="accepted original write",
+                session_ref=AgentSessionRef(
+                    "agent-session-ref.v1",
+                    "codex",
+                    "sdk",
+                    "original-session",
+                    "approval-test",
+                    "f" * 64,
+                    "a" * 64,
+                ),
+            ),
+        )
+        original = await messages.message_by_id(owner)
+        assert original is not None and original.processed_at is None
+        recovery = ActionRecovery(
+            actions=actions,
+            google_write=cast("Any", _NeverWriteProvider()),
+            plan=plan,
+            source_conversation_id=conversation,
+        )
+        assert await recovery.recover() == 1
+        assert isinstance(
+            await messages.claim(
+                source_conversation_id=conversation,
+                maximum_batch_size=1,
+                maximum_attempts=1,
+            ),
+            NoMessages,
+        )
+        assert await actions.get(pending.id) == approval.action
+        settled = await messages.message_by_id(owner)
+        assert settled is not None and settled.processed_at is not None
+        settlement = settled.trace["settlement"]
+        assert isinstance(settlement, dict)
+        settlement = cast("dict[str, object]", settlement)
+        if with_host_input:
+            visibility_id = settlement["conclusion_message_id"]
+            assert isinstance(visibility_id, str)
+            visibility = await messages.message_by_id(UUID(visibility_id))
+            assert visibility is not None
+            assert visibility.id != approval.message_id
+            assert visibility.text == "Action update: The previous event was created."
+            host_message = await messages.message_by_id(original_inputs[0])
+            assert host_message is not None and host_message.processed_at is not None
+            assert host_message.trace["settlement"] == settlement
+        else:
+            assert settlement["conclusion_message_id"] == str(approval.message_id)
+        assert await recovery.recover() == 0
+        async with database.connect() as connection:
+            assert (
+                await connection.scalar(
+                    select(func.count())
+                    .select_from(action)
+                    .where(action.c.origin_message_id == owner)
+                )
+                == 1
+            )
+            assert await connection.scalar(
+                select(func.count())
+                .select_from(message)
+                .where(
+                    message.c.source_conversation_id == conversation,
+                    message.c.role == "assistant",
+                )
+            ) == 1 + int(with_host_input)
 
 
 def _gmail_arguments() -> dict[str, object]:

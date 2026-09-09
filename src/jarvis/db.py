@@ -249,6 +249,78 @@ action = Table(
 Index("ix_action_status_execute_after", action.c.status, action.c.execute_after)
 
 
+model_decision = Table(
+    "model_decision",
+    metadata,
+    Column("decision_id", Text, primary_key=True),
+    Column("scope_key", Text, nullable=False),
+    Column("thread_id", Text),
+    Column(
+        "first_input_id",
+        UUID(as_uuid=True),
+        ForeignKey("message.id", ondelete="RESTRICT"),
+    ),
+    Column("ordinal", Integer, nullable=False),
+    Column("request_fingerprint", Text, nullable=False),
+    Column("request", JSONB, nullable=False),
+    Column("terminal", JSONB),
+    Column("host_evidence", JSONB),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    ),
+    Column("completed_at", DateTime(timezone=True)),
+    UniqueConstraint("scope_key", "ordinal", name="uq_model_decision_scope_ordinal"),
+    CheckConstraint("ordinal > 0", name="ordinal_positive"),
+    CheckConstraint(
+        "decision_id ~ '^[0-9a-f]{64}$' AND request_fingerprint ~ '^[0-9a-f]{64}$'",
+        name="fingerprints",
+    ),
+    CheckConstraint(
+        "(thread_id IS NULL) = (first_input_id IS NULL)", name="thread_scope"
+    ),
+    CheckConstraint("jsonb_typeof(request) = 'object'", name="request_object"),
+    CheckConstraint(
+        "terminal IS NULL OR jsonb_typeof(terminal) = 'object'", name="terminal_object"
+    ),
+    CheckConstraint("(terminal IS NULL) = (completed_at IS NULL)", name="completion"),
+)
+
+
+read_position = Table(
+    "read_position",
+    metadata,
+    Column("position", Text, primary_key=True),
+    Column("contract", JSONB, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("reservation", JSONB),
+    Column("result", JSONB),
+    Column("settlement", JSONB),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    ),
+    CheckConstraint(
+        "state IN ('prepared', 'dispatched', 'uncertain', 'completed')", name="state"
+    ),
+    CheckConstraint("jsonb_typeof(contract) = 'object'", name="contract_object"),
+    CheckConstraint(
+        "(state = 'completed') = (result IS NOT NULL AND settlement IS NOT NULL)",
+        name="completion",
+    ),
+)
+
+
 def normalize_database_url(database_url: str) -> str:
     if database_url.startswith("postgresql://"):
         return database_url.replace("postgresql://", "postgresql+psycopg://", 1)

@@ -44,6 +44,7 @@ from llm_agent_kernel import (
 )
 from llm_tools import ReplayPolicy, ToolEffect, raw_input_digest, render_prompt
 from llm_tools.execution import ParsedJson
+from provider_fixture import decision_key, frozen_provider
 from pydantic import SecretStr
 from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -198,6 +199,29 @@ async def test_migration_has_exact_application_schema(
             "completed_at",
             "result",
         },
+    }
+    expected_columns["model_decision"] = {
+        "decision_id",
+        "scope_key",
+        "thread_id",
+        "first_input_id",
+        "ordinal",
+        "request_fingerprint",
+        "request",
+        "terminal",
+        "host_evidence",
+        "created_at",
+        "completed_at",
+    }
+    expected_columns["read_position"] = {
+        "position",
+        "contract",
+        "state",
+        "reservation",
+        "result",
+        "settlement",
+        "created_at",
+        "updated_at",
     }
     async with engine.connect() as connection:
         table_rows = (
@@ -990,8 +1014,7 @@ def _checkpoint(
     evidence: TurnEvidence | None = None,
 ) -> PostgresInputCheckpoint:
     definitions = build_slice1_definitions(
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
     return PostgresInputCheckpoint(
@@ -1206,6 +1229,8 @@ async def test_host_only_action_resolution_has_empty_write_gate_authority(
             claimed.claim.through_checkpoint,
             tuple(item.input_id for item in claimed.claim.inputs),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(claimed.claim.claim_id), 1),
         )
     )
 
@@ -2463,8 +2488,7 @@ async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
     )
     groups: list[tuple[UUID, ...]] = []
     definitions = build_slice1_definitions(
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
     checkpoint = PostgresInputCheckpoint(

@@ -37,6 +37,7 @@ from llm_agent_kernel import (
     ThreadId,
     ThreadStopKind,
     ToolDispatchDefect,
+    TransientModelDecisions,
     ValidatedToolCall,
     run_one_shot,
     validate_provider_step,
@@ -51,6 +52,7 @@ from llm_tools import (
     ToolId,
     render_prompt,
 )
+from provider_fixture import frozen_provider, model_journal
 from provider_runtime.agent_runtime import (
     AgentEvent,
     AgentRuntime,
@@ -212,7 +214,7 @@ async def test_context_recalls_each_owner_batch_once_at_its_authoritative_clock(
     None
 ):
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     initial_owner = _input()
     host = HostInput(
@@ -307,7 +309,7 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     identity = MemoryIdentity("memory_log", MEMORY_ID)
     row = StoredRawMemory(MEMORY_ID, "exact stored preference", NOW, None)
@@ -329,6 +331,7 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
 
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
+        model_decisions=model_journal,
         definition=definitions.recaller,
         plan=definitions.plans["recaller"],
         admission=admission,
@@ -378,7 +381,7 @@ async def test_recaller_host_rehydration_defect_propagates(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     identity = MemoryIdentity("memory_log", MEMORY_ID)
     admission, _root_token = await _active_admission(tmp_path)
@@ -399,6 +402,7 @@ async def test_recaller_host_rehydration_defect_propagates(
 
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
+        model_decisions=model_journal,
         definition=definitions.recaller,
         plan=definitions.plans["recaller"],
         admission=admission,
@@ -424,7 +428,7 @@ async def test_recaller_initial_query_preserves_bounded_owner_head_and_tail(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     observed: dict[str, object] = {}
     admission, root_token = await _active_admission(tmp_path)
@@ -438,6 +442,7 @@ async def test_recaller_initial_query_preserves_bounded_owner_head_and_tail(
 
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
+        model_decisions=model_journal,
         definition=definitions.recaller,
         plan=definitions.plans["recaller"],
         admission=admission,
@@ -482,6 +487,7 @@ async def test_recaller_cancellation_prevents_initial_read_dispatch(
     cancellation.cancel()
     try:
         recaller = IsolatedRecaller(
+            model_decisions=model_journal,
             definition=definitions.recaller,
             plan=definitions.plans["recaller"],
             admission=admission,
@@ -513,6 +519,7 @@ async def test_recaller_initial_read_failure_prevents_provider_io(
     admission, root_token = await _active_admission(tmp_path)
     try:
         recaller = IsolatedRecaller(
+            model_decisions=model_journal,
             definition=definitions.recaller,
             plan=definitions.plans["recaller"],
             admission=admission,
@@ -541,7 +548,7 @@ async def test_recaller_ordinary_stop_records_empty_and_does_not_invent_context(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     trace = _Trace()
     admission, root_token = await _active_admission(tmp_path)
@@ -555,6 +562,7 @@ async def test_recaller_ordinary_stop_records_empty_and_does_not_invent_context(
 
     monkeypatch.setattr("jarvis.context.run_one_shot", stopped)
     recaller = IsolatedRecaller(
+        model_decisions=model_journal,
         definition=definitions.recaller,
         plan=definitions.plans["recaller"],
         admission=admission,
@@ -584,7 +592,7 @@ async def test_recaller_rejects_valid_finish_without_completed_search(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     trace = _Trace()
     admission, root_token = await _active_admission(tmp_path)
@@ -598,6 +606,7 @@ async def test_recaller_rejects_valid_finish_without_completed_search(
 
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
+        model_decisions=model_journal,
         definition=definitions.recaller,
         plan=definitions.plans["recaller"],
         admission=admission,
@@ -628,7 +637,7 @@ async def test_recaller_configuration_stop_records_then_fails_closed(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     trace = _Trace()
     admission, _root_token = await _active_admission(tmp_path)
@@ -642,6 +651,7 @@ async def test_recaller_configuration_stop_records_then_fails_closed(
 
     monkeypatch.setattr("jarvis.context.run_one_shot", stopped)
     recaller = IsolatedRecaller(
+        model_decisions=model_journal,
         definition=definitions.recaller,
         plan=definitions.plans["recaller"],
         admission=admission,
@@ -803,7 +813,7 @@ async def test_restart_sweep_zero_memory_result_advances_through_atomic_commit(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     memory = _RememberMemory(_rememberer_group())
     admission, root_token = await _active_admission(tmp_path)
@@ -821,6 +831,7 @@ async def test_restart_sweep_zero_memory_result_advances_through_atomic_commit(
 
     monkeypatch.setattr("jarvis.service.run_one_shot", completed)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
@@ -850,7 +861,7 @@ async def test_cancelled_rememberer_commits_no_memory_or_watermark(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     memory = _RememberMemory(_rememberer_group())
     messages = _Messages()
@@ -868,6 +879,7 @@ async def test_cancelled_rememberer_commits_no_memory_or_watermark(
 
     monkeypatch.setattr("jarvis.service.run_one_shot", cancelled)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
@@ -912,7 +924,7 @@ async def test_failed_or_invalid_rememberer_records_only_attempt_summary(
     terminal_outcome: str,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     memory = _RememberMemory(_rememberer_group())
     messages = _Messages()
@@ -927,6 +939,7 @@ async def test_failed_or_invalid_rememberer_records_only_attempt_summary(
 
     monkeypatch.setattr("jarvis.service.run_one_shot", stopped)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
@@ -953,7 +966,7 @@ async def test_rememberer_propagates_background_admission_reset(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     selected = RollingAdmissionLimits(
         window_seconds=60,
@@ -987,6 +1000,7 @@ async def test_rememberer_propagates_background_admission_reset(
 
     monkeypatch.setattr("jarvis.service.run_one_shot", should_not_run)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
@@ -1012,7 +1026,7 @@ async def test_foreground_waits_for_atomic_rememberer_commit_boundary(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     memory = _BlockingCommitMemory(_rememberer_group())
     admission, root_token = await _active_admission(tmp_path)
@@ -1031,6 +1045,7 @@ async def test_foreground_waits_for_atomic_rememberer_commit_boundary(
 
     monkeypatch.setattr("jarvis.service.run_one_shot", completed)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
@@ -1062,7 +1077,7 @@ async def test_foreground_cancels_in_flight_derived_embedding(
     tmp_path: Path,
 ) -> None:
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     memory = _CreatedMemory(_rememberer_group())
     embedder = _BlockingEmbedder()
@@ -1082,6 +1097,7 @@ async def test_foreground_cancels_in_flight_derived_embedding(
 
     monkeypatch.setattr("jarvis.service.run_one_shot", completed)
     worker = RemembererWorker(
+        model_decisions=model_journal,
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
@@ -1115,7 +1131,7 @@ def test_slice3_role_contract_constants_are_exact_and_disjoint() -> None:
         ToolId("memory.open"),
     }
     definitions = build_slice1_definitions(
-        profile_key="test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
     )
     assert definitions.recaller.session_mode is SessionMode.isolated
     assert definitions.rememberer.session_mode is SessionMode.isolated
@@ -1164,8 +1180,7 @@ async def _slice3_definitions(tmp_path: Path) -> Any:
         )
     return build_slice3_definitions(
         catalog=catalog,
-        profile_key="test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
 
@@ -1272,6 +1287,7 @@ async def test_recaller_ignores_commentary_tool_proposal_and_uses_terminal_resul
     admission, root_token = await _active_admission(tmp_path)
     try:
         outcome = await run_one_shot(
+            decisions=TransientModelDecisions(),
             run_id=RunId("commentary-canary"),
             definition=definitions.recaller,
             inputs=(_input(),),
@@ -1389,22 +1405,22 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
 
     exact_role_identities = {
         "main": (
-            "943b6bfde410b1b6f40115ed6358906a2937e632204b4644667cf162c1438a05",
-            "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
+            "e159c61ba1ce1622ec2e01e003700e3b75e7a228134086181a60a0b009acf6a6",
+            "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2",
             "c20d8261d4def068b21779f0e20dfa5bc9a8d27fb3c7da5281ad8fbc2d762873",
             "80ab5204387c887c6b8e833ec6d15aa26ba4ab85a10947fde6f2e5b845a03a97",
             "aa076bdbc2f8052cb075dc97bfb94dcbc1a7f770183babc90870c83e5abb6eb8",
         ),
         "recaller": (
-            "f9478d77a15c438cd34508bcbbe5679b85a56372681a4db03c76b516dabde0db",
-            "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db",
+            "940aa59d7881e674364613a3d9445de44c07a458c059b817bd0eacc3cd1f022c",
+            "e7b84b8cbc0fecd465e5889264505fa78cd83216112abe10830f4110ccfa703d",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
         ),
         "rememberer": (
-            "22b998b70103fee4566833614056e440b9e81373de7b04d216f7dbe91e04570f",
-            "6a126ce2c500d900291c35d51a44eda4bba24c816383453b5dc1649865e3738b",
+            "65cea14c2c748b0c616f99e5617e170a0e8009aadbb0e20062f43424f5ce9cd9",
+            "227dd34e43583cedcfe51a8684f27d1fe05c66d5a11ecb5b0df371c40047af31",
             "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
             "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",

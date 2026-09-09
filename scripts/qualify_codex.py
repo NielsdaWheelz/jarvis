@@ -11,6 +11,7 @@ import os
 import platform
 import stat
 from collections.abc import Callable, Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ from llm_agent_kernel import (
     ThreadId,
     ToolDispatchDefect,
     ToolDispatchLineage,
+    TransientModelDecisions,
     run_one_shot,
 )
 from llm_tools import (
@@ -80,7 +82,16 @@ from jarvis.admission import (
     RollingAdmissionPort,
 )
 from jarvis.config import DiscordSettings
-from jarvis.db import action, create_engine, memory_log, memory_summary, message
+from jarvis.db import (
+    action,
+    create_engine,
+    memory_log,
+    memory_summary,
+    message,
+    model_decision,
+    read_position,
+)
+from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
     EXPECTED_GIT_PINS,
@@ -95,9 +106,16 @@ from jarvis.definitions import (
     verify_runtime_dependencies,
 )
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime, build_kernel_runtime
+from jarvis.kernel import (
+    EmptySlice1Dispatcher,
+    KernelRuntime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.messages import MessageStore
+from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.read_tools import ConnectorFailure, compose_read_catalog
 from jarvis.service import JarvisThreadRunner
 from jarvis.session import AtomicSessionRefPort
@@ -303,6 +321,7 @@ def _metric(
 
 async def _conversation_turn(
     *,
+    engine: Database,
     arguments: Arguments,
     settings: Settings,
     definitions: Slice2Definitions,
@@ -330,6 +349,9 @@ async def _conversation_turn(
     runtime = _runtime(arguments, settings)
     try:
         outcome = await JarvisThreadRunner(
+            model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                engine, evidence=evidence
+            ),
             settings=settings,
             store=store,
             admission=RollingAdmissionPort(
@@ -340,7 +362,8 @@ async def _conversation_turn(
             definitions=definitions,
             history=history,
             dispatcher_factory=lambda: ReadToolDispatcher(
-                host_secrets=settings.host_secrets
+                recorder=PostgresReadRecorder(engine),
+                host_secrets=settings.host_secrets,
             ),
         ).run(CancellationToken())
     finally:
@@ -369,6 +392,7 @@ async def _conversation_turn(
 
 async def _conversation_probe(
     *,
+    engine: Database,
     arguments: Arguments,
     settings: Settings,
     definitions: Slice2Definitions,
@@ -386,6 +410,7 @@ async def _conversation_probe(
         ),
     )
     first_metric, _first_response = await _conversation_turn(
+        engine=engine,
         arguments=arguments,
         settings=settings,
         definitions=definitions,
@@ -403,6 +428,7 @@ async def _conversation_probe(
         raise RuntimeError("first conversation turn did not store a session reference")
 
     second_metric, second_response = await _conversation_turn(
+        engine=engine,
         arguments=arguments,
         settings=settings,
         definitions=definitions,
@@ -424,6 +450,7 @@ async def _conversation_probe(
     )
 
     third_metric, third_response = await _conversation_turn(
+        engine=engine,
         arguments=arguments,
         settings=settings,
         definitions=definitions,
@@ -447,6 +474,7 @@ async def _conversation_probe(
 
     settings.session_reference_path.unlink()
     fourth_metric, fourth_response = await _conversation_turn(
+        engine=engine,
         arguments=arguments,
         settings=settings,
         definitions=definitions,
@@ -499,6 +527,7 @@ async def _structured_probe(
     runtime = _runtime(arguments, settings)
     try:
         outcome = await run_one_shot(
+            decisions=TransientModelDecisions(),
             run_id=RunId(str(uuid4())),
             definition=definitions.dreamer,
             inputs=(
@@ -605,6 +634,7 @@ async def _tool_argument_probe(
     runtime = _runtime(arguments, settings)
     try:
         outcome = await run_one_shot(
+            decisions=TransientModelDecisions(),
             run_id=RunId(str(uuid4())),
             definition=definition,
             inputs=(
@@ -678,18 +708,26 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
+    provider_configuration = await resolve_provider_configuration(
+        state_root=arguments.state_root,
+        profile_key=arguments.profile,
+        model_key=arguments.model,
+        reasoning=arguments.reasoning_effort,
+    )
     definitions = build_slice2_definitions(
         catalog=_slice2_catalog(),
-        profile_key=arguments.profile,
-        model=arguments.model,
+        provider=provider_configuration,
         owner_timezone=arguments.owner_timezone,
-        reasoning_effort=arguments.reasoning_effort,
     )
-    engine = create_engine(arguments.database_url)
-    store = MessageStore(engine)
-    history = PostgresCanonicalHistory(engine)
-    stage = "database"
-    try:
+    raw_engine = create_engine(arguments.database_url)
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
+        )
+        store = MessageStore(engine)
+        history = PostgresCanonicalHistory(engine)
+        stage = "database"
         try:
             async with engine.connect() as connection:
                 counts = [
@@ -699,12 +737,20 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                             select(func.count()).select_from(table)
                         ),
                     )
-                    for table in (message, memory_log, memory_summary, action)
+                    for table in (
+                        message,
+                        memory_log,
+                        memory_summary,
+                        action,
+                        model_decision,
+                        read_position,
+                    )
                 ]
-            if counts != [0, 0, 0, 0]:
+            if any(counts):
                 raise ProbeCheckFailed("database_not_empty")
             stage = "conversation"
             conversation, continuity = await _conversation_probe(
+                engine=engine,
                 arguments=arguments,
                 settings=settings,
                 definitions=definitions,
@@ -730,34 +776,32 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 definitions=definitions,
                 admission=admission,
             )
-        finally:
-            await engine.dispose()
-    except BaseException as exc:
-        reason_code = (
-            exc.reason_code
-            if isinstance(exc, ProbeCheckFailed)
-            else "unexpected_exception"
-        )
-        raise QualificationFailure(stage, type(exc).__name__, reason_code) from exc
-    return {
-        "route": arguments.model,
-        "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
-        "implementation": {
-            **_implementation(),
-            "main_definition_fingerprint": definitions.main.fingerprint,
-            "session_compatibility_revision": (
-                definitions.main.session_compatibility_revision
-            ),
-            "reasoning_effort": arguments.reasoning_effort,
-        },
-        "status": "passed",
-        "session_continuity": continuity,
-        "probes": {
-            "conversation": conversation,
-            "structured": structured,
-            "tool_arguments": tool_arguments,
-        },
-    }
+        except BaseException as exc:
+            reason_code = (
+                exc.reason_code
+                if isinstance(exc, ProbeCheckFailed)
+                else "unexpected_exception"
+            )
+            raise QualificationFailure(stage, type(exc).__name__, reason_code) from exc
+        return {
+            "route": arguments.model,
+            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "implementation": {
+                **_implementation(),
+                "main_definition_fingerprint": definitions.main.fingerprint,
+                "session_compatibility_revision": (
+                    definitions.main.session_compatibility_revision
+                ),
+                "reasoning_effort": arguments.reasoning_effort,
+            },
+            "status": "passed",
+            "session_continuity": continuity,
+            "probes": {
+                "conversation": conversation,
+                "structured": structured,
+                "tool_arguments": tool_arguments,
+            },
+        }
 
 
 def _validate_directories(arguments: Arguments) -> None:

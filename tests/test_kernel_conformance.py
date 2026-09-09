@@ -43,6 +43,7 @@ from llm_agent_kernel import (
     ThreadStopped,
     run_thread,
 )
+from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
 from llm_tools import (
     PromptSection,
     PromptSectionKind,
@@ -59,6 +60,7 @@ from llm_tools import (
     bind_web_read,
     web_family,
 )
+from provider_fixture import frozen_provider, model_journal
 from provider_runtime.agent_runtime import (
     AgentEvent,
     AgentRuntime,
@@ -87,6 +89,7 @@ from jarvis.admission import (
 from jarvis.config import DiscordSettings
 from jarvis.context import CanonicalMessage, JarvisContextSource
 from jarvis.db import action, create_engine, message
+from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     SLICE1_KERNEL_LIMITS,
     SLICE2_READ_IDS,
@@ -98,7 +101,7 @@ from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime
 from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.messages import Settlement as MessageSettlement
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_tools import ConnectorFailure, compose_read_catalog
 from jarvis.service import JarvisThreadRunner
 from jarvis.session import AtomicSessionRefPort
@@ -338,8 +341,7 @@ class _Clock:
 
 def _definitions() -> Any:
     return build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
 
@@ -446,8 +448,7 @@ def _slice2_definitions(*, slow_search_deadline: float | None = None) -> Any:
     )
     return catalog, build_slice2_definitions(
         catalog=catalog,
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
 
@@ -478,6 +479,7 @@ async def _run(
         maximum_output_tokens=definition.limits.max_provider_output_tokens,
     )
     return await run_thread(
+        decisions=InMemoryModelDecisionJournal(),
         run_id=RunId(run_id),
         thread_id=THREAD_ID,
         owner_token=OWNER_TOKEN,
@@ -493,7 +495,7 @@ async def _run(
     )
 
 
-async def test_run_thread_continues_then_cold_reconstructs_after_session_loss(
+async def test_session_loss_after_model_entry_parks_without_redispatch(
     tmp_path: Path,
 ) -> None:
     definitions = _definitions()
@@ -543,16 +545,11 @@ async def test_run_thread_continues_then_cold_reconstructs_after_session_loss(
         await second_provider.shutdown()
 
     assert first_outcome.type == "completed"
-    assert second_outcome.type == "completed"
+    assert second_outcome.type is ThreadStopKind.model_decision_uncertain
     assert isinstance(second_runtime.opens[0].open, ResumeSession)
-    assert isinstance(second_runtime.opens[1].open, NewSession)
-    rendered = "\n".join(
-        part.text
-        for part in second_runtime.turns[1].input
-        if isinstance(part, TextContent)
-    )
-    assert "earlier" in rendered
+    assert len(second_runtime.opens) == len(second_runtime.turns) == 1
     assert second_runtime.run_turn_calls == 0
+    assert len(checkpoints.park_reasons) == 1
 
 
 async def test_slice2_compound_reads_are_serial_and_observed_before_say(
@@ -608,7 +605,7 @@ async def test_slice2_compound_reads_are_serial_and_observed_before_say(
     references = AtomicSessionRefPort(
         tmp_path / "slice2-session.json", max_generations=2
     )
-    dispatcher = ReadToolDispatcher(host_secrets=())
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
     admission = _admission(tmp_path, "slice2-compound")
     try:
         outcome = await _run(
@@ -1035,15 +1032,18 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
         SessionCoordinator(provider, references),
         references,
     )
-    dispatchers: list[ReadToolDispatcher] = []
+    dispatchers: list[ReadToolDispatcher[RunReadRecorder]] = []
 
-    def dispatcher_factory() -> ReadToolDispatcher:
-        dispatcher = ReadToolDispatcher(host_secrets=settings.host_secrets)
+    def dispatcher_factory() -> ReadToolDispatcher[RunReadRecorder]:
+        dispatcher = ReadToolDispatcher(
+            recorder=RunReadRecorder(), host_secrets=settings.host_secrets
+        )
         dispatchers.append(dispatcher)
         return dispatcher
 
     try:
         outcome = await JarvisThreadRunner(
+            model_decisions=model_journal,
             settings=settings,
             store=store,
             admission=RollingAdmissionPort(
@@ -1104,7 +1104,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     DATABASE_URL is None,
     reason="JARVIS_TEST_DATABASE_URL is not configured",
 )
-async def test_postgres_composition_cold_recovers_crash_after_session_cas(
+async def test_postgres_replays_original_paid_terminal_after_publication_crash(
     tmp_path: Path,
 ) -> None:
     if DATABASE_URL is None:
@@ -1141,8 +1141,9 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
     definitions = _with_structured_main(
         build_slice1_definitions(
-            profile_key=settings.codex_profile_key,
-            model=settings.codex_model,
+            provider=frozen_provider(
+                settings.codex_profile_key, settings.codex_model, "high"
+            ),
             owner_timezone=settings.owner_timezone,
         )
     )
@@ -1168,7 +1169,7 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
                 "result": {
                     "response": {
                         "type": "answered",
-                        "text": "speculative answer",
+                        "text": "original answer",
                     }
                 },
             }
@@ -1188,6 +1189,9 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     try:
         with pytest.raises(_Crash):
             await JarvisThreadRunner(
+                model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                    engine, evidence=evidence
+                ),
                 settings=settings,
                 store=crash_store,
                 admission=RollingAdmissionPort(
@@ -1245,6 +1249,9 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
     store = MessageStore(engine)
     try:
         recovered = await JarvisThreadRunner(
+            model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                engine, evidence=evidence
+            ),
             settings=settings,
             store=store,
             admission=RollingAdmissionPort(
@@ -1259,7 +1266,8 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
         await second_provider.shutdown()
 
     assert isinstance(recovered, ThreadCompleted)
-    assert isinstance(second_runtime.opens[0].open, NewSession)
+    assert not second_runtime.opens
+    assert not second_runtime.turns
     async with engine.connect() as connection:
         attempt, processed_at, trace = (
             await connection.execute(
@@ -1270,7 +1278,7 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
                 ).where(message.c.id == inserted.message.id)
             )
         ).one()
-    assert attempt == 2
+    assert attempt == 1
     assert processed_at is not None
     assert "settlement" in trace
     pending = await store.pending_delivery(
@@ -1278,6 +1286,7 @@ async def test_postgres_composition_cold_recovers_crash_after_session_cas(
         limit=10,
     )
     assert len(pending) == 1
+    assert pending[0].text == "original answer"
     assert crash_store.settlement_calls == 1
     await engine.dispose()
 
@@ -1323,8 +1332,9 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
     limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, limits)
     definitions = build_slice1_definitions(
-        profile_key=settings.codex_profile_key,
-        model=settings.codex_model,
+        provider=frozen_provider(
+            settings.codex_profile_key, settings.codex_model, "high"
+        ),
         owner_timezone=settings.owner_timezone,
     )
     store = MessageStore(engine)
@@ -1358,6 +1368,7 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
     )
     try:
         outcome = await JarvisThreadRunner(
+            model_decisions=model_journal,
             settings=settings,
             store=store,
             admission=admission,
@@ -1404,6 +1415,7 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
                 match="cognitive circuit is parked",
             ):
                 await JarvisThreadRunner(
+                    model_decisions=model_journal,
                     settings=settings,
                     store=store,
                     admission=RollingAdmissionPort(

@@ -296,8 +296,8 @@ session revision because the selected model already enters the immutable
 definition fingerprint. Secret bytes, current input, host time, and per-run
 subset plans do not rotate the session.
 There are three certified v1 compatibility exceptions. The active containment
-pair—kernel `21084bec674023ea572950a18dde464506ea37ad` and provider-runtime
-`4ddced3bb5487ce988858c4c6d45d2e5ee0acad9`—canonicalizes to the
+pair—kernel `35f42b91bc214f556c1b5b6a36d9629ed00e574d` and provider-runtime
+`8fde23ac56571a63c65cfcff55c73a0976f83eb4`—canonicalizes to the
 initial-read predecessor pair only for application session-revision derivation.
 The kernel-owned base instruction still enters every definition fingerprint,
 so every old native session cold-bootstraps without a redundant Jarvis revision
@@ -965,3 +965,20 @@ their immutable execution contract; `origin_message_id` is only the stable root
 pointer. Private payloads and model prose are not duplicated into trace. Trace
 details are implementation diagnostics and rememberer-group reconstruction,
 never a memory-ranking signal in v1.
+
+
+## Shared-kernel durable recovery
+
+[ADR 0040](decisions/0040-shared-kernel-durable-decisions.md) adds two narrowly
+owned records: `model_decision` preserves exact paid inference and host validation
+evidence; `read_position` implements the existing llm-tools recorder for Reads.
+Main and every recoverable isolated role use stable original work identities.
+Unknown dispatch stops automatic retry. The original Write action remains the
+sole effect owner and is recovered before any model decision can replay.
+
+Every store in production uses the same dedicated deployment-lock connection for
+short serialized transactions. Losing it blocks inference admission, read dispatch,
+action acceptance, memory mutation, and result publication; it never reconnects.
+The exact authenticated catalog selection is frozen into role definitions and
+therefore session fingerprints. Application prompts remain application-owned;
+the shared containment instruction remains owned by llm-agent-kernel.

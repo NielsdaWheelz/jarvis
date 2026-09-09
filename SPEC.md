@@ -846,8 +846,8 @@ it.
   `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
   excludes secrets, input, host time, and per-run subset plans. Normally every
   pin participates exactly in the revision. The current containment pair
-  `llm-agent-kernel@21084bec674023ea572950a18dde464506ea37ad` and
-  `provider-runtime@4ddced3bb5487ce988858c4c6d45d2e5ee0acad9` is a certified
+  `llm-agent-kernel@35f42b91bc214f556c1b5b6a36d9629ed00e574d` and
+  `provider-runtime@8fde23ac56571a63c65cfcff55c73a0976f83eb4` is a certified
   application-session-compatible exception: revision derivation uses the
   initial-read predecessor pair while the kernel-owned base-instruction
   identity rotates every definition fingerprint and therefore cold-bootstraps
@@ -1628,9 +1628,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `21084bec674023ea572950a18dde464506ea37ad`
+  `35f42b91bc214f556c1b5b6a36d9629ed00e574d`
 - `llm-calling` / `provider-runtime`:
-  `4ddced3bb5487ce988858c4c6d45d2e5ee0acad9`
+  `8fde23ac56571a63c65cfcff55c73a0976f83eb4`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The kernel directly certifies and pins `openai-codex==0.144.4`; Jarvis's frozen
@@ -1680,7 +1680,7 @@ controls.
 
 ## 9. Persistence
 
-Jarvis owns exactly four application tables.
+Jarvis owns exactly six application tables (ADR 0040).
 
 ```text
 message
@@ -1724,12 +1724,73 @@ action
   decided_at
   completed_at
   result
+
+model_decision
+  decision_id
+  scope_key
+  thread_id
+  first_input_id
+  ordinal
+  request_fingerprint
+  request
+  terminal
+  host_evidence
+  created_at
+  completed_at
+
+read_position
+  position
+  contract
+  state
+  reservation
+  result
+  settlement
+  created_at
+  updated_at
 ```
 
 These are the exact v1 application columns. Database-generated search columns
 and Alembic's migration bookkeeping are physical infrastructure, not application
 state. Changing this roster, adding an application table, or adding a semantic
 memory field requires an ADR.
+
+### Durable inference and Read recovery
+
+[ADR 0040](docs/decisions/0040-shared-kernel-durable-decisions.md) owns the
+shared-kernel cutover. Authenticate one exact Codex model catalog selection at
+startup and freeze its model key, reasoning key, catalog revision, and row
+fingerprint in every definition. Dependency and selection changes rotate native
+session identity.
+
+Before provider entry, commit the exact original request under a stable decision
+ID. Commit its normalized terminal and bounded host validation evidence together
+before tools, memory mutation, action acceptance, or message publication. An armed
+record without a terminal is unknown and cannot authorize automatic redispatch.
+Restore original claim input IDs, checkpoint, and clock before retry counting or
+poison handling. A completed record replays its original terminal; current
+provider/definition/plan mismatches fail closed. Native sessions remain disposable.
+
+Recoverable isolated roles also use durable decisions. Recall is keyed by original
+owner message identity; rememberer by its ordered settled owner group; write gate
+by the original Main model decision. Dreaming admits new work from the canonical
+raw/summary identity snapshot. Identical snapshots reuse the original job and
+clock; changed memory admits a new job. Existing action recovery has priority over
+any model replay and retains its exact original effect authority.
+
+All recoverable Read dispatches use `read_position` through the existing llm-tools
+PositionRecorder protocol. Exact completed results replay; dispatched or uncertain
+positions never reexecute automatically. This covers Maps, Brave search, and
+embedding-backed memory search billing. Restore accepted reservations/settlements
+in original initial-read/model order before admitting another tool. Rejected
+reservations are uncharged. Calls, attempts, and bytes remain bounded across the
+logical scope; elapsed time remains the monotonic active invocation bound and
+does not charge process downtime. The Write action ledger remains separate.
+
+The deployment advisory-lock connection executes short, serialized transactions
+for all owned stores, including inference, reads, actions, memory, and publication.
+A released, closed, or invalidated owner connection cannot reconnect or admit work.
+Diagnostic probes may explicitly use transient inference and in-memory recorders;
+they never establish restart qualification.
 
 ### 9.1 Message
 
@@ -2000,7 +2061,7 @@ Frozen decisions:
 - One host-rendered typed Main terminal with no production `say` or in-progress
   variant; incomplete typed evidence is visibly partial.
 - One configured Discord channel with no v1 server-organization tools.
-- Exactly four application tables.
+- Exactly six application tables, including original paid decisions and Read positions.
 - Central conversation history with a persistent Discord outbox, recent-window
   enforced-nonce deduplication, and explicitly bounded delayed ambiguity.
 - Product-selected canonical context through the provider-neutral kernel ports;

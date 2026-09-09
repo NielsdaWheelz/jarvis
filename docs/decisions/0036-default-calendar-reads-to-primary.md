@@ -101,4 +101,3 @@ connector requests `/calendars/primary/events`, returned events retain
 `calendar_id = primary`, and all exact frozen identities rotate as specified.
 The final production check is an ordinary owner question that names no calendar
 ID and receives a useful answer grounded in a completed Calendar observation.
-

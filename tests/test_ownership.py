@@ -200,3 +200,58 @@ async def test_lost_owner_blocks_paid_dispatch_action_acceptance_and_publication
                     conclusion_text="must not publish",
                 )
     assert len(connection.parameters) == 1
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    os.environ.get("JARVIS_TEST_DATABASE_URL") is None,
+    reason="JARVIS_TEST_DATABASE_URL is not configured",
+)
+async def test_real_lost_owner_cannot_reconnect_to_publish() -> None:
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from jarvis.messages import MessageStore, SettlementTrace
+
+    engine = create_engine(os.environ["JARVIS_TEST_DATABASE_URL"])
+    conversation = f"lost-owner-{uuid4()}"
+    original = None
+    try:
+        with pytest.raises(DeploymentOwnershipDefect):
+            async with deployment_ownership(engine) as database:
+                messages = MessageStore(database)
+                original = await messages.insert_waking(
+                    role="owner",
+                    text="Original input remains unconsumed after owner loss.",
+                    source="qualification",
+                    source_conversation_id=conversation,
+                    source_message_id=str(uuid4()),
+                    created_at=datetime.now(UTC),
+                )
+                async with database.connect() as owner_connection:
+                    pass
+                await owner_connection.invalidate()
+                with pytest.raises(DeploymentOwnershipDefect):
+                    await messages.settle(
+                        consumed_message_ids=(original.message.id,),
+                        source_conversation_id=conversation,
+                        trace=SettlementTrace(
+                            "lost-owner",
+                            str(original.message.id),
+                            "conversation",
+                            "answered",
+                        ),
+                        conclusion_text="Forbidden publication after owner loss.",
+                    )
+        assert original is not None
+        surviving_store = MessageStore(engine)
+        persisted = await surviving_store.message_by_id(original.message.id)
+        assert persisted is not None and persisted.processed_at is None
+        assert (
+            await surviving_store.pending_delivery(
+                source_conversation_id=conversation, limit=10
+            )
+            == ()
+        )
+    finally:
+        await engine.dispose()

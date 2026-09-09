@@ -36,7 +36,7 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The active implemented public kernel pin
-  `35f42b91bc214f556c1b5b6a36d9629ed00e574d`, with exact
+  `41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2

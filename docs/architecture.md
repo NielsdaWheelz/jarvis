@@ -296,7 +296,7 @@ session revision because the selected model already enters the immutable
 definition fingerprint. Secret bytes, current input, host time, and per-run
 subset plans do not rotate the session.
 There are three certified v1 compatibility exceptions. The active containment
-pair—kernel `35f42b91bc214f556c1b5b6a36d9629ed00e574d` and provider-runtime
+pair—kernel `41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af` and provider-runtime
 `8fde23ac56571a63c65cfcff55c73a0976f83eb4`—canonicalizes to the
 initial-read predecessor pair only for application session-revision derivation.
 The kernel-owned base instruction still enters every definition fingerprint,

@@ -9,7 +9,7 @@
 
 ## Decision
 
-Use llm-agent-kernel `35f42b91bc214f556c1b5b6a36d9629ed00e574d`, provider-runtime
+Use llm-agent-kernel `41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af`, provider-runtime
 `8fde23ac56571a63c65cfcff55c73a0976f83eb4`, and llm-tools
 `9e6d155f3b64f03495911435b7cae8b8d131f9a2`. Resolve an authenticated exact Codex
 catalog row and reasoning choice at startup. Freeze all four catalog facts in
@@ -100,3 +100,10 @@ this parser defect; its fix appears in the
 The supported floor is the measured qualification baseline, not a claim that the
 fix first appeared there. Older patches are excluded instead of weakening exact
 effect-ID validation. No host system interpreter is changed.
+
+Controlled native PostgreSQL sensitivity checked the accepted-terminal replay,
+paid Read replay, logical budget restoration, lost-owner publication fence, and
+pending-approval recovery. Each temporary product fault failed its behavioral
+oracle: changed answer, second paid handler entry, lost prior charge, publication
+after owner reconnection, or missing original suspension. All six focused cases
+passed again after restoring the product. No fault is retained in the source.

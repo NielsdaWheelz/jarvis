@@ -53,7 +53,7 @@ from jarvis.terminal import JarvisTerminal
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "35f42b91bc214f556c1b5b6a36d9629ed00e574d",
+    "llm-agent-kernel": "41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
     "provider-runtime": "8fde23ac56571a63c65cfcff55c73a0976f83eb4",
 }
@@ -1593,7 +1593,7 @@ def session_compatibility_revision(manifest: dict[str, object], role_id: str) ->
     if type(application_revision) is not str or not application_revision.strip():
         raise ValueError("application session contract revision must not be empty")
     if dependencies == {
-        "llm-agent-kernel": "35f42b91bc214f556c1b5b6a36d9629ed00e574d",
+        "llm-agent-kernel": "41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",

@@ -198,7 +198,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
             session_compatibility_revision(manifest, role)
         )
     assert manifest["dependencies"] == {
-        "llm-agent-kernel": "35f42b91bc214f556c1b5b6a36d9629ed00e574d",
+        "llm-agent-kernel": "41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",

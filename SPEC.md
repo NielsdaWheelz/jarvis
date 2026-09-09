@@ -846,7 +846,7 @@ it.
   `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
   excludes secrets, input, host time, and per-run subset plans. Normally every
   pin participates exactly in the revision. The current containment pair
-  `llm-agent-kernel@35f42b91bc214f556c1b5b6a36d9629ed00e574d` and
+  `llm-agent-kernel@41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af` and
   `provider-runtime@8fde23ac56571a63c65cfcff55c73a0976f83eb4` is a certified
   application-session-compatible exception: revision derivation uses the
   initial-read predecessor pair while the kernel-owned base-instruction
@@ -1628,7 +1628,7 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `35f42b91bc214f556c1b5b6a36d9629ed00e574d`
+  `41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af`
 - `llm-calling` / `provider-runtime`:
   `8fde23ac56571a63c65cfcff55c73a0976f83eb4`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`

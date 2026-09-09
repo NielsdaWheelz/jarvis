@@ -43,6 +43,7 @@ from llm_tools import (
 )
 from llm_tools.testing import InMemoryBudgetState
 from llm_tools.web.contracts import WebSearchSuccess
+from provider_fixture import decision_key
 
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_tools import GmailSearchInput
@@ -104,7 +105,7 @@ async def test_web_secret_rejection_precedes_every_mutating_boundary(
         candidate = quote(candidate, safe="")
     binding, plan = _plan()
     budgets = InMemoryBudgetState(plan.profile.run_limits)
-    dispatcher = ReadToolDispatcher(host_secrets=(secret,))
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=(secret,))
 
     result = await dispatcher.dispatch(
         binding=binding,
@@ -120,6 +121,8 @@ async def test_web_secret_rejection_precedes_every_mutating_boundary(
             Checkpoint("checkpoint"),
             (InputId("input"),),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(ClaimId("claim")), 1),
         ),
     )
 
@@ -146,7 +149,7 @@ async def test_web_credential_label_is_rejected_before_mutation(
 ) -> None:
     binding, plan = _plan()
     budgets = InMemoryBudgetState(plan.profile.run_limits)
-    dispatcher = ReadToolDispatcher(host_secrets=())
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
 
     result = await dispatcher.dispatch(
         binding=binding,
@@ -162,6 +165,8 @@ async def test_web_credential_label_is_rejected_before_mutation(
             Checkpoint("checkpoint"),
             (InputId("input"),),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(ClaimId("claim")), 1),
         ),
     )
     assert result.result == {"type": "Failure", "error": {"type": "InvalidInput"}}
@@ -280,7 +285,7 @@ async def test_frozen_plan_rejects_binding_substitution_before_mutation(
         changed_spec = replace(binding.spec, effect=ToolEffect.Write)
         changed = replace(binding, spec=changed_spec)
     budgets = InMemoryBudgetState(plan.profile.run_limits)
-    dispatcher = ReadToolDispatcher(host_secrets=())
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
     with pytest.raises(ToolDispatchDefect):
         await dispatcher.dispatch(
             binding=changed,
@@ -293,6 +298,8 @@ async def test_frozen_plan_rejects_binding_substitution_before_mutation(
                 Checkpoint("checkpoint"),
                 (InputId("input"),),
                 1,
+                definition_fingerprint="a" * 64,
+                model_decision_id=decision_key(str(ClaimId("claim")), 1),
             ),
         )
     assert dispatcher.recorder.position_count == 0
@@ -319,7 +326,7 @@ async def test_pinned_web_search_inner_deadline_completes_without_uncertainty() 
     ).freeze(catalog)
     plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
     budgets = InMemoryBudgetState(plan.profile.run_limits)
-    dispatcher = ReadToolDispatcher(host_secrets=())
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
 
     completed = await dispatcher.dispatch(
         binding=binding,
@@ -332,6 +339,8 @@ async def test_pinned_web_search_inner_deadline_completes_without_uncertainty() 
             Checkpoint("deadline-checkpoint"),
             (InputId("deadline-input"),),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(ClaimId("deadline-claim")), 1),
         ),
     )
 

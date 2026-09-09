@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import unquote, unquote_plus
 
 from llm_agent_kernel import (
     CancellationToken,
     DispatchCompleted,
-    DispatchLineage,
     ToolDispatchDefect,
     ToolDispatchLineage,
+    ToolDispatchPort,
 )
 from llm_tools import (
     BudgetState,
@@ -20,6 +20,7 @@ from llm_tools import (
     FrozenToolPlan,
     InvocationPosition,
     ParsedJson,
+    PositionRecorder,
     PositionState,
     Principal,
     ReplayPolicy,
@@ -66,11 +67,28 @@ class _Record:
     uncertain: bool = False
 
 
+class ReadDispatchPort(ToolDispatchPort, Protocol):
+    async def recover_budget(
+        self, *, lineage: ToolDispatchLineage, budgets: BudgetState
+    ) -> None: ...
+
+
+class ReadRecorder(PositionRecorder, Protocol):
+    async def recover_budget(
+        self, *, lineage: ToolDispatchLineage, budgets: BudgetState
+    ) -> None: ...
+
+
 class RunReadRecorder:
     """Non-durable invocation state owned by one kernel run."""
 
     def __init__(self) -> None:
         self._records: dict[InvocationPosition, _Record] = {}
+
+    async def recover_budget(
+        self, *, lineage: ToolDispatchLineage, budgets: BudgetState
+    ) -> None:
+        del lineage, budgets
 
     @property
     def durable(self) -> bool:
@@ -205,16 +223,21 @@ class _NoTelemetry:
         del name, attributes
 
 
-class ReadToolDispatcher:
+class ReadToolDispatcher[RecorderT: ReadRecorder]:
     """Execute only the automatic Slice 2 reads through llm-tools."""
 
-    def __init__(self, *, host_secrets: tuple[str, ...]) -> None:
+    def __init__(self, *, host_secrets: tuple[str, ...], recorder: RecorderT) -> None:
         self._host_secrets = tuple(value for value in host_secrets if value)
-        self._recorder = RunReadRecorder()
+        self._recorder = recorder
 
     @property
-    def recorder(self) -> RunReadRecorder:
+    def recorder(self) -> RecorderT:
         return self._recorder
+
+    async def recover_budget(
+        self, *, lineage: ToolDispatchLineage, budgets: BudgetState
+    ) -> None:
+        await self._recorder.recover_budget(lineage=lineage, budgets=budgets)
 
     async def dispatch(
         self,
@@ -247,8 +270,9 @@ class ReadToolDispatcher:
             value, self._host_secrets
         ):
             return DispatchCompleted(dict(_INVALID_INPUT))
-        position = _position(lineage)
+        position = lineage.position
         try:
+            await self.recover_budget(lineage=lineage, budgets=budgets)
             result = await ToolExecutor.execute(
                 binding,
                 ParsedJson(value),
@@ -269,14 +293,6 @@ class ReadToolDispatcher:
         except Exception as exc:
             raise ToolDispatchDefect("automatic read dispatch failed") from exc
         return DispatchCompleted(result)
-
-
-def _position(lineage: ToolDispatchLineage) -> InvocationPosition:
-    if isinstance(lineage, DispatchLineage):
-        return InvocationPosition(
-            f"thread:{lineage.claim_id}:step:{lineage.model_step_ordinal}"
-        )
-    return lineage.position
 
 
 def contains_secret(value: object, host_secrets: tuple[str, ...]) -> bool:

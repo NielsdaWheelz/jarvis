@@ -47,16 +47,15 @@ from llm_tools import (
     ToolPlan,
     canonical_json_bytes,
 )
-from provider_runtime.agent_runtime import CredentialRef, ReasoningSpec
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
 
 from jarvis.terminal import JarvisTerminal
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
+    "llm-agent-kernel": "41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+    "provider-runtime": "8fde23ac56571a63c65cfcff55c73a0976f83eb4",
 }
 EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY = (
     "llm-agent-kernel-contained-structured-agent-v1:sha256:"
@@ -460,10 +459,8 @@ class Slice6Definitions:
 def build_slice2_definitions(
     *,
     catalog: ToolCatalog,
-    profile_key: str,
-    model: str,
+    provider: ProviderConfiguration,
     owner_timezone: str,
-    reasoning_effort: str = "high",
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> Slice2Definitions:
     if tuple(catalog.tool_ids) != tuple(sorted(SLICE2_READ_IDS)):
@@ -475,13 +472,8 @@ def build_slice2_definitions(
         raise ValueError("Slice 2 catalog bindings must all be available")
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if model not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
         raise ValueError("model is not a qualified Slice 2 route")
-    provider = ProviderConfiguration(
-        auth=CredentialRef("local_account", profile_key),
-        model=model,
-        reasoning=ReasoningSpec(reasoning_effort, summary="concise"),
-    )
     manifest = load_session_manifest()
 
     def make(
@@ -644,10 +636,8 @@ def build_slice2_definitions(
 def build_slice3_definitions(
     *,
     catalog: ToolCatalog,
-    profile_key: str,
-    model: str,
+    provider: ProviderConfiguration,
     owner_timezone: str,
-    reasoning_effort: str = "high",
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> Slice3Definitions:
     expected_ids = tuple(sorted((*SLICE2_READ_IDS, *SLICE3_MEMORY_READ_IDS)))
@@ -663,13 +653,8 @@ def build_slice3_definitions(
         raise ValueError("Slice 3 catalog bindings must all be available")
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if model not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
         raise ValueError("model is not a qualified Slice 3 route")
-    provider = ProviderConfiguration(
-        auth=CredentialRef("local_account", profile_key),
-        model=model,
-        reasoning=ReasoningSpec(reasoning_effort, summary="concise"),
-    )
     manifest = load_session_manifest()
 
     def make(
@@ -890,18 +875,14 @@ def build_slice3_definitions(
 def build_slice4_definitions(
     *,
     catalog: ToolCatalog,
-    profile_key: str,
-    model: str,
+    provider: ProviderConfiguration,
     owner_timezone: str,
-    reasoning_effort: str = "high",
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> Slice4Definitions:
     base = build_slice3_definitions(
         catalog=catalog,
-        profile_key=profile_key,
-        model=model,
+        provider=provider,
         owner_timezone=owner_timezone,
-        reasoning_effort=reasoning_effort,
         native_limits=native_limits,
     )
     recaller = replace(
@@ -1084,14 +1065,12 @@ def build_slice4_definitions(
 
 def build_slice5_write_gate(
     *,
-    profile_key: str,
-    model: str,
-    reasoning_effort: str = "high",
+    provider: ProviderConfiguration,
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> tuple[AgentDefinition, FrozenToolPlan]:
     """Build the isolated, empty-plan write authority check."""
 
-    if model not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
         raise ValueError("model is not a qualified Slice 5 route")
     catalog = ToolCatalog.compose(())
     maximum = CapabilityProfile(
@@ -1133,11 +1112,7 @@ def build_slice5_write_gate(
             "jarvis_automatic_write_gate", AutomaticWriteGateResult
         ),
         maximum_profile=maximum,
-        provider=ProviderConfiguration(
-            auth=CredentialRef("local_account", profile_key),
-            model=model,
-            reasoning=ReasoningSpec(reasoning_effort, summary="concise"),
-        ),
+        provider=provider,
         session_compatibility_revision=session_compatibility_revision(
             load_session_manifest(), "automatic_write_gate"
         ),
@@ -1154,10 +1129,8 @@ def build_slice5_write_gate(
 def build_slice5_definitions(
     *,
     catalog: ToolCatalog,
-    profile_key: str,
-    model: str,
+    provider: ProviderConfiguration,
     owner_timezone: str,
-    reasoning_effort: str = "high",
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> Slice5Definitions:
     expected_ids = tuple(
@@ -1181,16 +1154,12 @@ def build_slice5_definitions(
         catalog=_catalog_subset(
             catalog, tuple(sorted((*SLICE2_READ_IDS, *SLICE3_MEMORY_READ_IDS)))
         ),
-        profile_key=profile_key,
-        model=model,
+        provider=provider,
         owner_timezone=owner_timezone,
-        reasoning_effort=reasoning_effort,
         native_limits=native_limits,
     )
     gate, gate_plan = build_slice5_write_gate(
-        profile_key=profile_key,
-        model=model,
-        reasoning_effort=reasoning_effort,
+        provider=provider,
         native_limits=native_limits,
     )
     for tool_id in SLICE5_WRITE_IDS:
@@ -1307,10 +1276,8 @@ def build_slice5_definitions(
 def build_slice6_definitions(
     *,
     catalog: ToolCatalog,
-    profile_key: str,
-    model: str,
+    provider: ProviderConfiguration,
     owner_timezone: str,
-    reasoning_effort: str = "high",
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> Slice6Definitions:
     """Build the first fully selectable v1 approval-bearing Main plan."""
@@ -1334,16 +1301,12 @@ def build_slice6_definitions(
         catalog=_catalog_subset(
             catalog, tuple(sorted((*SLICE2_READ_IDS, *SLICE3_MEMORY_READ_IDS)))
         ),
-        profile_key=profile_key,
-        model=model,
+        provider=provider,
         owner_timezone=owner_timezone,
-        reasoning_effort=reasoning_effort,
         native_limits=native_limits,
     )
     gate, gate_plan = build_slice5_write_gate(
-        profile_key=profile_key,
-        model=model,
-        reasoning_effort=reasoning_effort,
+        provider=provider,
         native_limits=native_limits,
     )
     for tool_id in SLICE6_WRITE_IDS:
@@ -1464,21 +1427,14 @@ def _catalog_subset(catalog: ToolCatalog, tool_ids: tuple[ToolId, ...]) -> ToolC
 
 def build_slice1_definitions(
     *,
-    profile_key: str,
-    model: str,
+    provider: ProviderConfiguration,
     owner_timezone: str,
-    reasoning_effort: str = "high",
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> Slice1Definitions:
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if model not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
         raise ValueError("model is not a qualified Slice 1 route")
-    provider = ProviderConfiguration(
-        auth=CredentialRef("local_account", profile_key),
-        model=model,
-        reasoning=ReasoningSpec(reasoning_effort, summary="concise"),
-    )
     catalog = ToolCatalog.compose(())
     manifest = load_session_manifest()
 
@@ -1637,11 +1593,11 @@ def session_compatibility_revision(manifest: dict[str, object], role_id: str) ->
     if type(application_revision) is not str or not application_revision.strip():
         raise ValueError("application session contract revision must not be empty")
     if dependencies == {
-        "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
+        "llm-agent-kernel": "41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+        "provider-runtime": "8fde23ac56571a63c65cfcff55c73a0976f83eb4",
     }:
         # This release narrows provider authority and prepends a fingerprinted
         # kernel instruction. It changes definition fingerprints (and therefore

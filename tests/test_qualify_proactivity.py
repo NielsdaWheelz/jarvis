@@ -11,6 +11,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from llm_tools import ToolEffect, ToolId
+from provider_fixture import frozen_provider
 from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
@@ -99,8 +100,7 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
     )
     try:
         gate, _ = build_slice5_write_gate(
-            profile_key="synthetic-profile",
-            model="gpt-5.6-terra",
+            provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         )
         catalog = build_slice5_catalog(
             settings=_settings(tmp_path),
@@ -115,8 +115,7 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
         )
         definitions = build_slice5_definitions(
             catalog=catalog,
-            profile_key="synthetic-profile",
-            model="gpt-5.6-terra",
+            provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
             owner_timezone="UTC",
         )
     finally:

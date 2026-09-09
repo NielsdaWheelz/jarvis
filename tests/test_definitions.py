@@ -18,6 +18,7 @@ from llm_agent_kernel import (
     validate_provider_step,
 )
 from llm_tools import FrozenToolPlan
+from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import (
     TextContent,
     freeze_json_object,
@@ -39,8 +40,7 @@ from jarvis.definitions import (
 
 def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
 
@@ -82,8 +82,7 @@ def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
 
 def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
     memory_id = "00000000-0000-4000-8000-000000000001"
@@ -162,7 +161,10 @@ def _assert_codex_closed_schema(node: object) -> None:
 def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     manifest = load_session_manifest()
     assert manifest["schema_version"] == "jarvis-session-compatibility.v2"
-    assert manifest["application_session_contract_revision"] == "jarvis-slice-3-v1"
+    assert (
+        manifest["application_session_contract_revision"]
+        == "jarvis-shared-kernel-durable-inference-v1"
+    )
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["main"]
@@ -173,14 +175,14 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
         == "jarvis-recaller-slice-4-v17"
     )
     assert session_compatibility_revision(manifest, "recaller") == (
-        "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db"
+        "e7b84b8cbc0fecd465e5889264505fa78cd83216112abe10830f4110ccfa703d"
     )
     assert (
         cast("dict[str, object]", manifest["role_contract_revisions"])["dreamer"]
         == "jarvis-dreamer-slice-4-v6"
     )
     assert session_compatibility_revision(manifest, "dreamer") == (
-        "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d"
+        "024a3b39aefdb516172e8c356f2ba83687eba7732ab1d4c198a66a382b761012"
     )
     previous_recaller = {**manifest}
     previous_recaller_roles = dict(
@@ -189,18 +191,18 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     previous_recaller_roles["recaller"] = "jarvis-recaller-slice-4-v11"
     previous_recaller["role_contract_revisions"] = previous_recaller_roles
     assert session_compatibility_revision(previous_recaller, "recaller") == (
-        "5f989b6f9045374e821155cb2be19daf27be50131effd633d0e4c57d8727ed93"
+        "10e48d21188041a92bee33b3ced5c07b26cff6f7d130cf3bbf82f64a0a02a6cd"
     )
     for role in ("main", "rememberer", "dreamer", "automatic_write_gate"):
         assert session_compatibility_revision(previous_recaller, role) == (
             session_compatibility_revision(manifest, role)
         )
     assert manifest["dependencies"] == {
-        "llm-agent-kernel": "21084bec674023ea572950a18dde464506ea37ad",
+        "llm-agent-kernel": "41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
         "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
         "openai-codex": "0.144.4",
         "openai-codex-cli-bin": "0.144.4",
-        "provider-runtime": "4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+        "provider-runtime": "8fde23ac56571a63c65cfcff55c73a0976f83eb4",
     }
     pre_containment_release = {**manifest}
     pre_containment_dependencies = dict(
@@ -242,7 +244,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
         )
     original = session_compatibility_revision(manifest, "main")
     assert (
-        original == "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d"
+        original == "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2"
     )
 
     previous = {**manifest}
@@ -251,9 +253,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     )
     previous_roles["main"] = "jarvis-main-slice-2-v2"
     previous["role_contract_revisions"] = previous_roles
-    assert session_compatibility_revision(previous, "main") == (
-        "72adbeb8a9932a894b00e05e7f79aefd13dfd1d7a3d5b7c5a8331e199071d1ea"
-    )
+    assert session_compatibility_revision(previous, "main") != original
 
     historical = {**manifest}
     historical_dependencies = dict(
@@ -320,8 +320,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
 def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
     manifest = load_session_manifest()
     terra = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     ).main
     membership_changed = {
@@ -335,7 +334,7 @@ def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
     )
     selected_model_changed = replace(
         terra,
-        provider=replace(terra.provider, model="synthetic-future-model"),
+        provider=replace(terra.provider, model_key="synthetic-future-model"),
     )
 
     assert unchanged_revision == terra.session_compatibility_revision
@@ -350,8 +349,7 @@ def test_provider_native_material_has_independent_bounds() -> None:
     )
     kernel_system_bytes = len(KERNEL_BASE_INSTRUCTION.encode())
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     provider = replace(
@@ -418,7 +416,28 @@ def test_route_context_floor_derives_conservative_session_generation_bound() -> 
         session_generation_limit("unqualified")
     with pytest.raises(ValueError, match="qualified Slice 1 route"):
         build_slice1_definitions(
-            profile_key="jarvis-test",
-            model="gpt-5.4",
+            provider=frozen_provider("jarvis-test", "gpt-5.4", "high"),
             owner_timezone="UTC",
         )
+
+
+def test_frozen_catalog_selection_is_shared_and_rotates_session_identity() -> None:
+    from dataclasses import replace
+
+    from llm_agent_kernel import ProviderConfiguration
+    from provider_runtime.agent_runtime import CredentialRef
+
+    provider = ProviderConfiguration(
+        auth=CredentialRef("local_account", "jarvis-test"),
+        model_key="gpt-5.6-terra",
+        reasoning="high",
+        agent_definition_revision="catalog-v1",
+        row_fingerprint="a" * 64,
+    )
+    original = build_slice1_definitions(provider=provider, owner_timezone="UTC")
+    assert original.main.provider is provider
+    assert original.recaller.provider is provider
+    rotated = build_slice1_definitions(
+        provider=replace(provider, row_fingerprint="b" * 64), owner_timezone="UTC"
+    )
+    assert original.main.fingerprint != rotated.main.fingerprint

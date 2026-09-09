@@ -31,13 +31,15 @@ Every model-proposed write is checked by a fresh, tool-less internal gate using
 only current owner text and a restricted effect descriptor before Jarvis creates
 an action or approval.
 
-Jarvis owns exactly four application tables:
+Jarvis owns exactly six application tables:
 
 ```text
 message
 memory_log
 memory_summary
 action
+model_decision
+read_position
 ```
 
 ## Authoritative documents
@@ -69,7 +71,9 @@ ADR that also updates every affected normative document in the same change.
 
 ## Development and verification
 
-Development requires Python 3.12, `uv` 0.11.28, Docker, and PostgreSQL with the
+Development uses the CPython 3.12.13 pin in `.python-version`; supported runtimes
+are 3.12.13 or later in the 3.12 series. It requires `uv` 0.11.28, Docker, and
+PostgreSQL with the
 `vector` extension. Start the pinned database image, create a disposable test
 database, and run every deterministic gate with one command:
 

@@ -9,6 +9,7 @@ from typing import Any, cast
 import httpx
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
 from llm_tools import Available, PromptText, ToolId, Unavailable, canonical_json_bytes
+from provider_fixture import frozen_provider
 from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
@@ -121,8 +122,7 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
             automatic_write_gate_definition_fingerprint="b" * 64,
         )
         gate, _ = build_slice5_write_gate(
-            profile_key="synthetic-profile",
-            model="gpt-5.6-terra",
+            provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         )
         production_catalog = build_slice5_catalog(
             settings=_settings(tmp_path),
@@ -203,8 +203,7 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
 
     definitions = build_slice5_definitions(
         catalog=production_catalog,
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     assert definitions.main.limits == SLICE5_KERNEL_LIMITS
@@ -239,36 +238,36 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "77c50af3488787790eec4010dab3cd5023cac14d7e7db1f1f81a1edf7e068367",
-            "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
-            "f6fcee15b541de2b168f11c81bed628d1dc8931dcc8a35eb2b39420b67f40558",
-            "35ccd2c976fc33adccea0351cabd362f06262efd17806630b4237b907959621a",
-            "1c6994d109c8232187d671dd2e4f6a5cc52cf907dcf39810464264e611bd02cc",
+            "97cf7cc91a559d40436142fd4e5bbd78bad1a90bba71d401737929dddf5d4734",
+            "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2",
+            "1db260e84124ef5fb5d2cca5b36a450ed09911a0f059434547fbd811488baba6",
+            "fcbf977f2eb036b1cccab0909e6883697877ba9215301143f3bc988e9ff23c23",
+            "a8997f5fc302785499f4ea9326df2a3555f83ffea4f5737d212aa857079f4e64",
         ),
         "recaller": (
-            "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
-            "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db",
+            "4d27913b75f83e0b7b8123fc3909b81a963e8757d9b4b8d29f28f64b0084f842",
+            "e7b84b8cbc0fecd465e5889264505fa78cd83216112abe10830f4110ccfa703d",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
         ),
         "rememberer": (
-            "320700f9ffbd1986034bee0ff521bf67515b564988e10d8c33b2b902fd133cee",
-            "6a126ce2c500d900291c35d51a44eda4bba24c816383453b5dc1649865e3738b",
+            "fe6aa223c975c110ffe9ca06c7f16ea2fa104b5873ad7b761ffa9ee08db62298",
+            "227dd34e43583cedcfe51a8684f27d1fe05c66d5a11ecb5b0df371c40047af31",
             "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
             "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
         ),
         "dreamer": (
-            "a4426d202b776e05d231ebdb29d8daa05aa983eb725b6ab2ee01ca99baf2b61e",
-            "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d",
+            "2c711b38af1cf28d83db5cd8685c567aff8c5dfd12f2bfa560bd109bc4678839",
+            "024a3b39aefdb516172e8c356f2ba83687eba7732ab1d4c198a66a382b761012",
             "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
             "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
             "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
         ),
         "automatic_write_gate": (
-            "d1b87fb103093b0faa6551d55bfdccf698c7201a353671bf3676e8db8d768bdf",
-            "2c453f5b070233f697387ce2235e2d107566216bd45af11fd659ecb70f330aa4",
+            "f3f9d10cb02b1a1703e06411900d967ed27eeaac83965ebc63cc449a78b14b7b",
+            "07a3e8b0c2c495ad988649992c12725d23ba909c854ced1d2470674a86338314",
             "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
             "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
             "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",
@@ -297,8 +296,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         for _ in range(4)
     )
     gate, _ = build_slice5_write_gate(
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
     try:
         catalog = build_slice6_catalog(
@@ -346,8 +344,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     }
     definitions = build_slice6_definitions(
         catalog=catalog,
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     assert definitions.main.limits == SLICE6_KERNEL_LIMITS
@@ -436,36 +433,36 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "161e217619ac16fd67b989975950a9919a1d97ba50155e263cf964f9afd70cb7",
-            "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
-            "d54b036c1ca8408ae2e5240e4b811fbef787216e07dfd2a565ecfb34dcf79ecd",
-            "5ddd256d9d78f1c71ffc4db97ba823f81323e482535e8166199411f472af727e",
-            "3e5f65bf8403e72bc7d3d3e912f7d2197872c5dac4dc3373665bc39c7debbc20",
+            "5fc2e1789d60011cab1681760fabf838d6622196f8a20ab837bd4265764a282f",
+            "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2",
+            "330cfd355f6dee9e25e1d88695aed7673a8edfb8973593a29405cf303a204402",
+            "f8016f7c5539296dfa6846119e777183c6606354e827cde88a4a5e0713f0ba41",
+            "423b1c021c99505c2f513b916d46256ee169a2e3f34d866693eb4f48e0a6a67d",
         ),
         "recaller": (
-            "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",
-            "30e958326a36706b566acab706dda0d820619d7a03b2f9d35cbb953f3f4f85db",
+            "4d27913b75f83e0b7b8123fc3909b81a963e8757d9b4b8d29f28f64b0084f842",
+            "e7b84b8cbc0fecd465e5889264505fa78cd83216112abe10830f4110ccfa703d",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
         ),
         "rememberer": (
-            "320700f9ffbd1986034bee0ff521bf67515b564988e10d8c33b2b902fd133cee",
-            "6a126ce2c500d900291c35d51a44eda4bba24c816383453b5dc1649865e3738b",
+            "fe6aa223c975c110ffe9ca06c7f16ea2fa104b5873ad7b761ffa9ee08db62298",
+            "227dd34e43583cedcfe51a8684f27d1fe05c66d5a11ecb5b0df371c40047af31",
             "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
             "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
         ),
         "dreamer": (
-            "a4426d202b776e05d231ebdb29d8daa05aa983eb725b6ab2ee01ca99baf2b61e",
-            "6eab1699ee593b36f5f0baa77a180dffc8afb47f3838bf52067f16ee8d17053d",
+            "2c711b38af1cf28d83db5cd8685c567aff8c5dfd12f2bfa560bd109bc4678839",
+            "024a3b39aefdb516172e8c356f2ba83687eba7732ab1d4c198a66a382b761012",
             "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
             "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
             "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
         ),
         "automatic_write_gate": (
-            "d1b87fb103093b0faa6551d55bfdccf698c7201a353671bf3676e8db8d768bdf",
-            "2c453f5b070233f697387ce2235e2d107566216bd45af11fd659ecb70f330aa4",
+            "f3f9d10cb02b1a1703e06411900d967ed27eeaac83965ebc63cc449a78b14b7b",
+            "07a3e8b0c2c495ad988649992c12725d23ba909c854ced1d2470674a86338314",
             "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
             "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
             "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",

@@ -5,14 +5,14 @@ from uuid import UUID
 
 from llm_agent_kernel import InputId, ThreadId
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.context import CanonicalMessage
 from jarvis.db import message
+from jarvis.ownership import Database
 
 
 class PostgresCanonicalHistory:
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         self._engine = engine
 
     async def completed_history(

@@ -8,7 +8,8 @@ import asyncio
 import json
 import os
 import stat
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -53,7 +54,6 @@ from provider_runtime.errors import CredentialRejected
 from provider_runtime.types import CancelSignal, RetryPolicy
 from pydantic import SecretStr
 from sqlalchemy import func, insert, select, text
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.admission import (
     RollingAdmissionPort,
@@ -61,8 +61,17 @@ from jarvis.admission import (
     slice3_admission_limits,
 )
 from jarvis.config import DiscordSettings
-from jarvis.context import IsolatedRecaller, MemoryReadDispatcherPort, RecallEvidence
-from jarvis.db import action, create_engine, memory_log, memory_summary, message
+from jarvis.context import IsolatedRecaller, RecallEvidence
+from jarvis.db import (
+    action,
+    create_engine,
+    memory_log,
+    memory_summary,
+    message,
+    model_decision,
+    read_position,
+)
+from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
@@ -73,12 +82,14 @@ from jarvis.definitions import (
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
 from jarvis.memory import MemoryIdentity, MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
+from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.recall_evaluation import (
     RecallCase,
     RecallFixture,
@@ -382,7 +393,7 @@ class _ProductionRecallRunner:
 
 
 async def seed_recall_fixtures(
-    engine: AsyncEngine,
+    engine: Database,
     fixtures: tuple[RecallFixture, ...],
 ) -> dict[str, object]:
     """Seed an empty migrated qualification database without transforming text."""
@@ -425,9 +436,16 @@ async def seed_recall_fixtures(
                     raise ProbeCheckFailed("memory_search_index_invalid")
         counts = [
             cast(int, await connection.scalar(select(func.count()).select_from(table)))
-            for table in (message, memory_log, memory_summary, action)
+            for table in (
+                message,
+                memory_log,
+                memory_summary,
+                action,
+                model_decision,
+                read_position,
+            )
         ]
-        if counts != [0, 0, 0, 0]:
+        if any(counts):
             raise ProbeCheckFailed("database_not_empty")
         if raw_values:
             await connection.execute(insert(memory_log), list(raw_values))
@@ -651,9 +669,13 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     provider_cwd = arguments.runtime_state_directory / "provider-cwd"
     provider_cwd.mkdir(mode=0o700)
     fixtures, cases = load_recall_set(MEMORIES, CASES)
-    engine = create_engine(arguments.database_url)
-    stage = "seed"
-    try:
+    raw_engine = create_engine(arguments.database_url)
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
+        )
+        stage = "seed"
         try:
             seed = await seed_recall_fixtures(engine, fixtures)
             async with httpx.AsyncClient(
@@ -673,35 +695,35 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                     arguments.embedding_api_key
                 )
                 stage = "recall"
-                observations, evidence, rememberer = await _run_production_roles(
-                    arguments, engine, embedder, cases
-                )
+                (
+                    observations,
+                    evidence,
+                    rememberer,
+                ) = await _run_production_roles(arguments, engine, embedder, cases)
                 score = score_recall(cases, observations)
-        finally:
-            await engine.dispose()
-    except BaseException as error:
-        raise qualification_failure(stage, error) from error
-    status = "passed" if score.passed == score.total else "failed"
-    return {
-        "embedding": embedding,
-        "embedding_credential_generation": {"status": "denied"},
-        "evaluation": {
-            "evidence": list(evidence),
-            "observations": _identity_observations(observations),
-            "score": score.model_dump(mode="json"),
+        except BaseException as error:
+            raise qualification_failure(stage, error) from error
+        status = "passed" if score.passed == score.total else "failed"
+        return {
+            "embedding": embedding,
+            "embedding_credential_generation": {"status": "denied"},
+            "evaluation": {
+                "evidence": list(evidence),
+                "observations": _identity_observations(observations),
+                "score": score.model_dump(mode="json"),
+                "status": status,
+            },
+            "rememberer": rememberer,
+            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "route": arguments.model,
+            "seed": seed,
             "status": status,
-        },
-        "rememberer": rememberer,
-        "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
-        "route": arguments.model,
-        "seed": seed,
-        "status": status,
-    }
+        }
 
 
 async def _run_production_roles(
     arguments: Arguments,
-    engine: AsyncEngine,
+    engine: Database,
     embedder: OpenAIEmbedder,
     cases: tuple[RecallCase, ...],
 ) -> tuple[
@@ -720,12 +742,16 @@ async def _run_production_roles(
             memory_repository=PostgresMemoryRepository(engine),
             memory_embedder=embedder,
         )
+        provider_configuration = await resolve_provider_configuration(
+            state_root=arguments.state_root,
+            profile_key=arguments.profile,
+            model_key=arguments.model,
+            reasoning=arguments.reasoning_effort,
+        )
         definitions = build_slice3_definitions(
             catalog=catalog,
-            profile_key=arguments.profile,
-            model=arguments.model,
+            provider=provider_configuration,
             owner_timezone=arguments.owner_timezone,
-            reasoning_effort=arguments.reasoning_effort,
         )
         limits = slice3_admission_limits(len(cases))
         RollingAdmissionPort.initialize(
@@ -759,12 +785,15 @@ async def _run_production_roles(
                 raise ProbeCheckFailed("qualification_root_admission_denied")
             trace = _NoopRecallTrace()
             recaller = IsolatedRecaller(
+                model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                    engine, evidence=evidence
+                ),
                 definition=definitions.recaller,
                 plan=definitions.plans["recaller"],
                 admission=admission,
                 provider=provider,
-                dispatcher_factory=cast(
-                    "Callable[[], MemoryReadDispatcherPort]", MemoryToolDispatcher
+                dispatcher_factory=lambda: MemoryToolDispatcher(
+                    recorder=PostgresReadRecorder(engine)
                 ),
                 memory=MemoryStore(engine),
                 trace=trace,
@@ -820,7 +849,7 @@ def qualification_settings(arguments: Arguments) -> Settings:
 
 async def _run_zero_memory_rememberer(
     *,
-    engine: AsyncEngine,
+    engine: Database,
     definitions: Slice3Definitions,
     admission: RootTrackingAdmissionPort,
     provider: QualificationProvider,
@@ -857,12 +886,15 @@ async def _run_zero_memory_rememberer(
         )
     provider.reset_terminal()
     worker = RemembererWorker(
+        model_decisions=lambda evidence: PostgresModelDecisionJournal(
+            engine, evidence=evidence
+        ),
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
         provider=provider,
-        dispatcher_factory=cast(
-            "Callable[[], MemoryReadDispatcherPort]", MemoryToolDispatcher
+        dispatcher_factory=lambda: MemoryToolDispatcher(
+            recorder=PostgresReadRecorder(engine)
         ),
         memory=MemoryStore(engine),
         messages=MessageStore(engine),

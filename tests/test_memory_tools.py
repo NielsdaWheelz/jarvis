@@ -33,6 +33,7 @@ from llm_tools import (
 )
 from llm_tools.schema import SchemaDecodeError, strict_decode
 from llm_tools.testing import InMemoryBudgetState
+from provider_fixture import decision_key
 from pydantic import ValidationError
 
 from jarvis.embeddings import EmbeddingFailure
@@ -55,6 +56,7 @@ from jarvis.memory_tools import (
     MemorySearchInput,
     compose_memory_catalog,
 )
+from jarvis.read_dispatch import RunReadRecorder
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL
 
 
@@ -238,7 +240,9 @@ def test_memory_catalog_contract_and_policy_are_exact() -> None:
 async def test_maximum_search_and_open_results_fit_their_declared_limits() -> None:
     repository = _MaximumRepository()
     catalog, plan = _catalog_and_plan(repository, _Embedder())
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     budgets = InMemoryBudgetState(plan.profile.run_limits)
 
     searched = await dispatcher.dispatch(
@@ -251,7 +255,11 @@ async def test_maximum_search_and_open_results_fit_their_declared_limits() -> No
         plan=plan,
         budgets=budgets,
         cancellation=CancellationToken(),
-        lineage=IsolatedDispatchLineage(RunId("maximum-memory-run"), 1),
+        lineage=IsolatedDispatchLineage(
+            RunId("maximum-memory-run"),
+            1,
+            decision_key(str(RunId("maximum-memory-run")), 1),
+        ),
     )
     opened = await dispatcher.dispatch(
         binding=catalog.binding(MEMORY_OPEN_SPEC.id),
@@ -264,7 +272,11 @@ async def test_maximum_search_and_open_results_fit_their_declared_limits() -> No
         plan=plan,
         budgets=budgets,
         cancellation=CancellationToken(),
-        lineage=IsolatedDispatchLineage(RunId("maximum-memory-run"), 2),
+        lineage=IsolatedDispatchLineage(
+            RunId("maximum-memory-run"),
+            2,
+            decision_key(str(RunId("maximum-memory-run")), 2),
+        ),
     )
 
     assert len(searched.result["value"]["candidates"]) == 20
@@ -277,9 +289,13 @@ async def test_maximum_search_and_open_results_fit_their_declared_limits() -> No
 async def test_initial_read_forwards_the_kernel_owned_invocation_position() -> None:
     repository = _Repository(_row())
     catalog, plan = _catalog_and_plan(repository, _Embedder())
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     budgets = _CapturingBudget()
-    lineage = InitialReadDispatchLineage(RunId("initial-memory-run"))
+    lineage = InitialReadDispatchLineage(
+        RunId("initial-memory-run"), str(RunId("initial-memory-run"))
+    )
 
     completed = await dispatcher.dispatch(
         binding=catalog.binding(MEMORY_SEARCH_SPEC.id),
@@ -303,7 +319,9 @@ async def test_search_embedding_failure_falls_back_to_lexical_success() -> None:
     repository = _Repository(_row())
     embedder = _Embedder(failure=EmbeddingFailure("synthetic embedding failure"))
     catalog, plan = _catalog_and_plan(repository, embedder)
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     budgets = InMemoryBudgetState(plan.profile.run_limits)
 
     for ordinal in (1, 2):
@@ -317,7 +335,11 @@ async def test_search_embedding_failure_falls_back_to_lexical_success() -> None:
             plan=plan,
             budgets=budgets,
             cancellation=CancellationToken(),
-            lineage=IsolatedDispatchLineage(RunId("memory-run"), ordinal),
+            lineage=IsolatedDispatchLineage(
+                RunId("memory-run"),
+                ordinal,
+                decision_key(str(RunId("memory-run")), ordinal),
+            ),
         )
         assert completed.result["type"] == "Success"
 
@@ -330,6 +352,9 @@ async def test_search_embedding_failure_falls_back_to_lexical_success() -> None:
         MemoryIdentity("memory_log", repository.row.id),
     )
     assert dispatcher.evidence.search_calls == 2
+    reopened = MemoryToolDispatcher(recorder=RunReadRecorder())
+    reopened.restore_model_evidence(dispatcher.snapshot_model_evidence())
+    assert reopened.evidence == dispatcher.evidence
     evidence_text = repr(dispatcher.evidence)
     assert "synthetic query" not in evidence_text
     assert repository.row.text not in evidence_text
@@ -341,7 +366,9 @@ async def test_unexpected_embedding_defect_fails_dispatch() -> None:
         repository,
         _Embedder(failure=ValueError("synthetic programming defect")),
     )
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
 
     with pytest.raises(ToolDispatchDefect, match="memory read dispatch failed"):
         await dispatcher.dispatch(
@@ -354,7 +381,11 @@ async def test_unexpected_embedding_defect_fails_dispatch() -> None:
             plan=plan,
             budgets=InMemoryBudgetState(plan.profile.run_limits),
             cancellation=CancellationToken(),
-            lineage=IsolatedDispatchLineage(RunId("memory-defect-run"), 1),
+            lineage=IsolatedDispatchLineage(
+                RunId("memory-defect-run"),
+                1,
+                decision_key(str(RunId("memory-defect-run")), 1),
+            ),
         )
 
     assert repository.search_embeddings == []
@@ -369,7 +400,9 @@ async def test_zero_query_embedding_fails_dispatch() -> None:
         repository,
         _Embedder(vector=(0.0,) * EMBEDDING_DIMENSION),
     )
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
 
     with pytest.raises(ToolDispatchDefect, match="memory read dispatch failed"):
         await dispatcher.dispatch(
@@ -382,7 +415,11 @@ async def test_zero_query_embedding_fails_dispatch() -> None:
             plan=plan,
             budgets=InMemoryBudgetState(plan.profile.run_limits),
             cancellation=CancellationToken(),
-            lineage=IsolatedDispatchLineage(RunId("zero-vector-run"), 1),
+            lineage=IsolatedDispatchLineage(
+                RunId("zero-vector-run"),
+                1,
+                decision_key(str(RunId("zero-vector-run")), 1),
+            ),
         )
 
     assert repository.search_embeddings == []
@@ -395,7 +432,9 @@ async def test_open_deduplicates_inputs_and_returns_typed_not_found() -> None:
     missing = MemoryIdentity("memory_summary", uuid4())
     repository.missing = (missing,)
     catalog, plan = _catalog_and_plan(repository, _Embedder())
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     identity = MemoryRowIdentity(table_kind=row.table_kind, id=row.id)
 
     completed = await dispatcher.dispatch(
@@ -410,7 +449,9 @@ async def test_open_deduplicates_inputs_and_returns_typed_not_found() -> None:
         plan=plan,
         budgets=InMemoryBudgetState(plan.profile.run_limits),
         cancellation=CancellationToken(),
-        lineage=IsolatedDispatchLineage(RunId("memory-open-run"), 1),
+        lineage=IsolatedDispatchLineage(
+            RunId("memory-open-run"), 1, decision_key(str(RunId("memory-open-run")), 1)
+        ),
     )
 
     assert completed.result == {
@@ -430,7 +471,9 @@ async def test_dispatch_evidence_preserves_successful_open_occurrences_only() ->
     row = _row()
     repository = _Repository(row)
     catalog, plan = _catalog_and_plan(repository, _Embedder())
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     budgets = InMemoryBudgetState(plan.profile.run_limits)
     value = MemoryOpenInput(
         identities=(
@@ -446,7 +489,11 @@ async def test_dispatch_evidence_preserves_successful_open_occurrences_only() ->
             plan=plan,
             budgets=budgets,
             cancellation=CancellationToken(),
-            lineage=IsolatedDispatchLineage(RunId("memory-open-run"), ordinal),
+            lineage=IsolatedDispatchLineage(
+                RunId("memory-open-run"),
+                ordinal,
+                decision_key(str(RunId("memory-open-run")), ordinal),
+            ),
         )
         assert completed.result["type"] == "Success"
 
@@ -462,7 +509,9 @@ async def test_dispatch_evidence_preserves_successful_open_occurrences_only() ->
 async def test_dispatch_rejects_nonisolated_lineage_before_mutation() -> None:
     repository = _Repository(_row())
     catalog, plan = _catalog_and_plan(repository, _Embedder())
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     budgets = InMemoryBudgetState(plan.profile.run_limits)
 
     with pytest.raises(ToolDispatchDefect, match="isolated"):
@@ -481,6 +530,8 @@ async def test_dispatch_rejects_nonisolated_lineage_before_mutation() -> None:
                 Checkpoint("checkpoint"),
                 (InputId("input"),),
                 1,
+                definition_fingerprint="a" * 64,
+                model_decision_id=decision_key(str(ClaimId("claim")), 1),
             ),
         )
     assert dispatcher.recorder.position_count == 0
@@ -507,7 +558,9 @@ async def test_dispatch_rejects_frozen_binding_substitution_before_mutation(
     else:
         changed_spec = replace(binding.spec, effect=ToolEffect.Write)
         changed = replace(binding, spec=changed_spec, policy_inputs=policy_inputs)
-    dispatcher = MemoryToolDispatcher()
+    dispatcher = MemoryToolDispatcher(
+        recorder=RunReadRecorder(),
+    )
     budgets = InMemoryBudgetState(plan.profile.run_limits)
 
     with pytest.raises(ToolDispatchDefect):
@@ -521,7 +574,9 @@ async def test_dispatch_rejects_frozen_binding_substitution_before_mutation(
             plan=plan,
             budgets=budgets,
             cancellation=CancellationToken(),
-            lineage=IsolatedDispatchLineage(RunId("memory-run"), 1),
+            lineage=IsolatedDispatchLineage(
+                RunId("memory-run"), 1, decision_key(str(RunId("memory-run")), 1)
+            ),
         )
     assert dispatcher.recorder.position_count == 0
     assert budgets.actual_calls == 0

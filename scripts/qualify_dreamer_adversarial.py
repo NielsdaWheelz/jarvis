@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import stat
@@ -16,6 +17,8 @@ from uuid import UUID, uuid4
 
 import httpx
 from llm_agent_kernel import CancellationToken
+from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
+from llm_tools import canonical_json_bytes
 from pydantic import SecretStr
 from qualify_memory import Arguments as MemoryArguments
 from qualify_memory import qualification_settings
@@ -32,7 +35,7 @@ from jarvis.definitions import (
     build_slice4_definitions,
     verify_runtime_dependencies,
 )
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
 from jarvis.memory import (
     MemoryStore,
     StoredMemorySummary,
@@ -46,6 +49,7 @@ from jarvis.memory_retrieval import (
     RetrievedMemory,
 )
 from jarvis.read_composition import build_slice3_catalog
+from jarvis.read_dispatch import RunReadRecorder
 from jarvis.service import DreamerRunCompleted, DreamerWorker
 
 SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
@@ -197,12 +201,19 @@ class _Repository:
 
 
 class _Memory:
-    def __init__(self, raw_count: int = 1) -> None:
+    def __init__(self, rows: tuple[RetrievedMemory, ...]) -> None:
         self.batch: SummaryMutationBatch | None = None
-        self._raw_count = raw_count
+        self._rows = rows
+
+    async def snapshot_revision(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                [{"id": str(row.id), "text": row.text} for row in self._rows]
+            )
+        ).hexdigest()
 
     async def raw_memory_count(self) -> int:
-        return self._raw_count
+        return len(self._rows)
 
     async def apply_summary_mutations(
         self,
@@ -318,12 +329,16 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 memory_repository=repository,
                 memory_embedder=embedder,
             )
+            provider_configuration = await resolve_provider_configuration(
+                state_root=arguments.state_root,
+                profile_key=arguments.profile,
+                model_key=arguments.model,
+                reasoning=arguments.reasoning_effort,
+            )
             definitions = build_slice4_definitions(
                 catalog=catalog,
-                profile_key=arguments.profile,
-                model=arguments.model,
+                provider=provider_configuration,
                 owner_timezone=arguments.owner_timezone,
-                reasoning_effort=arguments.reasoning_effort,
             )
             limits = qualification_admission_limits()
             admission_path = arguments.runtime_state_directory / "admission.json"
@@ -344,13 +359,16 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 stage = "trials"
                 for index, trial in enumerate(TRIALS, start=1):
                     repository.select(trial)
-                    memory = _Memory()
+                    memory = _Memory(repository.rows)
                     outcome = await DreamerWorker(
+                        model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
                         definition=definitions.dreamer,
                         plan=definitions.plans["dreamer"],
                         admission=admission,
                         provider=runtime.provider,
-                        dispatcher_factory=MemoryToolDispatcher,
+                        dispatcher_factory=lambda: MemoryToolDispatcher(
+                            recorder=RunReadRecorder()
+                        ),
                         memory=cast("MemoryStore", memory),
                     ).run_at(
                         as_of=datetime.now(UTC),
@@ -371,15 +389,18 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     )
                 stage = "contradiction_trial"
                 repository.select_contradiction()
-                contradiction_memory = _Memory(raw_count=2)
-                contradiction_dispatchers: list[MemoryToolDispatcher] = []
+                contradiction_memory = _Memory(repository.rows)
+                contradiction_dispatchers: list[
+                    MemoryToolDispatcher[RunReadRecorder]
+                ] = []
 
-                def contradiction_dispatcher() -> MemoryToolDispatcher:
-                    dispatcher = MemoryToolDispatcher()
+                def contradiction_dispatcher() -> MemoryToolDispatcher[RunReadRecorder]:
+                    dispatcher = MemoryToolDispatcher(recorder=RunReadRecorder())
                     contradiction_dispatchers.append(dispatcher)
                     return dispatcher
 
                 contradiction_outcome = await DreamerWorker(
+                    model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
                     definition=definitions.dreamer,
                     plan=definitions.plans["dreamer"],
                     admission=admission,
@@ -430,6 +451,7 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
             },
             "route": arguments.model,
             "status": "passed",
+            "recovery": "not_qualified_disposable_synthetic_probe",
             "trials": {
                 "empty_batches": len(usages),
                 "passed": len(usages),

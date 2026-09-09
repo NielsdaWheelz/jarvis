@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from llm_agent_kernel import (
@@ -25,11 +25,13 @@ from llm_tools import (
     ToolEffect,
     ToolExecutor,
     ToolId,
+    canonical_json_bytes,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 from jarvis.memory_retrieval import MemoryIdentity
-from jarvis.memory_tools import MEMORY_TOOL_IDS
-from jarvis.read_dispatch import RunReadRecorder
+from jarvis.memory_tools import MEMORY_TOOL_IDS, MemoryRowIdentity
+from jarvis.read_dispatch import ReadRecorder
 
 
 class _NoTelemetry:
@@ -44,18 +46,26 @@ class MemoryDispatchEvidence:
     search_calls: int
 
 
-class MemoryToolDispatcher:
+class _StoredMemoryEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    kind: Literal["jarvis-memory-evidence.v1"]
+    candidate_ids: Annotated[tuple[MemoryRowIdentity, ...], Field(max_length=160)]
+    opened_ids: Annotated[tuple[MemoryRowIdentity, ...], Field(max_length=160)]
+    search_calls: Annotated[int, Field(ge=0, le=8)]
+
+
+class MemoryToolDispatcher[RecorderT: ReadRecorder]:
     """Execute only exact frozen memory reads from an isolated role run."""
 
-    def __init__(self) -> None:
-        self._recorder = RunReadRecorder()
+    def __init__(self, recorder: RecorderT) -> None:
+        self._recorder = recorder
         self._candidate_ids: list[MemoryIdentity] = []
         self._candidate_id_set: set[MemoryIdentity] = set()
         self._opened_ids: list[MemoryIdentity] = []
         self._search_calls = 0
 
     @property
-    def recorder(self) -> RunReadRecorder:
+    def recorder(self) -> RecorderT:
         return self._recorder
 
     @property
@@ -65,6 +75,33 @@ class MemoryToolDispatcher:
             tuple(self._opened_ids),
             self._search_calls,
         )
+
+    def snapshot_model_evidence(self) -> dict[str, object]:
+        return _StoredMemoryEvidence(
+            kind="jarvis-memory-evidence.v1",
+            candidate_ids=tuple(
+                MemoryRowIdentity(table_kind=value.table_kind, id=value.id)
+                for value in self._candidate_ids
+            ),
+            opened_ids=tuple(
+                MemoryRowIdentity(table_kind=value.table_kind, id=value.id)
+                for value in self._opened_ids
+            ),
+            search_calls=self._search_calls,
+        ).model_dump(mode="json")
+
+    def restore_model_evidence(self, value: object) -> None:
+        stored = _StoredMemoryEvidence.model_validate_json(canonical_json_bytes(value))
+        self._candidate_ids = [
+            MemoryIdentity(row.table_kind, row.id) for row in stored.candidate_ids
+        ]
+        self._candidate_id_set = set(self._candidate_ids)
+        if len(self._candidate_ids) != len(self._candidate_id_set):
+            raise ValueError("stored memory candidate evidence is duplicated")
+        self._opened_ids = [
+            MemoryIdentity(row.table_kind, row.id) for row in stored.opened_ids
+        ]
+        self._search_calls = stored.search_calls
 
     async def dispatch(
         self,
@@ -95,6 +132,7 @@ class MemoryToolDispatcher:
             raise ToolDispatchDefect("kernel supplied an invalid decoded tool input")
         value = cast("Any", validated_input).model_dump(mode="json")
         try:
+            await self._recorder.recover_budget(lineage=lineage, budgets=budgets)
             result = await ToolExecutor.execute(
                 binding,
                 ParsedJson(value),

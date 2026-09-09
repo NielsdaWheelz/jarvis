@@ -477,7 +477,7 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A7.1** V1 deploys with no application backup, restore command, Restic/R2
       credential, backup database role, or backup timer. The owner explicitly
       accepts that loss of the devbox, disk, or database can permanently lose
-      Jarvis state; backup remains addable later without changing the four-table
+      Jarvis state; backup remains addable later without changing the six-table
       application schema.
 - [ ] **A7.2** The acceptance report records the production host, release commit,
       Python, PostgreSQL, pgvector, and running-kernel identities; UTC state;

@@ -61,7 +61,16 @@ from jarvis.admission import (
     slice5_admission_limits,
 )
 from jarvis.checkpoints import PostgresInputCheckpoint
-from jarvis.db import action, create_engine, memory_log, memory_summary, message
+from jarvis.db import (
+    action,
+    create_engine,
+    memory_log,
+    memory_summary,
+    message,
+    model_decision,
+    read_position,
+)
+from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     EXPECTED_PACKAGE_VERSIONS,
@@ -80,14 +89,15 @@ from jarvis.discord import (
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore, SettlementTrace
-from jarvis.ownership import deployment_ownership
+from jarvis.ownership import Database, deployment_ownership
 from jarvis.proactivity import DueWakeSignal, ProcessLocalWakeTimer
 from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.schedule_tools import (
     ScheduleCancelRequest,
     ScheduleCreateRequest,
@@ -265,23 +275,24 @@ def _validate_settings(settings: Settings) -> None:
             raise ValueError(f"{label} must be private")
 
 
-async def _require_empty_database(settings: Settings) -> None:
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with engine.connect() as connection:
-            counts: list[int] = []
-            for table in (message, memory_log, memory_summary, action):
-                counts.append(
-                    cast(
-                        int,
-                        await connection.scalar(
-                            select(func.count()).select_from(table)
-                        ),
-                    )
+async def _require_empty_database(engine: Database) -> None:
+    async with engine.connect() as connection:
+        counts: list[int] = []
+        for table in (
+            message,
+            memory_log,
+            memory_summary,
+            action,
+            model_decision,
+            read_position,
+        ):
+            counts.append(
+                cast(
+                    int,
+                    await connection.scalar(select(func.count()).select_from(table)),
                 )
-    finally:
-        await engine.dispose()
-    if counts != [0, 0, 0, 0]:
+            )
+    if any(counts):
         raise ValueError("qualification database must be empty")
 
 
@@ -469,38 +480,42 @@ async def _cleanup_discord(
 async def _run(settings: Settings) -> dict[str, object]:
     verify_runtime_dependencies()
     _validate_settings(settings)
-    await _require_empty_database(settings)
     settings.runtime_state_directory.mkdir(mode=0o700)
     settings.provider_cwd_parent.mkdir(mode=0o700)
     admission_limits = slice5_admission_limits(settings.maximum_batch_size)
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    engine = create_engine(settings.database_url.get_secret_value())
-    kernel_runtime = None
-    delivery: _RecordingDelivery | None = None
-    removed = 0
-    primary_error: BaseException | None = None
-    result: dict[str, object] | None = None
-    async with AsyncExitStack() as clients:
-        google_oauth_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
+    raw_engine = create_engine(settings.database_url.get_secret_value())
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
         )
-        google_api_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        maps_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        brave_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        embedding_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        discord_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        try:
-            async with deployment_ownership(engine):
+        await _require_empty_database(engine)
+        kernel_runtime = None
+        delivery: _RecordingDelivery | None = None
+        removed = 0
+        primary_error: BaseException | None = None
+        result: dict[str, object] | None = None
+        async with AsyncExitStack() as clients:
+            google_oauth_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            google_api_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            maps_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            brave_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            embedding_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            discord_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            try:
                 actions = ActionStore(engine)
                 messages = MessageStore(engine)
                 memory = MemoryStore(engine)
@@ -508,9 +523,13 @@ async def _run(settings: Settings) -> dict[str, object]:
                     settings.embedding_openai_api_key,
                     http_client=embedding_http,
                 )
-                provisional_gate, _ = build_slice5_write_gate(
+                provider_configuration = await resolve_provider_configuration(
+                    state_root=settings.codex_state_root,
                     profile_key=settings.codex_profile_key,
-                    model=settings.codex_model,
+                    model_key=settings.codex_model,
+                )
+                provisional_gate, _ = build_slice5_write_gate(
+                    provider=provider_configuration,
                 )
                 composition = build_slice6_composition(
                     settings=settings,
@@ -527,8 +546,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 )
                 definitions = build_slice6_definitions(
                     catalog=composition.catalog,
-                    profile_key=settings.codex_profile_key,
-                    model=settings.codex_model,
+                    provider=provider_configuration,
                     owner_timezone=settings.owner_timezone,
                 )
                 plan_evidence = proactive_plan_evidence(definitions)
@@ -706,17 +724,25 @@ async def _run(settings: Settings) -> dict[str, object]:
                     kernel_limits=definitions.main.limits,
                 )
                 gate = AutomaticWriteGate(
+                    model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                        engine, evidence=evidence
+                    ),
                     definition=definitions.automatic_write_gate,
                     plan=definitions.plans["automatic_write_gate"],
                     admission=admission,
                     provider=kernel_runtime.provider,
                 )
                 rememberer = RemembererWorker(
+                    model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                        engine, evidence=evidence
+                    ),
                     definition=definitions.rememberer,
                     plan=definitions.plans["rememberer"],
                     admission=admission,
                     provider=kernel_runtime.provider,
-                    dispatcher_factory=MemoryToolDispatcher,
+                    dispatcher_factory=lambda: MemoryToolDispatcher(
+                        recorder=PostgresReadRecorder(engine)
+                    ),
                     memory=memory,
                     messages=messages,
                     embedder=embedder,
@@ -732,7 +758,10 @@ async def _run(settings: Settings) -> dict[str, object]:
                         gate=gate,
                         actions=actions,
                         google_write=composition.google_write,
-                        read=ReadToolDispatcher(host_secrets=settings.host_secrets),
+                        read=ReadToolDispatcher(
+                            recorder=PostgresReadRecorder(engine),
+                            host_secrets=settings.host_secrets,
+                        ),
                         owner_timezone=settings.owner_timezone,
                         source_conversation_id=conversation_id,
                         verified_owner_only_calendar_ids=(
@@ -748,6 +777,9 @@ async def _run(settings: Settings) -> dict[str, object]:
                     return recording
 
                 runner = JarvisThreadRunner(
+                    model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                        engine, evidence=evidence
+                    ),
                     settings=settings,
                     store=messages,
                     admission=admission,
@@ -756,7 +788,9 @@ async def _run(settings: Settings) -> dict[str, object]:
                     history=PostgresCanonicalHistory(engine),
                     checkpoint_dispatcher_factory=dispatcher_factory,
                     memory=memory,
-                    memory_dispatcher_factory=MemoryToolDispatcher,
+                    memory_dispatcher_factory=lambda: MemoryToolDispatcher(
+                        recorder=PostgresReadRecorder(engine)
+                    ),
                     rememberer=rememberer,
                 )
                 model_outcome = await runner.run(CancellationToken())
@@ -977,42 +1011,41 @@ async def _run(settings: Settings) -> dict[str, object]:
                         for tool_id in dispatcher.tool_ids
                     ),
                 }
-        except BaseException as error:
-            primary_error = error
-        finally:
-            if delivery is not None:
-                try:
-                    removed = await _cleanup_discord(
-                        delivery=delivery,
-                        client=discord_http,
-                        settings=settings,
-                    )
-                except BaseException as cleanup_error:
-                    if primary_error is None:
-                        primary_error = cleanup_error
-            if kernel_runtime is not None:
-                await kernel_runtime.close()
-            await engine.dispose()
-    if primary_error is not None:
-        if isinstance(primary_error, QualificationFailure):
-            raise primary_error
-        raise QualificationFailure("run", "unexpected_exception") from primary_error
-    if result is None:
-        raise QualificationFailure("run", "result_missing")
-    discord_evidence = cast("dict[str, object]", result["discord"])
-    discord_evidence["removed"] = removed
-    if removed != discord_evidence["delivered"]:
-        raise QualificationFailure("cleanup", "discord_cleanup_incomplete")
-    validate_result_evidence(result)
-    assert_sanitized_output(
-        result,
-        (
-            *settings.host_secrets,
-            str(settings.runtime_state_directory),
-            str(settings.google_oauth_state_path),
-        ),
-    )
-    return result
+            except BaseException as error:
+                primary_error = error
+            finally:
+                if delivery is not None:
+                    try:
+                        removed = await _cleanup_discord(
+                            delivery=delivery,
+                            client=discord_http,
+                            settings=settings,
+                        )
+                    except BaseException as cleanup_error:
+                        if primary_error is None:
+                            primary_error = cleanup_error
+                if kernel_runtime is not None:
+                    await kernel_runtime.close()
+        if primary_error is not None:
+            if isinstance(primary_error, QualificationFailure):
+                raise primary_error
+            raise QualificationFailure("run", "unexpected_exception") from primary_error
+        if result is None:
+            raise QualificationFailure("run", "result_missing")
+        discord_evidence = cast("dict[str, object]", result["discord"])
+        discord_evidence["removed"] = removed
+        if removed != discord_evidence["delivered"]:
+            raise QualificationFailure("cleanup", "discord_cleanup_incomplete")
+        validate_result_evidence(result)
+        assert_sanitized_output(
+            result,
+            (
+                *settings.host_secrets,
+                str(settings.runtime_state_directory),
+                str(settings.google_oauth_state_path),
+            ),
+        )
+        return result
 
 
 def main() -> int:

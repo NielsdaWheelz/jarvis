@@ -15,6 +15,7 @@ from llm_agent_kernel import (
     ThreadId,
 )
 from llm_tools import InvocationPosition, Reservation, RunLimits, Settlement
+from provider_fixture import frozen_provider
 
 from jarvis.admission import (
     ExactToolBudgetFactory,
@@ -500,7 +501,8 @@ async def test_slice3_capacity_fits_worst_foreground_then_background_rememberer(
 
 async def test_plan_factory_returns_fresh_exact_budget() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
+        owner_timezone="UTC",
     )
     plan = definitions.plans["main"]
     factory = ExactToolBudgetFactory()

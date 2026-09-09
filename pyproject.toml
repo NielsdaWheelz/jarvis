@@ -7,20 +7,20 @@ name = "jarvis"
 version = "0.1.0"
 description = "A small personal agent with durable conversation history"
 readme = "README.md"
-requires-python = "==3.12.*"
+requires-python = ">=3.12.13,<3.13"
 dependencies = [
   "alembic==1.16.5",
   "cryptography==50.0.1",
   "discord.py==2.7.1",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@21084bec674023ea572950a18dde464506ea37ad",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af",
   "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@9e6d155f3b64f03495911435b7cae8b8d131f9a2",
   "openai-codex-cli-bin==0.144.4",
   "openai-codex==0.144.4",
   "pgvector==0.4.1",
   "psycopg[binary,pool]==3.2.9",
   "pydantic==2.12.5",
-  "provider-runtime[codex-sdk] @ git+https://github.com/NielsdaWheelz/llm-calling.git@4ddced3bb5487ce988858c4c6d45d2e5ee0acad9",
+  "provider-runtime[codex-sdk] @ git+https://github.com/NielsdaWheelz/llm-calling.git@8fde23ac56571a63c65cfcff55c73a0976f83eb4",
   "sqlalchemy[asyncio]==2.0.43",
 ]
 

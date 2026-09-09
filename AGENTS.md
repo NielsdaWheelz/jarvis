@@ -27,8 +27,9 @@ These instructions govern all work in this repository.
   scale infrastructure.
 - Do not add personal-domain tables or memory categories, confidence fields,
   salience scores, temporal validity, or source-authority taxonomies.
-- Jarvis owns exactly four application tables: `message`, `memory_log`,
-  `memory_summary`, and `action`. A fifth requires an accepted ADR.
+- Jarvis owns exactly six application tables: `message`, `memory_log`,
+  `memory_summary`, `action`, `model_decision`, and `read_position` (ADR 0040).
+  Additional application tables require an accepted ADR.
 - The four additional irreducible durability fields are
   `message.processing_attempts`, `message.processing_parked_at`,
   `action.execution_contract`, and `action.attempts`. Do not expand them into a

@@ -37,9 +37,10 @@ from llm_tools.schema import (
     strict_encode,
 )
 from llm_tools.testing import InMemoryBudgetState
+from provider_fixture import decision_key
 from pydantic import BaseModel, ValidationError
 
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_tools import (
     AUTOMATIC_READ_TOOL_IDS,
     AllDayEventTime,
@@ -640,7 +641,7 @@ async def test_tightened_grant_oversize_completes_through_dispatcher() -> None:
         run_limits,
     ).freeze(catalog)
     plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
-    dispatcher = ReadToolDispatcher(host_secrets=())
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
 
     completed = await dispatcher.dispatch(
         binding=catalog.binding(tool_id),
@@ -657,6 +658,8 @@ async def test_tightened_grant_oversize_completes_through_dispatcher() -> None:
             Checkpoint("checkpoint"),
             (InputId("input"),),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(ClaimId("claim")), 1),
         ),
     )
 

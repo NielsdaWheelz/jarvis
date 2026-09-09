@@ -1646,9 +1646,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `caa8825556b4032a82d1387acbae89b3e8189930`
+  `6c0acdc541b21ef6bb0f4626cd957f0101324573`
 - `llm-calling` / `provider-runtime`:
-  `c9ecf4d974efba2af1aed09dbdb42e76a480d4f8`
+  `834ea544f1d7437ce2a32b17d4cc813e75a06fa2`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The Devbox host pins `@openai/codex@0.153.4` for all three services and stock

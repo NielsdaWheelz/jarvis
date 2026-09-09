@@ -13,12 +13,12 @@ dependencies = [
   "cryptography==50.0.1",
   "discord.py==2.7.1",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@caa8825556b4032a82d1387acbae89b3e8189930",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@6c0acdc541b21ef6bb0f4626cd957f0101324573",
   "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@9e6d155f3b64f03495911435b7cae8b8d131f9a2",
   "pgvector==0.4.1",
   "psycopg[binary,pool]==3.2.9",
   "pydantic==2.12.5",
-  "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@c9ecf4d974efba2af1aed09dbdb42e76a480d4f8",
+  "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@834ea544f1d7437ce2a32b17d4cc813e75a06fa2",
   "sqlalchemy[asyncio]==2.0.43",
 ]
 

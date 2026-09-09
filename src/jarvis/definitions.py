@@ -55,9 +55,9 @@ from jarvis.terminal import JarvisTerminal
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "caa8825556b4032a82d1387acbae89b3e8189930",
+    "llm-agent-kernel": "6c0acdc541b21ef6bb0f4626cd957f0101324573",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "c9ecf4d974efba2af1aed09dbdb42e76a480d4f8",
+    "provider-runtime": "834ea544f1d7437ce2a32b17d4cc813e75a06fa2",
 }
 EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY = (
     "llm-agent-kernel-contained-structured-agent-v1:sha256:"

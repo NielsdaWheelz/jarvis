@@ -15,6 +15,7 @@ from llm_tools import (
     FrozenToolPlan,
     InvocationPosition,
     PositionState,
+    RecoveryRequired,
     ReplayPolicy,
     Reservation,
     Settlement,
@@ -30,6 +31,7 @@ from sqlalchemy import RowMapping, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+from jarvis.codex_tools import CODEX_WRITE_IDS, CodexActionEvidence, CodexNoPrefix
 from jarvis.db import action, message
 from jarvis.messages import (
     MAX_DISCORD_MESSAGE_CHARACTERS,
@@ -71,9 +73,9 @@ class ExecutionContract(BaseModel):
     policy_revision: Annotated[str, Field(min_length=1, max_length=256)]
     plan_revision: Annotated[str, Field(min_length=1, max_length=256)]
     tool_effect: Literal[ToolEffect.Write]
-    replay_policy: Literal[ReplayPolicy.ReDispatchable]
+    replay_policy: Literal[ReplayPolicy.ReDispatchable, ReplayPolicy.BilledOnce]
     input_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    max_attempts: Literal[2]
+    max_attempts: Literal[1, 2]
     claim_id: Annotated[str, Field(min_length=1, max_length=256)]
     through_checkpoint: Annotated[str, Field(min_length=1, max_length=36)]
     model_step_ordinal: Annotated[int, Field(ge=1)]
@@ -115,6 +117,11 @@ class ExecutionContract(BaseModel):
 
     @model_validator(mode="after")
     def consistent_lineage(self) -> ExecutionContract:
+        expected_attempts = (
+            1 if self.replay_policy is ReplayPolicy.BilledOnce else ACTION_MAX_ATTEMPTS
+        )
+        if self.max_attempts != expected_attempts:
+            raise ValueError("action attempt ceiling disagrees with its replay policy")
         if self.through_checkpoint != self.input_message_ids[-1]:
             raise ValueError("through checkpoint must be the final admitted input")
         if not set(self.write_gate_supporting_owner_message_ids).issubset(
@@ -1013,6 +1020,26 @@ class ActionStore:
                     )
             return await _update_action(connection, action_id, result=basis)
 
+    async def stage_codex_control(
+        self, *, action_id: UUID, evidence: CodexActionEvidence
+    ) -> StoredAction:
+        """Retain only the confirmed prefix before the next one-shot control stage."""
+
+        async with self.engine.begin() as connection:
+            stored = await _require_locked_action(connection, action_id)
+            if (
+                stored.status != "executing"
+                or stored.execution_contract.replay_policy
+                is not ReplayPolicy.BilledOnce
+                or stored.attempts != 1
+            ):
+                raise ActionPersistenceDefect(
+                    "Codex evidence requires one active entry"
+                )
+            return await _update_action(
+                connection, action_id, result=evidence.model_dump(mode="json")
+            )
+
     async def stage_external_attempts(
         self,
         *,
@@ -1025,6 +1052,8 @@ class ActionStore:
             raise ValueError("external attempt count must be a positive integer")
         async with self.engine.begin() as connection:
             stored = await _require_locked_action(connection, action_id)
+            if stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
+                raise ActionPersistenceDefect("BilledOnce work is never readmitted")
             if stored.status != "executing":
                 raise ActionPersistenceDefect(
                     "external attempts require an executing action"
@@ -1062,6 +1091,8 @@ class ActionStore:
             raise ValueError("external attempt accounting is invalid")
         async with self.engine.begin() as connection:
             stored = await _require_locked_action(connection, action_id)
+            if stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
+                raise ActionPersistenceDefect("BilledOnce work is never readmitted")
             if stored.status != "executing":
                 raise ActionPersistenceDefect(
                     "only an executing action can be reconciled for repeat"
@@ -1697,7 +1728,7 @@ class ActionStore:
 
 
 class ActionPositionRecorder:
-    """Action-backed PositionRecorder for one ReDispatchable Write."""
+    """Action-backed PositionRecorder for one declared durable Write."""
 
     def __init__(
         self,
@@ -1807,11 +1838,11 @@ class ActionPositionRecorder:
         replay_policy: ReplayPolicy,
     ) -> PositionState:
         self._require_position(position)
-        if replay_policy is not ReplayPolicy.ReDispatchable:
-            raise ValueError("action replay policy changed")
         async with self._store.engine.begin() as connection:
             stored = await _require_locked_action(connection, self._action_id)
             self._require_contract(stored)
+            if replay_policy is not stored.execution_contract.replay_policy:
+                raise ValueError("action replay policy changed")
             replay = _replay_result(stored)
             if replay is not None:
                 return PositionState(
@@ -1875,7 +1906,18 @@ class ActionPositionRecorder:
 
     async def uncertain(self, *, position: InvocationPosition) -> None:
         self._require_position(position)
-        raise ValueError("ReDispatchable writes require tool-specific reconciliation")
+        stored = await self._require_action()
+        if stored.execution_contract.replay_policy is not ReplayPolicy.BilledOnce:
+            raise ValueError(
+                "ReDispatchable writes require tool-specific reconciliation"
+            )
+        if stored.status == "uncertain":
+            return
+        await self._store.resolve_reconciliation(
+            action_id=stored.id,
+            status="uncertain",
+            result=codex_uncertainty_result(stored),
+        )
 
     async def terminalize_and_settle(
         self,
@@ -1926,7 +1968,22 @@ class ActionPositionRecorder:
             if self._reservation_accepted:
                 await budgets.settle(position, settlement)
 
-            if _is_schedule_create(stored) and canonical_result["type"] == "Success":
+            ambiguous_boundary_failure = (
+                stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce
+                and stored.attempts > 0
+                and canonical_result["type"] == "Failure"
+                and canonical_result["error"].get("type")
+                in {"BudgetExceeded", "DeadlineExceeded"}
+            )
+            if ambiguous_boundary_failure:
+                await _update_action(
+                    connection,
+                    stored.id,
+                    status="uncertain",
+                    completed_at=datetime.now(UTC),
+                    result=codex_uncertainty_result(stored),
+                )
+            elif _is_schedule_create(stored) and canonical_result["type"] == "Success":
                 await _store_schedule_creation(connection, stored, canonical_result)
             elif _is_schedule_cancel(stored) and canonical_result["type"] == "Success":
                 await _store_schedule_cancellation(connection, stored, canonical_result)
@@ -1943,7 +2000,9 @@ class ActionPositionRecorder:
                     result=canonical_result,
                 )
             self._settlement = settlement
-            return canonical_result
+        if ambiguous_boundary_failure:
+            raise RecoveryRequired("BilledOnce control outcome requires inspection")
+        return canonical_result
 
     async def _matching_action(
         self,
@@ -2398,10 +2457,10 @@ def _validate_new_action(
     ToolId(str(tool_name))
     if contract.tool_effect is not ToolEffect.Write:
         raise ValueError("actions require the Write effect")
-    if contract.replay_policy is not ReplayPolicy.ReDispatchable:
-        raise ValueError("v1 write actions must be ReDispatchable")
-    if contract.max_attempts != ACTION_MAX_ATTEMPTS:
-        raise ValueError("v1 write actions require exactly two lifetime entries")
+    if (tool_name in CODEX_WRITE_IDS) != (
+        contract.replay_policy is ReplayPolicy.BilledOnce
+    ):
+        raise ValueError("write action replay policy differs from its tool family")
     if raw_input_digest(ParsedJson(arguments)) != contract.input_digest:
         raise ValueError("execution contract has a different input digest")
     if str(origin_message_id) != contract.input_message_ids[0]:
@@ -2483,6 +2542,8 @@ def _validate_stored_action(stored: StoredAction) -> None:
             _gmail_update_basis(stored.result)
         elif stored.result.get("type") == "action_recovery_v1":
             _recovery_state(stored.result)
+        elif stored.result.get("type") == "codex_control_v1":
+            CodexActionEvidence.model_validate(stored.result)
 
 
 def _action_identity(
@@ -2570,10 +2631,17 @@ def _recovery_state(result: dict[str, object]) -> dict[str, object]:
 
 def _uncertainty_result(result: dict[str, object]) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
-    if (
-        set(canonical) != {"type", "evidence_code", "recorded_at"}
-        or canonical.get("type") != "action_uncertainty_v1"
-    ):
+    codex = canonical.get("type") == "codex_uncertainty_v1"
+    keys = {"type", "evidence_code", "recorded_at"}
+    if codex:
+        keys.add("control")
+        canonical["control"] = CodexActionEvidence.model_validate(
+            canonical.get("control")
+        ).model_dump(mode="json")
+    if set(canonical) != keys or canonical.get("type") not in {
+        "action_uncertainty_v1",
+        "codex_uncertainty_v1",
+    }:
         raise ValueError("action uncertainty result is invalid")
     evidence = canonical["evidence_code"]
     if (
@@ -2587,6 +2655,26 @@ def _uncertainty_result(result: dict[str, object]) -> dict[str, object]:
         canonical["recorded_at"], "action uncertainty time"
     ).isoformat()
     return canonical
+
+
+def codex_uncertainty_result(stored: StoredAction) -> dict[str, object]:
+    """An entered native command has no replay-safe absence proof."""
+
+    if stored.execution_contract.replay_policy is not ReplayPolicy.BilledOnce:
+        raise ValueError("Codex uncertainty requires a BilledOnce action")
+    if stored.status == "uncertain" and stored.result is not None:
+        return _uncertainty_result(stored.result)
+    evidence = (
+        CodexActionEvidence.model_validate(stored.result)
+        if stored.result is not None
+        else CodexActionEvidence(stage="dispatch", prefix=CodexNoPrefix())
+    )
+    return {
+        "type": "codex_uncertainty_v1",
+        "evidence_code": "native-control-outcome-unconfirmed-no-repeat",
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "control": evidence.model_dump(mode="json"),
+    }
 
 
 def _gmail_update_basis(value: dict[str, object]) -> dict[str, object]:

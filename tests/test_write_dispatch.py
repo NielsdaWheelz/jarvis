@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
@@ -41,14 +43,23 @@ from llm_tools import (
     ToolPlan,
 )
 from llm_tools.testing import InMemoryBudgetState
+from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
+from test_codex_control import THREAD, TURN, ProtocolPeer, host_config, protocol_peer
 
 from jarvis.actions import ActionStore
 from jarvis.checkpoints import PostgresInputCheckpoint
+from jarvis.codex_control import CodexController
+from jarvis.codex_tools import (
+    CodexInterruptInput,
+    CodexPromptInput,
+    CodexStartInput,
+    codex_family,
+)
 from jarvis.db import action, create_engine, message
 from jarvis.definitions import build_slice5_write_gate
-from jarvis.messages import MessageStore
+from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR, MessageStore
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.terminal import TurnEvidence
 from jarvis.write_connectors import (
@@ -82,6 +93,12 @@ postgres = pytest.mark.skipif(
     reason="JARVIS_TEST_DATABASE_URL is not configured",
 )
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
+
+
+@pytest.fixture
+async def codex_peer() -> AsyncIterator[tuple[Path, ProtocolPeer]]:
+    async with protocol_peer() as value:
+        yield value
 
 
 @pytest_asyncio.fixture
@@ -933,3 +950,206 @@ async def test_gmail_create_absence_and_uncertainty_never_repeat(
     assert uncertain.status == "uncertain"
     assert uncertain.attempts == 1
     assert uncertain_provider.effects == [uncertain_id]
+
+
+@pytest.mark.parametrize("tool", ["codex.start", "codex.prompt", "codex.interrupt"])
+async def test_codex_denied_owner_write_never_reaches_action_or_native_boundary(
+    tmp_path: Path, codex_peer: tuple[Path, ProtocolPeer], tool: str
+) -> None:
+    root, external = codex_peer
+    owner = uuid4()
+    engine = create_engine("postgresql+psycopg://unused:unused@127.0.0.1:1/unused")
+    try:
+        async with AgentRuntime(
+            AgentRuntimeConfig(
+                state_root_base=tmp_path, codex_endpoints={"work": root / "work.sock"}
+            )
+        ) as runtime:
+            actions = ActionStore(engine)
+            controller = CodexController(
+                control=runtime.codex, host=host_config(root), actions=actions
+            )
+            catalog = ToolCatalog.compose((codex_family(controller),))
+            profile = CapabilityProfile(
+                ProfileId("synthetic-denied"),
+                (ToolGrant(ToolId(tool), None),),
+                RunLimits(1, 4, 65536, 4096, 1, 60.0),
+            ).freeze(catalog)
+            plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+            thread = {"profile": "work", "thread_handle": THREAD}
+            value = (
+                CodexStartInput(
+                    profile="work", cwd=str(root), name="review", prompt="Synthetic"
+                )
+                if tool == "codex.start"
+                else CodexPromptInput.model_validate(
+                    {"thread": thread, "input": {"type": "Submit", "text": "Synthetic"}}
+                )
+                if tool == "codex.prompt"
+                else CodexInterruptInput.model_validate(
+                    {"turn": {"thread": thread, "turn_handle": TURN}}
+                )
+            )
+            gate = _Gate("deny", owner)
+            result = await _dispatch(
+                _dispatcher(
+                    checkpoint=_Checkpoint(owner),
+                    gate=gate,
+                    actions=actions,
+                    google=_Google(),
+                ),
+                catalog.binding(ToolId(tool)),
+                plan,
+                owner,
+                value,
+            )
+            assert isinstance(result, DispatchCompleted)
+            assert result.result == {
+                "type": "Failure",
+                "error": {"type": "ToolUnavailable"},
+            }
+            assert gate.calls == 1
+            assert external.methods == []
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    not os.environ.get("JARVIS_TEST_DATABASE_URL"),
+    reason="requires disposable PostgreSQL action boundary",
+)
+@pytest.mark.parametrize("helper_outcome", ["Rejected", "Unknown", "Started"])
+async def test_real_write_dispatch_preserves_launch_prefix_and_closes_partial_owner(
+    tmp_path: Path, codex_peer: tuple[Path, ProtocolPeer], helper_outcome: str
+) -> None:
+    """The authority decision is supplied; launch/action/dispatch are production."""
+    root, external = codex_peer
+    helper_kinds: list[str] = []
+
+    async def helper(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        request = json.loads(await reader.readline())
+        helper_kinds.append(request["kind"])
+        assert "prompt" not in request and "env" not in request
+        if request["kind"] == "ResolveCwd":
+            assert "thread/start" not in external.methods
+            response = {"kind": "Resolved", "cwd": str(root)}
+        else:
+            assert external.methods[-1] == "thread/unsubscribe"
+            assert "turn/start" not in external.methods
+            assert request["thread_handle"] == THREAD
+            if helper_outcome == "Rejected":
+                response = {
+                    "kind": "Rejected",
+                    "stage": "validate",
+                    "reason": "invalid_request",
+                }
+            elif helper_outcome == "Unknown":
+                response = {"kind": "Unknown", "stage": "observe"}
+            else:
+                response = {
+                    "kind": "Started",
+                    "terminal": {"tmux_session_id": "$42", "tmux_name": "review"},
+                }
+        writer.write(json.dumps(response).encode() + b"\n")
+        await writer.drain()
+        writer.close()
+
+    engine = create_engine(os.environ["JARVIS_TEST_DATABASE_URL"])
+    owner = uuid4()
+    channel = "synthetic-channel"
+    messages = MessageStore(engine)
+    await messages.insert_waking(
+        role="owner",
+        text="Start the synthetic review worker in work.",
+        source="discord",
+        source_conversation_id=channel,
+        source_message_id=str(owner),
+        created_at=datetime.now(UTC),
+        message_id=owner,
+    )
+    try:
+        async with await asyncio.start_unix_server(helper, str(root / "helper.sock")):
+            async with AgentRuntime(
+                AgentRuntimeConfig(
+                    state_root_base=tmp_path,
+                    codex_endpoints={"work": root / "work.sock"},
+                )
+            ) as runtime:
+                actions = ActionStore(engine)
+                controller = CodexController(
+                    control=runtime.codex, host=host_config(root), actions=actions
+                )
+                catalog = ToolCatalog.compose((codex_family(controller),))
+                profile = CapabilityProfile(
+                    ProfileId("synthetic-start"),
+                    (ToolGrant(ToolId("codex.start"), None),),
+                    RunLimits(1, 4, 65536, 4096, 1, 60.0),
+                ).freeze(catalog)
+                plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+                binding = catalog.binding(ToolId("codex.start"))
+                result = await _dispatch(
+                    _dispatcher(
+                        checkpoint=_Checkpoint(owner),
+                        gate=_Gate("allow", owner),
+                        actions=actions,
+                        google=_Google(),
+                    ),
+                    binding,
+                    plan,
+                    owner,
+                    CodexStartInput(
+                        profile="work",
+                        cwd=str(root),
+                        name="review",
+                        prompt="Synthetic review request.",
+                    ),
+                )
+                assert helper_kinds == ["ResolveCwd", "LaunchTerminal"]
+                assert external.methods.count("thread/start") == 1
+                assert external.methods.count("thread/unsubscribe") == 1
+                if helper_outcome == "Started":
+                    from llm_agent_kernel import DispatchCompleted
+
+                    assert isinstance(result, DispatchCompleted)
+                    assert external.methods.count("turn/start") == 1
+                    assert TURN in json.dumps(result.result)
+                    return
+                assert isinstance(result, DispatchSuspended)
+                stored = await actions.get(UUID(str(result.host_ref)))
+                assert stored is not None and stored.attempts == 1
+                assert stored.status == (
+                    "failed" if helper_outcome == "Rejected" else "uncertain"
+                )
+                assert THREAD in json.dumps(stored.result)
+                assert "turn/start" not in external.methods
+                recovery = ActionRecovery(
+                    actions=actions,
+                    google_write=cast(Any, _Google()),
+                    plan=plan,
+                    source_conversation_id=channel,
+                )
+                await recovery.recover(allow_queued_execution=False)
+                await recovery.recover(allow_queued_execution=False)
+                assert helper_kinds == ["ResolveCwd", "LaunchTerminal"]
+                assert external.methods.count("thread/start") == 1
+                consumed = await messages.message_by_id(owner)
+                assert consumed is not None and consumed.processed_at is not None
+                from jarvis.write_dispatch import action_resolution_text
+
+                context = json.loads(
+                    action_resolution_text(stored).split(
+                        ACTION_MODEL_CONTEXT_SEPARATOR
+                    )[1]
+                )
+                assert context["result"]["error"]["type"] == (
+                    "Partial" if helper_outcome == "Rejected" else "Unknown"
+                )
+                assert (
+                    context["result"]["error"]["prefix"]["thread"]["thread_handle"]
+                    == THREAD
+                )
+    finally:
+        await engine.dispose()

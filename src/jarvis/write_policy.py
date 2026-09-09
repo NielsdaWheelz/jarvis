@@ -6,6 +6,12 @@ from typing import Literal
 
 from llm_tools import ToolId
 
+from jarvis.codex_tools import (
+    CodexInterruptInput,
+    CodexPromptInput,
+    CodexStartInput,
+    CodexSteer,
+)
 from jarvis.schedule_tools import (
     ScheduleCancelRequest,
     ScheduleCreateRequest,
@@ -43,6 +49,12 @@ def classify_write(
     """Classify authority without granting it or creating durable state."""
 
     name = str(tool_id)
+    if (
+        (name == "codex.start" and isinstance(value, CodexStartInput))
+        or (name == "codex.prompt" and isinstance(value, CodexPromptInput))
+        or (name == "codex.interrupt" and isinstance(value, CodexInterruptInput))
+    ):
+        return "automatic"
     if name in {"gmail.create_draft", "gmail.update_draft", "schedule.wake"}:
         return "automatic"
     if name == "gmail.send_draft":
@@ -87,6 +99,39 @@ def write_effect_descriptor(
     """Project one strictly validated input into the gate's scalar allowlist."""
 
     name = str(tool_id)
+    if name == "codex.start" and isinstance(value, CodexStartInput):
+        return WriteEffectDescriptor(
+            operation="start",
+            targets=(
+                EffectTarget(kind="profile", value=value.profile),
+                EffectTarget(kind="cwd", value=value.cwd),
+                EffectTarget(kind="terminal_name", value=value.name),
+            ),
+            omitted_freeform=(OmittedFreeform.from_text("worker_input", value.prompt),),
+        )
+    if name == "codex.prompt" and isinstance(value, CodexPromptInput):
+        targets = (
+            EffectTarget(kind="profile", value=value.thread.profile),
+            EffectTarget(kind="thread_id", value=value.thread.thread_handle),
+        )
+        if isinstance(value.input, CodexSteer):
+            targets += (EffectTarget(kind="turn_id", value=value.input.turn_handle),)
+        return WriteEffectDescriptor(
+            operation="steer" if isinstance(value.input, CodexSteer) else "submit",
+            targets=targets,
+            omitted_freeform=(
+                OmittedFreeform.from_text("worker_input", value.input.text),
+            ),
+        )
+    if name == "codex.interrupt" and isinstance(value, CodexInterruptInput):
+        return WriteEffectDescriptor(
+            operation="interrupt",
+            targets=(
+                EffectTarget(kind="profile", value=value.turn.thread.profile),
+                EffectTarget(kind="thread_id", value=value.turn.thread.thread_handle),
+                EffectTarget(kind="turn_id", value=value.turn.turn_handle),
+            ),
+        )
     if name == "gmail.create_draft" and isinstance(value, GmailCreateDraftInput):
         return _gmail_descriptor("create", value.content)
     if name == "gmail.update_draft" and isinstance(value, GmailUpdateDraftInput):

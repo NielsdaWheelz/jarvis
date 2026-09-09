@@ -9,9 +9,15 @@ from typing import Any, cast
 import httpx
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
 from llm_tools import Available, PromptText, ToolId, Unavailable, canonical_json_bytes
+from provider_runtime.agent_runtime.codex_control import CodexControl
 from pydantic import SecretStr
+from test_codex_control import host_config
 
+from jarvis.actions import ActionStore
+from jarvis.codex_control import CodexController
+from jarvis.codex_tools import CODEX_TOOL_IDS
 from jarvis.config import DiscordSettings
+from jarvis.db import create_engine
 from jarvis.definitions import (
     SLICE2_READ_IDS,
     SLICE3_MEMORY_READ_IDS,
@@ -67,9 +73,9 @@ def _settings(tmp_path: Path) -> Settings:
             channel_id=3,
         ),
         owner_timezone="UTC",
-        codex_profile_key="synthetic-profile",
+        codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
-        codex_state_root=tmp_path / "codex",
+        codex_host_config_path=tmp_path / "codex",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-google-client"),
@@ -310,6 +316,15 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
             memory_repository=cast("Any", _MemoryRepository()),
             memory_embedder=cast("Any", _MemoryEmbedder()),
             actions=cast("Any", _Actions()),
+            codex=CodexController(
+                control=CodexControl({}, lambda _: False),
+                host=host_config(Path("/synthetic")),
+                actions=ActionStore(
+                    create_engine(
+                        "postgresql+psycopg://unused:unused@127.0.0.1:1/unused"
+                    )
+                ),
+            ),
             automatic_write_gate_definition_fingerprint=gate.fingerprint,
         )
     finally:
@@ -320,6 +335,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         isinstance(catalog.binding(tool_id).execute, Available)
         for tool_id in catalog.tool_ids
     )
+    assert set(CODEX_TOOL_IDS) <= set(catalog.tool_ids)
     send = catalog.binding(ToolId("gmail.send_draft"))
     assert send.implementation_revision == "jarvis-gmail-send_draft-v1"
     assert send.policy_inputs == {
@@ -362,7 +378,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         for grant in definitions.plans["main"].profile.ordered_grants
     )
     assert set(definitions.main.maximum_profile.grants) == set(
-        (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS)
+        (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS, *CODEX_TOOL_IDS)
     )
     assert set(definitions.plans["main"].profile.grants) == set(catalog.tool_ids) - {
         *SLICE3_MEMORY_READ_IDS
@@ -406,8 +422,8 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
         assert "neuroscientist by training" not in rendered
         assert "write all prose responses in lowercase" not in rendered
-    assert definitions.main.maximum_profile.run_limits.max_external_attempts == 243
-    assert definitions.plans["main"].profile.run_limits.max_external_attempts == 242
+    assert definitions.main.maximum_profile.run_limits.max_external_attempts == 251
+    assert definitions.plans["main"].profile.run_limits.max_external_attempts == 250
     assert (
         definitions.plans["scheduled_wake"].profile.run_limits.max_external_attempts
         == 222
@@ -436,11 +452,11 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "161e217619ac16fd67b989975950a9919a1d97ba50155e263cf964f9afd70cb7",
+            "c43e3ab4a36937d453d2a4a6f73d499b1f01284135048c3b0b2b8abac30279e7",
             "8ce06b83597a79363e3c56da4306fa1c9ae86688cb40d9194637c3046555008d",
-            "d54b036c1ca8408ae2e5240e4b811fbef787216e07dfd2a565ecfb34dcf79ecd",
-            "5ddd256d9d78f1c71ffc4db97ba823f81323e482535e8166199411f472af727e",
-            "3e5f65bf8403e72bc7d3d3e912f7d2197872c5dac4dc3373665bc39c7debbc20",
+            "2dbb557d95e66a44a153703b7b3bef4030d1fecad40de5af32c5cfa46a874b02",
+            "96a8351c95b00c070f09901f8a6f0b77745cd3f670380898073371304907d1d9",
+            "04e1e743e7cb9821a62eafabf602dec45e6801e726eeb99c20ba10506728f8eb",
         ),
         "recaller": (
             "01a454494591bec063257b99638c6134187afc1c1ebc32f38ca841de6bc473b4",

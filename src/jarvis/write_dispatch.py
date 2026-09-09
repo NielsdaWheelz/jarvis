@@ -44,10 +44,19 @@ from jarvis.actions import (
     ActionStore,
     ExecutionContract,
     StoredAction,
+    codex_uncertainty_result,
 )
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.approval import ApprovalRenderError, render_approval
 from jarvis.checkpoints import PostgresInputCheckpoint
+from jarvis.codex_tools import (
+    CODEX_CONTROL_ERROR,
+    CODEX_WRITE_IDS,
+    CodexAccepted,
+    CodexActionEvidence,
+    CodexInterruptResult,
+    CodexStarted,
+)
 from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
 from jarvis.read_dispatch import ReadToolDispatcher, contains_secret
 from jarvis.schedule_tools import ScheduleCreateRequest, ScheduleWakeInput
@@ -137,7 +146,8 @@ class WriteToolDispatcher:
             )
         if (
             binding.spec.effect is not ToolEffect.Write
-            or binding.replay_policy is not ReplayPolicy.ReDispatchable
+            or binding.replay_policy
+            not in {ReplayPolicy.ReDispatchable, ReplayPolicy.BilledOnce}
             or not isinstance(lineage, DispatchLineage)
         ):
             raise ToolDispatchDefect("Write lacks thread lineage")
@@ -204,9 +214,17 @@ class WriteToolDispatcher:
             policy_revision=binding.policy_revision,
             plan_revision=plan.plan_revision,
             tool_effect=ToolEffect.Write,
-            replay_policy=binding.replay_policy,
+            replay_policy=(
+                ReplayPolicy.BilledOnce
+                if binding.replay_policy is ReplayPolicy.BilledOnce
+                else ReplayPolicy.ReDispatchable
+            ),
             input_digest=raw_input_digest(ParsedJson(arguments)),
-            max_attempts=ACTION_MAX_ATTEMPTS,
+            max_attempts=(
+                1
+                if binding.replay_policy is ReplayPolicy.BilledOnce
+                else ACTION_MAX_ATTEMPTS
+            ),
             claim_id=str(lineage.claim_id),
             through_checkpoint=str(lineage.through_checkpoint),
             model_step_ordinal=lineage.model_step_ordinal,
@@ -269,6 +287,14 @@ class WriteToolDispatcher:
                 ),
             )
         except (RecoveryRequired, asyncio.CancelledError):
+            return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
+        if (
+            tool_id in CODEX_WRITE_IDS
+            and result["type"] == "Failure"
+            and result["error"].get("type") == "Partial"
+        ):
+            # Close the admitted owner lineage through ordinary action recovery;
+            # a surviving worker must not become a replacement in the next step.
             return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
         if tool_id == ToolId("schedule.wake") and result["type"] == "Success":
             self._schedule_changed()
@@ -398,6 +424,18 @@ class ActionRecovery:
         *,
         allow_queued_execution: bool,
     ) -> None:
+        if (
+            stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce
+            and stored.status == "executing"
+        ):
+            # Reporting an entered one-shot command never requires the new
+            # deployment to retain its old executable/profile configuration.
+            await self._actions.resolve_reconciliation(
+                action_id=stored.id,
+                status="uncertain",
+                result=codex_uncertainty_result(stored),
+            )
+            return
         try:
             binding = self._binding(stored)
         except RuntimeError:
@@ -432,6 +470,18 @@ class ActionRecovery:
             current = await self._require(stored.id)
             if current.status in {"succeeded", "failed", "uncertain", "cancelled"}:
                 return
+            if current.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
+                if current.status == "queued" and current.attempts == 0:
+                    if not allow_queued_execution:
+                        return
+                    await self._execute(current.id, binding)
+                else:
+                    await self._actions.resolve_reconciliation(
+                        action_id=current.id,
+                        status="uncertain",
+                        result=codex_uncertainty_result(current),
+                    )
+                continue
             if (
                 current.status == "executing"
                 and current.approval_message_id is not None
@@ -818,6 +868,25 @@ async def gmail_send_basis_is_current(
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
+    if stored.tool_name in CODEX_WRITE_IDS and stored.status == "uncertain":
+        control = CodexActionEvidence.model_validate(stored.result.get("control"))
+        return {
+            "type": "Failure",
+            "error": {
+                "type": "Unknown",
+                "stage": control.stage,
+                "prefix": control.prefix.model_dump(mode="json"),
+            },
+        }
+    if stored.tool_name in CODEX_WRITE_IDS and stored.status == "failed":
+        error = stored.result.get("error")
+        if isinstance(error, dict) and cast("dict[str, object]", error).get("type") in {
+            "Rejected",
+            "Partial",
+            "Unknown",
+        }:
+            accepted = CODEX_CONTROL_ERROR.validate_python(error)
+            return {"type": "Failure", "error": accepted.model_dump(mode="json")}
     if stored.status == "failed" and stored.result.get("type") == "Failure":
         error = stored.result.get("error")
         error_type = (
@@ -856,16 +925,34 @@ def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
 def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
     result = _safe_resolution_result(stored)
     if stored.status == "uncertain":
-        return {
+        assert stored.result is not None
+        result = stored.result
+        safe: dict[str, object] = {
             "type": "uncertain",
             "evidence_code": _safe_atom(result.get("evidence_code"), 256),
             "recorded_at": _safe_atom(result.get("recorded_at"), 64),
         }
+        if stored.tool_name in CODEX_WRITE_IDS:
+            safe["control"] = CodexActionEvidence.model_validate(
+                result.get("control")
+            ).model_dump(mode="json")
+        return safe
     if result.get("type") == "Failure":
         error = result.get("error")
         if not isinstance(error, dict):
             raise RuntimeError("failed action has malformed safe evidence")
         safe_error = cast("dict[str, object]", error)
+        if stored.tool_name in CODEX_WRITE_IDS and safe_error.get("type") in {
+            "Rejected",
+            "Partial",
+            "Unknown",
+        }:
+            return {
+                "type": "failure",
+                "error": CODEX_CONTROL_ERROR.validate_python(safe_error).model_dump(
+                    mode="json"
+                ),
+            }
         return {
             "type": "failure",
             "error_type": _safe_atom(safe_error.get("type"), 128),
@@ -876,6 +963,16 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
             "reason_code": _safe_atom(result.get("reason_code"), 64),
         }
     tool_name = str(stored.tool_name)
+    if stored.tool_name in CODEX_WRITE_IDS:
+        value = _success_result_value(result)
+        model = (
+            CodexStarted
+            if tool_name == "codex.start"
+            else CodexAccepted
+            if tool_name == "codex.prompt"
+            else CodexInterruptResult
+        )
+        return model.model_validate(value).model_dump(mode="json")
     if tool_name in {"gmail.create_draft", "gmail.update_draft"}:
         value = _success_result_value(result)
         return {

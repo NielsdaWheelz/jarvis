@@ -25,14 +25,14 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
+from jarvis.codex_control import CodexHostConfig
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     SLICE4_DREAM_KERNEL_LIMITS,
     build_slice4_definitions,
     verify_runtime_dependencies,
 )
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import build_agent_runtime, build_kernel_runtime
 from jarvis.memory import (
     MemoryStore,
     StoredMemorySummary,
@@ -239,8 +239,8 @@ def _arguments(argv: Sequence[str] | None) -> MemoryArguments:
     parser.add_argument("--model", default=os.environ.get("JARVIS_CODEX_MODEL"))
     parser.add_argument("--profile", default=os.environ.get("JARVIS_CODEX_PROFILE_KEY"))
     parser.add_argument(
-        "--state-root",
-        default=os.environ.get("JARVIS_CODEX_STATE_ROOT"),
+        "--codex-host-config",
+        default=os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH"),
     )
     parser.add_argument(
         "--runtime-state-directory",
@@ -261,22 +261,21 @@ def _arguments(argv: Sequence[str] | None) -> MemoryArguments:
     model = _required(values, "model")
     if model not in SUPPORTED_ROUTES:
         raise ValueError("model must be a qualified local-account route")
+    profile = _required(values, "profile")
+    if profile != "personal":
+        raise ValueError("profile must be the Jarvis Personal route")
     arguments = MemoryArguments(
         model=model,
-        profile=_required(values, "profile"),
-        state_root=Path(_required(values, "state_root")),
+        profile="personal",
+        codex_host_config_path=Path(_required(values, "codex_host_config")),
         runtime_state_directory=Path(_required(values, "runtime_state_directory")),
         database_url="postgresql+asyncpg://unused:unused@127.0.0.1/unused",
         embedding_api_key=SecretStr("synthetic-unused-embedding-key"),
         owner_timezone=_required(values, "owner_timezone"),
         reasoning_effort=_required(values, "reasoning_effort"),
     )
-    if (
-        not arguments.state_root.is_absolute()
-        or not arguments.state_root.is_dir()
-        or stat.S_IMODE(arguments.state_root.stat().st_mode) & 0o077
-    ):
-        raise ValueError("Codex state root must be an existing private directory")
+    if not arguments.codex_host_config_path.is_absolute():
+        raise ValueError("Codex host config path must be absolute")
     runtime = arguments.runtime_state_directory
     if not runtime.is_absolute() or runtime.exists() or not runtime.parent.is_dir():
         raise ValueError("runtime state must be a fresh absolute path")
@@ -300,9 +299,14 @@ def qualification_admission_limits() -> RollingAdmissionLimits:
 
 async def _run(arguments: MemoryArguments) -> dict[str, object]:
     verify_runtime_dependencies()
+    host = CodexHostConfig.load(arguments.codex_host_config_path)
+    shared_cwd_parent = Path(host.cognition_cwd_parent)
+    if (
+        not shared_cwd_parent.is_dir()
+        or stat.S_IMODE(shared_cwd_parent.stat().st_mode) != 0o2750
+    ):
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
-    provider_cwd = arguments.runtime_state_directory / "provider-cwd"
-    provider_cwd.mkdir(mode=0o700)
     repository = _Repository()
     embedder = _Embedder()
     stage = "composition"
@@ -331,9 +335,13 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
             admission = RootTrackingAdmissionPort(
                 RollingAdmissionPort(admission_path, limits)
             )
+            agent_runtime = build_agent_runtime(
+                provider_state_root=arguments.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
             runtime = build_kernel_runtime(
-                provider_state_root=arguments.state_root,
-                private_cwd_parent=provider_cwd,
+                runtime=agent_runtime,
+                shared_cwd_parent=shared_cwd_parent,
                 session_ref_path=arguments.runtime_state_directory / "session-ref.json",
                 model=arguments.model,
                 kernel_limits=definitions.dreamer.limits,
@@ -420,7 +428,7 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 "search_and_open": True,
                 "usage": contradiction_usage,
             },
-            "dependencies": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "dependencies": dict(EXPECTED_GIT_PINS),
             "dreamer": {
                 "definition_fingerprint": definitions.dreamer.fingerprint,
                 "plan_revision": definitions.plans["dreamer"].plan_revision,

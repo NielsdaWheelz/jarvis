@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 import httpx
@@ -60,12 +60,12 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
     slice3_admission_limits,
 )
+from jarvis.codex_control import CodexHostConfig
 from jarvis.config import DiscordSettings
 from jarvis.context import IsolatedRecaller, MemoryReadDispatcherPort, RecallEvidence
 from jarvis.db import action, create_engine, memory_log, memory_summary, message
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     SLICE2_KERNEL_LIMITS,
     SLICE3_RECALL_KERNEL_LIMITS,
     Slice3Definitions,
@@ -73,7 +73,7 @@ from jarvis.definitions import (
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import build_kernel_runtime
+from jarvis.kernel import build_agent_runtime, build_kernel_runtime
 from jarvis.memory import MemoryIdentity, MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
@@ -284,8 +284,8 @@ class _RecallRunner(Protocol):
 @dataclass(frozen=True, slots=True)
 class Arguments:
     model: str
-    profile: str
-    state_root: Path
+    profile: Literal["personal"]
+    codex_host_config_path: Path
     runtime_state_directory: Path
     database_url: str
     embedding_api_key: SecretStr
@@ -647,9 +647,14 @@ def failure_evidence(error: QualificationFailure) -> dict[str, object]:
 async def _run(arguments: Arguments) -> dict[str, object]:
     verify_runtime_dependencies()
     _validate_directories(arguments)
+    host = CodexHostConfig.load(arguments.codex_host_config_path)
+    shared_cwd_parent = Path(host.cognition_cwd_parent)
+    if (
+        not shared_cwd_parent.is_dir()
+        or stat.S_IMODE(shared_cwd_parent.stat().st_mode) != 0o2750
+    ):
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
-    provider_cwd = arguments.runtime_state_directory / "provider-cwd"
-    provider_cwd.mkdir(mode=0o700)
     fixtures, cases = load_recall_set(MEMORIES, CASES)
     engine = create_engine(arguments.database_url)
     stage = "seed"
@@ -674,7 +679,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 )
                 stage = "recall"
                 observations, evidence, rememberer = await _run_production_roles(
-                    arguments, engine, embedder, cases
+                    arguments, host, engine, embedder, cases
                 )
                 score = score_recall(cases, observations)
         finally:
@@ -692,7 +697,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
             "status": status,
         },
         "rememberer": rememberer,
-        "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+        "revisions": dict(EXPECTED_GIT_PINS),
         "route": arguments.model,
         "seed": seed,
         "status": status,
@@ -701,6 +706,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
 
 async def _run_production_roles(
     arguments: Arguments,
+    host: CodexHostConfig,
     engine: AsyncEngine,
     embedder: OpenAIEmbedder,
     cases: tuple[RecallCase, ...],
@@ -736,9 +742,13 @@ async def _run_production_roles(
                 arguments.runtime_state_directory / "admission.json", limits
             )
         )
+        agent_runtime = build_agent_runtime(
+            provider_state_root=arguments.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
         runtime = build_kernel_runtime(
-            provider_state_root=arguments.state_root,
-            private_cwd_parent=arguments.runtime_state_directory / "provider-cwd",
+            runtime=agent_runtime,
+            shared_cwd_parent=Path(host.cognition_cwd_parent),
             session_ref_path=arguments.runtime_state_directory / "session-ref.json",
             model=arguments.model,
             kernel_limits=SLICE3_RECALL_KERNEL_LIMITS,
@@ -803,7 +813,7 @@ def qualification_settings(arguments: Arguments) -> Settings:
         owner_timezone=arguments.owner_timezone,
         codex_profile_key=arguments.profile,
         codex_model=arguments.model,
-        codex_state_root=arguments.state_root,
+        codex_host_config_path=arguments.codex_host_config_path,
         runtime_state_directory=arguments.runtime_state_directory,
         google_oauth_state_path=arguments.runtime_state_directory / "google.json",
         google_oauth_client_id=SecretStr("qualification-unused-google-client"),
@@ -937,14 +947,8 @@ def verified_zero_memory_result(
 
 
 def _validate_directories(arguments: Arguments) -> None:
-    if (
-        not arguments.state_root.is_absolute()
-        or not arguments.state_root.is_dir()
-        or stat.S_IMODE(arguments.state_root.stat().st_mode) & 0o077
-    ):
-        raise ValueError(
-            "Codex state root must be an existing private absolute directory"
-        )
+    if not arguments.codex_host_config_path.is_absolute():
+        raise ValueError("Codex host config path must be absolute")
     runtime = arguments.runtime_state_directory
     if not runtime.is_absolute() or runtime.exists() or not runtime.parent.is_dir():
         raise ValueError(
@@ -966,7 +970,8 @@ def _parse_arguments(argv: Sequence[str] | None = None) -> Arguments:
     parser.add_argument("--model", default=os.environ.get("JARVIS_CODEX_MODEL"))
     parser.add_argument("--profile", default=os.environ.get("JARVIS_CODEX_PROFILE_KEY"))
     parser.add_argument(
-        "--state-root", default=os.environ.get("JARVIS_CODEX_STATE_ROOT")
+        "--codex-host-config",
+        default=os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH"),
     )
     parser.add_argument(
         "--runtime-state-directory",
@@ -995,10 +1000,13 @@ def _parse_arguments(argv: Sequence[str] | None = None) -> Arguments:
     model = _required(values, "model")
     if model not in _SUPPORTED_ROUTES:
         raise ValueError("model must be a qualified local-account route")
+    profile = _required(values, "profile")
+    if profile != "personal":
+        raise ValueError("profile must be the Jarvis Personal route")
     return Arguments(
         model=model,
-        profile=_required(values, "profile"),
-        state_root=Path(_required(values, "state_root")),
+        profile="personal",
+        codex_host_config_path=Path(_required(values, "codex_host_config")),
         runtime_state_directory=Path(_required(values, "runtime_state_directory")),
         database_url=_required(values, "database_url"),
         embedding_api_key=SecretStr(
@@ -1018,7 +1026,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except QualificationFailure as error:
         result = {
             "failure": failure_evidence(error),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
             "status": "failed",
         }
@@ -1032,7 +1040,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "stage": "setup",
                 "type": type(error).__name__,
             },
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
             "status": "failed",
         }

@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Protocol, cast
 from urllib.parse import quote
 from uuid import UUID, uuid4
@@ -36,10 +37,10 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
     slice3_admission_limits,
 )
+from jarvis.codex_control import CodexHostConfig
 from jarvis.db import action, create_engine, memory_log, memory_summary, message
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     SLICE4_DREAM_KERNEL_LIMITS,
     Slice4Definitions,
     build_slice4_definitions,
@@ -47,7 +48,7 @@ from jarvis.definitions import (
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import KernelRuntime, build_kernel_runtime
+from jarvis.kernel import KernelRuntime, build_agent_runtime, build_kernel_runtime
 from jarvis.memory import MemoryIdentity, MemoryStore, StoredMemory
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
@@ -501,7 +502,7 @@ def assert_sanitized_output(
         raise QualificationCheckFailed("report_contains_private_value")
 
 
-def _validate_settings(settings: Settings) -> None:
+def _validate_settings(settings: Settings, host: CodexHostConfig) -> None:
     if settings.codex_model not in _SUPPORTED_ROUTES:
         raise ValueError("model must be the qualified Slice 3 route")
     if settings.maximum_batch_size != 1:
@@ -510,14 +511,17 @@ def _validate_settings(settings: Settings) -> None:
         raise ValueError("embedding model differs from the deployment contract")
     if settings.embedding_dimension != EMBEDDING_DIMENSION:
         raise ValueError("embedding dimension differs from the deployment contract")
-    for path, label in (
-        (settings.codex_state_root, "Codex state root"),
-        (settings.runtime_state_directory.parent, "runtime-state parent"),
+    runtime_parent = settings.runtime_state_directory.parent
+    if not runtime_parent.is_absolute() or not runtime_parent.is_dir():
+        raise ValueError("runtime-state parent must be an existing absolute directory")
+    if stat.S_IMODE(runtime_parent.stat().st_mode) & 0o077:
+        raise ValueError("runtime-state parent must be private")
+    cognition_parent = Path(host.cognition_cwd_parent)
+    if (
+        not cognition_parent.is_dir()
+        or stat.S_IMODE(cognition_parent.stat().st_mode) != 0o2750
     ):
-        if not path.is_absolute() or not path.is_dir():
-            raise ValueError(f"{label} must be an existing absolute directory")
-        if stat.S_IMODE(path.stat().st_mode) & 0o077:
-            raise ValueError(f"{label} must be private")
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     if settings.runtime_state_directory.exists():
         raise ValueError("runtime state must be an unused path")
 
@@ -830,9 +834,9 @@ async def cleanup_cycle_runtime(
 
 async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
     verify_runtime_dependencies()
-    _validate_settings(settings)
+    host = settings.codex_host_config
+    _validate_settings(settings, host)
     settings.runtime_state_directory.mkdir(mode=0o700)
-    settings.provider_cwd_parent.mkdir(mode=0o700)
     limits = qualification_admission_limits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, limits)
     engine = create_engine(settings.database_url.get_secret_value())
@@ -886,9 +890,13 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
             store = MessageStore(engine)
 
             stage = "first_cycle"
+            first_agent_runtime = build_agent_runtime(
+                provider_state_root=settings.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
             first_runtime = build_kernel_runtime(
-                provider_state_root=settings.codex_state_root,
-                private_cwd_parent=settings.provider_cwd_parent,
+                runtime=first_agent_runtime,
+                shared_cwd_parent=Path(host.cognition_cwd_parent),
                 session_ref_path=settings.session_reference_path,
                 model=settings.codex_model,
                 kernel_limits=definitions.main.limits,
@@ -961,9 +969,13 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                 )
 
             stage = "dream"
+            dream_agent_runtime = build_agent_runtime(
+                provider_state_root=settings.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
             dream_runtime = build_kernel_runtime(
-                provider_state_root=settings.codex_state_root,
-                private_cwd_parent=settings.provider_cwd_parent,
+                runtime=dream_agent_runtime,
+                shared_cwd_parent=Path(host.cognition_cwd_parent),
                 session_ref_path=settings.session_reference_path,
                 model=settings.codex_model,
                 kernel_limits=definitions.dreamer.limits,
@@ -1023,9 +1035,13 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                         ) from error
 
             stage = "second_cycle"
+            second_agent_runtime = build_agent_runtime(
+                provider_state_root=settings.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
             second_runtime = build_kernel_runtime(
-                provider_state_root=settings.codex_state_root,
-                private_cwd_parent=settings.provider_cwd_parent,
+                runtime=second_agent_runtime,
+                shared_cwd_parent=Path(host.cognition_cwd_parent),
                 session_ref_path=settings.session_reference_path,
                 model=settings.codex_model,
                 kernel_limits=definitions.main.limits,
@@ -1122,7 +1138,6 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                 "revisions": {
                     "dependencies": {
                         **EXPECTED_GIT_PINS,
-                        **EXPECTED_PACKAGE_VERSIONS,
                     },
                     "roles": {
                         "main": definitions.main.session_compatibility_revision,
@@ -1191,7 +1206,7 @@ def main() -> int:
                 "stage": error.stage,
                 "type": error.cause_type,
             },
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
             "status": "failed",
         }
@@ -1202,7 +1217,7 @@ def main() -> int:
                 "stage": "setup",
                 "type": type(error).__name__,
             },
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
             "status": "failed",
         }

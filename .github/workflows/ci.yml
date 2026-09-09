@@ -32,7 +32,7 @@ jobs:
           enable-cache: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: ".python-version"
       - name: Provision runtime database role
         env:
           PGPASSWORD: jarvis-migrator-test

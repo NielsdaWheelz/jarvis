@@ -87,3 +87,16 @@ terminal but before publication. Diagnostic probes explicitly disclaim recovery.
 Docker Desktop VM failures interrupted local PostgreSQL qualification; final Linux
 CI evidence is required and is not replaced by these local unit tests. Paid/live
 provider probes and deployment remain separate, explicitly unrun gates.
+
+## Runtime qualification floor
+
+Require CPython >=3.12.13,<3.13 and pin development/CI to 3.12.13. Native Linux
+qualification exposed 27 existing Gmail failures on the former advertised 3.12.3
+runtime: the same folded effect-ID bytes acquired a leading space during parsing.
+The identical bytes parse correctly on the measured 3.12.13 baseline. Upstream
+[CPython issue 124452](https://github.com/python/cpython/issues/124452) documents
+this parser defect; its fix appears in the
+[3.12.8 changelog](https://docs.python.org/3.12/whatsnew/changelog.html#python-3-12-8-final).
+The supported floor is the measured qualification baseline, not a claim that the
+fix first appeared there. Older patches are excluded instead of weakening exact
+effect-ID validation. No host system interpreter is changed.

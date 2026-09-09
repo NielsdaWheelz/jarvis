@@ -7,7 +7,7 @@ name = "jarvis"
 version = "0.1.0"
 description = "A small personal agent with durable conversation history"
 readme = "README.md"
-requires-python = "==3.12.*"
+requires-python = ">=3.12.13,<3.13"
 dependencies = [
   "alembic==1.16.5",
   "cryptography==50.0.1",

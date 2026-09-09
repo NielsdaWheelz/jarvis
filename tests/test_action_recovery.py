@@ -403,13 +403,14 @@ async def test_committed_pending_approval_blocks_completed_model_replay(
                     created_at=NOW - timedelta(seconds=1),
                 )
             ).message.id
-            original_inputs = (host, owner)
+            original_inputs = (owner, host)
             pending = replace(
                 pending,
                 execution_contract=ExecutionContract.model_validate(
                     {
                         **pending.execution_contract.as_json(),
                         "input_message_ids": list(map(str, original_inputs)),
+                        "through_checkpoint": str(host),
                     }
                 ),
             )
@@ -432,7 +433,7 @@ async def test_committed_pending_approval_blocks_completed_model_replay(
             definition_fingerprint="f" * 64,
             plan_revision=plan.plan_revision,
             input_ids=tuple(InputId(str(value)) for value in original_inputs),
-            through_checkpoint=Checkpoint(str(owner)),
+            through_checkpoint=Checkpoint(str(original_inputs[-1])),
             as_of=NOW,
             model_step_ordinal_before=0,
             protocol_repairs=0,
@@ -488,7 +489,7 @@ async def test_committed_pending_approval_blocks_completed_model_replay(
             assert visibility is not None
             assert visibility.id != approval.message_id
             assert visibility.text == "Action update: The previous event was created."
-            host_message = await messages.message_by_id(original_inputs[0])
+            host_message = await messages.message_by_id(original_inputs[-1])
             assert host_message is not None and host_message.processed_at is not None
             assert host_message.trace["settlement"] == settlement
         else:

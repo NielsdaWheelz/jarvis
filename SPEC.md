@@ -1578,7 +1578,7 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 
 ## 8. Technology choices
 
-- Server language: Python 3.12.
+- Server language: CPython >=3.12.13,<3.13; development/CI pin 3.12.13.
 - Agent runtime: pinned `llm-agent-kernel`, imported as `llm_agent_kernel`.
 - Database: PostgreSQL with full-text search and pgvector.
 - HTTP/schema: FastAPI and Pydantic v2 when a new HTTP surface is needed.

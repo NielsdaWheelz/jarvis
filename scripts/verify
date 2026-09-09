@@ -62,7 +62,7 @@ test "${#wheels[@]}" -eq 1
 test "${#sdists[@]}" -eq 1
 test -f "${wheels[0]}"
 test -f "${sdists[0]}"
-uv venv --python 3.12 "$install_environment"
+uv venv --python "$(cat .python-version)" "$install_environment"
 uv pip install --python "$install_environment/bin/python" "${wheels[0]}"
 "$install_environment/bin/python" -c "import jarvis"
 "$install_environment/bin/jarvis" --help >/dev/null

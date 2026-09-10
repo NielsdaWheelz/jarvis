@@ -116,7 +116,7 @@ sudo -u "$builder_user" tar --extract --file "$archive" --directory "$release"
 python_version="$(sudo -u "$builder_user" cat "$release/.python-version")"
 [[ "$python_version" =~ ^3\.12\.[0-9]+$ ]]
 sudo -u "$builder_user" /home/niels/.local/bin/uv python install \
-  --install-dir "$release/.python" --no-bin "$python_version"
+  --directory "$release" --install-dir "$release/.python" --no-bin "$python_version"
 sudo -u "$builder_user" env UV_PYTHON_INSTALL_DIR="$release/.python" \
   /home/niels/.local/bin/uv sync \
   --directory "$release" --frozen --no-dev --no-editable \

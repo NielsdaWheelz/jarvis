@@ -85,6 +85,9 @@ def test_release_installation_verifies_final_service_identity_before_success(
         return
     install = next(call for call in calls if "--no-bin" in call[1])
     assert install[0] == "niels" and install[1][-1] == "3.12.13"
+    assert install[1][install[1].index("--directory") + 1] == (
+        "/opt/jarvis/releases/" + "a" * 40
+    )
     assert "/opt/jarvis/releases/" + "a" * 40 + "/.python" in install[1]
     sync = next(call for call in calls if "sync" in call[1])
     assert "--managed-python" in sync[1] and "--no-python-downloads" in sync[1]

@@ -20,6 +20,21 @@ SOCKET = "jarvis-codex-qualify-" + "a" * 32
 NAME = "jarvis-qualify-" + "a" * 32 + "-personal"
 
 
+def test_failure_evidence_keeps_fixed_stage_and_never_exception_content() -> None:
+    assert QUALIFIER["_failure_evidence"](
+        QUALIFIER["QualificationFailure"]("native_read")
+    ) == {"status": "FAIL", "reason": "native_read"}
+    try:
+        raise RuntimeError("private-synthetic-sentinel")
+    except RuntimeError as error:
+        result = QUALIFIER["_failure_evidence"](error)
+    assert result["reason"] == "journey_unconfirmed"
+    assert result["exception_type"] == "RuntimeError"
+    assert result["source"] == Path(__file__).name
+    assert type(result["line"]) is int
+    assert "private-synthetic-sentinel" not in json.dumps(result)
+
+
 def test_isolated_runner_refuses_default_or_reused_nonspecific_socket_names() -> None:
     for name in ("", "default", "production", "jarvis-codex-qualify", "../socket"):
         with pytest.raises(ValueError, match="isolated"):
@@ -256,6 +271,7 @@ async def test_native_wire_close_without_peer_close_reply_preserves_witness() ->
     reason="requires the disposable PostgreSQL action boundary",
 )
 async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -> None:
+    from llm_agent_kernel import CancellationToken, InitialReadDispatchLineage, RunId
     from llm_tools import (
         CapabilityProfile,
         HostTable,
@@ -273,6 +289,7 @@ async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -
     from jarvis.admission import ExactToolBudgetFactory
     from jarvis.codex_control import CodexController, CodexHostConfig
     from jarvis.codex_tools import (
+        CodexListInput,
         CodexPromptInput,
         CodexSubmit,
         CodexThreadTarget,
@@ -281,20 +298,25 @@ async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -
     from jarvis.db import create_engine
     from jarvis.messages import MessageStore
     from jarvis.ownership import deployment_ownership
+    from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 
     submissions = 0
+    native_reads = 0
 
     async def native(connection: ServerConnection) -> None:
-        nonlocal submissions
+        nonlocal submissions, native_reads
         async for frame in connection:
             request = json.loads(frame)
             method = request["method"]
             if method == "initialized":
                 continue
             if method == "initialize":
-                result = {"userAgent": "codex/0.153.4"}
+                result: dict[str, object] = {"userAgent": "codex/0.153.4"}
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt"}}
+            elif method == "thread/list":
+                native_reads += 1
+                result = {"data": [], "nextCursor": None}
             else:
                 assert method == "turn/start"
                 submissions += 1
@@ -345,7 +367,10 @@ async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -
                 catalog = ToolCatalog.compose((codex_family(controller),))
                 profile = CapabilityProfile(
                     ProfileId("qualifier-proof"),
-                    (ToolGrant(ToolId("codex.prompt"), None),),
+                    tuple(
+                        ToolGrant(ToolId(tool), None)
+                        for tool in ("codex.list", "codex.prompt")
+                    ),
                     RunLimits(2, 2, 1048576, 2097152, 1, 60.0),
                 ).freeze(catalog)
                 plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
@@ -358,10 +383,11 @@ async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -
                     created_at=datetime.now(UTC),
                     message_id=origin,
                 )
+                budgets = ExactToolBudgetFactory().create(plan)
                 result = await QUALIFIER["_write"](
                     actions=actions,
                     plan=plan,
-                    budgets=ExactToolBudgetFactory().create(plan),
+                    budgets=budgets,
                     origin=origin,
                     ordinal=1,
                     tool=ToolId("codex.prompt"),
@@ -382,5 +408,52 @@ async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -
                 assert stored.result is not None
                 assert stored.result["type"] == "codex_uncertainty_v1"
                 assert submissions == 1
+                # Uncertainty ends this run. Its reservation is not refunded;
+                # an attempted continuation must fail before any native read.
+                blocked = await ReadToolDispatcher(
+                    recorder=RunReadRecorder(), host_secrets=()
+                ).dispatch(
+                    binding=catalog.binding(ToolId("codex.list")),
+                    validated_input=CodexListInput(profile="work"),
+                    plan=plan,
+                    budgets=budgets,
+                    cancellation=CancellationToken(),
+                    lineage=InitialReadDispatchLineage(
+                        RunId(str(origin)), "after-uncertainty"
+                    ),
+                )
+                assert blocked.result == {
+                    "type": "Failure",
+                    "error": {"type": "BudgetExceeded"},
+                }
+                assert native_reads == 0
+
+                # A separate owner input gets its own run, not a replenished
+                # budget or another attempt at the uncertain write.
+                next_origin = uuid4()
+                await MessageStore(database).insert_waking(
+                    role="owner",
+                    text="Synthetic independent inventory request.",
+                    source="discord",
+                    source_conversation_id=channel,
+                    source_message_id=str(next_origin),
+                    created_at=datetime.now(UTC),
+                    message_id=next_origin,
+                )
+                independent = await ReadToolDispatcher(
+                    recorder=RunReadRecorder(), host_secrets=()
+                ).dispatch(
+                    binding=catalog.binding(ToolId("codex.list")),
+                    validated_input=CodexListInput(profile="work"),
+                    plan=plan,
+                    budgets=ExactToolBudgetFactory().create(plan),
+                    cancellation=CancellationToken(),
+                    lineage=InitialReadDispatchLineage(
+                        RunId(str(next_origin)), "independent-read"
+                    ),
+                )
+                assert independent.result["type"] == "Success"
+                assert native_reads == 1 and submissions == 1
+                assert await actions.get(stored.id) == stored
     finally:
         await engine.dispose()

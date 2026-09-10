@@ -51,6 +51,21 @@ class QualificationFailure(RuntimeError):
     """Only a host-owned stage label may enter evidence."""
 
 
+def _failure_evidence(error: Exception) -> dict[str, object]:
+    if isinstance(error, QualificationFailure):
+        return {"status": "FAIL", "reason": error.args[0]}
+    source = error.__traceback__
+    while source is not None and source.tb_next is not None:
+        source = source.tb_next
+    return {
+        "status": "FAIL",
+        "reason": "journey_unconfirmed",
+        "exception_type": type(error).__name__,
+        "source": Path(source.tb_frame.f_code.co_filename).name if source else None,
+        "line": source.tb_lineno if source else None,
+    }
+
+
 @dataclass
 class _CodexWire:
     endpoints: dict[str, Path]
@@ -608,21 +623,6 @@ async def _journey(
                     RunLimits(30, 100, 1048576, 2097152, 1, 600.0),
                 ).freeze(catalog)
                 plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
-                budgets = ExactToolBudgetFactory().create(plan)
-                dispatcher = ReadToolDispatcher(
-                    recorder=RunReadRecorder(), host_secrets=(database_url,)
-                )
-                origin = uuid4()
-                await MessageStore(database).insert_waking(
-                    role="owner",
-                    text=_PROMPT,
-                    source="discord",
-                    source_conversation_id="codex-control-qualification",
-                    source_message_id=str(origin),
-                    created_at=datetime.now(UTC),
-                    message_id=origin,
-                )
-                ordinal = 0
 
                 async def read(tool: str, value: BaseModel) -> dict[str, object]:
                     nonlocal ordinal
@@ -657,6 +657,23 @@ async def _journey(
 
                 targets: list[CodexThreadTarget] = []
                 for key in PROFILES:
+                    # Each profile is an independent owner-input run. Its final
+                    # uncertain action retains its reservation until that run ends.
+                    origin = uuid4()
+                    await MessageStore(database).insert_waking(
+                        role="owner",
+                        text=_PROMPT,
+                        source="discord",
+                        source_conversation_id="codex-control-qualification",
+                        source_message_id=str(origin),
+                        created_at=datetime.now(UTC),
+                        message_id=origin,
+                    )
+                    budgets = ExactToolBudgetFactory().create(plan)
+                    dispatcher = ReadToolDispatcher(
+                        recorder=RunReadRecorder(), host_secrets=(database_url,)
+                    )
+                    ordinal = 0
                     await read("codex.list", CodexListInput(profile=key))
                     started = CodexStarted.model_validate(
                         await write(
@@ -701,6 +718,29 @@ async def _journey(
                         started.terminal.tmux_name,
                     ):
                         raise QualificationFailure("gateway_mismatched_identity")
+                    # Existence is exact tmux evidence, never TUI-ready evidence.
+                    target = started.turn.thread
+                    native = await read("codex.read", CodexReadInput(thread=target))
+                    if (
+                        cast("dict[str, object]", native["thread"])["thread"]
+                        != target.model_dump()
+                    ):
+                        raise QualificationFailure("native_thread_identity")
+                    accepted = CodexAccepted.model_validate(
+                        await write(
+                            "codex.prompt",
+                            CodexPromptInput(
+                                thread=target, input=CodexSubmit(text=_PROMPT)
+                            ),
+                        )
+                    )
+                    if accepted.turn.thread != target:
+                        raise QualificationFailure("native_submit_identity")
+                    await write(
+                        "codex.interrupt", CodexInterruptInput(turn=accepted.turn)
+                    )
+                    # An uncertain write ends the run: no later tool may reuse
+                    # its budget, and qualification never refunds uncertainty.
                     ordinal += 1
                     collision = CodexUnknown.model_validate(
                         await _write(
@@ -726,27 +766,6 @@ async def _journey(
                         raise QualificationFailure("collision_prefix")
                     await wire.verify_unprompted(
                         key, collision.prefix.thread.thread_handle
-                    )
-                    # Existence is exact tmux evidence, never TUI-ready evidence.
-                    target = started.turn.thread
-                    native = await read("codex.read", CodexReadInput(thread=target))
-                    if (
-                        cast("dict[str, object]", native["thread"])["thread"]
-                        != target.model_dump()
-                    ):
-                        raise QualificationFailure("native_thread_identity")
-                    accepted = CodexAccepted.model_validate(
-                        await write(
-                            "codex.prompt",
-                            CodexPromptInput(
-                                thread=target, input=CodexSubmit(text=_PROMPT)
-                            ),
-                        )
-                    )
-                    if accepted.turn.thread != target:
-                        raise QualificationFailure("native_submit_identity")
-                    await write(
-                        "codex.interrupt", CodexInterruptInput(turn=accepted.turn)
                     )
                     targets.append(target)
                     observations[key] = {
@@ -846,10 +865,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     try:
         result = asyncio.run(_journey(host, args, database_url, gateway))
-    except Exception:
+    except Exception as error:
         # No exception text, endpoint, database URL, account data, prompt, or
         # native answer enters ordinary evidence, even on an unexpected defect.
-        print(json.dumps({"status": "FAIL", "reason": "journey_unconfirmed"}))
+        print(json.dumps(_failure_evidence(error)))
         return 1
     print(json.dumps(result, sort_keys=True))
     return 2  # Full acceptance is NOT_RUN until the separately owned boundaries run.

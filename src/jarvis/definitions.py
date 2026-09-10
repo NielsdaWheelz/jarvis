@@ -54,20 +54,15 @@ from jarvis.terminal import JarvisTerminal
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "2c428b3b0802f0c294dff300115779e299f0340d",
+    "llm-agent-kernel": "8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "70e33e99a8c03f0304c9136203c38bade2c5e1cd",
+    "provider-runtime": "69d41d38a3d290e7ae3bde9b57556dda41e1b2f1",
 }
 EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY = (
     "llm-agent-kernel-contained-structured-agent-v1:sha256:"
     "1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7"
 )
-ROUTE_CONTEXT_TOKEN_FLOORS = MappingProxyType(
-    {
-        "gpt-5.6-terra": 1_050_000,
-    }
-)
-QUALIFIED_CODEX_MODELS = tuple(ROUTE_CONTEXT_TOKEN_FLOORS)
+QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)
 
 # Slice 1 has no model-callable tools. llm-tools requires positive byte/call
 # ceilings even for an empty catalog; zero external attempts makes the plan inert.
@@ -386,16 +381,12 @@ class NativeContextLimits:
     max_system_bytes: int = 16_384
     max_developer_bytes: int = 16_384
     max_output_schema_bytes: int = 32_768
-    one_turn_input_token_overshoot: int = 32_768
-    one_turn_output_token_overshoot: int = 8_192
 
     def __post_init__(self) -> None:
         values = (
             self.max_system_bytes,
             self.max_developer_bytes,
             self.max_output_schema_bytes,
-            self.one_turn_input_token_overshoot,
-            self.one_turn_output_token_overshoot,
         )
         if any(type(value) is not int or value <= 0 for value in values):
             raise ValueError("provider-native context limits must be positive integers")
@@ -480,7 +471,7 @@ def build_slice2_definitions(
         raise ValueError("Slice 2 catalog bindings must all be available")
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in QUALIFIED_CODEX_MODELS:
         raise ValueError("model is not a qualified Slice 2 route")
     manifest = load_session_manifest()
 
@@ -661,7 +652,7 @@ def build_slice3_definitions(
         raise ValueError("Slice 3 catalog bindings must all be available")
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in QUALIFIED_CODEX_MODELS:
         raise ValueError("model is not a qualified Slice 3 route")
     manifest = load_session_manifest()
 
@@ -1078,7 +1069,7 @@ def build_slice5_write_gate(
 ) -> tuple[AgentDefinition, FrozenToolPlan]:
     """Build the isolated, empty-plan write authority check."""
 
-    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in QUALIFIED_CODEX_MODELS:
         raise ValueError("model is not a qualified Slice 5 route")
     catalog = ToolCatalog.compose(())
     maximum = CapabilityProfile(
@@ -1448,7 +1439,7 @@ def build_slice1_definitions(
 ) -> Slice1Definitions:
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if provider.model_key not in ROUTE_CONTEXT_TOKEN_FLOORS:
+    if provider.model_key not in QUALIFIED_CODEX_MODELS:
         raise ValueError("model is not a qualified Slice 1 route")
     catalog = ToolCatalog.compose(())
     manifest = load_session_manifest()
@@ -1638,34 +1629,6 @@ def validate_native_context_bounds(
         raise ValueError("provider output schema exceeds its explicit bound")
 
 
-def session_generation_limit(
-    model: str,
-    *,
-    kernel_limits: KernelLimits = SLICE1_KERNEL_LIMITS,
-    native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
-) -> int:
-    """Conservatively rotate before worst-case retained history reaches context."""
-
-    try:
-        context_floor = ROUTE_CONTEXT_TOKEN_FLOORS[model]
-    except KeyError as error:
-        raise ValueError("model is not a qualified Slice 1 route") from error
-    static_token_bound = (
-        native_limits.max_system_bytes
-        + native_limits.max_developer_bytes
-        + native_limits.max_output_schema_bytes
-    )
-    retained_run_token_bound = (
-        kernel_limits.max_new_context_bytes
-        + kernel_limits.max_provider_output_tokens
-        + native_limits.one_turn_output_token_overshoot
-    )
-    generations = (context_floor - static_token_bound) // retained_run_token_bound
-    if generations <= 0:
-        raise ValueError("route context cannot contain one bounded Slice 1 run")
-    return generations
-
-
 def verify_runtime_dependencies() -> None:
     if sys.version_info[:2] != (3, 12):
         raise RuntimeError("Jarvis requires Python 3.12")
@@ -1695,7 +1658,6 @@ __all__ = [
     "EXPECTED_GIT_PINS",
     "EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY",
     "QUALIFIED_CODEX_MODELS",
-    "ROUTE_CONTEXT_TOKEN_FLOORS",
     "SLICE1_KERNEL_LIMITS",
     "SLICE1_TOOL_LIMITS",
     "SLICE2_KERNEL_LIMITS",
@@ -1739,7 +1701,6 @@ __all__ = [
     "build_slice6_definitions",
     "load_session_manifest",
     "session_compatibility_revision",
-    "session_generation_limit",
     "validate_native_context_bounds",
     "verify_runtime_dependencies",
 ]

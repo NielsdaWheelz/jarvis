@@ -76,7 +76,6 @@ from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     SLICE2_KERNEL_LIMITS,
-    SLICE3_RECALL_KERNEL_LIMITS,
     Slice3Definitions,
     build_slice3_definitions,
     verify_runtime_dependencies,
@@ -784,8 +783,6 @@ async def _run_production_roles(
             runtime=agent_runtime,
             shared_cwd_parent=Path(host.cognition_cwd_parent),
             session_ref_path=arguments.runtime_state_directory / "session-ref.json",
-            model=arguments.model,
-            kernel_limits=SLICE3_RECALL_KERNEL_LIMITS,
         )
         provider = QualificationProvider(runtime.provider)
         try:

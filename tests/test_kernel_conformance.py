@@ -36,6 +36,7 @@ from llm_agent_kernel import (
     SettleMoreInput,
     StoppedConclusion,
     StopReason,
+    StoredSessionRef,
     StructuredOutput,
     ThreadCompleted,
     ThreadId,
@@ -94,11 +95,12 @@ from jarvis.definitions import (
     SLICE1_KERNEL_LIMITS,
     SLICE2_READ_IDS,
     SLICE2_WEB_SEARCH_LIMITS,
+    SLICE6_KERNEL_LIMITS,
     build_slice1_definitions,
     build_slice2_definitions,
 )
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime
+from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime, build_kernel_runtime
 from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.messages import Settlement as MessageSettlement
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
@@ -504,7 +506,7 @@ async def test_session_loss_after_model_entry_parks_without_redispatch(
     checkpoints = InMemoryInputCheckpointPort(
         (ClaimAcquired(first), ClaimAcquired(second))
     )
-    references = AtomicSessionRefPort(tmp_path / "session.json", max_generations=32)
+    references = AtomicSessionRefPort(tmp_path / "session.json")
     history = JarvisContextSource(
         THREAD_ID,
         _History((CanonicalMessage("prior", "assistant", "earlier", AS_OF),)),
@@ -550,6 +552,62 @@ async def test_session_loss_after_model_entry_parks_without_redispatch(
     assert len(second_runtime.opens) == len(second_runtime.turns) == 1
     assert second_runtime.run_turn_calls == 0
     assert len(checkpoints.park_reasons) == 1
+
+
+async def test_main_bounds_keep_one_session_across_owner_runs_and_adapter_restart(
+    tmp_path: Path,
+) -> None:
+    definitions = _with_structured_main(_definitions())
+    definition = replace(definitions.main, limits=SLICE6_KERNEL_LIMITS)
+    runtime = _Runtime(
+        [
+            {
+                "type": "finish",
+                "result": {"response": {"type": "answered", "text": "continued"}},
+            }
+            for _ in range(3)
+        ]
+    )
+    cwd_parent = tmp_path / "cwd"
+    cwd_parent.mkdir(mode=0o2750)
+    cwd_parent.chmod(0o2750)
+    references: list[StoredSessionRef | None] = []
+    for ordinal in range(3):
+        bundle = build_kernel_runtime(
+            runtime=cast(AgentRuntime, runtime),
+            shared_cwd_parent=cwd_parent,
+            session_ref_path=tmp_path / "session.json",
+        )
+        try:
+            outcome = await _run(
+                run_id=f"owner-{ordinal}",
+                definition=definition,
+                checkpoints=InMemoryInputCheckpointPort(
+                    (
+                        ClaimAcquired(
+                            _claim(definitions.plans["main"], name=str(ordinal))
+                        ),
+                    )
+                ),
+                admission=_admission(tmp_path, f"owner-{ordinal}"),
+                sessions=bundle.sessions,
+                context_source=JarvisContextSource(THREAD_ID, _History()),
+            )
+            assert isinstance(outcome, ThreadCompleted)
+            references.append(
+                await bundle.references.load(THREAD_ID, definition.fingerprint)
+            )
+        finally:
+            await bundle.provider.shutdown()
+
+    assert isinstance(runtime.opens[0].open, NewSession)
+    assert all(isinstance(request.open, ResumeSession) for request in runtime.opens[1:])
+    assert all(reference is not None for reference in references)
+    assert [reference.generation for reference in references if reference] == [1, 2, 3]
+    assert (
+        len({reference.ref.native_session_id for reference in references if reference})
+        == 1
+    )
 
 
 async def test_slice2_compound_reads_are_serial_and_observed_before_say(
@@ -602,9 +660,7 @@ async def test_slice2_compound_reads_are_serial_and_observed_before_say(
     provider = CodexProvider(
         cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
     )
-    references = AtomicSessionRefPort(
-        tmp_path / "slice2-session.json", max_generations=2
-    )
+    references = AtomicSessionRefPort(tmp_path / "slice2-session.json")
     dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
     admission = _admission(tmp_path, "slice2-compound")
     try:
@@ -659,9 +715,7 @@ async def test_absent_provider_usage_retains_the_admission_reservation(
             admission=admission,
             sessions=SessionCoordinator(
                 provider,
-                AtomicSessionRefPort(
-                    tmp_path / "absent-usage-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "absent-usage-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
         )
@@ -704,9 +758,7 @@ async def test_resumed_conversation_settles_invocation_local_usage(
     provider = CodexProvider(
         cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
     )
-    references = AtomicSessionRefPort(
-        tmp_path / "usage-resume-session.json", max_generations=32
-    )
+    references = AtomicSessionRefPort(tmp_path / "usage-resume-session.json")
     sessions = SessionCoordinator(provider, references)
     admission = _admission(tmp_path, "usage-resume")
     try:
@@ -774,9 +826,7 @@ async def test_invalid_protocol_repairs_are_bounded_and_poison_is_consumed(
             admission=_admission(tmp_path, "poison"),
             sessions=SessionCoordinator(
                 provider,
-                AtomicSessionRefPort(
-                    tmp_path / "poison-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "poison-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
         )
@@ -814,9 +864,7 @@ async def test_cancellation_and_host_stop_preempt_before_provider_io(
             admission=_admission(tmp_path, "cancelled"),
             sessions=SessionCoordinator(
                 cancelled_provider,
-                AtomicSessionRefPort(
-                    tmp_path / "cancelled-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "cancelled-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
             cancellation=cancellation,
@@ -839,9 +887,7 @@ async def test_cancellation_and_host_stop_preempt_before_provider_io(
             admission=_admission(tmp_path, "stopped"),
             sessions=SessionCoordinator(
                 stopped_provider,
-                AtomicSessionRefPort(
-                    tmp_path / "stopped-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "stopped-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
         )
@@ -861,9 +907,7 @@ async def test_cancellation_and_host_stop_preempt_before_provider_io(
 
 async def test_crash_after_session_ref_cas_forces_cold_recovery(tmp_path: Path) -> None:
     definitions = _definitions()
-    references = AtomicSessionRefPort(
-        tmp_path / "crash-session.json", max_generations=32
-    )
+    references = AtomicSessionRefPort(tmp_path / "crash-session.json")
     crashed_claim = _claim(definitions.plans["main"], name="crashed")
     crashed_checkpoints = _CrashAfterSessionCas((ClaimAcquired(crashed_claim),))
     runtime = _Runtime(
@@ -1023,9 +1067,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     provider = CodexProvider(
         cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
     )
-    references = AtomicSessionRefPort(
-        settings.session_reference_path, max_generations=2
-    )
+    references = AtomicSessionRefPort(settings.session_reference_path)
     bundle = KernelRuntime(
         cast(AgentRuntime, runtime),
         provider,
@@ -1149,7 +1191,6 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
     )
     references = AtomicSessionRefPort(
         settings.session_reference_path,
-        max_generations=32,
     )
     crash_store = _CrashOnFirstSettlementStore(engine)
     inserted = await crash_store.insert_waking(
@@ -1348,7 +1389,6 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
     )
     references = AtomicSessionRefPort(
         settings.session_reference_path,
-        max_generations=4,
     )
     runtime = _Runtime([])
     provider = CodexProvider(
@@ -1464,9 +1504,7 @@ async def test_mid_loop_append_is_admitted_and_final_settlement_race_stays_next(
             admission=_admission(tmp_path, "append"),
             sessions=SessionCoordinator(
                 provider,
-                AtomicSessionRefPort(
-                    tmp_path / "append-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "append-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
         )
@@ -1504,9 +1542,7 @@ async def test_mid_loop_append_is_admitted_and_final_settlement_race_stays_next(
             admission=_admission(tmp_path, "race"),
             sessions=SessionCoordinator(
                 race_provider,
-                AtomicSessionRefPort(
-                    tmp_path / "race-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "race-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
         )
@@ -1536,9 +1572,7 @@ async def test_attempt_ceiling_and_plan_budget_defect_are_deterministic(
             admission=_admission(tmp_path, "attempt"),
             sessions=SessionCoordinator(
                 provider,
-                AtomicSessionRefPort(
-                    tmp_path / "attempt-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "attempt-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
         )
@@ -1565,9 +1599,7 @@ async def test_attempt_ceiling_and_plan_budget_defect_are_deterministic(
             admission=_admission(tmp_path, "budget"),
             sessions=SessionCoordinator(
                 defect_provider,
-                AtomicSessionRefPort(
-                    tmp_path / "budget-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "budget-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
             budget_factory=_WrongBudgetFactory(),
@@ -1593,9 +1625,7 @@ async def test_compatibility_change_rotates_without_resuming_old_session(
         old,
         session_compatibility_revision=f"{old.session_compatibility_revision}-rotated",
     )
-    references = AtomicSessionRefPort(
-        tmp_path / "rotation-session.json", max_generations=32
-    )
+    references = AtomicSessionRefPort(tmp_path / "rotation-session.json")
     first = _claim(definitions.plans["main"], name="old")
     second = _claim(definitions.plans["main"], name="new")
     checkpoints = InMemoryInputCheckpointPort(
@@ -1657,9 +1687,7 @@ async def test_cooperative_deadline_allows_one_finite_provider_turn_overshoot(
             admission=_admission(tmp_path, "deadline"),
             sessions=SessionCoordinator(
                 provider,
-                AtomicSessionRefPort(
-                    tmp_path / "deadline-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "deadline-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, _History()),
             clock=clock,
@@ -1718,9 +1746,7 @@ async def test_exhausted_cooperative_deadline_stops_at_next_safe_boundary(
             admission=_admission(tmp_path, "already-exhausted"),
             sessions=SessionCoordinator(
                 provider,
-                AtomicSessionRefPort(
-                    tmp_path / "already-exhausted-session.json", max_generations=32
-                ),
+                AtomicSessionRefPort(tmp_path / "already-exhausted-session.json"),
             ),
             context_source=JarvisContextSource(THREAD_ID, SlowHistory()),
             clock=clock,

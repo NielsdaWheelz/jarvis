@@ -27,13 +27,10 @@ from provider_runtime.agent_runtime import (
 
 from jarvis.definitions import (
     QUALIFIED_CODEX_MODELS,
-    ROUTE_CONTEXT_TOKEN_FLOORS,
-    SLICE1_KERNEL_LIMITS,
     NativeContextLimits,
     build_slice1_definitions,
     load_session_manifest,
     session_compatibility_revision,
-    session_generation_limit,
     validate_native_context_bounds,
 )
 
@@ -283,26 +280,8 @@ def test_provider_native_material_has_independent_bounds() -> None:
         )
 
 
-def test_route_context_floor_derives_conservative_session_generation_bound() -> None:
+def test_only_qualified_models_are_admitted() -> None:
     assert QUALIFIED_CODEX_MODELS == ("gpt-5.6-terra",)
-    assert ROUTE_CONTEXT_TOKEN_FLOORS == {"gpt-5.6-terra": 1_050_000}
-    assert session_generation_limit("gpt-5.6-terra") == 3
-    native = NativeContextLimits()
-    retained_run_bound = (
-        SLICE1_KERNEL_LIMITS.max_new_context_bytes
-        + SLICE1_KERNEL_LIMITS.max_provider_output_tokens
-        + native.one_turn_output_token_overshoot
-    )
-    static_bound = (
-        native.max_system_bytes
-        + native.max_developer_bytes
-        + native.max_output_schema_bytes
-    )
-    assert static_bound + 3 * retained_run_bound <= 1_050_000
-    assert static_bound + 4 * retained_run_bound > 1_050_000
-
-    with pytest.raises(ValueError, match="qualified Slice 1 route"):
-        session_generation_limit("unqualified")
     with pytest.raises(ValueError, match="qualified Slice 1 route"):
         build_slice1_definitions(
             provider=frozen_provider("jarvis-test", "gpt-5.4", "high"),

@@ -34,34 +34,15 @@ _FIELDS = {
 class AtomicSessionRefPort:
     """One atomically replaced, disposable main-session reference."""
 
-    def __init__(self, path: Path, *, max_generations: int) -> None:
+    def __init__(self, path: Path) -> None:
         if not path.is_absolute():
             raise ValueError("session-reference path must be absolute")
-        if type(max_generations) is not int or max_generations <= 0:
-            raise ValueError("session generation bound must be a positive integer")
         self._path = path
-        self._max_generations = max_generations
         self._lock = asyncio.Lock()
 
     async def load(
         self, thread_id: ThreadId, definition_fingerprint: str
     ) -> StoredSessionRef | None:
-        async with self._lock:
-            state = self._read()
-            if state is None or not _matches(state, thread_id, definition_fingerprint):
-                return None
-            generation = _integer(state, "generation")
-            if generation >= self._max_generations:
-                return None
-            return StoredSessionRef(_reference(state), generation)
-
-    async def load_for_discard(
-        self,
-        thread_id: ThreadId,
-        definition_fingerprint: str,
-    ) -> StoredSessionRef | None:
-        """Load a matching ref for recovery discard, including at its age bound."""
-
         async with self._lock:
             state = self._read()
             if state is None or not _matches(state, thread_id, definition_fingerprint):
@@ -85,9 +66,7 @@ class AtomicSessionRefPort:
             )
             if expected_generation is None:
                 if matching:
-                    assert state is not None
-                    if _integer(state, "generation") < self._max_generations:
-                        return StaleSessionRef()
+                    return StaleSessionRef()
                 generation = 1
             else:
                 if (

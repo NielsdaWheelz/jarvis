@@ -354,8 +354,6 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     shared_cwd_parent=shared_cwd_parent,
                     session_ref_path=arguments.runtime_state_directory
                     / "session-ref.json",
-                    model=arguments.model,
-                    kernel_limits=definitions.main.limits,
                 )
                 probes: list[RecallProbeResult] = []
                 dream_runs: list[DreamerRunCompleted] = []

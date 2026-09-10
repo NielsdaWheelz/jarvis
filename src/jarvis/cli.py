@@ -154,8 +154,6 @@ async def _isolated_memory_runtime(
                 runtime=agent_runtime,
                 shared_cwd_parent=Path(host.cognition_cwd_parent),
                 session_ref_path=settings.session_reference_path,
-                model=settings.codex_model,
-                kernel_limits=definitions.main.limits,
             )
         except BaseException:
             await agent_runtime.close()
@@ -356,8 +354,6 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
                         session_ref_path=settings.session_reference_path,
-                        model=settings.codex_model,
-                        kernel_limits=definitions.main.limits,
                     )
                     admission = RootTrackingAdmissionPort(admission_store)
 

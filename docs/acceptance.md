@@ -92,17 +92,15 @@ named explicitly; no criterion disappears or is weakened silently.
       reconstructs useful context from centralized messages and recalled memory.
       A stale session-reference generation cannot overwrite a newer one or
       proceed to dispatch/settlement. A successful store advances the expected
-      generation. A crash
+      generation; no age or generation threshold expires a healthy reference.
+      Native automatic compaction preserves its thread identity. A crash
       after reference advancement but before canonical settlement leaves the
       input unprocessed and forces that speculative reference to be discarded
       before replay. Every definition has a non-empty manifest-derived
       `session_compatibility_revision`; changing its application contract,
       selected role contract, or a pinned dependency rotates the fingerprint,
-      except that ADR 0027's exact atomic kernel/provider usage-fix pair and ADR
-      0035's containment pair retain their certified predecessor application
-      identity. The latter still rotates every definition fingerprint through
-      the kernel base-instruction identity. Qualified-model membership is not a
-      revision input because the selected model independently participates in
+      with no predecessor exception under manifest schema v3. Qualified-model
+      membership is not a revision input because the selected model independently participates in
       the agent-definition fingerprint.
 - [ ] **A2.11** The host promptly shows typing state; no partial structured model
       output is streamed into Discord. Active Main has no `say` terminal and
@@ -255,10 +253,11 @@ in Slice 0.
       safe boundaries, reported usage, and cumulative newly rendered kernel
       context bytes. Provider turns receive the remaining cooperative deadline;
       a slow host port may exceed it, and no blunt outer timeout interrupts a
-      `Write`. Tests separately bound provider system/developer material,
-      output-schema overhead, retained native history, and compaction because
-      `max_new_context_bytes` does not. `llm_tools.RunLimits` alone bound tool
-      calls, attempts, bytes, `max_in_flight=1`, and tool elapsed time. An
+      `Write`. Tests separately bound provider system/developer material and
+      output-schema overhead. Native Codex owns retained history and compaction,
+      which `max_new_context_bytes` does not count; qualify same-thread compaction
+      without a host history-size guarantee (ADR 0043). `llm_tools.RunLimits`
+      alone bound tool calls, attempts, bytes, `max_in_flight=1`, and tool elapsed time. An
       intentional loop stops without double-charging a tool replay, and
       cancellation leaves its product checkpoint recoverable.
 - [ ] **A4.8** Quota exhaustion produces a fixed host-authored notice and changes

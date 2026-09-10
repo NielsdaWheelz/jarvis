@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Run the paid Slice 2 Codex consumer qualification with sanitized output."""
+"""Qualify current Main's contained consumer seam, not the full memory service."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import hashlib
 import json
 import os
 import platform
 import stat
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import uuid4
 
+import httpx
 from llm_agent_kernel import (
     AgentDefinition,
     AgentRole,
@@ -27,16 +29,22 @@ from llm_agent_kernel import (
     HostInput,
     InputId,
     OneShotStopped,
+    OwnerToken,
+    ProviderConfiguration,
     ProviderUsage,
     RunId,
     SessionMode,
+    StoredSessionRef,
     StructuredOutput,
     ThreadCompleted,
     ThreadId,
+    ThreadStopped,
     ToolDispatchDefect,
     ToolDispatchLineage,
     TransientModelDecisions,
+    require_host_plan,
     run_one_shot,
+    run_thread,
 )
 from llm_tools import (
     Available,
@@ -54,7 +62,6 @@ from llm_tools import (
     PromptText,
     ReplayPolicy,
     RunLimits,
-    SafeWebReader,
     ToolBinding,
     ToolCatalog,
     ToolEffect,
@@ -64,25 +71,21 @@ from llm_tools import (
     ToolLimits,
     ToolPlan,
     ToolSpec,
-    WebSearchError,
-    WebSearchErrorCode,
-    WebSearchRequest,
-    WebSearchResponse,
-    bind_brave_web_search,
-    bind_web_read,
-    web_family,
 )
-from provider_runtime.agent_runtime import thaw_json_value
+from provider_runtime.agent_runtime import AgentRuntime, thaw_json_value
 from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlalchemy import func, select
 
+from jarvis.actions import ActionStore
 from jarvis.admission import (
     ExactToolBudgetFactory,
     RollingAdmissionLimits,
     RollingAdmissionPort,
 )
-from jarvis.codex_control import CodexHostConfig
+from jarvis.checkpoints import PostgresInputCheckpoint
+from jarvis.codex_control import CodexController, CodexHostConfig
 from jarvis.config import DiscordSettings
+from jarvis.context import JarvisContextSource
 from jarvis.db import (
     action,
     create_engine,
@@ -97,14 +100,16 @@ from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
     EXPECTED_GIT_PINS,
     QUALIFIED_CODEX_MODELS,
+    SLICE1_TOOL_LIMITS,
     SLICE2_KERNEL_LIMITS,
     DreamResult,
-    Slice2Definitions,
-    build_slice2_definitions,
-    session_generation_limit,
+    Slice6Definitions,
+    build_slice5_write_gate,
+    build_slice6_definitions,
     validate_native_context_bounds,
     verify_runtime_dependencies,
 )
+from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import (
     EmptySlice1Dispatcher,
@@ -113,93 +118,56 @@ from jarvis.kernel import (
     build_kernel_runtime,
     resolve_provider_configuration,
 )
+from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import Database, deployment_ownership
-from jarvis.read_dispatch import ReadToolDispatcher
-from jarvis.read_positions import PostgresReadRecorder
-from jarvis.read_tools import ConnectorFailure, compose_read_catalog
-from jarvis.service import JarvisThreadRunner
+from jarvis.service import CapturingReadDispatcher
 from jarvis.session import AtomicSessionRefPort
 from jarvis.settings import Settings
+from jarvis.terminal import TurnEvidence
+from jarvis.write_composition import build_slice6_composition
 
 _SUPPORTED_ROUTES = frozenset(QUALIFIED_CODEX_MODELS)
 
 
-class _UnavailableReads:
-    async def _fail(self) -> Any:
-        raise ConnectorFailure("provider_unavailable", attempts=1)
-
-    async def gmail_search(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def gmail_read_thread(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def calendar_list_calendars(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def calendar_list_events(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def calendar_get_event(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def search_places(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def get_place(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-    async def directions(self, value: object) -> Any:
-        del value
-        return await self._fail()
-
-
-class _UnavailableSearch:
-    async def search(
-        self,
-        request: WebSearchRequest,
-        *,
-        attempt_started: Callable[[], None] | None = None,
-    ) -> WebSearchResponse:
-        del request
-        if attempt_started is None:
-            raise RuntimeError("search attempt callback is absent")
-        attempt_started()
-        raise WebSearchError(
-            WebSearchErrorCode.PROVIDER_DOWN,
-            "synthetic",
-            provider="brave",
-            attempts=1,
-        )
-
-
-class _UnavailableResolver:
-    async def resolve(self, hostname: str, port: int) -> tuple[str, ...]:
-        del hostname, port
-        raise OSError("synthetic")
-
-
-def _slice2_catalog() -> ToolCatalog:
-    reads = _UnavailableReads()
-    return compose_read_catalog(
-        google=reads,
-        maps=reads,
-        web=web_family(
-            search=bind_brave_web_search(
-                _UnavailableSearch(),
-                operation_deadline_seconds=12.0,
-            ),
-            read=bind_web_read(SafeWebReader(resolver=_UnavailableResolver())),
+def _definitions(
+    *,
+    engine: Database,
+    settings: Settings,
+    host: CodexHostConfig,
+    runtime: AgentRuntime,
+    provider: ProviderConfiguration,
+    http_client: httpx.AsyncClient,
+) -> tuple[Slice6Definitions, FrozenToolPlan]:
+    """Current Main contract, with no external tools granted by this consumer probe."""
+    actions = ActionStore(engine)
+    gate, _ = build_slice5_write_gate(provider=provider)
+    catalog = build_slice6_composition(
+        settings=settings,
+        google_oauth_http=http_client,
+        google_api_http=http_client,
+        maps_http=http_client,
+        brave_http=http_client,
+        memory_repository=PostgresMemoryRepository(engine),
+        memory_embedder=OpenAIEmbedder(
+            settings.embedding_openai_api_key, http_client=http_client
         ),
+        actions=actions,
+        codex=CodexController(control=runtime.codex, host=host, actions=actions),
+        automatic_write_gate_definition_fingerprint=gate.fingerprint,
+    ).catalog
+    definitions = build_slice6_definitions(
+        catalog=catalog,
+        provider=provider,
+        owner_timezone=settings.owner_timezone,
     )
+    profile = CapabilityProfile(
+        ProfileId("codex_consumer_no_tools"), (), SLICE1_TOOL_LIMITS
+    ).freeze(catalog)
+    plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+    require_host_plan(plan, definitions.main.maximum_profile)
+    require_host_plan(plan, definitions.dreamer.maximum_profile)
+    return definitions, plan
 
 
 def _implementation() -> dict[str, str]:
@@ -304,8 +272,6 @@ def _runtime(
         runtime=agent_runtime,
         shared_cwd_parent=Path(host.cognition_cwd_parent),
         session_ref_path=settings.session_reference_path,
-        model=arguments.model,
-        kernel_limits=SLICE2_KERNEL_LIMITS,
     )
 
 
@@ -331,16 +297,17 @@ def _metric(
 async def _conversation_turn(
     *,
     engine: Database,
-    arguments: Arguments,
     settings: Settings,
-    host: CodexHostConfig,
-    definitions: Slice2Definitions,
+    runtime: KernelRuntime,
+    definitions: Slice6Definitions,
+    plan: FrozenToolPlan,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
     history: PostgresCanonicalHistory,
     source_message_id: str,
     text: str,
 ) -> tuple[dict[str, object], str]:
+    require_host_plan(plan, definitions.main.maximum_profile)
     before = {
         message.id
         for message in await store.pending_delivery(
@@ -356,30 +323,50 @@ async def _conversation_turn(
         source_message_id=source_message_id,
         created_at=datetime.now(UTC),
     )
-    runtime = _runtime(arguments, settings, host)
-    try:
-        outcome = await JarvisThreadRunner(
-            model_decisions=lambda evidence: PostgresModelDecisionJournal(
-                engine, evidence=evidence
-            ),
-            settings=settings,
-            store=store,
-            admission=RollingAdmissionPort(
-                settings.admission_journal_path,
-                admission_limits,
-            ),
-            kernel_runtime=runtime,
-            definitions=definitions,
-            history=history,
-            dispatcher_factory=lambda: ReadToolDispatcher(
-                recorder=PostgresReadRecorder(engine),
-                host_secrets=settings.host_secrets,
-            ),
-        ).run(CancellationToken())
-    finally:
-        await runtime.close()
+    admission = RollingAdmissionPort(settings.admission_journal_path, admission_limits)
+    limits = definitions.main.limits
+    if (
+        await admission.preflight(
+            maximum_turns=limits.max_provider_turns,
+            maximum_input_tokens=limits.max_provider_input_tokens,
+            maximum_output_tokens=limits.max_provider_output_tokens,
+        )
+        is not None
+    ):
+        raise ProbeCheckFailed("consumer_admission_deferred")
+    thread_id = ThreadId(str(settings.discord.channel_id))
+    run_id = RunId(str(uuid4()))
+    evidence = TurnEvidence()
+    checkpoints = PostgresInputCheckpoint(
+        store=store,
+        thread_id=thread_id,
+        run_id=run_id,
+        interactive_plan=plan,
+        scheduled_wake_plan=plan,
+        maximum_batch_size=settings.maximum_batch_size,
+        maximum_attempts=limits.max_no_progress_attempts,
+        turn_evidence=evidence,
+    )
+    dispatcher = CapturingReadDispatcher(EmptySlice1Dispatcher(), evidence)
+    outcome = await run_thread(
+        decisions=PostgresModelDecisionJournal(engine, evidence=dispatcher),
+        run_id=run_id,
+        thread_id=thread_id,
+        owner_token=OwnerToken(str(settings.discord.owner_user_id)),
+        definition=definitions.main,
+        checkpoints=checkpoints,
+        admission=admission,
+        sessions=runtime.sessions,
+        context_source=JarvisContextSource(thread_id, history),
+        dispatcher=dispatcher,
+        budget_factory=ExactToolBudgetFactory(),
+        cancellation=CancellationToken(),
+    )
     if not isinstance(outcome, ThreadCompleted):
-        raise RuntimeError("conversation qualification did not complete")
+        kind = (
+            outcome.type.value if isinstance(outcome, ThreadStopped) else outcome.type
+        )
+        raise ProbeCheckFailed(f"conversation_stopped_{kind}")
     created = tuple(
         message
         for message in await store.pending_delivery(
@@ -406,130 +393,70 @@ async def _conversation_probe(
     arguments: Arguments,
     settings: Settings,
     host: CodexHostConfig,
-    definitions: Slice2Definitions,
+    definitions: Slice6Definitions,
+    plan: FrozenToolPlan,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
     history: PostgresCanonicalHistory,
 ) -> tuple[dict[str, object], dict[str, bool]]:
     marker = f"amber-cascade-{uuid4().hex[:8]}"
     source_prefix = uuid4().hex
-    references = AtomicSessionRefPort(
-        settings.session_reference_path,
-        max_generations=session_generation_limit(
-            arguments.model,
-            kernel_limits=SLICE2_KERNEL_LIMITS,
-        ),
+    references = AtomicSessionRefPort(settings.session_reference_path)
+    stored: list[StoredSessionRef] = []
+    metrics: list[dict[str, object]] = []
+    responses: list[str] = []
+    inputs = (
+        f"Remember the synthetic marker {marker}. Reply briefly to confirm.",
+        "Reply with the synthetic marker from my preceding message.",
+        "Reply once more with the synthetic marker from the first message.",
+        "After deliberate local session loss, reply with the synthetic marker "
+        "from the first message.",
     )
-    first_metric, _first_response = await _conversation_turn(
-        engine=engine,
-        arguments=arguments,
-        settings=settings,
-        host=host,
-        definitions=definitions,
-        admission_limits=admission_limits,
-        store=store,
-        history=history,
-        source_message_id=f"{source_prefix}-1",
-        text=f"Remember the synthetic marker {marker}. Reply briefly to confirm.",
-    )
-    first_ref = await references.load(
-        ThreadId(str(settings.discord.channel_id)),
-        definitions.main.fingerprint,
-    )
-    if first_ref is None:
-        raise RuntimeError("first conversation turn did not store a session reference")
-
-    second_metric, second_response = await _conversation_turn(
-        engine=engine,
-        arguments=arguments,
-        settings=settings,
-        host=host,
-        definitions=definitions,
-        admission_limits=admission_limits,
-        store=store,
-        history=history,
-        source_message_id=f"{source_prefix}-2",
-        text="Reply with the synthetic marker from my preceding message.",
-    )
-    second_boundary = await references.load_for_discard(
-        ThreadId(str(settings.discord.channel_id)),
-        definitions.main.fingerprint,
-    )
-    if second_boundary is None:
-        raise RuntimeError("second turn did not reach the bounded reference")
-    continued = (
-        first_ref.ref.native_session_id == second_boundary.ref.native_session_id
-        and second_boundary.generation == 2
-    )
-
-    third_metric, third_response = await _conversation_turn(
-        engine=engine,
-        arguments=arguments,
-        settings=settings,
-        host=host,
-        definitions=definitions,
-        admission_limits=admission_limits,
-        store=store,
-        history=history,
-        source_message_id=f"{source_prefix}-3",
-        text=(
-            "After automatic session rotation, reply with the synthetic marker "
-            "from the first message."
-        ),
-    )
-    third_ref = await references.load(
-        ThreadId(str(settings.discord.channel_id)),
-        definitions.main.fingerprint,
-    )
-    if third_ref is None:
-        raise RuntimeError("automatic rotation did not store a fresh reference")
-    if third_ref.ref.native_session_id == second_boundary.ref.native_session_id:
-        raise RuntimeError("automatic rotation did not store a fresh reference")
-
-    settings.session_reference_path.unlink()
-    fourth_metric, fourth_response = await _conversation_turn(
-        engine=engine,
-        arguments=arguments,
-        settings=settings,
-        host=host,
-        definitions=definitions,
-        admission_limits=admission_limits,
-        store=store,
-        history=history,
-        source_message_id=f"{source_prefix}-4",
-        text=(
-            "After deliberate local session loss, reply with the synthetic marker "
-            "from the first message."
-        ),
-    )
-    fourth_ref = await references.load(
-        ThreadId(str(settings.discord.channel_id)),
-        definitions.main.fingerprint,
-    )
-    if fourth_ref is None:
-        raise RuntimeError("deliberate-loss turn did not store a fresh reference")
-
+    for ordinal, text in enumerate(inputs):
+        if ordinal == 3:
+            settings.session_reference_path.unlink()
+        runtime = _runtime(arguments, settings, host)
+        try:
+            metric, response = await _conversation_turn(
+                engine=engine,
+                settings=settings,
+                runtime=runtime,
+                definitions=definitions,
+                plan=plan,
+                admission_limits=admission_limits,
+                store=store,
+                history=history,
+                source_message_id=f"{source_prefix}-{ordinal}",
+                text=text,
+            )
+        finally:
+            await runtime.close()
+        reference = await references.load(
+            ThreadId(str(settings.discord.channel_id)),
+            definitions.main.fingerprint,
+        )
+        if reference is None:
+            raise ProbeCheckFailed("conversation_reference_missing")
+        stored.append(reference)
+        metrics.append(metric)
+        responses.append(response)
     continuity = {
-        "compatible_restart": continued,
-        "compatible_restart_recalled_context": marker in second_response.casefold(),
-        "generation_two_boundary_reached": second_boundary.generation == 2,
-        "automatic_session_rotated": (
-            third_ref.ref.native_session_id != second_boundary.ref.native_session_id
-            and third_ref.generation == 1
+        "compatible_restart": len({value.ref.native_session_id for value in stored[:3]})
+        == 1,
+        "generation_advances": (
+            stored[0].generation < stored[1].generation < stored[2].generation
         ),
-        "automatic_rotation_reconstructed": marker in third_response.casefold(),
+        "compatible_restart_recalled_context": all(
+            marker in response.casefold() for response in responses[1:3]
+        ),
         "deliberate_loss_session_rotated": (
-            fourth_ref.ref.native_session_id != third_ref.ref.native_session_id
-            and fourth_ref.generation == 1
+            stored[3].ref.native_session_id != stored[2].ref.native_session_id
         ),
-        "deliberate_loss_reconstructed": marker in fourth_response.casefold(),
+        "deliberate_loss_reconstructed": marker in responses[3].casefold(),
     }
     if not all(continuity.values()):
-        raise RuntimeError("conversation session continuity qualification failed")
-    return {
-        "status": "passed",
-        "turns": [first_metric, second_metric, third_metric, fourth_metric],
-    }, continuity
+        raise ProbeCheckFailed("conversation_continuity_unconfirmed")
+    return {"status": "passed", "turns": metrics}, continuity
 
 
 async def _structured_probe(
@@ -537,7 +464,8 @@ async def _structured_probe(
     arguments: Arguments,
     settings: Settings,
     host: CodexHostConfig,
-    definitions: Slice2Definitions,
+    definitions: Slice6Definitions,
+    plan: FrozenToolPlan,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
     runtime = _runtime(arguments, settings, host)
@@ -558,7 +486,7 @@ async def _structured_probe(
                 ),
             ),
             as_of=datetime.now(UTC),
-            plan=definitions.plans["dreamer"],
+            plan=plan,
             source_sections=PromptSections(()),
             admission=admission,
             provider=runtime.provider,
@@ -580,7 +508,7 @@ async def _structured_probe(
 
 
 def _tool_probe_definition(
-    definitions: Slice2Definitions,
+    definitions: Slice6Definitions,
 ) -> tuple[AgentDefinition, FrozenToolPlan, ToolBinding[Any, Any, Any]]:
     spec: ToolSpec[ProbeToolInput, ProbeToolSuccess, NoDeclaredError] = ToolSpec(
         id=ToolId("qualification.echo"),
@@ -643,7 +571,7 @@ async def _tool_argument_probe(
     arguments: Arguments,
     settings: Settings,
     host: CodexHostConfig,
-    definitions: Slice2Definitions,
+    definitions: Slice6Definitions,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
     definition, plan, binding = _tool_probe_definition(definitions)
@@ -704,6 +632,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
     conversation_id = uuid4().int % 900_000_000_000_000_000 + 1
+    connector_key = base64.urlsafe_b64encode(b"q" * 32).decode().rstrip("=")
     settings = Settings(
         database_url=SecretStr(arguments.database_url),
         discord=DiscordSettings(
@@ -721,8 +650,8 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         google_oauth_client_id=SecretStr("qualification-unused-google-client"),
         google_oauth_client_secret=SecretStr("qualification-unused-google-secret"),
         connector_encryption_key_version="v2",
-        connector_encryption_keys=SecretStr("qualification-unused-keyring"),
-        connector_encryption_secret=SecretStr("qualification-unused-encryption"),
+        connector_encryption_keys=SecretStr(json.dumps({"v2": connector_key})),
+        connector_encryption_secret=SecretStr(connector_key),
         maps_api_key=SecretStr("qualification-unused-maps-key"),
         brave_api_key=SecretStr("qualification-unused-brave-key"),
         embedding_openai_api_key=SecretStr("qualification-unused-embedding-key"),
@@ -730,26 +659,34 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    async with build_agent_runtime(
-        provider_state_root=arguments.runtime_state_directory,
-        codex_endpoints=host.endpoints,
-    ) as discovery_runtime:
+    raw_engine = create_engine(arguments.database_url)
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
+        )
+        discovery_runtime = await database_lifetime.enter_async_context(
+            build_agent_runtime(
+                provider_state_root=arguments.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
+        )
         provider_configuration = await resolve_provider_configuration(
             runtime=discovery_runtime,
             profile_key=arguments.profile,
             model_key=arguments.model,
             reasoning=arguments.reasoning_effort,
         )
-    definitions = build_slice2_definitions(
-        catalog=_slice2_catalog(),
-        provider=provider_configuration,
-        owner_timezone=arguments.owner_timezone,
-    )
-    raw_engine = create_engine(arguments.database_url)
-    async with AsyncExitStack() as database_lifetime:
-        database_lifetime.push_async_callback(raw_engine.dispose)
-        engine = await database_lifetime.enter_async_context(
-            deployment_ownership(raw_engine)
+        http_client = await database_lifetime.enter_async_context(
+            httpx.AsyncClient(trust_env=False, follow_redirects=False)
+        )
+        definitions, plan = _definitions(
+            engine=engine,
+            settings=settings,
+            host=host,
+            runtime=discovery_runtime,
+            provider=provider_configuration,
+            http_client=http_client,
         )
         store = MessageStore(engine)
         history = PostgresCanonicalHistory(engine)
@@ -781,6 +718,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 settings=settings,
                 host=host,
                 definitions=definitions,
+                plan=plan,
                 admission_limits=admission_limits,
                 store=store,
                 history=history,
@@ -795,6 +733,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 settings=settings,
                 host=host,
                 definitions=definitions,
+                plan=plan,
                 admission=admission,
             )
             stage = "tool_arguments"

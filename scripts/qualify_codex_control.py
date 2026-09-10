@@ -177,7 +177,7 @@ class Gateway:
         value = cast("dict[str, object]", decoded)
         if value.get("machine") != {
             "handle": self.machine,
-            "platform": "linux",
+            "platform": "Linux",
         } or not isinstance(value.get("sessions"), list):
             raise QualificationFailure("gateway_inventory")
         rows: list[dict[str, object]] = []

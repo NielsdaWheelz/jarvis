@@ -43,7 +43,6 @@ from jarvis.definitions import (
     build_slice2_definitions,
     load_session_manifest,
     session_compatibility_revision,
-    session_generation_limit,
 )
 from jarvis.read_composition import build_read_catalog
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
@@ -230,19 +229,12 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
             == "llm-tools-web-read-v2"
         )
         require_host_plan(plan, definitions.main.maximum_profile)
-    assert (
-        session_generation_limit("gpt-5.6-terra", kernel_limits=SLICE2_KERNEL_LIMITS)
-        == 1
-    )
     with pytest.raises(ValueError, match="qualified Slice 2 route"):
         build_slice2_definitions(
             catalog=catalog,
             provider=frozen_provider("synthetic-profile", "gpt-5.4", "high"),
             owner_timezone="UTC",
         )
-    native_static = 16_384 + 16_384 + 32_768
-    retained = 706_144 + 40_000 + 8_192
-    assert native_static + retained == 819_872
 
 
 def test_slice2_definition_rejects_unavailable_web_bindings() -> None:

@@ -16,6 +16,9 @@ use the same explicitly configured shared runtime. Schema-v3 session identity
 hard-cuts predecessor compatibility exceptions; canonical records remain intact.
 [ADR 0042](docs/decisions/0042-track-latest-stable-codex.md) replaces native
 Codex pinning with latest-stable installation; library dependencies remain locked.
+[ADR 0043](docs/decisions/0043-retain-main-thread-through-native-compaction.md)
+removes host age-based session rotation: compatible Main threads persist through
+native automatic compaction; generation remains a compare-and-set token.
 
 ## 1. Product definition
 
@@ -895,6 +898,14 @@ generation compare-and-set so a stale run cannot overwrite a newer reference.
 Every successful store returns the next expected generation. A stale store
 stops before tool dispatch or canonical settlement and fails the run; Jarvis
 does not continue on provider state it failed to save.
+Generation MUST NOT expire a healthy reference or stand in for context usage.
+Jarvis does not rotate a thread because of request count, age, or estimated
+context growth. Codex owns native context sizing and automatic compaction;
+compaction preserves the thread identity. Static prompt/schema bounds, per-run
+limits, rolling admission, and containment remain independent requirements.
+Native compaction does not guarantee the next large input fits before submission:
+a context-window failure follows the existing bounded failure/reconstruction
+path without automatic replay of an unknown decision or effect.
 After a crash leaves canonical input unprocessed, Jarvis discards any
 speculatively advanced reference before replay unless alignment can be proved;
 cold bootstrap is always the safe fallback. For a valid terminal model step,
@@ -1508,7 +1519,9 @@ settlement, parking, and cleanup may finish later, after which the next safe
 boundary prevents further work. Jarvis MUST NOT put a blunt outer timeout around
 a `Write`. `max_new_context_bytes` excludes provider system/developer material,
 output-schema transport overhead, retained native history, and provider
-compaction; Jarvis bounds and qualifies those surfaces separately. The
+compaction; Jarvis bounds static material separately and qualifies native-owned
+context/compaction behavior rather than estimating retained history from CAS
+generation or billing usage. The
 kernel-owned contained-agent base instruction counts inside Jarvis's independent
 system-material ceiling and its exact identity is qualified. The frozen
 `llm_tools.RunLimits` alone own tool calls, attempts, input/output bytes,
@@ -1669,9 +1682,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `2c428b3b0802f0c294dff300115779e299f0340d`
+  `8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342`
 - `llm-calling` / `provider-runtime`:
-  `70e33e99a8c03f0304c9136203c38bade2c5e1cd`
+  `69d41d38a3d290e7ae3bde9b57556dda41e1b2f1`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The existing host installer tracks the latest stable `@openai/codex` for all

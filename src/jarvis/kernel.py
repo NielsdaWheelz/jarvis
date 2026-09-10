@@ -9,7 +9,6 @@ from llm_agent_kernel import (
     AgentDefinition,
     CancellationToken,
     CodexProvider,
-    KernelLimits,
     ProviderConfiguration,
     SessionCoordinator,
     StaleSessionRef,
@@ -26,10 +25,7 @@ from provider_runtime.agent_runtime import (
 )
 
 from jarvis.definitions import (
-    DEFAULT_NATIVE_CONTEXT_LIMITS,
     QUALIFIED_CODEX_MODELS,
-    NativeContextLimits,
-    session_generation_limit,
     verify_runtime_dependencies,
 )
 from jarvis.session import AtomicSessionRefPort
@@ -95,7 +91,7 @@ class KernelRuntime:
         thread_id: ThreadId,
         definition: AgentDefinition,
     ) -> None:
-        stored = await self.references.load_for_discard(
+        stored = await self.references.load(
             thread_id,
             definition.fingerprint,
         )
@@ -140,9 +136,6 @@ def build_kernel_runtime(
     runtime: AgentRuntime,
     shared_cwd_parent: Path,
     session_ref_path: Path,
-    model: str,
-    kernel_limits: KernelLimits,
-    native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> KernelRuntime:
     provider = CodexProvider(
         runtime,
@@ -150,14 +143,7 @@ def build_kernel_runtime(
         share_cwd_with_group=True,
         cache_continuing=False,
     )
-    references = AtomicSessionRefPort(
-        session_ref_path,
-        max_generations=session_generation_limit(
-            model,
-            kernel_limits=kernel_limits,
-            native_limits=native_limits,
-        ),
-    )
+    references = AtomicSessionRefPort(session_ref_path)
     return KernelRuntime(
         runtime,
         provider,

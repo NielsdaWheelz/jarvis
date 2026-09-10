@@ -229,6 +229,13 @@ vulnerabilities.
 
 ## Paid qualifications
 
+Main retains its compatible native thread across owner requests and process
+restarts; Codex owns automatic compaction (ADR 0043). Jarvis does not expire
+references by generation or estimate retained history from billing counters.
+Per-request and rolling budgets still apply. An oversized continuation can fail
+at the native context boundary; existing failure/reconstruction handling does
+not authorize replay of an unknown paid decision or effect.
+
 Run every live qualification from the exact revision being recorded and against
 an empty, freshly migrated disposable database. Each runtime-state path must be
 unused and its existing parent must be mode 0700. Set
@@ -379,10 +386,16 @@ JARVIS_LIVE_MIN_EVENTS=1000 \
 ```
 
 `qualify_codex.py` performs the three required paid consumer probes in one run:
-main-session continuation/rotation/reconstruction, an isolated closed
+main-session continuation/restart/reconstruction, an isolated closed
 structured result, and a logical tool call whose provider wire carries JSON
 string arguments. Run it once for every exact model recorded in the
 compatibility manifest; the current set contains only `gpt-5.6-terra`:
+
+The conversation probe uses current structured Main with a zero-tool tightening
+and real PostgreSQL checkpoint, decision, and history ports. Three inputs retain
+the native thread across fresh runtime bundles; deliberate reference loss then
+proves canonical reconstruction. This narrow consumer proof does not replace
+the separate full-service recall, remembering, Discord, or worker journey.
 
 ```sh
 JARVIS_CODEX_LIVE=1 \

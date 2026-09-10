@@ -952,8 +952,6 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                     runtime=first_agent_runtime,
                     shared_cwd_parent=Path(host.cognition_cwd_parent),
                     session_ref_path=settings.session_reference_path,
-                    model=settings.codex_model,
-                    kernel_limits=definitions.main.limits,
                 )
                 first_dispatchers: list[_TargetRecordingDispatcher] = []
                 first_runner: JarvisThreadRunner | None = None
@@ -1032,8 +1030,6 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                     runtime=dream_agent_runtime,
                     shared_cwd_parent=Path(host.cognition_cwd_parent),
                     session_ref_path=settings.session_reference_path,
-                    model=settings.codex_model,
-                    kernel_limits=definitions.dreamer.limits,
                 )
                 dream_before = await _memory_state(engine)
                 dream_error: BaseException | None = None
@@ -1103,8 +1099,6 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                     runtime=second_agent_runtime,
                     shared_cwd_parent=Path(host.cognition_cwd_parent),
                     session_ref_path=settings.session_reference_path,
-                    model=settings.codex_model,
-                    kernel_limits=definitions.main.limits,
                 )
                 second_dispatchers: list[_TargetRecordingDispatcher] = []
                 second_runner: JarvisThreadRunner | None = None

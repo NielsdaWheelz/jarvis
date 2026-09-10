@@ -364,8 +364,6 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 runtime=agent_runtime,
                 shared_cwd_parent=shared_cwd_parent,
                 session_ref_path=arguments.runtime_state_directory / "session-ref.json",
-                model=arguments.model,
-                kernel_limits=definitions.dreamer.limits,
             )
             usages: list[dict[str, int]] = []
             contradiction_usage: dict[str, int]

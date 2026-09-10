@@ -47,6 +47,7 @@ not implementation suggestions.
 | [0040](0040-shared-kernel-durable-decisions.md) | Shared kernel with durable inference and Read positions | Accepted; six-table durability, authenticated model selection, and owner-bound transactions |
 | [0041](0041-control-shared-codex-workers.md) | Control shared Codex workers through host-owned services | Accepted; native version pin superseded by 0042 |
 | [0042](0042-track-latest-stable-codex.md) | Track latest stable native Codex without widening authority | Accepted; supersedes 0041's native executable pin |
+| [0043](0043-retain-main-thread-through-native-compaction.md) | Retain Main's thread through native compaction | Accepted; removes host age-based rotation, preserves CAS and recovery |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

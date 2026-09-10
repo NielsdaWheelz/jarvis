@@ -50,8 +50,6 @@ from jarvis.admission import (
 from jarvis.config import DiscordSettings
 from jarvis.context import CanonicalMessage, JarvisContextSource
 from jarvis.definitions import (
-    SLICE1_KERNEL_LIMITS,
-    SLICE2_KERNEL_LIMITS,
     build_slice2_definitions,
     verify_runtime_dependencies,
 )
@@ -180,8 +178,6 @@ async def test_runtime_bundle_uses_production_contained_provider(
         runtime=runtime,
         shared_cwd_parent=cwd_parent,
         session_ref_path=session_path,
-        model="gpt-5.6-terra",
-        kernel_limits=SLICE1_KERNEL_LIMITS,
     )
     try:
         assert bundle.runtime is runtime
@@ -274,8 +270,6 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         runtime=runtime,
         shared_cwd_parent=cwd_parent,
         session_ref_path=tmp_path / "session.json",
-        model="gpt-5.6-terra",
-        kernel_limits=SLICE2_KERNEL_LIMITS,
     )
     clients = [httpx.AsyncClient(trust_env=False) for _ in range(4)]
     catalog = build_read_catalog(
@@ -345,7 +339,7 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
             budget_factory=ExactToolBudgetFactory(),
             cancellation=CancellationToken(),
         )
-        stored = await bundle.references.load_for_discard(
+        stored = await bundle.references.load(
             ThreadId("thread-contained"),
             definitions.main.fingerprint,
         )
@@ -356,7 +350,7 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         )
         assert discarded == [stored.ref]
         assert (
-            await bundle.references.load_for_discard(
+            await bundle.references.load(
                 ThreadId("thread-contained"),
                 definitions.main.fingerprint,
             )

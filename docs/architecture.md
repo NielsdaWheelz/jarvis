@@ -314,6 +314,10 @@ attempts resume through `provider-runtime`. A fingerprint mismatch, invalid
 reference, or resume failure discards the reference and opens a fresh session.
 References are scoped by application thread and fingerprint; a generation
 compare-and-set prevents a stale run from overwriting a newer reference.
+Generation never expires a compatible reference. Codex owns automatic context
+compaction within that same thread; Jarvis retains its per-run and rolling
+limits without estimating retained native history. See [ADR 0043](decisions/0043-retain-main-thread-through-native-compaction.md)
+for the large-input failure trade-off and recovery boundary.
 Every stored reference returns the generation expected by the next model step.
 A stale store stops before dispatch or canonical settlement; Jarvis never acts
 on a response whose provider state it failed to save.
@@ -606,7 +610,8 @@ is a hard provider-turn deadline, not an end-to-end SLA: host ports, tools,
 settlement, parking, and cleanup can return later. The kernel never wraps a
 `Write` in an unsafe outer timeout. `max_new_context_bytes` excludes provider
 system/developer material, schema transport, retained native history, and
-provider compaction, which Jarvis sizes separately. `llm_tools.RunLimits` alone
+provider compaction. Jarvis bounds static material separately; native Codex
+owns retained-history compaction under ADR 0043. `llm_tools.RunLimits` alone
 own tool calls, attempts, bytes, `max_in_flight = 1`, and tool elapsed limits. V1
 has no parallel or multi-call path and no model-authored progress narration;
 Discord typing state is host activity. A run-local evidence value records only

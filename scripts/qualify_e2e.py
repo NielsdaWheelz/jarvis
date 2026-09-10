@@ -398,8 +398,6 @@ async def _run(settings: Settings) -> dict[str, object]:
             runtime=agent_runtime,
             shared_cwd_parent=Path(host.cognition_cwd_parent),
             session_ref_path=settings.session_reference_path,
-            model=settings.codex_model,
-            kernel_limits=SLICE6_KERNEL_LIMITS,
         )
         google_oauth_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
         google_api_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)

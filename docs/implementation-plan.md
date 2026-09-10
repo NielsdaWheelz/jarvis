@@ -140,16 +140,17 @@ Deliver:
   settlement.
 - Checked-in canonical session-compatibility manifest and required
   `session_compatibility_revision` on every continuing and isolated definition.
-  Pin or application-contract changes normally rotate it; ADR 0027's one exact
-  atomic provider-usage correction pair preserves it. Dynamic input and subset
+  Pin or application-contract changes rotate it; schema v3 has no predecessor
+  exception. Dynamic input and subset
   plans do not rotate it. ADR 0028 records the exact qualified local-account
   model set separately; the selected model already participates in the
   definition fingerprint.
 - One plan-aware `ToolBudgetFactoryPort` implementation creating fresh exact
   budgets after plan validation for every plan selectable in Slice 1.
 - Exact Slice 1 `llm_tools.RunLimits`, finite route-qualified one-turn token
-  overshoot, and provider-native context sizing for system/developer material,
-  schema overhead, retained history, and compaction.
+  overshoot for rolling admission, and static system/developer/schema bounds.
+  Main reuses its compatible thread without generation expiry; native Codex
+  owns retained-history compaction under ADR 0043.
 - Exclusive non-empty claim over messages, host-selected full or scheduled-wake
   read-only plan, ordered watermark, mid-loop compatible-input polling, stop
   preemption, and atomic conclusion/`processed_at` settlement. Incompatible work

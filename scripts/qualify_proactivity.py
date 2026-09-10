@@ -737,8 +737,6 @@ async def _run(settings: Settings) -> dict[str, object]:
                     runtime=agent_runtime,
                     shared_cwd_parent=Path(host.cognition_cwd_parent),
                     session_ref_path=settings.session_reference_path,
-                    model=settings.codex_model,
-                    kernel_limits=definitions.main.limits,
                 )
                 gate = AutomaticWriteGate(
                     model_decisions=lambda evidence: PostgresModelDecisionJournal(

@@ -23,15 +23,15 @@ install_environment="$(mktemp -d)"
 trap 'rm -rf -- "$kernel_checkout" "$provider_checkout" "$tools_checkout" "$artifact_directory" "$install_environment"' EXIT
 git -C "$kernel_checkout" init --quiet
 git -C "$kernel_checkout" remote add origin https://github.com/NielsdaWheelz/llm-agent-kernel.git
-git -C "$kernel_checkout" fetch --quiet --depth=1 origin 2c428b3b0802f0c294dff300115779e299f0340d
+git -C "$kernel_checkout" fetch --quiet --depth=1 origin 8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342
 git -C "$kernel_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 2c428b3b0802f0c294dff300115779e299f0340d
+test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342
 uv run --project "$kernel_checkout" --frozen --all-groups pytest -q "$kernel_checkout"
 git -C "$provider_checkout" init --quiet
 git -C "$provider_checkout" remote add origin https://github.com/NielsdaWheelz/llm-calling.git
-git -C "$provider_checkout" fetch --quiet --depth=1 origin 70e33e99a8c03f0304c9136203c38bade2c5e1cd
+git -C "$provider_checkout" fetch --quiet --depth=1 origin 69d41d38a3d290e7ae3bde9b57556dda41e1b2f1
 git -C "$provider_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$provider_checkout" rev-parse HEAD)" = 70e33e99a8c03f0304c9136203c38bade2c5e1cd
+test "$(git -C "$provider_checkout" rev-parse HEAD)" = 69d41d38a3d290e7ae3bde9b57556dda41e1b2f1
 case "$(uname -s)" in
   Linux)
     uv run --project "$provider_checkout" --frozen --all-extras --all-groups pytest -q "$provider_checkout"

@@ -66,6 +66,24 @@ cleanup_archive() {
 }
 trap cleanup_archive EXIT HUP INT TERM
 
+verify_release() {
+  sudo -u jarvis "$release/.venv/bin/python" - "$release" <<'PY'
+import pathlib
+import sys
+
+from jarvis.definitions import verify_runtime_dependencies
+
+release = pathlib.Path(sys.argv[1])
+expected = tuple(map(int, (release / ".python-version").read_text().strip().split(".")))
+if sys.version_info[:3] != expected or not pathlib.Path(
+    sys.base_prefix
+).resolve().is_relative_to(release / ".python"):
+    raise RuntimeError("release must contain its exact managed Python")
+verify_runtime_dependencies()
+PY
+  sudo -u jarvis "$release/.venv/bin/jarvis" --help >/dev/null
+}
+
 if sudo test -e "$release"; then
   sudo test -f "$release/RELEASE.json"
   observed="$(sudo python3 - "$release/RELEASE.json" <<'PY'
@@ -78,6 +96,7 @@ print("|".join((value["commit"], value["tree"], value["uv_lock_sha256"])))
 PY
 )"
   [[ "$observed" == "$commit|$tree|$lock_sha256" ]]
+  verify_release
   printf 'Release already installed: %s\n' "$commit"
   exit 0
 fi
@@ -94,15 +113,18 @@ cleanup_release() {
 }
 trap 'cleanup_release; cleanup_archive' EXIT HUP INT TERM
 sudo -u "$builder_user" tar --extract --file "$archive" --directory "$release"
-sudo -u "$builder_user" /home/niels/.local/bin/uv sync \
-  --directory "$release" --frozen --no-dev --no-editable
-sudo -u "$builder_user" "$release/.venv/bin/python" - <<'PY'
-from jarvis.definitions import verify_runtime_dependencies
-
-verify_runtime_dependencies()
-PY
-sudo -u "$builder_user" "$release/.venv/bin/jarvis" --help >/dev/null
-sudo -u "$builder_user" python3 - \
+python_version="$(sudo -u "$builder_user" cat "$release/.python-version")"
+[[ "$python_version" =~ ^3\.12\.[0-9]+$ ]]
+sudo -u "$builder_user" /home/niels/.local/bin/uv python install \
+  --directory "$release" --install-dir "$release/.python" --no-bin "$python_version"
+sudo -u "$builder_user" env UV_PYTHON_INSTALL_DIR="$release/.python" \
+  /home/niels/.local/bin/uv sync \
+  --directory "$release" --frozen --no-dev --no-editable \
+  --python "$python_version" --managed-python --no-python-downloads --link-mode copy
+sudo chown -R root:root "$release"
+sudo chmod -R a+rX,go-w "$release"
+verify_release
+sudo python3 - \
   "$release/RELEASE.json" "$commit" "$tree" "$lock_sha256" <<'PY'
 import json
 import pathlib
@@ -117,8 +139,6 @@ value = {
 path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
 path.chmod(0o644)
 PY
-sudo chown -R root:root "$release"
-sudo chmod -R go-w "$release"
 sudo install -m 0644 -o root -g root \
   "$release/deploy/jarvis.service" /etc/systemd/system/jarvis.service
 sudo systemctl daemon-reload

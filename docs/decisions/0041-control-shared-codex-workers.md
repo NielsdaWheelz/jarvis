@@ -1,6 +1,6 @@
 # ADR 0041: Control shared Codex workers
 
-- Status: **Accepted**
+- Status: **Accepted; native version pin superseded by ADR 0042**
 - Date: **2026-09-09**
 - Owner approval: the owner approved the cross-repository control plan and its
   asynchronous-TUI amendment on 9 September 2026.
@@ -10,6 +10,10 @@
   approved current `main` as the integration baseline on 9 September 2026.
 
 ## Context
+
+[ADR 0042](0042-track-latest-stable-codex.md) supersedes the native pin and
+pin-based admission/migration requirements below. Version-specific findings
+remain historical evidence, not a guarantee for future releases.
 
 Jarvis must start and control top-level Codex workers on the devserver through
 the owner's Personal, Work, and Work2 subscriptions. Those workers must appear

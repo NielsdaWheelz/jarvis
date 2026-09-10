@@ -1,9 +1,13 @@
-"""Offline qualification safety contracts; no provider, database, or tmux."""
+"""Qualification safety and real stored uncertainty; no provider or tmux."""
 
 import json
+import os
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from runpy import run_path
+from uuid import uuid4
 
 import pytest
 
@@ -94,3 +98,139 @@ def test_gateway_configuration_rejects_nonfixture_routes_and_bad_identity() -> N
 async def test_invalid_terminal_identity_fails_before_external_execution() -> None:
     with pytest.raises(ValueError, match="exact test identity"):
         await QUALIFIER["observe_terminal"]("/absent", "last", NAME)
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    not os.environ.get("JARVIS_TEST_DATABASE_URL"),
+    reason="requires the disposable PostgreSQL action boundary",
+)
+async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -> None:
+    from llm_tools import (
+        CapabilityProfile,
+        HostTable,
+        ProfileId,
+        RunLimits,
+        ToolCatalog,
+        ToolGrant,
+        ToolId,
+        ToolPlan,
+    )
+    from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
+    from websockets.asyncio.server import ServerConnection, unix_serve
+
+    from jarvis.actions import ActionStore
+    from jarvis.admission import ExactToolBudgetFactory
+    from jarvis.codex_control import CodexController, CodexHostConfig
+    from jarvis.codex_tools import (
+        CodexPromptInput,
+        CodexSubmit,
+        CodexThreadTarget,
+        codex_family,
+    )
+    from jarvis.db import create_engine
+    from jarvis.messages import MessageStore
+    from jarvis.ownership import deployment_ownership
+
+    submissions = 0
+
+    async def native(connection: ServerConnection) -> None:
+        nonlocal submissions
+        async for frame in connection:
+            request = json.loads(frame)
+            method = request["method"]
+            if method == "initialized":
+                continue
+            if method == "initialize":
+                result = {"userAgent": "codex/0.153.4"}
+            elif method == "account/read":
+                result = {"account": {"type": "chatgpt"}}
+            else:
+                assert method == "turn/start"
+                submissions += 1
+                await connection.close()
+                return
+            await connection.send(json.dumps({"id": request["id"], "result": result}))
+
+    origin = uuid4()
+    channel = f"qualifier-uncertainty-{origin}"
+    target = CodexThreadTarget(profile="work", thread_handle=str(uuid4()))
+    engine = create_engine(os.environ["JARVIS_TEST_DATABASE_URL"])
+    try:
+        with tempfile.TemporaryDirectory(prefix="qualifier-", dir="/tmp") as temporary:
+            root = Path(temporary)
+            host = CodexHostConfig.model_validate(
+                {
+                    "schema_version": 2,
+                    "development_user": "synthetic",
+                    "jarvis_user": "jarvis",
+                    "client_group": "codex-clients",
+                    "binary": "/synthetic/codex",
+                    "tmux": "/synthetic/tmux",
+                    "cognition_cwd_parent": str(root / "cognition"),
+                    "launcher_socket": str(root / "unused-helper.sock"),
+                    "profiles": {
+                        profile: {
+                            "account_home": f"/synthetic/{profile}",
+                            "endpoint": f"unix://{root}/{profile}.sock",
+                            "work_roots": [str(root)],
+                        }
+                        for profile in ("personal", "work", "work2")
+                    },
+                }
+            )
+            async with (
+                await unix_serve(native, str(root / "work.sock")),
+                deployment_ownership(engine) as database,
+                AgentRuntime(
+                    AgentRuntimeConfig(
+                        state_root_base=root, codex_endpoints=host.endpoints
+                    )
+                ) as runtime,
+            ):
+                actions = ActionStore(database)
+                controller = CodexController(
+                    control=runtime.codex, host=host, actions=actions
+                )
+                catalog = ToolCatalog.compose((codex_family(controller),))
+                profile = CapabilityProfile(
+                    ProfileId("qualifier-proof"),
+                    (ToolGrant(ToolId("codex.prompt"), None),),
+                    RunLimits(2, 2, 1048576, 2097152, 1, 60.0),
+                ).freeze(catalog)
+                plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+                await MessageStore(database).insert_waking(
+                    role="owner",
+                    text="Synthetic worker request.",
+                    source="discord",
+                    source_conversation_id=channel,
+                    source_message_id=str(origin),
+                    created_at=datetime.now(UTC),
+                    message_id=origin,
+                )
+                result = await QUALIFIER["_write"](
+                    actions=actions,
+                    plan=plan,
+                    budgets=ExactToolBudgetFactory().create(plan),
+                    origin=origin,
+                    ordinal=1,
+                    tool=ToolId("codex.prompt"),
+                    value=CodexPromptInput(
+                        thread=target, input=CodexSubmit(text="Synthetic.")
+                    ),
+                    expect_uncertain=True,
+                )
+                assert result == {
+                    "type": "Unknown",
+                    "stage": "submit",
+                    "prefix": {"type": "thread", "thread": target.model_dump()},
+                }
+                (stored,) = await actions.unreported_terminal(
+                    source_conversation_id=channel
+                )
+                assert stored.status == "uncertain" and stored.attempts == 1
+                assert stored.result is not None
+                assert stored.result["type"] == "codex_uncertainty_v1"
+                assert submissions == 1
+    finally:
+        await engine.dispose()

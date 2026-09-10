@@ -63,13 +63,7 @@ TURN = "01992818-9221-714c-9c91-e39d3f006e64"
 def host_config(directory: Path) -> CodexHostConfig:
     return CodexHostConfig.model_validate(
         {
-            "schema_version": 1,
-            "version": "0.153.4",
-            "package": {
-                "name": "@openai/codex",
-                "integrity": "sha512-" + "a" * 86 + "==",
-                "shasum": "a" * 40,
-            },
+            "schema_version": 2,
             "development_user": "synthetic",
             "jarvis_user": "jarvis",
             "client_group": "codex-clients",
@@ -87,6 +81,23 @@ def host_config(directory: Path) -> CodexHostConfig:
             },
         }
     )
+
+
+def test_host_mapping_is_version_free_and_rejects_legacy_or_caller_policy() -> None:
+    host = host_config(Path("/synthetic"))
+    mapping = host.model_dump(mode="json")
+    assert host.endpoints["work"] == Path("/synthetic/work.sock")
+    assert "version" not in mapping and "package" not in mapping
+    for change in (
+        {"schema_version": 1},
+        {"version": "0.153.4"},
+        {"package": {"name": "@openai/codex"}},
+        {"argv": ["--yolo"]},
+        {"environment": {"KEY": "synthetic"}},
+        {"approval_policy": "never"},
+    ):
+        with pytest.raises(ValidationError):
+            CodexHostConfig.model_validate(mapping | change)
 
 
 class ProtocolPeer:

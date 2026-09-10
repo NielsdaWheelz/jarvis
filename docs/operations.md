@@ -55,13 +55,23 @@ shared host boundary from the `dev-server` repository. An apply may report a
 deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
-That host convergence must also report one active `codex.runtime` identity for
-Codex 0.153.4, three healthy profile sockets, the closed launcher socket, and
+That host convergence must also report one active operational `codex.runtime`
+identity, three healthy profile sockets, the closed launcher socket, and
 the mode-02750 empty cognition parent. A differing active identity is an
 operator drain/restart action, never an ordinary-apply restart. Before the hard
 cut, stop Jarvis, drain every non-terminal Codex control action and old private
 provider session, then activate the shared services without killing manual tmux
 sessions or deleting native history.
+
+Native Codex tracks latest stable during explicit host install/update (ADR 0042).
+The closed host mapping must be schema 2 without `version` or `package`; deploy
+it with this consumer, not an old schema-1 release. Version-only apply leaves
+healthy servers running; normal crash recovery may load the newer binary.
+Record the installed CLI and each running server
+separately when qualifying; a config value is not observed runtime evidence.
+Planned shared-service restart requires an explicit operator decision and may
+interrupt turns. Upstream incompatibility fails closed until repaired; there is
+no version allowlist, automatic restart, or private fallback.
 
 From a clean, committed Jarvis checkout, provision the dedicated database and
 transfer only the already-qualified private application state:
@@ -111,10 +121,16 @@ deploy/activate-release "$(git rev-parse HEAD)"
 deploy/verify-containment
 ```
 
-`install-release` archives only tracked `HEAD`, builds with `uv sync --frozen
---no-dev --no-editable`, verifies dependency identity and CLI import, records
-the commit/tree/lock digest, root-owns the completed tree, and installs the
-inactive service unit. It refuses tracked changes. `activate-release` requires
+`install-release` archives only tracked `HEAD`, installs the exact
+`.python-version` interpreter inside the release, and builds with `uv sync
+--frozen --no-dev --no-editable --link-mode copy`. After root-owning the tree,
+it verifies the release-contained interpreter, dependency identity and CLI as
+the actual `jarvis` service identity before recording the commit/tree/lock
+digest and installing the inactive service unit. Rechecking an existing receipt
+also requires that service-identity proof; an unusable release is rejected, not
+repaired in place. Each release carries its own interpreter/package bytes:
+additional disk use buys independence from private account homes and writable
+builder caches. It refuses tracked changes. `activate-release` requires
 both split database credentials, migrates as `jarvis_migrator`, initializes
 content-free runtime state once, atomically changes `/opt/jarvis/current`, and
 starts the service. A PostgreSQL advisory lock makes a second process fail
@@ -217,7 +233,7 @@ Run every live qualification from the exact revision being recorded and against
 an empty, freshly migrated disposable database. Each runtime-state path must be
 unused and its existing parent must be mode 0700. Set
 `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json`; that root-owned
-mapping must name the running pinned shared services and exact mode-02750
+mapping must name the running shared services and exact mode-02750
 cognition parent. Never copy Codex authentication into the checkout or process
 environment, and never start a private App Server from a qualifier.
 

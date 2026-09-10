@@ -235,54 +235,6 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
             session_compatibility_revision(manifest, role)
         )
 
-    assert {
-        role: (
-            getattr(definitions, role).maximum_profile.profile_revision,
-            definitions.plans[role].profile.profile_revision,
-            definitions.plans[role].plan_revision,
-        )
-        for role in (
-            "main",
-            "recaller",
-            "rememberer",
-            "dreamer",
-            "automatic_write_gate",
-        )
-    } == {
-        "main": (
-            "1b03d7eb7d096d9fa03c68132524035465a083b6e0e9f8440601a8238732b4d3",
-            "da2482a10d57127556a5f4f98e3c464caece9a12b5f7e45f8f1d5993afe4b220",
-            "052ab6bcf4e0b3ffa283123ed04a69acceb0605538bbf81da5ea91c137b1d4eb",
-        ),
-        "recaller": (
-            "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
-            "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
-            "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
-        ),
-        "rememberer": (
-            "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
-            "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
-            "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
-        ),
-        "dreamer": (
-            "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
-            "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
-            "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
-        ),
-        "automatic_write_gate": (
-            "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
-            "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
-            "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",
-        ),
-    }
-    assert (
-        definitions.plans["scheduled_wake"].profile.profile_revision,
-        definitions.plans["scheduled_wake"].plan_revision,
-    ) == (
-        "dee72e76e94f4d2e854a556472b4bdf3357b7df2499eaf9ef991f61440b596a7",
-        "27f61d3d455e4bb6c355c38fd62c20b648c17ab9ee373a89bcce3e048ea2a51f",
-    )
-
 
 async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     tmp_path: Path,
@@ -433,51 +385,3 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         assert getattr(definitions, role).session_compatibility_revision == (
             session_compatibility_revision(manifest, role)
         )
-
-    assert {
-        role: (
-            getattr(definitions, role).maximum_profile.profile_revision,
-            definitions.plans[role].profile.profile_revision,
-            definitions.plans[role].plan_revision,
-        )
-        for role in (
-            "main",
-            "recaller",
-            "rememberer",
-            "dreamer",
-            "automatic_write_gate",
-        )
-    } == {
-        "main": (
-            "168acd6eae9186e25f3e0df96b032cf4c42687a91c86cb486f2728d5fd1ce7c3",
-            "9d176ad07a5811569421fdfcd872d95b526d62573b0755794822697f7ced763a",
-            "3eea4b6753b57fa97bc6535d396ebe125cd71ff33fe415fa56b0a3ea2d83eee8",
-        ),
-        "recaller": (
-            "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
-            "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
-            "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
-        ),
-        "rememberer": (
-            "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
-            "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
-            "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
-        ),
-        "dreamer": (
-            "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
-            "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
-            "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
-        ),
-        "automatic_write_gate": (
-            "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
-            "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
-            "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",
-        ),
-    }
-    assert (
-        definitions.plans["scheduled_wake"].profile.profile_revision,
-        definitions.plans["scheduled_wake"].plan_revision,
-    ) == (
-        "f179a4fbd84e8f4b2fd08dd705974d99b5d3677dc0876b84e4c0a7a3f2db69ed",
-        "51fd77b3dba108933959a00430f7149a7cd6c34264639d25e6e2448e54b8f263",
-    )

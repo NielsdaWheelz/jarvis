@@ -45,7 +45,8 @@ not implementation suggestions.
 | [0038](0038-truthful-terminals-and-bounded-calendar-completeness.md) | Use typed truthful terminals and host-owned bounded Calendar completeness | Accepted; supersedes 0037's event cap/pagination and amends the Main terminal contract |
 | [0039](0039-personalize-only-the-main-agent.md) | Give Main the owner's voice and stable personal context | Accepted; amends the Main role and public-Web search behavior |
 | [0040](0040-shared-kernel-durable-decisions.md) | Shared kernel with durable inference and Read positions | Accepted; six-table durability, authenticated model selection, and owner-bound transactions |
-| [0041](0041-control-shared-codex-workers.md) | Control shared Codex workers through host-owned services | Accepted; preserves 0040 and supersedes parts of 0014, 0031, 0035, and 0038 |
+| [0041](0041-control-shared-codex-workers.md) | Control shared Codex workers through host-owned services | Accepted; native version pin superseded by 0042 |
+| [0042](0042-track-latest-stable-codex.md) | Track latest stable native Codex without widening authority | Accepted; supersedes 0041's native executable pin |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.

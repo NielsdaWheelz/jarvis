@@ -32,7 +32,8 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A1.7** A second Jarvis instance against the same deployment refuses to
       start while the first holds the ownership lock.
 - [ ] **A1.8** Startup refuses mismatched pinned kernel, provider-runtime,
-      `llm-tools`, Codex host mapping/version, or kernel base-instruction identity.
+      `llm-tools`, Codex host mapping schema/policy, or kernel base-instruction identity.
+      Native Codex versions are diagnostic, not admission gates (ADR 0042).
 - [x] **A1.9** A dated Slice 0 qualification report records the exact tool
       manifest and schemas, live authority classification, credential
       ownership/handoff, Discord nonce/history behavior, Calendar ACL/client-ID

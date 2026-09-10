@@ -111,10 +111,16 @@ deploy/activate-release "$(git rev-parse HEAD)"
 deploy/verify-containment
 ```
 
-`install-release` archives only tracked `HEAD`, builds with `uv sync --frozen
---no-dev --no-editable`, verifies dependency identity and CLI import, records
-the commit/tree/lock digest, root-owns the completed tree, and installs the
-inactive service unit. It refuses tracked changes. `activate-release` requires
+`install-release` archives only tracked `HEAD`, installs the exact
+`.python-version` interpreter inside the release, and builds with `uv sync
+--frozen --no-dev --no-editable --link-mode copy`. After root-owning the tree,
+it verifies the release-contained interpreter, dependency identity and CLI as
+the actual `jarvis` service identity before recording the commit/tree/lock
+digest and installing the inactive service unit. Rechecking an existing receipt
+also requires that service-identity proof; an unusable release is rejected, not
+repaired in place. Each release carries its own interpreter/package bytes:
+additional disk use buys independence from private account homes and writable
+builder caches. It refuses tracked changes. `activate-release` requires
 both split database credentials, migrates as `jarvis_migrator`, initializes
 content-free runtime state once, atomically changes `/opt/jarvis/current`, and
 starts the service. A PostgreSQL advisory lock makes a second process fail

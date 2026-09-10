@@ -260,7 +260,12 @@ async def _write(
         raw_input_digest,
     )
 
-    from jarvis.actions import ActionPositionRecorder, ExecutionContract
+    from jarvis.actions import (
+        ActionPositionRecorder,
+        ExecutionContract,
+        codex_uncertainty_result,
+    )
+    from jarvis.codex_tools import CodexActionEvidence, CodexUnknown
 
     binding, grant = plan.catalog_view.binding(tool), plan.grant(tool)
     if (
@@ -334,13 +339,12 @@ async def _write(
     ):
         raise QualificationFailure("action_settlement_and_replay")
     if expect_uncertain:
-        error = result.get("error")
-        if not isinstance(error, dict):
-            raise QualificationFailure("unknown_launch")
-        error = cast("dict[str, object]", error)
-        if error.get("type") != "Unknown":
-            raise QualificationFailure("unknown_launch")
-        return error
+        evidence = CodexActionEvidence.model_validate(
+            codex_uncertainty_result(terminal)["control"]
+        )
+        return CodexUnknown(stage=evidence.stage, prefix=evidence.prefix).model_dump(
+            mode="json"
+        )
     output = result.get("value")
     if result.get("type") != "Success" or not isinstance(output, dict):
         raise QualificationFailure("write_result")

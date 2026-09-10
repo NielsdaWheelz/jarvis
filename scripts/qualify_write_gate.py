@@ -35,14 +35,18 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
+from jarvis.codex_control import CodexHostConfig
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     SLICE1_KERNEL_LIMITS,
     build_slice5_write_gate,
     verify_runtime_dependencies,
 )
-from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.write_gate import (
     AutomaticWriteGate,
     EffectAudience,
@@ -60,8 +64,8 @@ CREATED_AT = datetime(2026, 9, 6, 18, tzinfo=UTC)
 @dataclass(frozen=True, slots=True)
 class Arguments:
     model: str
-    profile: str
-    state_root: Path
+    profile: Literal["personal"]
+    codex_host_config_path: Path
     runtime_state_directory: Path
     reasoning_effort: str
 
@@ -308,7 +312,8 @@ def _arguments(argv: Sequence[str] | None) -> Arguments:
     parser.add_argument("--model", default=os.environ.get("JARVIS_CODEX_MODEL"))
     parser.add_argument("--profile", default=os.environ.get("JARVIS_CODEX_PROFILE_KEY"))
     parser.add_argument(
-        "--state-root", default=os.environ.get("JARVIS_CODEX_STATE_ROOT")
+        "--codex-host-config",
+        default=os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH"),
     )
     parser.add_argument(
         "--runtime-state-directory",
@@ -325,19 +330,18 @@ def _arguments(argv: Sequence[str] | None) -> Arguments:
     model = _required(values, "model")
     if model not in SUPPORTED_ROUTES:
         raise ValueError("model must be a qualified local-account route")
+    profile = _required(values, "profile")
+    if profile != "personal":
+        raise ValueError("profile must be the Jarvis Personal route")
     arguments = Arguments(
         model,
-        _required(values, "profile"),
-        Path(_required(values, "state_root")),
+        "personal",
+        Path(_required(values, "codex_host_config")),
         Path(_required(values, "runtime_state_directory")),
         _required(values, "reasoning_effort"),
     )
-    if (
-        not arguments.state_root.is_absolute()
-        or not arguments.state_root.is_dir()
-        or stat.S_IMODE(arguments.state_root.stat().st_mode) & 0o077
-    ):
-        raise ValueError("Codex state root must be an existing private directory")
+    if not arguments.codex_host_config_path.is_absolute():
+        raise ValueError("Codex host config path must be absolute")
     runtime = arguments.runtime_state_directory
     if not runtime.is_absolute() or runtime.exists() or not runtime.parent.is_dir():
         raise ValueError("runtime state must be a fresh absolute path")
@@ -364,104 +368,113 @@ def _trial_evidence(trial: Trial, decision: WriteGateDecision) -> dict[str, obje
 
 async def _run(arguments: Arguments) -> dict[str, object]:
     verify_runtime_dependencies()
+    host = CodexHostConfig.load(arguments.codex_host_config_path)
+    shared_cwd_parent = Path(host.cognition_cwd_parent)
+    if (
+        not shared_cwd_parent.is_dir()
+        or stat.S_IMODE(shared_cwd_parent.stat().st_mode) != 0o2750
+    ):
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
-    provider_cwd = arguments.runtime_state_directory / "provider-cwd"
-    provider_cwd.mkdir(mode=0o700)
-    stage = "composition"
-    try:
-        provider_configuration = await resolve_provider_configuration(
-            state_root=arguments.state_root,
-            profile_key=arguments.profile,
-            model_key=arguments.model,
-            reasoning=arguments.reasoning_effort,
-        )
-        definition, plan = build_slice5_write_gate(
-            provider=provider_configuration,
-        )
-        limits = qualification_admission_limits()
-        admission_path = arguments.runtime_state_directory / "admission.json"
-        RollingAdmissionPort.initialize(admission_path, limits)
-        admission = RootTrackingAdmissionPort(
-            RollingAdmissionPort(admission_path, limits)
-        )
-        root = await admission.reserve(
-            AdmissionRequest(
-                RunId(str(uuid4())),
-                ThreadId("slice-5-write-gate-qualification"),
-                1,
-                1,
-                1,
-                1,
-            )
-        )
-        if not isinstance(root, AdmissionGranted):
-            raise RuntimeError("qualification root admission was not granted")
-        runtime = build_kernel_runtime(
-            provider_state_root=arguments.state_root,
-            private_cwd_parent=provider_cwd,
-            session_ref_path=arguments.runtime_state_directory / "session-ref.json",
-            model=arguments.model,
-            kernel_limits=definition.limits,
-        )
-        evidence: list[dict[str, object]] = []
+    async with build_agent_runtime(
+        provider_state_root=arguments.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    ) as agent_runtime:
+        stage = "composition"
         try:
-            gate = AutomaticWriteGate(
-                model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
-                definition=definition,
-                plan=plan,
-                admission=admission,
-                provider=runtime.provider,
+            provider_configuration = await resolve_provider_configuration(
+                runtime=agent_runtime,
+                profile_key=arguments.profile,
+                model_key=arguments.model,
+                reasoning=arguments.reasoning_effort,
             )
-            for trial in TRIALS:
-                stage = f"trial_{trial.id}"
-                decision = await gate.evaluate(
-                    (
-                        GateOwnerInput(
-                            message_id=trial.owner_message_id,
-                            text=trial.owner_text,
-                            created_at=CREATED_AT,
-                        ),
-                    ),
-                    operation_id=f"synthetic-write-gate:{trial.id}",
-                    tool_id=trial.tool_id,
-                    descriptor=trial.descriptor,
-                    owner_timezone=None,
-                    as_of=datetime.now(UTC),
-                    cancellation=CancellationToken(),
+            definition, plan = build_slice5_write_gate(
+                provider=provider_configuration,
+            )
+            limits = qualification_admission_limits()
+            admission_path = arguments.runtime_state_directory / "admission.json"
+            RollingAdmissionPort.initialize(admission_path, limits)
+            admission = RootTrackingAdmissionPort(
+                RollingAdmissionPort(admission_path, limits)
+            )
+            root = await admission.reserve(
+                AdmissionRequest(
+                    RunId(str(uuid4())),
+                    ThreadId("slice-5-write-gate-qualification"),
+                    1,
+                    1,
+                    1,
+                    1,
                 )
-                evidence.append(_trial_evidence(trial, decision))
-        finally:
+            )
+            if not isinstance(root, AdmissionGranted):
+                raise RuntimeError("qualification root admission was not granted")
+            runtime = build_kernel_runtime(
+                runtime=agent_runtime,
+                shared_cwd_parent=shared_cwd_parent,
+                session_ref_path=arguments.runtime_state_directory / "session-ref.json",
+                model=arguments.model,
+                kernel_limits=definition.limits,
+            )
+            evidence: list[dict[str, object]] = []
             try:
-                await runtime.close()
-            finally:
-                await admission.settle(
-                    root.token, AdmissionUsage(0, ProviderUsage(), 0.0)
+                gate = AutomaticWriteGate(
+                    model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
+                    definition=definition,
+                    plan=plan,
+                    admission=admission,
+                    provider=runtime.provider,
                 )
-        safety = [item for item in evidence if item["kind"] == "safety"]
-        usability = [item for item in evidence if item["kind"] == "usability"]
-        if len(safety) != 5 or len(usability) != 3:
-            raise RuntimeError("write-gate qualification matrix changed")
-        return {
-            "dependencies": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
-            "gate": {
-                "definition_fingerprint": definition.fingerprint,
-                "empty_plan": not plan.profile.ordered_grants,
-                "output_schema_sha256": output_schema_digest(definition),
-                "plan_revision": plan.plan_revision,
-                "session_compatibility_revision": (
-                    definition.session_compatibility_revision
-                ),
-            },
-            "paid_attempts_per_case": 1,
-            "recovery": "not_qualified_disposable_synthetic_probe",
-            "route": arguments.model,
-            "safety": {"passed": len(safety), "total": 5},
-            "status": "passed",
-            "trials": evidence,
-            "usability": {"passed": len(usability), "total": 3},
-        }
-    except BaseException as error:
-        raise QualificationFailure(stage, error) from error
+                for trial in TRIALS:
+                    stage = f"trial_{trial.id}"
+                    decision = await gate.evaluate(
+                        (
+                            GateOwnerInput(
+                                message_id=trial.owner_message_id,
+                                text=trial.owner_text,
+                                created_at=CREATED_AT,
+                            ),
+                        ),
+                        operation_id=f"synthetic-write-gate:{trial.id}",
+                        tool_id=trial.tool_id,
+                        descriptor=trial.descriptor,
+                        owner_timezone=None,
+                        as_of=datetime.now(UTC),
+                        cancellation=CancellationToken(),
+                    )
+                    evidence.append(_trial_evidence(trial, decision))
+            finally:
+                try:
+                    await runtime.close()
+                finally:
+                    await admission.settle(
+                        root.token, AdmissionUsage(0, ProviderUsage(), 0.0)
+                    )
+            safety = [item for item in evidence if item["kind"] == "safety"]
+            usability = [item for item in evidence if item["kind"] == "usability"]
+            if len(safety) != 5 or len(usability) != 3:
+                raise RuntimeError("write-gate qualification matrix changed")
+            return {
+                "dependencies": dict(EXPECTED_GIT_PINS),
+                "gate": {
+                    "definition_fingerprint": definition.fingerprint,
+                    "empty_plan": not plan.profile.ordered_grants,
+                    "output_schema_sha256": output_schema_digest(definition),
+                    "plan_revision": plan.plan_revision,
+                    "session_compatibility_revision": (
+                        definition.session_compatibility_revision
+                    ),
+                },
+                "paid_attempts_per_case": 1,
+                "recovery": "not_qualified_disposable_synthetic_probe",
+                "route": arguments.model,
+                "safety": {"passed": len(safety), "total": 5},
+                "status": "passed",
+                "trials": evidence,
+                "usability": {"passed": len(usability), "total": 3},
+            }
+        except BaseException as error:
+            raise QualificationFailure(stage, error) from error
 
 
 def main(argv: Sequence[str] | None = None) -> int:

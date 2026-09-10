@@ -41,17 +41,21 @@ from qualify_memory import (
 
 from jarvis._atomic_json import replace_private_json
 from jarvis.admission import RollingAdmissionPort, RootTrackingAdmissionPort
+from jarvis.codex_control import CodexHostConfig
 from jarvis.context import IsolatedRecaller
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     build_slice4_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
@@ -96,8 +100,8 @@ def _arguments(argv: Sequence[str] | None) -> MemoryArguments:
     parser.add_argument("--model", default=os.environ.get("JARVIS_CODEX_MODEL"))
     parser.add_argument("--profile", default=os.environ.get("JARVIS_CODEX_PROFILE_KEY"))
     parser.add_argument(
-        "--state-root",
-        default=os.environ.get("JARVIS_CODEX_STATE_ROOT"),
+        "--codex-host-config",
+        default=os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH"),
     )
     parser.add_argument(
         "--runtime-state-directory",
@@ -126,10 +130,13 @@ def _arguments(argv: Sequence[str] | None) -> MemoryArguments:
     model = _required(values, "model")
     if model not in SUPPORTED_ROUTES:
         raise ValueError("model must be a qualified local-account route")
+    profile = _required(values, "profile")
+    if profile != "personal":
+        raise ValueError("profile must be the Jarvis Personal route")
     arguments = MemoryArguments(
         model=model,
-        profile=_required(values, "profile"),
-        state_root=Path(_required(values, "state_root")),
+        profile="personal",
+        codex_host_config_path=Path(_required(values, "codex_host_config")),
         runtime_state_directory=Path(_required(values, "runtime_state_directory")),
         database_url=_required(values, "database_url"),
         embedding_api_key=SecretStr(
@@ -138,12 +145,8 @@ def _arguments(argv: Sequence[str] | None) -> MemoryArguments:
         owner_timezone=_required(values, "owner_timezone"),
         reasoning_effort=_required(values, "reasoning_effort"),
     )
-    if (
-        not arguments.state_root.is_absolute()
-        or not arguments.state_root.is_dir()
-        or stat.S_IMODE(arguments.state_root.stat().st_mode) & 0o077
-    ):
-        raise ValueError("Codex state root must be an existing private directory")
+    if not arguments.codex_host_config_path.is_absolute():
+        raise ValueError("Codex host config path must be absolute")
     runtime = arguments.runtime_state_directory
     if not runtime.is_absolute() or runtime.exists() or not runtime.parent.is_dir():
         raise ValueError("runtime state must be a fresh absolute path")
@@ -239,9 +242,14 @@ def record_phase_evidence(
 
 async def _run(arguments: MemoryArguments) -> dict[str, object]:
     verify_runtime_dependencies()
+    host = CodexHostConfig.load(arguments.codex_host_config_path)
+    shared_cwd_parent = Path(host.cognition_cwd_parent)
+    if (
+        not shared_cwd_parent.is_dir()
+        or stat.S_IMODE(shared_cwd_parent.stat().st_mode) != 0o2750
+    ):
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
-    provider_cwd = arguments.runtime_state_directory / "provider-cwd"
-    provider_cwd.mkdir(mode=0o700)
     phase_evidence_path = arguments.runtime_state_directory / PHASE_EVIDENCE_FILENAME
     fixtures, cases = load_recall_set(MEMORIES, CASES)
     settings = qualification_settings(arguments)
@@ -251,6 +259,11 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
         engine = await database_lifetime.enter_async_context(
             deployment_ownership(raw_engine)
         )
+        agent_runtime = build_agent_runtime(
+            provider_state_root=arguments.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
+        database_lifetime.push_async_callback(agent_runtime.close)
         original_open_session = CodexSdkAdapter.open_session
         child_environment_observations: list[bool] = []
 
@@ -308,7 +321,7 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     memory_embedder=embedder,
                 )
                 provider_configuration = await resolve_provider_configuration(
-                    state_root=arguments.state_root,
+                    runtime=agent_runtime,
                     profile_key=arguments.profile,
                     model_key=arguments.model,
                     reasoning=arguments.reasoning_effort,
@@ -337,8 +350,8 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 if not isinstance(root, AdmissionGranted):
                     raise RuntimeError("qualification root admission was not granted")
                 runtime = build_kernel_runtime(
-                    provider_state_root=arguments.state_root,
-                    private_cwd_parent=provider_cwd,
+                    runtime=agent_runtime,
+                    shared_cwd_parent=shared_cwd_parent,
                     session_ref_path=arguments.runtime_state_directory
                     / "session-ref.json",
                     model=arguments.model,
@@ -463,7 +476,6 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     },
                     "dependencies": {
                         **EXPECTED_GIT_PINS,
-                        **EXPECTED_PACKAGE_VERSIONS,
                     },
                     "dreamer": {
                         "definition_fingerprint": definitions.dreamer.fingerprint,

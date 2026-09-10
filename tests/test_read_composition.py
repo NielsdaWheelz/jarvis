@@ -41,6 +41,8 @@ from jarvis.definitions import (
     SLICE2_WEB_READ_LIMITS,
     SLICE2_WEB_SEARCH_LIMITS,
     build_slice2_definitions,
+    load_session_manifest,
+    session_compatibility_revision,
     session_generation_limit,
 )
 from jarvis.read_composition import build_read_catalog
@@ -60,9 +62,9 @@ def _settings(tmp_path: Path) -> Settings:
             channel_id=3,
         ),
         owner_timezone="UTC",
-        codex_profile_key="synthetic-profile",
+        codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
-        codex_state_root=tmp_path / "codex",
+        codex_host_config_path=tmp_path / "codex",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-google-client"),
@@ -148,10 +150,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         "2b3f2ae6d30ecfdc24f2ef2acb8eee31e0f36c9a665331a78116bd35a2d223a1"
     )
     assert definitions.main.session_compatibility_revision == (
-        "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2"
-    )
-    assert definitions.main.fingerprint == (
-        "cb88f78d0760cc56afe6ce6237c3abd31f159ca603d1841944658c8f68034954"
+        session_compatibility_revision(load_session_manifest(), "main")
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (

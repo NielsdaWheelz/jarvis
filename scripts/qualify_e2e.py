@@ -35,6 +35,7 @@ from jarvis.admission import (
     slice5_admission_limits,
 )
 from jarvis.checkpoints import PostgresInputCheckpoint
+from jarvis.codex_control import CodexController, CodexHostConfig
 from jarvis.db import (
     action,
     create_engine,
@@ -47,7 +48,6 @@ from jarvis.db import (
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     QUALIFIED_CODEX_MODELS,
     SLICE6_KERNEL_LIMITS,
     build_slice5_write_gate,
@@ -63,7 +63,11 @@ from jarvis.discord import (
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import build_kernel_runtime, resolve_provider_configuration
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
@@ -280,21 +284,24 @@ def _required(name: str) -> str:
     return value
 
 
-def _validate_settings(settings: Settings) -> None:
+def _validate_settings(settings: Settings, host: CodexHostConfig) -> None:
     if settings.codex_model not in _SUPPORTED_ROUTES:
         raise ValueError("model must be a qualified local-account route")
     if settings.maximum_batch_size != 1 or settings.delivery_batch_size != 1:
         raise ValueError("live qualification batch and delivery limits must both be 1")
     if settings.discord.catch_up_limit > _MAX_CATCH_UP_PAGE:
         raise ValueError("live qualification catch-up limit must not exceed 100")
-    for path, label in (
-        (settings.codex_state_root, "Codex state root"),
-        (settings.runtime_state_directory.parent, "runtime-state parent"),
+    runtime_parent = settings.runtime_state_directory.parent
+    if not runtime_parent.is_absolute() or not runtime_parent.is_dir():
+        raise ValueError("runtime-state parent must be an existing absolute directory")
+    if stat.S_IMODE(runtime_parent.stat().st_mode) & 0o077:
+        raise ValueError("runtime-state parent must be private")
+    cognition_parent = Path(host.cognition_cwd_parent)
+    if (
+        not cognition_parent.is_dir()
+        or stat.S_IMODE(cognition_parent.stat().st_mode) != 0o2750
     ):
-        if not path.is_absolute() or not path.is_dir():
-            raise ValueError(f"{label} must be an existing absolute directory")
-        if stat.S_IMODE(path.stat().st_mode) & 0o077:
-            raise ValueError(f"{label} must be private")
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     if settings.runtime_state_directory.exists():
         raise ValueError("runtime state must be an unused path")
 
@@ -365,10 +372,10 @@ async def _run(settings: Settings) -> dict[str, object]:
         raise ValueError("expected owner source ID must be a Discord snowflake")
 
     verify_runtime_dependencies()
-    _validate_settings(settings)
+    host = settings.codex_host_config
+    _validate_settings(settings, host)
 
     settings.runtime_state_directory.mkdir(mode=0o700)
-    settings.provider_cwd_parent.mkdir(mode=0o700)
     PausedState.initialize(settings.paused_state_path)
     admission_limits = slice5_admission_limits(settings.maximum_batch_size)
     RollingAdmissionPort.initialize(
@@ -382,9 +389,14 @@ async def _run(settings: Settings) -> dict[str, object]:
             deployment_ownership(raw_engine)
         )
         await _require_empty_database(engine)
+        agent_runtime = build_agent_runtime(
+            provider_state_root=settings.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
+        database_lifetime.push_async_callback(agent_runtime.close)
         kernel_runtime = build_kernel_runtime(
-            provider_state_root=settings.codex_state_root,
-            private_cwd_parent=settings.provider_cwd_parent,
+            runtime=agent_runtime,
+            shared_cwd_parent=Path(host.cognition_cwd_parent),
             session_ref_path=settings.session_reference_path,
             model=settings.codex_model,
             kernel_limits=SLICE6_KERNEL_LIMITS,
@@ -423,7 +435,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 http_client=embedding_http,
             )
             provider_configuration = await resolve_provider_configuration(
-                state_root=settings.codex_state_root,
+                runtime=agent_runtime,
                 profile_key=settings.codex_profile_key,
                 model_key=settings.codex_model,
             )
@@ -439,6 +451,11 @@ async def _run(settings: Settings) -> dict[str, object]:
                 memory_repository=PostgresMemoryRepository(engine),
                 memory_embedder=embedder,
                 actions=actions,
+                codex=CodexController(
+                    control=agent_runtime.codex,
+                    host=host,
+                    actions=actions,
+                ),
                 automatic_write_gate_definition_fingerprint=(
                     provisional_gate.fingerprint
                 ),
@@ -745,7 +762,6 @@ async def _run(settings: Settings) -> dict[str, object]:
                             "route": settings.codex_model,
                             "revisions": {
                                 **EXPECTED_GIT_PINS,
-                                **EXPECTED_PACKAGE_VERSIONS,
                             },
                             "implementation": {
                                 **_implementation(),
@@ -928,7 +944,7 @@ def main() -> int:
             }
         result = {
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "implementation": _implementation(),
             "failure": failure_result,
             "status": "failed",
@@ -936,7 +952,7 @@ def main() -> int:
     except BaseException as exc:
         result = {
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "implementation": _implementation(),
             "failure": {
                 "reason_code": "unexpected_exception",

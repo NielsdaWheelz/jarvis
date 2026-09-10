@@ -1,124 +1,66 @@
-"""Startup selects an exact authenticated model and reasoning row."""
+"""Startup freezes the exact catalog row from the shared host runtime."""
 
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from provider_fixture import frozen_provider
-from provider_runtime.agent_runtime import AgentRuntimeConfig, CredentialRef
-from provider_runtime.agent_runtime.model_catalog import (
-    AgentModelCatalog,
-    AgentModelFacts,
-    AgentReasoningFacts,
-)
-from provider_runtime.types import Absent, Present
+from provider_runtime.agent_runtime import CredentialRef
+from provider_runtime.agent_runtime.codex_control import CodexListRequest
+from test_codex_control import THREAD, protocol_peer
 
-from jarvis import kernel
+from jarvis.kernel import build_agent_runtime, resolve_provider_configuration
 
 
-def _catalog() -> AgentModelCatalog:
-    provider = frozen_provider()
-    return AgentModelCatalog(
-        backend_contract_revision="provider-runtime.agent-model-catalog.v1",
-        definition_revision="observed-catalog-revision",
-        native_revision=Absent(),
-        observed_at=datetime(2026, 9, 9, tzinfo=UTC),
-        models=(
-            AgentModelFacts(
-                key=provider.model_key,
-                dispatch_model="native-dispatch-name",
-                label="Authenticated model",
-                source_context_window=Absent(),
-                source_max_output_tokens=Absent(),
-                input_modalities=("text",),
-                reasoning=(
-                    AgentReasoningFacts("low", "Low", "low"),
-                    AgentReasoningFacts("high", "High", "high"),
-                ),
-                source_default_reasoning=Present("low"),
-                upgrade=Absent(),
-                retirement=Absent(),
-                row_fingerprint="b" * 64,
-            ),
-        ),
-        diagnostics=(),
-    )
-
-
-class _CatalogRuntime:
-    def __init__(self, catalog: AgentModelCatalog) -> None:
-        self.catalog = catalog
-        self.closed = False
-        self.request: tuple[str, CredentialRef, str] | None = None
-
-    async def __aenter__(self) -> _CatalogRuntime:
-        return self
-
-    async def __aexit__(self, *_exc: object) -> None:
-        self.closed = True
-
-    async def model_catalog(
-        self, backend: str, auth: CredentialRef, *, transport: str
-    ) -> AgentModelCatalog:
-        self.request = backend, auth, transport
-        return self.catalog
-
-
-async def test_authenticated_catalog_keeps_app_high_reasoning_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+async def test_authenticated_selection_keeps_shared_runtime_and_high_default(
+    tmp_path: Path,
 ) -> None:
-    runtime = _CatalogRuntime(_catalog())
-    configs: list[AgentRuntimeConfig] = []
-
-    def create_runtime(config: AgentRuntimeConfig) -> _CatalogRuntime:
-        configs.append(config)
-        return runtime
-
-    monkeypatch.setattr(kernel, "AgentRuntime", create_runtime)
-    selected = await kernel.resolve_provider_configuration(
-        state_root=tmp_path,
-        profile_key="owner-profile",
-        model_key="gpt-5.6-terra",
-    )
-    assert selected.model_key == "gpt-5.6-terra"
-    assert selected.reasoning == "high", (
-        "native default replaced Jarvis's explicit policy"
-    )
-    assert selected.agent_definition_revision == "observed-catalog-revision"
-    assert selected.row_fingerprint == "b" * 64
-    assert selected.auth == CredentialRef("local_account", "owner-profile")
-    assert runtime.request == ("codex", selected.auth, "sdk")
-    assert configs[0].state_root_base == tmp_path
-    assert runtime.closed
+    async with protocol_peer() as (root, external):
+        async with build_agent_runtime(
+            provider_state_root=tmp_path,
+            codex_endpoints={"personal": root / "work.sock"},
+            verify_dependencies=False,
+        ) as runtime:
+            selected = await resolve_provider_configuration(
+                runtime=runtime,
+                profile_key="personal",
+                model_key="gpt-5.6-terra",
+            )
+            observed = await runtime.model_catalog("codex", selected.auth)
+            assert selected.model_key == "gpt-5.6-terra"
+            assert selected.reasoning == "high", (
+                "native default replaced Jarvis's explicit policy"
+            )
+            assert selected.auth == CredentialRef("local_account", "personal")
+            assert selected.agent_definition_revision == observed.definition_revision
+            assert selected.row_fingerprint == observed.models[0].row_fingerprint
+            workers = await runtime.codex.list(CodexListRequest("personal"))
+            assert workers.threads[0].target.thread_handle == THREAD
+            assert external.methods.count("model/list") == 2
+            assert "thread/start" not in external.methods
 
 
 @pytest.mark.parametrize("failure", ("missing_model", "unsupported_reasoning"))
 async def test_provider_configuration_refuses_unavailable_exact_selection(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+    tmp_path: Path, failure: str
 ) -> None:
-    catalog = _catalog()
-    if failure == "missing_model":
-        catalog = replace(catalog, models=())
-    else:
-        catalog = replace(
-            catalog,
-            models=(
-                replace(catalog.models[0], reasoning=catalog.models[0].reasoning[:1]),
-            ),
-        )
-    runtime = _CatalogRuntime(catalog)
-
-    def create_runtime(_config: AgentRuntimeConfig) -> _CatalogRuntime:
-        return runtime
-
-    monkeypatch.setattr(kernel, "AgentRuntime", create_runtime)
-    with pytest.raises(ValueError, match="authenticated"):
-        await kernel.resolve_provider_configuration(
-            state_root=tmp_path,
-            profile_key="owner-profile",
-            model_key="gpt-5.6-terra",
-        )
-    assert runtime.closed
+    async with protocol_peer() as (root, external):
+        if failure == "missing_model":
+            external.models[0]["id"] = "unqualified-model"
+        else:
+            external.models[0]["supportedReasoningEfforts"] = [
+                {"reasoningEffort": "low", "description": "Low"}
+            ]
+        async with build_agent_runtime(
+            provider_state_root=tmp_path,
+            codex_endpoints={"personal": root / "work.sock"},
+            verify_dependencies=False,
+        ) as runtime:
+            with pytest.raises(ValueError, match="authenticated"):
+                await resolve_provider_configuration(
+                    runtime=runtime,
+                    profile_key="personal",
+                    model_key="gpt-5.6-terra",
+                )
+            assert external.methods.count("model/list") == 1
+            assert "thread/start" not in external.methods

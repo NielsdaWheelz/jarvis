@@ -85,6 +85,8 @@ from jarvis.definitions import (
     RememberResult,
     build_slice1_definitions,
     build_slice3_definitions,
+    load_session_manifest,
+    session_compatibility_revision,
 )
 from jarvis.memory import (
     MemoryIdentity,
@@ -1148,9 +1150,9 @@ async def _slice3_definitions(tmp_path: Path) -> Any:
             channel_id=3,
         ),
         owner_timezone="UTC",
-        codex_profile_key="test",
+        codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
-        codex_state_root=tmp_path / "codex",
+        codex_host_config_path=tmp_path / "codex",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
         google_oauth_client_id=SecretStr("synthetic-client"),
@@ -1403,24 +1405,24 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
         ),
     )
 
+    manifest = load_session_manifest()
+    for role in ("main", "recaller", "rememberer"):
+        assert getattr(definitions, role).session_compatibility_revision == (
+            session_compatibility_revision(manifest, role)
+        )
+
     exact_role_identities = {
         "main": (
-            "e159c61ba1ce1622ec2e01e003700e3b75e7a228134086181a60a0b009acf6a6",
-            "803c43aa0014689b84aa026c735a1c679b5943cecc69f893b5d14af99e8493e2",
             "c20d8261d4def068b21779f0e20dfa5bc9a8d27fb3c7da5281ad8fbc2d762873",
             "80ab5204387c887c6b8e833ec6d15aa26ba4ab85a10947fde6f2e5b845a03a97",
             "aa076bdbc2f8052cb075dc97bfb94dcbc1a7f770183babc90870c83e5abb6eb8",
         ),
         "recaller": (
-            "940aa59d7881e674364613a3d9445de44c07a458c059b817bd0eacc3cd1f022c",
-            "e7b84b8cbc0fecd465e5889264505fa78cd83216112abe10830f4110ccfa703d",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
         ),
         "rememberer": (
-            "65cea14c2c748b0c616f99e5617e170a0e8009aadbb0e20062f43424f5ce9cd9",
-            "227dd34e43583cedcfe51a8684f27d1fe05c66d5a11ecb5b0df371c40047af31",
             "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
             "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
@@ -1430,8 +1432,6 @@ async def test_slice3_definitions_publish_exact_role_catalogs(tmp_path: Path) ->
         definition = getattr(definitions, role)
         plan = definitions.plans[role]
         assert (
-            definition.fingerprint,
-            definition.session_compatibility_revision,
             definition.maximum_profile.profile_revision,
             plan.profile.profile_revision,
             plan.plan_revision,

@@ -40,8 +40,13 @@ sudo test "$(sudo systemctl show --property=ProtectProc --value jarvis.service)"
   ptraceable
 sudo test "$(sudo systemctl show --property=ProcSubset --value jarvis.service)" = pid
 sudo test "$(sudo systemctl show --property=LimitCORE --value jarvis.service)" = 0
-sudo -u jarvis test -r \
-  /var/lib/jarvis/agent-state/codex/jarvis-runtime/auth.json
+sudo -u jarvis test -r /etc/codex-shared/profiles.json
+for socket in /run/codex-shared-personal/app-server.sock \
+  /run/codex-shared-work/app-server.sock /run/codex-shared-work2/app-server.sock \
+  /run/jarvis-codex-launcher/socket; do
+  sudo -u jarvis test -S "$socket"
+  sudo -u jarvis test -w "$socket"
+done
 
 printf 'Jarvis connector-secret and process-inspection boundary passed.\n'
 REMOTE

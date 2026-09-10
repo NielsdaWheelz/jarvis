@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import grp
 import logging
+import os
 import stat
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -38,6 +40,7 @@ from jarvis.approval_runtime import (
     ApprovalAwareDiscordDelivery,
     ApprovalRecoveryDisabler,
 )
+from jarvis.codex_control import CodexController, CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
@@ -52,6 +55,7 @@ from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import (
     KernelRuntime,
+    build_agent_runtime,
     build_kernel_runtime,
     resolve_provider_configuration,
 )
@@ -109,6 +113,7 @@ class _IsolatedMemoryRuntime:
 async def _isolated_memory_runtime(
     *,
     settings: Settings,
+    host: CodexHostConfig,
     engine: Database,
     admission: RootTrackingAdmissionPort,
 ) -> AsyncIterator[_IsolatedMemoryRuntime]:
@@ -130,23 +135,31 @@ async def _isolated_memory_runtime(
             memory_repository=PostgresMemoryRepository(engine),
             memory_embedder=embedder,
         )
-        provider_configuration = await resolve_provider_configuration(
-            state_root=settings.codex_state_root,
-            profile_key=settings.codex_profile_key,
-            model_key=settings.codex_model,
+        agent_runtime = build_agent_runtime(
+            provider_state_root=settings.runtime_state_directory,
+            codex_endpoints=host.endpoints,
         )
-        definitions = build_slice4_definitions(
-            catalog=catalog,
-            provider=provider_configuration,
-            owner_timezone=settings.owner_timezone,
-        )
-        kernel = build_kernel_runtime(
-            provider_state_root=settings.codex_state_root,
-            private_cwd_parent=settings.provider_cwd_parent,
-            session_ref_path=settings.session_reference_path,
-            model=settings.codex_model,
-            kernel_limits=definitions.main.limits,
-        )
+        try:
+            provider_configuration = await resolve_provider_configuration(
+                runtime=agent_runtime,
+                profile_key=settings.codex_profile_key,
+                model_key=settings.codex_model,
+            )
+            definitions = build_slice4_definitions(
+                catalog=catalog,
+                provider=provider_configuration,
+                owner_timezone=settings.owner_timezone,
+            )
+            kernel = build_kernel_runtime(
+                runtime=agent_runtime,
+                shared_cwd_parent=Path(host.cognition_cwd_parent),
+                session_ref_path=settings.session_reference_path,
+                model=settings.codex_model,
+                kernel_limits=definitions.main.limits,
+            )
+        except BaseException:
+            await agent_runtime.close()
+            raise
         try:
             yield _IsolatedMemoryRuntime(
                 admission=admission,
@@ -181,15 +194,33 @@ def _private_directory(path: Path, name: str) -> None:
         raise StartupDefect(f"{name} must be a private directory")
 
 
-def _validate_runtime_layout(settings: Settings) -> None:
-    _private_directory(settings.codex_state_root, "Codex state root")
+def _shared_cognition_directory(path: Path, group: str) -> None:
+    try:
+        metadata = path.stat()
+        group_id = grp.getgrnam(group).gr_gid
+    except (KeyError, OSError) as exc:
+        raise StartupDefect("cognition cwd parent is unavailable") from exc
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o2750
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != group_id
+    ):
+        raise StartupDefect(
+            "cognition cwd parent must be owned by Jarvis and the configured group "
+            "with mode 02750"
+        )
+
+
+def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
-    _private_directory(settings.provider_cwd_parent, "provider cwd parent")
+    _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
 
 
-def initialize_state(settings: Settings) -> None:
+def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
     """Create the private, content-free durable host state exactly once."""
 
+    _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     directory = settings.runtime_state_directory
     if directory.exists():
         _private_directory(directory, "runtime state directory")
@@ -200,11 +231,6 @@ def initialize_state(settings: Settings) -> None:
             raise StartupDefect("runtime state directory could not be created") from exc
     if settings.paused_state_path.exists() or settings.admission_journal_path.exists():
         raise StartupDefect("private host state is already initialized")
-    try:
-        settings.provider_cwd_parent.mkdir(mode=0o700, exist_ok=True)
-    except OSError as exc:
-        raise StartupDefect("provider cwd parent could not be created") from exc
-    _private_directory(settings.provider_cwd_parent, "provider cwd parent")
     PausedState.initialize(settings.paused_state_path)
     RollingAdmissionPort.initialize(
         settings.admission_journal_path,
@@ -222,12 +248,13 @@ async def recover_startup_actions(
     return await action_recovery.recover(allow_queued_execution=not inactive)
 
 
-async def serve(settings: Settings) -> None:
+async def serve(settings: Settings, host: CodexHostConfig) -> None:
     """Own the deployment and run the one Discord channel service."""
 
     deny_same_identity_process_inspection()
-    _validate_runtime_layout(settings)
+    _validate_runtime_layout(settings, host)
     engine = create_engine(settings.database_url.get_secret_value())
+    agent_runtime = None
     kernel_runtime = None
     gateway = None
     service = None
@@ -279,12 +306,16 @@ async def serve(settings: Settings) -> None:
                     )
                     memory = MemoryStore(database)
                     actions = ActionStore(database)
+                    agent_runtime = build_agent_runtime(
+                        provider_state_root=settings.runtime_state_directory,
+                        codex_endpoints=host.endpoints,
+                    )
                     embedder = OpenAIEmbedder(
                         settings.embedding_openai_api_key,
                         http_client=embedding_http,
                     )
                     provider_configuration = await resolve_provider_configuration(
-                        state_root=settings.codex_state_root,
+                        runtime=agent_runtime,
                         profile_key=settings.codex_profile_key,
                         model_key=settings.codex_model,
                     )
@@ -300,6 +331,11 @@ async def serve(settings: Settings) -> None:
                         memory_repository=PostgresMemoryRepository(database),
                         memory_embedder=embedder,
                         actions=actions,
+                        codex=CodexController(
+                            control=agent_runtime.codex,
+                            host=host,
+                            actions=actions,
+                        ),
                         automatic_write_gate_definition_fingerprint=(
                             provisional_gate.fingerprint
                         ),
@@ -317,8 +353,8 @@ async def serve(settings: Settings) -> None:
                             "write-gate definition changed during composition"
                         )
                     kernel_runtime = build_kernel_runtime(
-                        provider_state_root=settings.codex_state_root,
-                        private_cwd_parent=settings.provider_cwd_parent,
+                        runtime=agent_runtime,
+                        shared_cwd_parent=Path(host.cognition_cwd_parent),
                         session_ref_path=settings.session_reference_path,
                         model=settings.codex_model,
                         kernel_limits=definitions.main.limits,
@@ -513,6 +549,8 @@ async def serve(settings: Settings) -> None:
                     )
                 if kernel_runtime is not None:
                     await kernel_runtime.close()
+                elif agent_runtime is not None:
+                    await agent_runtime.close()
     finally:
         await engine.dispose()
 
@@ -528,9 +566,12 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
         await engine.dispose()
 
 
-async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
+async def dream_once(
+    settings: Settings,
+    host: CodexHostConfig,
+) -> DreamerRunCompleted | None:
     """Run one operator-requested dream while the service is stopped."""
-    _validate_runtime_layout(settings)
+    _validate_runtime_layout(settings, host)
     engine = create_engine(settings.database_url.get_secret_value())
     try:
         async with deployment_ownership(engine) as database:
@@ -555,6 +596,7 @@ async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
             admission = RootTrackingAdmissionPort(admission_store)
             async with _isolated_memory_runtime(
                 settings=settings,
+                host=host,
                 engine=database,
                 admission=admission,
             ) as runtime:
@@ -573,9 +615,10 @@ async def dream_once(settings: Settings) -> DreamerRunCompleted | None:
 
 async def rebuild_memory(
     settings: Settings,
+    host: CodexHostConfig,
 ) -> DerivedMemoryCorpusRebuild:
     """Rebuild the deployment's derived memory while the service is stopped."""
-    _validate_runtime_layout(settings)
+    _validate_runtime_layout(settings, host)
     limits = corpus_rebuild_admission_limits()
     journal_path = settings.runtime_state_directory / "memory-rebuild-admission.json"
     engine = create_engine(settings.database_url.get_secret_value())
@@ -609,6 +652,7 @@ async def rebuild_memory(
             root = reserved.token
             async with _isolated_memory_runtime(
                 settings=settings,
+                host=host,
                 engine=database,
                 admission=admission,
             ) as runtime:
@@ -678,12 +722,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     try:
         settings = Settings.from_env()
+        host = settings.codex_host_config
         if arguments.command == "serve":
-            asyncio.run(serve(settings))
+            asyncio.run(serve(settings, host))
         elif arguments.command == "initialize-state":
-            initialize_state(settings)
+            initialize_state(settings, host)
         elif arguments.command == "dream":
-            result = asyncio.run(dream_once(settings))
+            result = asyncio.run(dream_once(settings, host))
             if result is None:
                 print("Dream skipped: no raw memory.")
             else:
@@ -693,7 +738,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"removed={len(result.removed_summary_ids)}."
                 )
         elif arguments.command == "rebuild-memory":
-            result = asyncio.run(rebuild_memory(settings))
+            result = asyncio.run(rebuild_memory(settings, host))
             print(
                 "Memory rebuild completed: "
                 f"raw={result.raw_memory_count} "

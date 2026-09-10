@@ -5,10 +5,8 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
 source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
-source_codex="${JARVIS_SOURCE_CODEX_PROFILE:-$repo_dir/.secrets/agent-state/codex/jarvis-runtime}"
 
-for path in "$source_environment" "$source_google" "$source_codex/auth.json" \
-  "$source_codex/installation_id"; do
+for path in "$source_environment" "$source_google"; do
   [[ "$path" = /* && -f "$path" && ! -L "$path" ]] || {
     printf 'missing or unsafe private deployment source: %s\n' "$path" >&2
     exit 1
@@ -69,9 +67,9 @@ JARVIS_DISCORD_CATCH_UP_LIMIT=100
 JARVIS_DISCORD_REQUEST_TIMEOUT_SECONDS=10
 JARVIS_DISCORD_DELIVERY_RETRY_DELAYS_SECONDS=0.5,2.0
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles
-JARVIS_CODEX_PROFILE_KEY=jarvis-runtime
+JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_MODEL=gpt-5.6-terra
-JARVIS_CODEX_STATE_ROOT=/var/lib/jarvis/agent-state
+JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
@@ -86,15 +84,12 @@ target.chmod(0o600)
 PY
 
 cp -p "$source_google" "$scratch/google-oauth-state.json"
-cp -p "$source_codex/auth.json" "$scratch/auth.json"
-cp -p "$source_codex/installation_id" "$scratch/installation_id"
-chmod 0600 "$scratch/google-oauth-state.json" "$scratch/auth.json" \
-  "$scratch/installation_id"
+chmod 0600 "$scratch/google-oauth-state.json"
 
 remote="$(ssh "$target" mktemp -d /tmp/jarvis-private-state.XXXXXX)"
 case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
 scp -q "$scratch/jarvis.env" "$scratch/google-oauth-state.json" \
-  "$scratch/auth.json" "$scratch/installation_id" "$target:$remote/"
+  "$target:$remote/"
 
 ssh "$target" bash -s -- "$remote" <<'REMOTE'
 set -euo pipefail
@@ -105,23 +100,15 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-for file in jarvis.env google-oauth-state.json auth.json installation_id; do
+for file in jarvis.env google-oauth-state.json; do
   [[ -f "$remote/$file" && ! -L "$remote/$file" ]]
 done
 sudo install -d -m 0700 -o jarvis -g jarvis \
-  /var/lib/jarvis/connectors \
-  /var/lib/jarvis/agent-state \
-  /var/lib/jarvis/agent-state/codex \
-  /var/lib/jarvis/agent-state/codex/jarvis-runtime
+  /var/lib/jarvis/connectors
 sudo install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
 sudo install -m 0600 -o jarvis -g jarvis \
   "$remote/google-oauth-state.json" \
   /var/lib/jarvis/connectors/google-oauth-state.json
-sudo install -m 0600 -o jarvis -g jarvis \
-  "$remote/auth.json" \
-  /var/lib/jarvis/agent-state/codex/jarvis-runtime/auth.json
-sudo install -m 0600 -o jarvis -g jarvis \
-  "$remote/installation_id" \
-  /var/lib/jarvis/agent-state/codex/jarvis-runtime/installation_id
-printf 'Installed Jarvis application credentials and private connector/provider identity.\n'
+sudo -u jarvis test -r /etc/codex-shared/profiles.json
+printf 'Installed Jarvis application and connector credentials; Codex remains host-owned.\n'
 REMOTE

@@ -8,6 +8,13 @@ Audience: product, engineering, design, operations, and future coding agents
 
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
+Integration baseline (2026-09-09): retain ADR 0040's six-table durability,
+owner-bound transactions, authenticated catalog selection, and CPython floor.
+[ADR 0041](docs/decisions/0041-control-shared-codex-workers.md) adds shared Codex
+control without another table or provider lane. Catalog discovery and cognition
+use the same explicitly configured shared runtime. Schema-v3 session identity
+hard-cuts predecessor compatibility exceptions; canonical records remain intact.
+
 ## 1. Product definition
 
 Jarvis is a persistent personal assistant for one user. It exists to return the
@@ -59,9 +66,11 @@ V1 MUST NOT add:
 - A workflow framework or general agent platform beyond the bounded
   `llm-agent-kernel` library.
 - General subagent delegation, persistent peer agents, or model-generated
-  program execution.
+  program execution beyond the five owner-directed Codex controls in section
+  7.3.
 - A general-purpose remote shell, SSH, terminal, or unconstrained browser agent.
-- OnePassword, Nexus, or Skidbladnir integration.
+- OnePassword or Nexus integration, or Skidbladnir source/API changes. Ordinary
+  worker tmux sessions remain visible through unchanged Skidbladnir.
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
 - Slash commands, dashboards, or speculative action components.
@@ -330,6 +339,8 @@ Jarvis acts without approval for:
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
 - Creating or cancelling a `schedule.wake`.
+- Owner-directed `codex.start`, `codex.prompt`, and `codex.interrupt`, grounded
+  by `AutomaticWriteGate`; native worker approvals remain human-only.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -773,9 +784,10 @@ application capabilities. It MUST NOT duplicate either dependency.
 
 Responsibilities are fixed:
 
-- `provider-runtime` owns Codex local-account authentication, the direct Codex
-  App Server stdio JSON-RPC transport behind the stable `AgentRuntime`
-  open/stream/close interface, server-request denial, `PermissionPolicy`, native
+- `provider-runtime` owns Codex local-account authentication, shared Unix-socket
+  WebSocket attachment to host-owned Codex App Servers behind the stable
+  `AgentRuntime` open/stream/close interface, server-request denial,
+  `PermissionPolicy`, native
   options, structured-output lowering, closed-world event normalization and
   usage, quota exhaustion, and opaque session references. Production consumes
   `stream_turn`; it never uses the terminal-only `run_turn` convenience
@@ -804,7 +816,10 @@ invocation. A drain is an exclusive work epoch within a thread run. A one-shot
 run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
-persistent peer agents or general delegation. The main definition is
+persistent peer agents or general delegation. The five exact Codex controls are
+owner-directed top-level worker operations outside the cognitive decoder; they
+add no peer graph, completion callback, scheduler, transcript store, or worker
+ownership state. The main definition is
 `continuing` with a closed structured terminal contract and the exact main
 catalog as its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
 `isolated` one-shot definitions with closed structured output contracts. The
@@ -837,7 +852,7 @@ it.
   set is not a permanent product invariant; adding, replacing, or removing a
   route requires current live evidence and an explicit compatibility-manifest
   update.
-- Kernel revision, model IDs, reasoning levels, prompts, SDK/runtime revisions,
+- Kernel revision, model IDs, reasoning levels, prompts, host/runtime revisions,
   output contract, `PermissionPolicy`, cwd scope, MCP configuration, and native
   options are pinned per deployment and covered by the definition fingerprint.
 - Every definition supplies a non-empty `session_compatibility_revision`
@@ -845,25 +860,9 @@ it.
   owner-bumped Jarvis session-contract revision, and the exact
   `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
   excludes secrets, input, host time, and per-run subset plans. Normally every
-  pin participates exactly in the revision. The current containment pair
-  `llm-agent-kernel@41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af` and
-  `provider-runtime@8fde23ac56571a63c65cfcff55c73a0976f83eb4` is a certified
-  application-session-compatible exception: revision derivation uses the
-  initial-read predecessor pair while the kernel-owned base-instruction
-  identity rotates every definition fingerprint and therefore cold-bootstraps
-  every affected session. Jarvis MUST NOT also bump its application or role
-  session revision solely for this release. The earlier v1 exception is the
-  `llm-agent-kernel@09a1af093479aa92f3e783f4b4a7cc38e301a4a7` initial-read
-  release: when every other pin is unchanged, revision derivation uses its
-  certified-compatible predecessor
-  `llm-agent-kernel@7f3a9b145e68ba23c8aafad08500e9c452a9faef` so only roles
-  whose own contract changed rotate. The other v1 exception is the
-  upstream-certified compatible pair
-  `llm-agent-kernel@09f08df2970121ababe973b0e92d6901dd40da9e` and
-  `provider-runtime@f477dcdcad03c30019576203d4eb8a3581a6d32f`: when every
-  other pin is unchanged, revision derivation atomically uses their predecessor
-  values so existing native sessions remain compatible. A partial certified
-  pair or any other dependency change rotates normally.
+  pin participates exactly in the revision. Schema v3 has no predecessor
+  normalization or compatibility exception: this hard cut rotates every
+  affected definition and cold-bootstraps its next cognition session.
 - Qualified-model membership does not participate in
   `session_compatibility_revision`. The exact selected model already
   participates in the immutable agent-definition fingerprint, so a model
@@ -1097,7 +1096,27 @@ V1 exposes exactly the following canonical model tools:
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
+| `codex.list`, `codex.read` | Main | Native worker read; automatic |
+| `codex.start`, `codex.prompt`, `codex.interrupt` | Main | Native worker control; automatic only when grounded in current owner input |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
+
+Codex controls require an explicit `personal | work | work2` profile and exact
+opaque native handles. `codex.start` validates bounded lexical input, asks the
+closed host helper to resolve an existing canonical host-permitted cwd, creates
+a prompt-free native thread there, unsubscribes the Jarvis control connection,
+creates and observes one ordinary tmux session through the closed host helper,
+then submits the bounded prompt. The stock TUI attaches asynchronously; Started
+does not claim TUI readiness. Jarvis never answers worker-native approvals.
+
+`codex.prompt` exposes Codex 0.153.4's native Submit operation, which atomically
+starts or steers and returns the accepted turn handle without distinguishing the
+two. Explicit Steer includes the expected turn handle. Interrupt uses the pinned
+exact-turn App Server precheck and reports Interrupted, natural Finished, Stale,
+or Unknown; it is never retried or knowingly redirected to an observed
+successor. Strict idle-only NewTurn and a core interrupt CAS are not v1 claims.
+Writes use `ReplayPolicy.BilledOnce`, one executor entry, typed surviving launch
+prefixes, and terminal uncertainty after ambiguous dispatch. No absent status,
+name, cwd, newest thread, or original input permits redispatch.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 
@@ -1496,12 +1515,15 @@ writable project checkout, MCP server, or direct execution-authority tool
 channel.
 
 Jarvis uses only `provider_runtime.agent_runtime.AgentRuntime` with
-`JsonSchemaAgentOutput`. Its pinned provider owns the direct App Server
-transport; `transport="sdk"` remains an opaque compatibility route label, not a
-claim that the public Python SDK owns request handling. Every session uses a
-private empty absolute cwd,
+`JsonSchemaAgentOutput`. Its pinned provider owns a protocol-bound WebSocket
+connection to the profile's host-owned Unix-socket App Server; `transport="sdk"`
+is the closed agent-transport discriminator, not a claim that a Python SDK owns
+request handling. Every cognition session uses an empty absolute cwd
+beneath the dedicated non-secret host parent. That asserted-empty directory is
+mode `0750`, granting the shared-runtime group only read/traverse so the
+development-UID server can enter it; no Jarvis application state is shared. Cognition retains
 read-only filesystem policy, no additional directories, disabled network,
-approval mode `deny`, an empty copied environment, no MCP servers,
+approval mode `deny`, no MCP servers,
 `CodexNativeOptions(builtin_tools="disabled")`, and disabled native Web search.
 The Codex `allowed_tools=("*",)` sentinel required by the compatibility API is present
 only for runtime compatibility; it grants no Jarvis authority.
@@ -1539,20 +1561,19 @@ produces a truthful host-authored visible failure and never accepts a model
 terminal.
 
 Native Code Mode is contained and detected, not claimed impossible before its
-first observable event. The exact Codex 0.144.4 executable, disabled features,
-no-network/read-only sandbox, empty child environment, private cwd, closed event
+first observable event. The exact Codex 0.153.4 server/TUI, disabled features,
+no-network/read-only sandbox, empty shared-runtime-traversable cwd, closed event
 classifier, and fail-stop session invalidation are one qualified unit. Protocol
 drift deliberately breaks availability until audited.
 
-The Linux deployment runs Jarvis and its Codex child under the dedicated
-unprivileged `jarvis` account. Root-managed environment files are mode 0600 and
-unreadable to that account; systemd injects their values only into the Jarvis
-host. Before opening any provider child, Jarvis marks itself non-dumpable. The
-Codex child receives a replacement environment, cannot read the parent
-`/proc/<pid>/environ`, and can read only its own required Codex authentication
-state plus non-secret/encrypted application files permitted by the OS. Provider
-read-only containment is not, by itself, a general host-confidentiality
-boundary.
+The Linux deployment runs Jarvis as the dedicated unprivileged `jarvis` account
+and the three shared Codex services as the development account. Root-managed
+environment files remain mode 0600 and systemd injects their values only into
+the Jarvis host. Before opening any provider connection, Jarvis marks itself
+non-dumpable. A dedicated local group grants only App Server socket access and
+traversal of empty cognition directories; it grants no Jarvis home, database,
+connector, or environment-file access. Shared-server containment is not a
+general host-confidentiality boundary.
 
 ### 7.6 Concurrency
 
@@ -1560,7 +1581,7 @@ Exactly one Jarvis service instance owns a deployment. A PostgreSQL advisory loc
 at startup prevents overlap.
 
 Within that one process, an ordinary in-process execution mutex permits at most
-one active provider turn or host-tool dispatch at a time, and the kernel
+one active Jarvis cognition turn or Jarvis host-tool dispatch at a time, and the kernel
 input-checkpoint port grants at most one exclusive root work epoch for the main
 application thread. AutomaticWriteGate is a serial child: the main run is paused
 before effect dispatch while the isolated gate one-shot runs synchronously under
@@ -1569,6 +1590,12 @@ provider calls overlap. Foreground owner work takes precedence over
 rememberer and dreamer work. Kernel cancellation stops background cognitive work
 at a defined boundary; recomputation occurs only on a later explicitly admitted
 schedule, never by unconditional cleanup rearming.
+
+Accepted Codex workers execute independently in the three host-owned App
+Servers after dispatch. Their native event streams never enter the serial
+cognition decoder, consume its provider lease, or grant new Jarvis authority.
+The launch action terminates at truthful native/host acceptance; Jarvis neither
+waits durably for worker completion nor schedules a successor from it.
 
 No second PostgreSQL conversation lock is required while the global ownership
 lock holds. The root admission reservation owns one concurrency slot; a gate
@@ -1628,16 +1655,18 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af`
+  `cc7a2307a1731d2c92ef2da3d3487ddcfa251b6e`
 - `llm-calling` / `provider-runtime`:
-  `8fde23ac56571a63c65cfcff55c73a0976f83eb4`
+  `7d2ddfc53c6b4341c475f0f55259a8751951aa9f`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
-The kernel directly certifies and pins `openai-codex==0.144.4`; Jarvis's frozen
-lock MUST resolve that exact SDK version. A Codex SDK change requires explicit
-provider-runtime and kernel requalification before activation.
+The Devbox host pins `@openai/codex@0.153.4` for all three services and stock
+TUI clients. Jarvis and the kernel carry no Python Codex SDK or bundled Codex
+executable; `provider-runtime` declares its WebSocket client directly. A Codex
+pin or wire change requires explicit host, provider-runtime, kernel, and Jarvis
+requalification before activation.
 
-The checked-in compatibility manifest schema v2 records
+The checked-in compatibility manifest schema v3 records
 `qualified_models = ["gpt-5.6-terra"]`. Startup accepts only those exact model
 IDs. At least one recorded model MUST pass the paid consumer probes through the
 personal local-account credential against the exact code and dependency lock
@@ -1662,8 +1691,8 @@ Stable prompt material precedes dynamic time.
 The physical deployment uses a dedicated `jarvis` Unix account,
 `/opt/jarvis/releases/<git-commit>` with an atomic `/opt/jarvis/current`
 symlink, durable state under `/var/lib/jarvis`, and root-owned configuration
-mode 0600 under `/etc/jarvis`. The release MUST use its locked environment and pinned
-Codex SDK rather than the devbox user's global AI-tool installation. The
+mode 0600 under `/etc/jarvis`. The release MUST attach only to the host-declared,
+pinned shared Codex services rather than start or bundle a private runtime. The
 `dev-server` repository owns shared host prerequisites and base directories;
 this repository owns releases, configuration, credentials, database roles and
 migrations, and the systemd unit. Co-location grants no access
@@ -2077,8 +2106,9 @@ Frozen decisions:
 - Immutable raw memory plus rebuildable summaries and indexes.
 - No action rows for canonical message or memory transactions.
 - No explicit personal-domain object model.
-- No workflow framework, general agent platform, task delegation, or
-  model-generated program runtime beyond the bounded kernel.
+- No workflow framework, general agent platform, persistent delegation graph,
+  or model-generated program runtime beyond the bounded kernel and the five
+  owner-directed Codex controls.
 - Host-rendered approval previews and the stated autonomy boundary.
 - A restricted AutomaticWriteGate grounds every model-proposed write in current
   owner-authored input before action creation, without granting new authority.
@@ -2087,8 +2117,9 @@ Frozen decisions:
 - Finite lifetime executor-entry ceilings and action-backed schedule creation
   receipts that remain replayable across the later wake lifecycle.
 - No v1 redaction or destructive memory consolidation.
-- No Android, OnePassword, Nexus, Skidbladnir, or other unlisted application
-  integration.
+- No Android, OnePassword, Nexus, Skidbladnir source/API, or other unlisted
+  application integration. Worker terminals are ordinary tmux sessions visible
+  through unchanged Skidbladnir.
 
 Changing one requires an ADR stating observed evidence, migration impact, and
 the acceptance criteria affected.

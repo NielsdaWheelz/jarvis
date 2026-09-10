@@ -15,7 +15,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from llm_agent_kernel import (
@@ -81,6 +81,7 @@ from jarvis.admission import (
     RollingAdmissionLimits,
     RollingAdmissionPort,
 )
+from jarvis.codex_control import CodexHostConfig
 from jarvis.config import DiscordSettings
 from jarvis.db import (
     action,
@@ -95,7 +96,6 @@ from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     QUALIFIED_CODEX_MODELS,
     SLICE2_KERNEL_LIMITS,
     DreamResult,
@@ -109,6 +109,7 @@ from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import (
     EmptySlice1Dispatcher,
     KernelRuntime,
+    build_agent_runtime,
     build_kernel_runtime,
     resolve_provider_configuration,
 )
@@ -213,8 +214,8 @@ def _implementation() -> dict[str, str]:
 @dataclass(frozen=True, slots=True)
 class Arguments:
     model: str
-    profile: str
-    state_root: Path
+    profile: Literal["personal"]
+    codex_host_config_path: Path
     runtime_state_directory: Path
     database_url: str
     owner_timezone: str
@@ -290,10 +291,18 @@ def _sections(kind: str, text: str) -> PromptSections:
     )
 
 
-def _runtime(arguments: Arguments, settings: Settings) -> KernelRuntime:
+def _runtime(
+    arguments: Arguments,
+    settings: Settings,
+    host: CodexHostConfig,
+) -> KernelRuntime:
+    agent_runtime = build_agent_runtime(
+        provider_state_root=arguments.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    )
     return build_kernel_runtime(
-        provider_state_root=arguments.state_root,
-        private_cwd_parent=settings.provider_cwd_parent,
+        runtime=agent_runtime,
+        shared_cwd_parent=Path(host.cognition_cwd_parent),
         session_ref_path=settings.session_reference_path,
         model=arguments.model,
         kernel_limits=SLICE2_KERNEL_LIMITS,
@@ -324,6 +333,7 @@ async def _conversation_turn(
     engine: Database,
     arguments: Arguments,
     settings: Settings,
+    host: CodexHostConfig,
     definitions: Slice2Definitions,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
@@ -346,7 +356,7 @@ async def _conversation_turn(
         source_message_id=source_message_id,
         created_at=datetime.now(UTC),
     )
-    runtime = _runtime(arguments, settings)
+    runtime = _runtime(arguments, settings, host)
     try:
         outcome = await JarvisThreadRunner(
             model_decisions=lambda evidence: PostgresModelDecisionJournal(
@@ -395,6 +405,7 @@ async def _conversation_probe(
     engine: Database,
     arguments: Arguments,
     settings: Settings,
+    host: CodexHostConfig,
     definitions: Slice2Definitions,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
@@ -413,6 +424,7 @@ async def _conversation_probe(
         engine=engine,
         arguments=arguments,
         settings=settings,
+        host=host,
         definitions=definitions,
         admission_limits=admission_limits,
         store=store,
@@ -431,6 +443,7 @@ async def _conversation_probe(
         engine=engine,
         arguments=arguments,
         settings=settings,
+        host=host,
         definitions=definitions,
         admission_limits=admission_limits,
         store=store,
@@ -453,6 +466,7 @@ async def _conversation_probe(
         engine=engine,
         arguments=arguments,
         settings=settings,
+        host=host,
         definitions=definitions,
         admission_limits=admission_limits,
         store=store,
@@ -477,6 +491,7 @@ async def _conversation_probe(
         engine=engine,
         arguments=arguments,
         settings=settings,
+        host=host,
         definitions=definitions,
         admission_limits=admission_limits,
         store=store,
@@ -521,10 +536,11 @@ async def _structured_probe(
     *,
     arguments: Arguments,
     settings: Settings,
+    host: CodexHostConfig,
     definitions: Slice2Definitions,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
-    runtime = _runtime(arguments, settings)
+    runtime = _runtime(arguments, settings, host)
     try:
         outcome = await run_one_shot(
             decisions=TransientModelDecisions(),
@@ -626,12 +642,13 @@ async def _tool_argument_probe(
     *,
     arguments: Arguments,
     settings: Settings,
+    host: CodexHostConfig,
     definitions: Slice2Definitions,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
     definition, plan, binding = _tool_probe_definition(definitions)
     dispatcher = ProbeToolDispatcher(binding)
-    runtime = _runtime(arguments, settings)
+    runtime = _runtime(arguments, settings, host)
     try:
         outcome = await run_one_shot(
             decisions=TransientModelDecisions(),
@@ -678,9 +695,14 @@ async def _tool_argument_probe(
 async def _run(arguments: Arguments) -> dict[str, object]:
     verify_runtime_dependencies()
     _validate_directories(arguments)
+    host = CodexHostConfig.load(arguments.codex_host_config_path)
+    shared_cwd_parent = Path(host.cognition_cwd_parent)
+    if (
+        not shared_cwd_parent.is_dir()
+        or stat.S_IMODE(shared_cwd_parent.stat().st_mode) != 0o2750
+    ):
+        raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
-    provider_cwd = arguments.runtime_state_directory / "provider-cwd"
-    provider_cwd.mkdir(mode=0o700)
     conversation_id = uuid4().int % 900_000_000_000_000_000 + 1
     settings = Settings(
         database_url=SecretStr(arguments.database_url),
@@ -693,7 +715,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         owner_timezone=arguments.owner_timezone,
         codex_profile_key=arguments.profile,
         codex_model=arguments.model,
-        codex_state_root=arguments.state_root,
+        codex_host_config_path=arguments.codex_host_config_path,
         runtime_state_directory=arguments.runtime_state_directory,
         google_oauth_state_path=arguments.runtime_state_directory / "google.json",
         google_oauth_client_id=SecretStr("qualification-unused-google-client"),
@@ -708,12 +730,16 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     )
     admission_limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    provider_configuration = await resolve_provider_configuration(
-        state_root=arguments.state_root,
-        profile_key=arguments.profile,
-        model_key=arguments.model,
-        reasoning=arguments.reasoning_effort,
-    )
+    async with build_agent_runtime(
+        provider_state_root=arguments.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    ) as discovery_runtime:
+        provider_configuration = await resolve_provider_configuration(
+            runtime=discovery_runtime,
+            profile_key=arguments.profile,
+            model_key=arguments.model,
+            reasoning=arguments.reasoning_effort,
+        )
     definitions = build_slice2_definitions(
         catalog=_slice2_catalog(),
         provider=provider_configuration,
@@ -753,6 +779,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 engine=engine,
                 arguments=arguments,
                 settings=settings,
+                host=host,
                 definitions=definitions,
                 admission_limits=admission_limits,
                 store=store,
@@ -766,6 +793,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
             structured = await _structured_probe(
                 arguments=arguments,
                 settings=settings,
+                host=host,
                 definitions=definitions,
                 admission=admission,
             )
@@ -773,6 +801,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
             tool_arguments = await _tool_argument_probe(
                 arguments=arguments,
                 settings=settings,
+                host=host,
                 definitions=definitions,
                 admission=admission,
             )
@@ -785,7 +814,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
             raise QualificationFailure(stage, type(exc).__name__, reason_code) from exc
         return {
             "route": arguments.model,
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "implementation": {
                 **_implementation(),
                 "main_definition_fingerprint": definitions.main.fingerprint,
@@ -805,14 +834,8 @@ async def _run(arguments: Arguments) -> dict[str, object]:
 
 
 def _validate_directories(arguments: Arguments) -> None:
-    if (
-        not arguments.state_root.is_absolute()
-        or not arguments.state_root.is_dir()
-        or stat.S_IMODE(arguments.state_root.stat().st_mode) & 0o077
-    ):
-        raise ValueError(
-            "Codex state root must be an existing private absolute directory"
-        )
+    if not arguments.codex_host_config_path.is_absolute():
+        raise ValueError("Codex host config path must be absolute")
     runtime = arguments.runtime_state_directory
     if not runtime.is_absolute() or runtime.exists() or not runtime.parent.is_dir():
         raise ValueError(
@@ -834,7 +857,8 @@ def _parse_arguments() -> Arguments:
     parser.add_argument("--model", default=os.environ.get("JARVIS_CODEX_MODEL"))
     parser.add_argument("--profile", default=os.environ.get("JARVIS_CODEX_PROFILE_KEY"))
     parser.add_argument(
-        "--state-root", default=os.environ.get("JARVIS_CODEX_STATE_ROOT")
+        "--codex-host-config",
+        default=os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH"),
     )
     parser.add_argument(
         "--runtime-state-directory",
@@ -865,10 +889,13 @@ def _parse_arguments() -> Arguments:
     model = _required(values, "model")
     if model not in _SUPPORTED_ROUTES:
         raise ValueError("model must be a qualified local-account route")
+    profile = _required(values, "profile")
+    if profile != "personal":
+        raise ValueError("profile must be the Jarvis Personal route")
     return Arguments(
         model=model,
-        profile=_required(values, "profile"),
-        state_root=Path(_required(values, "state_root")),
+        profile="personal",
+        codex_host_config_path=Path(_required(values, "codex_host_config")),
         runtime_state_directory=Path(_required(values, "runtime_state_directory")),
         database_url=_required(values, "database_url"),
         owner_timezone=_required(values, "owner_timezone"),
@@ -885,7 +912,7 @@ def main() -> int:
     except QualificationFailure as exc:
         result = {
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "implementation": _implementation(),
             "failure": {
                 "reason_code": exc.reason_code,
@@ -897,7 +924,7 @@ def main() -> int:
     except BaseException as exc:
         result = {
             "route": route if route in _SUPPORTED_ROUTES else "unconfigured",
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": dict(EXPECTED_GIT_PINS),
             "implementation": _implementation(),
             "failure": {"stage": "setup", "type": type(exc).__name__},
             "status": "failed",

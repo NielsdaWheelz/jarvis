@@ -18,6 +18,7 @@ from pydantic import (
     field_validator,
 )
 
+from jarvis.codex_control import CodexHostConfig
 from jarvis.config import ConfigurationError, DiscordSettings
 from jarvis.definitions import QUALIFIED_CODEX_MODELS
 
@@ -39,9 +40,9 @@ class Settings(BaseModel):
     database_url: SecretStr = Field(repr=False)
     discord: DiscordSettings
     owner_timezone: str = Field(min_length=1, max_length=255)
-    codex_profile_key: str = Field(min_length=1, max_length=255)
+    codex_profile_key: Literal["personal"]
     codex_model: str = Field(min_length=1, max_length=255)
-    codex_state_root: Path
+    codex_host_config_path: Path
     runtime_state_directory: Path
     google_oauth_state_path: Path
     google_oauth_client_id: SecretStr = Field(repr=False)
@@ -110,7 +111,7 @@ class Settings(BaseModel):
         return value
 
     @field_validator(
-        "codex_state_root", "runtime_state_directory", "google_oauth_state_path"
+        "codex_host_config_path", "runtime_state_directory", "google_oauth_state_path"
     )
     @classmethod
     def _absolute_runtime_directory(cls, value: Path) -> Path:
@@ -131,8 +132,8 @@ class Settings(BaseModel):
         return self.runtime_state_directory / "session-ref.json"
 
     @property
-    def provider_cwd_parent(self) -> Path:
-        return self.runtime_state_directory / "provider-cwd"
+    def codex_host_config(self) -> CodexHostConfig:
+        return CodexHostConfig.load(self.codex_host_config_path)
 
     @property
     def host_secrets(self) -> tuple[str, ...]:
@@ -170,6 +171,10 @@ class Settings(BaseModel):
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
         source = os.environ if environ is None else environ
+        if "JARVIS_CODEX_STATE_ROOT" in source:
+            raise ConfigurationError(
+                "private Codex state is retired; configure the host mapping"
+            )
         if "JARVIS_MAXIMUM_PROCESSING_ATTEMPTS" in source:
             raise ConfigurationError(
                 "JARVIS_MAXIMUM_PROCESSING_ATTEMPTS is fixed by the Slice 1 kernel"
@@ -229,9 +234,11 @@ class Settings(BaseModel):
                 database_url=SecretStr(required("JARVIS_DATABASE_URL")),
                 discord=DiscordSettings.from_env(source),
                 owner_timezone=required("JARVIS_OWNER_TIMEZONE"),
-                codex_profile_key=required("JARVIS_CODEX_PROFILE_KEY"),
+                codex_profile_key=cast(
+                    Literal["personal"], required("JARVIS_CODEX_PROFILE_KEY")
+                ),
                 codex_model=required("JARVIS_CODEX_MODEL"),
-                codex_state_root=Path(required("JARVIS_CODEX_STATE_ROOT")),
+                codex_host_config_path=Path(required("JARVIS_CODEX_HOST_CONFIG_PATH")),
                 runtime_state_directory=Path(
                     required("JARVIS_RUNTIME_STATE_DIRECTORY")
                 ),

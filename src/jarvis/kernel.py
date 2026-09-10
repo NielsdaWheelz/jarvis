@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Never
@@ -36,7 +37,7 @@ from jarvis.session import AtomicSessionRefPort
 
 async def resolve_provider_configuration(
     *,
-    state_root: Path,
+    runtime: AgentRuntime,
     profile_key: str,
     model_key: str,
     reasoning: str = "high",
@@ -45,8 +46,7 @@ async def resolve_provider_configuration(
     if model_key not in QUALIFIED_CODEX_MODELS:
         raise ValueError("model is not a qualified Jarvis route")
     auth = CredentialRef("local_account", profile_key)
-    async with AgentRuntime(AgentRuntimeConfig(state_root_base=state_root)) as runtime:
-        catalog = await runtime.model_catalog("codex", auth, transport="sdk")
+    catalog = await runtime.model_catalog("codex", auth, transport="sdk")
     matches = tuple(row for row in catalog.models if row.key == model_key)
     if len(matches) != 1:
         raise ValueError("model is absent or ambiguous in the authenticated catalog")
@@ -118,27 +118,36 @@ class KernelRuntime:
         await self.provider.discard_reference(definition.fingerprint, stored.ref)
 
 
-def build_kernel_runtime(
+def build_agent_runtime(
     *,
     provider_state_root: Path,
-    private_cwd_parent: Path,
+    codex_endpoints: Mapping[str, Path],
+    verify_dependencies: bool = True,
+) -> AgentRuntime:
+    if verify_dependencies:
+        verify_runtime_dependencies()
+    return AgentRuntime(
+        AgentRuntimeConfig(
+            state_root_base=provider_state_root,
+            codex_endpoints=codex_endpoints,
+            max_turn_seconds=300.0,
+        )
+    )
+
+
+def build_kernel_runtime(
+    *,
+    runtime: AgentRuntime,
+    shared_cwd_parent: Path,
     session_ref_path: Path,
     model: str,
     kernel_limits: KernelLimits,
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
-    verify_dependencies: bool = True,
 ) -> KernelRuntime:
-    if verify_dependencies:
-        verify_runtime_dependencies()
-    runtime = AgentRuntime(
-        AgentRuntimeConfig(
-            state_root_base=provider_state_root,
-            max_turn_seconds=300.0,
-        )
-    )
     provider = CodexProvider(
         runtime,
-        cwd_parent=private_cwd_parent,
+        cwd_parent=shared_cwd_parent,
+        share_cwd_with_group=True,
         cache_continuing=False,
     )
     references = AtomicSessionRefPort(
@@ -160,6 +169,7 @@ def build_kernel_runtime(
 __all__ = [
     "EmptySlice1Dispatcher",
     "KernelRuntime",
+    "build_agent_runtime",
     "build_kernel_runtime",
     "resolve_provider_configuration",
 ]

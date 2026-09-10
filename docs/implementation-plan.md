@@ -36,7 +36,7 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The active implemented public kernel pin
-  `41c68bdb6497a8ee76ac5ba94bd7a0b48a1fe1af`, with exact
+  `cc7a2307a1731d2c92ef2da3d3487ddcfa251b6e`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2
@@ -78,7 +78,7 @@ Deliver:
   default is permitted.
 - Live `llm-tools` Brave-search and safe-public-Web-read canaries, including
   private-destination, unsafe-redirect, and credential-egress rejection.
-- Linux qualification of the pinned Codex SDK/runtime containment request,
+- Linux qualification of the pinned shared Codex App Server containment request,
   `JsonSchemaAgentOutput`, open/stream/close and resume behavior, and fail-stop
   on native tool-use or permission-request events. Prove production consumes
   `stream_turn` and never calls the event-discarding `run_turn` projection.
@@ -173,7 +173,7 @@ Deliver:
   the attempt atomically; a later inconsistent capacity result raises
   `AdmissionStateDefect` and parks rather than coupling the checkpoint and
   admission adapters.
-- A fake stateless adapter test proving bootstrap context contains no Codex SDK
+- A fake stateless adapter test proving bootstrap context contains no provider-private
   types and carries the current owner message exactly once.
 - Kernel conformance fixtures for session loss, invalid protocol, cancellation,
   a crash between session-reference advancement and canonical settlement, a
@@ -424,8 +424,8 @@ Deliver:
   base directories; Jarvis owns releases, credentials, database roles,
   migrations and service lifecycle. Nexus production remains
   untouched.
-- Secret and configuration procedure that uses the release's pinned Codex SDK,
-  not the host's mutable global Codex installation.
+- Host configuration that attaches Jarvis only to the pinned shared Codex
+  services and never starts a private Codex runtime.
 - Explicit verification that no v1 backup role, credential, timer, or restore
   command exists, with the owner-accepted total-loss trade-off recorded.
 - Pre-deployment housekeeping with exact targets, active CI/container checks,
@@ -459,6 +459,32 @@ Exit: every non-waived mandatory criterion in `docs/acceptance.md` passes and th
 owner signs off. The seven-day period starts only after the exact production
 release is enabled and every preceding Slice 7 gate passes.
 
+## Slice 8: shared Codex control
+
+Status: implemented on the isolated feature branch on 2026-09-09; live
+acceptance is `NOT_RUN`.
+
+Deliver:
+
+- Hard-cut managed Codex from private child App Servers to the three pinned
+  host-owned Unix-socket services without API/account/process fallback.
+- Add exactly five owner-directed Main tools and no scheduled/internal grants,
+  worker table, transcript copy, workflow graph, or completion callback.
+- Use strict profiles/full native handles, native Submit start-or-steer, exact
+  Steer, bounded observed Interrupt, and content-free list/read projections.
+- Start by create, control-unsubscribe, exact ordinary-tmux create/observation,
+  then Submit. Stock TUI attachment is asynchronous and never upgraded through
+  process state, sleeps, or terminal parsing.
+- Preserve native worker approvals for the TUI; Jarvis answers none. Preserve
+  contained cognition through the narrow empty group-traversable cwd posture.
+- Store each mutation once through the existing action table as BilledOnce;
+  preserve Partial/Unknown prefixes and never redispatch after ambiguity.
+- Prove the protocol, Jarvis action, host, and separately approved real-stack
+  boundaries once each. `NOT_RUN` live/device evidence is never a pass.
+
+Exit: the exact Personal/Work/Work2 journey in ADR 0041 and acceptance A4.16 is
+green without changing Skidbladnir or adding durable lifecycle state.
+
 ## Deferred slices
 
 ### Discord workspace expansion
@@ -478,10 +504,10 @@ release is enabled and every preceding Slice 7 gate passes.
 - Decide credentials, continuation, compaction, cost, and fallback policy in a
   dedicated ADR before implementation.
 
-### Task-scoped delegation
+### General task-scoped delegation
 
-- Add only after a real Jarvis task demonstrates that fixed main/recaller/
-  rememberer/dreamer roles cannot handle it efficiently.
+- Add only after owner-directed top-level Codex control demonstrates a need for
+  model-generated child graphs beyond fixed main/recaller/rememberer/dreamer roles.
 - Require a task ID and parent ID, explicit role and objective, strictly narrowed
   capability plan, child budgets and deadline, structured terminal result,
   observe/join/cancel, and cancellation propagation.
@@ -515,9 +541,9 @@ release is enabled and every preceding Slice 7 gate passes.
 
 ### Skidbladnir
 
-- Read machine and exact session state first.
-- Preserve session identity in memory references.
-- Never substitute generic terminal or SSH authority for an adapter.
+- Provider-aware stop or other source/API integration remains deferred.
+- Ordinary worker tmux sessions are already visible through unchanged Skid.
+- Never infer a permanent terminal/thread ownership mapping.
 
 ### Android
 

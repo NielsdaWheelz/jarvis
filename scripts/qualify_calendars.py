@@ -23,16 +23,16 @@ from sqlalchemy import func, select
 
 from jarvis.actions import ActionStore
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.codex_control import CodexController
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     build_slice5_write_gate,
     build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import resolve_provider_configuration
+from jarvis.kernel import build_agent_runtime, resolve_provider_configuration
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.ownership import deployment_ownership
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
@@ -70,7 +70,7 @@ def _failure_result(error: QualificationFailure) -> dict[str, object]:
         }
     return {
         "failure": failure,
-        "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+        "revisions": EXPECTED_GIT_PINS,
         "status": "failed",
     }
 
@@ -112,10 +112,16 @@ async def _run(
         engine = await database_lifetime.enter_async_context(
             deployment_ownership(raw_engine)
         )
+        host = settings.codex_host_config
+        agent_runtime = build_agent_runtime(
+            provider_state_root=settings.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
+        database_lifetime.push_async_callback(agent_runtime.close)
         stage = "composition"
         try:
             provider_configuration = await resolve_provider_configuration(
-                state_root=settings.codex_state_root,
+                runtime=agent_runtime,
                 profile_key=settings.codex_profile_key,
                 model_key=settings.codex_model,
             )
@@ -134,6 +140,11 @@ async def _run(
                     http_client=clients[4],
                 ),
                 actions=ActionStore(engine),
+                codex=CodexController(
+                    control=agent_runtime.codex,
+                    host=host,
+                    actions=ActionStore(engine),
+                ),
                 automatic_write_gate_definition_fingerprint=gate.fingerprint,
             )
             definitions = build_slice6_definitions(
@@ -288,7 +299,7 @@ async def _run(
                         definitions.main.session_compatibility_revision
                     ),
                 },
-                "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+                "revisions": dict(EXPECTED_GIT_PINS),
                 "status": "passed",
                 "tool_dispatch": {
                     "calls": 2,
@@ -320,7 +331,7 @@ def main() -> int:
     except BaseException as exc:
         result = {
             "failure": {"reason": type(exc).__name__, "stage": "setup"},
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

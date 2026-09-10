@@ -111,8 +111,8 @@ async def test_memory_role_catalog_accepts_inert_synthetic_connector_settings(
 ) -> None:
     arguments = _Arguments(
         model="gpt-5.6-terra",
-        profile="synthetic-profile",
-        state_root=tmp_path / "state",
+        profile="personal",
+        codex_host_config_path=tmp_path / "codex-profiles.json",
         runtime_state_directory=tmp_path / "runtime",
         database_url="postgresql://synthetic",
         embedding_api_key=SecretStr("synthetic-embedding-key"),

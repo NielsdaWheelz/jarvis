@@ -42,9 +42,6 @@ main = _QUALIFIER["main"]
 validate_result_evidence = _QUALIFIER["validate_result_evidence"]
 _DECISIONS = cast("tuple[str, ...]", _QUALIFIER["_DECISIONS"])
 _EXPECTED_GIT_PINS = cast("dict[str, str]", _QUALIFIER["EXPECTED_GIT_PINS"])
-_EXPECTED_PACKAGE_VERSIONS = cast(
-    "dict[str, str]", _QUALIFIER["EXPECTED_PACKAGE_VERSIONS"]
-)
 
 
 class _Tokens:
@@ -115,7 +112,7 @@ def _evidence() -> dict[str, object]:
             "gmail_drafts": True,
             "gmail_sent": True,
         },
-        "dependencies": {**_EXPECTED_GIT_PINS, **_EXPECTED_PACKAGE_VERSIONS},
+        "dependencies": _EXPECTED_GIT_PINS,
         "gmail": {
             "accepted_send_lost_response_reconciled_once": True,
             "draft_mismatch_sent_nothing": True,

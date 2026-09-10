@@ -80,6 +80,7 @@ from jarvis.approval_runtime import (
     ApprovalAwareDiscordDelivery,
     ApprovalRecoveryDisabler,
 )
+from jarvis.codex_control import CodexController
 from jarvis.connectors import GoogleTokenManager
 from jarvis.db import (
     action,
@@ -92,7 +93,6 @@ from jarvis.db import (
 )
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     build_slice5_write_gate,
     build_slice6_definitions,
     verify_runtime_dependencies,
@@ -108,7 +108,7 @@ from jarvis.discord import (
     DiscordOwnerMessage,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import resolve_provider_configuration
+from jarvis.kernel import build_agent_runtime, resolve_provider_configuration
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
@@ -566,7 +566,7 @@ def validate_result_evidence(result: dict[str, object]) -> None:
     }:
         raise QualificationFailure("result", "cleanup_evidence_incomplete")
     dependencies = result.get("dependencies")
-    if dependencies != {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS}:
+    if dependencies != EXPECTED_GIT_PINS:
         raise QualificationFailure("result", "dependency_evidence_incomplete")
     implementation_value = result.get("implementation")
     if not isinstance(implementation_value, dict):
@@ -1218,6 +1218,12 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
         cleanup_discord_complete = False
         manual_gmail_complete = False
         async with AsyncExitStack() as clients:
+            host = settings.codex_host_config
+            agent_runtime = build_agent_runtime(
+                provider_state_root=settings.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
+            clients.push_async_callback(agent_runtime.close)
             oauth_http = await clients.enter_async_context(
                 httpx.AsyncClient(trust_env=False, follow_redirects=False)
             )
@@ -1255,7 +1261,7 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                 actions = ActionStore(engine)
                 messages = MessageStore(engine)
                 provider_configuration = await resolve_provider_configuration(
-                    state_root=settings.codex_state_root,
+                    runtime=agent_runtime,
                     profile_key=settings.codex_profile_key,
                     model_key=settings.codex_model,
                 )
@@ -1274,6 +1280,11 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                         http_client=embedding_http,
                     ),
                     actions=actions,
+                    codex=CodexController(
+                        control=agent_runtime.codex,
+                        host=host,
+                        actions=actions,
+                    ),
                     automatic_write_gate_definition_fingerprint=gate.fingerprint,
                 )
                 definitions = build_slice6_definitions(
@@ -1754,10 +1765,7 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                         "gmail_drafts": False,
                         "gmail_sent": False,
                     },
-                    "dependencies": {
-                        **EXPECTED_GIT_PINS,
-                        **EXPECTED_PACKAGE_VERSIONS,
-                    },
+                    "dependencies": EXPECTED_GIT_PINS,
                     "gmail": {
                         "accepted_send_lost_response_reconciled_once": True,
                         "draft_mismatch_sent_nothing": True,

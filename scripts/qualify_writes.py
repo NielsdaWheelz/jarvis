@@ -47,13 +47,12 @@ from jarvis.connectors import GoogleTokenManager
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    EXPECTED_PACKAGE_VERSIONS,
     build_slice5_definitions,
     build_slice5_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import resolve_provider_configuration
+from jarvis.kernel import build_agent_runtime, resolve_provider_configuration
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
@@ -313,10 +312,16 @@ async def _run(settings: Settings, calendar_id: str) -> dict[str, object]:
         primary_error: BaseException | None = None
         result: dict[str, object] | None = None
         composition: Slice5Composition | None = None
+        host = settings.codex_host_config
+        agent_runtime = build_agent_runtime(
+            provider_state_root=settings.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
+        database_lifetime.push_async_callback(agent_runtime.close)
         stage = "composition"
         try:
             provider_configuration = await resolve_provider_configuration(
-                state_root=settings.codex_state_root,
+                runtime=agent_runtime,
                 profile_key=settings.codex_profile_key,
                 model_key=settings.codex_model,
             )
@@ -621,7 +626,7 @@ async def _run(settings: Settings, calendar_id: str) -> dict[str, object]:
                     "gmail_create_evidence": gmail_create_reconciliation.evidence,
                     "gmail_update": True,
                 },
-                "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+                "revisions": dict(EXPECTED_GIT_PINS),
                 "status": "passed",
                 "writes": {
                     "actions": len(_OPERATIONS),
@@ -706,14 +711,14 @@ def main() -> int:
         result = {
             "failure": {"reason": exc.reason, "stage": exc.stage},
             "implementation": _implementation(),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     except BaseException as exc:
         result = {
             "failure": {"reason": type(exc).__name__, "stage": stage},
             "implementation": _implementation(),
-            "revisions": {**EXPECTED_GIT_PINS, **EXPECTED_PACKAGE_VERSIONS},
+            "revisions": EXPECTED_GIT_PINS,
             "status": "failed",
         }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

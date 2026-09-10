@@ -92,6 +92,10 @@ class EffectTarget(BaseModel):
         "thread_id",
         "reply_message_id",
         "target_action_id",
+        "profile",
+        "cwd",
+        "terminal_name",
+        "turn_id",
     ]
     value: str = Field(min_length=1, max_length=4_096)
 
@@ -114,6 +118,7 @@ class OmittedFreeform(BaseModel):
         "location",
         "instruction",
         "expected_content",
+        "worker_input",
     ]
     utf8_bytes: int = Field(ge=0, le=262_144)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -129,6 +134,7 @@ class OmittedFreeform(BaseModel):
             "location",
             "instruction",
             "expected_content",
+            "worker_input",
         ],
         text: str,
     ) -> OmittedFreeform:
@@ -145,7 +151,17 @@ class WriteEffectDescriptor(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    operation: Literal["create", "update", "delete", "cancel", "send"]
+    operation: Literal[
+        "create",
+        "update",
+        "delete",
+        "cancel",
+        "send",
+        "start",
+        "submit",
+        "steer",
+        "interrupt",
+    ]
     targets: Annotated[tuple[EffectTarget, ...], Field(max_length=8)] = ()
     audience: Annotated[tuple[EffectAudience, ...], Field(max_length=150)] = ()
     starts_at: str | None = Field(default=None, min_length=1, max_length=64)

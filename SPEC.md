@@ -883,8 +883,7 @@ fingerprint in private, atomically replaced runtime state outside PostgreSQL.
 The fingerprint covers every session-scoped semantic and containment value,
 including the values listed above and the owner-controlled compatibility
 revision. Changing the manifest's application contract, selected role contract,
-or a dependency pin rotates the revision, except that the one exact atomic
-provider-usage correction pair above uses its certified predecessor values.
+or a dependency pin rotates the revision; schema v3 has no predecessor exception.
 Changing only `qualified_models` does not rotate the revision because the
 selected model is already fingerprinted. Credential secret bytes, current input,
 host time, and per-run subset plans do not rotate the session.

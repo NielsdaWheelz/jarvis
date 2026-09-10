@@ -883,6 +883,9 @@ asynchronously. `Started` means thread, terminal, and native Submit were accepte
 not TUI readiness or worker completion. Pending approvals replay when the TUI
 joins; Jarvis never answers a worker approval. Upstream provides no exclusive
 reviewer lease, so this is a trusted single-user client policy.
+Native creation owns the explicit workspace-write/on-request/user-review policy
+and disabled network access. The host launcher resumes the exact thread without
+permission flags; native remote resume restores its saved policy.
 
 Submit exposes native start-or-steer and returns its accepted turn handle.
 Exact Steer uses the expected turn. Interrupt uses the native App Server

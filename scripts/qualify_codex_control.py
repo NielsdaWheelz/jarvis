@@ -182,11 +182,25 @@ class _CodexWire:
                     for task in done:
                         task.result()
                 finally:
+                    # Stop forwarding before our own close handshake. A drained
+                    # client needs no more replies; upstream-first loss still fails.
+                    cancelled = {
+                        task
+                        for task in tasks
+                        if not task.cancelling() and task.cancel()
+                    }
+                    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                    if any(
+                        isinstance(outcome, BaseException)
+                        and not (
+                            task in cancelled
+                            and isinstance(outcome, asyncio.CancelledError)
+                        )
+                        for task, outcome in zip(tasks, outcomes, strict=True)
+                    ):
+                        self.failed = True
                     await upstream.close()
                     await downstream.close()
-                    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-                    if any(isinstance(outcome, BaseException) for outcome in outcomes):
-                        self.failed = True
         except Exception:
             self.failed = True
             await downstream.close()

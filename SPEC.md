@@ -1111,6 +1111,9 @@ a prompt-free native thread there, unsubscribes the Jarvis control connection,
 creates and observes one ordinary tmux session through the closed host helper,
 then submits the bounded prompt. The stock TUI attaches asynchronously; Started
 does not claim TUI readiness. Jarvis never answers worker-native approvals.
+Native creation sets workspace-write, on-request approval, user review and
+disabled network access. The stock remote TUI restores these saved thread
+permissions; the host launcher supplies no resume-time permission overrides.
 
 `codex.prompt` exposes the native Submit operation, which atomically
 starts or steers and returns the accepted turn handle without distinguishing the

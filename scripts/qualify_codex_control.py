@@ -92,6 +92,7 @@ class _CodexWire:
         self, profile: str, endpoint: Path, downstream: ServerConnection
     ) -> None:
         from websockets.asyncio.client import unix_connect
+        from websockets.exceptions import ConnectionClosedOK
 
         handler = asyncio.current_task()
         assert handler is not None
@@ -152,7 +153,7 @@ class _CodexWire:
                         # must never become a zero-input proof.
                         await upstream.send(frame)
 
-                async def replies() -> None:
+                async def replies() -> bool:
                     nonlocal frames, wire_bytes
                     async for frame in upstream:
                         frames += 1
@@ -182,7 +183,11 @@ class _CodexWire:
                                 if key not in self.created and len(self.created) >= 128:
                                     raise QualificationFailure("native_wire_bound")
                                 self.created.add(key)
-                        await downstream.send(frame)
+                        try:
+                            await downstream.send(frame)
+                        except ConnectionClosedOK:
+                            return True
+                    return False
 
                 tasks = (
                     asyncio.create_task(requests()),
@@ -192,8 +197,14 @@ class _CodexWire:
                     done, _ = await asyncio.wait(
                         tasks, return_when=asyncio.FIRST_COMPLETED
                     )
-                    if tasks[1] in done and tasks[0] not in done:
-                        self.failed = True
+                    if tasks[1] in done:
+                        if tasks[1].result():
+                            # Only a normal downstream close permits draining
+                            # buffered input before closing the upstream link.
+                            async with asyncio.timeout(10):
+                                await tasks[0]
+                        elif tasks[0] not in done:
+                            self.failed = True
                     for task in done:
                         task.result()
                 finally:

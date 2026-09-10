@@ -9,9 +9,15 @@ from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from runpy import run_path
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import pytest
+
+if TYPE_CHECKING:
+    from types import FrameType
+
+    from _typeshed import TraceFunction
 
 QUALIFIER = run_path(
     str(Path(__file__).resolve().parents[1] / "scripts/qualify_codex_control.py")
@@ -119,11 +125,17 @@ async def test_invalid_terminal_identity_fails_before_external_execution() -> No
 
 @pytest.mark.parametrize(
     ("input_method", "disconnect"),
-    [(None, False), ("turn/start", False), ("turn/steer", False), (None, True)],
+    [
+        (None, None),
+        ("turn/start", None),
+        ("turn/steer", None),
+        (None, 1000),
+        (None, 1011),
+    ],
 )
 async def test_native_wire_witness_requires_creation_and_no_input(
     input_method: str | None,
-    disconnect: bool,
+    disconnect: int | None,
 ) -> None:
     from provider_runtime.agent_runtime.codex_app_server import (
         CodexAppServerClient,
@@ -151,7 +163,7 @@ async def test_native_wire_witness_requires_creation_and_no_input(
             await connection.send(json.dumps({"id": request["id"], "result": result}))
             if method == "thread/start" and disconnect:
                 await drop.wait()
-                await connection.close(code=1011)
+                await connection.close(code=disconnect)
                 dropped.set()
                 return
 
@@ -263,6 +275,125 @@ async def test_native_wire_close_without_peer_close_reply_preserves_witness() ->
             assert not wire.failed
             assert all(task.done() for task in wire.handlers)
     assert close_codes == [1000]
+
+
+@pytest.mark.parametrize("queued_input", (False, True))
+async def test_native_notification_after_clean_client_close_drains_requests(
+    queued_input: bool,
+) -> None:
+    from websockets.asyncio.client import unix_connect
+    from websockets.asyncio.connection import Connection
+    from websockets.asyncio.server import ServerConnection, unix_serve
+    from websockets.exceptions import ConnectionClosedOK
+
+    thread = str(uuid4())
+    paused: asyncio.Future[ServerConnection] = (
+        asyncio.get_running_loop().create_future()
+    )
+    release = asyncio.Event()
+    received: list[str] = []
+    observed = asyncio.Event()
+
+    def trace(
+        frame: "FrameType", event: str, argument: object
+    ) -> "TraceFunction | None":
+        if frame.f_code is not Connection.send.__code__ or observed.is_set():
+            return None
+        connection = frame.f_locals.get("self")
+        if (
+            event == "exception"
+            and isinstance(connection, Connection)
+            and connection.local_address == str(wire.endpoints["personal"])
+            and isinstance(
+                cast("tuple[object, BaseException, object]", argument)[1],
+                ConnectionClosedOK,
+            )
+        ):
+            observed.set()
+        return trace
+
+    async def native(connection: ServerConnection) -> None:
+        request = json.loads(await connection.recv())
+        assert request["method"] == "thread/start"
+        await connection.send(
+            json.dumps({"id": request["id"], "result": {"thread": {"id": thread}}})
+        )
+        # External peer backpressure holds one upstream send while the independent
+        # downstream WebSocket completes its normal close handshake.
+        connection.transport.pause_reading()
+        paused.set_result(connection)
+        await release.wait()
+        connection.transport.resume_reading()
+        async for frame in connection:
+            received.append(json.loads(frame)["method"])
+
+    with tempfile.TemporaryDirectory(prefix="codex-reply-close-", dir="/tmp") as raw:
+        root = Path(raw)
+        endpoint = root / "native.sock"
+        async with (
+            asyncio.timeout(15),
+            await unix_serve(
+                native, str(endpoint), max_size=4 * 1024 * 1024, compression=None
+            ),
+            QUALIFIER["_observed_codex"]({"personal": endpoint}, root) as wire,
+        ):
+            async with unix_connect(
+                str(wire.endpoints["personal"]), compression=None
+            ) as client:
+                await client.send(
+                    json.dumps({"id": 1, "method": "thread/start", "params": {}})
+                )
+                await client.recv()
+                peer = await paused
+                await client.send(
+                    json.dumps(
+                        {
+                            "id": 2,
+                            "method": "fixture/backpressure",
+                            "params": {"padding": "x" * (2 * 1024 * 1024)},
+                        }
+                    )
+                )
+                if queued_input:
+                    await client.send(
+                        json.dumps(
+                            {
+                                "id": 3,
+                                "method": "turn/steer",
+                                "params": {"threadId": thread, "input": []},
+                            }
+                        )
+                    )
+                await client.close()
+            previous_trace = sys.gettrace()
+            sys.settrace(trace)
+            try:
+                await peer.send(
+                    json.dumps(
+                        {
+                            "method": "thread/status/changed",
+                            "params": {"threadId": thread, "status": {"type": "idle"}},
+                        }
+                    )
+                )
+                await observed.wait()
+            finally:
+                sys.settrace(previous_trace)
+                release.set()
+            assert observed.is_set()
+            await wire.settled()
+            assert wire.inputs.get(("personal", thread), 0) == int(queued_input)
+            if queued_input:
+                with pytest.raises(
+                    QUALIFIER["QualificationFailure"],
+                    match="collision_native_input_witness",
+                ):
+                    await wire.verify_unprompted("personal", thread)
+            else:
+                await wire.verify_unprompted("personal", thread)
+    assert received == ["fixture/backpressure"] + (
+        ["turn/steer"] if queued_input else []
+    )
 
 
 @pytest.mark.postgres

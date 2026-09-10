@@ -333,7 +333,10 @@ in Slice 0.
       with one executor entry; Partial/Unknown retain the exact surviving prefix,
       and cancellation/restart/original-input reconsideration never redispatches
       an ambiguous effect. Workers run independently without entering the
-      cognition decoder or adding a fifth table.
+      cognition decoder or adding a worker table. A thread-only failure prefix
+      does not promise durable native history. The no-prompt failure proof uses
+      the exact native creation receipt and zero input frames, never a missing
+      history read as evidence of no dispatch.
 
 ## A5. Memory
 

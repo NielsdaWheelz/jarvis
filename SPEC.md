@@ -1122,6 +1122,13 @@ Writes use `ReplayPolicy.BilledOnce`, one executor entry, typed surviving launch
 prefixes, and terminal uncertainty after ambiguous dispatch. No absent status,
 name, cwd, newest thread, or original input permits redispatch.
 
+An observed thread-only prefix is not a durability promise: a newly created
+idle thread may remain unmaterialized until its first user message, and may
+disappear after unsubscription. Missing history proves neither zero dispatch
+nor permission to retry. Qualification observes the exact native creation
+receipt and zero input frames for the failed launch, rather than requiring
+readable empty history.
+
 The Slice 2 Jarvis-owned read result unions are exactly:
 
 | Tool | Declared errors |

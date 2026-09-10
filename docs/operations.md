@@ -273,6 +273,17 @@ overall `NOT_RUN` until the separately owned TUI/manual-input, approval, phone,
 contained-cognition, and lost-submit restart boundaries are observed. A harness
 change or a hermetic test does not count as a live gateway pass.
 
+The duplicate-name failure check observes real native creation and zero input
+frames for that exact new thread through a fixture-only Unix-socket relay.
+The host launcher and stock TUI still use the actual shared endpoint. Empty
+history is not a valid oracle: a newly created idle thread may remain
+unmaterialized until its first user message, and idle unloading can discard it.
+Codex 0.154.0 defines a 60-second default idle-unload grace in its
+[source](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/config/mod.rs#L3829);
+this is not a live timing measurement, Jarvis timer, or future-version guarantee.
+Do not add a synthetic prompt, extend native retention, recreate a missing thread, or retry
+an uncertain launch to manufacture a passing check.
+
 Slice 6 live Gmail send and shared-calendar trials use the exact production
 catalog, action recorder, renderers, handler, connector, recovery path, and a
 dedicated Discord Gateway session while holding the deployment lock. The

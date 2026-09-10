@@ -885,12 +885,15 @@ joins; Jarvis never answers a worker approval. Upstream provides no exclusive
 reviewer lease, so this is a trusted single-user client policy.
 
 Submit exposes native start-or-steer and returns its accepted turn handle.
-Exact Steer uses the expected turn. Interrupt uses the pinned App Server
+Exact Steer uses the expected turn. Interrupt uses the native App Server
 exact-turn precheck and observes Interrupted, natural Finished, Stale, or
 Unknown; it has no stronger core CAS claim. Every mutation is BilledOnce with
 one executor entry. Partial and Unknown outcomes retain exact known prefixes,
 and ambiguous dispatch is never repeated or reconstructed from names, cwd, or
 latest-thread inference.
+An unprompted thread-only prefix records the observed native creation, not
+durable history: native idle unloading may remove it before materialization.
+Neither missing history nor a later missing handle permits replacement work.
 
 Worker execution is independent of the serial cognition/dispatch mutex after
 launch acceptance. Worker events cannot enter the kernel decoder or confer

@@ -7,14 +7,18 @@ import argparse
 import asyncio
 import base64
 import json
+import logging
 import os
 import re
 import shlex
 import stat
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlsplit
@@ -23,6 +27,7 @@ from uuid import UUID, uuid4
 if TYPE_CHECKING:
     from llm_tools import BudgetState, FrozenToolPlan, ToolId
     from pydantic import BaseModel
+    from websockets.asyncio.server import ServerConnection
 
     from jarvis.actions import ActionStore
     from jarvis.codex_control import CodexHostConfig
@@ -44,6 +49,172 @@ _PROMPT = (
 
 class QualificationFailure(RuntimeError):
     """Only a host-owned stage label may enter evidence."""
+
+
+@dataclass
+class _CodexWire:
+    endpoints: dict[str, Path]
+    created: set[tuple[str, str]] = field(default_factory=set[tuple[str, str]])
+    inputs: dict[tuple[str, str], int] = field(
+        default_factory=dict[tuple[str, str], int]
+    )
+    handlers: list[asyncio.Task[None]] = field(default_factory=list[asyncio.Task[None]])
+    failed: bool = False
+
+    async def settled(self) -> None:
+        async with asyncio.timeout(10):
+            await asyncio.gather(*self.handlers)
+        if self.failed:
+            raise QualificationFailure("native_wire_forwarding")
+
+    async def verify_unprompted(self, profile: str, thread: str) -> None:
+        await self.settled()
+        key = (profile, thread)
+        if key not in self.created or self.inputs.get(key, 0) != 0:
+            raise QualificationFailure("collision_native_input_witness")
+
+    async def forward(
+        self, profile: str, endpoint: Path, downstream: ServerConnection
+    ) -> None:
+        from websockets.asyncio.client import unix_connect
+
+        handler = asyncio.current_task()
+        assert handler is not None
+        if len(self.handlers) >= 128:
+            self.failed = True
+            await downstream.close()
+            return
+        self.handlers.append(handler)
+        pending: set[str | int] = set()
+        frames = 0
+        wire_bytes = 0
+        quiet = logging.Logger("qualification.codex_wire", level=logging.CRITICAL + 1)
+        try:
+            async with unix_connect(
+                str(endpoint),
+                uri="ws://localhost",
+                compression=None,
+                proxy=None,
+                max_queue=16,
+                max_size=4 * 1024 * 1024,
+                open_timeout=30,
+                close_timeout=2,
+                logger=quiet,
+            ) as upstream:
+
+                async def requests() -> None:
+                    nonlocal frames, wire_bytes
+                    async for frame in downstream:
+                        frames += 1
+                        wire_bytes += (
+                            len(frame.encode("utf-8"))
+                            if isinstance(frame, str)
+                            else len(frame)
+                        )
+                        if frames > 4096 or wire_bytes > 64 * 1024 * 1024:
+                            raise QualificationFailure("native_wire_bound")
+                        request: dict[str, object] = json.loads(frame)
+                        method = request.get("method")
+                        if method == "thread/start":
+                            request_id = request["id"]
+                            if (
+                                not isinstance(request_id, str | int)
+                                or len(str(request_id)) > 128
+                                or len(pending) >= 32
+                            ):
+                                raise QualificationFailure("native_wire_identity")
+                            pending.add(request_id)
+                        elif method in ("turn/start", "turn/steer"):
+                            params = cast("dict[str, object]", request["params"])
+                            thread = params["threadId"]
+                            if not isinstance(thread, str) or len(thread) > 128:
+                                raise QualificationFailure("native_wire_identity")
+                            key = (profile, thread)
+                            if key not in self.inputs and len(self.inputs) >= 128:
+                                raise QualificationFailure("native_wire_bound")
+                            self.inputs[key] = self.inputs.get(key, 0) + 1
+                        # Count attempts before awaiting send: ambiguous delivery
+                        # must never become a zero-input proof.
+                        await upstream.send(frame)
+
+                async def replies() -> None:
+                    nonlocal frames, wire_bytes
+                    async for frame in upstream:
+                        frames += 1
+                        wire_bytes += (
+                            len(frame.encode("utf-8"))
+                            if isinstance(frame, str)
+                            else len(frame)
+                        )
+                        if frames > 4096 or wire_bytes > 64 * 1024 * 1024:
+                            raise QualificationFailure("native_wire_bound")
+                        response: dict[str, object] = json.loads(frame)
+                        request_id = response.get("id")
+                        if (
+                            "method" not in response
+                            and isinstance(request_id, str | int)
+                            and request_id in pending
+                        ):
+                            pending.remove(request_id)
+                            if "result" in response:
+                                result = cast("dict[str, object]", response["result"])
+                                thread = cast("dict[str, object]", result["thread"])[
+                                    "id"
+                                ]
+                                if not isinstance(thread, str) or len(thread) > 128:
+                                    raise QualificationFailure("native_wire_identity")
+                                key = (profile, thread)
+                                if key not in self.created and len(self.created) >= 128:
+                                    raise QualificationFailure("native_wire_bound")
+                                self.created.add(key)
+                        await downstream.send(frame)
+
+                tasks = (
+                    asyncio.create_task(requests()),
+                    asyncio.create_task(replies()),
+                )
+                try:
+                    done, _ = await asyncio.wait(
+                        tasks, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if tasks[1] in done and tasks[0] not in done:
+                        self.failed = True
+                    for task in done:
+                        task.result()
+                finally:
+                    await upstream.close()
+                    await downstream.close()
+                    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                    if any(isinstance(outcome, BaseException) for outcome in outcomes):
+                        self.failed = True
+        except Exception:
+            self.failed = True
+            await downstream.close()
+
+
+@asynccontextmanager
+async def _observed_codex(
+    endpoints: dict[str, Path], directory: Path
+) -> AsyncIterator[_CodexWire]:
+    from websockets.asyncio.server import unix_serve
+
+    wire = _CodexWire({key: directory / f"wire-{key}.sock" for key in endpoints})
+    quiet = logging.Logger("qualification.codex_wire", level=logging.CRITICAL + 1)
+    async with AsyncExitStack() as stack:
+        for key, endpoint in endpoints.items():
+            await stack.enter_async_context(
+                await unix_serve(
+                    partial(wire.forward, key, endpoint),
+                    str(wire.endpoints[key]),
+                    compression=None,
+                    max_queue=16,
+                    max_size=4 * 1024 * 1024,
+                    close_timeout=2,
+                    logger=quiet,
+                )
+            )
+        yield wire
+    await wire.settled()
 
 
 def _private_file(path: Path, *, confidential: bool = False) -> bytes:
@@ -404,8 +575,13 @@ async def _journey(
                 state_root_base=Path(state), codex_endpoints=host.endpoints
             )
             async with (
+                _observed_codex(host.endpoints, Path(state)) as wire,
                 deployment_ownership(engine) as database,
-                AgentRuntime(config) as runtime,
+                AgentRuntime(
+                    AgentRuntimeConfig(
+                        state_root_base=Path(state), codex_endpoints=wire.endpoints
+                    )
+                ) as runtime,
             ):
                 actions = ActionStore(database)
                 controller = CodexController(
@@ -534,11 +710,9 @@ async def _journey(
                         or collision.prefix.type != "thread"
                     ):
                         raise QualificationFailure("collision_prefix")
-                    unprompted = await read(
-                        "codex.read", CodexReadInput(thread=collision.prefix.thread)
+                    await wire.verify_unprompted(
+                        key, collision.prefix.thread.thread_handle
                     )
-                    if unprompted.get("turn") is not None:
-                        raise QualificationFailure("collision_dispatched_prompt")
                     # Existence is exact tmux evidence, never TUI-ready evidence.
                     target = started.turn.thread
                     native = await read("codex.read", CodexReadInput(thread=target))

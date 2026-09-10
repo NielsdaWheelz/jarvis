@@ -1,9 +1,11 @@
 """Qualification safety and real stored uncertainty; no provider or tmux."""
 
+import asyncio
 import json
 import os
 import sys
 import tempfile
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from runpy import run_path
@@ -98,6 +100,90 @@ def test_gateway_configuration_rejects_nonfixture_routes_and_bad_identity() -> N
 async def test_invalid_terminal_identity_fails_before_external_execution() -> None:
     with pytest.raises(ValueError, match="exact test identity"):
         await QUALIFIER["observe_terminal"]("/absent", "last", NAME)
+
+
+@pytest.mark.parametrize(
+    ("input_method", "disconnect"),
+    [(None, False), ("turn/start", False), ("turn/steer", False), (None, True)],
+)
+async def test_native_wire_witness_requires_creation_and_no_input(
+    input_method: str | None,
+    disconnect: bool,
+) -> None:
+    from provider_runtime.agent_runtime.codex_app_server import (
+        CodexAppServerClient,
+        CodexAppServerConfig,
+    )
+    from websockets.asyncio.server import ServerConnection, unix_serve
+
+    thread = str(uuid4())
+    received: list[str] = []
+    drop = asyncio.Event()
+    dropped = asyncio.Event()
+
+    async def native(connection: ServerConnection) -> None:
+        async for frame in connection:
+            request = json.loads(frame)
+            method = request["method"]
+            if method == "initialized":
+                continue
+            received.append(method)
+            result = (
+                {"userAgent": "synthetic native build"}
+                if method == "initialize"
+                else {"thread": {"id": thread}}
+            )
+            await connection.send(json.dumps({"id": request["id"], "result": result}))
+            if method == "thread/start" and disconnect:
+                await drop.wait()
+                await connection.close(code=1011)
+                dropped.set()
+                return
+
+    expected = (
+        pytest.raises(QUALIFIER["QualificationFailure"], match="native_wire_forwarding")
+        if disconnect
+        else nullcontext()
+    )
+    with (
+        expected,
+        tempfile.TemporaryDirectory(prefix="codex-wire-proof-", dir="/tmp") as raw,
+    ):
+        root = Path(raw)
+        endpoint = root / "native.sock"
+        async with (
+            await unix_serve(native, str(endpoint)),
+            QUALIFIER["_observed_codex"]({"personal": endpoint}, root) as wire,
+        ):
+            with pytest.raises(QUALIFIER["QualificationFailure"]):
+                await wire.verify_unprompted("personal", thread)
+            async with CodexAppServerClient(
+                CodexAppServerConfig(wire.endpoints["personal"])
+            ) as client:
+                await client.thread_start(cwd="/synthetic")
+                if input_method is not None:
+                    await client.request(
+                        input_method, {"threadId": thread, "input": []}
+                    )
+                if disconnect:
+                    drop.set()
+                    await dropped.wait()
+            assert ("personal", thread) in wire.created
+            assert wire.inputs.get(("personal", thread), 0) == (
+                0 if input_method is None else 1
+            )
+            if disconnect:
+                await wire.verify_unprompted("personal", thread)
+            with pytest.raises(QUALIFIER["QualificationFailure"]):
+                await wire.verify_unprompted("work", thread)
+            if input_method is None:
+                await wire.verify_unprompted("personal", thread)
+            else:
+                with pytest.raises(QUALIFIER["QualificationFailure"]):
+                    await wire.verify_unprompted("personal", thread)
+    assert received == ["initialize", "thread/start"] + (
+        [] if input_method is None else [input_method]
+    )
 
 
 @pytest.mark.postgres

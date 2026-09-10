@@ -1252,7 +1252,7 @@ class JarvisService:
             cancellation = CancellationToken()
             async with self._active_lock:
                 self._active_cancellation = cancellation
-                if await self._paused.is_paused():
+                if self._shutdown.is_set() or await self._paused.is_paused():
                     cancellation.cancel()
             if cancellation.cancelled:
                 async with self._active_lock:
@@ -1282,7 +1282,7 @@ class JarvisService:
     async def flush_delivery(self) -> DeliveryFlushResult:
         selected = 0
         delivered = 0
-        while True:
+        while not self._shutdown.is_set():
             result = await flush_pending_deliveries(
                 store=self._store,
                 delivery=self._delivery,
@@ -1305,6 +1305,7 @@ class JarvisService:
                 if delivered:
                     LOGGER.info("Discord delivery completed: count=%d", delivered)
                 return DeliveryFlushResult(selected, delivered, None)
+        return DeliveryFlushResult(selected, delivered, None)
 
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
@@ -1325,11 +1326,17 @@ class JarvisService:
             while not self._shutdown.is_set():
                 await self._work.wait()
                 self._work.clear()
+                if self._shutdown.is_set():
+                    return
                 if self._wake_timer_task is not None and self._wake_timer_task.done():
                     self._wake_timer_task.result()
                     raise RuntimeError("the scheduled-wake timer stopped unexpectedly")
                 await self._drain()
         finally:
+            if self._reset_task is not None:
+                self._reset_task.cancel()
+                await asyncio.gather(self._reset_task, return_exceptions=True)
+                self._reset_task = None
             if self._dream_timer_task is not None:
                 self._dream_timer_task.cancel()
                 await asyncio.gather(
@@ -1340,7 +1347,7 @@ class JarvisService:
             if self._wake_cancellation is not None:
                 self._wake_cancellation.cancel()
             if self._wake_timer_task is not None:
-                await asyncio.gather(self._wake_timer_task, return_exceptions=True)
+                await self._wake_timer_task
                 self._wake_timer_task = None
                 self._wake_cancellation = None
 
@@ -1350,6 +1357,8 @@ class JarvisService:
     def request_shutdown(self) -> None:
         self._shutdown.set()
         self._work.set()
+        if self._active_cancellation is not None:
+            self._active_cancellation.cancel()
         if (
             self._background_cancellation is not None
             and self._active_background is not None
@@ -1364,12 +1373,16 @@ class JarvisService:
 
     async def _drain(self) -> None:
         async with self._execution_mutex:
+            if self._shutdown.is_set():
+                return
             await self.flush_delivery()
             while not self._shutdown.is_set():
                 controls = await self._store.pending_controls(
                     source_conversation_id=str(self._settings.discord.channel_id),
                     limit=1,
                 )
+                if self._shutdown.is_set():
+                    return
                 if controls:
                     pending = controls[0]
                     control = Control(pending.control)
@@ -1407,10 +1420,12 @@ class JarvisService:
                     await self._paused.is_paused()
                     or await self._store.circuit_is_open()
                 )
+                if self._shutdown.is_set():
+                    return
                 recovered_actions = await self._recover_actions(
                     allow_queued_execution=not inactive
                 )
-                if inactive:
+                if inactive or self._shutdown.is_set():
                     return
                 if recovered_actions:
                     continue
@@ -1428,6 +1443,8 @@ class JarvisService:
                         continue
                 cancellation = CancellationToken()
                 async with self._active_lock:
+                    if self._shutdown.is_set():
+                        return
                     self._active_cancellation = cancellation
                 try:
                     async with self._require_gateway().typing():
@@ -1495,7 +1512,7 @@ class JarvisService:
         self,
         worker: BackgroundWorkerPort | None,
     ) -> bool | BackgroundDeferred:
-        if worker is None or self._work.is_set():
+        if worker is None or self._work.is_set() or self._shutdown.is_set():
             return False
         cancellation = CancellationToken()
         async with self._active_lock:
@@ -1523,6 +1540,8 @@ class JarvisService:
             self._work.set()
 
     def _schedule_reset(self, reset_at: datetime) -> None:
+        if self._shutdown.is_set():
+            return
         delay = max(0.0, (reset_at.astimezone(UTC) - datetime.now(UTC)).total_seconds())
 
         async def signal() -> None:

@@ -246,7 +246,62 @@ async def recover_startup_actions(
     return await action_recovery.recover(allow_queued_execution=not inactive)
 
 
+async def run_service(
+    service: JarvisService,
+    gateway: DiscordGateway,
+    token: str,
+    shutdown: asyncio.Event,
+) -> None:
+    """Own worker/Gateway lifetime inside the lifetime of their dependencies."""
+    if shutdown.is_set():
+        return
+    worker = asyncio.create_task(service.run_worker(), name="jarvis-worker")
+
+    async def run_gateway() -> None:
+        await gateway.start(token)
+        if gateway.event_failed:
+            raise RuntimeError("Discord event processing failed")
+
+    gateway_task = asyncio.create_task(run_gateway(), name="jarvis-discord-gateway")
+    stopping = asyncio.create_task(shutdown.wait(), name="jarvis-shutdown-request")
+    try:
+        done, _ = await asyncio.wait(
+            {worker, gateway_task, stopping}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in done:
+            task.result()
+    finally:
+        gateway.stop_ingress()
+        service.request_shutdown()
+        stopping.cancel()  # This task only waits on an Event; it owns no I/O.
+        await asyncio.gather(stopping, return_exceptions=True)
+        results = await asyncio.gather(
+            worker, gateway.drain_callbacks(), return_exceptions=True
+        )
+        try:
+            await gateway.close()
+        finally:
+            await gateway_task
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+
+
 async def serve(settings: Settings, host: CodexHostConfig) -> None:
+    """Translate the Runner's first SIGINT into a cooperative stop request."""
+    shutdown = asyncio.Event()
+    running = asyncio.create_task(_serve(settings, host, shutdown), name="jarvis-owned")
+    try:
+        await asyncio.shield(running)
+    except asyncio.CancelledError:
+        shutdown.set()
+        await running
+        raise
+
+
+async def _serve(
+    settings: Settings, host: CodexHostConfig, shutdown: asyncio.Event
+) -> None:
     """Own the deployment and run the one Discord channel service."""
 
     deny_same_identity_process_inspection()
@@ -254,10 +309,6 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
     engine = create_engine(settings.database_url.get_secret_value())
     agent_runtime = None
     kernel_runtime = None
-    gateway = None
-    service = None
-    worker: asyncio.Task[None] | None = None
-    gateway_task: asyncio.Task[None] | None = None
     try:
         async with deployment_ownership(engine) as database:
             try:
@@ -479,6 +530,8 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         on_due=lambda _: service.request_work(),
                     )
                     service.bind_wake_timer(wake_timer)
+                    if shutdown.is_set():
+                        return
                     recovered_actions = await recover_startup_actions(
                         action_recovery=action_recovery,
                         paused=paused,
@@ -509,40 +562,13 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         ),
                     )
                     service.bind_gateway(gateway)
-                    worker = asyncio.create_task(
-                        service.run_worker(),
-                        name="jarvis-worker",
+                    await run_service(
+                        service,
+                        gateway,
+                        settings.discord.bot_token.get_secret_value(),
+                        shutdown,
                     )
-
-                    async def run_gateway() -> None:
-                        token = settings.discord.bot_token.get_secret_value()
-                        await gateway.start(token)
-                        if gateway.event_failed:
-                            raise RuntimeError("Discord event processing failed")
-
-                    gateway_task = asyncio.create_task(
-                        run_gateway(),
-                        name="jarvis-discord-gateway",
-                    )
-                    done, _ = await asyncio.wait(
-                        {worker, gateway_task},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for task in done:
-                        task.result()
             finally:
-                if service is not None:
-                    service.request_shutdown()
-                if gateway is not None and not gateway.is_closed():
-                    await gateway.close()
-                for task in (gateway_task, worker):
-                    if task is not None and not task.done():
-                        task.cancel()
-                if gateway_task is not None or worker is not None:
-                    await asyncio.gather(
-                        *(task for task in (gateway_task, worker) if task is not None),
-                        return_exceptions=True,
-                    )
                 if kernel_runtime is not None:
                     await kernel_runtime.close()
                 elif agent_runtime is not None:

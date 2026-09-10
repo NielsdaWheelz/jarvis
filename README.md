@@ -109,6 +109,12 @@ deployment, restart recovery, and operator-only release of parked input.
 
 These are accepted knowingly, not overlooked.
 
+- Service shutdown is cooperative: stop new ingress, let admitted operations
+  reach their safe stopping point, drain callbacks/workers, then close clients
+  and release database ownership. Startup/recovery work already underway may
+  delay stopping. A first SIGINT retains exit status 130; the existing 360-second
+  systemd deadline or a second interrupt can force termination and crash recovery.
+  Shutdown does not stop independently running Codex workers or shared servers.
 - Discord is a third-party processor for every conversation, every quoted
   memory, every summarized email, and every approval preview.
 - The complete raw memory corpus and every semantic-search query are disclosed

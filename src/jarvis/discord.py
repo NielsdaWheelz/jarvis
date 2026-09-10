@@ -10,8 +10,8 @@ import base64
 import hashlib
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -426,34 +426,62 @@ class DiscordGateway(discord.Client):
         self._ready_handler = ready_handler
         self._approval_interaction_sink = approval_interaction_sink
         self._event_failed = False
+        self._stopping = False
+        self._active_callbacks = 0
+        self._callbacks_drained = asyncio.Event()
+        self._callbacks_drained.set()
 
     @property
     def event_failed(self) -> bool:
         return self._event_failed
 
-    async def on_ready(self) -> None:
+    def stop_ingress(self) -> None:
+        self._stopping = True
+
+    async def drain_callbacks(self) -> None:
+        """Join admitted handlers without closing the HTTP client they use."""
+        await self._callbacks_drained.wait()
+
+    @contextmanager
+    def _admit_callback(self) -> Iterator[bool]:
+        if self._stopping:
+            yield False
+            return
+        self._active_callbacks += 1
+        self._callbacks_drained.clear()
         try:
+            yield True
+        finally:
+            self._active_callbacks -= 1
+            if self._active_callbacks == 0:
+                self._callbacks_drained.set()
+
+    async def on_ready(self) -> None:
+        with self._admit_callback() as admitted:
+            if not admitted:
+                return
             await self.validate_live_configuration()
             if self._ready_handler is not None:
                 await self._ready_handler()
-        except BaseException:
-            await self.close()
-            raise
 
     async def on_message(self, message: discord.Message) -> None:
-        accepted = owner_message_from_event(message, self._settings)
-        if accepted is not None:
-            await self._owner_message_sink(accepted)
+        with self._admit_callback() as admitted:
+            if not admitted:
+                return
+            accepted = owner_message_from_event(message, self._settings)
+            if accepted is not None:
+                await self._owner_message_sink(accepted)
 
     async def on_interaction(self, interaction: discord.Interaction) -> None:
-        if self._approval_interaction_sink is None:
-            return
-        try:
-            accepted = approval_interaction_from_event(interaction, self._settings)
-        except DiscordInteractionRejected:
-            return
-        if accepted is not None:
-            await self._approval_interaction_sink(interaction, accepted)
+        with self._admit_callback() as admitted:
+            if not admitted or self._approval_interaction_sink is None:
+                return
+            try:
+                accepted = approval_interaction_from_event(interaction, self._settings)
+            except DiscordInteractionRejected:
+                return
+            if accepted is not None:
+                await self._approval_interaction_sink(interaction, accepted)
 
     async def on_error(
         self,

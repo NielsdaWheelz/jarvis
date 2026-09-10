@@ -562,6 +562,16 @@ These criteria are **live** where they call Gmail or Discord.
       claimable without resetting its attempt history. Release is unavailable
       to Discord and every model role, names explicit message IDs, and runs only
       with the service stopped or under the deployment ownership lock.
+- [ ] **A7.13** An isolated first-SIGINT test during startup and an in-flight
+      worker query exits with the existing operator-stop status 130, without
+      invalidating the ownership connection, and a successor acquires its lock.
+      Idle shutdown starts no delivery query. Admission closes for ready,
+      message, and approval callbacks; admitted callbacks drain before client
+      closure. An already-dispatched approved write records its durable result
+      before exit, while an approval waiting for execution remains recoverable
+      without entering its executor. Genuine owner loss still blocks publication.
+      Forced termination at the existing systemd deadline is a recovery case,
+      not a pass for this graceful-shutdown criterion.
 
 ## A8. End-to-end memory scenario
 

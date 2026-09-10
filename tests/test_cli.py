@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import grp
 import json
 import os
 import stat
@@ -10,7 +9,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from pydantic import SecretStr
+from service_fixture import host_config, service_settings
 
 from jarvis.cli import (
     StartupDefect,
@@ -19,58 +18,7 @@ from jarvis.cli import (
     recover_startup_actions,
 )
 from jarvis.codex_control import CodexHostConfig
-from jarvis.config import DiscordSettings
 from jarvis.settings import Settings
-
-
-def _settings(tmp_path: Path) -> Settings:
-    return Settings(
-        database_url=SecretStr("postgresql+psycopg://jarvis:secret@db/jarvis"),
-        discord=DiscordSettings(
-            bot_token=SecretStr("private-token"),
-            owner_user_id=11,
-            guild_id=22,
-            channel_id=33,
-        ),
-        owner_timezone="America/Los_Angeles",
-        codex_profile_key="personal",
-        codex_model="gpt-5.6-terra",
-        codex_host_config_path=tmp_path / "codex-profiles.json",
-        runtime_state_directory=tmp_path / "runtime",
-        google_oauth_state_path=tmp_path / "google.json",
-        google_oauth_client_id=SecretStr("synthetic-google-client"),
-        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
-        verified_owner_only_calendar_ids=("primary",),
-        connector_encryption_key_version="v2",
-        connector_encryption_keys=SecretStr("synthetic-keyring"),
-        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
-        maps_api_key=SecretStr("synthetic-maps-key"),
-        brave_api_key=SecretStr("synthetic-brave-key"),
-        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
-    )
-
-
-def _host(tmp_path: Path) -> CodexHostConfig:
-    return CodexHostConfig.model_validate(
-        {
-            "schema_version": 2,
-            "development_user": "synthetic",
-            "jarvis_user": "jarvis",
-            "client_group": grp.getgrgid(os.getgid()).gr_name,
-            "binary": "/synthetic/codex",
-            "tmux": "/synthetic/tmux",
-            "cognition_cwd_parent": str(tmp_path / "cognition"),
-            "launcher_socket": str(tmp_path / "helper.sock"),
-            "profiles": {
-                profile: {
-                    "account_home": f"/synthetic/{profile}",
-                    "endpoint": f"unix://{tmp_path}/{profile}.sock",
-                    "work_roots": [str(tmp_path)],
-                }
-                for profile in ("personal", "work", "work2")
-            },
-        }
-    )
 
 
 def _create_cognition_parent(host: CodexHostConfig) -> Path:
@@ -83,8 +31,8 @@ def _create_cognition_parent(host: CodexHostConfig) -> Path:
 def test_initialize_state_creates_private_content_free_host_state(
     tmp_path: Path,
 ) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
     cognition = _create_cognition_parent(host)
     initialize_state(settings, host)
 
@@ -103,8 +51,8 @@ def test_initialize_state_creates_private_content_free_host_state(
 
 
 def test_initialize_state_refuses_to_replace_existing_state(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
     _create_cognition_parent(host)
     initialize_state(settings, host)
     with pytest.raises(StartupDefect):
@@ -112,8 +60,8 @@ def test_initialize_state_refuses_to_replace_existing_state(tmp_path: Path) -> N
 
 
 def test_initialize_state_rejects_nonprivate_runtime_directory(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
     _create_cognition_parent(host)
     settings.runtime_state_directory.mkdir(mode=0o755)
     settings.runtime_state_directory.chmod(0o755)
@@ -124,8 +72,8 @@ def test_initialize_state_rejects_nonprivate_runtime_directory(tmp_path: Path) -
 def test_initialize_state_rejects_cognition_parent_without_setgid(
     tmp_path: Path,
 ) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
     Path(host.cognition_cwd_parent).mkdir(mode=0o750)
 
     with pytest.raises(StartupDefect, match="cognition cwd parent"):
@@ -137,8 +85,8 @@ def test_initialize_state_rejects_cognition_parent_without_setgid(
 def test_initialize_state_rejects_wrong_cognition_parent_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
     _create_cognition_parent(host)
 
     def wrong_group(_name: str) -> SimpleNamespace:
@@ -239,8 +187,8 @@ def test_manual_dream_cli_reads_one_host_snapshot_and_reports_only_mutation_coun
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
     host_reads = 0
     created = (UUID(int=1), UUID(int=2))
     removed = (UUID(int=3),)
@@ -276,8 +224,8 @@ def test_rebuild_cli_reports_only_production_corpus_counts(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    settings = _settings(tmp_path)
-    host = _host(tmp_path)
+    settings = service_settings(tmp_path)
+    host = host_config(tmp_path)
 
     async def run(selected: Settings, selected_host: CodexHostConfig) -> object:
         assert selected is settings

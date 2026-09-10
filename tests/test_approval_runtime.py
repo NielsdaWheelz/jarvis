@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 import discord
+import httpx
 import pytest
 import pytest_asyncio
 from llm_agent_kernel import CancellationToken
@@ -31,6 +35,7 @@ from llm_tools import (
     ToolPlan,
     raw_input_digest,
 )
+from service_fixture import LocalGateway, service_settings
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -48,6 +53,7 @@ from jarvis.approval_runtime import (
     ApprovalAwareDiscordDelivery,
     ApprovalRecoveryDisabler,
 )
+from jarvis.cli import run_service
 from jarvis.db import create_engine, message
 from jarvis.discord import (
     ApprovalComponentDecision,
@@ -55,9 +61,12 @@ from jarvis.discord import (
     DeliveryFailureKind,
     DeliverySucceeded,
     DiscordApprovalInteraction,
+    approval_custom_id,
 )
 from jarvis.messages import MessageStore
-from jarvis.service import flush_pending_deliveries
+from jarvis.ownership import deployment_ownership
+from jarvis.service import JarvisService, flush_pending_deliveries
+from jarvis.state import PausedState
 from jarvis.write_connectors import (
     ReconciliationResult,
     gmail_content_digest,
@@ -1616,3 +1625,122 @@ async def test_cross_action_approval_message_relation_cannot_claim_either_action
     assert second_current is not None and second_current.status == "awaiting_approval"
     assert first_current.attempts == second_current.attempts == 0
     assert provider.effects == []
+
+
+@postgres
+async def test_shutdown_drains_approved_write_and_its_durable_result(
+    tmp_path: Path,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    engine = create_engine(os.environ["JARVIS_TEST_DATABASE_URL"])
+    channel_id = int(uuid4().hex[:12], 16)
+    settings = service_settings(tmp_path)
+    settings = settings.model_copy(
+        update={
+            "discord": settings.discord.model_copy(update={"channel_id": channel_id})
+        }
+    )
+    ready: asyncio.Future[tuple[LocalGateway, UUID, asyncio.Task[None]]] = (
+        asyncio.get_running_loop().create_future()
+    )
+
+    async def owned() -> None:
+        async with httpx.AsyncClient() as http:
+
+            class Provider(_Provider):
+                async def gmail_send_draft(
+                    self,
+                    value: GmailSendDraftInput,
+                    effect_id: UUID,
+                    attempts: WriteAttemptBudget,
+                ) -> WriteResponse[GmailSendDraftSuccess]:
+                    entered.set()
+                    await release.wait()
+                    assert not http.is_closed
+                    return await super().gmail_send_draft(value, effect_id, attempts)
+
+            provider = Provider()
+            async with deployment_ownership(engine) as database:
+                store, plan, inserted, _, discord_id = await _insert_approval(
+                    cast(Any, database),
+                    provider=provider,
+                    conversation_id=str(channel_id),
+                )
+                paused_path = tmp_path / "paused.json"
+                PausedState.initialize(paused_path)
+                service = JarvisService(
+                    settings=settings,
+                    store=MessageStore(database),
+                    paused=PausedState(paused_path),
+                    delivery=cast(Any, None),
+                    runner=cast(Any, None),
+                    approval_handler=ApprovalActionHandler(
+                        actions=store, plan=plan, source_conversation_id=str(channel_id)
+                    ),
+                )
+                gateway = LocalGateway(service, settings)
+                event = cast(
+                    discord.Interaction,
+                    SimpleNamespace(
+                        type=discord.InteractionType.component,
+                        data={
+                            "component_type": 2,
+                            "custom_id": approval_custom_id(
+                                inserted.action.id,
+                                inserted.message_id,
+                                ApprovalComponentDecision.APPROVE,
+                            ),
+                        },
+                        user=SimpleNamespace(id=11, bot=False),
+                        guild_id=22,
+                        channel_id=channel_id,
+                        message=SimpleNamespace(id=int(discord_id)),
+                        response=_Response([]),
+                    ),
+                )
+                callback = asyncio.create_task(gateway.on_interaction(event))
+                ready.set_result((gateway, inserted.action.id, callback))
+                await run_service(service, gateway, "synthetic", asyncio.Event())
+
+    host = asyncio.create_task(owned())
+    callback: asyncio.Task[None] | None = None
+    try:
+        gateway, action_id, callback = await asyncio.wait_for(ready, 2)
+        await asyncio.wait_for(entered.wait(), 2)
+        host.cancel()
+        await asyncio.wait_for(gateway.stopped.wait(), 1)
+        try:
+            # The real effect is held until after checking its owners stay alive.
+            done, _ = await asyncio.wait({host}, timeout=0.05)
+            assert not done
+            assert not gateway.closed.is_set()
+        finally:
+            release.set()
+            await callback
+            with pytest.raises(asyncio.CancelledError):
+                await host
+        terminal = await ActionStore(engine).get(action_id)
+        assert terminal is not None and terminal.status == "succeeded"
+        assert terminal.attempts == 1
+        async with engine.connect() as connection:
+            resolutions = (
+                await connection.scalars(
+                    select(message.c.id).where(
+                        message.c.source == "action",
+                        message.c.source_message_id == f"{action_id}:succeeded",
+                    )
+                )
+            ).all()
+        assert len(resolutions) == 1
+        assert gateway.closed.is_set()
+        async with deployment_ownership(engine):
+            pass
+    finally:
+        release.set()
+        if not host.done():
+            host.cancel()
+        await asyncio.gather(host, return_exceptions=True)
+        if callback is not None:
+            await asyncio.gather(callback, return_exceptions=True)
+        await engine.dispose()

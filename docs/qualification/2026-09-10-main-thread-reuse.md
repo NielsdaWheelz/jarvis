@@ -1,8 +1,9 @@
 # Main-thread reuse qualification — 2026-09-10
 
-Status: scoped deterministic and live Codex checks passed. PRs remain open;
-activation is pending the release-policy decisions below. This report is not a
-full provider-registry certification.
+Status: scoped pre-activation qualification passed. On 2026-09-10 the owner
+explicitly approved both release exceptions below. This report is not a full
+provider-registry certification; the final merge identity and deployment outcome
+belong to the release receipt, not this tested-candidate record.
 
 ## Exact candidate
 
@@ -88,18 +89,20 @@ Worker terminal, native history, and canonical rows remain intact. The older
 kernel commentary and obsolete consumer-grammar runs remain historically
 failed; current revision results do not rewrite them.
 
-## Release decisions and remaining work
+## Approved release decisions and activation requirements
 
-- Provider and kernel GitHub CI passed. Jarvis's two CI jobs never started
+- Provider and kernel GitHub CI passed. Jarvis's CI jobs never started
   because of GitHub account billing; their verification result is NOT_RUN.
-  Owner approval to use the full local verifier is pending.
+  The owner approved accepting the recorded full local verifier for this
+  maintenance release only. This does not relabel CI as passed or waive future CI.
 - Provider policy requires the full paid registry and both agent backends
-  before an adapter merge. This run covers only Codex. An explicit scoped
-  maintenance-release exception is pending; no new API-provider or Claude
-  qualification is claimed.
+  before an adapter merge. The owner approved a Codex-only exception for this
+  maintenance release and its exact dependency propagation. No new API-provider
+  or Claude qualification is claimed; the general policy remains unchanged.
 - Genuine quota exhaustion is NOT_RUN; no account was deliberately exhausted.
-- The exact candidate is installed immutably but inactive. Production remains
-  on the prior release. Final merge, release, and activation are not yet done.
+- At qualification, the exact candidate was installed immutably but inactive;
+  production still used the prior release. This pre-activation evidence does
+  not itself claim a completed merge, release, or deployment.
 - Before activation, prove the final tree differs only by reviewed evidence/docs
   from the tested candidate; verify the exact installed receipt and dependencies,
   stop only Jarvis, and inspect old nonterminal actions and deployment ownership.

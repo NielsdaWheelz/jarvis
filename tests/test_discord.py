@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -498,6 +499,56 @@ async def test_gateway_routes_only_valid_approval_component_events() -> None:
     assert owner_messages == []
     assert len(interactions) == 1
     assert cast("tuple[object, object]", interactions[0])[0] is accepted_event
+
+
+@pytest.mark.parametrize("event_kind", ["message", "approval", "ready"])
+async def test_gateway_shutdown_drains_admitted_callbacks_and_rejects_new_ones(
+    event_kind: str,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def sink(*_: object) -> None:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        await release.wait()
+
+    class Gateway(DiscordGateway):
+        async def validate_live_configuration(self) -> None:
+            pass
+
+    gateway = Gateway(
+        _settings(), sink, ready_handler=sink, approval_interaction_sink=sink
+    )
+
+    async def deliver() -> None:
+        if event_kind == "message":
+            await gateway.on_message(_message())
+        elif event_kind == "approval":
+            await gateway.on_interaction(_approval_interaction())
+        else:
+            await gateway.on_ready()
+
+    callback = asyncio.create_task(deliver())
+    drain: asyncio.Task[None] | None = None
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        gateway.stop_ingress()
+        drain = asyncio.create_task(gateway.drain_callbacks())
+        await asyncio.sleep(0)
+        assert not drain.done()
+        await deliver()
+        assert calls == 1
+        release.set()
+        await asyncio.wait_for(drain, 1)
+        await callback
+    finally:
+        release.set()
+        await callback
+        if drain is not None:
+            await drain
 
 
 def test_approval_custom_ids_are_closed_bounded_and_bind_both_rows() -> None:

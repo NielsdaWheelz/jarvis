@@ -2076,6 +2076,20 @@ product-domain code.
 
 ## 11. Operations and quality
 
+- A service's first SIGINT requests cooperative shutdown; it MUST NOT inject
+  task cancellation into ownership-bound database work. Startup work already
+  underway may finish before stopping, but a pending shutdown MUST NOT open
+  Discord ingress or start the worker loop. No new startup action-recovery pass
+  begins after the stop request is observed.
+- Normal shutdown closes ingress admission, signals existing cooperative
+  cancellation, and joins the worker, timers, and admitted Discord callbacks
+  before closing their clients and releasing deployment ownership. In-progress
+  writes retain their existing durable settlement/recovery contract; a claimed
+  approval waiting for execution does not start a new effect during shutdown.
+  Genuine ownership loss and unexpected task failures remain defects.
+- Shutdown has no new application-level timeout around writes. The existing
+  systemd 360-second stop deadline or a repeated operator interrupt may force
+  termination; this requires crash recovery and is not graceful-shutdown success.
 - Secrets remain outside model context, PostgreSQL, fixtures, and ordinary logs.
 - PostgreSQL and private service ports are not publicly exposed.
 - V1 has no backup or restore mechanism. Operations record the accepted risk

@@ -27,9 +27,8 @@ from llm_agent_kernel import (
 )
 from llm_tools import ToolId
 from provider_fixture import decision_key
-from pydantic import SecretStr
+from service_fixture import service_settings
 
-from jarvis.config import DiscordSettings
 from jarvis.discord import (
     ApprovalComponentDecision,
     CatchUpResult,
@@ -50,36 +49,8 @@ from jarvis.service import (
     ThreadRunner,
     flush_pending_deliveries,
 )
-from jarvis.settings import Settings
 from jarvis.state import PausedState
 from jarvis.terminal import TurnEvidence
-
-
-def _settings(tmp_path: Path) -> Settings:
-    return Settings(
-        database_url=SecretStr("postgresql+psycopg://jarvis:secret@db/jarvis"),
-        discord=DiscordSettings(
-            bot_token=SecretStr("private-token"),
-            owner_user_id=11,
-            guild_id=22,
-            channel_id=33,
-        ),
-        owner_timezone="America/Los_Angeles",
-        codex_profile_key="personal",
-        codex_model="gpt-5.6-terra",
-        codex_host_config_path=tmp_path / "codex-profiles.json",
-        runtime_state_directory=tmp_path / "runtime",
-        google_oauth_state_path=tmp_path / "google.json",
-        google_oauth_client_id=SecretStr("synthetic-google-client"),
-        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
-        verified_owner_only_calendar_ids=("primary",),
-        connector_encryption_key_version="v2",
-        connector_encryption_keys=SecretStr("synthetic-keyring"),
-        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
-        maps_api_key=SecretStr("synthetic-maps-key"),
-        brave_api_key=SecretStr("synthetic-brave-key"),
-        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
-    )
 
 
 def _stored(text: str, *, identifier: UUID | None = None) -> StoredMessage:
@@ -424,14 +395,16 @@ class _ApprovalHandler:
         return True
 
 
+@pytest.mark.parametrize("shutdown", [False, True])
 async def test_approval_acknowledgement_precedes_serial_effect_execution(
     tmp_path: Path,
+    shutdown: bool,
 ) -> None:
     paused_path = tmp_path / "paused.json"
     PausedState.initialize(paused_path)
     handler = _ApprovalHandler()
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -452,9 +425,35 @@ async def test_approval_acknowledgement_precedes_serial_effect_execution(
         )
         await asyncio.wait_for(handler.claimed.wait(), timeout=1)
         assert not handler.completed.is_set()
+        if shutdown:
+            service.request_shutdown()
 
     await asyncio.wait_for(task, timeout=1)
-    assert handler.completed.is_set()
+    assert handler.completed.is_set() is not shutdown
+
+
+async def test_shutdown_wakes_idle_worker_without_starting_delivery(
+    tmp_path: Path,
+) -> None:
+    class NoDelivery(_Ingress):
+        async def pending_delivery(
+            self, *, source_conversation_id: str, limit: int
+        ) -> tuple[StoredMessage, ...]:
+            raise AssertionError("shutdown started a new delivery query")
+
+    paused_path = tmp_path / "paused.json"
+    PausedState.initialize(paused_path)
+    service = JarvisService(
+        settings=service_settings(tmp_path),
+        store=cast(IngressStore, NoDelivery()),
+        paused=PausedState(paused_path),
+        delivery=_Delivery([]),
+        runner=cast(ThreadRunner, _Runner()),
+    )
+    worker = asyncio.create_task(service.run_worker())
+    await asyncio.sleep(0)  # Let the worker enter its idle wait.
+    service.request_shutdown()
+    await asyncio.wait_for(worker, timeout=1)
 
 
 class _CancellableApprovalHandler(_ApprovalHandler):
@@ -485,7 +484,7 @@ async def test_pause_cancels_approved_action_before_external_entry(
     paused = PausedState(paused_path)
     handler = _CancellableApprovalHandler()
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=paused,
         delivery=_Delivery([]),
@@ -604,7 +603,7 @@ async def test_pause_after_action_recovers_before_paused_service_returns(
     runner = _PostActionPauseRunner(store)
     recovery = _PostActionRecovery(runner)
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, store),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -654,7 +653,7 @@ async def test_open_circuit_runs_only_reconciliation_recovery(
     PausedState.initialize(paused_path)
     recovery = _RecoveryModeRecorder()
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _CircuitIngress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -675,7 +674,7 @@ async def test_gateway_ready_catches_up_after_canonical_watermark(
     PausedState.initialize(paused_path)
     gateway = _Gateway()
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -694,7 +693,7 @@ async def test_pause_before_claim_cancels_with_multiple_batches_queued(
     PausedState.initialize(paused_path)
     store = _Ingress()
     runner = _PreClaimRunner()
-    settings = _settings(tmp_path).model_copy(update={"maximum_batch_size": 1})
+    settings = service_settings(tmp_path).model_copy(update={"maximum_batch_size": 1})
     service = _InspectableService(
         settings=settings,
         store=cast(IngressStore, store),
@@ -748,7 +747,7 @@ async def test_resume_clears_pause_and_remains_queued_for_ordered_drain(
     store = _Ingress()
     runner = _Runner()
     service = JarvisService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, store),
         paused=paused,
         delivery=_Delivery([]),
@@ -775,7 +774,7 @@ async def test_owner_arrival_cancels_background_without_cancelling_main(
     PausedState.initialize(paused_path)
     background = _BlockingBackground()
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -890,7 +889,7 @@ async def test_background_admission_deferral_schedules_silent_reset(
     sleep = _ControlledSleep()
     reset_at = datetime.now(UTC) + timedelta(minutes=2)
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -914,7 +913,7 @@ async def test_shutdown_waits_for_background_atomic_commit_boundary(
     PausedState.initialize(paused_path)
     background = _BlockingCommitBackground()
     service = _InspectableService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),
@@ -941,7 +940,9 @@ async def test_dream_timer_waits_a_full_interval_before_one_silent_run(
     PausedState.initialize(paused_path)
     dreamer = _RecordingBackground()
     dream_sleep = _OneShotDreamSleep()
-    settings = _settings(tmp_path).model_copy(update={"dream_interval_seconds": 86_400})
+    settings = service_settings(tmp_path).model_copy(
+        update={"dream_interval_seconds": 86_400}
+    )
     service = JarvisService(
         settings=settings,
         store=cast(IngressStore, _Ingress()),
@@ -973,7 +974,7 @@ async def test_restart_does_not_immediately_replay_a_missed_dream(
     dreamer = _RecordingBackground()
     dream_sleep = _OneShotDreamSleep()
     service = JarvisService(
-        settings=_settings(tmp_path),
+        settings=service_settings(tmp_path),
         store=cast(IngressStore, _Ingress()),
         paused=PausedState(paused_path),
         delivery=_Delivery([]),

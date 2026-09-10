@@ -70,18 +70,10 @@ class _Profile(_Closed):
     work_roots: tuple[str, ...] = Field(min_length=1)
 
 
-class _Package(_Closed):
-    name: Literal["@openai/codex"]
-    integrity: str = Field(pattern=r"^sha512-[A-Za-z0-9+/]{86}==$")
-    shasum: str = Field(pattern=r"^[0-9a-f]{40}$")
-
-
 class CodexHostConfig(_Closed):
     """Read-only non-secret host mapping; never credential or worker state."""
 
-    schema_version: Literal[1]
-    version: Literal["0.153.4"]
-    package: _Package
+    schema_version: Literal[2]
     development_user: str
     jarvis_user: str
     client_group: str

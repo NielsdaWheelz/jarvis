@@ -595,7 +595,6 @@ async def _journey(
         "automated_journey": "PASS",
         "profiles": observations,
         "remaining": {name: "NOT_RUN" for name in _UNQUALIFIED},
-        "codex_version": host.version,
         "cleanup": "owned_terminals_only",
         "native_history": "retained",
     }

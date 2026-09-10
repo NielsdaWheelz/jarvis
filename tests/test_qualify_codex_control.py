@@ -161,13 +161,7 @@ async def test_uncertain_write_projects_real_stored_evidence_without_reentry() -
             root = Path(temporary)
             host = CodexHostConfig.model_validate(
                 {
-                    "schema_version": 1,
-                    "version": "0.153.4",
-                    "package": {
-                        "name": "@openai/codex",
-                        "integrity": "sha512-" + "a" * 86 + "==",
-                        "shasum": "a" * 40,
-                    },
+                    "schema_version": 2,
                     "development_user": "synthetic",
                     "jarvis_user": "jarvis",
                     "client_group": "codex-clients",

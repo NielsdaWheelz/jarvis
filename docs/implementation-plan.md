@@ -36,7 +36,7 @@ Deliver:
 - Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
   `llm-tools` that do not touch the user's local worktrees.
 - The active implemented public kernel pin
-  `cc7a2307a1731d2c92ef2da3d3487ddcfa251b6e`, with exact
+  `2c428b3b0802f0c294dff300115779e299f0340d`, with exact
   `provider-runtime` and `llm-tools` dependency pins and deterministic suite
   recorded in the qualification evidence. The signed Slice 0 report preserves
   the earlier qualified revision; ADR 0027 records the compatible Slice 2
@@ -78,7 +78,7 @@ Deliver:
   default is permitted.
 - Live `llm-tools` Brave-search and safe-public-Web-read canaries, including
   private-destination, unsafe-redirect, and credential-egress rejection.
-- Linux qualification of the pinned shared Codex App Server containment request,
+- Linux qualification of the shared Codex App Server containment request,
   `JsonSchemaAgentOutput`, open/stream/close and resume behavior, and fail-stop
   on native tool-use or permission-request events. Prove production consumes
   `stream_turn` and never calls the event-discarding `run_turn` projection.
@@ -424,7 +424,7 @@ Deliver:
   base directories; Jarvis owns releases, credentials, database roles,
   migrations and service lifecycle. Nexus production remains
   untouched.
-- Host configuration that attaches Jarvis only to the pinned shared Codex
+- Host configuration that attaches Jarvis only to the declared shared Codex
   services and never starts a private Codex runtime.
 - Explicit verification that no v1 backup role, credential, timer, or restore
   command exists, with the owner-accepted total-loss trade-off recorded.
@@ -466,7 +466,7 @@ acceptance is `NOT_RUN`.
 
 Deliver:
 
-- Hard-cut managed Codex from private child App Servers to the three pinned
+- Hard-cut managed Codex from private child App Servers to the three declared
   host-owned Unix-socket services without API/account/process fallback.
 - Add exactly five owner-directed Main tools and no scheduled/internal grants,
   worker table, transcript copy, workflow graph, or completion callback.

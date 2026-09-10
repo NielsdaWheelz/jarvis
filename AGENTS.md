@@ -278,5 +278,7 @@ These instructions govern all work in this repository.
   appended mid-loop gets its own. Embedding and tool-only continuations do not
   receive a repeated clock.
 - Every behavioral change needs tests against the relevant acceptance criteria.
-- Dependency and model upgrades are explicit and replay-tested.
+- Library dependency and model upgrades are explicit and replay-tested. Native
+  Codex tracks latest stable through the host installer under ADR 0042; protocol
+  and authority checks remain strict, with no native version admission gate.
 - Avoid abstractions with one caller unless they enforce a stated boundary.

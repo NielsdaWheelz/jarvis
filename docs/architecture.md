@@ -70,8 +70,12 @@ lifecycle, migrations, service definition, and recovery.
 Development and CI workloads share the host but not Jarvis's Unix identity,
 release tree, service lifecycle, or database roles. This accepted v1 coupling
 is bounded with systemd resource controls and disk-headroom checks. The release
-attaches only to the host-owned pinned Codex services and carries no private SDK
+attaches only to the host-owned Codex services and carries no private SDK
 runtime or bundled Codex binary.
+
+Native Codex tracks latest stable through the host installer (ADR 0042), without
+version admission or version-only install-triggered restart. The schema-2 host mapping contains only
+operational configuration; protocol/authority checks and library locks remain strict.
 
 `llm-agent-kernel` is a pinned independent library, not another service or
 state owner. It supplies contained Codex session choreography, strict serial

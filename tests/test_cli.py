@@ -53,13 +53,7 @@ def _settings(tmp_path: Path) -> Settings:
 def _host(tmp_path: Path) -> CodexHostConfig:
     return CodexHostConfig.model_validate(
         {
-            "schema_version": 1,
-            "version": "0.153.4",
-            "package": {
-                "name": "@openai/codex",
-                "integrity": "sha512-" + "a" * 86 + "==",
-                "shasum": "a" * 40,
-            },
+            "schema_version": 2,
             "development_user": "synthetic",
             "jarvis_user": "jarvis",
             "client_group": grp.getgrgid(os.getgid()).gr_name,

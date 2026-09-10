@@ -14,6 +14,8 @@ owner-bound transactions, authenticated catalog selection, and CPython floor.
 control without another table or provider lane. Catalog discovery and cognition
 use the same explicitly configured shared runtime. Schema-v3 session identity
 hard-cuts predecessor compatibility exceptions; canonical records remain intact.
+[ADR 0042](docs/decisions/0042-track-latest-stable-codex.md) replaces native
+Codex pinning with latest-stable installation; library dependencies remain locked.
 
 ## 1. Product definition
 
@@ -869,7 +871,9 @@ it.
   change cold-bootstraps without manually rotating the application session
   contract. Removing the retired, unselected `gpt-5.4` route therefore does not
   invalidate an otherwise compatible `gpt-5.6-terra` session.
-- Upgrades pass recorded replay and containment tests before activation.
+- Library, model and application upgrades pass recorded replay and containment
+  tests before activation. Native Codex follows ADR 0042's latest-stable policy;
+  version admission is not a containment or compatibility proof.
 - Quota exhaustion produces a fixed host-authored notice and no provider change.
 
 The configured Discord channel maps to one continuing main Codex session. The
@@ -1108,9 +1112,9 @@ creates and observes one ordinary tmux session through the closed host helper,
 then submits the bounded prompt. The stock TUI attaches asynchronously; Started
 does not claim TUI readiness. Jarvis never answers worker-native approvals.
 
-`codex.prompt` exposes Codex 0.153.4's native Submit operation, which atomically
+`codex.prompt` exposes the native Submit operation, which atomically
 starts or steers and returns the accepted turn handle without distinguishing the
-two. Explicit Steer includes the expected turn handle. Interrupt uses the pinned
+two. Explicit Steer includes the expected turn handle. Interrupt uses the native
 exact-turn App Server precheck and reports Interrupted, natural Finished, Stale,
 or Unknown; it is never retried or knowingly redirected to an observed
 successor. Strict idle-only NewTurn and a core interrupt CAS are not v1 claims.
@@ -1561,10 +1565,11 @@ produces a truthful host-authored visible failure and never accepts a model
 terminal.
 
 Native Code Mode is contained and detected, not claimed impossible before its
-first observable event. The exact Codex 0.153.4 server/TUI, disabled features,
-no-network/read-only sandbox, empty shared-runtime-traversable cwd, closed event
-classifier, and fail-stop session invalidation are one qualified unit. Protocol
-drift deliberately breaks availability until audited.
+first observable event. Disabled features, no-network/read-only sandbox, empty
+shared-runtime-traversable cwd, closed event classifier, and fail-stop session
+invalidation remain mandatory. Native Codex versions are diagnostic, not an
+admission gate; accepting a newer version does not qualify its containment.
+Protocol drift deliberately breaks availability until audited.
 
 The Linux deployment runs Jarvis as the dedicated unprivileged `jarvis` account
 and the three shared Codex services as the development account. Root-managed
@@ -1655,16 +1660,24 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `cc7a2307a1731d2c92ef2da3d3487ddcfa251b6e`
+  `2c428b3b0802f0c294dff300115779e299f0340d`
 - `llm-calling` / `provider-runtime`:
-  `7d2ddfc53c6b4341c475f0f55259a8751951aa9f`
+  `70e33e99a8c03f0304c9136203c38bade2c5e1cd`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
-The Devbox host pins `@openai/codex@0.153.4` for all three services and stock
-TUI clients. Jarvis and the kernel carry no Python Codex SDK or bundled Codex
-executable; `provider-runtime` declares its WebSocket client directly. A Codex
-pin or wire change requires explicit host, provider-runtime, kernel, and Jarvis
-requalification before activation.
+The existing host installer tracks the latest stable `@openai/codex` for all
+three services and stock TUI clients. It resolves one candidate during explicit
+apply; our launchers add no update lookup or download. Jarvis and the kernel carry no Python
+Codex SDK or bundled executable; `provider-runtime` declares its WebSocket
+client directly. No native version equality gate exists. Actual protocol and
+authority validation stays strict; upstream breakage and operator repair are
+accepted under ADR 0042. Version-only apply does not restart healthy servers;
+planned restart is explicit and may interrupt turns. Normal crash recovery may
+load the newly installed binary. CLI/server parity is not assumed.
+
+The root-owned closed host mapping is schema 2: operational users, group,
+binary, tmux, cognition parent, launcher socket and the three account profiles.
+It contains no version or package pin; schema 1 and unknown fields are rejected.
 
 The checked-in compatibility manifest schema v3 records
 `qualified_models = ["gpt-5.6-terra"]`. Startup accepts only those exact model
@@ -1692,7 +1705,7 @@ The physical deployment uses a dedicated `jarvis` Unix account,
 `/opt/jarvis/releases/<git-commit>` with an atomic `/opt/jarvis/current`
 symlink, durable state under `/var/lib/jarvis`, and root-owned configuration
 mode 0600 under `/etc/jarvis`. The release MUST attach only to the host-declared,
-pinned shared Codex services rather than start or bundle a private runtime. The
+shared Codex services rather than start or bundle a private runtime. The
 `dev-server` repository owns shared host prerequisites and base directories;
 this repository owns releases, configuration, credentials, database roles and
 migrations, and the systemd unit. Co-location grants no access

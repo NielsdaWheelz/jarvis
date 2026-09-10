@@ -332,6 +332,8 @@ Jarvis acts without approval for:
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
 - Creating or cancelling a `schedule.wake`.
+- Owner-directed `codex.start`, `codex.prompt`, and `codex.interrupt`, grounded
+  by `AutomaticWriteGate`; native worker approvals remain human-only.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -1646,9 +1648,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `6c0acdc541b21ef6bb0f4626cd957f0101324573`
+  `9c41123535b7f05bc536f16784765ff1a1736efe`
 - `llm-calling` / `provider-runtime`:
-  `834ea544f1d7437ce2a32b17d4cc813e75a06fa2`
+  `a14432276142872785b19460d4dc4a6d9650c8ff`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The Devbox host pins `@openai/codex@0.153.4` for all three services and stock

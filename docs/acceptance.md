@@ -318,8 +318,9 @@ in Slice 0.
 - [ ] **A4.16** Main exposes exactly `codex.list`, `codex.read`, `codex.start`,
       `codex.prompt`, and `codex.interrupt` in addition to the existing catalog;
       scheduled and internal roles expose none. Inputs reject unknown fields,
-      invalid profiles, out-of-root cwd, shortened handles, stale exact-Steer
-      turns, generic cognition targets, and oversize content before host I/O.
+      invalid profiles, malformed handles, generic cognition targets, and
+      oversize content before host I/O. The host rejects out-of-root cwd before
+      native creation; native exact-Steer rejects stale turns before steering.
       Start first resolves an existing canonical permitted cwd through the
       closed host helper, then creates one prompt-free native thread,
       unsubscribes Jarvis, creates and observes one exact ordinary tmux session,

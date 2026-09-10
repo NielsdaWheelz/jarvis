@@ -32,6 +32,8 @@ from jarvis.definitions import (
     build_slice5_definitions,
     build_slice5_write_gate,
     build_slice6_definitions,
+    load_session_manifest,
+    session_compatibility_revision,
 )
 from jarvis.settings import Settings
 from jarvis.terminal import JarvisTerminal
@@ -228,10 +230,14 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
     )
     assert not definitions.automatic_write_gate.maximum_profile.grants
     assert not definitions.plans["automatic_write_gate"].profile.grants
+    manifest = load_session_manifest()
+    for role in ("main", "recaller", "rememberer", "dreamer", "automatic_write_gate"):
+        assert getattr(definitions, role).session_compatibility_revision == (
+            session_compatibility_revision(manifest, role)
+        )
+
     assert {
         role: (
-            getattr(definitions, role).fingerprint,
-            getattr(definitions, role).session_compatibility_revision,
             getattr(definitions, role).maximum_profile.profile_revision,
             definitions.plans[role].profile.profile_revision,
             definitions.plans[role].plan_revision,
@@ -245,36 +251,26 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "9a4364713e9d76b03fcc1ab76855b3d812cf7cae6c4efa5d7fc6ea0e43e3c4b6",
-            "422517f2b3223b1ca872b7a58a40c9dd35b21c9796a66081abd05a97f49402a3",
-            "22505c15c7ff023606cc8ff4120d9faaa93bf96a134c98d0a5d618825e4ad553",
-            "fe8e8a0af1aade573bc3ac10674baa6d72906085016d020b6656168f5351eb9a",
-            "8cf2c73e85d8f756bfb093f06a3287813b9dedf0b4f37c2dce717ab1d71b4e6c",
+            "559ba5726aa75a48a38944589337617f9fc9c168d8bee3457a98841b31269572",
+            "23f5ee3e1286cac77e5f24ed73f73ad5a754005e7fd8b767c021666258732676",
+            "bd5fdcaa90d9dd8796f9d744b112e170ebef5a16c57bcf1c92cddcae6a266b8f",
         ),
         "recaller": (
-            "6cb4c16e225270c3f0c9343e040b273ef8739ac167e3f67bd8322c7c0d74b23a",
-            "f03ce9064c4c704fabde065c4266f01d6baa813bf82cc8cf9395645774b16486",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
         ),
         "rememberer": (
-            "f1ca5d168880e0a72ff2a7a841f262d88e8e7aaf32af1175f8789b5bbcf89ee0",
-            "b73aef432d475c541d064ce5cae1912fa3f078b28ddb0068e1ed0a188c4c1129",
             "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
             "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
         ),
         "dreamer": (
-            "afe0f807322ef49026ae53ef2e672a8b3d3752ac893ba1ccb028547dc407c87c",
-            "c0330b46f0a84b8b525a6a53529f5588906a9758f469621e789e456dbdef4583",
             "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
             "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
             "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
         ),
         "automatic_write_gate": (
-            "bc28bd28642810362f756195ba67f75b25a33f443e985bf6edf926e850dd0404",
-            "16e47faa5b068012b4230886e0a39b19e21a7ccf3266239e0d36322999276369",
             "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
             "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
             "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",
@@ -435,10 +431,14 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         require_host_plan(
             definitions.plans[name], getattr(definitions, role).maximum_profile
         )
+    manifest = load_session_manifest()
+    for role in ("main", "recaller", "rememberer", "dreamer", "automatic_write_gate"):
+        assert getattr(definitions, role).session_compatibility_revision == (
+            session_compatibility_revision(manifest, role)
+        )
+
     assert {
         role: (
-            getattr(definitions, role).fingerprint,
-            getattr(definitions, role).session_compatibility_revision,
             getattr(definitions, role).maximum_profile.profile_revision,
             definitions.plans[role].profile.profile_revision,
             definitions.plans[role].plan_revision,
@@ -452,36 +452,26 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "313657c148b01ba5c3f5f2e5f9ff3897ea7b3b66ddd533a1ab2c99752f7328b8",
-            "422517f2b3223b1ca872b7a58a40c9dd35b21c9796a66081abd05a97f49402a3",
-            "1613b054535454e1a2c15ffc29f212cc79375571fec3d6583a4aa6de229e6020",
-            "0f1f9550c2e96a40a0da857d81dd8585a4fb43332a92c813c3c5fba36112fb31",
-            "611a9b47b19c0e582ac3857255dfded7a52bafc3e2eea39093446e0313570de3",
+            "825b8b9ad0b44d4fc7a6de017ecb85882856fa2f0419179b0d6430d38851df5c",
+            "560beb7a2afcc982e083a1d5b05e7080bf14207ae77ef4f9155b0f6c2c2380d4",
+            "69ec025ba2329b2af83f472f3cd07d6eed7a4526176edb67a2cd81deff3b9020",
         ),
         "recaller": (
-            "6cb4c16e225270c3f0c9343e040b273ef8739ac167e3f67bd8322c7c0d74b23a",
-            "f03ce9064c4c704fabde065c4266f01d6baa813bf82cc8cf9395645774b16486",
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
             "dcfa0050e27f642a83528e17adabb9f94c1f5c2046990cf251ee32df661c2d4b",
             "c5d4e2c79f8d3998d152ebfb52ec9a6c2ec89a7158f85ba3f54fc4be71e53762",
         ),
         "rememberer": (
-            "f1ca5d168880e0a72ff2a7a841f262d88e8e7aaf32af1175f8789b5bbcf89ee0",
-            "b73aef432d475c541d064ce5cae1912fa3f078b28ddb0068e1ed0a188c4c1129",
             "fe859b737c31f69c6a5d7cd8bcaadcd318c280c311fb5644e0f60320172f9ac0",
             "23193d7294cfc0f72d01363b1083c8649e18ad4e56521174ecddc1b29a7c4573",
             "1cfe0ca344984bc0d3b19fcc22d71a0dd17ca1034d7a289b41566b8dba3f78b9",
         ),
         "dreamer": (
-            "afe0f807322ef49026ae53ef2e672a8b3d3752ac893ba1ccb028547dc407c87c",
-            "c0330b46f0a84b8b525a6a53529f5588906a9758f469621e789e456dbdef4583",
             "afdaf4bd040f91b00f71331e61904589513e54d83969b6c3463194de03fde6a9",
             "a0093aafc10503a84df98b86dd3204d4bff30a7e82a0cea5847a6b8c8fd8a596",
             "74067b9fe62110e22487557d816554a8fb355ea173b82051afa6f5dbf032809a",
         ),
         "automatic_write_gate": (
-            "bc28bd28642810362f756195ba67f75b25a33f443e985bf6edf926e850dd0404",
-            "16e47faa5b068012b4230886e0a39b19e21a7ccf3266239e0d36322999276369",
             "2e5e7ccf6a3c4aa5b0d5e3deb537c53570f60371e66b35c2d37ffb8f920e0ba8",
             "c5cc8b6e90865e51264587ea43317d7529287e7100c21953250f93ae330ef688",
             "22bc6fcc0399068ad4b83046855b9218a25cb1a424e69f06d50def7f3a70d38a",

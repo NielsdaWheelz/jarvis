@@ -223,7 +223,17 @@ environment, and never start a private App Server from a qualifier.
 The shared-control journey is Linux-only and requires a separately prepared,
 root-owned test mapping. Its launcher and gateway must both name one fresh
 `jarvis-codex-qualify-<32-hex>` tmux `-L` wrapper; the launcher socket parent
-must use that same namespace. Use a loopback-only disposable database named
+must use that same namespace. Both launcher and gateway run as the development
+UID; the qualifier runs as the Jarvis UID and observes/cleans terminals only
+through this test gateway. The same `-L` name under different UIDs identifies
+different tmux sockets. Never grant Jarvis sudo or access to production tmux.
+
+Prepare a separate root-owned, group-readable-to-Jarvis, non-world-readable
+gateway JSON file with exactly `url`, `machine_handle`, and `bearer`. These must
+identify the actual isolated gateway: numeric loopback HTTP, an explicit
+non-production port (not `7341`), and fresh fixture identity/credentials. Its
+host config must use the same isolated runner. Do not copy production pairings.
+Use a loopback-only disposable database named
 `jarvis_codex_qualify_*` and an existing permitted development cwd:
 
 ```sh
@@ -233,14 +243,18 @@ JARVIS_CODEX_QUALIFICATION_DATABASE_URL=postgresql+psycopg://...@127.0.0.1/jarvi
     --allow-isolated-tmux-mutation \
     --allow-disposable-database-writes \
     --profile-config /etc/codex-shared-qualification/profiles.json \
+    --gateway-config /etc/codex-shared-qualification/jarvis-codex-qualify-0123456789abcdef0123456789abcdef/gateway.json \
     --tmux-binary /usr/bin/tmux \
     --socket-name jarvis-codex-qualify-0123456789abcdef0123456789abcdef \
     --cwd /home/niels/src/personal/skidbladnir
 ```
 
-The harness cleans only exact terminals it created. It still reports overall
-`NOT_RUN` until the separately owned TUI/manual-input, approval, Skid/phone,
-contained-cognition, and lost-submit restart boundaries are observed.
+The harness observes the real Skid inventory and cleans only exact terminals it
+created, using their captured lifetime tokens. Its real-gateway journey must
+also reject a mismatched token without deleting that terminal. It still reports
+overall `NOT_RUN` until the separately owned TUI/manual-input, approval, phone,
+contained-cognition, and lost-submit restart boundaries are observed. A harness
+change or a hermetic test does not count as a live gateway pass.
 
 Slice 6 live Gmail send and shared-calendar trials use the exact production
 catalog, action recorder, renderers, handler, connector, recovery path, and a

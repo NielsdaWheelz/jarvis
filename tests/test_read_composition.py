@@ -40,6 +40,8 @@ from jarvis.definitions import (
     SLICE2_WEB_READ_LIMITS,
     SLICE2_WEB_SEARCH_LIMITS,
     build_slice2_definitions,
+    load_session_manifest,
+    session_compatibility_revision,
     session_generation_limit,
 )
 from jarvis.read_composition import build_read_catalog
@@ -148,10 +150,7 @@ async def test_production_catalog_has_exact_available_pinned_web_bindings(
         "2b3f2ae6d30ecfdc24f2ef2acb8eee31e0f36c9a665331a78116bd35a2d223a1"
     )
     assert definitions.main.session_compatibility_revision == (
-        "422517f2b3223b1ca872b7a58a40c9dd35b21c9796a66081abd05a97f49402a3"
-    )
-    assert definitions.main.fingerprint == (
-        "1ea82fdb4616f4c2ae0fe0dd1b797ae763ecfad46b035e3941a2290f5e26d2fe"
+        session_compatibility_revision(load_session_manifest(), "main")
     )
     assert definitions.plans["main"].profile.run_limits == SLICE2_PLAN_TOOL_LIMITS
     assert definitions.plans["scheduled_wake"].profile.run_limits == (

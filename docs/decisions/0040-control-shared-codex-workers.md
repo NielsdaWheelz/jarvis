@@ -122,7 +122,11 @@ Hard-cut the private Codex App Server runtime, private Codex-home enrollment,
 server-killing cleanup, and Devbox latest-channel Codex selection. Drain
 incompatible Jarvis actions and private sessions before activation without
 killing existing manual tmux sessions or native history. Pin package, consumers,
-and compatibility records to 0.153.4. Other hosts and Claude remain unchanged.
+and compatibility records to 0.153.4. The subsequently approved host-deployment
+extension in `dev-server/SPEC.md` owns installation on MacBook and Arch too;
+Jarvis control remains Devbox-local and Claude remains unchanged. Human commands
+are transparent account selectors: native shared discovery retains upstream
+exceptions, while Jarvis always uses the explicitly configured shared transport.
 
 ## Trade-offs
 

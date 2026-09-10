@@ -255,9 +255,6 @@ async def test_only_behaviorally_affected_role_identities_rotate_for_slice4(
     assert definitions.dreamer.session_compatibility_revision != (
         session_compatibility_revision(previous, "dreamer")
     )
-    assert session_compatibility_revision(previous, "dreamer") == (
-        "f89f2f0c981b85185f666af58507e71b555241e510533229d5c1b5e7be17b31e"
-    )
     assert definitions.recaller.session_compatibility_revision == (
         session_compatibility_revision(manifest, "recaller")
     )

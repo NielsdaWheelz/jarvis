@@ -186,6 +186,70 @@ async def test_native_wire_witness_requires_creation_and_no_input(
     )
 
 
+async def test_native_wire_close_without_peer_close_reply_preserves_witness() -> None:
+    from provider_runtime.agent_runtime.codex_app_server import (
+        CodexAppServerClient,
+        CodexAppServerConfig,
+    )
+    from websockets.frames import OP_CLOSE, OP_TEXT, Close, Frame
+    from websockets.http11 import Request
+    from websockets.server import ServerProtocol
+
+    thread = str(uuid4())
+    close_codes: list[int] = []
+
+    async def native(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        protocol = ServerProtocol(max_size=4096)
+        try:
+            while data := await reader.read(4096):
+                protocol.receive_data(data)
+                for event in protocol.events_received():
+                    if isinstance(event, Request):
+                        protocol.send_response(protocol.accept(event))
+                    elif isinstance(event, Frame):
+                        if event.opcode == OP_CLOSE:
+                            close_codes.append(Close.parse(event.data).code)
+                            # Match the observed native teardown: close TCP without
+                            # sending the protocol's queued WebSocket close reply.
+                            return
+                        assert event.opcode == OP_TEXT
+                        request = json.loads(bytes(event.data))
+                        if request["method"] == "initialized":
+                            continue
+                        result = (
+                            {"userAgent": "synthetic native build"}
+                            if request["method"] == "initialize"
+                            else {"thread": {"id": thread}}
+                        )
+                        protocol.send_text(
+                            json.dumps({"id": request["id"], "result": result}).encode()
+                        )
+                for output in protocol.data_to_send():
+                    writer.write(output)
+                await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    with tempfile.TemporaryDirectory(prefix="codex-close-proof-", dir="/tmp") as raw:
+        root = Path(raw)
+        endpoint = root / "native.sock"
+        async with (
+            await asyncio.start_unix_server(native, str(endpoint)),
+            QUALIFIER["_observed_codex"]({"personal": endpoint}, root) as wire,
+        ):
+            async with CodexAppServerClient(
+                CodexAppServerConfig(wire.endpoints["personal"])
+            ) as client:
+                await client.thread_start(cwd="/synthetic")
+            await wire.verify_unprompted("personal", thread)
+            assert not wire.failed
+            assert all(task.done() for task in wire.handlers)
+    assert close_codes == [1000]
+
+
 @pytest.mark.postgres
 @pytest.mark.skipif(
     not os.environ.get("JARVIS_TEST_DATABASE_URL"),

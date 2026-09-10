@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 from runpy import run_path
-from types import SimpleNamespace
 
 import pytest
 
@@ -71,33 +70,25 @@ def test_preparation_rejects_wrong_runner_or_non_disposable_database() -> None:
         )
 
 
-@pytest.mark.parametrize("matches", [False, True])
-async def test_cleanup_never_kills_an_unconfirmed_or_different_terminal(
-    tmp_path: Path, matches: bool
-) -> None:
-    # External OS executable fixture: never tmux or an internal launcher mock.
-    runner = tmp_path / "synthetic-terminal-boundary"
-    calls = tmp_path / "calls.jsonl"
-    runner.write_text(
-        f"#!{sys.executable}\n"
-        "import json, sys\n"
-        f"with open({str(calls)!r}, 'a') as out:\n"
-        "    out.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "if sys.argv[1] == 'display-message':\n"
-        f"    print({('$17\t' + NAME) if matches else ('$18\t' + NAME)!r})\n"
-    )
-    runner.chmod(0o700)
-    terminal = SimpleNamespace(tmux_session_id="$17", tmux_name=NAME)
-    assert await QUALIFIER["cleanup_terminals"](str(runner), (terminal,)) is matches
-    recorded = [json.loads(line) for line in calls.read_text().splitlines()]
-    assert recorded[0] == [
-        "display-message",
-        "-p",
-        "-t",
-        "$17",
-        "#{session_id}\t#{session_name}",
-    ]
-    assert recorded[1:] == ([["kill-session", "-t", "$17"]] if matches else [])
+def test_gateway_configuration_rejects_nonfixture_routes_and_bad_identity() -> None:
+    valid = {
+        "url": "http://127.0.0.1:17341",
+        "machine_handle": "mh-" + "b" * 32,
+        "bearer": "A" * 43,
+    }
+    QUALIFIER["Gateway"](json.dumps(valid).encode())
+    for change in (
+        {"url": "http://127.0.0.1:7341"},
+        {"url": "https://production.invalid:17341"},
+        {"url": "http://localhost:17341"},
+        {"url": "http://127.0.0.1:17341/path"},
+        {"url": "http://user@127.0.0.1:17341"},
+        {"machine_handle": "default"},
+        {"bearer": "not a bearer"},
+        {"unexpected": True},
+    ):
+        with pytest.raises(ValueError):
+            QUALIFIER["Gateway"](json.dumps(valid | change).encode())
 
 
 async def test_invalid_terminal_identity_fails_before_external_execution() -> None:

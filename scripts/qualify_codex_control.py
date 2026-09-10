@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import os
 import re
@@ -31,7 +32,7 @@ PROFILES = ("personal", "work", "work2")
 _UNQUALIFIED = (
     "tui_attachment_and_manual_input",
     "pending_approval_replay_and_single_response",
-    "skid_inventory_and_phone_attachment",
+    "phone_attachment",
     "contained_cognition_coexistence",
     "lost_submit_and_original_input_restart",
 )
@@ -45,13 +46,14 @@ class QualificationFailure(RuntimeError):
     """Only a host-owned stage label may enter evidence."""
 
 
-def _private_file(path: Path) -> bytes:
+def _private_file(path: Path, *, confidential: bool = False) -> bytes:
     with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
         metadata = os.fstat(stream.fileno())
         if (
             not stat.S_ISREG(metadata.st_mode)
             or metadata.st_uid != 0
             or metadata.st_mode & 0o022
+            or (confidential and metadata.st_mode & 0o007)
         ):
             raise ValueError("qualification preparation must be root-owned")
         content = stream.read(65537)
@@ -99,61 +101,130 @@ def validate_preparation(
         raise ValueError("qualification requires an explicitly disposable database")
 
 
-async def _tmux(runner: str, *arguments: str) -> tuple[int, bytes]:
-    # Every caller uses the previously verified -L wrapper. No default server,
-    # terminal capture, send-keys, shell command, or provider process is launched here.
-    child = await asyncio.create_subprocess_exec(
-        runner,
-        *arguments,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-        env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TERM": "xterm"},
-    )
-    try:
-        async with asyncio.timeout(5):
-            assert child.stdout is not None
-            output = await child.stdout.read(65537)
-            if len(output) > 65536:
-                raise QualificationFailure("terminal_output_bound")
-            return await child.wait(), output
-    except BaseException:
-        if child.returncode is None:
-            child.kill()  # Only this invocation's tmux client, never its server.
-        await child.wait()
-        raise
+class Gateway:
+    """Fixture-only Skid boundary; no direct cross-UID tmux authority."""
+
+    def __init__(self, encoded: bytes) -> None:
+        decoded: object = json.loads(encoded)
+        if not isinstance(decoded, dict):
+            raise ValueError("invalid fixture gateway configuration")
+        fields = cast("dict[str, object]", decoded)
+        if set(fields) != {"url", "machine_handle", "bearer"} or any(
+            not isinstance(value, str) for value in fields.values()
+        ):
+            raise ValueError("invalid fixture gateway configuration")
+        config = cast("dict[str, str]", fields)
+        url = urlsplit(config["url"])
+        if (
+            url.scheme != "http"
+            or url.hostname not in ("127.0.0.1", "::1")
+            or url.port is None
+            or not 1024 <= url.port <= 65535
+            or url.port == 7341
+            or url.path
+            or url.query
+            or url.fragment
+            or url.username is not None
+            or url.password is not None
+            or not re.fullmatch(r"mh-[0-9a-f]{32}", config["machine_handle"])
+            or not re.fullmatch(r"[A-Za-z0-9_-]{43}", config["bearer"])
+        ):
+            raise ValueError("invalid fixture gateway endpoint or identity")
+        bearer = config["bearer"]
+        if (
+            base64.urlsafe_b64encode(base64.urlsafe_b64decode(bearer + "="))
+            .decode()
+            .rstrip("=")
+            != bearer
+        ):
+            raise ValueError("noncanonical fixture bearer")
+        self.url = config["url"]
+        self.machine = config["machine_handle"]
+        self.headers = {
+            "Authorization": "Bearer " + bearer,
+            "Skidbladnir-Machine": self.machine,
+        }
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        expected_status: int,
+        body: dict[str, str] | None = None,
+    ) -> bytes:
+        import httpx
+
+        async with (
+            asyncio.timeout(5),
+            httpx.AsyncClient(timeout=5, trust_env=False) as client,
+        ):
+            async with client.stream(
+                method, self.url + path, headers=self.headers, json=body
+            ) as response:
+                if response.status_code != expected_status:
+                    raise QualificationFailure("gateway_request")
+                output = bytearray()
+                async for chunk in response.aiter_bytes():
+                    output.extend(chunk)
+                    if len(output) > 65_536:
+                        raise QualificationFailure("gateway_observation_bound")
+                return bytes(output)
+
+    async def sessions(self) -> list[dict[str, object]]:
+        decoded: object = json.loads(await self.request("GET", "/v1/sessions", 200))
+        if not isinstance(decoded, dict):
+            raise QualificationFailure("gateway_inventory")
+        value = cast("dict[str, object]", decoded)
+        if value.get("machine") != {
+            "handle": self.machine,
+            "platform": "linux",
+        } or not isinstance(value.get("sessions"), list):
+            raise QualificationFailure("gateway_inventory")
+        rows: list[dict[str, object]] = []
+        for item in cast("list[object]", value["sessions"]):
+            if not isinstance(item, dict):
+                raise QualificationFailure("gateway_session_identity")
+            row = cast("dict[str, object]", item)
+            if any(
+                not isinstance(row.get(key), str) or not row[key]
+                for key in ("tmuxId", "tmuxName", "identityToken")
+            ):
+                raise QualificationFailure("gateway_session_identity")
+            rows.append(row)
+        if len({row["tmuxId"] for row in rows}) != len(rows):
+            raise QualificationFailure("gateway_session_identity")
+        return rows
 
 
-async def observe_terminal(runner: str, session_id: str, name: str) -> bool:
+async def observe_terminal(gateway: Gateway, session_id: str, name: str) -> str | None:
     if not re.fullmatch(r"\$[0-9]+", session_id) or not re.fullmatch(
         r"jarvis-qualify-[0-9a-f]{32}-(?:personal|work|work2)", name
     ):
         raise ValueError("terminal observation requires an exact test identity")
-    status, output = await _tmux(
-        runner,
-        "display-message",
-        "-p",
-        "-t",
-        session_id,
-        "#{session_id}\t#{session_name}",
-    )
-    return status == 0 and output == f"{session_id}\t{name}\n".encode()
+    for row in await gateway.sessions():
+        if row["tmuxId"] == session_id and row["tmuxName"] == name:
+            return cast("str", row["identityToken"])
+    return None
 
 
-async def cleanup_terminals(runner: str, terminals: Sequence[CodexTerminal]) -> bool:
+async def cleanup_terminals(
+    gateway: Gateway, terminals: Sequence[tuple[CodexTerminal, str | None]]
+) -> bool:
     complete = True
-    for terminal in terminals:
+    for terminal, token in terminals:
         try:
-            if not await observe_terminal(
-                runner, terminal.tmux_session_id, terminal.tmux_name
+            if token is None or token != await observe_terminal(
+                gateway, terminal.tmux_session_id, terminal.tmux_name
             ):
                 complete = False
                 continue
-            status, _ = await _tmux(
-                runner, "kill-session", "-t", terminal.tmux_session_id
+            await gateway.request(
+                "DELETE",
+                f"/v1/sessions/{terminal.tmux_session_id}",
+                204,
+                {"tmuxName": terminal.tmux_name, "identityToken": token},
             )
-            complete = complete and status == 0
-        except (OSError, TimeoutError, QualificationFailure):
+        except Exception:
             complete = False
     return complete
 
@@ -277,7 +348,7 @@ async def _write(
 
 
 async def _journey(
-    host: CodexHostConfig, args: argparse.Namespace, database_url: str
+    host: CodexHostConfig, args: argparse.Namespace, database_url: str, gateway: Gateway
 ) -> dict[str, object]:
     from llm_agent_kernel import (
         CancellationToken,
@@ -318,11 +389,10 @@ async def _journey(
     from jarvis.messages import MessageStore
     from jarvis.read_dispatch import ReadToolDispatcher
 
-    status, output = await _tmux(host.tmux, "list-sessions", "-F", "#{session_id}")
-    if status not in (0, 1) or output:
+    if await gateway.sessions():
         raise QualificationFailure("isolated_socket_not_empty")
     engine = create_engine(database_url)
-    terminals: list[CodexTerminal] = []
+    terminals: list[tuple[CodexTerminal, str | None]] = []
     observations: dict[str, dict[str, str]] = {}
     clean = False
     try:
@@ -403,7 +473,38 @@ async def _journey(
                             ),
                         )
                     )
-                    terminals.append(started.terminal)
+                    terminals.append((started.terminal, None))
+                    token = await observe_terminal(
+                        gateway,
+                        started.terminal.tmux_session_id,
+                        started.terminal.tmux_name,
+                    )
+                    terminals[-1] = (started.terminal, token)
+                    if started.turn.thread.profile != key or token is None:
+                        raise QualificationFailure("terminal_identity")
+                    # The real Skid boundary must reject another opaque token
+                    # without mutating this exact newly-created terminal.
+                    mismatched = token[:-1] + ("0" if token[-1] != "0" else "1")
+                    rejected = json.loads(
+                        await gateway.request(
+                            "DELETE",
+                            f"/v1/sessions/{started.terminal.tmux_session_id}",
+                            409,
+                            {
+                                "tmuxName": started.terminal.tmux_name,
+                                "identityToken": mismatched,
+                            },
+                        )
+                    )
+                    if rejected != {
+                        "code": "SessionIdentityMismatch",
+                        "message": "The session changed. Refresh and try again.",
+                    } or token != await observe_terminal(
+                        gateway,
+                        started.terminal.tmux_session_id,
+                        started.terminal.tmux_name,
+                    ):
+                        raise QualificationFailure("gateway_mismatched_identity")
                     ordinal += 1
                     collision = CodexUnknown.model_validate(
                         await _write(
@@ -432,12 +533,6 @@ async def _journey(
                     )
                     if unprompted.get("turn") is not None:
                         raise QualificationFailure("collision_dispatched_prompt")
-                    if started.turn.thread.profile != key or not await observe_terminal(
-                        host.tmux,
-                        started.terminal.tmux_session_id,
-                        started.terminal.tmux_name,
-                    ):
-                        raise QualificationFailure("terminal_identity")
                     # Existence is exact tmux evidence, never TUI-ready evidence.
                     target = started.turn.thread
                     native = await read("codex.read", CodexReadInput(thread=target))
@@ -465,8 +560,10 @@ async def _journey(
                         "same_action_replay_without_reentry": "PASS",
                         "post_create_unknown_without_prompt": "PASS",
                         "exact_terminal_observed": "PASS",
+                        "skid_inventory": "PASS",
+                        "skid_mismatched_identity_refused": "PASS",
                     }
-                clean = await cleanup_terminals(host.tmux, terminals)
+                clean = await cleanup_terminals(gateway, terminals)
                 terminals.clear()  # Cleanup never repeats a failed kill request.
             # Reconnect after every owned client/TUI exits; no replacement server.
             async with AgentRuntime(config) as reopened:
@@ -483,7 +580,7 @@ async def _journey(
                     ] = "PASS"
     finally:
         if terminals:
-            clean = await cleanup_terminals(host.tmux, terminals)
+            clean = await cleanup_terminals(gateway, terminals)
         await engine.dispose()
     if not clean:
         raise QualificationFailure("owned_terminal_cleanup_unconfirmed")
@@ -510,6 +607,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--tmux-binary", type=Path, default=Path("/usr/bin/tmux"))
     parser.add_argument("--socket-name")
     parser.add_argument("--cwd")
+    parser.add_argument("--gateway-config", type=Path)
     args = parser.parse_args(argv)
     if not all(
         (
@@ -522,13 +620,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     try:
         if sys.platform != "linux" or not all(
-            (args.profile_config, args.socket_name, args.cwd)
+            (args.profile_config, args.socket_name, args.cwd, args.gateway_config)
         ):
             raise ValueError("prepared Linux deployment is required")
         database_url = os.environ["JARVIS_CODEX_QUALIFICATION_DATABASE_URL"]
         from jarvis.codex_control import CodexHostConfig
 
         host = CodexHostConfig.load(args.profile_config)
+        if args.gateway_config.parent.name != args.socket_name:
+            raise ValueError("gateway configuration must identify isolated preparation")
+        gateway = Gateway(_private_file(args.gateway_config, confidential=True))
         validate_preparation(
             runner=_private_file(Path(host.tmux)),
             tmux=args.tmux_binary,
@@ -551,7 +652,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     try:
-        result = asyncio.run(_journey(host, args, database_url))
+        result = asyncio.run(_journey(host, args, database_url, gateway))
     except Exception:
         # No exception text, endpoint, database URL, account data, prompt, or
         # native answer enters ordinary evidence, even on an unexpected defect.

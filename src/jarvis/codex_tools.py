@@ -382,7 +382,7 @@ def codex_family(controller: CodexController) -> ToolFamily:
             replay_policy=ReplayPolicy.BilledOnce
             if spec.effect is ToolEffect.Write
             else ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-codex-control-v1",
+            implementation_revision="jarvis-codex-control-v2",
             policy_epoch=PolicyEpoch("jarvis-codex-control-v1"),
             policy_inputs={
                 "host_mapping_fingerprint": controller.policy_fingerprint,

@@ -47,7 +47,10 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import httpx
-from llm_agent_kernel import CancellationToken, require_host_plan
+from llm_agent_kernel import (
+    CancellationToken,
+    require_host_plan,
+)
 from llm_tools import (
     EffectId,
     ExecutionContext,
@@ -79,7 +82,15 @@ from jarvis.approval_runtime import (
 )
 from jarvis.codex_control import CodexController
 from jarvis.connectors import GoogleTokenManager
-from jarvis.db import action, create_engine, memory_log, memory_summary, message
+from jarvis.db import (
+    action,
+    create_engine,
+    memory_log,
+    memory_summary,
+    message,
+    model_decision,
+    read_position,
+)
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     build_slice5_write_gate,
@@ -97,7 +108,7 @@ from jarvis.discord import (
     DiscordOwnerMessage,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import build_agent_runtime
+from jarvis.kernel import build_agent_runtime, resolve_provider_configuration
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
@@ -577,14 +588,21 @@ def validate_result_evidence(result: dict[str, object]) -> None:
 async def _require_empty_database(engine: Any) -> None:
     async with engine.connect() as connection:
         counts: list[int] = []
-        for table in (message, memory_log, memory_summary, action):
+        for table in (
+            message,
+            memory_log,
+            memory_summary,
+            action,
+            model_decision,
+            read_position,
+        ):
             counts.append(
                 cast(
                     int,
                     await connection.scalar(select(func.count()).select_from(table)),
                 )
             )
-    if counts != [0, 0, 0, 0]:
+    if any(counts):
         raise ValueError("live approval qualification database must be empty")
 
 
@@ -1179,68 +1197,76 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
         raise QualificationFailure("setup", "unexpected_model_route")
     if arguments.calendar_id in settings.verified_owner_only_calendar_ids:
         raise QualificationFailure("setup", "calendar_does_not_require_approval")
-    engine = create_engine(settings.database_url.get_secret_value())
-    await _require_empty_database(engine)
-    artifacts = Artifacts()
-    result: dict[str, object] | None = None
-    primary_error: BaseException | None = None
-    composition: Slice6Composition | None = None
-    actions: ActionStore | None = None
-    messages: MessageStore | None = None
-    session: LiveApprovalSession | None = None
-    plan: Any | None = None
-    gateway: DiscordGateway | None = None
-    gateway_task: asyncio.Task[None] | None = None
-    cleanup_google_complete = False
-    cleanup_discord_complete = False
-    manual_gmail_complete = False
-    async with AsyncExitStack() as clients:
-        host = settings.codex_host_config
-        agent_runtime = build_agent_runtime(
-            provider_state_root=settings.runtime_state_directory,
-            codex_endpoints=host.endpoints,
+    raw_engine = create_engine(settings.database_url.get_secret_value())
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
         )
-        clients.push_async_callback(agent_runtime.close)
-        oauth_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        transport = LostAcceptedSendTransport(httpx.AsyncHTTPTransport())
-        google_http = await clients.enter_async_context(
-            httpx.AsyncClient(
-                transport=transport,
-                trust_env=False,
-                follow_redirects=False,
+        await _require_empty_database(engine)
+        artifacts = Artifacts()
+        result: dict[str, object] | None = None
+        primary_error: BaseException | None = None
+        composition: Slice6Composition | None = None
+        actions: ActionStore | None = None
+        messages: MessageStore | None = None
+        session: LiveApprovalSession | None = None
+        plan: Any | None = None
+        gateway: DiscordGateway | None = None
+        gateway_task: asyncio.Task[None] | None = None
+        cleanup_google_complete = False
+        cleanup_discord_complete = False
+        manual_gmail_complete = False
+        async with AsyncExitStack() as clients:
+            host = settings.codex_host_config
+            agent_runtime = build_agent_runtime(
+                provider_state_root=settings.runtime_state_directory,
+                codex_endpoints=host.endpoints,
             )
-        )
-        maps_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        brave_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        embedding_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        discord_http = await clients.enter_async_context(
-            httpx.AsyncClient(trust_env=False, follow_redirects=False)
-        )
-        tokens = GoogleTokenManager(
-            state_path=settings.google_oauth_state_path,
-            client=oauth_http,
-            client_id=settings.google_oauth_client_id.get_secret_value(),
-            client_secret=settings.google_oauth_client_secret.get_secret_value(),
-            active_key_version=settings.connector_encryption_key_version,
-            configured_keys=settings.connector_encryption_keys.get_secret_value(),
-            single_secret=settings.connector_encryption_secret.get_secret_value(),
-        )
-        discord = DiscordCreateMessageClient(settings.discord, discord_http)
-        try:
-            async with deployment_ownership(engine):
+            clients.push_async_callback(agent_runtime.close)
+            oauth_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            transport = LostAcceptedSendTransport(httpx.AsyncHTTPTransport())
+            google_http = await clients.enter_async_context(
+                httpx.AsyncClient(
+                    transport=transport,
+                    trust_env=False,
+                    follow_redirects=False,
+                )
+            )
+            maps_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            brave_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            embedding_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            discord_http = await clients.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
+            tokens = GoogleTokenManager(
+                state_path=settings.google_oauth_state_path,
+                client=oauth_http,
+                client_id=settings.google_oauth_client_id.get_secret_value(),
+                client_secret=settings.google_oauth_client_secret.get_secret_value(),
+                active_key_version=settings.connector_encryption_key_version,
+                configured_keys=settings.connector_encryption_keys.get_secret_value(),
+                single_secret=settings.connector_encryption_secret.get_secret_value(),
+            )
+            discord = DiscordCreateMessageClient(settings.discord, discord_http)
+            try:
                 actions = ActionStore(engine)
                 messages = MessageStore(engine)
-                gate, _ = build_slice5_write_gate(
+                provider_configuration = await resolve_provider_configuration(
+                    runtime=agent_runtime,
                     profile_key=settings.codex_profile_key,
-                    model=settings.codex_model,
+                    model_key=settings.codex_model,
+                )
+                gate, _ = build_slice5_write_gate(
+                    provider=provider_configuration,
                 )
                 composition = build_slice6_composition(
                     settings=settings,
@@ -1263,8 +1289,7 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                 )
                 definitions = build_slice6_definitions(
                     catalog=composition.catalog,
-                    profile_key=settings.codex_profile_key,
-                    model=settings.codex_model,
+                    provider=provider_configuration,
                     owner_timezone=settings.owner_timezone,
                 )
                 plan = definitions.plans["main"]
@@ -1758,19 +1783,18 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                     },
                     "status": "passed",
                 }
-        except BaseException as error:
-            primary_error = error
-        finally:
-            cleanup_errors: list[BaseException] = []
-            if (
-                composition is not None
-                and actions is not None
-                and messages is not None
-                and session is not None
-                and plan is not None
-            ):
-                try:
-                    async with deployment_ownership(engine):
+            except BaseException as error:
+                primary_error = error
+            finally:
+                cleanup_errors: list[BaseException] = []
+                if (
+                    composition is not None
+                    and actions is not None
+                    and messages is not None
+                    and session is not None
+                    and plan is not None
+                ):
+                    try:
                         await ActionRecovery(
                             actions=actions,
                             google_write=composition.google_write,
@@ -1794,85 +1818,84 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                             calendar_id=arguments.calendar_id,
                             conversation_id=str(settings.discord.channel_id),
                         )
-                except BaseException as cleanup_error:
-                    cleanup_errors.append(cleanup_error)
-            else:
+                    except BaseException as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
+                else:
+                    try:
+                        await _collect_durable_artifacts(engine, artifacts)
+                    except BaseException as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
                 try:
-                    await _collect_durable_artifacts(engine, artifacts)
-                except BaseException as cleanup_error:
-                    cleanup_errors.append(cleanup_error)
-            try:
-                await _delete_drafts(
-                    google_http,
-                    tokens,
-                    artifacts,
-                )
-                if artifacts.calendar_event_ids:
-                    raise QualificationFailure(
-                        "cleanup", "calendar_owner_approved_cleanup_incomplete"
-                    )
-                cleanup_google_complete = True
-            except BaseException as cleanup_error:
-                cleanup_errors.append(cleanup_error)
-            if artifacts.gmail_sent_message_ids or artifacts.gmail_sent_thread_ids:
-                try:
-                    await _post_cleanup_instruction(discord, artifacts)
-                except BaseException as cleanup_error:
-                    cleanup_errors.append(cleanup_error)
-                try:
-                    await _wait_for_sent_cleanup(
+                    await _delete_drafts(
                         google_http,
                         tokens,
                         artifacts,
-                        arguments.cleanup_wait_seconds,
                     )
-                    manual_gmail_complete = True
+                    if artifacts.calendar_event_ids:
+                        raise QualificationFailure(
+                            "cleanup", "calendar_owner_approved_cleanup_incomplete"
+                        )
+                    cleanup_google_complete = True
                 except BaseException as cleanup_error:
                     cleanup_errors.append(cleanup_error)
-            else:
-                manual_gmail_complete = True
-            if gateway is not None:
-                await gateway.close()
-            if gateway_task is not None:
-                await asyncio.gather(gateway_task, return_exceptions=True)
-            try:
-                await _cleanup_discord(discord_http, settings, artifacts)
-                cleanup_discord_complete = True
-            except BaseException as cleanup_error:
-                cleanup_errors.append(cleanup_error)
-            if cleanup_errors:
-                primary_error = cleanup_errors[0]
-    await engine.dispose()
-    if primary_error is not None:
-        if isinstance(primary_error, QualificationFailure):
-            raise primary_error
-        raise QualificationFailure("run", "unexpected_exception") from None
-    if result is None:
-        raise QualificationFailure("run", "result_missing")
-    cleanup = cast("dict[str, object]", result["cleanup"])
-    cleanup.update(
-        {
-            "calendar": cleanup_google_complete,
-            "discord": cleanup_discord_complete,
-            "gmail_drafts": cleanup_google_complete,
-            "gmail_sent": manual_gmail_complete,
-        }
-    )
-    validate_result_evidence(result)
-    assert_sanitized_output(
-        result,
-        (
-            *settings.host_secrets,
-            arguments.recipient,
-            arguments.calendar_id,
-            *(str(value) for value in artifacts.gmail_draft_ids),
-            *(str(value) for value in artifacts.gmail_sent_message_ids),
-            *(str(value) for value in artifacts.gmail_sent_thread_ids),
-            *(str(value) for value in artifacts.calendar_event_ids),
-            *(str(value) for value in artifacts.discord_message_ids),
-        ),
-    )
-    return result
+                if artifacts.gmail_sent_message_ids or artifacts.gmail_sent_thread_ids:
+                    try:
+                        await _post_cleanup_instruction(discord, artifacts)
+                    except BaseException as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
+                    try:
+                        await _wait_for_sent_cleanup(
+                            google_http,
+                            tokens,
+                            artifacts,
+                            arguments.cleanup_wait_seconds,
+                        )
+                        manual_gmail_complete = True
+                    except BaseException as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
+                else:
+                    manual_gmail_complete = True
+                if gateway is not None:
+                    await gateway.close()
+                if gateway_task is not None:
+                    await asyncio.gather(gateway_task, return_exceptions=True)
+                try:
+                    await _cleanup_discord(discord_http, settings, artifacts)
+                    cleanup_discord_complete = True
+                except BaseException as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+                if cleanup_errors:
+                    primary_error = cleanup_errors[0]
+        if primary_error is not None:
+            if isinstance(primary_error, QualificationFailure):
+                raise primary_error
+            raise QualificationFailure("run", "unexpected_exception") from None
+        if result is None:
+            raise QualificationFailure("run", "result_missing")
+        cleanup = cast("dict[str, object]", result["cleanup"])
+        cleanup.update(
+            {
+                "calendar": cleanup_google_complete,
+                "discord": cleanup_discord_complete,
+                "gmail_drafts": cleanup_google_complete,
+                "gmail_sent": manual_gmail_complete,
+            }
+        )
+        validate_result_evidence(result)
+        assert_sanitized_output(
+            result,
+            (
+                *settings.host_secrets,
+                arguments.recipient,
+                arguments.calendar_id,
+                *(str(value) for value in artifacts.gmail_draft_ids),
+                *(str(value) for value in artifacts.gmail_sent_message_ids),
+                *(str(value) for value in artifacts.gmail_sent_thread_ids),
+                *(str(value) for value in artifacts.calendar_event_ids),
+                *(str(value) for value in artifacts.discord_message_ids),
+            ),
+        )
+        return result
 
 
 def main() -> int:

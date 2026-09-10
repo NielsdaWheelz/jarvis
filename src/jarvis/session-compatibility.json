@@ -1,9 +1,9 @@
 {
-  "application_session_contract_revision": "jarvis-codex-control-v1",
+  "application_session_contract_revision": "jarvis-shared-codex-durable-inference-v1",
   "dependencies": {
-    "llm-agent-kernel": "9c41123535b7f05bc536f16784765ff1a1736efe",
+    "llm-agent-kernel": "cc7a2307a1731d2c92ef2da3d3487ddcfa251b6e",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "a14432276142872785b19460d4dc4a6d9650c8ff"
+    "provider-runtime": "7d2ddfc53c6b4341c475f0f55259a8751951aa9f"
   },
   "qualified_models": [
     "gpt-5.6-terra"

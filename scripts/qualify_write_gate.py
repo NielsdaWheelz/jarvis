@@ -27,6 +27,7 @@ from llm_agent_kernel import (
     ThreadId,
     provider_wire_schema,
 )
+from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
 from llm_tools import ToolId, canonical_json_bytes
 
 from jarvis.admission import (
@@ -41,7 +42,11 @@ from jarvis.definitions import (
     build_slice5_write_gate,
     verify_runtime_dependencies,
 )
-from jarvis.kernel import build_agent_runtime, build_kernel_runtime
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.write_gate import (
     AutomaticWriteGate,
     EffectAudience,
@@ -371,98 +376,105 @@ async def _run(arguments: Arguments) -> dict[str, object]:
     ):
         raise ValueError("cognition cwd parent must be a mode-02750 directory")
     arguments.runtime_state_directory.mkdir(mode=0o700)
-    stage = "composition"
-    try:
-        definition, plan = build_slice5_write_gate(
-            profile_key=arguments.profile,
-            model=arguments.model,
-            reasoning_effort=arguments.reasoning_effort,
-        )
-        limits = qualification_admission_limits()
-        admission_path = arguments.runtime_state_directory / "admission.json"
-        RollingAdmissionPort.initialize(admission_path, limits)
-        admission = RootTrackingAdmissionPort(
-            RollingAdmissionPort(admission_path, limits)
-        )
-        root = await admission.reserve(
-            AdmissionRequest(
-                RunId(str(uuid4())),
-                ThreadId("slice-5-write-gate-qualification"),
-                1,
-                1,
-                1,
-                1,
-            )
-        )
-        if not isinstance(root, AdmissionGranted):
-            raise RuntimeError("qualification root admission was not granted")
-        agent_runtime = build_agent_runtime(
-            provider_state_root=arguments.runtime_state_directory,
-            codex_endpoints=host.endpoints,
-        )
-        runtime = build_kernel_runtime(
-            runtime=agent_runtime,
-            shared_cwd_parent=shared_cwd_parent,
-            session_ref_path=arguments.runtime_state_directory / "session-ref.json",
-            model=arguments.model,
-            kernel_limits=definition.limits,
-        )
-        evidence: list[dict[str, object]] = []
+    async with build_agent_runtime(
+        provider_state_root=arguments.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    ) as agent_runtime:
+        stage = "composition"
         try:
-            gate = AutomaticWriteGate(
-                definition=definition,
-                plan=plan,
-                admission=admission,
-                provider=runtime.provider,
+            provider_configuration = await resolve_provider_configuration(
+                runtime=agent_runtime,
+                profile_key=arguments.profile,
+                model_key=arguments.model,
+                reasoning=arguments.reasoning_effort,
             )
-            for trial in TRIALS:
-                stage = f"trial_{trial.id}"
-                decision = await gate.evaluate(
-                    (
-                        GateOwnerInput(
-                            message_id=trial.owner_message_id,
-                            text=trial.owner_text,
-                            created_at=CREATED_AT,
-                        ),
-                    ),
-                    tool_id=trial.tool_id,
-                    descriptor=trial.descriptor,
-                    owner_timezone=None,
-                    as_of=datetime.now(UTC),
-                    cancellation=CancellationToken(),
+            definition, plan = build_slice5_write_gate(
+                provider=provider_configuration,
+            )
+            limits = qualification_admission_limits()
+            admission_path = arguments.runtime_state_directory / "admission.json"
+            RollingAdmissionPort.initialize(admission_path, limits)
+            admission = RootTrackingAdmissionPort(
+                RollingAdmissionPort(admission_path, limits)
+            )
+            root = await admission.reserve(
+                AdmissionRequest(
+                    RunId(str(uuid4())),
+                    ThreadId("slice-5-write-gate-qualification"),
+                    1,
+                    1,
+                    1,
+                    1,
                 )
-                evidence.append(_trial_evidence(trial, decision))
-        finally:
+            )
+            if not isinstance(root, AdmissionGranted):
+                raise RuntimeError("qualification root admission was not granted")
+            runtime = build_kernel_runtime(
+                runtime=agent_runtime,
+                shared_cwd_parent=shared_cwd_parent,
+                session_ref_path=arguments.runtime_state_directory / "session-ref.json",
+                model=arguments.model,
+                kernel_limits=definition.limits,
+            )
+            evidence: list[dict[str, object]] = []
             try:
-                await runtime.close()
-            finally:
-                await admission.settle(
-                    root.token, AdmissionUsage(0, ProviderUsage(), 0.0)
+                gate = AutomaticWriteGate(
+                    model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
+                    definition=definition,
+                    plan=plan,
+                    admission=admission,
+                    provider=runtime.provider,
                 )
-        safety = [item for item in evidence if item["kind"] == "safety"]
-        usability = [item for item in evidence if item["kind"] == "usability"]
-        if len(safety) != 5 or len(usability) != 3:
-            raise RuntimeError("write-gate qualification matrix changed")
-        return {
-            "dependencies": dict(EXPECTED_GIT_PINS),
-            "gate": {
-                "definition_fingerprint": definition.fingerprint,
-                "empty_plan": not plan.profile.ordered_grants,
-                "output_schema_sha256": output_schema_digest(definition),
-                "plan_revision": plan.plan_revision,
-                "session_compatibility_revision": (
-                    definition.session_compatibility_revision
-                ),
-            },
-            "paid_attempts_per_case": 1,
-            "route": arguments.model,
-            "safety": {"passed": len(safety), "total": 5},
-            "status": "passed",
-            "trials": evidence,
-            "usability": {"passed": len(usability), "total": 3},
-        }
-    except BaseException as error:
-        raise QualificationFailure(stage, error) from error
+                for trial in TRIALS:
+                    stage = f"trial_{trial.id}"
+                    decision = await gate.evaluate(
+                        (
+                            GateOwnerInput(
+                                message_id=trial.owner_message_id,
+                                text=trial.owner_text,
+                                created_at=CREATED_AT,
+                            ),
+                        ),
+                        operation_id=f"synthetic-write-gate:{trial.id}",
+                        tool_id=trial.tool_id,
+                        descriptor=trial.descriptor,
+                        owner_timezone=None,
+                        as_of=datetime.now(UTC),
+                        cancellation=CancellationToken(),
+                    )
+                    evidence.append(_trial_evidence(trial, decision))
+            finally:
+                try:
+                    await runtime.close()
+                finally:
+                    await admission.settle(
+                        root.token, AdmissionUsage(0, ProviderUsage(), 0.0)
+                    )
+            safety = [item for item in evidence if item["kind"] == "safety"]
+            usability = [item for item in evidence if item["kind"] == "usability"]
+            if len(safety) != 5 or len(usability) != 3:
+                raise RuntimeError("write-gate qualification matrix changed")
+            return {
+                "dependencies": dict(EXPECTED_GIT_PINS),
+                "gate": {
+                    "definition_fingerprint": definition.fingerprint,
+                    "empty_plan": not plan.profile.ordered_grants,
+                    "output_schema_sha256": output_schema_digest(definition),
+                    "plan_revision": plan.plan_revision,
+                    "session_compatibility_revision": (
+                        definition.session_compatibility_revision
+                    ),
+                },
+                "paid_attempts_per_case": 1,
+                "recovery": "not_qualified_disposable_synthetic_probe",
+                "route": arguments.model,
+                "safety": {"passed": len(safety), "total": 5},
+                "status": "passed",
+                "trials": evidence,
+                "usability": {"passed": len(usability), "total": 3},
+            }
+        except BaseException as error:
+            raise QualificationFailure(stage, error) from error
 
 
 def main(argv: Sequence[str] | None = None) -> int:

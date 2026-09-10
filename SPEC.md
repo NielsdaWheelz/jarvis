@@ -8,6 +8,13 @@ Audience: product, engineering, design, operations, and future coding agents
 
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
+Integration baseline (2026-09-09): retain ADR 0040's six-table durability,
+owner-bound transactions, authenticated catalog selection, and CPython floor.
+[ADR 0041](docs/decisions/0041-control-shared-codex-workers.md) adds shared Codex
+control without another table or provider lane. Catalog discovery and cognition
+use the same explicitly configured shared runtime. Schema-v3 session identity
+hard-cuts predecessor compatibility exceptions; canonical records remain intact.
+
 ## 1. Product definition
 
 Jarvis is a persistent personal assistant for one user. It exists to return the
@@ -1598,7 +1605,7 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 
 ## 8. Technology choices
 
-- Server language: Python 3.12.
+- Server language: CPython >=3.12.13,<3.13; development/CI pin 3.12.13.
 - Agent runtime: pinned `llm-agent-kernel`, imported as `llm_agent_kernel`.
 - Database: PostgreSQL with full-text search and pgvector.
 - HTTP/schema: FastAPI and Pydantic v2 when a new HTTP surface is needed.
@@ -1648,9 +1655,9 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `9c41123535b7f05bc536f16784765ff1a1736efe`
+  `cc7a2307a1731d2c92ef2da3d3487ddcfa251b6e`
 - `llm-calling` / `provider-runtime`:
-  `a14432276142872785b19460d4dc4a6d9650c8ff`
+  `7d2ddfc53c6b4341c475f0f55259a8751951aa9f`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
 The Devbox host pins `@openai/codex@0.153.4` for all three services and stock
@@ -1702,7 +1709,7 @@ controls.
 
 ## 9. Persistence
 
-Jarvis owns exactly four application tables.
+Jarvis owns exactly six application tables (ADR 0040).
 
 ```text
 message
@@ -1746,12 +1753,73 @@ action
   decided_at
   completed_at
   result
+
+model_decision
+  decision_id
+  scope_key
+  thread_id
+  first_input_id
+  ordinal
+  request_fingerprint
+  request
+  terminal
+  host_evidence
+  created_at
+  completed_at
+
+read_position
+  position
+  contract
+  state
+  reservation
+  result
+  settlement
+  created_at
+  updated_at
 ```
 
 These are the exact v1 application columns. Database-generated search columns
 and Alembic's migration bookkeeping are physical infrastructure, not application
 state. Changing this roster, adding an application table, or adding a semantic
 memory field requires an ADR.
+
+### Durable inference and Read recovery
+
+[ADR 0040](docs/decisions/0040-shared-kernel-durable-decisions.md) owns the
+shared-kernel cutover. Authenticate one exact Codex model catalog selection at
+startup and freeze its model key, reasoning key, catalog revision, and row
+fingerprint in every definition. Dependency and selection changes rotate native
+session identity.
+
+Before provider entry, commit the exact original request under a stable decision
+ID. Commit its normalized terminal and bounded host validation evidence together
+before tools, memory mutation, action acceptance, or message publication. An armed
+record without a terminal is unknown and cannot authorize automatic redispatch.
+Restore original claim input IDs, checkpoint, and clock before retry counting or
+poison handling. A completed record replays its original terminal; current
+provider/definition/plan mismatches fail closed. Native sessions remain disposable.
+
+Recoverable isolated roles also use durable decisions. Recall is keyed by original
+owner message identity; rememberer by its ordered settled owner group; write gate
+by the original Main model decision. Dreaming admits new work from the canonical
+raw/summary identity snapshot. Identical snapshots reuse the original job and
+clock; changed memory admits a new job. Existing action recovery has priority over
+any model replay and retains its exact original effect authority.
+
+All recoverable Read dispatches use `read_position` through the existing llm-tools
+PositionRecorder protocol. Exact completed results replay; dispatched or uncertain
+positions never reexecute automatically. This covers Maps, Brave search, and
+embedding-backed memory search billing. Restore accepted reservations/settlements
+in original initial-read/model order before admitting another tool. Rejected
+reservations are uncharged. Calls, attempts, and bytes remain bounded across the
+logical scope; elapsed time remains the monotonic active invocation bound and
+does not charge process downtime. The Write action ledger remains separate.
+
+The deployment advisory-lock connection executes short, serialized transactions
+for all owned stores, including inference, reads, actions, memory, and publication.
+A released, closed, or invalidated owner connection cannot reconnect or admit work.
+Diagnostic probes may explicitly use transient inference and in-memory recorders;
+they never establish restart qualification.
 
 ### 9.1 Message
 
@@ -2022,7 +2090,7 @@ Frozen decisions:
 - One host-rendered typed Main terminal with no production `say` or in-progress
   variant; incomplete typed evidence is visibly partial.
 - One configured Discord channel with no v1 server-organization tools.
-- Exactly four application tables.
+- Exactly six application tables, including original paid decisions and Read positions.
 - Central conversation history with a persistent Discord outbox, recent-window
   enforced-nonce deduplication, and explicitly bounded delayed ambiguity.
 - Product-selected canonical context through the provider-neutral kernel ports;

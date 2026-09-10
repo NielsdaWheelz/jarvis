@@ -18,6 +18,7 @@ from llm_agent_kernel import (
     validate_provider_step,
 )
 from llm_tools import FrozenToolPlan
+from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import (
     TextContent,
     freeze_json_object,
@@ -39,8 +40,7 @@ from jarvis.definitions import (
 
 def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
 
@@ -82,8 +82,7 @@ def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
 
 def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
     memory_id = "00000000-0000-4000-8000-000000000001"
@@ -163,7 +162,8 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     manifest = load_session_manifest()
     assert manifest["schema_version"] == "jarvis-session-compatibility.v3"
     assert (
-        manifest["application_session_contract_revision"] == "jarvis-codex-control-v1"
+        manifest["application_session_contract_revision"]
+        == "jarvis-shared-codex-durable-inference-v1"
     )
     assert manifest["qualified_models"] == ["gpt-5.6-terra"]
     roles = cast("dict[str, object]", manifest["role_contract_revisions"])
@@ -209,8 +209,7 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
 def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
     manifest = load_session_manifest()
     terra = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     ).main
     membership_changed = {
@@ -224,7 +223,7 @@ def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
     )
     selected_model_changed = replace(
         terra,
-        provider=replace(terra.provider, model="synthetic-future-model"),
+        provider=replace(terra.provider, model_key="synthetic-future-model"),
     )
 
     assert unchanged_revision == terra.session_compatibility_revision
@@ -239,8 +238,7 @@ def test_provider_native_material_has_independent_bounds() -> None:
     )
     kernel_system_bytes = len(KERNEL_BASE_INSTRUCTION.encode())
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     provider = replace(
@@ -307,7 +305,28 @@ def test_route_context_floor_derives_conservative_session_generation_bound() -> 
         session_generation_limit("unqualified")
     with pytest.raises(ValueError, match="qualified Slice 1 route"):
         build_slice1_definitions(
-            profile_key="jarvis-test",
-            model="gpt-5.4",
+            provider=frozen_provider("jarvis-test", "gpt-5.4", "high"),
             owner_timezone="UTC",
         )
+
+
+def test_frozen_catalog_selection_is_shared_and_rotates_session_identity() -> None:
+    from dataclasses import replace
+
+    from llm_agent_kernel import ProviderConfiguration
+    from provider_runtime.agent_runtime import CredentialRef
+
+    provider = ProviderConfiguration(
+        auth=CredentialRef("local_account", "jarvis-test"),
+        model_key="gpt-5.6-terra",
+        reasoning="high",
+        agent_definition_revision="catalog-v1",
+        row_fingerprint="a" * 64,
+    )
+    original = build_slice1_definitions(provider=provider, owner_timezone="UTC")
+    assert original.main.provider is provider
+    assert original.recaller.provider is provider
+    rotated = build_slice1_definitions(
+        provider=replace(provider, row_fingerprint="b" * 64), owner_timezone="UTC"
+    )
+    assert original.main.fingerprint != rotated.main.fingerprint

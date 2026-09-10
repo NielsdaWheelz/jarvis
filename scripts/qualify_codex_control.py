@@ -352,10 +352,8 @@ async def _journey(
 ) -> dict[str, object]:
     from llm_agent_kernel import (
         CancellationToken,
-        Checkpoint,
-        ClaimId,
-        DispatchLineage,
-        InputId,
+        InitialReadDispatchLineage,
+        RunId,
     )
     from llm_tools import (
         CapabilityProfile,
@@ -387,7 +385,8 @@ async def _journey(
     )
     from jarvis.db import create_engine
     from jarvis.messages import MessageStore
-    from jarvis.read_dispatch import ReadToolDispatcher
+    from jarvis.ownership import deployment_ownership
+    from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 
     if await gateway.sessions():
         raise QualificationFailure("isolated_socket_not_empty")
@@ -400,8 +399,11 @@ async def _journey(
             config = AgentRuntimeConfig(
                 state_root_base=Path(state), codex_endpoints=host.endpoints
             )
-            async with AgentRuntime(config) as runtime:
-                actions = ActionStore(engine)
+            async with (
+                deployment_ownership(engine) as database,
+                AgentRuntime(config) as runtime,
+            ):
+                actions = ActionStore(database)
                 controller = CodexController(
                     control=runtime.codex, host=host, actions=actions
                 )
@@ -413,9 +415,11 @@ async def _journey(
                 ).freeze(catalog)
                 plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
                 budgets = ExactToolBudgetFactory().create(plan)
-                dispatcher = ReadToolDispatcher(host_secrets=(database_url,))
+                dispatcher = ReadToolDispatcher(
+                    recorder=RunReadRecorder(), host_secrets=(database_url,)
+                )
                 origin = uuid4()
-                await MessageStore(engine).insert_waking(
+                await MessageStore(database).insert_waking(
                     role="owner",
                     text=_PROMPT,
                     source="discord",
@@ -435,11 +439,9 @@ async def _journey(
                         plan=plan,
                         budgets=budgets,
                         cancellation=CancellationToken(),
-                        lineage=DispatchLineage(
-                            ClaimId(str(origin)),
-                            Checkpoint(str(origin)),
-                            (InputId(str(origin)),),
-                            ordinal,
+                        lineage=InitialReadDispatchLineage(
+                            RunId(str(origin)),
+                            f"codex-control-qualification:{origin}:{ordinal}",
                         ),
                     )
                     if result.result.get("type") != "Success":

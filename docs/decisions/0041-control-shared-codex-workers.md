@@ -1,10 +1,13 @@
-# ADR 0040: Control shared Codex workers
+# ADR 0041: Control shared Codex workers
 
 - Status: **Accepted**
 - Date: **2026-09-09**
 - Owner approval: the owner approved the cross-repository control plan and its
   asynchronous-TUI amendment on 9 September 2026.
 - Supersedes in part: ADRs 0014, 0031, 0035, and 0038
+- Preserves: ADR 0040's exact catalog selection, six application tables,
+  original paid-decision/Read recovery, and owner-bound transactions. The owner
+  approved current `main` as the integration baseline on 9 September 2026.
 
 ## Context
 
@@ -42,6 +45,14 @@ not general model-generated delegation: no schedules, completion callbacks,
 workflow graph, worker ownership, generic shell, arbitrary environment, or new
 durable table is added. Existing authority, current-input grounding, action,
 and immutable execution-contract machinery remains authoritative.
+
+Resolve the authenticated catalog through the same configured shared runtime
+used for cognition. Preserve its exact model/reasoning keys, catalog revision,
+and row fingerprint. Codex Reads use the existing durable `read_position`
+recorder; Codex Writes use the original `action` identity and remain BilledOnce.
+Model-decision replay never creates replacement authority for an uncertain
+worker operation. Session manifest v3 binds literal current dependency pins
+and a combined application revision, with no predecessor normalization.
 
 `codex.start` validates an explicit profile, bounded lexical cwd, name, and
 prompt; asks the host helper to resolve an existing canonical permitted cwd;

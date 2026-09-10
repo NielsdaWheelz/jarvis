@@ -10,10 +10,11 @@ from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import Table, func, literal_column, select
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import memory_log, memory_summary
 from jarvis.memory import MemoryIdentity, MemoryTableKind
+from jarvis.ownership import Database
 from jarvis.settings import EMBEDDING_DIMENSION
 
 
@@ -60,7 +61,7 @@ class MemoryRepository(Protocol):
 class PostgresMemoryRepository:
     """Search FTS expression indexes and exact pgvector cosine distance."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         self._engine = engine
 
     async def search(

@@ -25,10 +25,11 @@ from llm_tools import (
     bind_web_read,
     web_family,
 )
+from provider_fixture import decision_key, frozen_provider
 
 from jarvis.admission import ExactToolBudgetFactory, InProcessBudgetState
 from jarvis.definitions import build_slice2_definitions
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_tools import (
     AddressLocation,
     CalendarGetEventInput,
@@ -134,8 +135,7 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
     )
     definitions = build_slice2_definitions(
         catalog=catalog,
-        profile_key="synthetic",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     plan = definitions.plans["main"]
@@ -143,7 +143,7 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
     budgets = ExactToolBudgetFactory().create(plan)
     assert isinstance(budgets, InProcessBudgetState)
     assert budgets.limits == plan.profile.run_limits
-    dispatcher = ReadToolDispatcher(host_secrets=())
+    dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
     calls = (
         ("gmail.search", GmailSearchInput(query="x", max_results=1)),
         ("gmail.read_thread", GmailReadThreadInput(thread_id="t", max_messages=1)),
@@ -189,6 +189,8 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
                 Checkpoint("checkpoint"),
                 (InputId("input"),),
                 ordinal,
+                definition_fingerprint="a" * 64,
+                model_decision_id=decision_key(str(ClaimId("claim")), ordinal),
             ),
         )
         results.append(completed.result["type"])

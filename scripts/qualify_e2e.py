@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import stat
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -35,7 +36,16 @@ from jarvis.admission import (
 )
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.codex_control import CodexController, CodexHostConfig
-from jarvis.db import action, create_engine, memory_log, memory_summary, message
+from jarvis.db import (
+    action,
+    create_engine,
+    memory_log,
+    memory_summary,
+    message,
+    model_decision,
+    read_position,
+)
+from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     QUALIFIED_CODEX_MODELS,
@@ -53,13 +63,18 @@ from jarvis.discord import (
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import build_agent_runtime, build_kernel_runtime
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
-from jarvis.ownership import deployment_ownership
+from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.read_tools import (
     CalendarGetEventInput,
     GmailReadThreadInput,
@@ -291,23 +306,24 @@ def _validate_settings(settings: Settings, host: CodexHostConfig) -> None:
         raise ValueError("runtime state must be an unused path")
 
 
-async def _require_empty_database(settings: Settings) -> None:
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with engine.connect() as connection:
-            counts: list[int] = []
-            for table in (message, memory_log, memory_summary, action):
-                counts.append(
-                    cast(
-                        int,
-                        await connection.scalar(
-                            select(func.count()).select_from(table)
-                        ),
-                    )
+async def _require_empty_database(engine: Database) -> None:
+    async with engine.connect() as connection:
+        counts: list[int] = []
+        for table in (
+            message,
+            memory_log,
+            memory_summary,
+            action,
+            model_decision,
+            read_position,
+        ):
+            counts.append(
+                cast(
+                    int,
+                    await connection.scalar(select(func.count()).select_from(table)),
                 )
-    finally:
-        await engine.dispose()
-    if counts != [0, 0, 0, 0]:
+            )
+    if any(counts):
         raise ValueError("live qualification database must be empty")
 
 
@@ -358,7 +374,6 @@ async def _run(settings: Settings) -> dict[str, object]:
     verify_runtime_dependencies()
     host = settings.codex_host_config
     _validate_settings(settings, host)
-    await _require_empty_database(settings)
 
     settings.runtime_state_directory.mkdir(mode=0o700)
     PausedState.initialize(settings.paused_state_path)
@@ -367,40 +382,46 @@ async def _run(settings: Settings) -> dict[str, object]:
         settings.admission_journal_path,
         admission_limits,
     )
-    engine = create_engine(settings.database_url.get_secret_value())
-    agent_runtime = build_agent_runtime(
-        provider_state_root=settings.runtime_state_directory,
-        codex_endpoints=host.endpoints,
-    )
-    kernel_runtime = build_kernel_runtime(
-        runtime=agent_runtime,
-        shared_cwd_parent=Path(host.cognition_cwd_parent),
-        session_ref_path=settings.session_reference_path,
-        model=settings.codex_model,
-        kernel_limits=SLICE6_KERNEL_LIMITS,
-    )
-    google_oauth_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    google_api_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    maps_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    brave_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    embedding_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
-    chosen: DiscordOwnerMessage | None = None
-    non_control_candidates = 0
-    catch_up_open = True
-    failure: QualificationFailure | None = None
-    cleanup_failure: QualificationFailure | None = None
-    result: dict[str, object] | None = None
+    raw_engine = create_engine(settings.database_url.get_secret_value())
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
+        )
+        await _require_empty_database(engine)
+        agent_runtime = build_agent_runtime(
+            provider_state_root=settings.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
+        database_lifetime.push_async_callback(agent_runtime.close)
+        kernel_runtime = build_kernel_runtime(
+            runtime=agent_runtime,
+            shared_cwd_parent=Path(host.cognition_cwd_parent),
+            session_ref_path=settings.session_reference_path,
+            model=settings.codex_model,
+            kernel_limits=SLICE6_KERNEL_LIMITS,
+        )
+        google_oauth_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
+        google_api_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
+        maps_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
+        brave_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
+        embedding_http = httpx.AsyncClient(trust_env=False, follow_redirects=False)
+        chosen: DiscordOwnerMessage | None = None
+        non_control_candidates = 0
+        catch_up_open = True
+        failure: QualificationFailure | None = None
+        cleanup_failure: QualificationFailure | None = None
+        result: dict[str, object] | None = None
 
-    async def capture(incoming: DiscordOwnerMessage) -> None:
-        nonlocal chosen, non_control_candidates
-        if not catch_up_open:
-            raise RuntimeError("owner input arrived outside bounded catch-up")
-        if incoming.control is None:
-            chosen = incoming
-            non_control_candidates += 1
+        async def capture(incoming: DiscordOwnerMessage) -> None:
+            nonlocal chosen, non_control_candidates
+            if not catch_up_open:
+                raise RuntimeError("owner input arrived outside bounded catch-up")
+            if incoming.control is None:
+                chosen = incoming
+                non_control_candidates += 1
 
-    try:
-        async with deployment_ownership(engine):
+        try:
             admission = RootTrackingAdmissionPort(
                 RollingAdmissionPort(
                     settings.admission_journal_path,
@@ -413,9 +434,13 @@ async def _run(settings: Settings) -> dict[str, object]:
                 settings.embedding_openai_api_key,
                 http_client=embedding_http,
             )
-            provisional_gate, _ = build_slice5_write_gate(
+            provider_configuration = await resolve_provider_configuration(
+                runtime=agent_runtime,
                 profile_key=settings.codex_profile_key,
-                model=settings.codex_model,
+                model_key=settings.codex_model,
+            )
+            provisional_gate, _ = build_slice5_write_gate(
+                provider=provider_configuration,
             )
             composition = build_slice6_composition(
                 settings=settings,
@@ -437,8 +462,7 @@ async def _run(settings: Settings) -> dict[str, object]:
             )
             definitions = build_slice6_definitions(
                 catalog=composition.catalog,
-                profile_key=settings.codex_profile_key,
-                model=settings.codex_model,
+                provider=provider_configuration,
                 owner_timezone=settings.owner_timezone,
             )
             if (
@@ -448,17 +472,25 @@ async def _run(settings: Settings) -> dict[str, object]:
                 raise RuntimeError("write-gate definition changed during composition")
             store = MessageStore(engine)
             gate = AutomaticWriteGate(
+                model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                    engine, evidence=evidence
+                ),
                 definition=definitions.automatic_write_gate,
                 plan=definitions.plans["automatic_write_gate"],
                 admission=admission,
                 provider=kernel_runtime.provider,
             )
             rememberer = RemembererWorker(
+                model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                    engine, evidence=evidence
+                ),
                 definition=definitions.rememberer,
                 plan=definitions.plans["rememberer"],
                 admission=admission,
                 provider=kernel_runtime.provider,
-                dispatcher_factory=MemoryToolDispatcher,
+                dispatcher_factory=lambda: MemoryToolDispatcher(
+                    recorder=PostgresReadRecorder(engine)
+                ),
                 memory=memory,
                 messages=store,
                 embedder=embedder,
@@ -475,7 +507,10 @@ async def _run(settings: Settings) -> dict[str, object]:
                         gate=gate,
                         actions=actions,
                         google_write=composition.google_write,
-                        read=ReadToolDispatcher(host_secrets=settings.host_secrets),
+                        read=ReadToolDispatcher(
+                            recorder=PostgresReadRecorder(engine),
+                            host_secrets=settings.host_secrets,
+                        ),
                         owner_timezone=settings.owner_timezone,
                         source_conversation_id=str(settings.discord.channel_id),
                         verified_owner_only_calendar_ids=(
@@ -489,6 +524,9 @@ async def _run(settings: Settings) -> dict[str, object]:
                 return dispatcher
 
             runner = JarvisThreadRunner(
+                model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                    engine, evidence=evidence
+                ),
                 settings=settings,
                 store=store,
                 admission=admission,
@@ -497,7 +535,9 @@ async def _run(settings: Settings) -> dict[str, object]:
                 history=PostgresCanonicalHistory(engine),
                 checkpoint_dispatcher_factory=dispatcher_factory,
                 memory=memory,
-                memory_dispatcher_factory=MemoryToolDispatcher,
+                memory_dispatcher_factory=lambda: MemoryToolDispatcher(
+                    recorder=PostgresReadRecorder(engine)
+                ),
                 rememberer=rememberer,
             )
             async with httpx.AsyncClient(
@@ -874,14 +914,13 @@ async def _run(settings: Settings) -> dict[str, object]:
                     )
                 result["synthetic_response_removed"] = True
                 return result
-    finally:
-        await google_oauth_http.aclose()
-        await google_api_http.aclose()
-        await maps_http.aclose()
-        await brave_http.aclose()
-        await embedding_http.aclose()
-        await kernel_runtime.close()
-        await engine.dispose()
+        finally:
+            await google_oauth_http.aclose()
+            await google_api_http.aclose()
+            await maps_http.aclose()
+            await brave_http.aclose()
+            await embedding_http.aclose()
+            await kernel_runtime.close()
 
 
 def main() -> int:

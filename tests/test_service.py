@@ -26,6 +26,7 @@ from llm_agent_kernel import (
     ToolDispatchDefect,
 )
 from llm_tools import ToolId
+from provider_fixture import decision_key
 from pydantic import SecretStr
 
 from jarvis.config import DiscordSettings
@@ -117,7 +118,9 @@ async def test_main_observation_capture_rejects_isolated_lineage() -> None:
             plan=cast(Any, object()),
             budgets=cast(Any, object()),
             cancellation=CancellationToken(),
-            lineage=InitialReadDispatchLineage(RunId("initial-read")),
+            lineage=InitialReadDispatchLineage(
+                RunId("initial-read"), str(RunId("initial-read"))
+            ),
         )
     assert not delegate.called
 
@@ -161,6 +164,8 @@ async def test_main_observation_capture_records_typed_calendar_incompleteness() 
             Checkpoint("checkpoint"),
             (InputId("input"),),
             1,
+            definition_fingerprint="a" * 64,
+            model_decision_id=decision_key(str(ClaimId("claim")), 1),
         ),
     )
 
@@ -170,6 +175,11 @@ async def test_main_observation_capture_records_typed_calendar_incompleteness() 
     assert incomplete.calendars_discovered == 0
     assert incomplete.calendars_completed == 0
     assert incomplete.matched_events == 0
+    restored_evidence = TurnEvidence()
+    restored = CapturingReadDispatcher(cast(Any, Delegate()), restored_evidence)
+    restored.restore_model_evidence(dispatcher.snapshot_model_evidence())
+    assert restored_evidence.calendar_incompleteness == evidence.calendar_incompleteness
+    assert restored.material_sections() == dispatcher.material_sections()
 
 
 class _DeliveryStore:

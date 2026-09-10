@@ -27,6 +27,7 @@ QualificationCheckFailed = cast(
 RawRow = _QUALIFIER["RawRow"]
 SummaryRow = _QUALIFIER["SummaryRow"]
 assert_sanitized_output = _QUALIFIER["assert_sanitized_output"]
+backfill_dream_summary = _QUALIFIER["backfill_dream_summary"]
 cognitive_usage = _QUALIFIER["cognitive_usage"]
 cleanup_cycle_runtime = _QUALIFIER["cleanup_cycle_runtime"]
 discard_main_reference = _QUALIFIER["_discard_main_reference"]
@@ -427,11 +428,11 @@ def test_e2e_embeds_the_summary_through_the_shipped_bounded_backfill() -> None:
         Path(__file__).resolve().parents[1] / "scripts" / "qualify_memory_e2e.py"
     ).read_text(encoding="utf-8")
 
-    assert "await first_rememberer.run_one(CancellationToken())" in source
+    assert "await rememberer.run_one(CancellationToken())" in source
     assert ".update_embedding(" not in source
 
 
-def test_empty_completed_dream_fails_before_embedding_backfill() -> None:
+async def test_empty_completed_dream_fails_before_embedding_backfill() -> None:
     state = MemoryState(
         (RawRow(RAW_ID, "Synthetic raw memory.", EMBEDDING_DIMENSION),),
         0,
@@ -439,13 +440,19 @@ def test_empty_completed_dream_fails_before_embedding_backfill() -> None:
     )
     assert new_summaries(state, state) == ()
 
-    source = (
-        Path(__file__).resolve().parents[1] / "scripts" / "qualify_memory_e2e.py"
-    ).read_text(encoding="utf-8")
-    dream_flow = source[source.index("if not isinstance(dream_outcome") :]
-    assert dream_flow.index(
-        'raise QualificationCheckFailed("dreamer_created_not_one_summary")'
-    ) < dream_flow.index("await first_rememberer.run_one(CancellationToken())")
+    class Rememberer:
+        calls = 0
+
+        async def run_one(self, cancellation: object) -> bool:
+            self.calls += 1
+            return True
+
+    rememberer = Rememberer()
+    with pytest.raises(
+        QualificationCheckFailed, match="dreamer_created_not_one_summary"
+    ):
+        await backfill_dream_summary(state, state, rememberer)
+    assert rememberer.calls == 0
 
 
 @pytest.mark.parametrize(("present", "discard_calls"), [(True, 1), (False, 0)])

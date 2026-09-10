@@ -13,6 +13,7 @@ from llm_agent_kernel import (
     run_context,
 )
 from llm_tools import PromptSection, PromptSectionKind, PromptSections, PromptText
+from provider_fixture import frozen_provider
 
 from jarvis.context import CanonicalMessage, JarvisContextSource
 from jarvis.definitions import build_slice1_definitions
@@ -38,8 +39,7 @@ class History:
 
 async def test_stateless_bootstrap_uses_plain_canonical_context_once() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
     current = HostInput(
@@ -94,7 +94,8 @@ async def test_stateless_bootstrap_uses_plain_canonical_context_once() -> None:
 
 async def test_healthy_continuation_does_not_repeat_history_or_timezone() -> None:
     definitions = build_slice1_definitions(
-        profile_key="jarvis-test", model="gpt-5.6-terra", owner_timezone="UTC"
+        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
+        owner_timezone="UTC",
     )
     current = HostInput(
         InputId("input-1"),

@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal, Protocol, cast
-from uuid import UUID, uuid4
+from typing import Annotated, Any, Literal, Protocol, cast
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import discord
 from llm_agent_kernel import (
@@ -51,6 +51,7 @@ from llm_tools import (
     ToolBinding,
     canonical_json_bytes,
 )
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from jarvis.actions import ClaimedSchedule, ScheduleStateChanged
 from jarvis.admission import (
@@ -65,7 +66,9 @@ from jarvis.context import (
     JarvisContextSource,
     MemoryReadDispatcherPort,
 )
+from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import (
+    SLICE6_TOOL_LIMITS,
     DreamResult,
     RememberResult,
     Slice1Definitions,
@@ -183,6 +186,21 @@ class EmbeddingPort(Protocol):
     async def embed(self, inputs: tuple[str, ...]) -> tuple[tuple[float, ...], ...]: ...
 
 
+class _StoredObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    tool_id: Annotated[str, Field(min_length=1, max_length=128)]
+    ordinal: Annotated[int, Field(ge=1)]
+    result: dict[str, JsonValue]
+
+
+class _StoredMainEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    kind: Literal["jarvis-main-evidence.v1"]
+    observations: Annotated[
+        tuple[_StoredObservation, ...], Field(max_length=SLICE6_TOOL_LIMITS.max_calls)
+    ]
+
+
 class CapturingReadDispatcher:
     """Capture bounded Main observations and terminal evidence."""
 
@@ -214,28 +232,46 @@ class CapturingReadDispatcher:
             lineage=lineage,
         )
         if isinstance(result, DispatchCompleted):
-            if (
-                str(binding.spec.id) == "calendar.list_events"
-                and result.result.get("type") == "Success"
-            ):
-                calendar = CalendarListEventsSuccess.model_validate(
-                    result.result.get("value")
-                )
-                coverage = calendar.coverage
-                self._evidence.record_calendar_incompleteness(
-                    reasons=coverage.reasons,
-                    calendars_discovered=coverage.calendars_discovered,
-                    calendars_completed=coverage.calendars_completed,
-                    matched_events=coverage.matched_events,
-                )
-            self._observations.append(
-                (
-                    str(binding.spec.id),
-                    lineage.model_step_ordinal,
-                    result.result,
-                )
+            self._record_observation(
+                str(binding.spec.id), lineage.model_step_ordinal, result.result
             )
         return result
+
+    def _record_observation(
+        self, tool_id: str, ordinal: int, result: Mapping[str, object]
+    ) -> None:
+        if tool_id == "calendar.list_events" and result.get("type") == "Success":
+            calendar = CalendarListEventsSuccess.model_validate(result.get("value"))
+            coverage = calendar.coverage
+            self._evidence.record_calendar_incompleteness(
+                reasons=coverage.reasons,
+                calendars_discovered=coverage.calendars_discovered,
+                calendars_completed=coverage.calendars_completed,
+                matched_events=coverage.matched_events,
+            )
+        self._observations.append((tool_id, ordinal, result))
+
+    def snapshot_model_evidence(self) -> dict[str, object]:
+        value = {
+            "kind": "jarvis-main-evidence.v1",
+            "observations": [
+                {"tool_id": tool_id, "ordinal": ordinal, "result": result}
+                for tool_id, ordinal, result in self._observations
+            ],
+        }
+        encoded = canonical_json_bytes(value)
+        if len(encoded) > SLICE6_TOOL_LIMITS.max_output_bytes + 16_384:
+            raise ValueError("Main model evidence exceeds its frozen tool output bound")
+        return _StoredMainEvidence.model_validate_json(encoded).model_dump(mode="json")
+
+    def restore_model_evidence(self, value: object) -> None:
+        stored = _StoredMainEvidence.model_validate_json(canonical_json_bytes(value))
+        self._observations.clear()
+        self._evidence.calendar_incompleteness = ()
+        for observation in stored.observations:
+            self._record_observation(
+                observation.tool_id, observation.ordinal, observation.result
+            )
 
     def material_sections(self) -> PromptSections:
         selected: list[PromptSection] = []
@@ -282,6 +318,7 @@ class RemembererWorker:
         plan: FrozenToolPlan,
         admission: RootTrackingAdmissionPort,
         provider: ProviderSessionPort,
+        model_decisions: ModelJournalFactory,
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
         memory: MemoryStore,
         messages: MessageStore,
@@ -297,6 +334,7 @@ class RemembererWorker:
         self._plan = plan
         self._admission = admission
         self._provider = provider
+        self._model_decisions = model_decisions
         self._dispatcher_factory = dispatcher_factory
         self._memory = memory
         self._messages = messages
@@ -388,19 +426,28 @@ class RemembererWorker:
             )
             for target in group.targets
         )
+
         source = await self._rememberer_source(group, material_context)
+        dispatcher = self._dispatcher_factory()
+        operation_id = "jarvis-remember:" + ":".join(
+            str(target.id) for target in group.targets
+        )
+        decisions, as_of = await isolated_decisions(
+            self._model_decisions, dispatcher, operation_id, datetime.now(UTC)
+        )
         run_id = RunId(str(uuid4()))
         try:
             outcome = await run_one_shot(
                 run_id=run_id,
                 definition=self._definition,
                 inputs=inputs,
-                as_of=datetime.now(UTC),
+                as_of=as_of,
+                decisions=decisions,
                 plan=self._plan,
                 source_sections=source,
                 admission=self._admission,
                 provider=self._provider,
-                dispatcher=self._dispatcher_factory(),
+                dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
             )
@@ -635,6 +682,7 @@ class DreamerWorker:
         plan: FrozenToolPlan,
         admission: RootTrackingAdmissionPort,
         provider: ProviderSessionPort,
+        model_decisions: ModelJournalFactory,
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
         memory: MemoryStore,
     ) -> None:
@@ -642,6 +690,7 @@ class DreamerWorker:
         self._plan = plan
         self._admission = admission
         self._provider = provider
+        self._model_decisions = model_decisions
         self._dispatcher_factory = dispatcher_factory
         self._memory = memory
         self._commit_in_progress = False
@@ -684,8 +733,13 @@ class DreamerWorker:
             if reset_at is not None:
                 return BackgroundDeferred(reset_at)
         run_id = RunId(str(uuid4()))
+        operation_id = "jarvis-dream:" + await self._memory.snapshot_revision()
+        dispatcher = self._dispatcher_factory()
+        decisions, as_of = await isolated_decisions(
+            self._model_decisions, dispatcher, operation_id, as_of
+        )
         job_input = HostInput(
-            InputId(str(uuid4())),
+            InputId(str(uuid5(NAMESPACE_URL, operation_id))),
             PromptSections(
                 (
                     PromptSection(
@@ -697,9 +751,9 @@ class DreamerWorker:
             ),
             as_of,
         )
-        dispatcher = self._dispatcher_factory()
         try:
             outcome = await run_one_shot(
+                decisions=decisions,
                 run_id=run_id,
                 definition=self._definition,
                 inputs=(job_input,),
@@ -829,6 +883,7 @@ class JarvisThreadRunner:
         store: MessageStore,
         admission: RollingAdmissionPort | RootTrackingAdmissionPort,
         kernel_runtime: KernelRuntime,
+        model_decisions: ModelJournalFactory,
         definitions: (
             Slice1Definitions
             | Slice2Definitions
@@ -851,6 +906,7 @@ class JarvisThreadRunner:
         self._store = store
         self._admission = admission
         self._kernel_runtime = kernel_runtime
+        self._model_decisions = model_decisions
         self._definitions = definitions
         self._history = history
         self._dispatcher_factory = dispatcher_factory
@@ -966,6 +1022,7 @@ class JarvisThreadRunner:
                 dispatcher_factory=self._memory_dispatcher_factory,
                 memory=self._memory,
                 trace=self._store,
+                model_decisions=self._model_decisions,
             )
         context = JarvisContextSource(
             thread_id,
@@ -980,6 +1037,7 @@ class JarvisThreadRunner:
             self._checkpoint = checkpoints
         try:
             outcome = await run_thread(
+                decisions=self._model_decisions(dispatcher),
                 run_id=run_id,
                 thread_id=thread_id,
                 owner_token=OwnerToken(str(self._settings.discord.owner_user_id)),

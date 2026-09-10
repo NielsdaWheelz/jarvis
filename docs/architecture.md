@@ -985,3 +985,20 @@ their immutable execution contract; `origin_message_id` is only the stable root
 pointer. Private payloads and model prose are not duplicated into trace. Trace
 details are implementation diagnostics and rememberer-group reconstruction,
 never a memory-ranking signal in v1.
+
+
+## Shared-kernel durable recovery
+
+[ADR 0040](decisions/0040-shared-kernel-durable-decisions.md) adds two narrowly
+owned records: `model_decision` preserves exact paid inference and host validation
+evidence; `read_position` implements the existing llm-tools recorder for Reads.
+Main and every recoverable isolated role use stable original work identities.
+Unknown dispatch stops automatic retry. The original Write action remains the
+sole effect owner and is recovered before any model decision can replay.
+
+Every store in production uses the same dedicated deployment-lock connection for
+short serialized transactions. Losing it blocks inference admission, read dispatch,
+action acceptance, memory mutation, and result publication; it never reconnects.
+The exact authenticated catalog selection is frozen into role definitions and
+therefore session fingerprints. Application prompts remain application-owned;
+the shared containment instruction remains owned by llm-agent-kernel.

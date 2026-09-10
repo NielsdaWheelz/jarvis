@@ -36,6 +36,7 @@ from llm_tools import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
+from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import AutomaticWriteGateResult
 from jarvis.kernel import EmptySlice1Dispatcher
 
@@ -217,6 +218,7 @@ class AutomaticWriteGate:
         plan: FrozenToolPlan,
         admission: RootTrackingAdmissionPort,
         provider: ProviderSessionPort,
+        model_decisions: ModelJournalFactory,
     ) -> None:
         expected_policy = InputProjectionPolicy(False, BatchAsOfMode.on_request)
         if definition.session_mode is not SessionMode.isolated:
@@ -239,12 +241,14 @@ class AutomaticWriteGate:
         self._plan = plan
         self._admission = admission
         self._provider = provider
+        self._model_decisions = model_decisions
 
     async def evaluate(
         self,
         owner_inputs: tuple[GateOwnerInput, ...],
         *,
         tool_id: ToolId,
+        operation_id: str,
         descriptor: WriteEffectDescriptor,
         owner_timezone: str | None,
         as_of: datetime,
@@ -278,7 +282,11 @@ class AutomaticWriteGate:
             assert owner_timezone is not None
             effect["owner_timezone"] = owner_timezone
         run_id = RunId(str(uuid4()))
+        decisions, as_of = await isolated_decisions(
+            self._model_decisions, None, operation_id, as_of
+        )
         outcome = await run_one_shot(
+            decisions=decisions,
             run_id=run_id,
             definition=self._definition,
             inputs=tuple(

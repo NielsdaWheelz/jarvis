@@ -58,7 +58,7 @@ from jarvis.codex_tools import (
     CodexStarted,
 )
 from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
-from jarvis.read_dispatch import ReadToolDispatcher, contains_secret
+from jarvis.read_dispatch import ReadDispatchPort, contains_secret
 from jarvis.schedule_tools import ScheduleCreateRequest, ScheduleWakeInput
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
@@ -107,7 +107,7 @@ class WriteToolDispatcher:
         gate: AutomaticWriteGate,
         actions: ActionStore,
         google_write: GoogleWriteConnector,
-        read: ReadToolDispatcher,
+        read: ReadDispatchPort,
         owner_timezone: str,
         source_conversation_id: str,
         verified_owner_only_calendar_ids: tuple[str, ...],
@@ -151,6 +151,7 @@ class WriteToolDispatcher:
             or not isinstance(lineage, DispatchLineage)
         ):
             raise ToolDispatchDefect("Write lacks thread lineage")
+        await self._read.recover_budget(lineage=lineage, budgets=budgets)
         tool_id = binding.spec.id
         try:
             if plan.catalog_view.binding(tool_id) is not binding:
@@ -165,6 +166,7 @@ class WriteToolDispatcher:
             owners, as_of = await self._checkpoint.automatic_write_gate_inputs(lineage)
             gate = await self._gate.evaluate(
                 _gate_owner_inputs(owners),
+                operation_id=f"jarvis-write-gate:{lineage.model_decision_id}",
                 tool_id=tool_id,
                 descriptor=write_effect_descriptor(tool_id, validated_input),
                 owner_timezone=self._owner_timezone,
@@ -339,6 +341,11 @@ class ActionRecovery:
             except (ApprovalRenderError, RuntimeError, ValueError):
                 compatible = False
             if compatible:
+                if await self._actions.recover_pending_approval_origin(
+                    action_id=pending.id,
+                    source_conversation_id=self._source_conversation_id,
+                ):
+                    recovered.add(pending.id)
                 continue
             discord_message_id = (
                 await self._actions.approval_discord_message_id_or_none(pending.id)

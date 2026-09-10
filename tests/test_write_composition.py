@@ -9,6 +9,7 @@ from typing import Any, cast
 import httpx
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
 from llm_tools import Available, PromptText, ToolId, Unavailable, canonical_json_bytes
+from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime.codex_control import CodexControl
 from pydantic import SecretStr
 from test_codex_control import host_config
@@ -129,8 +130,7 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
             automatic_write_gate_definition_fingerprint="b" * 64,
         )
         gate, _ = build_slice5_write_gate(
-            profile_key="synthetic-profile",
-            model="gpt-5.6-terra",
+            provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         )
         production_catalog = build_slice5_catalog(
             settings=_settings(tmp_path),
@@ -211,8 +211,7 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
 
     definitions = build_slice5_definitions(
         catalog=production_catalog,
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     assert definitions.main.limits == SLICE5_KERNEL_LIMITS
@@ -251,9 +250,9 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
     } == {
         "main": (
-            "559ba5726aa75a48a38944589337617f9fc9c168d8bee3457a98841b31269572",
-            "23f5ee3e1286cac77e5f24ed73f73ad5a754005e7fd8b767c021666258732676",
-            "bd5fdcaa90d9dd8796f9d744b112e170ebef5a16c57bcf1c92cddcae6a266b8f",
+            "1b03d7eb7d096d9fa03c68132524035465a083b6e0e9f8440601a8238732b4d3",
+            "da2482a10d57127556a5f4f98e3c464caece9a12b5f7e45f8f1d5993afe4b220",
+            "052ab6bcf4e0b3ffa283123ed04a69acceb0605538bbf81da5ea91c137b1d4eb",
         ),
         "recaller": (
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",
@@ -299,8 +298,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         for _ in range(4)
     )
     gate, _ = build_slice5_write_gate(
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
     try:
         catalog = build_slice6_catalog(
@@ -358,8 +356,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     }
     definitions = build_slice6_definitions(
         catalog=catalog,
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
     assert definitions.main.limits == SLICE6_KERNEL_LIMITS
@@ -452,9 +449,9 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
     } == {
         "main": (
-            "825b8b9ad0b44d4fc7a6de017ecb85882856fa2f0419179b0d6430d38851df5c",
-            "560beb7a2afcc982e083a1d5b05e7080bf14207ae77ef4f9155b0f6c2c2380d4",
-            "69ec025ba2329b2af83f472f3cd07d6eed7a4526176edb67a2cd81deff3b9020",
+            "168acd6eae9186e25f3e0df96b032cf4c42687a91c86cb486f2728d5fd1ce7c3",
+            "9d176ad07a5811569421fdfcd872d95b526d62573b0755794822697f7ced763a",
+            "3eea4b6753b57fa97bc6535d396ebe125cd71ff33fe415fa56b0a3ea2d83eee8",
         ),
         "recaller": (
             "387ca49d3d87a1a248f55cce95dcb2a30689f51ee5bf7b9ecf682b2851ba606c",

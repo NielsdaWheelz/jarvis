@@ -25,7 +25,9 @@ from llm_agent_kernel import (
     ToolDispatchPort,
     run_thread,
 )
+from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
 from llm_tools import PromptSection, PromptSectionKind, PromptSections, PromptText
+from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import (
     AgentEvent,
     AgentRuntimeConfig,
@@ -59,7 +61,7 @@ from jarvis.kernel import (
     build_kernel_runtime,
 )
 from jarvis.read_composition import build_read_catalog
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.settings import Settings
 
 AS_OF = datetime(2026, 9, 3, 12, tzinfo=UTC)
@@ -285,8 +287,9 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
     )
     definitions = build_slice2_definitions(
         catalog=catalog,
-        profile_key=settings.codex_profile_key,
-        model=settings.codex_model,
+        provider=frozen_provider(
+            settings.codex_profile_key, settings.codex_model, "high"
+        ),
         owner_timezone=settings.owner_timezone,
     )
     plan = definitions.plans["main"]
@@ -324,6 +327,7 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
     monkeypatch.setattr(bundle.provider, "discard_reference", record_discard)
     try:
         outcome = await run_thread(
+            decisions=InMemoryModelDecisionJournal(),
             run_id=RunId("run-contained"),
             thread_id=ThreadId("thread-contained"),
             owner_token=OwnerToken("owner-contained"),
@@ -335,7 +339,9 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
                 ThreadId("thread-contained"),
                 _EmptyHistory(),
             ),
-            dispatcher=ReadToolDispatcher(host_secrets=settings.host_secrets),
+            dispatcher=ReadToolDispatcher(
+                recorder=RunReadRecorder(), host_secrets=settings.host_secrets
+            ),
             budget_factory=ExactToolBudgetFactory(),
             cancellation=CancellationToken(),
         )

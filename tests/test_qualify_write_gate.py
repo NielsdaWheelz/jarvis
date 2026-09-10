@@ -19,6 +19,7 @@ from llm_agent_kernel import (
     provider_wire_schema,
 )
 from llm_tools import ToolId, canonical_json_bytes
+from provider_fixture import frozen_provider
 
 from jarvis.definitions import (
     SLICE1_KERNEL_LIMITS,
@@ -123,8 +124,7 @@ def test_trial_validation_requires_clean_exact_decision_and_support() -> None:
 
 def test_qualifier_uses_exact_production_gate_contract_and_empty_plan() -> None:
     definition, plan = build_slice5_write_gate(
-        profile_key="synthetic-profile",
-        model="gpt-5.6-terra",
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
 
     assert definition.session_mode is SessionMode.isolated

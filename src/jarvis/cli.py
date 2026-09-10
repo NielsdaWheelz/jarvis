@@ -26,7 +26,6 @@ from llm_agent_kernel import (
     RunId,
     ThreadId,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.actions import ActionStore
 from jarvis.admission import (
@@ -44,6 +43,7 @@ from jarvis.approval_runtime import (
 from jarvis.codex_control import CodexController, CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
+from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
     Slice4Definitions,
     build_slice4_definitions,
@@ -53,16 +53,22 @@ from jarvis.definitions import (
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import KernelRuntime, build_agent_runtime, build_kernel_runtime
+from jarvis.kernel import (
+    KernelRuntime,
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore
-from jarvis.ownership import deployment_ownership
+from jarvis.ownership import Database, deployment_ownership
 from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.rebuild import (
     DerivedMemoryCorpusRebuild,
     DreamMutationProgress,
@@ -108,7 +114,7 @@ async def _isolated_memory_runtime(
     *,
     settings: Settings,
     host: CodexHostConfig,
-    engine: AsyncEngine,
+    engine: Database,
     admission: RootTrackingAdmissionPort,
 ) -> AsyncIterator[_IsolatedMemoryRuntime]:
     async with httpx.AsyncClient(
@@ -129,17 +135,21 @@ async def _isolated_memory_runtime(
             memory_repository=PostgresMemoryRepository(engine),
             memory_embedder=embedder,
         )
-        definitions = build_slice4_definitions(
-            catalog=catalog,
-            profile_key=settings.codex_profile_key,
-            model=settings.codex_model,
-            owner_timezone=settings.owner_timezone,
-        )
         agent_runtime = build_agent_runtime(
             provider_state_root=settings.runtime_state_directory,
             codex_endpoints=host.endpoints,
         )
         try:
+            provider_configuration = await resolve_provider_configuration(
+                runtime=agent_runtime,
+                profile_key=settings.codex_profile_key,
+                model_key=settings.codex_model,
+            )
+            definitions = build_slice4_definitions(
+                catalog=catalog,
+                provider=provider_configuration,
+                owner_timezone=settings.owner_timezone,
+            )
             kernel = build_kernel_runtime(
                 runtime=agent_runtime,
                 shared_cwd_parent=Path(host.cognition_cwd_parent),
@@ -159,7 +169,12 @@ async def _isolated_memory_runtime(
                     plan=definitions.plans["dreamer"],
                     admission=admission,
                     provider=kernel.provider,
-                    dispatcher_factory=MemoryToolDispatcher,
+                    model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                        engine, evidence=evidence
+                    ),
+                    dispatcher_factory=lambda: MemoryToolDispatcher(
+                        PostgresReadRecorder(engine)
+                    ),
                     memory=memory,
                 ),
                 embedder=embedder,
@@ -246,7 +261,7 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
     worker: asyncio.Task[None] | None = None
     gateway_task: asyncio.Task[None] | None = None
     try:
-        async with deployment_ownership(engine):
+        async with deployment_ownership(engine) as database:
             try:
                 RollingAdmissionPort.migrate_limits(
                     settings.admission_journal_path,
@@ -289,8 +304,8 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                     embedding_http = await clients.enter_async_context(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
-                    memory = MemoryStore(engine)
-                    actions = ActionStore(engine)
+                    memory = MemoryStore(database)
+                    actions = ActionStore(database)
                     agent_runtime = build_agent_runtime(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=host.endpoints,
@@ -299,9 +314,13 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         settings.embedding_openai_api_key,
                         http_client=embedding_http,
                     )
-                    provisional_gate, _ = build_slice5_write_gate(
+                    provider_configuration = await resolve_provider_configuration(
+                        runtime=agent_runtime,
                         profile_key=settings.codex_profile_key,
-                        model=settings.codex_model,
+                        model_key=settings.codex_model,
+                    )
+                    provisional_gate, _ = build_slice5_write_gate(
+                        provider=provider_configuration,
                     )
                     composition = build_slice6_composition(
                         settings=settings,
@@ -309,7 +328,7 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         google_api_http=google_api_http,
                         maps_http=maps_http,
                         brave_http=brave_http,
-                        memory_repository=PostgresMemoryRepository(engine),
+                        memory_repository=PostgresMemoryRepository(database),
                         memory_embedder=embedder,
                         actions=actions,
                         codex=CodexController(
@@ -323,8 +342,7 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                     )
                     definitions = build_slice6_definitions(
                         catalog=composition.catalog,
-                        profile_key=settings.codex_profile_key,
-                        model=settings.codex_model,
+                        provider=provider_configuration,
                         owner_timezone=settings.owner_timezone,
                     )
                     if (
@@ -342,20 +360,33 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         kernel_limits=definitions.main.limits,
                     )
                     admission = RootTrackingAdmissionPort(admission_store)
-                    store = MessageStore(engine)
-                    history = PostgresCanonicalHistory(engine)
+
+                    def model_decisions(
+                        evidence: ModelEvidence | None,
+                    ) -> PostgresModelDecisionJournal:
+                        return PostgresModelDecisionJournal(database, evidence=evidence)
+
+                    def memory_dispatcher() -> MemoryToolDispatcher[
+                        PostgresReadRecorder
+                    ]:
+                        return MemoryToolDispatcher(PostgresReadRecorder(database))
+
+                    store = MessageStore(database)
+                    history = PostgresCanonicalHistory(database)
                     gate = AutomaticWriteGate(
                         definition=definitions.automatic_write_gate,
                         plan=definitions.plans["automatic_write_gate"],
                         admission=admission,
                         provider=kernel_runtime.provider,
+                        model_decisions=model_decisions,
                     )
                     rememberer = RemembererWorker(
                         definition=definitions.rememberer,
                         plan=definitions.plans["rememberer"],
                         admission=admission,
                         provider=kernel_runtime.provider,
-                        dispatcher_factory=MemoryToolDispatcher,
+                        model_decisions=model_decisions,
+                        dispatcher_factory=memory_dispatcher,
                         memory=memory,
                         messages=store,
                         embedder=embedder,
@@ -366,7 +397,8 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         plan=definitions.plans["dreamer"],
                         admission=admission,
                         provider=kernel_runtime.provider,
-                        dispatcher_factory=MemoryToolDispatcher,
+                        model_decisions=model_decisions,
+                        dispatcher_factory=memory_dispatcher,
                         memory=memory,
                     )
                     runner = JarvisThreadRunner(
@@ -374,6 +406,7 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                         store=store,
                         admission=admission,
                         kernel_runtime=kernel_runtime,
+                        model_decisions=model_decisions,
                         definitions=definitions,
                         history=history,
                         checkpoint_dispatcher_factory=lambda checkpoint: (
@@ -383,7 +416,8 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                                 actions=actions,
                                 google_write=composition.google_write,
                                 read=ReadToolDispatcher(
-                                    host_secrets=settings.host_secrets
+                                    host_secrets=settings.host_secrets,
+                                    recorder=PostgresReadRecorder(database),
                                 ),
                                 owner_timezone=settings.owner_timezone,
                                 source_conversation_id=str(settings.discord.channel_id),
@@ -399,7 +433,7 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
                             )
                         ),
                         memory=memory,
-                        memory_dispatcher_factory=MemoryToolDispatcher,
+                        memory_dispatcher_factory=memory_dispatcher,
                         rememberer=rememberer,
                     )
                     discord_delivery = DiscordCreateMessageClient(
@@ -526,8 +560,8 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
 
     engine = create_engine(settings.database_url.get_secret_value())
     try:
-        async with deployment_ownership(engine):
-            await MessageStore(engine).clear_parked(message_ids=message_ids)
+        async with deployment_ownership(engine) as database:
+            await MessageStore(database).clear_parked(message_ids=message_ids)
     finally:
         await engine.dispose()
 
@@ -540,8 +574,8 @@ async def dream_once(
     _validate_runtime_layout(settings, host)
     engine = create_engine(settings.database_url.get_secret_value())
     try:
-        async with deployment_ownership(engine):
-            if await MemoryStore(engine).raw_memory_count() == 0:
+        async with deployment_ownership(engine) as database:
+            if await MemoryStore(database).raw_memory_count() == 0:
                 return None
             limits = slice6_admission_limits(settings.maximum_batch_size)
             RollingAdmissionPort.migrate_limits(
@@ -563,7 +597,7 @@ async def dream_once(
             async with _isolated_memory_runtime(
                 settings=settings,
                 host=host,
-                engine=engine,
+                engine=database,
                 admission=admission,
             ) as runtime:
                 outcome = await runtime.dreamer.run_at(
@@ -592,7 +626,7 @@ async def rebuild_memory(
     admission: RootTrackingAdmissionPort | None = None
     operation_failed = False
     try:
-        async with deployment_ownership(engine):
+        async with deployment_ownership(engine) as database:
             if not journal_path.exists():
                 RollingAdmissionPort.initialize(journal_path, limits)
             admission_store = RollingAdmissionPort(journal_path, limits)
@@ -619,7 +653,7 @@ async def rebuild_memory(
             async with _isolated_memory_runtime(
                 settings=settings,
                 host=host,
-                engine=engine,
+                engine=database,
                 admission=admission,
             ) as runtime:
 
@@ -638,7 +672,7 @@ async def rebuild_memory(
                     )
 
                 result = await rebuild_memory_corpus(
-                    store=PostgresRebuildStore(engine),
+                    store=PostgresRebuildStore(database),
                     embedder=runtime.embedder,
                     dream_once=dream,
                     maximum_memory_rows=_MAXIMUM_REBUILD_MEMORY_ROWS,

@@ -9,6 +9,7 @@ import json
 import os
 import stat
 from collections.abc import Mapping, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,18 +44,24 @@ from jarvis.admission import RollingAdmissionPort, RootTrackingAdmissionPort
 from jarvis.codex_control import CodexHostConfig
 from jarvis.context import IsolatedRecaller
 from jarvis.db import create_engine
+from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     build_slice4_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
-from jarvis.kernel import build_agent_runtime, build_kernel_runtime
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.ownership import deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.rebuild import (
     DreamMutationProgress,
     PostgresRebuildStore,
@@ -246,253 +253,281 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
     phase_evidence_path = arguments.runtime_state_directory / PHASE_EVIDENCE_FILENAME
     fixtures, cases = load_recall_set(MEMORIES, CASES)
     settings = qualification_settings(arguments)
-    engine = create_engine(arguments.database_url)
-    original_open_session = CodexSdkAdapter.open_session
-    child_environment_observations: list[bool] = []
-
-    async def observed_open_session(
-        self: CodexSdkAdapter,
-        request: AgentSessionRequest,
-        *,
-        environment: Mapping[str, str],
-    ) -> AgentSession:
-        absent = embedding_credential_absent(
-            environment,
-            arguments.embedding_api_key.get_secret_value(),
+    raw_engine = create_engine(arguments.database_url)
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
         )
-        child_environment_observations.append(absent)
-        if not absent:
-            raise RuntimeError("embedding credential reached Codex child environment")
-        return await original_open_session(
-            self,
-            request,
-            environment=environment,
+        agent_runtime = build_agent_runtime(
+            provider_state_root=arguments.runtime_state_directory,
+            codex_endpoints=host.endpoints,
         )
+        database_lifetime.push_async_callback(agent_runtime.close)
+        original_open_session = CodexSdkAdapter.open_session
+        child_environment_observations: list[bool] = []
 
-    CodexSdkAdapter.open_session = observed_open_session
-    stage = "database"
-    try:
-        async with (
-            deployment_ownership(engine),
-            httpx.AsyncClient(
-                trust_env=False,
-                follow_redirects=False,
-            ) as http,
-        ):
-            embedder = OpenAIEmbedder(
-                arguments.embedding_api_key,
-                http_client=http,
+        async def observed_open_session(
+            self: CodexSdkAdapter,
+            request: AgentSessionRequest,
+            *,
+            environment: Mapping[str, str],
+        ) -> AgentSession:
+            absent = embedding_credential_absent(
+                environment,
+                arguments.embedding_api_key.get_secret_value(),
             )
-            seed = await seed_recall_fixtures(engine, fixtures)
-            initial_embedding = await populate_fixture_embeddings(
-                MemoryStore(engine),
-                embedder,
-                fixtures,
-            )
-            stage = "credential_containment"
-            await verify_embedding_credential_denies_generation(
-                arguments.embedding_api_key
-            )
-            catalog = build_slice3_catalog(
-                settings=settings,
-                google_oauth_http=http,
-                google_api_http=http,
-                maps_http=http,
-                brave_http=http,
-                memory_repository=PostgresMemoryRepository(engine),
-                memory_embedder=embedder,
-            )
-            definitions = build_slice4_definitions(
-                catalog=catalog,
-                profile_key=arguments.profile,
-                model=arguments.model,
-                owner_timezone=arguments.owner_timezone,
-                reasoning_effort=arguments.reasoning_effort,
-            )
-            limits = rebuild_admission_limits(len(cases))
-            admission_path = arguments.runtime_state_directory / "admission.json"
-            RollingAdmissionPort.initialize(admission_path, limits)
-            admission = RootTrackingAdmissionPort(
-                RollingAdmissionPort(admission_path, limits)
-            )
-            root = await admission.reserve(
-                AdmissionRequest(
-                    RunId(str(uuid4())),
-                    ThreadId("slice-4-rebuild-qualification"),
-                    1,
-                    1,
-                    1,
-                    1,
+            child_environment_observations.append(absent)
+            if not absent:
+                raise RuntimeError(
+                    "embedding credential reached Codex child environment"
                 )
+            return await original_open_session(
+                self,
+                request,
+                environment=environment,
             )
-            if not isinstance(root, AdmissionGranted):
-                raise RuntimeError("qualification root admission was not granted")
-            agent_runtime = build_agent_runtime(
-                provider_state_root=arguments.runtime_state_directory,
-                codex_endpoints=host.endpoints,
-            )
-            runtime = build_kernel_runtime(
-                runtime=agent_runtime,
-                shared_cwd_parent=shared_cwd_parent,
-                session_ref_path=arguments.runtime_state_directory / "session-ref.json",
-                model=arguments.model,
-                kernel_limits=definitions.main.limits,
-            )
-            probes: list[RecallProbeResult] = []
-            dream_runs: list[DreamerRunCompleted] = []
-            try:
 
-                def recaller_factory(trace: RecallProbeTrace) -> IsolatedRecaller:
-                    return IsolatedRecaller(
-                        definition=definitions.recaller,
-                        plan=definitions.plans["recaller"],
+        CodexSdkAdapter.open_session = observed_open_session
+        stage = "database"
+        try:
+            async with (
+                httpx.AsyncClient(
+                    trust_env=False,
+                    follow_redirects=False,
+                ) as http,
+            ):
+                embedder = OpenAIEmbedder(
+                    arguments.embedding_api_key,
+                    http_client=http,
+                )
+                seed = await seed_recall_fixtures(engine, fixtures)
+                initial_embedding = await populate_fixture_embeddings(
+                    MemoryStore(engine),
+                    embedder,
+                    fixtures,
+                )
+                stage = "credential_containment"
+                await verify_embedding_credential_denies_generation(
+                    arguments.embedding_api_key
+                )
+                catalog = build_slice3_catalog(
+                    settings=settings,
+                    google_oauth_http=http,
+                    google_api_http=http,
+                    maps_http=http,
+                    brave_http=http,
+                    memory_repository=PostgresMemoryRepository(engine),
+                    memory_embedder=embedder,
+                )
+                provider_configuration = await resolve_provider_configuration(
+                    runtime=agent_runtime,
+                    profile_key=arguments.profile,
+                    model_key=arguments.model,
+                    reasoning=arguments.reasoning_effort,
+                )
+                definitions = build_slice4_definitions(
+                    catalog=catalog,
+                    provider=provider_configuration,
+                    owner_timezone=arguments.owner_timezone,
+                )
+                limits = rebuild_admission_limits(len(cases))
+                admission_path = arguments.runtime_state_directory / "admission.json"
+                RollingAdmissionPort.initialize(admission_path, limits)
+                admission = RootTrackingAdmissionPort(
+                    RollingAdmissionPort(admission_path, limits)
+                )
+                root = await admission.reserve(
+                    AdmissionRequest(
+                        RunId(str(uuid4())),
+                        ThreadId("slice-4-rebuild-qualification"),
+                        1,
+                        1,
+                        1,
+                        1,
+                    )
+                )
+                if not isinstance(root, AdmissionGranted):
+                    raise RuntimeError("qualification root admission was not granted")
+                runtime = build_kernel_runtime(
+                    runtime=agent_runtime,
+                    shared_cwd_parent=shared_cwd_parent,
+                    session_ref_path=arguments.runtime_state_directory
+                    / "session-ref.json",
+                    model=arguments.model,
+                    kernel_limits=definitions.main.limits,
+                )
+                probes: list[RecallProbeResult] = []
+                dream_runs: list[DreamerRunCompleted] = []
+                try:
+
+                    def recaller_factory(
+                        trace: RecallProbeTrace,
+                    ) -> IsolatedRecaller:
+                        def journals(
+                            evidence: ModelEvidence | None,
+                        ) -> PostgresModelDecisionJournal:
+                            return PostgresModelDecisionJournal(
+                                engine, evidence=evidence
+                            )
+
+                        return IsolatedRecaller(
+                            model_decisions=journals,
+                            definition=definitions.recaller,
+                            plan=definitions.plans["recaller"],
+                            admission=admission,
+                            provider=runtime.provider,
+                            dispatcher_factory=lambda: MemoryToolDispatcher(
+                                recorder=PostgresReadRecorder(engine)
+                            ),
+                            memory=MemoryStore(engine),
+                            trace=trace,
+                        )
+
+                    async def evaluate(
+                        selected_cases: tuple[RecallCase, ...],
+                    ) -> RecallScore:
+                        probe = await run_recall_probe(
+                            cases=selected_cases,
+                            recaller_factory=recaller_factory,
+                        )
+                        probes.append(probe)
+                        return probe.score
+
+                    dreamer = DreamerWorker(
+                        model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                            engine, evidence=evidence
+                        ),
+                        definition=definitions.dreamer,
+                        plan=definitions.plans["dreamer"],
                         admission=admission,
                         provider=runtime.provider,
-                        dispatcher_factory=MemoryToolDispatcher,
+                        dispatcher_factory=lambda: MemoryToolDispatcher(
+                            recorder=PostgresReadRecorder(engine)
+                        ),
                         memory=MemoryStore(engine),
-                        trace=trace,
                     )
 
-                async def evaluate(
-                    selected_cases: tuple[RecallCase, ...],
-                ) -> RecallScore:
-                    probe = await run_recall_probe(
-                        cases=selected_cases,
-                        recaller_factory=recaller_factory,
-                    )
-                    probes.append(probe)
-                    return probe.score
+                    async def dream(job_as_of: datetime) -> DreamMutationProgress:
+                        outcome = await dreamer.run_at(
+                            as_of=job_as_of,
+                            cancellation=CancellationToken(),
+                            parent_admission=root.token,
+                        )
+                        if not isinstance(outcome, DreamerRunCompleted):
+                            raise RuntimeError("paid Dreamer did not complete")
+                        dream_runs.append(outcome)
+                        return DreamMutationProgress(
+                            len(outcome.created_summary_ids),
+                            len(outcome.removed_summary_ids),
+                        )
 
-                dreamer = DreamerWorker(
-                    definition=definitions.dreamer,
-                    plan=definitions.plans["dreamer"],
-                    admission=admission,
-                    provider=runtime.provider,
-                    dispatcher_factory=MemoryToolDispatcher,
-                    memory=MemoryStore(engine),
-                )
+                    scores: list[tuple[str, int, int]] = []
+                    phase_evidence: list[dict[str, object]] = []
 
-                async def dream(job_as_of: datetime) -> DreamMutationProgress:
-                    outcome = await dreamer.run_at(
-                        as_of=job_as_of,
-                        cancellation=CancellationToken(),
-                        parent_admission=root.token,
-                    )
-                    if not isinstance(outcome, DreamerRunCompleted):
-                        raise RuntimeError("paid Dreamer did not complete")
-                    dream_runs.append(outcome)
-                    return DreamMutationProgress(
-                        len(outcome.created_summary_ids),
-                        len(outcome.removed_summary_ids),
-                    )
+                    def record_score(
+                        phase: Literal["pre_rebuild", "post_rebuild"],
+                        score: RecallScore,
+                    ) -> None:
+                        record_phase_evidence(
+                            phase_evidence_path,
+                            phase_evidence,
+                            phase,
+                            score,
+                        )
+                        scores.append((phase, score.passed, score.total))
 
-                scores: list[tuple[str, int, int]] = []
-                phase_evidence: list[dict[str, object]] = []
-
-                def record_score(
-                    phase: Literal["pre_rebuild", "post_rebuild"],
-                    score: RecallScore,
-                ) -> None:
-                    record_phase_evidence(
-                        phase_evidence_path,
-                        phase_evidence,
-                        phase,
-                        score,
-                    )
-                    scores.append((phase, score.passed, score.total))
-
-                stage = "rebuild"
-                rebuilt = await rebuild_derived_memory(
-                    store=PostgresRebuildStore(engine),
-                    embedder=embedder,
-                    cases=cases,
-                    evaluate=evaluate,
-                    dream_once=dream,
-                    record_score=record_score,
-                    maximum_memory_rows=MAXIMUM_REBUILD_MEMORY_ROWS,
-                    as_of=datetime.now(UTC),
-                )
-            finally:
-                try:
-                    await admission.settle(
-                        root.token,
-                        AdmissionUsage(0, ProviderUsage(), 0.0),
+                    stage = "rebuild"
+                    rebuilt = await rebuild_derived_memory(
+                        store=PostgresRebuildStore(engine),
+                        embedder=embedder,
+                        cases=cases,
+                        evaluate=evaluate,
+                        dream_once=dream,
+                        record_score=record_score,
+                        maximum_memory_rows=MAXIMUM_REBUILD_MEMORY_ROWS,
+                        as_of=datetime.now(UTC),
                     )
                 finally:
-                    await runtime.close()
-            if rebuilt.pre_score.passed != 17 or rebuilt.post_score.passed != 17:
-                raise RuntimeError("frozen recall evaluation did not score 17/17")
-            if len(probes) != 2:
-                raise RuntimeError("rebuild did not run exactly two recall passes")
-            if not child_environment_observations or not all(
-                child_environment_observations
-            ):
-                raise RuntimeError(
-                    "live Codex child-environment containment was not observed"
-                )
-            return {
-                "credential_containment": {
-                    "codex_child_environment_observations": len(
-                        child_environment_observations
-                    ),
-                    "embedding_credential_absent": True,
-                    "generation_with_embedding_key": "denied",
-                },
-                "dependencies": {
-                    **EXPECTED_GIT_PINS,
-                },
-                "dreamer": {
-                    "definition_fingerprint": definitions.dreamer.fingerprint,
-                    "inserted": rebuilt.summaries_inserted,
-                    "plan_revision": definitions.plans["dreamer"].plan_revision,
-                    "provider_turns": sum(
-                        item.metrics.provider_turns for item in dream_runs
-                    ),
-                    "input_tokens": sum(
-                        item.metrics.usage.input_tokens or 0 for item in dream_runs
-                    ),
-                    "output_tokens": sum(
-                        item.metrics.usage.output_tokens or 0 for item in dream_runs
-                    ),
-                    "duration_ms": round(
-                        sum(item.metrics.duration_seconds for item in dream_runs)
-                        * 1_000
-                    ),
-                    "removed": rebuilt.summaries_removed,
-                    "runs": rebuilt.dreamer_runs,
-                    "session_compatibility_revision": (
-                        definitions.dreamer.session_compatibility_revision
-                    ),
-                },
-                "embedding": {
-                    "dimension": EMBEDDING_DIMENSION,
-                    "initial_rows": initial_embedding["embedded"],
-                    "model": EMBEDDING_MODEL,
-                    "raw_rebuilt": rebuilt.raw_embeddings_written,
-                    "summary_rebuilt": rebuilt.summary_embeddings_written,
-                },
-                "evaluation": {
-                    "phase_evidence": PHASE_EVIDENCE_FILENAME,
-                    "post": rebuilt.post_score.model_dump(mode="json"),
-                    "post_usage": _usage(probes[1]),
-                    "pre": rebuilt.pre_score.model_dump(mode="json"),
-                    "pre_usage": _usage(probes[0]),
-                    "score_records": scores,
-                },
-                "rebuild": {
-                    "lexical_raw_recall_after_wipe": True,
-                    "raw_memory_count": rebuilt.raw_memory_count,
-                    "summaries_after": rebuilt.summaries_after,
-                    "wipe": asdict(rebuilt.wipe),
-                },
-                "seed": seed,
-                "status": "passed",
-            }
-    except BaseException as error:
-        raise QualificationFailure(stage, error) from error
-    finally:
-        CodexSdkAdapter.open_session = original_open_session
-        await engine.dispose()
+                    try:
+                        await admission.settle(
+                            root.token,
+                            AdmissionUsage(0, ProviderUsage(), 0.0),
+                        )
+                    finally:
+                        await runtime.close()
+                if rebuilt.pre_score.passed != 17 or rebuilt.post_score.passed != 17:
+                    raise RuntimeError("frozen recall evaluation did not score 17/17")
+                if len(probes) != 2:
+                    raise RuntimeError("rebuild did not run exactly two recall passes")
+                if not child_environment_observations or not all(
+                    child_environment_observations
+                ):
+                    raise RuntimeError(
+                        "live Codex child-environment containment was not observed"
+                    )
+                return {
+                    "credential_containment": {
+                        "codex_child_environment_observations": len(
+                            child_environment_observations
+                        ),
+                        "embedding_credential_absent": True,
+                        "generation_with_embedding_key": "denied",
+                    },
+                    "dependencies": {
+                        **EXPECTED_GIT_PINS,
+                    },
+                    "dreamer": {
+                        "definition_fingerprint": definitions.dreamer.fingerprint,
+                        "inserted": rebuilt.summaries_inserted,
+                        "plan_revision": definitions.plans["dreamer"].plan_revision,
+                        "provider_turns": sum(
+                            item.metrics.provider_turns for item in dream_runs
+                        ),
+                        "input_tokens": sum(
+                            item.metrics.usage.input_tokens or 0 for item in dream_runs
+                        ),
+                        "output_tokens": sum(
+                            item.metrics.usage.output_tokens or 0 for item in dream_runs
+                        ),
+                        "duration_ms": round(
+                            sum(item.metrics.duration_seconds for item in dream_runs)
+                            * 1_000
+                        ),
+                        "removed": rebuilt.summaries_removed,
+                        "runs": rebuilt.dreamer_runs,
+                        "session_compatibility_revision": (
+                            definitions.dreamer.session_compatibility_revision
+                        ),
+                    },
+                    "embedding": {
+                        "dimension": EMBEDDING_DIMENSION,
+                        "initial_rows": initial_embedding["embedded"],
+                        "model": EMBEDDING_MODEL,
+                        "raw_rebuilt": rebuilt.raw_embeddings_written,
+                        "summary_rebuilt": rebuilt.summary_embeddings_written,
+                    },
+                    "evaluation": {
+                        "phase_evidence": PHASE_EVIDENCE_FILENAME,
+                        "post": rebuilt.post_score.model_dump(mode="json"),
+                        "post_usage": _usage(probes[1]),
+                        "pre": rebuilt.pre_score.model_dump(mode="json"),
+                        "pre_usage": _usage(probes[0]),
+                        "score_records": scores,
+                    },
+                    "rebuild": {
+                        "lexical_raw_recall_after_wipe": True,
+                        "raw_memory_count": rebuilt.raw_memory_count,
+                        "summaries_after": rebuilt.summaries_after,
+                        "wipe": asdict(rebuilt.wipe),
+                    },
+                    "seed": seed,
+                    "status": "passed",
+                }
+        except BaseException as error:
+            raise QualificationFailure(stage, error) from error
+        finally:
+            CodexSdkAdapter.open_session = original_open_session
 
 
 def main(argv: Sequence[str] | None = None) -> int:

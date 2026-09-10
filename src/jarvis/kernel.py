@@ -10,6 +10,7 @@ from llm_agent_kernel import (
     CancellationToken,
     CodexProvider,
     KernelLimits,
+    ProviderConfiguration,
     SessionCoordinator,
     StaleSessionRef,
     StaleSessionReference,
@@ -18,15 +19,47 @@ from llm_agent_kernel import (
     ToolDispatchLineage,
 )
 from llm_tools import BudgetState, FrozenToolPlan, ToolBinding
-from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
+from provider_runtime.agent_runtime import (
+    AgentRuntime,
+    AgentRuntimeConfig,
+    CredentialRef,
+)
 
 from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
+    QUALIFIED_CODEX_MODELS,
     NativeContextLimits,
     session_generation_limit,
     verify_runtime_dependencies,
 )
 from jarvis.session import AtomicSessionRefPort
+
+
+async def resolve_provider_configuration(
+    *,
+    runtime: AgentRuntime,
+    profile_key: str,
+    model_key: str,
+    reasoning: str = "high",
+) -> ProviderConfiguration:
+    """Freeze one qualified selection from the owner's authenticated native catalog."""
+    if model_key not in QUALIFIED_CODEX_MODELS:
+        raise ValueError("model is not a qualified Jarvis route")
+    auth = CredentialRef("local_account", profile_key)
+    catalog = await runtime.model_catalog("codex", auth, transport="sdk")
+    matches = tuple(row for row in catalog.models if row.key == model_key)
+    if len(matches) != 1:
+        raise ValueError("model is absent or ambiguous in the authenticated catalog")
+    row = matches[0]
+    if sum(option.key == reasoning for option in row.reasoning) != 1:
+        raise ValueError("reasoning is unsupported in the authenticated model catalog")
+    return ProviderConfiguration(
+        auth=auth,
+        model_key=row.key,
+        reasoning=reasoning,
+        agent_definition_revision=catalog.definition_revision,
+        row_fingerprint=row.row_fingerprint,
+    )
 
 
 class EmptySlice1Dispatcher:
@@ -138,4 +171,5 @@ __all__ = [
     "KernelRuntime",
     "build_agent_runtime",
     "build_kernel_runtime",
+    "resolve_provider_configuration",
 ]

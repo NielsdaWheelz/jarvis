@@ -1,6 +1,7 @@
 # Production operations
 
-Jarvis Slice 6 is one Python 3.12 process, one PostgreSQL database, and one
+Jarvis Slice 6 is one CPython 3.12.13-or-later process within the 3.12 series,
+one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
 is the exact v1 catalog in SPEC 7.3. The selected Main plan contains twelve
 external/native reads and ten writes. Gmail send and shared, unknown-calendar, or
@@ -625,7 +626,7 @@ invent or provision one. Loss or unrecoverable corruption of the devbox, its
 disk, or the Jarvis database can permanently lose conversation, memory, action,
 and runtime state. This is an explicit one-user-prototype trade-off. Add backup
 as a later slice when retained production state justifies its operational and
-qualification cost; doing so does not require changing the four application
+qualification cost; doing so does not require changing the six application
 tables.
 
 Ordinary logs contain event types, bounded IDs, counts, and reason codes

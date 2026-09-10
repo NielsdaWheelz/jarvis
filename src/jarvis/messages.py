@@ -8,12 +8,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from llm_agent_kernel import InitialReadDispatchLineage, RunId
+from llm_tools import canonical_json_bytes
 from sqlalchemy import RowMapping, case, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.db import message
+from jarvis.db import message, model_decision, read_position
+from jarvis.decisions import pending_thread_decision
 from jarvis.memory import MemoryIdentity
+from jarvis.ownership import Database
 from jarvis.settings import MAXIMUM_BATCH_SIZE
 
 MessageRole = Literal["owner", "assistant", "host"]
@@ -155,7 +159,7 @@ class PendingControl:
 
 
 class MessageStore:
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         self._engine = engine
 
     async def insert_waking(
@@ -270,6 +274,53 @@ class MessageStore:
             if parked:
                 return CircuitOpen()
 
+            recorded = await pending_thread_decision(connection, source_conversation_id)
+            if recorded is not None:
+                original_ids = tuple(UUID(str(value)) for value in recorded.input_ids)
+                if len(original_ids) > maximum_batch_size:
+                    raise PersistenceDefect(
+                        "recorded model input exceeds the current claim bound"
+                    )
+                original_rows = (
+                    (
+                        await connection.execute(
+                            select(message)
+                            .where(message.c.id.in_(original_ids))
+                            .with_for_update()
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                by_id = {row["id"]: _stored_message(row) for row in original_rows}
+                if set(by_id) != set(original_ids):
+                    raise PersistenceDefect("recorded model input is missing")
+                original_messages = tuple(by_id[value] for value in original_ids)
+                if any(
+                    row.source_conversation_id != source_conversation_id
+                    or row.role not in {"owner", "host"}
+                    or row.processed_at is not None
+                    or row.processing_parked_at is not None
+                    for row in original_messages
+                ):
+                    raise PersistenceDefect(
+                        "recorded model input is no longer claimable"
+                    )
+                if str(recorded.through_checkpoint) != str(original_ids[-1]):
+                    raise PersistenceDefect(
+                        "recorded model checkpoint disagrees with original input"
+                    )
+                return ClaimedMessages(
+                    claim_id=str(uuid4()),
+                    route="scheduled_wake"
+                    if original_messages[0].source == "schedule_wake"
+                    else "interactive",
+                    messages=original_messages,
+                    through_checkpoint=str(recorded.through_checkpoint),
+                    as_of=recorded.as_of,
+                    attempt_number=original_messages[0].processing_attempts,
+                )
+
             interactive = (message.c.source != "schedule_wake") & ~(
                 (message.c.role == "owner")
                 & (message.c.source == "discord")
@@ -317,6 +368,59 @@ class MessageStore:
             ]
             if len(host_indexes) > 1:
                 stored = stored[: host_indexes[1]]
+            owner_ids = tuple(value.id for value in stored if value.role == "owner")
+            recall_positions = tuple(
+                str(
+                    InitialReadDispatchLineage(
+                        RunId("claim-recovery"), f"jarvis-recall:{value}"
+                    ).position
+                )
+                for value in owner_ids
+            )
+            recall_scopes = tuple(
+                canonical_json_bytes(
+                    {"operation_id": f"jarvis-recall:{value}"}
+                ).decode()
+                for value in owner_ids
+            )
+            unknown_read = await connection.scalar(
+                select(read_position.c.position)
+                .where(
+                    read_position.c.position.in_(recall_positions)
+                    | read_position.c.position.in_(
+                        select("model-decision:" + model_decision.c.decision_id).where(
+                            model_decision.c.scope_key.in_(recall_scopes)
+                        )
+                    ),
+                    read_position.c.state.in_(("dispatched", "uncertain")),
+                )
+                .limit(1)
+            )
+            unknown_recall = await connection.scalar(
+                select(model_decision.c.decision_id)
+                .where(
+                    model_decision.c.scope_key.in_(recall_scopes),
+                    model_decision.c.terminal.is_(None),
+                )
+                .limit(1)
+            )
+            if unknown_read is not None or unknown_recall is not None:
+                await connection.execute(
+                    update(message)
+                    .where(message.c.id.in_(owner_ids))
+                    .values(
+                        processing_parked_at=claim_time,
+                        trace=message.c.trace.concat(
+                            {
+                                "parking": {
+                                    "reason_code": "paid_recall_uncertain",
+                                    "parked_at": claim_time.isoformat(),
+                                }
+                            }
+                        ),
+                    )
+                )
+                return CircuitOpen()
             first = stored[0]
             if first.processing_attempts >= maximum_attempts:
                 return ExhaustedMessage(first)

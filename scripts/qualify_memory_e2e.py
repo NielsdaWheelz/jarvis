@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import stat
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -20,7 +20,7 @@ import httpx
 from llm_agent_kernel import (
     CancellationToken,
     DispatchResult,
-    IsolatedDispatchLineage,
+    InitialReadDispatchLineage,
     RunId,
     ThreadCompleted,
     ThreadId,
@@ -28,7 +28,6 @@ from llm_agent_kernel import (
 )
 from llm_tools import BudgetState, FrozenToolPlan, ToolBinding, ToolId
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from jarvis.admission import (
     ExactToolBudgetFactory,
@@ -38,7 +37,16 @@ from jarvis.admission import (
     slice3_admission_limits,
 )
 from jarvis.codex_control import CodexHostConfig
-from jarvis.db import action, create_engine, memory_log, memory_summary, message
+from jarvis.db import (
+    action,
+    create_engine,
+    memory_log,
+    memory_summary,
+    message,
+    model_decision,
+    read_position,
+)
+from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     SLICE4_DREAM_KERNEL_LIMITS,
@@ -48,14 +56,20 @@ from jarvis.definitions import (
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import KernelRuntime, build_agent_runtime, build_kernel_runtime
+from jarvis.kernel import (
+    KernelRuntime,
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
 from jarvis.memory import MemoryIdentity, MemoryStore, StoredMemory
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.messages import MessageStore, StoredMessage
-from jarvis.ownership import deployment_ownership
+from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.read_tools import (
     CalendarGetEventInput,
     CalendarGetEventSuccess,
@@ -125,7 +139,7 @@ class MemoryState:
 
 
 class _RecordingMemoryStore(MemoryStore):
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: Database) -> None:
         super().__init__(engine)
         self.opened_identities: list[MemoryIdentity] = []
 
@@ -144,8 +158,12 @@ class _RecordingMemoryStore(MemoryStore):
 
 
 class _TargetRecordingDispatcher:
-    def __init__(self, host_secrets: tuple[str, ...], resources: LiveResources) -> None:
-        self._inner = ReadToolDispatcher(host_secrets=host_secrets)
+    def __init__(
+        self, engine: Database, host_secrets: tuple[str, ...], resources: LiveResources
+    ) -> None:
+        self._inner = ReadToolDispatcher(
+            recorder=PostgresReadRecorder(engine), host_secrets=host_secrets
+        )
         self._resources = resources
         self.gmail_reopened = False
         self.calendar_reopened = False
@@ -377,6 +395,15 @@ def new_summaries(before: MemoryState, after: MemoryState) -> tuple[SummaryRow, 
     return tuple(row for row in after.summaries if row.id not in before_ids)
 
 
+async def backfill_dream_summary(
+    before: MemoryState, after: MemoryState, rememberer: RemembererWorker
+) -> None:
+    if len(new_summaries(before, after)) != 1:
+        raise QualificationCheckFailed("dreamer_created_not_one_summary")
+    if await rememberer.run_one(CancellationToken()) is not True:
+        raise QualificationCheckFailed("summary_embedding_backfill_failed")
+
+
 def validate_dream_phase(
     *,
     before: MemoryState,
@@ -526,18 +553,19 @@ def _validate_settings(settings: Settings, host: CodexHostConfig) -> None:
         raise ValueError("runtime state must be an unused path")
 
 
-async def _empty_memory_state(engine: AsyncEngine) -> MemoryState:
+async def _empty_memory_state(engine: Database) -> MemoryState:
     state = await _memory_state(engine)
     async with engine.connect() as connection:
-        message_count = cast(
-            int, await connection.scalar(select(func.count()).select_from(message))
-        )
-    if message_count != 0 or state.raw or state.summary_count or state.action_count:
+        counts = [
+            cast(int, await connection.scalar(select(func.count()).select_from(table)))
+            for table in (message, model_decision, read_position)
+        ]
+    if any(counts) or state.raw or state.summary_count or state.action_count:
         raise QualificationCheckFailed("database_not_empty")
     return state
 
 
-async def _memory_state(engine: AsyncEngine) -> MemoryState:
+async def _memory_state(engine: Database) -> MemoryState:
     async with engine.connect() as connection:
         rows = (
             await connection.execute(
@@ -596,7 +624,7 @@ async def _memory_state(engine: AsyncEngine) -> MemoryState:
 
 async def _dispatch_read(
     *,
-    dispatcher: ReadToolDispatcher,
+    dispatcher: ReadToolDispatcher[RunReadRecorder],
     definitions: Slice4Definitions,
     budgets: BudgetState,
     tool_id: str,
@@ -611,7 +639,9 @@ async def _dispatch_read(
         plan=definitions.plans["main"],
         budgets=budgets,
         cancellation=CancellationToken(),
-        lineage=IsolatedDispatchLineage(run_id, ordinal),
+        lineage=InitialReadDispatchLineage(
+            run_id, f"qualification-resource:{run_id}:{ordinal}"
+        ),
     )
     if result.result.get("type") != "Success":
         raise QualificationCheckFailed(f"{tool_id.replace('.', '_')}_failed")
@@ -628,7 +658,9 @@ async def _select_live_resources(
     gmail_query: str,
     owner_timezone: str,
 ) -> LiveResources:
-    dispatcher = ReadToolDispatcher(host_secrets=host_secrets)
+    dispatcher = ReadToolDispatcher(
+        recorder=RunReadRecorder(), host_secrets=host_secrets
+    )
     budgets = ExactToolBudgetFactory().create(definitions.plans["main"])
     run_id = RunId(str(uuid4()))
     searched = GmailSearchSuccess.model_validate(
@@ -711,7 +743,7 @@ async def _select_live_resources(
 def _build_roles(
     *,
     settings: Settings,
-    engine: AsyncEngine,
+    engine: Database,
     definitions: Slice4Definitions,
     runtime: KernelRuntime,
     embedder: OpenAIEmbedder,
@@ -726,11 +758,16 @@ def _build_roles(
     memory = _RecordingMemoryStore(engine)
     messages = MessageStore(engine)
     rememberer = RemembererWorker(
+        model_decisions=lambda evidence: PostgresModelDecisionJournal(
+            engine, evidence=evidence
+        ),
         definition=definitions.rememberer,
         plan=definitions.plans["rememberer"],
         admission=admission,
         provider=runtime.provider,
-        dispatcher_factory=cast("Callable[[], Any]", MemoryToolDispatcher),
+        dispatcher_factory=lambda: MemoryToolDispatcher(
+            recorder=PostgresReadRecorder(engine)
+        ),
         memory=memory,
         messages=messages,
         embedder=embedder,
@@ -738,12 +775,17 @@ def _build_roles(
     )
 
     def dispatcher_factory() -> _TargetRecordingDispatcher:
-        dispatcher = _TargetRecordingDispatcher(settings.host_secrets, resources)
+        dispatcher = _TargetRecordingDispatcher(
+            engine, settings.host_secrets, resources
+        )
         dispatchers.append(dispatcher)
         return dispatcher
 
     return (
         JarvisThreadRunner(
+            model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                engine, evidence=evidence
+            ),
             settings=settings,
             store=messages,
             admission=admission,
@@ -752,7 +794,9 @@ def _build_roles(
             history=PostgresCanonicalHistory(engine),
             dispatcher_factory=dispatcher_factory,
             memory=memory,
-            memory_dispatcher_factory=cast("Callable[[], Any]", MemoryToolDispatcher),
+            memory_dispatcher_factory=lambda: MemoryToolDispatcher(
+                recorder=PostgresReadRecorder(engine)
+            ),
             rememberer=rememberer,
         ),
         rememberer,
@@ -839,356 +883,380 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
     settings.runtime_state_directory.mkdir(mode=0o700)
     limits = qualification_admission_limits()
     RollingAdmissionPort.initialize(settings.admission_journal_path, limits)
-    engine = create_engine(settings.database_url.get_secret_value())
-    stage = "database"
-    try:
-        before = await _empty_memory_state(engine)
-        async with deployment_ownership(engine), AsyncExitStack() as clients:
-            google_oauth_http = await clients.enter_async_context(
-                httpx.AsyncClient(trust_env=False, follow_redirects=False)
-            )
-            google_api_http = await clients.enter_async_context(
-                httpx.AsyncClient(trust_env=False, follow_redirects=False)
-            )
-            maps_http = await clients.enter_async_context(
-                httpx.AsyncClient(trust_env=False, follow_redirects=False)
-            )
-            brave_http = await clients.enter_async_context(
-                httpx.AsyncClient(trust_env=False, follow_redirects=False)
-            )
-            embedding_http = await clients.enter_async_context(
-                httpx.AsyncClient(trust_env=False, follow_redirects=False)
-            )
-            embedder = OpenAIEmbedder(
-                settings.embedding_openai_api_key,
-                http_client=embedding_http,
-            )
-            catalog = build_slice3_catalog(
-                settings=settings,
-                google_oauth_http=google_oauth_http,
-                google_api_http=google_api_http,
-                maps_http=maps_http,
-                brave_http=brave_http,
-                memory_repository=PostgresMemoryRepository(engine),
-                memory_embedder=embedder,
-            )
-            definitions = build_slice4_definitions(
-                catalog=catalog,
-                profile_key=settings.codex_profile_key,
-                model=settings.codex_model,
-                owner_timezone=settings.owner_timezone,
-            )
-
-            stage = "resource_selection"
-            resources = await _select_live_resources(
-                definitions=definitions,
-                host_secrets=settings.host_secrets,
-                gmail_query=gmail_query,
-                owner_timezone=settings.owner_timezone,
-            )
-            first_input, second_input, required_uris = owner_inputs(resources)
-            store = MessageStore(engine)
-
-            stage = "first_cycle"
-            first_agent_runtime = build_agent_runtime(
-                provider_state_root=settings.runtime_state_directory,
-                codex_endpoints=host.endpoints,
-            )
-            first_runtime = build_kernel_runtime(
-                runtime=first_agent_runtime,
-                shared_cwd_parent=Path(host.cognition_cwd_parent),
-                session_ref_path=settings.session_reference_path,
-                model=settings.codex_model,
-                kernel_limits=definitions.main.limits,
-            )
-            first_dispatchers: list[_TargetRecordingDispatcher] = []
-            first_runner: JarvisThreadRunner | None = None
-            first_error: BaseException | None = None
-            try:
-                first_runner, first_rememberer, _first_memory = _build_roles(
-                    settings=settings,
-                    engine=engine,
-                    definitions=definitions,
-                    runtime=first_runtime,
-                    embedder=embedder,
-                    resources=resources,
-                    dispatchers=first_dispatchers,
-                )
-                inserted = await store.insert_waking(
-                    role="owner",
-                    text=first_input,
-                    source="qualification",
-                    source_conversation_id=str(settings.discord.channel_id),
-                    source_message_id=f"slice4-memory-e2e-{uuid4()}-1",
-                    created_at=datetime.now(UTC),
-                )
-                first_outcome = await first_runner.run(CancellationToken())
-                if not isinstance(first_outcome, ThreadCompleted):
-                    raise QualificationCheckFailed("first_thread_not_completed")
-                if await first_rememberer.run_one(CancellationToken()) is not True:
-                    raise QualificationCheckFailed("first_rememberer_not_completed")
-                first_owner = await store.message_by_id(inserted.message.id)
-                if first_owner is None:
-                    raise QualificationCheckFailed("first_owner_missing")
-                first_created, first_report = validate_first_phase(
-                    before=before,
-                    after=await _memory_state(engine),
-                    owner=first_owner,
-                    required_uris=required_uris,
-                    required_gmail_thread_id=resources.gmail_thread_id,
-                )
-                first_report["main_usage"] = _usage(
-                    provider_turns=first_outcome.metrics.provider_turns,
-                    input_tokens=first_outcome.metrics.usage.input_tokens,
-                    output_tokens=first_outcome.metrics.usage.output_tokens,
-                    duration_seconds=first_outcome.metrics.duration_seconds,
-                )
-                first_report["recaller_usage"] = cognitive_usage(
-                    first_owner.trace, "recaller"
-                )
-                first_report["rememberer_usage"] = cognitive_usage(
-                    first_owner.trace, "rememberer"
-                )
-                await _discard_main_reference(
-                    settings=settings,
-                    definitions=definitions,
-                    runtime=first_runtime,
-                    runner=first_runner,
-                    require_present=True,
-                )
-            except BaseException as error:
-                first_error = error
-                raise
-            finally:
-                await cleanup_cycle_runtime(
-                    settings=settings,
-                    definitions=definitions,
-                    runtime=first_runtime,
-                    runner=first_runner,
-                    primary_error=first_error,
-                )
-
-            stage = "dream"
-            dream_agent_runtime = build_agent_runtime(
-                provider_state_root=settings.runtime_state_directory,
-                codex_endpoints=host.endpoints,
-            )
-            dream_runtime = build_kernel_runtime(
-                runtime=dream_agent_runtime,
-                shared_cwd_parent=Path(host.cognition_cwd_parent),
-                session_ref_path=settings.session_reference_path,
-                model=settings.codex_model,
-                kernel_limits=definitions.dreamer.limits,
-            )
-            dream_before = await _memory_state(engine)
-            dream_error: BaseException | None = None
-            try:
-                dreamer = DreamerWorker(
-                    definition=definitions.dreamer,
-                    plan=definitions.plans["dreamer"],
-                    admission=RootTrackingAdmissionPort(
-                        RollingAdmissionPort(
-                            settings.admission_journal_path,
-                            qualification_admission_limits(),
-                        )
-                    ),
-                    provider=dream_runtime.provider,
-                    dispatcher_factory=cast("Callable[[], Any]", MemoryToolDispatcher),
-                    memory=MemoryStore(engine),
-                )
-                dream_outcome = await dreamer.run_at(
-                    as_of=datetime.now(UTC),
-                    cancellation=CancellationToken(),
-                )
-                if not isinstance(dream_outcome, DreamerRunCompleted):
-                    raise QualificationCheckFailed("dreamer_not_completed")
-                dream_generated = await _memory_state(engine)
-                if len(new_summaries(dream_before, dream_generated)) != 1:
-                    raise QualificationCheckFailed("dreamer_created_not_one_summary")
-                if await first_rememberer.run_one(CancellationToken()) is not True:
-                    raise QualificationCheckFailed("summary_embedding_backfill_failed")
-                created_summaries, dream_report = validate_dream_phase(
-                    before=dream_before,
-                    after=await _memory_state(engine),
-                    first_created=first_created,
-                    required_uris=required_uris,
-                )
-                dream_report["embedding_backfill"] = (
-                    "rememberer_bounded_null_vector_sweep"
-                )
-                dream_report["usage"] = _usage(
-                    provider_turns=dream_outcome.metrics.provider_turns,
-                    input_tokens=dream_outcome.metrics.usage.input_tokens,
-                    output_tokens=dream_outcome.metrics.usage.output_tokens,
-                    duration_seconds=dream_outcome.metrics.duration_seconds,
-                )
-            except BaseException as error:
-                dream_error = error
-                raise
-            finally:
-                try:
-                    await dream_runtime.close()
-                except BaseException as error:
-                    if dream_error is None:
-                        raise QualificationCheckFailed(
-                            "dream_runtime_cleanup_failed"
-                        ) from error
-
-            stage = "second_cycle"
-            second_agent_runtime = build_agent_runtime(
-                provider_state_root=settings.runtime_state_directory,
-                codex_endpoints=host.endpoints,
-            )
-            second_runtime = build_kernel_runtime(
-                runtime=second_agent_runtime,
-                shared_cwd_parent=Path(host.cognition_cwd_parent),
-                session_ref_path=settings.session_reference_path,
-                model=settings.codex_model,
-                kernel_limits=definitions.main.limits,
-            )
-            second_dispatchers: list[_TargetRecordingDispatcher] = []
-            second_runner: JarvisThreadRunner | None = None
-            second_error: BaseException | None = None
-            try:
-                second_runner, second_rememberer, second_memory = _build_roles(
-                    settings=settings,
-                    engine=engine,
-                    definitions=definitions,
-                    runtime=second_runtime,
-                    embedder=embedder,
-                    resources=resources,
-                    dispatchers=second_dispatchers,
-                )
-                inserted = await store.insert_waking(
-                    role="owner",
-                    text=second_input,
-                    source="qualification",
-                    source_conversation_id=str(settings.discord.channel_id),
-                    source_message_id=f"slice4-memory-e2e-{uuid4()}-2",
-                    created_at=datetime.now(UTC),
-                )
-                second_outcome = await second_runner.run(CancellationToken())
-                if not isinstance(second_outcome, ThreadCompleted):
-                    raise QualificationCheckFailed("second_thread_not_completed")
-                if len(second_dispatchers) != 1:
-                    raise QualificationCheckFailed("main_dispatcher_count_invalid")
-                recaller_opened = tuple(second_memory.opened_identities)
-                if await second_rememberer.run_one(CancellationToken()) is not True:
-                    raise QualificationCheckFailed("second_rememberer_not_completed")
-                second_owner = await store.message_by_id(inserted.message.id)
-                if second_owner is None:
-                    raise QualificationCheckFailed("second_owner_missing")
-                second_answer = await _owner_conclusion(store, second_owner)
-                second_report = validate_second_phase(
-                    after=await _memory_state(engine),
-                    owner=second_owner,
-                    first_created=first_created,
-                    created_summaries=created_summaries,
-                    selected=selected_memories(second_owner.trace),
-                    opened=recaller_opened,
-                    answer_text=second_answer.text,
-                    dispatcher=second_dispatchers[0],
-                )
-                second_report["main_usage"] = _usage(
-                    provider_turns=second_outcome.metrics.provider_turns,
-                    input_tokens=second_outcome.metrics.usage.input_tokens,
-                    output_tokens=second_outcome.metrics.usage.output_tokens,
-                    duration_seconds=second_outcome.metrics.duration_seconds,
-                )
-                second_report["recaller_usage"] = cognitive_usage(
-                    second_owner.trace, "recaller"
-                )
-                second_report["rememberer_usage"] = cognitive_usage(
-                    second_owner.trace, "rememberer"
-                )
-                await _discard_main_reference(
-                    settings=settings,
-                    definitions=definitions,
-                    runtime=second_runtime,
-                    runner=second_runner,
-                    require_present=False,
-                )
-            except BaseException as error:
-                second_error = error
-                raise
-            finally:
-                await cleanup_cycle_runtime(
-                    settings=settings,
-                    definitions=definitions,
-                    runtime=second_runtime,
-                    runner=second_runner,
-                    primary_error=second_error,
-                )
-
-            result: dict[str, object] = {
-                "admission_cycle_capacity": {
-                    "dreamer_runs": 1,
-                    "foreground_cycles": 2,
-                },
-                "dream": dream_report,
-                "embedding": {
-                    "dimension": EMBEDDING_DIMENSION,
-                    "model": EMBEDDING_MODEL,
-                },
-                "first_cycle": first_report,
-                "resources": {
-                    "calendar_normal_event_selected": True,
-                    "gmail_thread_selected": True,
-                },
-                "revisions": {
-                    "dependencies": {
-                        **EXPECTED_GIT_PINS,
-                    },
-                    "roles": {
-                        "main": definitions.main.session_compatibility_revision,
-                        "recaller": definitions.recaller.session_compatibility_revision,
-                        "rememberer": (
-                            definitions.rememberer.session_compatibility_revision
-                        ),
-                        "dreamer": definitions.dreamer.session_compatibility_revision,
-                    },
-                    "tools": {
-                        name: catalog.binding(ToolId(name)).implementation_revision
-                        for name in (
-                            "calendar.get_event",
-                            "gmail.read_thread",
-                            "memory.open",
-                            "memory.search",
-                        )
-                    },
-                },
-                "route": settings.codex_model,
-                "runtime": {
-                    "first_reference_discarded": True,
-                    "fresh_runtime_rebuilt": True,
-                    "second_reference_absent": True,
-                },
-                "second_cycle": second_report,
-                "status": "passed",
-            }
-            assert_sanitized_output(
-                result,
-                (
-                    *settings.host_secrets,
-                    gmail_query,
-                    resources.gmail_thread_id,
-                    resources.gmail_message_id,
-                    resources.calendar_event_id,
-                    first_input,
-                    second_input,
-                    *required_uris,
-                ),
-            )
-            return result
-    except BaseException as error:
-        reason_code = (
-            error.reason_code
-            if isinstance(error, QualificationCheckFailed)
-            else "unexpected_exception"
+    raw_engine = create_engine(settings.database_url.get_secret_value())
+    async with AsyncExitStack() as database_lifetime:
+        database_lifetime.push_async_callback(raw_engine.dispose)
+        engine = await database_lifetime.enter_async_context(
+            deployment_ownership(raw_engine)
         )
-        raise QualificationFailure(stage, type(error).__name__, reason_code) from error
-    finally:
-        await engine.dispose()
+        stage = "database"
+        try:
+            before = await _empty_memory_state(engine)
+            async with AsyncExitStack() as clients:
+                google_oauth_http = await clients.enter_async_context(
+                    httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                )
+                google_api_http = await clients.enter_async_context(
+                    httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                )
+                maps_http = await clients.enter_async_context(
+                    httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                )
+                brave_http = await clients.enter_async_context(
+                    httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                )
+                embedding_http = await clients.enter_async_context(
+                    httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                )
+                embedder = OpenAIEmbedder(
+                    settings.embedding_openai_api_key,
+                    http_client=embedding_http,
+                )
+                catalog = build_slice3_catalog(
+                    settings=settings,
+                    google_oauth_http=google_oauth_http,
+                    google_api_http=google_api_http,
+                    maps_http=maps_http,
+                    brave_http=brave_http,
+                    memory_repository=PostgresMemoryRepository(engine),
+                    memory_embedder=embedder,
+                )
+                first_agent_runtime = build_agent_runtime(
+                    provider_state_root=settings.runtime_state_directory,
+                    codex_endpoints=host.endpoints,
+                )
+                clients.push_async_callback(first_agent_runtime.close)
+                provider_configuration = await resolve_provider_configuration(
+                    runtime=first_agent_runtime,
+                    profile_key=settings.codex_profile_key,
+                    model_key=settings.codex_model,
+                )
+                definitions = build_slice4_definitions(
+                    catalog=catalog,
+                    provider=provider_configuration,
+                    owner_timezone=settings.owner_timezone,
+                )
+
+                stage = "resource_selection"
+                resources = await _select_live_resources(
+                    definitions=definitions,
+                    host_secrets=settings.host_secrets,
+                    gmail_query=gmail_query,
+                    owner_timezone=settings.owner_timezone,
+                )
+                first_input, second_input, required_uris = owner_inputs(resources)
+                store = MessageStore(engine)
+
+                stage = "first_cycle"
+                first_runtime = build_kernel_runtime(
+                    runtime=first_agent_runtime,
+                    shared_cwd_parent=Path(host.cognition_cwd_parent),
+                    session_ref_path=settings.session_reference_path,
+                    model=settings.codex_model,
+                    kernel_limits=definitions.main.limits,
+                )
+                first_dispatchers: list[_TargetRecordingDispatcher] = []
+                first_runner: JarvisThreadRunner | None = None
+                first_error: BaseException | None = None
+                try:
+                    first_runner, first_rememberer, _first_memory = _build_roles(
+                        settings=settings,
+                        engine=engine,
+                        definitions=definitions,
+                        runtime=first_runtime,
+                        embedder=embedder,
+                        resources=resources,
+                        dispatchers=first_dispatchers,
+                    )
+                    inserted = await store.insert_waking(
+                        role="owner",
+                        text=first_input,
+                        source="qualification",
+                        source_conversation_id=str(settings.discord.channel_id),
+                        source_message_id=f"slice4-memory-e2e-{uuid4()}-1",
+                        created_at=datetime.now(UTC),
+                    )
+                    first_outcome = await first_runner.run(CancellationToken())
+                    if not isinstance(first_outcome, ThreadCompleted):
+                        raise QualificationCheckFailed("first_thread_not_completed")
+                    if await first_rememberer.run_one(CancellationToken()) is not True:
+                        raise QualificationCheckFailed("first_rememberer_not_completed")
+                    first_owner = await store.message_by_id(inserted.message.id)
+                    if first_owner is None:
+                        raise QualificationCheckFailed("first_owner_missing")
+                    first_created, first_report = validate_first_phase(
+                        before=before,
+                        after=await _memory_state(engine),
+                        owner=first_owner,
+                        required_uris=required_uris,
+                        required_gmail_thread_id=resources.gmail_thread_id,
+                    )
+                    first_report["main_usage"] = _usage(
+                        provider_turns=first_outcome.metrics.provider_turns,
+                        input_tokens=first_outcome.metrics.usage.input_tokens,
+                        output_tokens=first_outcome.metrics.usage.output_tokens,
+                        duration_seconds=first_outcome.metrics.duration_seconds,
+                    )
+                    first_report["recaller_usage"] = cognitive_usage(
+                        first_owner.trace, "recaller"
+                    )
+                    first_report["rememberer_usage"] = cognitive_usage(
+                        first_owner.trace, "rememberer"
+                    )
+                    await _discard_main_reference(
+                        settings=settings,
+                        definitions=definitions,
+                        runtime=first_runtime,
+                        runner=first_runner,
+                        require_present=True,
+                    )
+                except BaseException as error:
+                    first_error = error
+                    raise
+                finally:
+                    await cleanup_cycle_runtime(
+                        settings=settings,
+                        definitions=definitions,
+                        runtime=first_runtime,
+                        runner=first_runner,
+                        primary_error=first_error,
+                    )
+
+                stage = "dream"
+                dream_agent_runtime = build_agent_runtime(
+                    provider_state_root=settings.runtime_state_directory,
+                    codex_endpoints=host.endpoints,
+                )
+                clients.push_async_callback(dream_agent_runtime.close)
+                dream_runtime = build_kernel_runtime(
+                    runtime=dream_agent_runtime,
+                    shared_cwd_parent=Path(host.cognition_cwd_parent),
+                    session_ref_path=settings.session_reference_path,
+                    model=settings.codex_model,
+                    kernel_limits=definitions.dreamer.limits,
+                )
+                dream_before = await _memory_state(engine)
+                dream_error: BaseException | None = None
+                try:
+                    dreamer = DreamerWorker(
+                        model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                            engine, evidence=evidence
+                        ),
+                        definition=definitions.dreamer,
+                        plan=definitions.plans["dreamer"],
+                        admission=RootTrackingAdmissionPort(
+                            RollingAdmissionPort(
+                                settings.admission_journal_path,
+                                qualification_admission_limits(),
+                            )
+                        ),
+                        provider=dream_runtime.provider,
+                        dispatcher_factory=lambda: MemoryToolDispatcher(
+                            recorder=PostgresReadRecorder(engine)
+                        ),
+                        memory=MemoryStore(engine),
+                    )
+                    dream_outcome = await dreamer.run_at(
+                        as_of=datetime.now(UTC),
+                        cancellation=CancellationToken(),
+                    )
+                    if not isinstance(dream_outcome, DreamerRunCompleted):
+                        raise QualificationCheckFailed("dreamer_not_completed")
+                    dream_generated = await _memory_state(engine)
+                    await backfill_dream_summary(
+                        dream_before, dream_generated, first_rememberer
+                    )
+                    created_summaries, dream_report = validate_dream_phase(
+                        before=dream_before,
+                        after=await _memory_state(engine),
+                        first_created=first_created,
+                        required_uris=required_uris,
+                    )
+                    dream_report["embedding_backfill"] = (
+                        "rememberer_bounded_null_vector_sweep"
+                    )
+                    dream_report["usage"] = _usage(
+                        provider_turns=dream_outcome.metrics.provider_turns,
+                        input_tokens=dream_outcome.metrics.usage.input_tokens,
+                        output_tokens=dream_outcome.metrics.usage.output_tokens,
+                        duration_seconds=dream_outcome.metrics.duration_seconds,
+                    )
+                except BaseException as error:
+                    dream_error = error
+                    raise
+                finally:
+                    try:
+                        await dream_runtime.close()
+                    except BaseException as error:
+                        if dream_error is None:
+                            raise QualificationCheckFailed(
+                                "dream_runtime_cleanup_failed"
+                            ) from error
+
+                stage = "second_cycle"
+                second_agent_runtime = build_agent_runtime(
+                    provider_state_root=settings.runtime_state_directory,
+                    codex_endpoints=host.endpoints,
+                )
+                clients.push_async_callback(second_agent_runtime.close)
+                second_runtime = build_kernel_runtime(
+                    runtime=second_agent_runtime,
+                    shared_cwd_parent=Path(host.cognition_cwd_parent),
+                    session_ref_path=settings.session_reference_path,
+                    model=settings.codex_model,
+                    kernel_limits=definitions.main.limits,
+                )
+                second_dispatchers: list[_TargetRecordingDispatcher] = []
+                second_runner: JarvisThreadRunner | None = None
+                second_error: BaseException | None = None
+                try:
+                    second_runner, second_rememberer, second_memory = _build_roles(
+                        settings=settings,
+                        engine=engine,
+                        definitions=definitions,
+                        runtime=second_runtime,
+                        embedder=embedder,
+                        resources=resources,
+                        dispatchers=second_dispatchers,
+                    )
+                    inserted = await store.insert_waking(
+                        role="owner",
+                        text=second_input,
+                        source="qualification",
+                        source_conversation_id=str(settings.discord.channel_id),
+                        source_message_id=f"slice4-memory-e2e-{uuid4()}-2",
+                        created_at=datetime.now(UTC),
+                    )
+                    second_outcome = await second_runner.run(CancellationToken())
+                    if not isinstance(second_outcome, ThreadCompleted):
+                        raise QualificationCheckFailed("second_thread_not_completed")
+                    if len(second_dispatchers) != 1:
+                        raise QualificationCheckFailed("main_dispatcher_count_invalid")
+                    recaller_opened = tuple(second_memory.opened_identities)
+                    if await second_rememberer.run_one(CancellationToken()) is not True:
+                        raise QualificationCheckFailed(
+                            "second_rememberer_not_completed"
+                        )
+                    second_owner = await store.message_by_id(inserted.message.id)
+                    if second_owner is None:
+                        raise QualificationCheckFailed("second_owner_missing")
+                    second_answer = await _owner_conclusion(store, second_owner)
+                    second_report = validate_second_phase(
+                        after=await _memory_state(engine),
+                        owner=second_owner,
+                        first_created=first_created,
+                        created_summaries=created_summaries,
+                        selected=selected_memories(second_owner.trace),
+                        opened=recaller_opened,
+                        answer_text=second_answer.text,
+                        dispatcher=second_dispatchers[0],
+                    )
+                    second_report["main_usage"] = _usage(
+                        provider_turns=second_outcome.metrics.provider_turns,
+                        input_tokens=second_outcome.metrics.usage.input_tokens,
+                        output_tokens=second_outcome.metrics.usage.output_tokens,
+                        duration_seconds=second_outcome.metrics.duration_seconds,
+                    )
+                    second_report["recaller_usage"] = cognitive_usage(
+                        second_owner.trace, "recaller"
+                    )
+                    second_report["rememberer_usage"] = cognitive_usage(
+                        second_owner.trace, "rememberer"
+                    )
+                    await _discard_main_reference(
+                        settings=settings,
+                        definitions=definitions,
+                        runtime=second_runtime,
+                        runner=second_runner,
+                        require_present=False,
+                    )
+                except BaseException as error:
+                    second_error = error
+                    raise
+                finally:
+                    await cleanup_cycle_runtime(
+                        settings=settings,
+                        definitions=definitions,
+                        runtime=second_runtime,
+                        runner=second_runner,
+                        primary_error=second_error,
+                    )
+
+                result: dict[str, object] = {
+                    "admission_cycle_capacity": {
+                        "dreamer_runs": 1,
+                        "foreground_cycles": 2,
+                    },
+                    "dream": dream_report,
+                    "embedding": {
+                        "dimension": EMBEDDING_DIMENSION,
+                        "model": EMBEDDING_MODEL,
+                    },
+                    "first_cycle": first_report,
+                    "resources": {
+                        "calendar_normal_event_selected": True,
+                        "gmail_thread_selected": True,
+                    },
+                    "revisions": {
+                        "dependencies": {
+                            **EXPECTED_GIT_PINS,
+                        },
+                        "roles": {
+                            "main": definitions.main.session_compatibility_revision,
+                            "recaller": (
+                                definitions.recaller.session_compatibility_revision
+                            ),
+                            "rememberer": (
+                                definitions.rememberer.session_compatibility_revision
+                            ),
+                            "dreamer": (
+                                definitions.dreamer.session_compatibility_revision
+                            ),
+                        },
+                        "tools": {
+                            name: catalog.binding(ToolId(name)).implementation_revision
+                            for name in (
+                                "calendar.get_event",
+                                "gmail.read_thread",
+                                "memory.open",
+                                "memory.search",
+                            )
+                        },
+                    },
+                    "route": settings.codex_model,
+                    "runtime": {
+                        "first_reference_discarded": True,
+                        "fresh_runtime_rebuilt": True,
+                        "second_reference_absent": True,
+                    },
+                    "second_cycle": second_report,
+                    "status": "passed",
+                }
+                assert_sanitized_output(
+                    result,
+                    (
+                        *settings.host_secrets,
+                        gmail_query,
+                        resources.gmail_thread_id,
+                        resources.gmail_message_id,
+                        resources.calendar_event_id,
+                        first_input,
+                        second_input,
+                        *required_uris,
+                    ),
+                )
+                return result
+        except BaseException as error:
+            reason_code = (
+                error.reason_code
+                if isinstance(error, QualificationCheckFailed)
+                else "unexpected_exception"
+            )
+            raise QualificationFailure(
+                stage, type(error).__name__, reason_code
+            ) from error
+        finally:
+            pass
 
 
 def main() -> int:

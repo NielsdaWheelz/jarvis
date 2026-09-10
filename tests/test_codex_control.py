@@ -35,6 +35,7 @@ from llm_tools import (
     ToolPlan,
 )
 from llm_tools.testing import InMemoryBudgetState
+from provider_fixture import decision_key
 from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
 from provider_runtime.agent_runtime.codex_control import CodexControl
 from pydantic import ValidationError
@@ -53,7 +54,7 @@ from jarvis.codex_tools import (
     codex_family,
 )
 from jarvis.db import create_engine
-from jarvis.read_dispatch import ReadToolDispatcher
+from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 
 THREAD = "01992818-9220-714c-9c91-e39d3f006e64"
 TURN = "01992818-9221-714c-9c91-e39d3f006e64"
@@ -91,6 +92,20 @@ def host_config(directory: Path) -> CodexHostConfig:
 class ProtocolPeer:
     def __init__(self) -> None:
         self.methods: list[str] = []
+        self.models: list[dict[str, object]] = [
+            {
+                "id": "gpt-5.6-terra",
+                "model": "native-dispatch-name",
+                "displayName": "Authenticated model",
+                "hidden": False,
+                "inputModalities": ["text"],
+                "supportedReasoningEfforts": [
+                    {"reasoningEffort": "low", "description": "Low"},
+                    {"reasoningEffort": "high", "description": "High"},
+                ],
+                "defaultReasoningEffort": "low",
+            }
+        ]
 
     async def handle(self, connection: ServerConnection) -> None:
         result: dict[str, object]
@@ -104,6 +119,8 @@ class ProtocolPeer:
                 result = {"userAgent": "codex/0.153.4"}
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt"}}
+            elif method == "model/list":
+                result = {"data": self.models, "nextCursor": None}
             elif method == "thread/list":
                 result = {
                     "data": [
@@ -412,7 +429,7 @@ async def test_real_read_dispatch_exposes_native_inventory_without_creating_acti
                 RunLimits(1, 1, 8192, 65536, 1, 30.0),
             ).freeze(catalog)
             plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
-            dispatcher = ReadToolDispatcher(host_secrets=())
+            dispatcher = ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=())
             result = await dispatcher.dispatch(
                 binding=catalog.binding(ToolId("codex.list")),
                 validated_input=CodexListInput(profile="work"),
@@ -424,6 +441,8 @@ async def test_real_read_dispatch_exposes_native_inventory_without_creating_acti
                     Checkpoint("synthetic-checkpoint"),
                     (InputId("synthetic-input"),),
                     1,
+                    definition_fingerprint="a" * 64,
+                    model_decision_id=decision_key("synthetic-claim", 1),
                 ),
             )
             assert result.result["type"] == "Success"

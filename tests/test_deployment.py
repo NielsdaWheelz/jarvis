@@ -169,3 +169,97 @@ def test_private_environment_is_root_only_and_has_a_live_boundary_check() -> Non
     assert 'if sudo -u jarvis test -r "$file"' in verifier
     assert "/proc/$pid/environ" in verifier
     assert "inspection_blocked" in verifier
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "none",
+        "cli_missing",
+        "cli_owner",
+        "client_unreadable",
+        "client_mode",
+        "secret_readable",
+        "process_readable",
+        "cognition_socket",
+    ],
+)
+def test_containment_verifies_fleet_access_after_worker_launcher_retirement(
+    tmp_path: Path, defect: str
+) -> None:
+    log = tmp_path / "commands.jsonl"
+    sudo = tmp_path / "sudo"
+    sudo.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "user = 'root'\n"
+        "if args[:1] == ['-u']:\n"
+        "    user, args = args[1], args[2:]\n"
+        "with open(os.environ['DEPLOY_TEST_LOG'], 'a') as log:\n"
+        "    log.write(json.dumps([user, args]) + '\\n')\n"
+        "defect = os.environ['DEPLOY_TEST_DEFECT']\n"
+        "if args[0] == 'test':\n"
+        "    path = args[-1]\n"
+        "    if 'jarvis-codex-launcher' in path:\n"
+        "        sys.exit(1)\n"
+        "    if path == '/usr/local/libexec/skidbladnir' and defect == 'cli_missing':\n"
+        "        sys.exit(1)\n"
+        "    if args[1] == '-r' and path.endswith('.env'):\n"
+        "        sys.exit(0 if defect == 'secret_readable' else 1)\n"
+        "    if args[1] == '-r' and path.endswith('agent-client.json'):\n"
+        "        sys.exit(1 if defect == 'client_unreadable' else 0)\n"
+        "    if args[1] == '-S' and defect == 'cognition_socket':\n"
+        "        sys.exit(1)\n"
+        "elif args[0] == 'stat':\n"
+        "    if args[-1] == '/usr/local/libexec/skidbladnir':\n"
+        "        print('niels:niels:755' if defect == 'cli_owner' "
+        "else 'root:root:755')\n"
+        "    elif args[-1] == '/etc/jarvis/agent-client.json':\n"
+        "        print('jarvis:jarvis:644' if defect == 'client_mode' "
+        "else 'jarvis:jarvis:600')\n"
+        "    else:\n"
+        "        print('root:root:600')\n"
+        "elif args[0] == 'dd':\n"
+        "    sys.exit(0 if defect == 'process_readable' else 1)\n"
+        "elif args[:2] == ['systemctl', 'show']:\n"
+        "    values = {'MainPID': '456', 'ProtectProc': 'ptraceable', "
+        "'ProcSubset': 'pid', 'LimitCORE': '0'}\n"
+        "    prop = next(arg.split('=', 1)[1] for arg in args "
+        "if arg.startswith('--property='))\n"
+        "    print(values[prop])\n"
+        "elif args[:2] != ['systemctl', 'is-active']:\n"
+        "    sys.exit(96)\n",
+        encoding="utf-8",
+    )
+    sudo.chmod(0o755)
+    sleep = tmp_path / "sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    sleep.chmod(0o755)
+    program = (REPOSITORY / "deploy/verify-containment").read_text()
+    remote = program.split("<<'REMOTE'\n", 1)[1].removesuffix("REMOTE\n")
+    result = subprocess.run(
+        ["bash", "-s"],
+        input=remote,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+            "DEPLOY_TEST_LOG": str(log),
+            "DEPLOY_TEST_DEFECT": defect,
+        },
+        timeout=15,
+        check=False,
+    )
+    assert (result.returncode == 0) is (defect == "none"), result.stderr
+    if defect == "none":
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        assert not any("jarvis-codex-launcher" in str(call) for call in calls)
+        assert ["jarvis", ["test", "-x", "/usr/local/libexec/skidbladnir"]] in calls
+        assert ["jarvis", ["test", "-r", "/etc/jarvis/agent-client.json"]] in calls
+        for profile in ("personal", "work", "work2"):
+            assert [
+                "jarvis",
+                ["test", "-S", f"/run/codex-shared-{profile}/app-server.sock"],
+            ] in calls

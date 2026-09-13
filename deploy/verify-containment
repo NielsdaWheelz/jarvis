@@ -42,11 +42,19 @@ sudo test "$(sudo systemctl show --property=ProcSubset --value jarvis.service)" 
 sudo test "$(sudo systemctl show --property=LimitCORE --value jarvis.service)" = 0
 sudo -u jarvis test -r /etc/codex-shared/profiles.json
 for socket in /run/codex-shared-personal/app-server.sock \
-  /run/codex-shared-work/app-server.sock /run/codex-shared-work2/app-server.sock \
-  /run/jarvis-codex-launcher/socket; do
+  /run/codex-shared-work/app-server.sock /run/codex-shared-work2/app-server.sock; do
   sudo -u jarvis test -S "$socket"
   sudo -u jarvis test -w "$socket"
 done
+
+sudo test -f /usr/local/libexec/skidbladnir
+sudo test ! -L /usr/local/libexec/skidbladnir
+[[ "$(sudo stat -c '%U:%G:%a' /usr/local/libexec/skidbladnir)" == root:root:755 ]]
+sudo -u jarvis test -x /usr/local/libexec/skidbladnir
+sudo test -f /etc/jarvis/agent-client.json
+sudo test ! -L /etc/jarvis/agent-client.json
+[[ "$(sudo stat -c '%U:%G:%a' /etc/jarvis/agent-client.json)" == jarvis:jarvis:600 ]]
+sudo -u jarvis test -r /etc/jarvis/agent-client.json
 
 printf 'Jarvis connector-secret and process-inspection boundary passed.\n'
 REMOTE

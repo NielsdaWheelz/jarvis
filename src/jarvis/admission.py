@@ -639,11 +639,25 @@ def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
 
 
 def slice6_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
+    return _slice6_admission_limits(
+        maximum_owner_inputs, SLICE6_PLAN_TOOL_LIMITS.max_calls
+    )
+
+
+def pre_agent_control_slice6_admission_limits(
+    maximum_owner_inputs: int,
+) -> RollingAdmissionLimits:
+    """The shipped five-worker-tool envelope, retained for journal migration."""
+    return _slice6_admission_limits(maximum_owner_inputs, 17)
+
+
+def _slice6_admission_limits(
+    maximum_owner_inputs: int, maximum_gate_calls: int
+) -> RollingAdmissionLimits:
     if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
         raise ValueError("maximum owner inputs must be a positive integer")
     root_input_overshoot = 32_768
     root_output_overshoot = 8_192
-    maximum_gate_calls = SLICE6_PLAN_TOOL_LIMITS.max_calls
     serial_child_turns = (
         maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
         + maximum_gate_calls * SLICE1_KERNEL_LIMITS.max_provider_turns
@@ -700,32 +714,7 @@ def pre_all_calendar_slice6_admission_limits(
 ) -> RollingAdmissionLimits:
     """Return the exact Slice 6 envelope used by the preceding production release."""
 
-    current = slice6_admission_limits(maximum_owner_inputs)
-    removed_gate_turns = SLICE1_KERNEL_LIMITS.max_provider_turns
-    removed_gate_input = (
-        SLICE1_KERNEL_LIMITS.max_provider_input_tokens
-        + current.root_input_token_overshoot
-    )
-    removed_gate_output = (
-        SLICE1_KERNEL_LIMITS.max_provider_output_tokens
-        + current.root_output_token_overshoot
-    )
-    return RollingAdmissionLimits(
-        window_seconds=current.window_seconds,
-        max_turns=current.max_turns - 2 * removed_gate_turns,
-        max_input_tokens=current.max_input_tokens - 2 * removed_gate_input,
-        max_output_tokens=current.max_output_tokens - 2 * removed_gate_output,
-        max_no_progress_attempts=current.max_no_progress_attempts,
-        root_input_token_overshoot=current.root_input_token_overshoot,
-        root_output_token_overshoot=current.root_output_token_overshoot,
-        serial_child_turns=current.serial_child_turns - removed_gate_turns,
-        serial_child_input_tokens=(
-            current.serial_child_input_tokens - removed_gate_input
-        ),
-        serial_child_output_tokens=(
-            current.serial_child_output_tokens - removed_gate_output
-        ),
-    )
+    return _slice6_admission_limits(maximum_owner_inputs, 16)
 
 
 @dataclass(slots=True)
@@ -1229,6 +1218,7 @@ __all__ = [
     "RollingAdmissionLimits",
     "RollingAdmissionPort",
     "RootTrackingAdmissionPort",
+    "pre_agent_control_slice6_admission_limits",
     "pre_all_calendar_slice6_admission_limits",
     "slice3_admission_limits",
     "slice5_admission_limits",

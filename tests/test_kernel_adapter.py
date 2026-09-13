@@ -164,6 +164,8 @@ async def test_runtime_bundle_uses_production_contained_provider(
     cwd_parent = tmp_path / "cwd"
     cwd_parent.mkdir(mode=0o750)
     cwd_parent.chmod(0o2750)
+    if not cwd_parent.stat().st_mode & 0o2000:
+        pytest.skip("filesystem cannot retain setgid; requires Linux qualification")
     session_path = tmp_path / "session.json"
     endpoints = {
         profile: tmp_path / f"{profile}.sock"
@@ -220,6 +222,8 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path / "provider",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
@@ -253,6 +257,8 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
     cwd_parent = tmp_path / "cwd"
     cwd_parent.mkdir(mode=0o750)
     cwd_parent.chmod(0o2750)
+    if not cwd_parent.stat().st_mode & 0o2000:
+        pytest.skip("filesystem cannot retain setgid; requires Linux qualification")
     recorded: list[_RecordingRuntime] = []
 
     def runtime_factory(config: AgentRuntimeConfig) -> _RecordingRuntime:

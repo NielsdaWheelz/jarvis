@@ -60,7 +60,7 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
     slice3_admission_limits,
 )
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.config import DiscordSettings
 from jarvis.context import IsolatedRecaller, RecallEvidence
 from jarvis.db import (
@@ -847,6 +847,9 @@ def qualification_settings(arguments: Arguments) -> Settings:
         owner_timezone=arguments.owner_timezone,
         codex_profile_key=arguments.profile,
         codex_model=arguments.model,
+        agent_cli_path=arguments.runtime_state_directory / "unused-agent-cli",
+        agent_client_config_path=arguments.runtime_state_directory
+        / "unused-agent-client.json",
         codex_host_config_path=arguments.codex_host_config_path,
         runtime_state_directory=arguments.runtime_state_directory,
         google_oauth_state_path=arguments.runtime_state_directory / "google.json",

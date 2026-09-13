@@ -18,7 +18,7 @@ from pydantic import (
     field_validator,
 )
 
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError, DiscordSettings
 from jarvis.definitions import QUALIFIED_CODEX_MODELS
 
@@ -43,6 +43,8 @@ class Settings(BaseModel):
     codex_profile_key: Literal["personal"]
     codex_model: str = Field(min_length=1, max_length=255)
     codex_host_config_path: Path
+    agent_cli_path: Path
+    agent_client_config_path: Path
     runtime_state_directory: Path
     google_oauth_state_path: Path
     google_oauth_client_id: SecretStr = Field(repr=False)
@@ -111,7 +113,11 @@ class Settings(BaseModel):
         return value
 
     @field_validator(
-        "codex_host_config_path", "runtime_state_directory", "google_oauth_state_path"
+        "codex_host_config_path",
+        "agent_cli_path",
+        "agent_client_config_path",
+        "runtime_state_directory",
+        "google_oauth_state_path",
     )
     @classmethod
     def _absolute_runtime_directory(cls, value: Path) -> Path:
@@ -238,6 +244,10 @@ class Settings(BaseModel):
                     Literal["personal"], required("JARVIS_CODEX_PROFILE_KEY")
                 ),
                 codex_model=required("JARVIS_CODEX_MODEL"),
+                agent_cli_path=Path(required("JARVIS_AGENT_CLI_PATH")),
+                agent_client_config_path=Path(
+                    required("JARVIS_AGENT_CLIENT_CONFIG_PATH")
+                ),
                 codex_host_config_path=Path(required("JARVIS_CODEX_HOST_CONFIG_PATH")),
                 runtime_state_directory=Path(
                     required("JARVIS_RUNTIME_STATE_DIRECTORY")

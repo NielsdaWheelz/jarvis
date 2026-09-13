@@ -10,13 +10,11 @@ import httpx
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
 from llm_tools import Available, PromptText, ToolId, Unavailable, canonical_json_bytes
 from provider_fixture import frozen_provider
-from provider_runtime.agent_runtime.codex_control import CodexControl
 from pydantic import SecretStr
-from test_codex_control import host_config
 
 from jarvis.actions import ActionStore
-from jarvis.codex_control import CodexController
-from jarvis.codex_tools import CODEX_TOOL_IDS
+from jarvis.agent_control import AgentController
+from jarvis.agent_tools import AGENT_TOOL_IDS
 from jarvis.config import DiscordSettings
 from jarvis.db import create_engine
 from jarvis.definitions import (
@@ -78,6 +76,8 @@ def _settings(tmp_path: Path) -> Settings:
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path / "codex",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
@@ -262,9 +262,9 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
             memory_repository=cast("Any", _MemoryRepository()),
             memory_embedder=cast("Any", _MemoryEmbedder()),
             actions=cast("Any", _Actions()),
-            codex=CodexController(
-                control=CodexControl({}, lambda _: False),
-                host=host_config(Path("/synthetic")),
+            agents=AgentController(
+                executable=tmp_path / "skid",
+                client_config=tmp_path / "agent-client.json",
                 actions=ActionStore(
                     create_engine(
                         "postgresql+psycopg://unused:unused@127.0.0.1:1/unused"
@@ -281,7 +281,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         isinstance(catalog.binding(tool_id).execute, Available)
         for tool_id in catalog.tool_ids
     )
-    assert set(CODEX_TOOL_IDS) <= set(catalog.tool_ids)
+    assert set(AGENT_TOOL_IDS) <= set(catalog.tool_ids)
     send = catalog.binding(ToolId("gmail.send_draft"))
     assert send.implementation_revision == "jarvis-gmail-send_draft-v1"
     assert send.policy_inputs == {
@@ -323,7 +323,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         for grant in definitions.plans["main"].profile.ordered_grants
     )
     assert set(definitions.main.maximum_profile.grants) == set(
-        (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS, *CODEX_TOOL_IDS)
+        (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS, *AGENT_TOOL_IDS)
     )
     assert set(definitions.plans["main"].profile.grants) == set(catalog.tool_ids) - {
         *SLICE3_MEMORY_READ_IDS
@@ -367,8 +367,8 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
         assert "neuroscientist by training" not in rendered
         assert "write all prose responses in lowercase" not in rendered
-    assert definitions.main.maximum_profile.run_limits.max_external_attempts == 251
-    assert definitions.plans["main"].profile.run_limits.max_external_attempts == 250
+    assert definitions.main.maximum_profile.run_limits.max_external_attempts == 250
+    assert definitions.plans["main"].profile.run_limits.max_external_attempts == 249
     assert (
         definitions.plans["scheduled_wake"].profile.run_limits.max_external_attempts
         == 222

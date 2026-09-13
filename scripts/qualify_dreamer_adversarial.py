@@ -28,7 +28,7 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     SLICE4_DREAM_KERNEL_LIMITS,

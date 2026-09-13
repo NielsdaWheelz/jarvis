@@ -44,14 +44,22 @@ from jarvis.actions import (
     ActionStore,
     ExecutionContract,
     StoredAction,
-    codex_uncertainty_result,
+    agent_uncertainty_result,
 )
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.agent_tools import (
+    AGENT_WRITE_IDS,
+    AgentActionEvidence,
+    AgentError,
+    AgentStartResult,
+    AgentStopResult,
+    AgentWriteResult,
+)
 from jarvis.approval import ApprovalRenderError, render_approval
 from jarvis.checkpoints import PostgresInputCheckpoint
-from jarvis.codex_tools import (
+from jarvis.codex_history import (
     CODEX_CONTROL_ERROR,
-    CODEX_WRITE_IDS,
+    HISTORICAL_CODEX_WRITE_IDS,
     CodexAccepted,
     CodexActionEvidence,
     CodexInterruptResult,
@@ -290,14 +298,6 @@ class WriteToolDispatcher:
             )
         except (RecoveryRequired, asyncio.CancelledError):
             return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
-        if (
-            tool_id in CODEX_WRITE_IDS
-            and result["type"] == "Failure"
-            and result["error"].get("type") == "Partial"
-        ):
-            # Close the admitted owner lineage through ordinary action recovery;
-            # a surviving worker must not become a replacement in the next step.
-            return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
         if tool_id == ToolId("schedule.wake") and result["type"] == "Success":
             self._schedule_changed()
         return DispatchCompleted(result)
@@ -440,7 +440,7 @@ class ActionRecovery:
             await self._actions.resolve_reconciliation(
                 action_id=stored.id,
                 status="uncertain",
-                result=codex_uncertainty_result(stored),
+                result=agent_uncertainty_result(stored),
             )
             return
         try:
@@ -486,7 +486,7 @@ class ActionRecovery:
                     await self._actions.resolve_reconciliation(
                         action_id=current.id,
                         status="uncertain",
-                        result=codex_uncertainty_result(current),
+                        result=agent_uncertainty_result(current),
                     )
                 continue
             if (
@@ -875,7 +875,32 @@ async def gmail_send_basis_is_current(
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
-    if stored.tool_name in CODEX_WRITE_IDS and stored.status == "uncertain":
+    if stored.tool_name in AGENT_WRITE_IDS and stored.status == "uncertain":
+        control = AgentActionEvidence.model_validate(stored.result.get("control"))
+        return {
+            "type": "Failure",
+            "error": {
+                "type": "Unknown",
+                "observed": control.observed.model_dump(mode="json")
+                if control.observed is not None
+                else None,
+            },
+        }
+    if (
+        stored.tool_name in AGENT_WRITE_IDS
+        and stored.status == "failed"
+        and stored.result.get("type") == "Failure"
+    ):
+        error = stored.result.get("error")
+        if (
+            isinstance(error, dict)
+            and cast(dict[str, object], error).get("type") == "AgentFailure"
+        ):
+            return {
+                "type": "Failure",
+                "error": AgentError.model_validate(error).model_dump(mode="json"),
+            }
+    if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS and stored.status == "uncertain":
         control = CodexActionEvidence.model_validate(stored.result.get("control"))
         return {
             "type": "Failure",
@@ -885,7 +910,7 @@ def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
                 "prefix": control.prefix.model_dump(mode="json"),
             },
         }
-    if stored.tool_name in CODEX_WRITE_IDS and stored.status == "failed":
+    if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS and stored.status == "failed":
         error = stored.result.get("error")
         if isinstance(error, dict) and cast("dict[str, object]", error).get("type") in {
             "Rejected",
@@ -939,7 +964,11 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
             "evidence_code": _safe_atom(result.get("evidence_code"), 256),
             "recorded_at": _safe_atom(result.get("recorded_at"), 64),
         }
-        if stored.tool_name in CODEX_WRITE_IDS:
+        if stored.tool_name in AGENT_WRITE_IDS:
+            safe["control"] = AgentActionEvidence.model_validate(
+                result.get("control")
+            ).model_dump(mode="json")
+        if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
             safe["control"] = CodexActionEvidence.model_validate(
                 result.get("control")
             ).model_dump(mode="json")
@@ -949,7 +978,17 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
         if not isinstance(error, dict):
             raise RuntimeError("failed action has malformed safe evidence")
         safe_error = cast("dict[str, object]", error)
-        if stored.tool_name in CODEX_WRITE_IDS and safe_error.get("type") in {
+        if (
+            stored.tool_name in AGENT_WRITE_IDS
+            and safe_error.get("type") == "AgentFailure"
+        ):
+            return {
+                "type": "failure",
+                "error": AgentError.model_validate(safe_error).model_dump(mode="json"),
+            }
+        if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS and safe_error.get(
+            "type"
+        ) in {
             "Rejected",
             "Partial",
             "Unknown",
@@ -970,7 +1009,17 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
             "reason_code": _safe_atom(result.get("reason_code"), 64),
         }
     tool_name = str(stored.tool_name)
-    if stored.tool_name in CODEX_WRITE_IDS:
+    if stored.tool_name in AGENT_WRITE_IDS:
+        value = _success_result_value(result)
+        agent_model = (
+            AgentStartResult
+            if tool_name == "agent.start"
+            else AgentStopResult
+            if tool_name == "agent.stop"
+            else AgentWriteResult
+        )
+        return agent_model.model_validate(value).model_dump(mode="json")
+    if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
         value = _success_result_value(result)
         model = (
             CodexStarted

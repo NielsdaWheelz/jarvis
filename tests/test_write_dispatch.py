@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -44,23 +43,24 @@ from llm_tools import (
 )
 from llm_tools.testing import InMemoryBudgetState
 from provider_fixture import decision_key, frozen_provider, model_journal
-from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
-from test_codex_control import THREAD, TURN, ProtocolPeer, host_config, protocol_peer
+from test_agent_control import TARGET, cli
 
 from jarvis.actions import ActionStore
-from jarvis.checkpoints import PostgresInputCheckpoint
-from jarvis.codex_control import CodexController
-from jarvis.codex_tools import (
-    CodexInterruptInput,
-    CodexPromptInput,
-    CodexStartInput,
-    codex_family,
+from jarvis.agent_control import AgentController
+from jarvis.agent_tools import (
+    AgentInterruptInput,
+    AgentKeysInput,
+    AgentSendInput,
+    AgentStartInput,
+    AgentStopInput,
+    agent_family,
 )
+from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.db import action, create_engine, message
 from jarvis.definitions import build_slice5_write_gate
-from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR, MessageStore
+from jarvis.messages import MessageStore
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.terminal import TurnEvidence
 from jarvis.write_connectors import (
@@ -94,12 +94,6 @@ postgres = pytest.mark.skipif(
     reason="JARVIS_TEST_DATABASE_URL is not configured",
 )
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
-
-
-@pytest.fixture
-async def codex_peer() -> AsyncIterator[tuple[Path, ProtocolPeer]]:
-    async with protocol_peer() as value:
-        yield value
 
 
 @pytest_asyncio.fixture
@@ -957,64 +951,66 @@ async def test_gmail_create_absence_and_uncertainty_never_repeat(
     assert uncertain_provider.effects == [uncertain_id]
 
 
-@pytest.mark.parametrize("tool", ["codex.start", "codex.prompt", "codex.interrupt"])
-async def test_codex_denied_owner_write_never_reaches_action_or_native_boundary(
-    tmp_path: Path, codex_peer: tuple[Path, ProtocolPeer], tool: str
+@pytest.mark.parametrize("verb", ["start", "send", "keys", "interrupt", "stop"])
+async def test_agent_denied_owner_write_never_reaches_action_or_cli(
+    tmp_path: Path, verb: str
 ) -> None:
-    root, external = codex_peer
     owner = uuid4()
+    executable, config = cli(
+        tmp_path, {"ok": True, "result": {"method": "terminal", "outcome": "written"}}
+    )
     engine = create_engine("postgresql+psycopg://unused:unused@127.0.0.1:1/unused")
     try:
-        async with AgentRuntime(
-            AgentRuntimeConfig(
-                state_root_base=tmp_path, codex_endpoints={"work": root / "work.sock"}
-            )
-        ) as runtime:
-            actions = ActionStore(engine)
-            controller = CodexController(
-                control=runtime.codex, host=host_config(root), actions=actions
-            )
-            catalog = ToolCatalog.compose((codex_family(controller),))
-            profile = CapabilityProfile(
-                ProfileId("synthetic-denied"),
-                (ToolGrant(ToolId(tool), None),),
-                RunLimits(1, 4, 65536, 4096, 1, 60.0),
-            ).freeze(catalog)
-            plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
-            thread = {"profile": "work", "thread_handle": THREAD}
-            value = (
-                CodexStartInput(
-                    profile="work", cwd=str(root), name="review", prompt="Synthetic"
-                )
-                if tool == "codex.start"
-                else CodexPromptInput.model_validate(
-                    {"thread": thread, "input": {"type": "Submit", "text": "Synthetic"}}
-                )
-                if tool == "codex.prompt"
-                else CodexInterruptInput.model_validate(
-                    {"turn": {"thread": thread, "turn_handle": TURN}}
-                )
-            )
-            gate = _Gate("deny", owner)
-            result = await _dispatch(
-                _dispatcher(
-                    checkpoint=_Checkpoint(owner),
-                    gate=gate,
-                    actions=actions,
-                    google=_Google(),
+        actions = ActionStore(engine)
+        catalog = ToolCatalog.compose(
+            (
+                agent_family(
+                    AgentController(
+                        executable=executable, client_config=config, actions=actions
+                    )
                 ),
-                catalog.binding(ToolId(tool)),
-                plan,
-                owner,
-                value,
             )
-            assert isinstance(result, DispatchCompleted)
-            assert result.result == {
-                "type": "Failure",
-                "error": {"type": "ToolUnavailable"},
-            }
-            assert gate.calls == 1
-            assert external.methods == []
+        )
+        tool = ToolId("agent." + verb)
+        profile = CapabilityProfile(
+            ProfileId("synthetic-denied"),
+            (ToolGrant(tool, None),),
+            RunLimits(1, 1, 65536, 65536, 1, 15.0),
+        ).freeze(catalog)
+        plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+        value = {
+            "start": AgentStartInput(
+                machine="devbox", profile="codex-work", cwd=str(tmp_path)
+            ),
+            "send": AgentSendInput.model_validate(
+                {"target": TARGET, "text": "Synthetic"}
+            ),
+            "keys": AgentKeysInput.model_validate(
+                {"target": TARGET, "keys": ["enter"]}
+            ),
+            "interrupt": AgentInterruptInput.model_validate({"target": TARGET}),
+            "stop": AgentStopInput.model_validate({"target": TARGET}),
+        }[verb]
+        gate = _Gate("deny", owner)
+        result = await _dispatch(
+            _dispatcher(
+                checkpoint=_Checkpoint(owner),
+                gate=gate,
+                actions=actions,
+                google=_Google(),
+            ),
+            catalog.binding(tool),
+            plan,
+            owner,
+            value,
+        )
+        assert isinstance(result, DispatchCompleted)
+        assert result.result == {
+            "type": "Failure",
+            "error": {"type": "ToolUnavailable"},
+        }
+        assert gate.calls == 1
+        assert not config.with_suffix(".receipt").exists()
     finally:
         await engine.dispose()
 
@@ -1024,51 +1020,29 @@ async def test_codex_denied_owner_write_never_reaches_action_or_native_boundary(
     not os.environ.get("JARVIS_TEST_DATABASE_URL"),
     reason="requires disposable PostgreSQL action boundary",
 )
-@pytest.mark.parametrize("helper_outcome", ["Rejected", "Unknown", "Started"])
-async def test_real_write_dispatch_preserves_launch_prefix_and_closes_partial_owner(
-    tmp_path: Path, codex_peer: tuple[Path, ProtocolPeer], helper_outcome: str
+@pytest.mark.parametrize("outcome", ["lost", "partial", "closed"])
+async def test_real_agent_dispatch_preserves_partial_stop_without_replay(
+    tmp_path: Path, outcome: str
 ) -> None:
-    """The authority decision is supplied; launch/action/dispatch are production."""
-    root, external = codex_peer
-    helper_kinds: list[str] = []
-
-    async def helper(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        request = json.loads(await reader.readline())
-        helper_kinds.append(request["kind"])
-        assert "prompt" not in request and "env" not in request
-        if request["kind"] == "ResolveCwd":
-            assert "thread/start" not in external.methods
-            response = {"kind": "Resolved", "cwd": str(root)}
-        else:
-            assert external.methods[-1] == "thread/unsubscribe"
-            assert "turn/start" not in external.methods
-            assert request["thread_handle"] == THREAD
-            if helper_outcome == "Rejected":
-                response = {
-                    "kind": "Rejected",
-                    "stage": "validate",
-                    "reason": "invalid_request",
-                }
-            elif helper_outcome == "Unknown":
-                response = {"kind": "Unknown", "stage": "observe"}
-            else:
-                response = {
-                    "kind": "Started",
-                    "terminal": {"tmux_session_id": "$42", "tmux_name": "review"},
-                }
-        writer.write(json.dumps(response).encode() + b"\n")
-        await writer.drain()
-        writer.close()
-
+    response: dict[str, object] = (
+        {"ok": False, "error": {"code": "unknown", "dispatch": "unknown"}}
+        if outcome == "lost"
+        else {
+            "ok": True,
+            "result": {
+                "agent": "unconfirmed" if outcome == "partial" else "idle",
+                "terminal": "closed",
+            },
+        }
+    )
+    executable, config = cli(tmp_path, response)
     engine = create_engine(os.environ["JARVIS_TEST_DATABASE_URL"])
     owner = uuid4()
-    channel = "synthetic-channel"
+    channel = str(owner)
     messages = MessageStore(engine)
     await messages.insert_waking(
         role="owner",
-        text="Start the synthetic review worker in work.",
+        text="Stop the synthetic agent.",
         source="discord",
         source_conversation_id=channel,
         source_message_id=str(owner),
@@ -1076,85 +1050,61 @@ async def test_real_write_dispatch_preserves_launch_prefix_and_closes_partial_ow
         message_id=owner,
     )
     try:
-        async with await asyncio.start_unix_server(helper, str(root / "helper.sock")):
-            async with AgentRuntime(
-                AgentRuntimeConfig(
-                    state_root_base=tmp_path,
-                    codex_endpoints={"work": root / "work.sock"},
-                )
-            ) as runtime:
-                actions = ActionStore(engine)
-                controller = CodexController(
-                    control=runtime.codex, host=host_config(root), actions=actions
-                )
-                catalog = ToolCatalog.compose((codex_family(controller),))
-                profile = CapabilityProfile(
-                    ProfileId("synthetic-start"),
-                    (ToolGrant(ToolId("codex.start"), None),),
-                    RunLimits(1, 4, 65536, 4096, 1, 60.0),
-                ).freeze(catalog)
-                plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
-                binding = catalog.binding(ToolId("codex.start"))
-                result = await _dispatch(
-                    _dispatcher(
-                        checkpoint=_Checkpoint(owner),
-                        gate=_Gate("allow", owner),
-                        actions=actions,
-                        google=_Google(),
-                    ),
-                    binding,
-                    plan,
-                    owner,
-                    CodexStartInput(
-                        profile="work",
-                        cwd=str(root),
-                        name="review",
-                        prompt="Synthetic review request.",
-                    ),
-                )
-                assert helper_kinds == ["ResolveCwd", "LaunchTerminal"]
-                assert external.methods.count("thread/start") == 1
-                assert external.methods.count("thread/unsubscribe") == 1
-                if helper_outcome == "Started":
-                    from llm_agent_kernel import DispatchCompleted
-
-                    assert isinstance(result, DispatchCompleted)
-                    assert external.methods.count("turn/start") == 1
-                    assert TURN in json.dumps(result.result)
-                    return
-                assert isinstance(result, DispatchSuspended)
-                stored = await actions.get(UUID(str(result.host_ref)))
-                assert stored is not None and stored.attempts == 1
-                assert stored.status == (
-                    "failed" if helper_outcome == "Rejected" else "uncertain"
-                )
-                assert THREAD in json.dumps(stored.result)
-                assert "turn/start" not in external.methods
-                recovery = ActionRecovery(
-                    actions=actions,
-                    google_write=cast(Any, _Google()),
-                    plan=plan,
-                    source_conversation_id=channel,
-                )
-                await recovery.recover(allow_queued_execution=False)
-                await recovery.recover(allow_queued_execution=False)
-                assert helper_kinds == ["ResolveCwd", "LaunchTerminal"]
-                assert external.methods.count("thread/start") == 1
-                consumed = await messages.message_by_id(owner)
-                assert consumed is not None and consumed.processed_at is not None
-                from jarvis.write_dispatch import action_resolution_text
-
-                context = json.loads(
-                    action_resolution_text(stored).split(
-                        ACTION_MODEL_CONTEXT_SEPARATOR
-                    )[1]
-                )
-                assert context["result"]["error"]["type"] == (
-                    "Partial" if helper_outcome == "Rejected" else "Unknown"
-                )
-                assert (
-                    context["result"]["error"]["prefix"]["thread"]["thread_handle"]
-                    == THREAD
-                )
+        actions = ActionStore(engine)
+        catalog = ToolCatalog.compose(
+            (
+                agent_family(
+                    AgentController(
+                        executable=executable, client_config=config, actions=actions
+                    )
+                ),
+            )
+        )
+        tool = ToolId("agent.stop")
+        profile = CapabilityProfile(
+            ProfileId("synthetic-stop"),
+            (ToolGrant(tool, None),),
+            RunLimits(1, 1, 65536, 65536, 1, 15.0),
+        ).freeze(catalog)
+        plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+        result = await _dispatch(
+            _dispatcher(
+                checkpoint=_Checkpoint(owner),
+                gate=_Gate("allow", owner),
+                actions=actions,
+                google=_Google(),
+            ),
+            catalog.binding(tool),
+            plan,
+            owner,
+            AgentStopInput.model_validate({"target": TARGET}),
+        )
+        receipt = config.with_suffix(".receipt")
+        first = receipt.stat().st_mtime_ns
+        if outcome == "closed":
+            assert isinstance(result, DispatchCompleted)
+            assert result.result["type"] == "Success"
+            return
+        assert isinstance(result, DispatchSuspended)
+        stored = await actions.get(UUID(str(result.host_ref)))
+        assert (
+            stored is not None and stored.status == "uncertain" and stored.attempts == 1
+        )
+        assert stored.result is not None
+        if outcome == "partial":
+            control = cast(dict[str, object], stored.result["control"])
+            observed = cast(dict[str, object], control["observed"])
+            assert observed["terminal"] == "closed"
+        recovery = ActionRecovery(
+            actions=actions,
+            google_write=cast(Any, _Google()),
+            plan=plan,
+            source_conversation_id=channel,
+        )
+        await recovery.recover(allow_queued_execution=False)
+        await recovery.recover(allow_queued_execution=False)
+        assert receipt.stat().st_mtime_ns == first
+        consumed = await messages.message_by_id(owner)
+        assert consumed is not None and consumed.processed_at is not None
     finally:
         await engine.dispose()

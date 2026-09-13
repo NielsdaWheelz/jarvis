@@ -9,6 +9,8 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- adr 0044 governs the accepted tmux agent-control upgrade and supersedes only
+  the prior worker routing/catalog/launcher restrictions; cognition rules remain.
 - If code and specification disagree, stop and surface the discrepancy.
 - If a specification silence would change user-visible behavior, authority,
   irreversible data, or external compatibility, stop and surface it. Ordinary

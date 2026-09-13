@@ -41,7 +41,7 @@ from qualify_memory import (
 
 from jarvis._atomic_json import replace_private_json
 from jarvis.admission import RollingAdmissionPort, RootTrackingAdmissionPort
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.context import IsolatedRecaller
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal

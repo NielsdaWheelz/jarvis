@@ -31,16 +31,18 @@ from jarvis.actions import ActionStore
 from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
+    pre_agent_control_slice6_admission_limits,
     pre_all_calendar_slice6_admission_limits,
     slice5_admission_limits,
     slice6_admission_limits,
 )
+from jarvis.agent_control import AgentController
 from jarvis.approval_runtime import (
     ApprovalActionHandler,
     ApprovalAwareDiscordDelivery,
     ApprovalRecoveryDisabler,
 )
-from jarvis.codex_control import CodexController, CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
@@ -315,6 +317,9 @@ async def _serve(
                 RollingAdmissionPort.migrate_limits(
                     settings.admission_journal_path,
                     previous=(
+                        pre_agent_control_slice6_admission_limits(
+                            settings.maximum_batch_size
+                        ),
                         pre_all_calendar_slice6_admission_limits(
                             settings.maximum_batch_size
                         ),
@@ -380,9 +385,9 @@ async def _serve(
                         memory_repository=PostgresMemoryRepository(database),
                         memory_embedder=embedder,
                         actions=actions,
-                        codex=CodexController(
-                            control=agent_runtime.codex,
-                            host=host,
+                        agents=AgentController(
+                            executable=settings.agent_cli_path,
+                            client_config=settings.agent_client_config_path,
                             actions=actions,
                         ),
                         automatic_write_gate_definition_fingerprint=(
@@ -603,6 +608,9 @@ async def dream_once(
             RollingAdmissionPort.migrate_limits(
                 settings.admission_journal_path,
                 previous=(
+                    pre_agent_control_slice6_admission_limits(
+                        settings.maximum_batch_size
+                    ),
                     pre_all_calendar_slice6_admission_limits(
                         settings.maximum_batch_size
                     ),

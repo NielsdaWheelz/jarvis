@@ -133,6 +133,8 @@ async def test_consumer_uses_current_structured_main_and_real_canonical_settleme
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path / "host.json",
         runtime_state_directory=state,
         google_oauth_state_path=state / "google.json",

@@ -56,7 +56,7 @@ deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
 That host convergence must also report one active operational `codex.runtime`
-identity, three healthy profile sockets, the closed launcher socket, and
+identity, three healthy profile sockets, the installed skid cli/client config, and
 the mode-02750 empty cognition parent. A differing active identity is an
 operator drain/restart action, never an ordinary-apply restart. Before the hard
 cut, stop Jarvis, drain every non-terminal Codex control action and old private
@@ -64,8 +64,9 @@ provider session, then activate the shared services without killing manual tmux
 sessions or deleting native history.
 
 Native Codex tracks latest stable during explicit host install/update (ADR 0042).
-The closed host mapping must be schema 2 without `version` or `package`; deploy
-it with this consumer, not an old schema-1 release. Version-only apply leaves
+the closed host mapping must be schema 3, retaining cognition fields and dropping
+`tmux`, `launcher_socket`, and profile `work_roots`; deploy it with this consumer.
+version-only apply leaves
 healthy servers running; normal crash recovery may load the newer binary.
 Record the installed CLI and each running server
 separately when qualifying; a config value is not observed runtime evidence.
@@ -143,7 +144,8 @@ controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
 control; no provider connection is opened before the control succeeds. The
-service then receives only the non-secret profile/socket view and launcher path;
+service then receives the non-secret cognition profile/socket view and its private
+skid peer configuration;
 it receives no Codex credential or development-user account-home access.
 
 Do not activate an older release across an incompatible migration or a
@@ -244,52 +246,36 @@ mapping must name the running shared services and exact mode-02750
 cognition parent. Never copy Codex authentication into the checkout or process
 environment, and never start a private App Server from a qualifier.
 
-The shared-control journey is Linux-only and requires a separately prepared,
-root-owned test mapping. Its launcher and gateway must both name one fresh
-`jarvis-codex-qualify-<32-hex>` tmux `-L` wrapper; the launcher socket parent
-must use that same namespace. Both launcher and gateway run as the development
-UID; the qualifier runs as the Jarvis UID and observes/cleans terminals only
-through this test gateway. The same `-L` name under different UIDs identifies
-different tmux sockets. Never grant Jarvis sudo or access to production tmux.
+peer agent control requires the installed skid cli and a private mode-0600 peer
+configuration readable by jarvis. the fleet operator distributes the configured
+hosts' existing bearers; provider credentials remain on their hosts. refresh
+these copies after bearer rotation. there is no fleet hub or credential daemon.
 
-Prepare a separate root-owned, group-readable-to-Jarvis, non-world-readable
-gateway JSON file with exactly `url`, `machine_handle`, and `bearer`. These must
-identify the actual isolated gateway: numeric loopback HTTP, an explicit
-non-production port (not `7341`), and fresh fixture identity/credentials. Its
-host config must use the same isolated runner. Do not copy production pairings.
-Use a loopback-only disposable database named
-`jarvis_codex_qualify_*` and an existing permitted development cwd:
+before activating the seven-tool catalog, drain non-terminal actions bound to
+the removed `codex.*` tools. preserve cognition's native endpoint and empty
+shared directory. retire the dedicated worker launcher after its final caller
+is gone; never stop the shared codex runtime to remove that launcher.
 
-```sh
-JARVIS_CODEX_QUALIFICATION_DATABASE_URL=postgresql+psycopg://...@127.0.0.1/jarvis_codex_qualify_run \
-  uv run python scripts/qualify_codex_control.py \
-    --allow-provider-calls \
-    --allow-isolated-tmux-mutation \
-    --allow-disposable-database-writes \
-    --profile-config /etc/codex-shared-qualification/profiles.json \
-    --gateway-config /etc/codex-shared-qualification/jarvis-codex-qualify-0123456789abcdef0123456789abcdef/gateway.json \
-    --tmux-binary /usr/bin/tmux \
-    --socket-name jarvis-codex-qualify-0123456789abcdef0123456789abcdef \
-    --cwd /home/niels/src/personal/skidbladnir
-```
+qualify the new controls with synthetic content in exact test-owned sessions.
+isolated tmux gates stay isolated; installed cli/phone/jarvis mutation needs an
+explicit exception for newly created test sessions on each default server.
+cover remote codex and claude, a peer using the same cli to control
+another, direct macbook/arch communication, and partial/unknown stop outcomes.
+read skid's `docs/agent-control.md` for exact acceptance and current-turn live
+approval requirements. keep transcript bytes and fleet credentials out of logs.
+historical launcher qualification does not prove this target.
 
-The harness observes the real Skid inventory and cleans only exact terminals it
-created, using their captured lifetime tokens. Its real-gateway journey must
-also reject a mismatched token without deleting that terminal. It still reports
-overall `NOT_RUN` until the separately owned TUI/manual-input, approval, phone,
-contained-cognition, and lost-submit restart boundaries are observed. A harness
-change or a hermetic test does not count as a live gateway pass.
-
-The duplicate-name failure check observes real native creation and zero input
-frames for that exact new thread through a fixture-only Unix-socket relay.
-The host launcher and stock TUI still use the actual shared endpoint. Empty
-history is not a valid oracle: a newly created idle thread may remain
-unmaterialized until its first user message, and idle unloading can discard it.
-Codex 0.154.0 defines a 60-second default idle-unload grace in its
-[source](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/config/mod.rs#L3829);
-this is not a live timing measurement, Jarvis timer, or future-version guarantee.
-Do not add a synthetic prompt, extend native retention, recreate a missing thread, or retry
-an uncertain launch to manufacture a passing check.
+the installed service uses `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir`
+and `JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`.
+use the existing single `jarvis serve` owner. after approval, supply synthetic
+owner messages to list/start one remote codex and claude, list/read them before
+send, then keys/interrupt/stop. retain the supplied owner message ids; inspect
+only associated action tool/status/attempt counts and read tool/state counts.
+each write gets one attempt; uncertainty is recorded, never replayed. confirm
+the actual targets and both stop outcomes separately. the cognition qualifier
+uses zero tools, and the existing e2e qualifier requires zero actions; neither
+proves this worker journey. the old 17-call admission vector migrates through
+the existing journal migration before the new 19-call catalog is activated.
 
 Slice 6 live Gmail send and shared-calendar trials use the exact production
 catalog, action recorder, renderers, handler, connector, recovery path, and a

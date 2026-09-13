@@ -26,7 +26,7 @@ from sqlalchemy import func, select
 
 from jarvis.actions import ActionStore
 from jarvis.admission import ExactToolBudgetFactory
-from jarvis.codex_control import CodexController
+from jarvis.agent_control import AgentController
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
@@ -123,9 +123,9 @@ async def _run(settings: Settings) -> dict[str, object]:
                     http_client=clients[4],
                 ),
                 actions=ActionStore(engine),
-                codex=CodexController(
-                    control=agent_runtime.codex,
-                    host=host,
+                agents=AgentController(
+                    executable=settings.agent_cli_path,
+                    client_config=settings.agent_client_config_path,
                     actions=ActionStore(engine),
                 ),
                 automatic_write_gate_definition_fingerprint=gate.fingerprint,

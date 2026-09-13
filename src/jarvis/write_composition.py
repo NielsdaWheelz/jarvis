@@ -22,8 +22,8 @@ from llm_tools import (
 )
 
 from jarvis.actions import ActionStore
-from jarvis.codex_control import CodexController
-from jarvis.codex_tools import codex_family
+from jarvis.agent_control import AgentController
+from jarvis.agent_tools import agent_family
 from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadConnector
 from jarvis.memory_retrieval import MemoryEmbedder, MemoryRepository
 from jarvis.memory_tools import memory_family
@@ -144,7 +144,7 @@ def build_slice6_composition(
     memory_repository: MemoryRepository,
     memory_embedder: MemoryEmbedder,
     actions: ActionStore,
-    codex: CodexController,
+    agents: AgentController,
     automatic_write_gate_definition_fingerprint: str,
 ) -> Slice6Composition:
     if (
@@ -190,7 +190,7 @@ def build_slice6_composition(
     catalog = ToolCatalog.compose(
         (
             _bind_write_policy(
-                codex_family(codex),
+                agent_family(agents),
                 gate_fingerprint=automatic_write_gate_definition_fingerprint,
                 calendar_ids_digest=None,
             ),
@@ -238,7 +238,7 @@ def build_slice6_catalog(
     memory_repository: MemoryRepository,
     memory_embedder: MemoryEmbedder,
     actions: ActionStore,
-    codex: CodexController,
+    agents: AgentController,
     automatic_write_gate_definition_fingerprint: str,
 ) -> ToolCatalog:
     return build_slice6_composition(
@@ -250,7 +250,7 @@ def build_slice6_catalog(
         memory_repository=memory_repository,
         memory_embedder=memory_embedder,
         actions=actions,
-        codex=codex,
+        agents=agents,
         automatic_write_gate_definition_fingerprint=(
             automatic_write_gate_definition_fingerprint
         ),

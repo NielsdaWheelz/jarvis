@@ -74,13 +74,13 @@ from jarvis.actions import (
     ExecutionContract,
 )
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.agent_control import AgentController
 from jarvis.approval import render_approval
 from jarvis.approval_runtime import (
     ApprovalActionHandler,
     ApprovalAwareDiscordDelivery,
     ApprovalRecoveryDisabler,
 )
-from jarvis.codex_control import CodexController
 from jarvis.connectors import GoogleTokenManager
 from jarvis.db import (
     action,
@@ -1280,9 +1280,9 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                         http_client=embedding_http,
                     ),
                     actions=actions,
-                    codex=CodexController(
-                        control=agent_runtime.codex,
-                        host=host,
+                    agents=AgentController(
+                        executable=settings.agent_cli_path,
+                        client_config=settings.agent_client_config_path,
                         actions=actions,
                     ),
                     automatic_write_gate_definition_fingerprint=gate.fingerprint,

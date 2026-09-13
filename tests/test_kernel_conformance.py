@@ -571,6 +571,8 @@ async def test_main_bounds_keep_one_session_across_owner_runs_and_adapter_restar
     cwd_parent = tmp_path / "cwd"
     cwd_parent.mkdir(mode=0o2750)
     cwd_parent.chmod(0o2750)
+    if not cwd_parent.stat().st_mode & 0o2000:
+        pytest.skip("filesystem cannot retain setgid; requires Linux qualification")
     references: list[StoredSessionRef | None] = []
     for ordinal in range(3):
         bundle = build_kernel_runtime(
@@ -976,6 +978,8 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path,
         runtime_state_directory=state,
         google_oauth_state_path=tmp_path / "google.json",
@@ -1166,6 +1170,8 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path,
         runtime_state_directory=state,
         google_oauth_state_path=tmp_path / "google.json",
@@ -1357,6 +1363,8 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path,
         runtime_state_directory=state,
         google_oauth_state_path=tmp_path / "google.json",

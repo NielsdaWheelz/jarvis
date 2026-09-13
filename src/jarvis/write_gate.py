@@ -96,6 +96,8 @@ class EffectTarget(BaseModel):
         "cwd",
         "terminal_name",
         "turn_id",
+        "machine",
+        "terminal_id",
     ]
     value: str = Field(min_length=1, max_length=4_096)
 
@@ -160,6 +162,8 @@ class WriteEffectDescriptor(BaseModel):
         "start",
         "submit",
         "steer",
+        "keys",
+        "stop",
         "interrupt",
     ]
     targets: Annotated[tuple[EffectTarget, ...], Field(max_length=8)] = ()

@@ -19,6 +19,9 @@ Codex pinning with latest-stable installation; library dependencies remain locke
 [ADR 0043](docs/decisions/0043-retain-main-thread-through-native-compaction.md)
 removes host age-based session rotation: compatible Main threads persist through
 native automatic compaction; generation remains a compare-and-set token.
+[adr 0044](docs/decisions/0044-control-tmux-agents-through-skid.md) replaces
+worker controls with the common skid cli. its explicit worker deltas supersede
+conflicting historical codex-only/launcher restrictions below; cognition is unchanged.
 
 ## 1. Product definition
 
@@ -70,12 +73,11 @@ V1 MUST NOT add:
   knowledge-graph domain models.
 - A workflow framework or general agent platform beyond the bounded
   `llm-agent-kernel` library.
-- General subagent delegation, persistent peer agents, or model-generated
-  program execution beyond the five owner-directed Codex controls in section
-  7.3.
+- A peer-agent ownership graph, task schema, completion scheduler, or general
+  execution framework. owner-directed tmux agent interaction uses section 7.3.
 - A general-purpose remote shell, SSH, terminal, or unconstrained browser agent.
-- OnePassword or Nexus integration, or Skidbladnir source/API changes. Ordinary
-  worker tmux sessions remain visible through unchanged Skidbladnir.
+- OnePassword or Nexus integration. skid owns the common tmux agent-control
+  api; jarvis consumes its cli without duplicating provider or terminal control.
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
 - Slash commands, dashboards, or speculative action components.
@@ -344,8 +346,9 @@ Jarvis acts without approval for:
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
 - Creating or cancelling a `schedule.wake`.
-- Owner-directed `codex.start`, `codex.prompt`, and `codex.interrupt`, grounded
-  by `AutomaticWriteGate`; native worker approvals remain human-only.
+- owner-directed `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`,
+  and `agent.stop`, grounded by `AutomaticWriteGate`; explicit terminal input
+  may answer worker permission dialogs under existing host-user authority.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -821,8 +824,8 @@ invocation. A drain is an exclusive work epoch within a thread run. A one-shot
 run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
-persistent peer agents or general delegation. The five exact Codex controls are
-owner-directed top-level worker operations outside the cognitive decoder; they
+a persistent peer model. the seven agent controls are owner-directed tmux
+operations outside the cognitive decoder; they
 add no peer graph, completion callback, scheduler, transcript store, or worker
 ownership state. The main definition is
 `continuing` with a closed structured terminal contract and the exact main
@@ -1110,37 +1113,30 @@ V1 exposes exactly the following canonical model tools:
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
-| `codex.list`, `codex.read` | Main | Native worker read; automatic |
-| `codex.start`, `codex.prompt`, `codex.interrupt` | Main | Native worker control; automatic only when grounded in current owner input |
+| `agent.list`, `agent.read` | Main | peer agent read; automatic |
+| `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop` | Main | peer agent control; automatic only when grounded in current owner input |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
-Codex controls require an explicit `personal | work | work2` profile and exact
-opaque native handles. `codex.start` validates bounded lexical input, asks the
-closed host helper to resolve an existing canonical host-permitted cwd, creates
-a prompt-free native thread there, unsubscribes the Jarvis control connection,
-creates and observes one ordinary tmux session through the closed host helper,
-then submits the bounded prompt. The stock TUI attaches asynchronously; Started
-does not claim TUI readiness. Jarvis never answers worker-native approvals.
-Native creation sets workspace-write, on-request approval, user review and
-disabled network access. The stock remote TUI restores these saved thread
-permissions; the host launcher supplies no resume-time permission overrides.
+agent controls invoke the absolute installed skid executable with an explicit
+private client configuration, structured json stdin, bounded json stdout and
+suppressed stderr. list/start select a configured machine label; later operations
+echo the machine/tmux/pane/process target returned by inventory. no devbox hub,
+provider restriction, coordinator exclusion, worker-specific directory rule,
+native worker client, or dedicated terminal launcher remains. existing host cwd
+validation and unrelated cognition containment remain.
 
-`codex.prompt` exposes the native Submit operation, which atomically
-starts or steers and returns the accepted turn handle without distinguishing the
-two. Explicit Steer includes the expected turn handle. Interrupt uses the native
-exact-turn App Server precheck and reports Interrupted, natural Finished, Stale,
-or Unknown; it is never retried or knowingly redirected to an observed
-successor. Strict idle-only NewTurn and a core interrupt CAS are not v1 claims.
-Writes use `ReplayPolicy.BilledOnce`, one executor entry, typed surviving launch
-prefixes, and terminal uncertainty after ambiguous dispatch. No absent status,
-name, cwd, newest thread, or original input permits redispatch.
+start creates an ordinary terminal with no initial prompt or readiness promise.
+list/read observe native or inferred state and bounded provider/terminal output;
+then send or keys deliver input. explicit terminal input may answer dialogs.
+interrupt reports native confirmation or terminal delivery, never assumes a key
+proved cancellation. stop reports provider halt and terminal close separately.
 
-An observed thread-only prefix is not a durability promise: a newly created
-idle thread may remain unmaterialized until its first user message, and may
-disappear after unsubscription. Missing history proves neither zero dispatch
-nor permission to retry. Qualification observes the exact native creation
-receipt and zero input frames for the failed launch, rather than requiring
-readable empty history.
+writes retain `ReplayPolicy.BilledOnce`, one executor entry, and terminal
+uncertainty after possible dispatch. timeout, child loss, lost acknowledgment,
+or partial stop never authorizes replay. killing the cli does not cancel remote
+work. stdin/control output is bounded to 64 kib; fleet list output to 1 mib;
+execution is bounded to 15 seconds. the exact inputs/results and capability
+semantics are specified by skid's `docs/agent-control.md` and adr 0044.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 
@@ -1618,10 +1614,10 @@ rememberer and dreamer work. Kernel cancellation stops background cognitive work
 at a defined boundary; recomputation occurs only on a later explicitly admitted
 schedule, never by unconditional cleanup rearming.
 
-Accepted Codex workers execute independently in the three host-owned App
-Servers after dispatch. Their native event streams never enter the serial
+accepted codex and claude agents execute independently on their selected hosts
+after dispatch. Their native event streams never enter the serial
 cognition decoder, consume its provider lease, or grant new Jarvis authority.
-The launch action terminates at truthful native/host acceptance; Jarvis neither
+the start action terminates at truthful terminal creation; Jarvis neither
 waits durably for worker completion nor schedules a successor from it.
 
 No second PostgreSQL conversation lock is required while the global ownership
@@ -1697,9 +1693,10 @@ accepted under ADR 0042. Version-only apply does not restart healthy servers;
 planned restart is explicit and may interrupt turns. Normal crash recovery may
 load the newly installed binary. CLI/server parity is not assumed.
 
-The root-owned closed host mapping is schema 2: operational users, group,
-binary, tmux, cognition parent, launcher socket and the three account profiles.
-It contains no version or package pin; schema 1 and unknown fields are rejected.
+the root-owned codex host mapping retains the operational account endpoints and
+empty cognition parent needed by cognition. worker routing comes only from the
+explicit skid client configuration. deployment owns this mapping and removes
+launcher-only fields with their final callers under adr 0044.
 
 The checked-in compatibility manifest schema v3 records
 `qualified_models = ["gpt-5.6-terra"]`. Startup accepts only those exact model
@@ -2157,7 +2154,7 @@ Frozen decisions:
 - No explicit personal-domain object model.
 - No workflow framework, general agent platform, persistent delegation graph,
   or model-generated program runtime beyond the bounded kernel and the five
-  owner-directed Codex controls.
+  owner-directed agent controls.
 - Host-rendered approval previews and the stated autonomy boundary.
 - A restricted AutomaticWriteGate grounds every model-proposed write in current
   owner-authored input before action creation, without granting new authority.

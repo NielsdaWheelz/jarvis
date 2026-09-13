@@ -82,8 +82,9 @@ from jarvis.admission import (
     RollingAdmissionLimits,
     RollingAdmissionPort,
 )
+from jarvis.agent_control import AgentController
 from jarvis.checkpoints import PostgresInputCheckpoint
-from jarvis.codex_control import CodexController, CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.config import DiscordSettings
 from jarvis.context import JarvisContextSource
 from jarvis.db import (
@@ -153,7 +154,11 @@ def _definitions(
             settings.embedding_openai_api_key, http_client=http_client
         ),
         actions=actions,
-        codex=CodexController(control=runtime.codex, host=host, actions=actions),
+        agents=AgentController(
+            executable=settings.agent_cli_path,
+            client_config=settings.agent_client_config_path,
+            actions=actions,
+        ),
         automatic_write_gate_definition_fingerprint=gate.fingerprint,
     ).catalog
     definitions = build_slice6_definitions(
@@ -644,6 +649,9 @@ async def _run(arguments: Arguments) -> dict[str, object]:
         owner_timezone=arguments.owner_timezone,
         codex_profile_key=arguments.profile,
         codex_model=arguments.model,
+        agent_cli_path=arguments.runtime_state_directory / "unused-agent-cli",
+        agent_client_config_path=arguments.runtime_state_directory
+        / "unused-agent-client.json",
         codex_host_config_path=arguments.codex_host_config_path,
         runtime_state_directory=arguments.runtime_state_directory,
         google_oauth_state_path=arguments.runtime_state_directory / "google.json",

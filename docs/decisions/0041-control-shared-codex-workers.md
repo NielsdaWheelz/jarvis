@@ -1,6 +1,7 @@
 # ADR 0041: Control shared Codex workers
 
-- Status: **Accepted; native version pin superseded by ADR 0042**
+- status: accepted; native pin superseded by adr 0042; worker control/launcher
+  contract superseded by [adr 0044](0044-control-tmux-agents-through-skid.md).
 - Date: **2026-09-09**
 - Owner approval: the owner approved the cross-repository control plan and its
   asynchronous-TUI amendment on 9 September 2026.

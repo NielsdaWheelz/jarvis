@@ -60,8 +60,9 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
     slice5_admission_limits,
 )
+from jarvis.agent_control import AgentController
 from jarvis.checkpoints import PostgresInputCheckpoint
-from jarvis.codex_control import CodexController, CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.db import (
     action,
     create_engine,
@@ -552,9 +553,9 @@ async def _run(settings: Settings) -> dict[str, object]:
                     memory_repository=PostgresMemoryRepository(engine),
                     memory_embedder=embedder,
                     actions=actions,
-                    codex=CodexController(
-                        control=agent_runtime.codex,
-                        host=host,
+                    agents=AgentController(
+                        executable=settings.agent_cli_path,
+                        client_config=settings.agent_client_config_path,
                         actions=actions,
                     ),
                     automatic_write_gate_definition_fingerprint=(

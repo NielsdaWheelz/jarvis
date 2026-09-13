@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.config import DiscordSettings
 from jarvis.discord import DiscordGateway
 from jarvis.service import JarvisService
@@ -28,6 +28,8 @@ def service_settings(tmp_path: Path) -> Settings:
         owner_timezone="America/Los_Angeles",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path / "codex-profiles.json",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",
@@ -46,19 +48,16 @@ def service_settings(tmp_path: Path) -> Settings:
 def host_config(tmp_path: Path) -> CodexHostConfig:
     return CodexHostConfig.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "development_user": "synthetic",
             "jarvis_user": "jarvis",
             "client_group": grp.getgrgid(os.getgid()).gr_name,
             "binary": "/synthetic/codex",
-            "tmux": "/synthetic/tmux",
             "cognition_cwd_parent": str(tmp_path / "cognition"),
-            "launcher_socket": str(tmp_path / "helper.sock"),
             "profiles": {
                 profile: {
                     "account_home": f"/synthetic/{profile}",
                     "endpoint": f"unix://{tmp_path}/{profile}.sock",
-                    "work_roots": [str(tmp_path)],
                 }
                 for profile in ("personal", "work", "work2")
             },

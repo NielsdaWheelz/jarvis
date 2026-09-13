@@ -18,6 +18,8 @@ def _environment(tmp_path: Path) -> dict[str, str]:
         "JARVIS_OWNER_TIMEZONE": "America/Los_Angeles",
         "JARVIS_CODEX_PROFILE_KEY": "personal",
         "JARVIS_CODEX_MODEL": "gpt-5.6-terra",
+        "JARVIS_AGENT_CLI_PATH": str(tmp_path / "skid"),
+        "JARVIS_AGENT_CLIENT_CONFIG_PATH": str(tmp_path / "agent-client.json"),
         "JARVIS_CODEX_HOST_CONFIG_PATH": str(tmp_path / "codex-profiles.json"),
         "JARVIS_RUNTIME_STATE_DIRECTORY": str(tmp_path / "runtime"),
         "JARVIS_GOOGLE_OAUTH_STATE_PATH": str(tmp_path / "google.json"),

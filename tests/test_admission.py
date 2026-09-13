@@ -227,15 +227,15 @@ def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
 def test_slice6_capacity_reserves_recallers_and_every_write_gate() -> None:
     selected = slice6_admission_limits(20)
     assert selected.json() == {
-        "max_input_tokens": 13_683_136,
+        "max_input_tokens": 14_214_208,
         "max_no_progress_attempts": 3,
-        "max_output_tokens": 2_086_784,
-        "max_turns": 548,
+        "max_output_tokens": 2_199_552,
+        "max_turns": 560,
         "root_input_token_overshoot": 32_768,
         "root_output_token_overshoot": 8_192,
-        "serial_child_input_tokens": 6_112_416,
-        "serial_child_output_tokens": 963_104,
-        "serial_child_turns": 251,
+        "serial_child_input_tokens": 6_377_952,
+        "serial_child_output_tokens": 1_019_488,
+        "serial_child_turns": 257,
         "window_seconds": 21_600,
     }
 
@@ -308,12 +308,12 @@ async def test_slice6_limit_migration_reserves_the_new_approval_write_gate(
     state = json.loads(path.read_text(encoding="utf-8"))
     reservation = state["reservations"][0]
     assert state["configuration"] == current.json()
-    assert reservation["reserved_turns"] == root.token.reserved_turns + 3
+    assert reservation["reserved_turns"] == root.token.reserved_turns + 9
     assert reservation["reserved_input_tokens"] == (
-        root.token.reserved_input_tokens + 132_768
+        root.token.reserved_input_tokens + 398_304
     )
     assert reservation["reserved_output_tokens"] == (
-        root.token.reserved_output_tokens + 28_192
+        root.token.reserved_output_tokens + 84_576
     )
     assert reservation["actual_turns"] == reservation["reserved_turns"]
     assert reservation["actual_input_tokens"] == reservation["reserved_input_tokens"]
@@ -365,12 +365,12 @@ async def test_all_calendar_limit_migration_accepts_the_production_predecessor(
     state = json.loads(path.read_text(encoding="utf-8"))
     reservation = state["reservations"][0]
     assert state["configuration"] == current.json()
-    assert reservation["reserved_turns"] == root.token.reserved_turns + 3
+    assert reservation["reserved_turns"] == root.token.reserved_turns + 9
     assert reservation["reserved_input_tokens"] == (
-        root.token.reserved_input_tokens + 132_768
+        root.token.reserved_input_tokens + 398_304
     )
     assert reservation["reserved_output_tokens"] == (
-        root.token.reserved_output_tokens + 28_192
+        root.token.reserved_output_tokens + 84_576
     )
     assert reservation["actual_turns"] == reservation["reserved_turns"]
     assert reservation["actual_input_tokens"] == reservation["reserved_input_tokens"]
@@ -519,3 +519,20 @@ async def test_plan_factory_returns_fresh_exact_budget() -> None:
 def test_budget_factory_accepts_only_run_limits() -> None:
     with pytest.raises((TypeError, ValueError)):
         RunLimits(1, 0, 1, 1, 1, 0)
+
+
+def test_agent_control_upgrade_preserves_previous_admission_vector(
+    tmp_path: Path,
+) -> None:
+    from jarvis.admission import pre_agent_control_slice6_admission_limits
+
+    previous = pre_agent_control_slice6_admission_limits(20)
+    assert previous.max_turns == 548
+    assert previous.serial_child_turns == 251
+    assert previous.max_input_tokens == 13_683_136
+    assert previous.max_output_tokens == 2_086_784
+    path = tmp_path / "admission.json"
+    RollingAdmissionPort.initialize(path, previous)
+    current = slice6_admission_limits(20)
+    assert RollingAdmissionPort.migrate_limits(path, previous=previous, current=current)
+    assert json.loads(path.read_text())["configuration"] == current.json()

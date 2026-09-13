@@ -54,6 +54,8 @@ async def build_test_slice4_definitions(tmp_path: Path) -> Any:
         owner_timezone="UTC",
         codex_profile_key="personal",
         codex_model="gpt-5.6-terra",
+        agent_cli_path=tmp_path / "skid",
+        agent_client_config_path=tmp_path / "agent-client.json",
         codex_host_config_path=tmp_path / "codex",
         runtime_state_directory=tmp_path / "runtime",
         google_oauth_state_path=tmp_path / "google.json",

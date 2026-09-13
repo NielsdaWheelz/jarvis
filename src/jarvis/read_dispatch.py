@@ -34,7 +34,7 @@ from llm_tools import (
     ToolResult,
 )
 
-from jarvis.codex_tools import CODEX_READ_IDS
+from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 
 _SECRET_PATTERN = re.compile(
@@ -252,7 +252,7 @@ class ReadToolDispatcher[RecorderT: ReadRecorder]:
     ) -> DispatchCompleted:
         tool_id = binding.spec.id
         if (
-            tool_id not in (*AUTOMATIC_READ_TOOL_IDS, *CODEX_READ_IDS)
+            tool_id not in (*AUTOMATIC_READ_TOOL_IDS, *AGENT_READ_IDS)
             or binding.spec.effect is not ToolEffect.Read
         ):
             raise ToolDispatchDefect(

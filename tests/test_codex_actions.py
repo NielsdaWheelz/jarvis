@@ -21,11 +21,11 @@ from jarvis.actions import (
     ActionStore,
     ExecutionContract,
     StoredAction,
-    codex_uncertainty_result,
+    agent_uncertainty_result,
 )
-from jarvis.codex_tools import (
+from jarvis.agent_tools import AgentActionEvidence, AgentStartInput, AgentStopResult
+from jarvis.codex_history import (
     CodexActionEvidence,
-    CodexStartInput,
     CodexThreadPrefix,
     CodexThreadTarget,
 )
@@ -44,27 +44,28 @@ from jarvis.write_dispatch import ActionRecovery, action_resolution_text
 from jarvis.write_policy import classify_write, write_effect_descriptor
 
 
-def test_codex_owner_write_has_closed_authority_projection_without_prompt() -> None:
-    value = CodexStartInput(
+def test_agent_start_has_closed_authority_projection() -> None:
+    value = AgentStartInput(
+        machine="devbox",
         profile="work",
         cwd="/synthetic/work",
         name="review",
-        prompt="Synthetic worker instruction.",
     )
     assert (
         classify_write(
-            ToolId("codex.start"), value, verified_owner_only_calendar_ids=()
+            ToolId("agent.start"), value, verified_owner_only_calendar_ids=()
         )
         == "automatic"
     )
-    descriptor = write_effect_descriptor(ToolId("codex.start"), value)
+    descriptor = write_effect_descriptor(ToolId("agent.start"), value)
     assert descriptor.operation == "start"
     assert {(item.kind, item.value) for item in descriptor.targets} == {
+        ("machine", "devbox"),
         ("profile", "work"),
         ("cwd", "/synthetic/work"),
         ("terminal_name", "review"),
     }
-    assert value.prompt not in descriptor.model_dump_json()
+    assert descriptor.omitted_freeform == ()
 
 
 def _contract(*, billed_once: bool = False) -> ExecutionContract:
@@ -165,9 +166,19 @@ def test_unknown_resolution_preserves_confirmed_prefix_without_claiming_failure(
         completed_at=None,
         result=evidence.model_dump(mode="json"),
     )
-    result = codex_uncertainty_result(entered)
+    result = {
+        "type": "codex_uncertainty_v1",
+        "evidence_code": "native-control-outcome-unconfirmed-no-repeat",
+        "recorded_at": now.isoformat(),
+        "control": evidence.model_dump(mode="json"),
+    }
     uncertain = replace(entered, status="uncertain", result=result, completed_at=now)
-    assert codex_uncertainty_result(uncertain) == result
+    from jarvis.actions import (
+        _validate_stored_action,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    _validate_stored_action(uncertain)
+    assert agent_uncertainty_result(uncertain) == result
     text = action_resolution_text(uncertain)
     context = json.loads(text.split(ACTION_MODEL_CONTEXT_SEPARATOR)[1])
     assert context["result"]["error"] == {
@@ -182,7 +193,7 @@ def test_unknown_resolution_preserves_confirmed_prefix_without_claiming_failure(
     not os.environ.get("JARVIS_TEST_DATABASE_URL"),
     reason="requires the disposable PostgreSQL action boundary",
 )
-async def test_uncertain_codex_action_survives_restart_without_reentry(
+async def test_uncertain_agent_action_survives_restart_without_reentry(
     tmp_path: Path,
 ) -> None:
     contract = _contract(billed_once=True)
@@ -222,7 +233,7 @@ async def test_uncertain_codex_action_survives_restart_without_reentry(
                 AgentTerminal(
                     status="succeeded",
                     failure=None,
-                    final_text='{"kind":"call_tool","call_tool":{"tool_id":"codex.start",'
+                    final_text='{"kind":"call_tool","call_tool":{"tool_id":"agent.start",'
                     '"arguments":{"profile":"work"}},"finish":null}',
                     session_ref=AgentSessionRef(
                         "agent-session-ref.v1",
@@ -237,7 +248,7 @@ async def test_uncertain_codex_action_survives_restart_without_reentry(
             )
             actions = ActionStore(database)
             action = await actions.insert_automatic(
-                tool_name=ToolId("codex.start"),
+                tool_name=ToolId("agent.start"),
                 arguments={"profile": "work"},
                 execution_contract=contract,
                 origin_message_id=origin,
@@ -251,16 +262,10 @@ async def test_uncertain_codex_action_survives_restart_without_reentry(
             await first.dispatch_started(
                 position=action.position, replay_policy=ReplayPolicy.BilledOnce
             )
-            evidence = CodexActionEvidence(
-                stage="terminal",
-                prefix=CodexThreadPrefix(
-                    thread=CodexThreadTarget(
-                        profile="work",
-                        thread_handle="12345678-1234-4234-8234-123456789abc",
-                    )
-                ),
+            evidence = AgentActionEvidence(
+                observed=AgentStopResult(agent="unconfirmed", terminal="closed")
             )
-            await actions.stage_codex_control(action_id=action.id, evidence=evidence)
+            await actions.stage_agent_control(action_id=action.id, evidence=evidence)
 
         async with deployment_ownership(engine) as database:
             actions = ActionStore(database)

@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 from llm_tools import ToolId
 
-from jarvis.codex_tools import (
-    CodexInterruptInput,
-    CodexPromptInput,
-    CodexStartInput,
-    CodexSteer,
+from jarvis.agent_tools import (
+    AgentInterruptInput,
+    AgentKeysInput,
+    AgentSendInput,
+    AgentStartInput,
+    AgentStopInput,
 )
 from jarvis.schedule_tools import (
     ScheduleCancelRequest,
@@ -49,11 +50,13 @@ def classify_write(
     """Classify authority without granting it or creating durable state."""
 
     name = str(tool_id)
-    if (
-        (name == "codex.start" and isinstance(value, CodexStartInput))
-        or (name == "codex.prompt" and isinstance(value, CodexPromptInput))
-        or (name == "codex.interrupt" and isinstance(value, CodexInterruptInput))
-    ):
+    if (name, type(value)) in {
+        ("agent.start", AgentStartInput),
+        ("agent.send", AgentSendInput),
+        ("agent.keys", AgentKeysInput),
+        ("agent.interrupt", AgentInterruptInput),
+        ("agent.stop", AgentStopInput),
+    }:
         return "automatic"
     if name in {"gmail.create_draft", "gmail.update_draft", "schedule.wake"}:
         return "automatic"
@@ -99,38 +102,39 @@ def write_effect_descriptor(
     """Project one strictly validated input into the gate's scalar allowlist."""
 
     name = str(tool_id)
-    if name == "codex.start" and isinstance(value, CodexStartInput):
-        return WriteEffectDescriptor(
-            operation="start",
-            targets=(
-                EffectTarget(kind="profile", value=value.profile),
-                EffectTarget(kind="cwd", value=value.cwd),
-                EffectTarget(kind="terminal_name", value=value.name),
-            ),
-            omitted_freeform=(OmittedFreeform.from_text("worker_input", value.prompt),),
-        )
-    if name == "codex.prompt" and isinstance(value, CodexPromptInput):
+    if name == "agent.start" and isinstance(value, AgentStartInput):
         targets = (
-            EffectTarget(kind="profile", value=value.thread.profile),
-            EffectTarget(kind="thread_id", value=value.thread.thread_handle),
+            EffectTarget(kind="machine", value=value.machine),
+            EffectTarget(kind="profile", value=value.profile),
+            EffectTarget(kind="cwd", value=value.cwd),
         )
-        if isinstance(value.input, CodexSteer):
-            targets += (EffectTarget(kind="turn_id", value=value.input.turn_handle),)
+        if value.name is not None:
+            targets += (EffectTarget(kind="terminal_name", value=value.name),)
+        return WriteEffectDescriptor(operation="start", targets=targets)
+    if name in {
+        "agent.send",
+        "agent.keys",
+        "agent.interrupt",
+        "agent.stop",
+    } and isinstance(
+        value, AgentSendInput | AgentKeysInput | AgentInterruptInput | AgentStopInput
+    ):
+        targets = (
+            EffectTarget(kind="machine", value=value.target.machine),
+            EffectTarget(kind="terminal_id", value=value.target.tmuxId),
+        )
+        omitted = (
+            (OmittedFreeform.from_text("worker_input", value.text),)
+            if isinstance(value, AgentSendInput)
+            else ()
+        )
         return WriteEffectDescriptor(
-            operation="steer" if isinstance(value.input, CodexSteer) else "submit",
+            operation=cast(
+                Literal["send", "keys", "interrupt", "stop"],
+                name.removeprefix("agent."),
+            ),
             targets=targets,
-            omitted_freeform=(
-                OmittedFreeform.from_text("worker_input", value.input.text),
-            ),
-        )
-    if name == "codex.interrupt" and isinstance(value, CodexInterruptInput):
-        return WriteEffectDescriptor(
-            operation="interrupt",
-            targets=(
-                EffectTarget(kind="profile", value=value.turn.thread.profile),
-                EffectTarget(kind="thread_id", value=value.turn.thread.thread_handle),
-                EffectTarget(kind="turn_id", value=value.turn.turn_handle),
-            ),
+            omitted_freeform=omitted,
         )
     if name == "gmail.create_draft" and isinstance(value, GmailCreateDraftInput):
         return _gmail_descriptor("create", value.content)

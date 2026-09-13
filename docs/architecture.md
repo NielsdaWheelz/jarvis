@@ -871,42 +871,27 @@ and grants the server traversal of empty cognition directories, never Jarvis
 application state. Read-only provider containment alone is not a general
 host-confidentiality boundary.
 
-## Codex worker control
+## peer agent control
 
-Main has exactly five owner-directed controls: list, read, start, prompt, and
-interrupt. Profile and full native handles are explicit. Jarvis persists only
-its existing action evidence; Codex owns thread/turn history and tmux owns
-terminal existence. There is no worker table, transcript copy, ownership map,
-completion callback, or workflow graph.
+main uses exactly seven owner-directed tools: `agent.list`, `agent.read`,
+`agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, and `agent.stop`.
+[adr 0044](decisions/0044-control-tmux-agents-through-skid.md) owns the change.
+jarvis invokes an absolute installed skid cli with explicit private peer config
+and structured stdin. skid routes directly to the selected host and owns
+provider selection, tmux discovery, native state/history, and terminal control.
+jarvis adds no second http/provider client or terminal launcher.
 
-Start validates its closed lexical input, resolves an existing canonical
-permitted cwd through the host helper, creates one prompt-free native thread,
-unsubscribes the control connection, invokes the peer-authenticated host launcher
-with only profile/thread/cwd/name, revalidates the cwd, observes the exact ordinary tmux session once,
-and submits the prompt over structured RPC. The stock remote TUI attaches
-asynchronously. `Started` means thread, terminal, and native Submit were accepted,
-not TUI readiness or worker completion. Pending approvals replay when the TUI
-joins; Jarvis never answers a worker approval. Upstream provides no exclusive
-reviewer lease, so this is a trusted single-user client policy.
-Native creation owns the explicit workspace-write/on-request/user-review policy
-and disabled network access. The host launcher resumes the exact thread without
-permission flags; native remote resume restores its saved policy.
+start creates a terminal without an initial prompt or readiness promise.
+subsequent controls use its observed machine/tmux/pane/process target. codex,
+claude, and prompted coordinators are ordinary sessions. agents may answer
+worker dialogs through deliberate terminal input. existing host cwd validation,
+jarvis cognition containment, and current-owner write grounding remain.
 
-Submit exposes native start-or-steer and returns its accepted turn handle.
-Exact Steer uses the expected turn. Interrupt uses the native App Server
-exact-turn precheck and observes Interrupted, natural Finished, Stale, or
-Unknown; it has no stronger core CAS claim. Every mutation is BilledOnce with
-one executor entry. Partial and Unknown outcomes retain exact known prefixes,
-and ambiguous dispatch is never repeated or reconstructed from names, cwd, or
-latest-thread inference.
-An unprompted thread-only prefix records the observed native creation, not
-durable history: native idle unloading may remove it before materialization.
-Neither missing history nor a later missing handle permits replacement work.
-
-Worker execution is independent of the serial cognition/dispatch mutex after
-launch acceptance. Worker events cannot enter the kernel decoder or confer
-authority. Client, helper, or TUI exit closes only that connection/process; it
-does not kill the shared service or native thread.
+reads retain the existing durable recorder; writes remain billed-once with one
+executor entry. lost acknowledgment, child timeout, or partial stop is never
+replayed. stop preserves separate halt/closure facts. worker execution stays
+independent after dispatch; output supplies no new jarvis authority. no task
+schema, worker table, ownership graph, scheduler, or transcript copy is added.
 
 ## Scheduling
 

@@ -1,5 +1,10 @@
 # V1 implementation plan
 
+next accepted upgrade: [peer agent control](decisions/0044-control-tmux-agents-through-skid.md).
+implement the common cli consumer after skid host/cli contracts; then retire the
+worker launcher and qualify remote codex/claude. historical slice evidence below
+does not establish this new capability.
+
 Each slice is a small vertical increment. The plan names intended sequence, not a
 workflow system or calendar schedule.
 

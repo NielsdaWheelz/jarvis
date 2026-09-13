@@ -31,7 +31,8 @@ from sqlalchemy import RowMapping, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.codex_tools import CODEX_WRITE_IDS, CodexActionEvidence, CodexNoPrefix
+from jarvis.agent_tools import AGENT_WRITE_IDS, AgentActionEvidence
+from jarvis.codex_history import HISTORICAL_CODEX_WRITE_IDS, CodexActionEvidence
 from jarvis.db import action, message
 from jarvis.messages import (
     MAX_DISCORD_MESSAGE_CHARACTERS,
@@ -1135,10 +1136,10 @@ class ActionStore:
                     )
             return await _update_action(connection, action_id, result=basis)
 
-    async def stage_codex_control(
-        self, *, action_id: UUID, evidence: CodexActionEvidence
+    async def stage_agent_control(
+        self, *, action_id: UUID, evidence: AgentActionEvidence
     ) -> StoredAction:
-        """Retain only the confirmed prefix before the next one-shot control stage."""
+        """Retain the observed partial result of one non-repeatable agent command."""
 
         async with self.engine.begin() as connection:
             stored = await _require_locked_action(connection, action_id)
@@ -1149,7 +1150,7 @@ class ActionStore:
                 or stored.attempts != 1
             ):
                 raise ActionPersistenceDefect(
-                    "Codex evidence requires one active entry"
+                    "Agent evidence requires one active entry"
                 )
             return await _update_action(
                 connection, action_id, result=evidence.model_dump(mode="json")
@@ -2031,7 +2032,7 @@ class ActionPositionRecorder:
         await self._store.resolve_reconciliation(
             action_id=stored.id,
             status="uncertain",
-            result=codex_uncertainty_result(stored),
+            result=agent_uncertainty_result(stored),
         )
 
     async def terminalize_and_settle(
@@ -2096,7 +2097,7 @@ class ActionPositionRecorder:
                     stored.id,
                     status="uncertain",
                     completed_at=datetime.now(UTC),
-                    result=codex_uncertainty_result(stored),
+                    result=agent_uncertainty_result(stored),
                 )
             elif _is_schedule_create(stored) and canonical_result["type"] == "Success":
                 await _store_schedule_creation(connection, stored, canonical_result)
@@ -2568,13 +2569,16 @@ def _validate_new_action(
     arguments: dict[str, object],
     contract: ExecutionContract,
     origin_message_id: UUID,
+    *,
+    historical: bool = False,
 ) -> None:
     ToolId(str(tool_name))
     if contract.tool_effect is not ToolEffect.Write:
         raise ValueError("actions require the Write effect")
-    if (tool_name in CODEX_WRITE_IDS) != (
-        contract.replay_policy is ReplayPolicy.BilledOnce
-    ):
+    if (
+        tool_name in AGENT_WRITE_IDS
+        or (historical and tool_name in HISTORICAL_CODEX_WRITE_IDS)
+    ) != (contract.replay_policy is ReplayPolicy.BilledOnce):
         raise ValueError("write action replay policy differs from its tool family")
     if raw_input_digest(ParsedJson(arguments)) != contract.input_digest:
         raise ValueError("execution contract has a different input digest")
@@ -2614,6 +2618,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
         stored.arguments,
         stored.execution_contract,
         stored.origin_message_id,
+        historical=True,
     )
     _aware(stored.created_at, "stored action creation time")
     if stored.execute_after is not None:
@@ -2657,6 +2662,8 @@ def _validate_stored_action(stored: StoredAction) -> None:
             _gmail_update_basis(stored.result)
         elif stored.result.get("type") == "action_recovery_v1":
             _recovery_state(stored.result)
+        elif stored.result.get("type") == "agent_control_v1":
+            AgentActionEvidence.model_validate(stored.result)
         elif stored.result.get("type") == "codex_control_v1":
             CodexActionEvidence.model_validate(stored.result)
 
@@ -2748,6 +2755,12 @@ def _uncertainty_result(result: dict[str, object]) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
     codex = canonical.get("type") == "codex_uncertainty_v1"
     keys = {"type", "evidence_code", "recorded_at"}
+    agent = canonical.get("type") == "agent_uncertainty_v1"
+    if agent:
+        keys.add("control")
+        canonical["control"] = AgentActionEvidence.model_validate(
+            canonical.get("control")
+        ).model_dump(mode="json")
     if codex:
         keys.add("control")
         canonical["control"] = CodexActionEvidence.model_validate(
@@ -2756,6 +2769,7 @@ def _uncertainty_result(result: dict[str, object]) -> dict[str, object]:
     if set(canonical) != keys or canonical.get("type") not in {
         "action_uncertainty_v1",
         "codex_uncertainty_v1",
+        "agent_uncertainty_v1",
     }:
         raise ValueError("action uncertainty result is invalid")
     evidence = canonical["evidence_code"]
@@ -2772,21 +2786,20 @@ def _uncertainty_result(result: dict[str, object]) -> dict[str, object]:
     return canonical
 
 
-def codex_uncertainty_result(stored: StoredAction) -> dict[str, object]:
-    """An entered native command has no replay-safe absence proof."""
-
+def agent_uncertainty_result(stored: StoredAction) -> dict[str, object]:
+    """An entered CLI command has no replay-safe absence proof."""
     if stored.execution_contract.replay_policy is not ReplayPolicy.BilledOnce:
-        raise ValueError("Codex uncertainty requires a BilledOnce action")
+        raise ValueError("agent uncertainty requires a BilledOnce action")
     if stored.status == "uncertain" and stored.result is not None:
         return _uncertainty_result(stored.result)
     evidence = (
-        CodexActionEvidence.model_validate(stored.result)
+        AgentActionEvidence.model_validate(stored.result)
         if stored.result is not None
-        else CodexActionEvidence(stage="dispatch", prefix=CodexNoPrefix())
+        else AgentActionEvidence()
     )
     return {
-        "type": "codex_uncertainty_v1",
-        "evidence_code": "native-control-outcome-unconfirmed-no-repeat",
+        "type": "agent_uncertainty_v1",
+        "evidence_code": "agent-control-outcome-unconfirmed-no-repeat",
         "recorded_at": datetime.now(UTC).isoformat(),
         "control": evidence.model_dump(mode="json"),
     }

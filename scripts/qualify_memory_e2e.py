@@ -36,7 +36,7 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
     slice3_admission_limits,
 )
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.db import (
     action,
     create_engine,

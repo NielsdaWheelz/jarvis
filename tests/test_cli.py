@@ -17,7 +17,7 @@ from jarvis.cli import (
     main,
     recover_startup_actions,
 )
-from jarvis.codex_control import CodexHostConfig
+from jarvis.codex_config import CodexHostConfig
 from jarvis.settings import Settings
 
 
@@ -34,6 +34,8 @@ def test_initialize_state_creates_private_content_free_host_state(
     settings = service_settings(tmp_path)
     host = host_config(tmp_path)
     cognition = _create_cognition_parent(host)
+    if not cognition.stat().st_mode & 0o2000:
+        pytest.skip("filesystem cannot retain setgid; requires Linux qualification")
     initialize_state(settings, host)
 
     assert stat.S_IMODE(settings.runtime_state_directory.stat().st_mode) == 0o700
@@ -53,7 +55,9 @@ def test_initialize_state_creates_private_content_free_host_state(
 def test_initialize_state_refuses_to_replace_existing_state(tmp_path: Path) -> None:
     settings = service_settings(tmp_path)
     host = host_config(tmp_path)
-    _create_cognition_parent(host)
+    cognition = _create_cognition_parent(host)
+    if not cognition.stat().st_mode & 0o2000:
+        pytest.skip("filesystem cannot retain setgid; requires Linux qualification")
     initialize_state(settings, host)
     with pytest.raises(StartupDefect):
         initialize_state(settings, host)
@@ -158,6 +162,8 @@ def test_cli_rejects_retired_model_before_serve_or_runtime_io(
         "JARVIS_OWNER_TIMEZONE": "America/Los_Angeles",
         "JARVIS_CODEX_PROFILE_KEY": "personal",
         "JARVIS_CODEX_MODEL": "gpt-5.4",
+        "JARVIS_AGENT_CLI_PATH": str(tmp_path / "skid"),
+        "JARVIS_AGENT_CLIENT_CONFIG_PATH": str(tmp_path / "agent-client.json"),
         "JARVIS_CODEX_HOST_CONFIG_PATH": str(tmp_path / "codex-profiles.json"),
         "JARVIS_RUNTIME_STATE_DIRECTORY": str(tmp_path / "runtime"),
         "JARVIS_GOOGLE_OAUTH_STATE_PATH": str(tmp_path / "google.json"),

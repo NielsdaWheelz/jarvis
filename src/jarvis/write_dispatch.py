@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
@@ -16,6 +17,7 @@ from llm_agent_kernel import (
     DispatchResult,
     DispatchSuspended,
     HostRef,
+    ThreadStopKind,
     ToolDispatchDefect,
     ToolDispatchLineage,
     WaitingFor,
@@ -90,6 +92,7 @@ _UNAVAILABLE: ToolResult = {
     "type": "Failure",
     "error": {"type": "ToolUnavailable"},
 }
+LOGGER = logging.getLogger(__name__)
 
 
 class ScheduleChanged(Protocol):
@@ -170,23 +173,58 @@ class WriteToolDispatcher:
         if not hasattr(validated_input, "model_dump"):
             raise ToolDispatchDefect("kernel supplied an invalid Write input")
         arguments = cast("Any", validated_input).model_dump(mode="json")
+        stage = "checkpoint"
         try:
             owners, as_of = await self._checkpoint.automatic_write_gate_inputs(lineage)
+            stage = "owner_projection"
+            owner_inputs = _gate_owner_inputs(owners)
+            stage = "descriptor"
+            descriptor = write_effect_descriptor(tool_id, validated_input)
+            stage = "gate"
             gate = await self._gate.evaluate(
-                _gate_owner_inputs(owners),
+                owner_inputs,
                 operation_id=f"jarvis-write-gate:{lineage.model_decision_id}",
                 tool_id=tool_id,
-                descriptor=write_effect_descriptor(tool_id, validated_input),
+                descriptor=descriptor,
                 owner_timezone=self._owner_timezone,
                 as_of=as_of,
                 cancellation=cancellation,
             )
         except asyncio.CancelledError:
             raise
-        except Exception:
-            return DispatchCompleted(dict(_UNAVAILABLE))
+        except Exception as error:
+            LOGGER.warning(
+                "write check unavailable: stage=%s tool=%s decision=%s exception=%s",
+                stage,
+                tool_id,
+                lineage.model_decision_id,
+                type(error).__name__,
+            )
+            return _write_check_failure(tool_id, "write_check_unavailable")
+        outcome = gate.terminal_outcome
+        if outcome not in {
+            *ThreadStopKind,
+            "completed",
+            "no_owner_input",
+            "invalid_result",
+            "invalid_support",
+        }:
+            outcome = "unknown"
+        LOGGER.info(
+            "write check completed: stage=gate tool=%s decision=%s "
+            "outcome=%s allowed=%s",
+            tool_id,
+            lineage.model_decision_id,
+            outcome,
+            gate.allowed,
+        )
         if not gate.allowed:
-            return DispatchCompleted(dict(_UNAVAILABLE))
+            return _write_check_failure(
+                tool_id,
+                "policy_denied"
+                if outcome in {"completed", "no_owner_input"}
+                else "write_check_unavailable",
+            )
         if contains_secret(arguments, self._host_secrets):
             return DispatchCompleted(dict(_INVALID_INPUT))
 
@@ -732,6 +770,20 @@ class ActionRecovery:
         if stored is None:
             raise RuntimeError("recovering action disappeared")
         return stored
+
+
+def _write_check_failure(
+    tool_id: ToolId,
+    code: Literal["policy_denied", "write_check_unavailable"],
+) -> DispatchCompleted:
+    if tool_id not in AGENT_WRITE_IDS:
+        return DispatchCompleted(dict(_UNAVAILABLE))
+    return DispatchCompleted(
+        {
+            "type": "Failure",
+            "error": AgentError(code=code, dispatch="not_sent").model_dump(mode="json"),
+        }
+    )
 
 
 def _gate_owner_inputs(values: tuple[Any, ...]) -> tuple[GateOwnerInput, ...]:

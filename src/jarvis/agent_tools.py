@@ -261,7 +261,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
             replay_policy=ReplayPolicy.ReDispatchable
             if spec.effect is ToolEffect.Read
             else ReplayPolicy.BilledOnce,
-            implementation_revision="jarvis-agent-control-v1",
+            implementation_revision="jarvis-agent-control-v2",
             policy_epoch=PolicyEpoch("jarvis-agent-control-v1"),
             policy_inputs={
                 "cli_path": str(controller.executable),

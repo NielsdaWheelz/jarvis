@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import stat
 from collections.abc import AsyncIterator
 from pathlib import Path
 from runpy import run_path
@@ -120,7 +121,10 @@ async def test_consumer_uses_current_structured_main_and_real_canonical_settleme
     state.mkdir(mode=0o700)
     cwd = tmp_path / "cwd"
     cwd.mkdir(mode=0o2750)
+    # Temporary directories may inherit a group outside the test user's groups.
+    os.chown(cwd, -1, os.getegid())
     cwd.chmod(0o2750)
+    assert stat.S_IMODE(cwd.stat().st_mode) == 0o2750
     key = base64.urlsafe_b64encode(b"q" * 32).decode().rstrip("=")
     settings = Settings(
         database_url=SecretStr(DATABASE_URL),

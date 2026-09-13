@@ -21,8 +21,11 @@ the exact tmux/pane/process lifetime. list/start select a configured machine
 label; subsequent operations echo the returned machine-bound target.
 
 start creates a terminal using an existing host profile and cwd; it sends no
-prompt and promises no readiness. list/read again before send. native providers
-own state/history; terminal fallback has explicit source and bounded coverage.
+prompt and promises no readiness. list/read again before send. the 2026-09-13
+owner amendment keeps codex terminal-only and claude-work as the sole claude
+launch profile. claude retains native status/history/stop; conversational input
+and interrupt use terminal control for both providers. terminal observations
+have explicit source and bounded coverage.
 the operator may answer permission dialogs through explicit terminal input.
 worker output adds no jarvis authority.
 
@@ -42,6 +45,13 @@ schema, ownership graph, scheduler, transcript store, or privilege framework.
 the canonical cross-repository wire contract is skid's `docs/agent-control.md`.
 existing `codex_uncertainty_v1` action results retain a narrow read-only decoder.
 the execution/catalog cut does not rewrite or make canonical history unreadable.
+
+the 2026-09-13 acceptance correction uses the existing `AgentFailure` schema
+for pre-action write checks: `policy_denied` for a completed denial or absent
+owner input, `write_check_unavailable` for an unavailable preflight or failed
+gate, always `dispatch=not_sent`. other connectors retain their common error
+contracts. diagnostics retain only stage/outcome/exception class and control
+identifiers. authorization, replay rules, and execution budgets are unchanged.
 
 ## acceptance and costs
 

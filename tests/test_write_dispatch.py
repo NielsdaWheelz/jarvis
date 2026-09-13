@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -50,6 +51,7 @@ from test_agent_control import TARGET, cli
 from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
+    AgentError,
     AgentInterruptInput,
     AgentKeysInput,
     AgentSendInput,
@@ -234,7 +236,7 @@ class _Gate:
             self.decision,
             (self.owner_id,) if self.decision == "allow" else (),
             None,
-            "synthetic",
+            "completed",
             None,
         )
 
@@ -1007,12 +1009,158 @@ async def test_agent_denied_owner_write_never_reaches_action_or_cli(
         assert isinstance(result, DispatchCompleted)
         assert result.result == {
             "type": "Failure",
-            "error": {"type": "ToolUnavailable"},
+            "error": {
+                "type": "AgentFailure",
+                "code": "policy_denied",
+                "dispatch": "not_sent",
+            },
         }
         assert gate.calls == 1
         assert not config.with_suffix(".receipt").exists()
     finally:
         await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_code", "expected_stage", "exception_class"),
+    [
+        ("checkpoint", "write_check_unavailable", "checkpoint", "RuntimeError"),
+        (
+            "owner_projection",
+            "write_check_unavailable",
+            "owner_projection",
+            "ValidationError",
+        ),
+        ("descriptor", "write_check_unavailable", "descriptor", "ValueError"),
+        ("gate", "write_check_unavailable", "gate", "RuntimeError"),
+        ("completed", "policy_denied", "gate", None),
+        ("no_owner_input", "policy_denied", "gate", None),
+        ("provider_error", "write_check_unavailable", "gate", None),
+        ("budget_exhausted", "write_check_unavailable", "gate", None),
+        ("invalid_result", "write_check_unavailable", "gate", None),
+        ("invalid_support", "write_check_unavailable", "gate", None),
+        ("unexpected_outcome", "write_check_unavailable", "gate", None),
+    ],
+)
+async def test_agent_keys_check_failures_are_distinct_and_content_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+    expected_code: str,
+    expected_stage: str,
+    exception_class: str | None,
+) -> None:
+    private = "SYNTHETIC-PRIVATE-WRITE-CHECK"
+    owner = uuid4()
+    actions = _ActionSpy()
+    executable, config = cli(
+        tmp_path, {"ok": True, "result": {"method": "terminal", "outcome": "written"}}
+    )
+    catalog = ToolCatalog.compose(
+        (
+            agent_family(
+                AgentController(
+                    executable=executable,
+                    client_config=config,
+                    actions=cast("ActionStore", actions),
+                )
+            ),
+        )
+    )
+    tool = ToolId("agent.keys")
+    profile = CapabilityProfile(
+        ProfileId("synthetic-write-check"),
+        (ToolGrant(tool, None),),
+        RunLimits(1, 1, 65536, 65536, 1, 15.0),
+    ).freeze(catalog)
+    plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+
+    class Checkpoint(_Checkpoint):
+        async def automatic_write_gate_inputs(
+            self, lineage: DispatchLineage
+        ) -> tuple[tuple[HostInput, ...], datetime]:
+            if failure == "checkpoint":
+                raise RuntimeError(private)
+            if failure == "no_owner_input":
+                return (), NOW
+            return await super().automatic_write_gate_inputs(lineage)
+
+    class Gate(_Gate):
+        async def evaluate(self, *args: object, **kwargs: object) -> WriteGateDecision:
+            del kwargs
+            self.calls += 1
+            if failure == "gate":
+                raise RuntimeError(private)
+            if failure == "no_owner_input":
+                assert args == ((),)
+            return WriteGateDecision(
+                "deny",
+                (),
+                None,
+                private if failure == "unexpected_outcome" else failure,
+                None,
+            )
+
+    if failure == "descriptor":
+
+        def invalid_descriptor(*args: object) -> object:
+            del args
+            raise ValueError(private)
+
+        monkeypatch.setattr(
+            "jarvis.write_dispatch.write_effect_descriptor", invalid_descriptor
+        )
+
+    gate = Gate("deny", owner)
+    lineage = _lineage(owner)
+    # The in-process Alembic fixture disables existing application loggers.
+    monkeypatch.setattr(logging.getLogger("jarvis.write_dispatch"), "disabled", False)
+    caplog.set_level(logging.INFO, logger="jarvis.write_dispatch")
+    result = await _dispatch(
+        _dispatcher(
+            checkpoint=Checkpoint(
+                owner, private * 100 if failure == "owner_projection" else private
+            ),
+            gate=gate,
+            actions=actions,
+            google=_Google(),
+        ),
+        catalog.binding(tool),
+        plan,
+        owner,
+        AgentKeysInput.model_validate({"target": TARGET, "keys": ["down", "enter"]}),
+        lineage=lineage,
+    )
+    assert isinstance(result, DispatchCompleted)
+    assert result.result == {
+        "type": "Failure",
+        "error": AgentError(code=expected_code, dispatch="not_sent").model_dump(
+            mode="json"
+        ),
+    }
+    assert actions.inserts == 0
+    assert not config.with_suffix(".calls").exists()
+    assert not config.with_suffix(".receipt").exists()
+    assert gate.calls == (1 if expected_stage == "gate" else 0)
+    records = [
+        record for record in caplog.records if record.name == "jarvis.write_dispatch"
+    ]
+    assert len(records) == 1
+    record = records[0]
+    diagnostic = record.getMessage()
+    assert f"stage={expected_stage}" in diagnostic
+    assert "tool=agent.keys" in diagnostic
+    assert f"decision={lineage.model_decision_id}" in diagnostic
+    if exception_class is not None:
+        assert f"exception={exception_class}" in diagnostic
+    else:
+        outcome = "unknown" if failure == "unexpected_outcome" else failure
+        assert f"outcome={outcome}" in diagnostic
+    assert private not in diagnostic
+    assert str(owner) not in diagnostic
+    assert record.exc_info is None
+    assert record.stack_info is None
 
 
 @pytest.mark.postgres

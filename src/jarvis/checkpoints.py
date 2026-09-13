@@ -632,7 +632,7 @@ def _conclusion(
     if isinstance(conclusion, StoppedConclusion):
         messages = {
             "budget_exhausted": (
-                "I stopped because this turn reached its configured limit."
+                "i stopped because this request reached its configured budget."
             ),
             "cancelled": "Stopped.",
             "protocol_error": "I stopped because the model response stayed invalid.",

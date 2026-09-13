@@ -3110,37 +3110,50 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
     assert settlement["outcome"] == "response_too_long"
 
 
-async def test_checkpoint_exposes_a_truthful_host_owned_provider_failure(
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        (
+            StopReason.provider_error,
+            "I stopped because the model runtime failed. I did not accept its final "
+            "response.",
+        ),
+        (
+            StopReason.budget_exhausted,
+            "i stopped because this request reached its configured budget.",
+        ),
+    ],
+)
+async def test_checkpoint_exposes_a_truthful_host_owned_failure(
     engine: AsyncEngine,
+    reason: StopReason,
+    expected: str,
 ) -> None:
     store = MessageStore(engine)
-    conversation_id = "provider-failure-channel"
+    conversation_id = f"{reason.value}-channel"
     await _owner(
         store,
-        "provider-failure-input",
+        f"{reason.value}-input",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "provider-failure-run")
+    checkpoint = _checkpoint(engine, conversation_id, f"{reason.value}-run")
     result = await checkpoint.claim(
         ThreadId(conversation_id),
-        OwnerToken("provider-failure-owner"),
+        OwnerToken(f"{reason.value}-owner"),
     )
     assert isinstance(result, ClaimAcquired)
 
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
-        StoppedConclusion(StopReason.provider_error),
+        StoppedConclusion(reason),
     )
 
     pending = await store.pending_delivery(
         source_conversation_id=conversation_id,
         limit=10,
     )
-    assert tuple(value.text for value in pending) == (
-        "I stopped because the model runtime failed. I did not accept its final "
-        "response.",
-    )
+    assert tuple(value.text for value in pending) == (expected,)
 
 
 async def test_overlong_action_resolution_terminal_uses_safe_host_fallback(

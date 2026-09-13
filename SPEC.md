@@ -386,8 +386,15 @@ model rationale, provider history, credential, or unbounded proposed payload.
 `allow` is accepted only when the write is directly entailed by current owner
 input, remains within its requested scope, and names a non-empty subset of the
 actual current owner IDs. `deny`, ambiguity, invalid output, quota/admission
-denial, or gate failure creates no action and dispatches nothing; the main loop
-receives a typed policy denial and may ask the owner to restate the request.
+denial, or gate failure creates no action and dispatches nothing.
+for agent writes, a completed denial or absent current owner input returns the
+declared `AgentFailure` with `code=policy_denied` and `dispatch=not_sent`.
+an unavailable preflight or failed gate returns `code=write_check_unavailable`
+with the same dispatch classification. other writes retain their existing
+common `ToolUnavailable` result. content-free diagnostics identify the stage,
+tool, model decision, gate outcome or exception class; never exception text,
+owner input, arguments, or provider content. this scoped 2026-09-13 correction
+distinguishes agent authorization from availability without changing authority.
 
 The gate cannot widen the frozen plan or override deterministic policy such as
 owner-only Calendar ACLs and approval requirements. Its contract/prompt/model
@@ -1128,7 +1135,8 @@ validation and unrelated cognition containment remain.
 start creates an ordinary terminal with no initial prompt or readiness promise.
 list/read observe native or inferred state and bounded provider/terminal output;
 then send or keys deliver input. explicit terminal input may answer dialogs.
-interrupt reports native confirmation or terminal delivery, never assumes a key
+codex uses terminal state/history/control; claude-work retains native
+state/history/stop. interrupt reports terminal delivery and never assumes a key
 proved cancellation. stop reports provider halt and terminal close separately.
 
 writes retain `ReplayPolicy.BilledOnce`, one executor entry, and terminal

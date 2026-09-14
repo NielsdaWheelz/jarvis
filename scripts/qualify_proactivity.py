@@ -544,6 +544,11 @@ async def _run(settings: Settings) -> dict[str, object]:
                 provisional_gate, _ = build_slice5_write_gate(
                     provider=provider_configuration,
                 )
+                agents = AgentController(
+                    executable=settings.agent_cli_path,
+                    client_config=settings.agent_client_config_path,
+                    actions=actions,
+                )
                 composition = build_slice6_composition(
                     settings=settings,
                     google_oauth_http=google_oauth_http,
@@ -553,11 +558,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     memory_repository=PostgresMemoryRepository(engine),
                     memory_embedder=embedder,
                     actions=actions,
-                    agents=AgentController(
-                        executable=settings.agent_cli_path,
-                        client_config=settings.agent_client_config_path,
-                        actions=actions,
-                    ),
+                    agents=agents,
                     automatic_write_gate_definition_fingerprint=(
                         provisional_gate.fingerprint
                     ),
@@ -774,6 +775,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                         gate=gate,
                         actions=actions,
                         google_write=composition.google_write,
+                        agents=agents,
                         read=ReadToolDispatcher(
                             recorder=PostgresReadRecorder(engine),
                             host_secrets=settings.host_secrets,

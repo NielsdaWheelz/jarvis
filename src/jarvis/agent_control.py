@@ -14,16 +14,16 @@ from pydantic import BaseModel
 from jarvis.agent_tools import (
     AgentActionEvidence,
     AgentError,
-    AgentInterruptInput,
+    AgentInfoResult,
     AgentKeysInput,
+    AgentKillResult,
     AgentListInput,
     AgentListResult,
     AgentReadInput,
     AgentReadResult,
+    AgentRefInput,
     AgentSendInput,
     AgentStartInput,
-    AgentStartResult,
-    AgentStopInput,
     AgentStopResult,
     AgentWriteResult,
 )
@@ -49,68 +49,6 @@ def _constant(value: str) -> object:
     raise ValueError("non-finite JSON value")
 
 
-def _session(raw: object, machine: str | None) -> dict[str, object]:
-    if not isinstance(raw, dict):
-        raise ValueError("invalid session")
-    raw = cast(dict[str, object], raw)
-    result: dict[str, object] = {
-        "tmuxId": raw["tmuxId"],
-        "name": raw["tmuxName"],
-        "cwd": raw.get("cwd"),
-        "profile": raw.get("launchProfile"),
-    }
-    agent = raw.get("agent")
-    if isinstance(agent, dict):
-        agent = cast(dict[str, object], agent)
-        result.update(
-            provider=agent["provider"],
-            profile=agent.get("profile"),
-            status=agent["status"],
-            methods=agent["methods"],
-        )
-        if machine is not None:
-            result["target"] = {
-                "machine": machine,
-                "tmuxId": raw["tmuxId"],
-                "identityToken": raw["identityToken"],
-                "paneId": agent["paneId"],
-                "pid": agent["pid"],
-                "startIdentity": agent["startIdentity"],
-            }
-    return result
-
-
-def _inventory(verb: str, value: object) -> object:
-    # Project the CLI's validated inventory into the closed tool schema.
-    if verb not in {"list", "start"}:
-        return value
-    if not isinstance(value, dict):
-        raise ValueError("invalid inventory")
-    value = cast(dict[str, object], value)
-    if verb == "start":
-        return {
-            "observedAt": value["observedAt"],
-            "session": _session(value["session"], None),
-        }
-    peers: list[dict[str, object]] = []
-    for peer in cast(list[dict[str, object]], value["peers"]):
-        row: dict[str, object] = {"label": peer["label"], "machine": peer["machine"]}
-        if peer["ok"] is True:
-            inventory = cast(dict[str, object], peer["result"])
-            row.update(
-                observedAt=inventory["observedAt"],
-                profiles=inventory["profiles"],
-                sessions=[
-                    _session(session, cast(str, peer["machine"]))
-                    for session in cast(list[object], inventory["sessions"])
-                ],
-            )
-        else:
-            row["error"] = peer["error"]
-        peers.append(row)
-    return {"peers": peers}
-
-
 class AgentController:
     def __init__(
         self, *, executable: Path, client_config: Path, actions: ActionStore
@@ -126,29 +64,67 @@ class AgentController:
         verb: str,
         value: BaseModel,
         result_type: type[T],
-        context: ExecutionContext,
+        context: ExecutionContext | None,
     ) -> HandlerSuccess[T]:
-        write = verb not in {"list", "read"}
+        write = verb not in {"list", "info", "read"}
         encoded = value.model_dump_json(exclude_none=True).encode("utf-8")
         if len(encoded) > 65536:
             raise DeclaredToolFailure(
                 AgentError(code="input_limit", dispatch="not_sent"), actual_attempts=0
             )
+        argv = [
+            str(self.executable),
+            "--config",
+            str(self.client_config),
+            verb,
+            "--json",
+        ]
+        stdin = b""
+        if isinstance(value, AgentListInput):
+            if value.machine is not None:
+                argv.extend(("--machine", value.machine))
+        elif isinstance(value, AgentStartInput):
+            argv.extend(
+                (
+                    "--machine",
+                    value.machine,
+                    "--profile",
+                    value.profile,
+                    "--cwd",
+                    value.cwd,
+                    "--",
+                    value.name,
+                )
+            )
+        elif isinstance(
+            value, AgentRefInput | AgentReadInput | AgentSendInput | AgentKeysInput
+        ):
+            argv.extend(("--ref", value.ref))
+            if isinstance(value, AgentReadInput):
+                argv.extend(("--max-bytes", str(value.maxBytes)))
+            if (
+                isinstance(value, AgentReadInput | AgentSendInput)
+                and value.mode == "terminal"
+            ):
+                argv.append("--terminal")
+            if isinstance(value, AgentSendInput):
+                argv.append("--stdin")
+                stdin = value.text.encode("utf-8")
+            if isinstance(value, AgentKeysInput):
+                argv.extend(value.keys)
+        else:
+            raise ValueError("unsupported agent input")
         process: asyncio.subprocess.Process | None = None
         try:
             async with asyncio.timeout(15):
                 process = await asyncio.create_subprocess_exec(
-                    str(self.executable),
-                    "--client-config",
-                    str(self.client_config),
-                    "agent",
-                    verb,
+                    *argv,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
                 assert process.stdin is not None and process.stdout is not None
-                process.stdin.write(encoded)
+                process.stdin.write(stdin)
                 await process.stdin.drain()
                 process.stdin.close()
                 maximum = 1048576 if verb == "list" else 65536
@@ -171,7 +147,7 @@ class AgentController:
                 if (
                     set(envelope) == {"ok", "error"}
                     and envelope["ok"] is False
-                    and returncode == 1
+                    and returncode in {1, 2}
                 ):
                     error = AgentError.model_validate(envelope["error"])
                     if write and error.dispatch == "unknown":
@@ -182,23 +158,30 @@ class AgentController:
                 if (
                     set(envelope) != {"ok", "result"}
                     or envelope["ok"] is not True
-                    or returncode != 0
+                    or returncode not in {0, 1}
                 ):
                     raise ValueError("invalid CLI envelope")
-                result = result_type.model_validate(
-                    _inventory(verb, envelope["result"])
-                )
-                if (
-                    isinstance(result, AgentWriteResult) and result.outcome == "unknown"
-                ) or (
-                    isinstance(result, AgentStopResult)
-                    and (
-                        result.agent == "unconfirmed"
-                        or result.terminal == "unconfirmed"
+                result = result_type.model_validate(envelope["result"])
+                partial = (
+                    (isinstance(result, AgentListResult) and result.partial)
+                    or (
+                        isinstance(result, AgentWriteResult)
+                        and result.outcome == "unknown"
                     )
-                ):
+                    or (
+                        isinstance(result, AgentStopResult)
+                        and (
+                            result.agent == "unconfirmed"
+                            or result.terminal == "unconfirmed"
+                        )
+                    )
+                )
+                if returncode != int(partial):
+                    raise ValueError("CLI exit status differs from its result")
+                if isinstance(result, AgentWriteResult | AgentStopResult) and partial:
                     if (
-                        context.effect_id is None
+                        context is None
+                        or context.effect_id is None
                         or context.position != context.effect_id
                     ):
                         raise RuntimeError(
@@ -243,6 +226,11 @@ class AgentController:
     ) -> HandlerSuccess[AgentListResult]:
         return await self._run("list", value, AgentListResult, context)
 
+    async def info(
+        self, value: AgentRefInput, context: ExecutionContext | None = None
+    ) -> HandlerSuccess[AgentInfoResult]:
+        return await self._run("info", value, AgentInfoResult, context)
+
     async def read(
         self, value: AgentReadInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentReadResult]:
@@ -250,8 +238,8 @@ class AgentController:
 
     async def start(
         self, value: AgentStartInput, context: ExecutionContext
-    ) -> HandlerSuccess[AgentStartResult]:
-        return await self._run("start", value, AgentStartResult, context)
+    ) -> HandlerSuccess[AgentInfoResult]:
+        return await self._run("start", value, AgentInfoResult, context)
 
     async def send(
         self, value: AgentSendInput, context: ExecutionContext
@@ -264,11 +252,16 @@ class AgentController:
         return await self._run("keys", value, AgentWriteResult, context)
 
     async def interrupt(
-        self, value: AgentInterruptInput, context: ExecutionContext
+        self, value: AgentRefInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentWriteResult]:
         return await self._run("interrupt", value, AgentWriteResult, context)
 
     async def stop(
-        self, value: AgentStopInput, context: ExecutionContext
+        self, value: AgentRefInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentStopResult]:
         return await self._run("stop", value, AgentStopResult, context)
+
+    async def kill(
+        self, value: AgentRefInput, context: ExecutionContext
+    ) -> HandlerSuccess[AgentKillResult]:
+        return await self._run("kill", value, AgentKillResult, context)

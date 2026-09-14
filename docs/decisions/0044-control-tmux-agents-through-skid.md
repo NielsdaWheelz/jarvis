@@ -1,6 +1,6 @@
 # adr 0044: control tmux agents through skid
 
-- status: accepted implementation target, 2026-09-12.
+- status: accepted 2026-09-12; cli grammar, target inputs and roster superseded by [adr 0045](0045-use-the-ordinary-fleet-cli.md).
 - authority: the owner approved the cross-repository agent-control spec and its implementation.
 - supersedes: adr 0041's five devbox-only codex tools, dedicated terminal launcher,
   worker directory policy, and human-only worker permission responses.

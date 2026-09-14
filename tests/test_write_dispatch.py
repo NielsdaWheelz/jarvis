@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -46,17 +47,16 @@ from llm_tools.testing import InMemoryBudgetState
 from provider_fixture import decision_key, frozen_provider, model_journal
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
-from test_agent_control import TARGET, cli
+from test_agent_control import INFO, REF, cli
 
 from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
     AgentError,
-    AgentInterruptInput,
     AgentKeysInput,
+    AgentRefInput,
     AgentSendInput,
     AgentStartInput,
-    AgentStopInput,
     agent_family,
 )
 from jarvis.checkpoints import PostgresInputCheckpoint
@@ -71,7 +71,11 @@ from jarvis.write_connectors import (
     gmail_content_digest,
     gmail_effect_id,
 )
-from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
+from jarvis.write_dispatch import (
+    ActionRecovery,
+    WriteToolDispatcher,
+    action_resolution_text,
+)
 from jarvis.write_gate import AutomaticWriteGate, WriteGateDecision
 from jarvis.write_tools import (
     CalendarEventSnapshot,
@@ -401,12 +405,14 @@ def _dispatcher(
     gate: object,
     actions: object,
     google: object,
+    agents: object = None,
 ) -> WriteToolDispatcher:
     return WriteToolDispatcher(
         checkpoint=cast("Any", checkpoint),
         gate=cast("Any", gate),
         actions=cast("Any", actions),
         google_write=cast("Any", google),
+        agents=cast("AgentController", agents),
         read=ReadToolDispatcher(recorder=RunReadRecorder(), host_secrets=()),
         owner_timezone="UTC",
         source_conversation_id="synthetic-channel",
@@ -953,7 +959,7 @@ async def test_gmail_create_absence_and_uncertainty_never_repeat(
     assert uncertain_provider.effects == [uncertain_id]
 
 
-@pytest.mark.parametrize("verb", ["start", "send", "keys", "interrupt", "stop"])
+@pytest.mark.parametrize("verb", ["start", "send", "keys", "interrupt", "stop", "kill"])
 async def test_agent_denied_owner_write_never_reaches_action_or_cli(
     tmp_path: Path, verb: str
 ) -> None:
@@ -964,15 +970,10 @@ async def test_agent_denied_owner_write_never_reaches_action_or_cli(
     engine = create_engine("postgresql+psycopg://unused:unused@127.0.0.1:1/unused")
     try:
         actions = ActionStore(engine)
-        catalog = ToolCatalog.compose(
-            (
-                agent_family(
-                    AgentController(
-                        executable=executable, client_config=config, actions=actions
-                    )
-                ),
-            )
+        controller = AgentController(
+            executable=executable, client_config=config, actions=actions
         )
+        catalog = ToolCatalog.compose((agent_family(controller),))
         tool = ToolId("agent." + verb)
         profile = CapabilityProfile(
             ProfileId("synthetic-denied"),
@@ -982,16 +983,13 @@ async def test_agent_denied_owner_write_never_reaches_action_or_cli(
         plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
         value = {
             "start": AgentStartInput(
-                machine="devbox", profile="codex-work", cwd=str(tmp_path)
+                machine="devbox", profile="codex-work", cwd=str(tmp_path), name="worker"
             ),
-            "send": AgentSendInput.model_validate(
-                {"target": TARGET, "text": "Synthetic"}
-            ),
-            "keys": AgentKeysInput.model_validate(
-                {"target": TARGET, "keys": ["enter"]}
-            ),
-            "interrupt": AgentInterruptInput.model_validate({"target": TARGET}),
-            "stop": AgentStopInput.model_validate({"target": TARGET}),
+            "send": AgentSendInput.model_validate({"ref": REF, "text": "Synthetic"}),
+            "keys": AgentKeysInput.model_validate({"ref": REF, "keys": ["enter"]}),
+            "interrupt": AgentRefInput.model_validate({"ref": REF}),
+            "stop": AgentRefInput.model_validate({"ref": REF}),
+            "kill": AgentRefInput.model_validate({"ref": REF}),
         }[verb]
         gate = _Gate("deny", owner)
         result = await _dispatch(
@@ -1000,6 +998,7 @@ async def test_agent_denied_owner_write_never_reaches_action_or_cli(
                 gate=gate,
                 actions=actions,
                 google=_Google(),
+                agents=controller,
             ),
             catalog.binding(tool),
             plan,
@@ -1031,6 +1030,12 @@ async def test_agent_denied_owner_write_never_reaches_action_or_cli(
             "owner_projection",
             "ValidationError",
         ),
+        (
+            "target_metadata",
+            "write_check_unavailable",
+            "target_metadata",
+            "DeclaredToolFailure",
+        ),
         ("descriptor", "write_check_unavailable", "descriptor", "ValueError"),
         ("gate", "write_check_unavailable", "gate", "RuntimeError"),
         ("completed", "policy_denied", "gate", None),
@@ -1057,17 +1062,18 @@ async def test_agent_keys_check_failures_are_distinct_and_content_free(
     executable, config = cli(
         tmp_path, {"ok": True, "result": {"method": "terminal", "outcome": "written"}}
     )
-    catalog = ToolCatalog.compose(
-        (
-            agent_family(
-                AgentController(
-                    executable=executable,
-                    client_config=config,
-                    actions=cast("ActionStore", actions),
-                )
-            ),
+    if failure == "target_metadata":
+        config.with_suffix(".info").write_text(
+            json.dumps(
+                {"ok": False, "error": {"code": "unavailable", "dispatch": "not_sent"}}
+            )
         )
+    controller = AgentController(
+        executable=executable,
+        client_config=config,
+        actions=cast(ActionStore, actions),
     )
+    catalog = ToolCatalog.compose((agent_family(controller),))
     tool = ToolId("agent.keys")
     profile = CapabilityProfile(
         ProfileId("synthetic-write-check"),
@@ -1104,8 +1110,8 @@ async def test_agent_keys_check_failures_are_distinct_and_content_free(
 
     if failure == "descriptor":
 
-        def invalid_descriptor(*args: object) -> object:
-            del args
+        def invalid_descriptor(*args: object, **kwargs: object) -> object:
+            del args, kwargs
             raise ValueError(private)
 
         monkeypatch.setattr(
@@ -1125,11 +1131,12 @@ async def test_agent_keys_check_failures_are_distinct_and_content_free(
             gate=gate,
             actions=actions,
             google=_Google(),
+            agents=controller,
         ),
         catalog.binding(tool),
         plan,
         owner,
-        AgentKeysInput.model_validate({"target": TARGET, "keys": ["down", "enter"]}),
+        AgentKeysInput.model_validate({"ref": REF, "keys": ["down", "enter"]}),
         lineage=lineage,
     )
     assert isinstance(result, DispatchCompleted)
@@ -1140,9 +1147,15 @@ async def test_agent_keys_check_failures_are_distinct_and_content_free(
         ),
     }
     assert actions.inserts == 0
-    assert not config.with_suffix(".calls").exists()
+    assert (
+        (not config.with_suffix(".calls").exists())
+        if failure in {"checkpoint", "owner_projection", "no_owner_input"}
+        else config.with_suffix(".calls").read_text() == "info\n"
+    )
     assert not config.with_suffix(".receipt").exists()
-    assert gate.calls == (1 if expected_stage == "gate" else 0)
+    assert gate.calls == (
+        1 if expected_stage == "gate" and failure != "no_owner_input" else 0
+    )
     records = [
         record for record in caplog.records if record.name == "jarvis.write_dispatch"
     ]
@@ -1168,9 +1181,18 @@ async def test_agent_keys_check_failures_are_distinct_and_content_free(
     not os.environ.get("JARVIS_TEST_DATABASE_URL"),
     reason="requires disposable PostgreSQL action boundary",
 )
-@pytest.mark.parametrize("outcome", ["lost", "partial", "closed"])
-async def test_real_agent_dispatch_preserves_partial_stop_without_replay(
-    tmp_path: Path, outcome: str
+@pytest.mark.parametrize(
+    ("verb", "outcome"),
+    [
+        ("stop", "lost"),
+        ("stop", "partial"),
+        ("stop", "closed"),
+        ("kill", "lost"),
+        ("kill", "closed"),
+    ],
+)
+async def test_real_agent_dispatch_preserves_closure_evidence_without_replay(
+    tmp_path: Path, verb: str, outcome: str
 ) -> None:
     response: dict[str, object] = (
         {"ok": False, "error": {"code": "unknown", "dispatch": "unknown"}}
@@ -1183,6 +1205,8 @@ async def test_real_agent_dispatch_preserves_partial_stop_without_replay(
             },
         }
     )
+    if verb == "kill" and outcome == "closed":
+        response = {"ok": True, "result": {"terminal": "closed"}}
     executable, config = cli(tmp_path, response)
     engine = create_engine(os.environ["JARVIS_TEST_DATABASE_URL"])
     owner = uuid4()
@@ -1199,16 +1223,11 @@ async def test_real_agent_dispatch_preserves_partial_stop_without_replay(
     )
     try:
         actions = ActionStore(engine)
-        catalog = ToolCatalog.compose(
-            (
-                agent_family(
-                    AgentController(
-                        executable=executable, client_config=config, actions=actions
-                    )
-                ),
-            )
+        controller = AgentController(
+            executable=executable, client_config=config, actions=actions
         )
-        tool = ToolId("agent.stop")
+        catalog = ToolCatalog.compose((agent_family(controller),))
+        tool = ToolId("agent." + verb)
         profile = CapabilityProfile(
             ProfileId("synthetic-stop"),
             (ToolGrant(tool, None),),
@@ -1221,17 +1240,30 @@ async def test_real_agent_dispatch_preserves_partial_stop_without_replay(
                 gate=_Gate("allow", owner),
                 actions=actions,
                 google=_Google(),
+                agents=controller,
             ),
             catalog.binding(tool),
             plan,
             owner,
-            AgentStopInput.model_validate({"target": TARGET}),
+            AgentRefInput.model_validate({"ref": REF}),
         )
         receipt = config.with_suffix(".receipt")
         first = receipt.stat().st_mtime_ns
         if outcome == "closed":
             assert isinstance(result, DispatchCompleted)
             assert result.result["type"] == "Success"
+            async with engine.connect() as connection:
+                identifier = await connection.scalar(
+                    select(action.c.id).where(action.c.origin_message_id == owner)
+                )
+            assert identifier is not None
+            completed = await actions.get(identifier)
+            assert (
+                completed is not None
+                and completed.status == "succeeded"
+                and completed.attempts == 1
+            )
+            assert '"terminal":"closed"' in action_resolution_text(completed)
             return
         assert isinstance(result, DispatchSuspended)
         stored = await actions.get(UUID(str(result.host_ref)))
@@ -1256,3 +1288,141 @@ async def test_real_agent_dispatch_preserves_partial_stop_without_replay(
         assert consumed is not None and consumed.processed_at is not None
     finally:
         await engine.dispose()
+
+
+async def test_agent_metadata_grounds_name_and_keeps_original_ref(
+    tmp_path: Path,
+) -> None:
+    owner = uuid4()
+    executable, config = cli(
+        tmp_path, {"ok": True, "result": {"method": "terminal", "outcome": "written"}}
+    )
+    actions = _ActionSpy()
+    controller = AgentController(
+        executable=executable, client_config=config, actions=cast(ActionStore, actions)
+    )
+    info = {
+        **INFO,
+        "session": {
+            **cast(dict[str, object], INFO["session"]),
+            "ref": "refreshed-reference",
+        },
+    }
+    config.with_suffix(".info").write_text(json.dumps({"ok": True, "result": info}))
+    catalog = ToolCatalog.compose((agent_family(controller),))
+    tool = ToolId("agent.stop")
+    profile = CapabilityProfile(
+        ProfileId("synthetic-grounding"),
+        (ToolGrant(tool, None),),
+        RunLimits(1, 1, 65536, 65536, 1, 15.0),
+    ).freeze(catalog)
+    plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+
+    class Gate(_Gate):
+        async def evaluate(self, *args: object, **kwargs: object) -> WriteGateDecision:
+            from jarvis.write_gate import WriteEffectDescriptor
+
+            descriptor = kwargs["descriptor"]
+            assert isinstance(descriptor, WriteEffectDescriptor)
+            assert {(target.kind, target.value) for target in descriptor.targets} == {
+                ("machine", "arch"),
+                ("terminal_name", "reviewer"),
+                ("terminal_id", REF),
+            }
+            return await super().evaluate(*args, **kwargs)
+
+    gate = Gate("deny", owner)
+    result = await _dispatch(
+        _dispatcher(
+            checkpoint=_Checkpoint(owner, "stop reviewer on arch"),
+            gate=gate,
+            actions=actions,
+            google=_Google(),
+            agents=controller,
+        ),
+        catalog.binding(tool),
+        plan,
+        owner,
+        AgentRefInput(ref=REF),
+    )
+    assert isinstance(result, DispatchCompleted)
+    assert result.result["error"]["code"] == "policy_denied"
+    assert gate.calls == 1
+    assert actions.inserts == 0
+    assert config.with_suffix(".calls").read_text() == "info\n"
+    assert not config.with_suffix(".receipt").exists()
+
+
+async def test_metadata_refresh_never_changes_persisted_or_dispatched_reference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_tools import ExecutionContext, ParsedJson, ToolExecutor, ToolResult
+
+    owner = uuid4()
+    executable, config = cli(
+        tmp_path, {"ok": True, "result": {"agent": "idle", "terminal": "closed"}}
+    )
+    config.with_suffix(".info").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "result": {
+                    **INFO,
+                    "session": {
+                        **cast(dict[str, object], INFO["session"]),
+                        "ref": "refreshed-reference",
+                    },
+                },
+            }
+        )
+    )
+    captured: list[object] = []
+
+    class Actions(_ActionSpy):
+        async def insert_automatic(self, **kwargs: object) -> object:
+            self.inserts += 1
+            captured.append(kwargs["arguments"])
+            return None
+
+    actions = Actions()
+    controller = AgentController(
+        executable=executable, client_config=config, actions=cast(ActionStore, actions)
+    )
+    catalog = ToolCatalog.compose((agent_family(controller),))
+    tool = ToolId("agent.stop")
+    profile = CapabilityProfile(
+        ProfileId("synthetic-preserve-ref"),
+        (ToolGrant(tool, None),),
+        RunLimits(1, 1, 65536, 65536, 1, 15.0),
+    ).freeze(catalog)
+    plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
+
+    async def execute(
+        binding: object, raw: ParsedJson, context: ExecutionContext
+    ) -> ToolResult:
+        del binding
+        assert raw.value == {"ref": REF}
+        result = await controller.stop(AgentRefInput.model_validate(raw.value), context)
+        return {"type": "Success", "value": result.value.model_dump(mode="json")}
+
+    monkeypatch.setattr(ToolExecutor, "execute", execute)
+    result = await _dispatch(
+        _dispatcher(
+            checkpoint=_Checkpoint(owner, "stop reviewer"),
+            gate=_Gate("allow", owner),
+            actions=actions,
+            google=_Google(),
+            agents=controller,
+        ),
+        catalog.binding(tool),
+        plan,
+        owner,
+        AgentRefInput(ref=REF),
+    )
+    assert isinstance(result, DispatchCompleted) and result.result["type"] == "Success"
+    assert captured == [{"ref": REF}]
+    assert actions.inserts == 1
+    assert config.with_suffix(".calls").read_text() == "info\nstop\n"
+    receipt = json.loads(config.with_suffix(".receipt").read_text())
+    assert receipt["argv"] == ["--config", str(config), "stop", "--json", "--ref", REF]

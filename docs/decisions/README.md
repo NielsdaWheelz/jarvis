@@ -50,6 +50,8 @@ not implementation suggestions.
 | [0043](0043-retain-main-thread-through-native-compaction.md) | Retain Main's thread through native compaction | Accepted; removes host age-based rotation, preserves CAS and recovery |
 | [0044](0044-control-tmux-agents-through-skid.md) | control peer tmux agents through the common skid cli | accepted implementation target; supersedes 0041's worker routing and launcher |
 
+| [0045](0045-use-the-ordinary-fleet-cli.md) | ordinary fleet cli and opaque references | accepted implementation target; supersedes 0044 cli grammar and roster |
+
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and tests.
 

@@ -22,6 +22,8 @@ native automatic compaction; generation remains a compare-and-set token.
 [adr 0044](docs/decisions/0044-control-tmux-agents-through-skid.md) replaces
 worker controls with the common skid cli. its explicit worker deltas supersede
 conflicting historical codex-only/launcher restrictions below; cognition is unchanged.
+[adr 0045](docs/decisions/0045-use-the-ordinary-fleet-cli.md) replaces the worker
+cli grammar and targets with ordinary argv and opaque references, and adds info/kill.
 
 ## 1. Product definition
 
@@ -831,7 +833,7 @@ invocation. A drain is an exclusive work epoch within a thread run. A one-shot
 run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
-a persistent peer model. the seven agent controls are owner-directed tmux
+a persistent peer model. the nine agent controls are owner-directed tmux
 operations outside the cognitive decoder; they
 add no peer graph, completion callback, scheduler, transcript store, or worker
 ownership state. The main definition is
@@ -1120,31 +1122,48 @@ V1 exposes exactly the following canonical model tools:
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
-| `agent.list`, `agent.read` | Main | peer agent read; automatic |
-| `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop` | Main | peer agent control; automatic only when grounded in current owner input |
+| `agent.list`, `agent.info`, `agent.read` | Main | peer agent read; automatic |
+| `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`, `agent.kill` | Main | peer agent control; automatic only when grounded in current owner input |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
-agent controls invoke the absolute installed skid executable with an explicit
-private client configuration, structured json stdin, bounded json stdout and
-suppressed stderr. list/start select a configured machine label; later operations
-echo the machine/tmux/pane/process target returned by inventory. no devbox hub,
-provider restriction, coordinator exclusion, worker-specific directory rule,
-native worker client, or dedicated terminal launcher remains. existing host cwd
-validation and unrelated cognition containment remain.
+agent controls invoke the absolute installed skid executable with explicit
+`--config PATH`, ordinary command arguments, `--json`, bounded stdout, and suppressed
+stderr. send uses `--stdin` for literal text; other commands have empty stdin.
+no shell, json-request stdin, second fleet client, native worker client, or dedicated
+terminal launcher remains. list/start select configured machine labels; addressed
+operations echo the opaque `ref` returned by list/info. the cli owns reference
+encoding and the common inventory/result projection; jarvis never decodes refs.
 
-start creates an ordinary terminal with no initial prompt or readiness promise.
-list/read observe native or inferred state and bounded provider/terminal output;
-then send or keys deliver input. explicit terminal input may answer dialogs.
-codex uses terminal state/history/control; claude-work retains native
-state/history/stop. interrupt reports terminal delivery and never assumes a key
-proved cancellation. stop reports provider halt and terminal close separately.
+start requires name, machine and profile; cwd defaults to remote `~`. it creates an
+ordinary terminal without an initial prompt or readiness promise. info observes
+that exact session now and may return a newly observed agent ref; mutations retain
+the submitted ref and never follow a replacement. list/info/read observe native or
+inferred state and bounded provider/terminal output. send/keys deliver deliberate
+input, including startup dialogs. codex remains terminal-only; claude-work retains
+native state/history/stop. interrupt reports delivery, not proven cancellation.
+stop reports provider halt and terminal closure separately. kill closes only the
+exact session without requesting provider halt; shared work may remain elsewhere.
+a delivered halt affects work in every linked session.
+
+before an addressed write reaches the existing gate, the dispatcher calls the same
+controller's `info --ref` once. only its bounded machine label/session name and the
+original ref enter existing effect-target fields; no worker text/status/history is
+provided to the gate. missing owner input denies before that read. metadata failure
+is `write_check_unavailable/not_sent`, creates no action, and causes no mutation.
+the action and executor retain the ORIGINAL arguments/ref, never the refreshed ref.
+start requires no lookup. this adds one bounded metadata read per addressed write;
+it creates no new preparation framework, cache, authority source, or action row.
 
 writes retain `ReplayPolicy.BilledOnce`, one executor entry, and terminal
 uncertainty after possible dispatch. timeout, child loss, lost acknowledgment,
 or partial stop never authorizes replay. killing the cli does not cancel remote
-work. stdin/control output is bounded to 64 kib; fleet list output to 1 mib;
-execution is bounded to 15 seconds. the exact inputs/results and capability
-semantics are specified by skid's `docs/agent-control.md` and adr 0044.
+work. control input/output is bounded to 64 kib; fleet list output to 1 mib;
+each cli execution is bounded to 15 seconds. parse the envelope before exit status:
+exit 1 plus success preserves partial inventory or unconfirmed action evidence;
+complete success requires exit 0. truncated bounded reads remain successful.
+nine tools share the existing run allowance; no budget is enlarged. immutable
+historical receipts remain readable, but no old execution parser remains.
+the exact schemas are skid's `docs/agent-control-ux.md` and adr 0045.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 

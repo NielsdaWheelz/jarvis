@@ -35,21 +35,26 @@ from jarvis.agent_control import AgentController, AgentOutcomeUnknown
 from jarvis.agent_tools import (
     AgentListInput,
     AgentReadInput,
+    AgentRefInput,
     AgentSendInput,
-    AgentTarget,
+    AgentStartInput,
     agent_family,
 )
 from jarvis.db import create_engine
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 
-TARGET = dict(
-    machine="devbox",
-    tmuxId="$1",
-    identityToken="fixture",
-    paneId="%1",
-    pid=42,
-    startIdentity="start",
-)
+REF = "opaque-original-reference"
+INFO = {
+    "label": "arch",
+    "machine": "host-fixture",
+    "observedAt": "2026-09-13T00:00:00Z",
+    "session": {
+        "name": "reviewer",
+        "ref": REF,
+        "cwd": "/synthetic",
+        "attachedClients": 0,
+    },
+}
 
 
 def cli(tmp_path: Path, response: dict[str, object]) -> tuple[Path, Path]:
@@ -57,22 +62,22 @@ def cli(tmp_path: Path, response: dict[str, object]) -> tuple[Path, Path]:
     executable.write_text(
         "#!/usr/bin/env python3\n"
         "import json,sys\nfrom pathlib import Path\n"
-        "p=Path(sys.argv[2])\nrequest=json.load(sys.stdin)\n"
-        "verb=sys.argv[-1]\n"
-        "allowed={'list':{'machine'},'start':{'machine','profile','cwd','name'},"
-        "'read':{'target','mode','maxBytes'},'send':{'target','text','mode'},"
-        "'keys':{'target','keys'},'interrupt':{'target'},'stop':{'target'}}\n"
-        "assert set(request) <= allowed[verb]\n"
-        "assert all(value is not None for value in request.values())\n"
-        "with p.with_suffix('.calls').open('a') as calls: calls.write('1\\n')\n"
-        "p.with_suffix('.receipt').write_text("
-        "json.dumps({'argv':sys.argv[1:],'input':request}))\n"
-        "sys.stdout.write(p.read_text())\n"
-        "sys.exit(0 if json.loads(p.read_text()).get('ok') is True else 1)\n"
+        "assert sys.argv[1] == '--config' and sys.argv[4] == '--json'\n"
+        "p=Path(sys.argv[2]); verb=sys.argv[3]; body=sys.stdin.buffer.read()\n"
+        "with p.with_suffix('.calls').open('a') as calls: calls.write(verb+'\\n')\n"
+        "receipt=p.with_suffix('.info-receipt' if verb=='info' else '.receipt')\n"
+        "receipt.write_text(json.dumps({'argv':sys.argv[1:],'input':body.decode()}))\n"
+        "source=p.with_suffix('.info') if verb=='info' else p\n"
+        "output=source.read_text(); sys.stdout.write(output)\n"
+        "v=json.loads(output); r=v.get('result',{})\n"
+        "partial=r.get('partial',False) or r.get('outcome')=='unknown' or "
+        "r.get('agent')=='unconfirmed' or r.get('terminal')=='unconfirmed'\n"
+        "sys.exit(0 if v.get('ok') is True and not partial else 1)\n"
     )
     executable.chmod(0o700)
     config = tmp_path / "fixture.json"
     config.write_text(json.dumps(response))
+    config.with_suffix(".info").write_text(json.dumps({"ok": True, "result": INFO}))
     return executable, config
 
 
@@ -89,16 +94,53 @@ async def test_real_process_preserves_target_and_multiline_text(tmp_path: Path) 
         ),
     )
     result = await controller.send(
-        AgentSendInput(
-            target=AgentTarget.model_validate(TARGET), text="first\nsecond $(literal)"
-        ),
+        AgentSendInput(ref=REF, text="first\nsecond $(literal)"),
         cast(ExecutionContext, None),
     )
     assert isinstance(result, HandlerSuccess)
     receipt = json.loads(config.with_suffix(".receipt").read_text())
     assert receipt == {
-        "argv": ["--client-config", str(config), "agent", "send"],
-        "input": {"target": TARGET, "mode": "auto", "text": "first\nsecond $(literal)"},
+        "argv": ["--config", str(config), "send", "--json", "--ref", REF, "--stdin"],
+        "input": "first\nsecond $(literal)",
+    }
+
+
+@pytest.mark.asyncio
+async def test_start_values_are_literal_arguments(tmp_path: Path) -> None:
+    executable, config = cli(
+        tmp_path,
+        {"ok": False, "error": {"code": "invalid_name", "dispatch": "not_sent"}},
+    )
+    controller = AgentController(
+        executable=executable,
+        client_config=config,
+        actions=ActionStore(
+            create_engine("postgresql+psycopg://unused:unused@127.0.0.1:1/unused")
+        ),
+    )
+    with pytest.raises(DeclaredToolFailure):
+        await controller.start(
+            AgentStartInput(
+                name="reviewer", machine="--help", profile="--profile", cwd="--cwd"
+            ),
+            cast(ExecutionContext, None),
+        )
+    assert json.loads(config.with_suffix(".receipt").read_text()) == {
+        "argv": [
+            "--config",
+            str(config),
+            "start",
+            "--json",
+            "--machine",
+            "--help",
+            "--profile",
+            "--profile",
+            "--cwd",
+            "--cwd",
+            "--",
+            "reviewer",
+        ],
+        "input": "",
     }
 
 
@@ -119,20 +161,24 @@ async def test_read_coverage_and_list_inventory(tmp_path: Path) -> None:
         ),
     )
     result = await controller.read(
-        AgentReadInput(target=AgentTarget.model_validate(TARGET)),
+        AgentReadInput(ref=REF),
         cast(ExecutionContext, None),
     )
     assert isinstance(result, HandlerSuccess)
     assert result.value.model_dump() == value
-    config.write_text(json.dumps({"ok": True, "result": {"peers": []}}))
+    config.write_text(
+        json.dumps({"ok": True, "result": {"partial": False, "peers": []}})
+    )
     assert isinstance(
         await controller.list(AgentListInput(), cast(ExecutionContext, None)),
         HandlerSuccess,
     )
 
 
-def test_catalog_is_exactly_common_seven_verbs(tmp_path: Path) -> None:
-    executable, config = cli(tmp_path, {"ok": True, "result": {"peers": []}})
+def test_catalog_is_exactly_common_nine_verbs(tmp_path: Path) -> None:
+    executable, config = cli(
+        tmp_path, {"ok": True, "result": {"partial": False, "peers": []}}
+    )
     family = agent_family(
         AgentController(
             executable=executable,
@@ -144,60 +190,44 @@ def test_catalog_is_exactly_common_seven_verbs(tmp_path: Path) -> None:
     )
     assert {binding.spec.id for binding in family.bindings} == {
         ToolId("agent." + verb)
-        for verb in ("list", "read", "start", "send", "keys", "interrupt", "stop")
+        for verb in (
+            "list",
+            "info",
+            "read",
+            "start",
+            "send",
+            "keys",
+            "interrupt",
+            "stop",
+            "kill",
+        )
     }
 
 
 @pytest.mark.asyncio
-async def test_inventory_projects_complete_target_and_partial_peer_failure(
+async def test_inventory_preserves_common_projection_and_partial_peer_failure(
     tmp_path: Path,
 ) -> None:
-    agent = {
-        "provider": "Claude",
-        "pid": 42,
-        "paneId": "%1",
-        "startIdentity": "start",
-        "profile": "claude-work",
-        "status": {"state": "blocked", "source": "terminal", "reason": "dialog"},
-        "methods": {"read": "native", "send": "terminal", "interrupt": "terminal"},
-    }
-    inventory = {
-        "observedAt": "2026-09-12T00:00:00Z",
-        "profiles": [{"key": "claude-work", "label": "Work", "provider": "Claude"}],
-        "sessions": [
+    value = {
+        "partial": True,
+        "peers": [
             {
-                "tmuxId": "$1",
-                "tmuxName": "coordinator",
-                "identityToken": "fixture",
-                "cwd": "/synthetic",
-                "agent": agent,
-                "attachedClients": 2,
-                "character": {"key": "inert"},
-            }
+                "label": "arch",
+                "machine": "host-fixture",
+                "ok": True,
+                "observedAt": INFO["observedAt"],
+                "profiles": [],
+                "sessions": [INFO["session"]],
+            },
+            {
+                "label": "offline",
+                "machine": "offline-host",
+                "ok": False,
+                "error": {"code": "unavailable", "dispatch": "not_sent"},
+            },
         ],
     }
-    executable, config = cli(
-        tmp_path,
-        {
-            "ok": True,
-            "result": {
-                "peers": [
-                    {
-                        "label": "work",
-                        "machine": "devbox",
-                        "ok": True,
-                        "result": inventory,
-                    },
-                    {
-                        "label": "offline",
-                        "machine": "offline-machine",
-                        "ok": False,
-                        "error": {"code": "unavailable", "dispatch": "not_sent"},
-                    },
-                ]
-            },
-        },
-    )
+    executable, config = cli(tmp_path, {"ok": True, "result": value})
     controller = AgentController(
         executable=executable,
         client_config=config,
@@ -208,13 +238,15 @@ async def test_inventory_projects_complete_target_and_partial_peer_failure(
     result = (
         await controller.list(AgentListInput(), cast(ExecutionContext, None))
     ).value
-    target = result.peers[0].sessions[0].target
-    assert target is not None and target.model_dump() == TARGET
-    assert result.peers[0].sessions[0].provider == "Claude"
+    assert result.partial is True
+    sessions = result.peers[0].sessions
+    assert sessions is not None and sessions[0].ref == REF
     assert (
         result.peers[1].error is not None
         and result.peers[1].error.code == "unavailable"
     )
+    metadata = (await controller.info(AgentRefInput(ref=REF))).value
+    assert metadata.model_dump(exclude_none=True) == INFO
 
 
 @pytest.mark.asyncio
@@ -234,10 +266,10 @@ async def test_cli_error_never_replays_mutation(tmp_path: Path, dispatch: str) -
         AgentOutcomeUnknown if dispatch == "unknown" else DeclaredToolFailure
     ):
         await controller.send(
-            AgentSendInput.model_validate({"target": TARGET, "text": "synthetic"}),
+            AgentSendInput.model_validate({"ref": REF, "text": "synthetic"}),
             cast(ExecutionContext, None),
         )
-    assert config.with_suffix(".calls").read_text() == "1\n"
+    assert config.with_suffix(".calls").read_text() == "send\n"
 
 
 @pytest.mark.asyncio
@@ -258,10 +290,10 @@ async def test_malformed_or_oversized_reply_after_dispatch_is_unknown(
     )
     with pytest.raises(AgentOutcomeUnknown):
         await controller.send(
-            AgentSendInput.model_validate({"target": TARGET, "text": "synthetic"}),
+            AgentSendInput.model_validate({"ref": REF, "text": "synthetic"}),
             cast(ExecutionContext, None),
         )
-    assert config.with_suffix(".calls").read_text() == "1\n"
+    assert config.with_suffix(".calls").read_text() == "send\n"
 
 
 @pytest.mark.asyncio
@@ -294,32 +326,53 @@ async def test_cancellation_joins_only_its_cli_child(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("verb", "payload", "fields"),
+    ("verb", "payload", "arguments", "stdin"),
     [
-        ("list", {}, set[str]()),
+        ("list", {}, [], ""),
+        ("list", {"machine": "arch"}, ["--machine", "arch"], ""),
         (
             "start",
-            {"machine": "devbox", "profile": "codex-work", "cwd": "/synthetic"},
-            {"machine", "profile", "cwd"},
+            {"machine": "arch", "profile": "work", "name": "worker"},
+            ["--machine", "arch", "--profile", "work", "--cwd", "~", "--", "worker"],
+            "",
         ),
+        ("info", {"ref": REF}, ["--ref", REF], ""),
         (
             "read",
-            {"target": TARGET, "mode": "terminal"},
-            {"target", "mode", "maxBytes"},
+            {"ref": REF, "mode": "terminal"},
+            ["--ref", REF, "--max-bytes", "16384", "--terminal"],
+            "",
         ),
-        ("send", {"target": TARGET, "text": "synthetic"}, {"target", "mode", "text"}),
-        ("keys", {"target": TARGET, "keys": ["enter"]}, {"target", "keys"}),
-        ("interrupt", {"target": TARGET}, {"target"}),
-        ("stop", {"target": TARGET}, {"target"}),
+        (
+            "send",
+            {"ref": REF, "text": "first\nsecond\n"},
+            ["--ref", REF, "--stdin"],
+            "first\nsecond\n",
+        ),
+        (
+            "keys",
+            {"ref": REF, "keys": ["down", "enter"]},
+            ["--ref", REF, "down", "enter"],
+            "",
+        ),
+        ("interrupt", {"ref": REF}, ["--ref", REF], ""),
+        ("stop", {"ref": REF}, ["--ref", REF], ""),
+        ("kill", {"ref": REF}, ["--ref", REF], ""),
     ],
 )
-async def test_each_tool_emits_cli_operation_specific_schema(
-    tmp_path: Path, verb: str, payload: dict[str, object], fields: set[str]
+async def test_each_tool_uses_ordinary_cli_arguments(
+    tmp_path: Path,
+    verb: str,
+    payload: dict[str, object],
+    arguments: list[str],
+    stdin: str,
 ) -> None:
-    executable, config = cli(
-        tmp_path,
-        {"ok": False, "error": {"code": "machine_unknown", "dispatch": "not_sent"}},
-    )
+    error: dict[str, object] = {
+        "ok": False,
+        "error": {"code": "machine_unknown", "dispatch": "not_sent"},
+    }
+    executable, config = cli(tmp_path, error)
+    config.with_suffix(".info").write_text(json.dumps(error))
     controller = AgentController(
         executable=executable,
         client_config=config,
@@ -335,15 +388,21 @@ async def test_each_tool_emits_cli_operation_specific_schema(
     value = binding.spec.input_type.model_validate(payload)
     with pytest.raises(DeclaredToolFailure):
         await getattr(controller, verb)(value, cast(ExecutionContext, None))
-    emitted = json.loads(config.with_suffix(".receipt").read_text())["input"]
-    assert set(emitted) == fields
-    assert not any(value is None for value in emitted.values())
-    if verb == "read":
-        assert emitted["mode"] == "terminal"
+    receipt = json.loads(
+        config.with_suffix(
+            ".info-receipt" if verb == "info" else ".receipt"
+        ).read_text()
+    )
+    assert receipt == {
+        "argv": ["--config", str(config), verb, "--json", *arguments],
+        "input": stdin,
+    }
 
 
 async def test_fleet_read_uses_existing_recorder_without_action(tmp_path: Path) -> None:
-    executable, config = cli(tmp_path, {"ok": True, "result": {"peers": []}})
+    executable, config = cli(
+        tmp_path, {"ok": True, "result": {"partial": False, "peers": []}}
+    )
     engine = create_engine("postgresql+psycopg://unused:unused@127.0.0.1:1/unused")
     try:
         catalog = ToolCatalog.compose(
@@ -381,7 +440,7 @@ async def test_fleet_read_uses_existing_recorder_without_action(tmp_path: Path) 
         )
         assert result.result["type"] == "Success"
         assert dispatcher.recorder.terminal_count == 1
-        assert config.with_suffix(".calls").read_text() == "1\n"
+        assert config.with_suffix(".calls").read_text() == "list\n"
     finally:
         await engine.dispose()
 
@@ -391,9 +450,9 @@ async def test_list_accepts_more_than_control_limit_and_rejects_over_one_mib(
 ) -> None:
     sessions = [
         {
-            "tmuxId": "$" + str(index),
-            "tmuxName": "synthetic-session-" + str(index),
-            "identityToken": "fixture",
+            "name": "synthetic-session-" + str(index),
+            "ref": REF + str(index),
+            "attachedClients": 0,
             "cwd": "/synthetic/cwd",
         }
         for index in range(700)
@@ -406,9 +465,8 @@ async def test_list_accepts_more_than_control_limit_and_rejects_over_one_mib(
     response: dict[str, object] = {
         "ok": True,
         "result": {
-            "peers": [
-                {"label": "work", "machine": "devbox", "ok": True, "result": inventory}
-            ]
+            "partial": False,
+            "peers": [{"label": "work", "machine": "devbox", "ok": True, **inventory}],
         },
     }
     assert 65536 < len(json.dumps(response).encode()) < 1048576
@@ -421,6 +479,7 @@ async def test_list_accepts_more_than_control_limit_and_rejects_over_one_mib(
         ),
     )
     result = await controller.list(AgentListInput(), cast(ExecutionContext, None))
+    assert result.value.peers[0].sessions is not None
     assert len(result.value.peers[0].sessions) == 700
     config.write_text("x" * 1048577)
     with pytest.raises(DeclaredToolFailure):

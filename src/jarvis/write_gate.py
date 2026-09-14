@@ -165,6 +165,7 @@ class WriteEffectDescriptor(BaseModel):
         "keys",
         "stop",
         "interrupt",
+        "kill",
     ]
     targets: Annotated[tuple[EffectTarget, ...], Field(max_length=8)] = ()
     audience: Annotated[tuple[EffectAudience, ...], Field(max_length=150)] = ()

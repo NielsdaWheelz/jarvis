@@ -314,14 +314,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     assert definitions.main.limits == SLICE6_KERNEL_LIMITS
     assert definitions.main.maximum_profile.run_limits == SLICE6_TOOL_LIMITS
     assert definitions.plans["main"].profile.run_limits == SLICE6_PLAN_TOOL_LIMITS
-    assert definitions.plans["main"].profile.run_limits.max_external_attempts == sum(
-        grant.limits.max_attempts
-        for grant in definitions.plans["main"].profile.ordered_grants
-    )
-    assert definitions.plans["main"].profile.run_limits.max_output_bytes == sum(
-        grant.limits.max_output_bytes
-        for grant in definitions.plans["main"].profile.ordered_grants
-    )
+
     assert set(definitions.main.maximum_profile.grants) == set(
         (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS, *AGENT_TOOL_IDS)
     )

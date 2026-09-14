@@ -49,11 +49,15 @@ from jarvis.actions import (
     agent_uncertainty_result,
 )
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
     AGENT_WRITE_IDS,
     AgentActionEvidence,
     AgentError,
-    AgentStartResult,
+    AgentKeysInput,
+    AgentKillResult,
+    AgentRefInput,
+    AgentSendInput,
     AgentStopResult,
     AgentWriteResult,
 )
@@ -118,6 +122,7 @@ class WriteToolDispatcher:
         gate: AutomaticWriteGate,
         actions: ActionStore,
         google_write: GoogleWriteConnector,
+        agents: AgentController,
         read: ReadDispatchPort,
         owner_timezone: str,
         source_conversation_id: str,
@@ -129,6 +134,7 @@ class WriteToolDispatcher:
         self._gate = gate
         self._actions = actions
         self._google_write = google_write
+        self._agents = agents
         self._read = read
         self._owner_timezone = owner_timezone
         self._source_conversation_id = source_conversation_id
@@ -178,8 +184,26 @@ class WriteToolDispatcher:
             owners, as_of = await self._checkpoint.automatic_write_gate_inputs(lineage)
             stage = "owner_projection"
             owner_inputs = _gate_owner_inputs(owners)
+            if not owner_inputs and tool_id in AGENT_WRITE_IDS:
+                LOGGER.info(
+                    "write check completed: stage=gate tool=%s decision=%s "
+                    "outcome=no_owner_input allowed=False",
+                    tool_id,
+                    lineage.model_decision_id,
+                )
+                return _write_check_failure(tool_id, "policy_denied")
+            agent_info = None
+            if tool_id in AGENT_WRITE_IDS and isinstance(
+                validated_input, AgentRefInput | AgentSendInput | AgentKeysInput
+            ):
+                stage = "target_metadata"
+                agent_info = (
+                    await self._agents.info(AgentRefInput(ref=validated_input.ref))
+                ).value
             stage = "descriptor"
-            descriptor = write_effect_descriptor(tool_id, validated_input)
+            descriptor = write_effect_descriptor(
+                tool_id, validated_input, agent_info=agent_info
+            )
             stage = "gate"
             gate = await self._gate.evaluate(
                 owner_inputs,
@@ -1063,11 +1087,22 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
     tool_name = str(stored.tool_name)
     if stored.tool_name in AGENT_WRITE_IDS:
         value = _success_result_value(result)
+        if tool_name == "agent.start":
+            # This display reads immutable receipts from both shipped start schemas.
+            # Execution accepts only the current tool contract.
+            session = value.get("session")
+            if not isinstance(session, dict):
+                raise RuntimeError("start receipt lacks session metadata")
+            return {
+                "type": "agent_started",
+                "observedAt": _safe_atom(value.get("observedAt"), 96),
+                "name": _safe_atom(cast(dict[str, object], session).get("name"), 96),
+            }
         agent_model = (
-            AgentStartResult
-            if tool_name == "agent.start"
-            else AgentStopResult
+            AgentStopResult
             if tool_name == "agent.stop"
+            else AgentKillResult
+            if tool_name == "agent.kill"
             else AgentWriteResult
         )
         return agent_model.model_validate(value).model_dump(mode="json")

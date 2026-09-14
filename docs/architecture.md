@@ -873,25 +873,33 @@ host-confidentiality boundary.
 
 ## peer agent control
 
-main uses exactly seven owner-directed tools: `agent.list`, `agent.read`,
-`agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, and `agent.stop`.
-[adr 0044](decisions/0044-control-tmux-agents-through-skid.md) owns the change.
-jarvis invokes an absolute installed skid cli with explicit private peer config
-and structured stdin. skid routes directly to the selected host and owns
-provider selection, tmux discovery, native state/history, and terminal control.
-jarvis adds no second http/provider client or terminal launcher.
+main uses nine owner-directed tools: `agent.list`, `agent.info`, `agent.start`,
+`agent.read`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`, and
+`agent.kill`. [adr 0045](decisions/0045-use-the-ordinary-fleet-cli.md) owns the
+ordinary cli cut; adr 0044's provider/authority boundaries remain.
 
-start creates a terminal without an initial prompt or readiness promise.
-subsequent controls use its observed machine/tmux/pane/process target. codex,
-claude, and prompted coordinators are ordinary sessions. agents may answer
-worker dialogs through deliberate terminal input. existing host cwd validation,
-jarvis cognition containment, and current-owner write grounding remain.
+jarvis invokes the installed executable with ordinary argv, `--config`, and
+`--json`. only send uses stdin, carrying literal prompt bytes. skid owns direct
+routing, reference encoding, the common result projection, provider observations,
+and terminal control. jarvis adds no second client or projection adapter.
+
+start returns an ordinary session without readiness polling. info observes that
+session now; later writes retain their submitted opaque ref. before gating an
+addressed write, one bounded info call supplies name and machine label for the
+existing descriptor. original arguments remain immutable; refreshed refs never
+replace mutation targets. no owner input means denial before lookup; lookup
+failure is not-sent and creates no action.
 
 reads retain the existing durable recorder; writes remain billed-once with one
-executor entry. lost acknowledgment, child timeout, or partial stop is never
-replayed. stop preserves separate halt/closure facts. worker execution stays
-independent after dispatch; output supplies no new jarvis authority. no task
-schema, worker table, ownership graph, scheduler, or transcript copy is added.
+executor entry. parse success envelopes with exit 1 as partial observations or
+uncertain effects, never malformed output. stop preserves separate halt/closure
+facts; kill requests session closure only. shared work may survive another linked
+session; a delivered halt affects work in every linked session.
+
+all nine tools share existing run budgets. worker output supplies no new authority.
+there is no task schema, worker table, scheduler, transcript copy, reference cache,
+or additional preparation subsystem. old result-history rendering remains read-only;
+old client grammar and six-field model inputs are removed.
 
 ## Scheduling
 

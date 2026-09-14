@@ -251,31 +251,29 @@ configuration readable by jarvis. the fleet operator distributes the configured
 hosts' existing bearers; provider credentials remain on their hosts. refresh
 these copies after bearer rotation. there is no fleet hub or credential daemon.
 
-before activating the seven-tool catalog, drain non-terminal actions bound to
-the removed `codex.*` tools. preserve cognition's native endpoint and empty
-shared directory. retire the dedicated worker launcher after its final caller
-is gone; never stop the shared codex runtime to remove that launcher.
+before activating the nine-tool catalog, drain non-terminal agent actions bound
+to the previous tool implementation. stage matching skid and jarvis releases,
+then switch callers together. no old grammar/target compatibility mode remains.
+preserve native cognition, busy provider services, canonical action history and
+private peer configuration; no provider restart is needed for worker-interface work.
 
-qualify the new controls with synthetic content in exact test-owned sessions.
-isolated tmux gates stay isolated; installed cli/phone/jarvis mutation needs an
-explicit exception for newly created test sessions on each default server.
-cover remote codex and claude, a peer using the same cli to control
-another, direct macbook/arch communication, and partial/unknown stop outcomes.
-read skid's `docs/agent-control.md` for exact acceptance and current-turn live
-approval requirements. keep transcript bytes and fleet credentials out of logs.
-historical launcher qualification does not prove this target.
+qualify ordinary owner requests naming a session without copied references. jarvis
+uses list/info to resolve it; the gate sees name/machine metadata from one bounded
+info call and the original ref. prove metadata failure occurs before mutation and
+that info's refreshed ref cannot replace the originally submitted effect target.
+cover all nine tools, including startup-dialog keys, remote codex/claude, and
+separate stop versus kill outcomes. retain owner event ids and content-free
+operation/outcome/attempt evidence. unknown writes are never repeated.
 
-the installed service uses `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir`
-and `JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`.
-use the existing single `jarvis serve` owner. after approval, supply synthetic
-owner messages to list/start one remote codex and claude, list/read them before
-send, then keys/interrupt/stop. retain the supplied owner message ids; inspect
-only associated action tool/status/attempt counts and read tool/state counts.
-each write gets one attempt; uncertainty is recorded, never replayed. confirm
-the actual targets and both stop outcomes separately. the cognition qualifier
-uses zero tools, and the existing e2e qualifier requires zero actions; neither
-proves this worker journey. the old 17-call admission vector migrates through
-the existing journal migration before the new 19-call catalog is activated.
+read skid's `docs/agent-control-ux.md` for exact acceptance and live/device approval
+requirements. use only exact test-owned sessions; missing boundaries are NOT_RUN.
+phone grouping is removed by the coordinated skid cutover, not by jarvis cleanup.
+
+the service retains `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir` and
+`JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`. it invokes ordinary
+commands with `--config` and `--json`; send text goes to `--stdin`. the executable's
+administrative basename is unchanged. nine worker tools share the existing 19-call
+run allowance; this release changes neither admission journals nor kernel budgets.
 
 Slice 6 live Gmail send and shared-calendar trials use the exact production
 catalog, action recorder, renderers, handler, connector, recovery path, and a

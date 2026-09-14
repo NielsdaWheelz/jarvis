@@ -7,11 +7,11 @@ from typing import Literal, cast
 from llm_tools import ToolId
 
 from jarvis.agent_tools import (
-    AgentInterruptInput,
+    AgentInfoResult,
     AgentKeysInput,
+    AgentRefInput,
     AgentSendInput,
     AgentStartInput,
-    AgentStopInput,
 )
 from jarvis.schedule_tools import (
     ScheduleCancelRequest,
@@ -54,8 +54,9 @@ def classify_write(
         ("agent.start", AgentStartInput),
         ("agent.send", AgentSendInput),
         ("agent.keys", AgentKeysInput),
-        ("agent.interrupt", AgentInterruptInput),
-        ("agent.stop", AgentStopInput),
+        ("agent.interrupt", AgentRefInput),
+        ("agent.stop", AgentRefInput),
+        ("agent.kill", AgentRefInput),
     }:
         return "automatic"
     if name in {"gmail.create_draft", "gmail.update_draft", "schedule.wake"}:
@@ -98,6 +99,8 @@ def classify_write(
 def write_effect_descriptor(
     tool_id: ToolId,
     value: object,
+    *,
+    agent_info: AgentInfoResult | None = None,
 ) -> WriteEffectDescriptor:
     """Project one strictly validated input into the gate's scalar allowlist."""
 
@@ -108,20 +111,21 @@ def write_effect_descriptor(
             EffectTarget(kind="profile", value=value.profile),
             EffectTarget(kind="cwd", value=value.cwd),
         )
-        if value.name is not None:
-            targets += (EffectTarget(kind="terminal_name", value=value.name),)
+        targets += (EffectTarget(kind="terminal_name", value=value.name),)
         return WriteEffectDescriptor(operation="start", targets=targets)
     if name in {
         "agent.send",
         "agent.keys",
         "agent.interrupt",
         "agent.stop",
-    } and isinstance(
-        value, AgentSendInput | AgentKeysInput | AgentInterruptInput | AgentStopInput
-    ):
+        "agent.kill",
+    } and isinstance(value, AgentSendInput | AgentKeysInput | AgentRefInput):
+        if agent_info is None:
+            raise ValueError("addressed agent write requires current session metadata")
         targets = (
-            EffectTarget(kind="machine", value=value.target.machine),
-            EffectTarget(kind="terminal_id", value=value.target.tmuxId),
+            EffectTarget(kind="machine", value=agent_info.label),
+            EffectTarget(kind="terminal_name", value=agent_info.session.name),
+            EffectTarget(kind="terminal_id", value=value.ref),
         )
         omitted = (
             (OmittedFreeform.from_text("worker_input", value.text),)
@@ -130,7 +134,7 @@ def write_effect_descriptor(
         )
         return WriteEffectDescriptor(
             operation=cast(
-                Literal["send", "keys", "interrupt", "stop"],
+                Literal["send", "keys", "interrupt", "stop", "kill"],
                 name.removeprefix("agent."),
             ),
             targets=targets,

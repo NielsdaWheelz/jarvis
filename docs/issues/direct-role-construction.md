@@ -6,8 +6,9 @@ qualification scripts and tests. repeated definition records obscure the five
 actual roles and make changes propagate through historical configurations.
 
 evidence: trace the builders in `src/jarvis/definitions.py` and their callers in
-`cli.py`, `scripts/`, and `tests/`. memory maintenance also constructs unused
-external read bindings to obtain isolated memory definitions.
+`scripts/` and `tests/`. stopped memory maintenance and adversarial dreamer
+qualification now construct the dreamer directly from its two memory bindings.
+the full runtime and other qualification scripts still use historical builders.
 
 resolved when current roles are built directly with one explicit result contract,
 consumers qualify the current behavior, and obsolete constructors disappear.

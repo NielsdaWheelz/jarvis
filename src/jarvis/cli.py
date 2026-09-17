@@ -47,8 +47,7 @@ from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
-    Slice4Definitions,
-    build_slice4_definitions,
+    build_dreamer,
     build_slice5_write_gate,
     build_slice6_definitions,
 )
@@ -56,7 +55,6 @@ from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import (
-    KernelRuntime,
     build_agent_runtime,
     build_kernel_runtime,
     resolve_provider_configuration,
@@ -64,6 +62,7 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import (
     BackgroundDeferred,
     DreamerRunCompleted,
@@ -74,7 +73,6 @@ from jarvis.messages import MessageStore
 from jarvis.ownership import Database, deployment_ownership
 from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
-from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.rebuild import (
@@ -102,12 +100,8 @@ class StartupDefect(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class _IsolatedMemoryRuntime:
-    admission: RootTrackingAdmissionPort
-    definitions: Slice4Definitions
     dreamer: DreamerWorker
     embedder: OpenAIEmbedder
-    kernel: KernelRuntime
-    memory: MemoryStore
 
 
 @asynccontextmanager
@@ -127,15 +121,7 @@ async def _isolated_memory_runtime(
             settings.embedding_openai_api_key,
             http_client=http,
         )
-        catalog = build_slice3_catalog(
-            settings=settings,
-            google_oauth_http=http,
-            google_api_http=http,
-            maps_http=http,
-            brave_http=http,
-            memory_repository=PostgresMemoryRepository(engine),
-            memory_embedder=embedder,
-        )
+        catalog = compose_memory_catalog(PostgresMemoryRepository(engine), embedder)
         agent_runtime = build_agent_runtime(
             provider_state_root=settings.runtime_state_directory,
             codex_endpoints=host.endpoints,
@@ -146,7 +132,7 @@ async def _isolated_memory_runtime(
                 profile_key=settings.codex_profile_key,
                 model_key=settings.codex_model,
             )
-            definitions = build_slice4_definitions(
+            definition, plan = build_dreamer(
                 catalog=catalog,
                 provider=provider_configuration,
                 owner_timezone=settings.owner_timezone,
@@ -161,11 +147,9 @@ async def _isolated_memory_runtime(
             raise
         try:
             yield _IsolatedMemoryRuntime(
-                admission=admission,
-                definitions=definitions,
                 dreamer=DreamerWorker(
-                    definition=definitions.dreamer,
-                    plan=definitions.plans["dreamer"],
+                    definition=definition,
+                    plan=plan,
                     admission=admission,
                     provider=kernel.provider,
                     model_decisions=lambda evidence: PostgresModelDecisionJournal(
@@ -177,8 +161,6 @@ async def _isolated_memory_runtime(
                     memory=memory,
                 ),
                 embedder=embedder,
-                kernel=kernel,
-                memory=memory,
             )
         finally:
             await kernel.close()

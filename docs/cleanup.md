@@ -34,6 +34,11 @@ operations. current production identities remain unchanged. historical admission
 values remain in admission sizing used by migration and the stopped proactivity
 qualifier; no old runtime constructor is needed to describe those numbers.
 
+memory workers now own rememberer and dreamer execution in `memory_workers.py`.
+stopped memory maintenance constructs only the dreamer and its two memory
+bindings. it retains shared settings validation but no longer validates unused
+external connector construction. current role and plan identities are unchanged.
+
 follow-ups are recorded individually under [issues](issues/):
 [direct role construction](issues/direct-role-construction.md),
 [read construction](issues/read-construction.md),

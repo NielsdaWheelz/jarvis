@@ -930,6 +930,42 @@ def build_slice4_definitions(
         ),
     )
     validate_native_context_bounds(recaller, native_limits)
+    dreamer, plan = build_dreamer(
+        catalog=catalog,
+        provider=provider,
+        owner_timezone=owner_timezone,
+        native_limits=native_limits,
+    )
+    plans = dict(base.plans)
+    plans["dreamer"] = plan
+    return Slice4Definitions(
+        base.main,
+        recaller,
+        base.rememberer,
+        dreamer,
+        base.automatic_write_gate,
+        MappingProxyType(plans),
+    )
+
+
+def build_dreamer(
+    *,
+    catalog: ToolCatalog,
+    provider: ProviderConfiguration,
+    owner_timezone: str,
+    native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
+) -> tuple[AgentDefinition, FrozenToolPlan]:
+    """Build the isolated dreamer from its two available memory bindings."""
+    if not owner_timezone.strip():
+        raise ValueError("owner timezone must not be empty")
+    if provider.model_key not in QUALIFIED_CODEX_MODELS:
+        raise ValueError("model is not a qualified dreamer route")
+    if any(
+        tool_id not in catalog.tool_ids
+        or not isinstance(catalog.binding(tool_id).execute, Available)
+        for tool_id in SLICE3_MEMORY_READ_IDS
+    ):
+        raise ValueError("dreamer catalog must provide available memory reads")
     maximum_profile = CapabilityProfile(
         ProfileId("slice4_dreamer_maximum"),
         tuple(ToolGrant(tool_id, None) for tool_id in SLICE3_MEMORY_READ_IDS),
@@ -1012,27 +1048,30 @@ def build_slice4_definitions(
                 "batch. 3. Use the single host-supplied as_of only as the job time.",
             ),
         ),
-        stable_context=base.dreamer.stable_context,
+        stable_context=PromptSections(
+            (
+                PromptSection(
+                    PromptSectionKind("owner_context"),
+                    (
+                        PromptAttribute(
+                            PromptAttributeName("iana_timezone"), owner_timezone
+                        ),
+                    ),
+                    None,
+                ),
+            )
+        ),
         session_mode=SessionMode.isolated,
         output_contract=StructuredOutput("jarvis_dream", DreamResult),
         maximum_profile=maximum_profile,
-        provider=base.dreamer.provider,
+        provider=provider,
         session_compatibility_revision=session_compatibility_revision(
             load_session_manifest(), "dreamer"
         ),
         limits=SLICE4_DREAM_KERNEL_LIMITS,
     )
     validate_native_context_bounds(dreamer, native_limits)
-    plans = dict(base.plans)
-    plans["dreamer"] = plan
-    return Slice4Definitions(
-        base.main,
-        recaller,
-        base.rememberer,
-        dreamer,
-        base.automatic_write_gate,
-        MappingProxyType(plans),
-    )
+    return dreamer, plan
 
 
 def build_slice5_write_gate(
@@ -1513,6 +1552,7 @@ __all__ = [
     "Slice3Definitions",
     "Slice4Definitions",
     "Slice6Definitions",
+    "build_dreamer",
     "build_slice1_definitions",
     "build_slice2_definitions",
     "build_slice3_definitions",

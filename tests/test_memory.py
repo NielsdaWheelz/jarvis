@@ -776,24 +776,25 @@ async def test_typed_open_identity_dedup_and_embedding_backfill(
         identity=MemoryIdentity("memory_summary", summary_id),
         embedding=[1.0] * 1536,
     )
-    opened = await store.open_memories(
-        identities=(
+    opened = await PostgresMemoryRepository(engine).open(
+        (
             raw.identity,
             raw.identity,
             MemoryIdentity("memory_summary", summary_id),
         ),
-        maximum_rows=2,
     )
 
     assert isinstance(raw_updated, StoredRawMemory)
     assert raw_updated.embedding == (1.0, *([0.0] * 1535))
     assert isinstance(summary_updated, StoredMemorySummary)
     assert summary_updated.embedding == (1.0,) * 1536
-    assert len(opened) == 2
-    assert opened[0].identity == raw.identity
-    assert opened[1].identity == MemoryIdentity("memory_summary", summary_id)
-    assert isinstance(opened[1], StoredMemorySummary)
-    assert opened[1].source_memory_ids == (raw.id,)
+    assert opened.missing == ()
+    assert [(row.table_kind, row.id, row.text) for row in opened.rows] == [
+        ("memory_log", raw.id, "Synthetic raw memory for exact open."),
+        ("memory_summary", summary_id, "Synthetic derived summary."),
+    ]
+    assert opened.rows[0].source_memory_ids == ()
+    assert opened.rows[1].source_memory_ids == (raw.id,)
     with pytest.raises(ValueError, match="exactly 1536"):
         await store.update_embedding(identity=raw.identity, embedding=[0.0])
     with pytest.raises(ValueError, match="finite"):

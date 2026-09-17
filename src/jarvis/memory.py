@@ -668,56 +668,6 @@ class MemoryStore:
             remembered_at=completed_at,
         )
 
-    async def open_memories(
-        self,
-        *,
-        identities: tuple[MemoryIdentity, ...],
-        maximum_rows: int,
-    ) -> tuple[StoredMemory, ...]:
-        _positive(maximum_rows, "maximum memory rows")
-        deduplicated = tuple(dict.fromkeys(identities))
-        if len(deduplicated) > maximum_rows:
-            raise ValueError("memory open exceeds the configured row bound")
-        raw_ids = tuple(
-            item.id for item in deduplicated if item.table_kind == "memory_log"
-        )
-        summary_ids = tuple(
-            item.id for item in deduplicated if item.table_kind == "memory_summary"
-        )
-        async with self._engine.connect() as connection:
-            raw_rows: Sequence[RowMapping] = (
-                (
-                    await connection.execute(
-                        select(memory_log).where(memory_log.c.id.in_(raw_ids))
-                    )
-                )
-                .mappings()
-                .all()
-                if raw_ids
-                else ()
-            )
-            summary_rows: Sequence[RowMapping] = (
-                (
-                    await connection.execute(
-                        select(memory_summary).where(
-                            memory_summary.c.id.in_(summary_ids)
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-                if summary_ids
-                else ()
-            )
-        found: dict[MemoryIdentity, StoredMemory] = {}
-        for row in raw_rows:
-            stored = _stored_raw_memory(row)
-            found[stored.identity] = stored
-        for row in summary_rows:
-            stored = _stored_memory_summary(row)
-            found[stored.identity] = stored
-        return tuple(found[item] for item in deduplicated if item in found)
-
     async def select_null_embedding_candidates(
         self,
         *,

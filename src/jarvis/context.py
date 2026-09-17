@@ -39,8 +39,9 @@ from llm_tools import (
 from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
 from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import RecallResult
-from jarvis.memory import MemoryIdentity, StoredMemory, StoredMemorySummary
+from jarvis.memory import MemoryIdentity
 from jarvis.memory_dispatch import MemoryDispatchEvidence
+from jarvis.memory_retrieval import MemoryRepository, RetrievedMemory
 from jarvis.memory_tools import MemorySearchInput
 
 
@@ -74,15 +75,6 @@ class CanonicalHistoryPort(Protocol):
 
 class BatchClockPort(Protocol):
     async def as_of_for_inputs(self, inputs: tuple[HostInput, ...]) -> datetime: ...
-
-
-class MemoryOpenPort(Protocol):
-    async def open_memories(
-        self,
-        *,
-        identities: tuple[MemoryIdentity, ...],
-        maximum_rows: int,
-    ) -> tuple[StoredMemory, ...]: ...
 
 
 class RecallTracePort(Protocol):
@@ -127,7 +119,7 @@ class IsolatedRecaller:
         admission: RootTrackingAdmissionPort,
         provider: ProviderSessionPort,
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
-        memory: MemoryOpenPort,
+        memory_repository: MemoryRepository,
         trace: RecallTracePort,
         model_decisions: ModelJournalFactory,
     ) -> None:
@@ -136,7 +128,7 @@ class IsolatedRecaller:
         self._admission = admission
         self._provider = provider
         self._dispatcher_factory = dispatcher_factory
-        self._memory = memory
+        self._memory_repository = memory_repository
         self._trace = trace
         self._model_decisions = model_decisions
         self._last_evidence: RecallEvidence | None = None
@@ -199,7 +191,7 @@ class IsolatedRecaller:
                 "memory dispatcher search-call evidence is invalid"
             )
         selected: tuple[MemoryIdentity, ...] = ()
-        memories: tuple[StoredMemory, ...] = ()
+        memories: tuple[RetrievedMemory, ...] = ()
         terminal_outcome = (
             "completed" if isinstance(outcome, OneShotCompleted) else outcome.type.value
         )
@@ -221,11 +213,14 @@ class IsolatedRecaller:
                     terminal_outcome = "invalid_selection"
                     selected = ()
                 else:
-                    memories = await self._memory.open_memories(
-                        identities=selected,
-                        maximum_rows=20,
-                    )
-                    if tuple(item.identity for item in memories) != selected:
+                    memories = (await self._memory_repository.open(selected)).rows
+                    if (
+                        tuple(
+                            MemoryIdentity(item.table_kind, item.id)
+                            for item in memories
+                        )
+                        != selected
+                    ):
                         terminal_outcome = "missing_selection"
                         memories = ()
         metrics = outcome.metrics
@@ -464,19 +459,17 @@ def _initial_recall_query(owner_input: HostInput) -> str:
     return prefix + marker + suffix
 
 
-def _memory_sections(memories: tuple[StoredMemory, ...]) -> PromptSections:
+def _memory_sections(memories: tuple[RetrievedMemory, ...]) -> PromptSections:
     sections: list[PromptSection] = []
     for value in memories:
         attributes = [
-            PromptAttribute(
-                PromptAttributeName("table_kind"), value.identity.table_kind
-            ),
+            PromptAttribute(PromptAttributeName("table_kind"), value.table_kind),
             PromptAttribute(PromptAttributeName("memory_id"), str(value.id)),
             PromptAttribute(
                 PromptAttributeName("source_timestamp"), value.created_at.isoformat()
             ),
         ]
-        if isinstance(value, StoredMemorySummary):
+        if value.table_kind == "memory_summary":
             attributes.append(
                 PromptAttribute(
                     PromptAttributeName("source_memory_ids"),
@@ -517,7 +510,6 @@ __all__ = [
     "CanonicalMessage",
     "IsolatedRecaller",
     "JarvisContextSource",
-    "MemoryOpenPort",
     "MemoryReadDispatcherPort",
     "RecallEvidence",
     "RecallTracePort",

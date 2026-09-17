@@ -301,8 +301,10 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     http_client=http,
                 )
                 seed = await seed_recall_fixtures(engine, fixtures)
+                memory_repository = PostgresMemoryRepository(engine)
                 initial_embedding = await populate_fixture_embeddings(
                     MemoryStore(engine),
+                    memory_repository,
                     embedder,
                     fixtures,
                 )
@@ -310,9 +312,7 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 await verify_embedding_credential_denies_generation(
                     arguments.embedding_api_key
                 )
-                catalog = compose_memory_catalog(
-                    PostgresMemoryRepository(engine), embedder
-                )
+                catalog = compose_memory_catalog(memory_repository, embedder)
                 provider_configuration = await resolve_provider_configuration(
                     runtime=agent_runtime,
                     profile_key=arguments.profile,
@@ -376,7 +376,7 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                             dispatcher_factory=lambda: MemoryToolDispatcher(
                                 recorder=PostgresReadRecorder(engine)
                             ),
-                            memory=MemoryStore(engine),
+                            memory_repository=memory_repository,
                             trace=trace,
                         )
 

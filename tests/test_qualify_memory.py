@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from runpy import run_path
@@ -34,7 +34,8 @@ from jarvis.admission import RollingAdmissionPort
 from jarvis.context import RecallEvidence
 from jarvis.definitions import RECALLER_KERNEL_LIMITS, REMEMBERER_KERNEL_LIMITS
 from jarvis.memory import MemoryIdentity, MemoryTableKind
-from jarvis.recall_evaluation import RecallCase, load_recall_set
+from jarvis.memory_retrieval import OpenedMemory, RetrievedMemory
+from jarvis.recall_evaluation import RecallCase, RecallFixture, load_recall_set
 from jarvis.settings import EMBEDDING_DIMENSION
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,37 +66,47 @@ _MEMORY_PROBE_ROOT_INPUT_TOKENS = _QUALIFIER["MEMORY_PROBE_ROOT_INPUT_TOKENS"]
 _MEMORY_PROBE_ROOT_OUTPUT_TOKENS = _QUALIFIER["MEMORY_PROBE_ROOT_OUTPUT_TOKENS"]
 
 
-@dataclass(frozen=True, slots=True)
-class _Stored:
-    identity: MemoryIdentity
-    text: str
-
-
 class _Store:
-    def __init__(self, fixtures: tuple[Any, ...]) -> None:
-        self.memories = tuple(
-            _Stored(MemoryIdentity(item.table_kind, item.id), item.text)
-            for item in fixtures
-        )
+    def __init__(self) -> None:
         self.updates: list[tuple[MemoryIdentity, tuple[float, ...]]] = []
-
-    async def open_memories(
-        self,
-        *,
-        identities: tuple[MemoryIdentity, ...],
-        maximum_rows: int,
-    ) -> tuple[_Stored, ...]:
-        assert maximum_rows == len(identities)
-        return self.memories
 
     async def update_embedding(
         self,
         *,
         identity: MemoryIdentity,
-        embedding: tuple[float, ...],
-    ) -> _Stored:
-        self.updates.append((identity, embedding))
-        return next(item for item in self.memories if item.identity == identity)
+        embedding: Sequence[float],
+    ) -> None:
+        self.updates.append((identity, tuple(embedding)))
+
+
+class _Repository:
+    def __init__(self, fixtures: tuple[RecallFixture, ...]) -> None:
+        self.memories = tuple(
+            RetrievedMemory(
+                item.table_kind,
+                item.id,
+                item.text,
+                datetime(2026, 9, 4, tzinfo=UTC),
+                item.source_memory_ids,
+            )
+            for item in fixtures
+        )
+
+    async def search(
+        self,
+        query: str,
+        *,
+        lexical_limit: int,
+        semantic_limit: int,
+        query_embedding: Sequence[float] | None,
+    ) -> tuple[RetrievedMemory, ...]:
+        raise AssertionError("fixture embedding only opens exact identities")
+
+    async def open(self, identities: Sequence[MemoryIdentity]) -> OpenedMemory:
+        assert tuple(identities) == tuple(
+            MemoryIdentity(row.table_kind, row.id) for row in self.memories
+        )
+        return OpenedMemory(self.memories, ())
 
 
 class _Embedder:
@@ -369,10 +380,12 @@ async def test_fixture_embedding_uses_exact_text_and_updates_every_identity() ->
         ROOT / "eval" / "recall-memories.jsonl",
         ROOT / "eval" / "recall.jsonl",
     )
-    store = _Store(fixtures)
+    store = _Store()
     embedder = _Embedder()
 
-    result = await _populate_fixture_embeddings(store, embedder, fixtures)
+    result = await _populate_fixture_embeddings(
+        store, _Repository(fixtures), embedder, fixtures
+    )
 
     assert embedder.seen == tuple(item.text for item in fixtures)
     assert tuple(item[0] for item in store.updates) == tuple(
@@ -392,10 +405,12 @@ async def test_invalid_embedding_shape_commits_no_derived_updates() -> None:
         ROOT / "eval" / "recall-memories.jsonl",
         ROOT / "eval" / "recall.jsonl",
     )
-    store = _Store(fixtures)
+    store = _Store()
 
     with pytest.raises(_ProbeCheckFailed):
-        await _populate_fixture_embeddings(store, _Embedder(dimension=2), fixtures)
+        await _populate_fixture_embeddings(
+            store, _Repository(fixtures), _Embedder(dimension=2), fixtures
+        )
 
     assert store.updates == []
 

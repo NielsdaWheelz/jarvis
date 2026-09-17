@@ -52,6 +52,11 @@ and rejects an incomplete or reordered result before rendering prompt sections.
 this read projection contains text, timestamps, and summary lineage; it does not
 load embeddings. memory writes remain owned by `MemoryStore` transactions.
 
+memory creation and embedding queues return only the metadata their callers use.
+embedding update queries return only an id to detect a missing row, avoiding a
+round trip of the stored vector. vector validation, database columns, and raw-memory
+immutability remain unchanged.
+
 discord delivery now has one response/retry policy for ordinary messages,
 approval attachments, and disabling approval components. each operation keeps
 its request construction; disabling still requires the exact requested id.

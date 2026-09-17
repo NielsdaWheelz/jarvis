@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ctypes
 import sys
-from typing import Any
 
 _PR_SET_DUMPABLE = 4
 
@@ -13,16 +12,12 @@ class ProcessContainmentDefect(RuntimeError):
     """The host could not establish its process-inspection boundary."""
 
 
-def _load_libc() -> Any:
-    return ctypes.CDLL(None, use_errno=True)
-
-
 def deny_same_identity_process_inspection() -> None:
     """Prevent an unprivileged same-UID child from inspecting Jarvis memory."""
 
     if sys.platform != "linux":
         return
-    libc = _load_libc()
+    libc = ctypes.CDLL(None, use_errno=True)
     prctl = libc.prctl
     prctl.argtypes = (
         ctypes.c_int,

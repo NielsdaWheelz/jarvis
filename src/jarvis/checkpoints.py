@@ -469,9 +469,11 @@ class PostgresInputCheckpoint:
                         outcome=f"owner_{active.pending_control}",
                     ),
                     conclusion_text=control_text,
-                    conclusion_message_id=_control_conclusion_id(
-                        active.message_ids,
-                        active.pending_control,
+                    conclusion_message_id=uuid5(
+                        NAMESPACE_URL,
+                        "jarvis-control-v1:"
+                        + ",".join(map(str, active.message_ids))
+                        + f":{active.pending_control}",
                     ),
                 )
                 self._record_consumed(active.message_ids)
@@ -483,9 +485,12 @@ class PostgresInputCheckpoint:
             if self._active is None:
                 return AlreadyParked()
             active = self._require_active(claim, self._active.checkpoint)
+            reason_code = _REASON_SEPARATOR.sub("_", reason.strip().casefold()).strip(
+                "_"
+            )
             parked = await self._store.park(
                 claimed_message_ids=active.message_ids,
-                reason_code=_reason_code(reason),
+                reason_code=(reason_code or "configuration_defect")[:64].rstrip("_"),
             )
             self._active = None
             return Parked() if parked else AlreadyParked()
@@ -637,18 +642,6 @@ def _conclusion(
     if isinstance(conclusion, SuspensionConclusion):
         return "suspension", conclusion.waiting_for.value, None
     raise CheckpointStateDefect("the Main thread returned an unsupported conclusion")
-
-
-def _reason_code(reason: str) -> str:
-    value = _REASON_SEPARATOR.sub("_", reason.strip().casefold()).strip("_")
-    return (value or "configuration_defect")[:64].rstrip("_")
-
-
-def _control_conclusion_id(message_ids: tuple[UUID, ...], reason: str) -> UUID:
-    return uuid5(
-        NAMESPACE_URL,
-        "jarvis-control-v1:" + ",".join(map(str, message_ids)) + f":{reason}",
-    )
 
 
 __all__ = ["PostgresInputCheckpoint"]

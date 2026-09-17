@@ -113,3 +113,10 @@ write dispatch requires that callback. approval completion uses the service's
 cancellation token; ordinary and approval delivery share the configured discord
 client. unused implicit dependencies and the alternate ordinary transport are
 removed. startup callback closures still resolve the wake timer's real lifetime.
+
+the verified cleanup queue is resolved. five one-use wrappers are replaced with
+direct process setup, dataclass replacement, fallback rendering, and checkpoint
+normalization/identity construction. large modules, protocol boundaries, and
+historical result decoding remain where they own real transactions or contracts.
+the four open issues concern deployment cutovers, hosted verification, and testing;
+this pass does not establish that every possible simplification is exhausted.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -433,7 +433,7 @@ class MessageStore:
                     .returning(message.c.processing_attempts)
                 ),
             )
-            stored[0] = _replace_attempts(stored[0], attempt_number)
+            stored[0] = replace(stored[0], processing_attempts=attempt_number)
             return ClaimedMessages(
                 claim_id=str(uuid4()),
                 route=route,
@@ -1321,7 +1321,11 @@ class MessageStore:
                     insert(message).values(
                         id=visibility_id,
                         role="assistant",
-                        text=_host_visibility_text(waking),
+                        text=render_host_fallback(
+                            source=waking.source,
+                            text=waking.text,
+                            maximum_characters=MAX_DISCORD_MESSAGE_CHARACTERS,
+                        ),
                         source="discord",
                         source_conversation_id=source_conversation_id,
                         source_message_id=None,
@@ -1496,31 +1500,6 @@ def _stored_message(row: RowMapping) -> StoredMessage:
         processing_parked_at=cast(datetime | None, row["processing_parked_at"]),
         remembered_at=cast(datetime | None, row["remembered_at"]),
         trace=cast(dict[str, object], row["trace"]),
-    )
-
-
-def _replace_attempts(value: StoredMessage, attempt_number: int) -> StoredMessage:
-    return StoredMessage(
-        id=value.id,
-        role=value.role,
-        text=value.text,
-        source=value.source,
-        source_conversation_id=value.source_conversation_id,
-        source_message_id=value.source_message_id,
-        created_at=value.created_at,
-        processed_at=value.processed_at,
-        processing_attempts=attempt_number,
-        processing_parked_at=value.processing_parked_at,
-        remembered_at=value.remembered_at,
-        trace=value.trace,
-    )
-
-
-def _host_visibility_text(waking: StoredMessage) -> str:
-    return render_host_fallback(
-        source=waking.source,
-        text=waking.text,
-        maximum_characters=MAX_DISCORD_MESSAGE_CHARACTERS,
     )
 
 

@@ -63,7 +63,7 @@ EXPECTED_KERNEL_BASE_INSTRUCTION_IDENTITY = (
 QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)
 
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
-# zero external attempts makes the write-gate and empty probe plans inert.
+# zero external attempts makes the write-gate plan inert.
 EMPTY_TOOL_LIMITS = RunLimits(
     max_calls=1,
     max_external_attempts=0,

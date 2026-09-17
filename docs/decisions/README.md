@@ -3,6 +3,10 @@
 Accepted ADRs are permanent records of why Jarvis is shaped this way. They are
 not implementation suggestions.
 
+[adr 0046](0046-reset-testing.md) supersedes earlier test-retention and
+verification-execution requirements during the owner-approved reset. runtime
+contracts remain binding; dated evidence remains historical.
+
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted; trace amended by 0010/0019; internal gate added by 0019 |
@@ -49,11 +53,12 @@ not implementation suggestions.
 | [0042](0042-track-latest-stable-codex.md) | Track latest stable native Codex without widening authority | Accepted; supersedes 0041's native executable pin |
 | [0043](0043-retain-main-thread-through-native-compaction.md) | Retain Main's thread through native compaction | Accepted; removes host age-based rotation, preserves CAS and recovery |
 | [0044](0044-control-tmux-agents-through-skid.md) | control peer tmux agents through the common skid cli | accepted implementation target; supersedes 0041's worker routing and launcher |
-
 | [0045](0045-use-the-ordinary-fleet-cli.md) | ordinary fleet cli and opaque references | accepted implementation target; supersedes 0044 cli grammar and roster |
+| [0046](0046-reset-testing.md) | remove the old testing system before redesign | accepted; suspends earlier test and qualification execution gates |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
-documents migration impact, and updates the normative specification and tests.
+documents migration impact, and updates the normative specification and current
+verification requirements.
 
 ADRs 0001 through 0006 were written on the same day as the specification they
 justify. They are founding rationale rather than records of decisions taken under

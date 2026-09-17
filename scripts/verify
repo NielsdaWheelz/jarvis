@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${JARVIS_TEST_DATABASE_URL:?set JARVIS_TEST_DATABASE_URL to a disposable PostgreSQL database}"
-: "${JARVIS_TEST_MIGRATION_DATABASE_URL:?set JARVIS_TEST_MIGRATION_DATABASE_URL to the disposable database migrator login}"
-
 uv lock --check
 uv sync --frozen --all-groups
 git diff --check
@@ -11,49 +8,10 @@ uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run python scripts/check_docs.py
-JARVIS_MIGRATION_DATABASE_URL="$JARVIS_TEST_MIGRATION_DATABASE_URL" uv run alembic upgrade head
-JARVIS_MIGRATION_DATABASE_URL="$JARVIS_TEST_MIGRATION_DATABASE_URL" uv run alembic check
-uv run pytest
 
-kernel_checkout="$(mktemp -d)"
-provider_checkout="$(mktemp -d)"
-tools_checkout="$(mktemp -d)"
 artifact_directory="$(mktemp -d)"
 install_environment="$(mktemp -d)"
-trap 'rm -rf -- "$kernel_checkout" "$provider_checkout" "$tools_checkout" "$artifact_directory" "$install_environment"' EXIT
-git -C "$kernel_checkout" init --quiet
-git -C "$kernel_checkout" remote add origin https://github.com/NielsdaWheelz/llm-agent-kernel.git
-git -C "$kernel_checkout" fetch --quiet --depth=1 origin 8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342
-git -C "$kernel_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$kernel_checkout" rev-parse HEAD)" = 8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342
-uv run --project "$kernel_checkout" --frozen --all-groups pytest -q "$kernel_checkout"
-git -C "$provider_checkout" init --quiet
-git -C "$provider_checkout" remote add origin https://github.com/NielsdaWheelz/llm-calling.git
-git -C "$provider_checkout" fetch --quiet --depth=1 origin 69d41d38a3d290e7ae3bde9b57556dda41e1b2f1
-git -C "$provider_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$provider_checkout" rev-parse HEAD)" = 69d41d38a3d290e7ae3bde9b57556dda41e1b2f1
-case "$(uname -s)" in
-  Linux)
-    uv run --project "$provider_checkout" --frozen --all-extras --all-groups pytest -q "$provider_checkout"
-    ;;
-  Darwin)
-    command -v docker >/dev/null
-    docker run --rm \
-      --volume "$provider_checkout:/workspace/provider" \
-      ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 \
-      sh -ceu 'apt-get update >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends git >/dev/null; exec uv run --project /workspace/provider --frozen --all-extras --all-groups pytest -q /workspace/provider'
-    ;;
-  *)
-    echo "provider-runtime qualification requires Linux or Docker on Darwin" >&2
-    exit 1
-    ;;
-esac
-git -C "$tools_checkout" init --quiet
-git -C "$tools_checkout" remote add origin https://github.com/NielsdaWheelz/llm-tools.git
-git -C "$tools_checkout" fetch --quiet --depth=1 origin 9e6d155f3b64f03495911435b7cae8b8d131f9a2
-git -C "$tools_checkout" checkout --quiet --detach FETCH_HEAD
-test "$(git -C "$tools_checkout" rev-parse HEAD)" = 9e6d155f3b64f03495911435b7cae8b8d131f9a2
-uv run --project "$tools_checkout" --frozen --all-groups pytest -q "$tools_checkout"
+trap 'rm -rf -- "$artifact_directory" "$install_environment"' EXIT
 
 uv build --out-dir "$artifact_directory"
 wheels=("$artifact_directory"/*.whl)
@@ -67,3 +25,4 @@ uv pip install --python "$install_environment/bin/python" "${wheels[0]}"
 "$install_environment/bin/python" -c "import jarvis"
 "$install_environment/bin/jarvis" --help >/dev/null
 uv run pip-audit --local
+echo "static and build checks passed; behavioral verification is suspended (adr 0046)"

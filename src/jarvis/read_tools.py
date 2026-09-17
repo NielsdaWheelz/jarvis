@@ -18,7 +18,6 @@ from llm_tools import (
     PromptDocument,
     ReplayPolicy,
     ToolBinding,
-    ToolCatalog,
     ToolEffect,
     ToolFamily,
     ToolId,
@@ -1339,17 +1338,6 @@ AUTOMATIC_READ_TOOL_IDS = frozenset(
 )
 
 
-def compose_read_catalog(
-    *,
-    google: GoogleReadProvider,
-    maps: MapsProvider,
-    web: ToolFamily,
-) -> ToolCatalog:
-    return ToolCatalog.compose(
-        (gmail_family(google), calendar_family(google), maps_family(maps), web)
-    )
-
-
 __all__ = [
     "AUTOMATIC_READ_TOOL_IDS",
     "CALENDAR_API_BASE_URL",
@@ -1422,7 +1410,6 @@ __all__ = [
     "TimedEventTime",
     "UnspecifiedEventEnd",
     "calendar_family",
-    "compose_read_catalog",
     "gmail_family",
     "maps_family",
 ]

@@ -1562,12 +1562,6 @@ def _host_visibility_text(waking: StoredMessage) -> str:
     )
 
 
-def host_safe_text(waking: StoredMessage) -> str:
-    if waking.source != "action":
-        return waking.text
-    return waking.text.partition(ACTION_MODEL_CONTEXT_SEPARATOR)[0]
-
-
 def render_host_fallback(
     *,
     source: str,

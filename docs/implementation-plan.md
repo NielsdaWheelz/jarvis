@@ -1,5 +1,12 @@
 # V1 implementation plan
 
+the owner-approved [testing reset](decisions/0046-reset-testing.md) removes all
+existing tests, evaluation data, and qualification runners. the slice descriptions
+and dated evidence below record the original implementation and verification
+plan; their removed test procedures are not current gates or runnable commands.
+runtime contracts remain binding. the next pr begins the
+[testing redesign](issues/testing-redesign.md).
+
 next accepted upgrade: [peer agent control](decisions/0044-control-tmux-agents-through-skid.md).
 implement the common cli consumer after skid host/cli contracts; then retire the
 worker launcher and qualify remote codex/claude. historical slice evidence below

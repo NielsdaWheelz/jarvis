@@ -8,15 +8,14 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, Protocol, cast
+from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, text
 
 from jarvis.admission import RollingAdmissionLimits
 from jarvis.db import memory_log, memory_summary
-from jarvis.definitions import (
-    DREAMER_KERNEL_LIMITS,
-    RECALLER_KERNEL_LIMITS,
-)
+from jarvis.definitions import DREAMER_KERNEL_LIMITS
 from jarvis.embeddings import MAX_EMBEDDING_BATCH_SIZE
 from jarvis.memory import (
     DerivedMemoryWipe,
@@ -26,18 +25,8 @@ from jarvis.memory import (
 )
 from jarvis.memory_retrieval import MemoryEmbedder
 from jarvis.ownership import Database
-from jarvis.recall_evaluation import (
-    PostRebuildSummary,
-    RecallCase,
-    RecallScore,
-    bind_post_rebuild_s01,
-)
 from jarvis.settings import EMBEDDING_DIMENSION
 
-type RecallEvaluator = Callable[[tuple[RecallCase, ...]], Awaitable[RecallScore]]
-type ScoreRecorder = Callable[
-    [Literal["pre_rebuild", "post_rebuild"], RecallScore], None
-]
 type DreamOnce = Callable[[datetime], Awaitable[DreamMutationProgress]]
 
 _INPUT_TOKEN_OVERSHOOT = 32_768
@@ -48,13 +37,17 @@ class DerivedMemoryRebuildDefect(RuntimeError):
     """The stopped rebuild could not establish a complete derived corpus."""
 
 
-class RecallQualityRegression(DerivedMemoryRebuildDefect):
-    """The post-rebuild frozen recall result is worse than its baseline."""
+class PostRebuildSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    def __init__(self, pre_score: RecallScore, post_score: RecallScore) -> None:
-        super().__init__("post-rebuild recall score is worse than its baseline")
-        self.pre_score = pre_score
-        self.post_score = post_score
+    id: UUID
+    source_memory_ids: tuple[UUID, ...] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique_raw_lineage(self) -> PostRebuildSummary:
+        if len(set(self.source_memory_ids)) != len(self.source_memory_ids):
+            raise ValueError("post-rebuild summary lineage must be unique")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,12 +83,6 @@ class DerivedMemoryCorpusRebuild:
     summaries_removed: int
     summaries_after: int
     summary_embeddings_written: int
-
-
-@dataclass(frozen=True, slots=True)
-class DerivedMemoryRebuild(DerivedMemoryCorpusRebuild):
-    pre_score: RecallScore
-    post_score: RecallScore
 
 
 class _RebuildStore(Protocol):
@@ -236,32 +223,6 @@ class PostgresRebuildStore:
         )
 
 
-def rebuild_admission_limits(
-    case_count: int,
-) -> RollingAdmissionLimits:
-    """Reserve two recall passes and one serial Dreamer run under one root."""
-    _positive(case_count, "rebuild recall case count")
-    recall_runs = case_count * 2
-    serial_turns = (
-        recall_runs * RECALLER_KERNEL_LIMITS.max_provider_turns
-        + DREAMER_KERNEL_LIMITS.max_provider_turns
-    )
-    serial_input = recall_runs * (
-        RECALLER_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT
-    ) + (DREAMER_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT)
-    serial_output = recall_runs * (
-        RECALLER_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
-    ) + (DREAMER_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT)
-    return RollingAdmissionLimits(
-        max_turns=1 + serial_turns,
-        max_input_tokens=1 + _INPUT_TOKEN_OVERSHOOT + serial_input,
-        max_output_tokens=1 + _OUTPUT_TOKEN_OVERSHOOT + serial_output,
-        serial_child_turns=serial_turns,
-        serial_child_input_tokens=serial_input,
-        serial_child_output_tokens=serial_output,
-    )
-
-
 def corpus_rebuild_admission_limits() -> RollingAdmissionLimits:
     """Reserve one stopped production rebuild and its one Dreamer child."""
     serial_turns = DREAMER_KERNEL_LIMITS.max_provider_turns
@@ -278,74 +239,6 @@ def corpus_rebuild_admission_limits() -> RollingAdmissionLimits:
         serial_child_turns=serial_turns,
         serial_child_input_tokens=serial_input,
         serial_child_output_tokens=serial_output,
-    )
-
-
-async def rebuild_derived_memory(
-    *,
-    store: _RebuildStore,
-    embedder: MemoryEmbedder,
-    cases: tuple[RecallCase, ...],
-    evaluate: RecallEvaluator,
-    dream_once: DreamOnce,
-    record_score: ScoreRecorder,
-    maximum_memory_rows: int,
-    as_of: datetime | None = None,
-) -> DerivedMemoryRebuild:
-    """Rebuild one frozen qualification corpus and enforce its recall gate."""
-    _positive(maximum_memory_rows, "maximum rebuild memory rows")
-    job_as_of = as_of or datetime.now(UTC)
-    if job_as_of.tzinfo is None or job_as_of.utcoffset() is None:
-        raise ValueError("rebuild as_of must be timezone-aware")
-
-    pre_score = await evaluate(cases)
-    _validate_score(cases, pre_score)
-    record_score("pre_rebuild", pre_score)
-    raw_before = await store.raw_snapshot(maximum_memory_rows)
-
-    rebuilt = await rebuild_memory_corpus(
-        store=store,
-        embedder=embedder,
-        dream_once=dream_once,
-        maximum_memory_rows=maximum_memory_rows,
-        as_of=job_as_of,
-    )
-
-    summaries = await store.post_rebuild_summaries(maximum_memory_rows)
-    post_cases = bind_post_rebuild_s01(cases, summaries)
-    post_score = await evaluate(post_cases)
-    _validate_score(post_cases, post_score)
-    record_score("post_rebuild", post_score)
-    await _require_raw_unchanged(store, raw_before, maximum_memory_rows)
-    aggregate_regression = any(
-        getattr(post_score, field) < getattr(pre_score, field)
-        for field in ("selected_passed", "opened_passed", "search_passed", "passed")
-    )
-    case_regression = any(
-        getattr(pre_case, field) and not getattr(post_case, field)
-        for pre_case, post_case in zip(
-            pre_score.cases,
-            post_score.cases,
-            strict=True,
-        )
-        for field in ("selected_pass", "opened_pass", "search_pass", "passed")
-    )
-    if aggregate_regression or case_regression:
-        raise RecallQualityRegression(pre_score, post_score)
-
-    return DerivedMemoryRebuild(
-        as_of=rebuilt.as_of,
-        raw_memory_count=rebuilt.raw_memory_count,
-        wipe=rebuilt.wipe,
-        lexical_raw_recall_proved=rebuilt.lexical_raw_recall_proved,
-        raw_embeddings_written=rebuilt.raw_embeddings_written,
-        dreamer_runs=rebuilt.dreamer_runs,
-        summaries_inserted=rebuilt.summaries_inserted,
-        summaries_removed=rebuilt.summaries_removed,
-        summaries_after=rebuilt.summaries_after,
-        summary_embeddings_written=rebuilt.summary_embeddings_written,
-        pre_score=pre_score,
-        post_score=post_score,
     )
 
 
@@ -470,32 +363,6 @@ async def _require_raw_unchanged(
         )
 
 
-def _validate_score(cases: tuple[RecallCase, ...], score: RecallScore) -> None:
-    expected_ids = tuple(case.id for case in cases)
-    if tuple(item.id for item in score.cases) != expected_ids or score.total != len(
-        cases
-    ):
-        raise DerivedMemoryRebuildDefect(
-            "recall evaluator did not return the complete frozen case set"
-        )
-    actual = (
-        sum(item.selected_pass for item in score.cases),
-        sum(item.opened_pass for item in score.cases),
-        sum(item.search_pass for item in score.cases),
-        sum(item.passed for item in score.cases),
-    )
-    reported = (
-        score.selected_passed,
-        score.opened_passed,
-        score.search_passed,
-        score.passed,
-    )
-    if reported != actual:
-        raise DerivedMemoryRebuildDefect(
-            "recall evaluator returned inconsistent aggregate counts"
-        )
-
-
 def _positive(value: int, name: str) -> None:
     if type(value) is not int or value <= 0:
         raise ValueError(f"{name} must be a positive integer")
@@ -503,16 +370,10 @@ def _positive(value: int, name: str) -> None:
 
 __all__ = [
     "DerivedMemoryCorpusRebuild",
-    "DerivedMemoryRebuild",
     "DerivedMemoryRebuildDefect",
     "DreamMutationProgress",
     "PostgresRebuildStore",
     "RawMemorySnapshot",
-    "RecallEvaluator",
-    "RecallQualityRegression",
-    "ScoreRecorder",
     "corpus_rebuild_admission_limits",
-    "rebuild_admission_limits",
-    "rebuild_derived_memory",
     "rebuild_memory_corpus",
 ]

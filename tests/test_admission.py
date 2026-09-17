@@ -15,23 +15,18 @@ from llm_agent_kernel import (
     ThreadId,
 )
 from llm_tools import InvocationPosition, Reservation, RunLimits, Settlement
-from provider_fixture import frozen_provider
 
 from jarvis.admission import (
     ExactToolBudgetFactory,
     RollingAdmissionLimits,
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
+    current_admission_limits,
     pre_all_calendar_slice6_admission_limits,
-    slice3_admission_limits,
     slice5_admission_limits,
-    slice6_admission_limits,
 )
 from jarvis.definitions import (
-    SLICE2_KERNEL_LIMITS,
-    SLICE3_RECALL_KERNEL_LIMITS,
-    SLICE3_REMEMBER_KERNEL_LIMITS,
-    build_slice1_definitions,
+    RoleDefinitions,
 )
 
 
@@ -201,13 +196,6 @@ async def test_tracking_wrapper_exposes_one_validated_root_to_one_serial_child(
         await port.active_root()
 
 
-def test_slice3_capacity_reserves_one_recaller_per_maximum_owner_input() -> None:
-    selected = slice3_admission_limits(20)
-    assert selected.serial_child_turns == 200
-    assert selected.serial_child_input_tokens == 3_855_360
-    assert selected.serial_child_output_tokens == 483_840
-
-
 def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
     selected = slice5_admission_limits(20)
     assert selected.json() == {
@@ -224,8 +212,8 @@ def test_slice5_capacity_reserves_recallers_and_write_gates() -> None:
     }
 
 
-def test_slice6_capacity_reserves_recallers_and_every_write_gate() -> None:
-    selected = slice6_admission_limits(20)
+def test_current_capacity_reserves_recallers_and_every_write_gate() -> None:
+    selected = current_admission_limits(20)
     assert selected.json() == {
         "max_input_tokens": 14_214_208,
         "max_no_progress_attempts": 3,
@@ -240,11 +228,11 @@ def test_slice6_capacity_reserves_recallers_and_every_write_gate() -> None:
     }
 
 
-async def test_slice6_capacity_admits_after_a_normal_completed_turn(
+async def test_current_capacity_admits_after_a_normal_completed_turn(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "admission.json"
-    selected = slice6_admission_limits(20)
+    selected = current_admission_limits(20)
     RollingAdmissionPort.initialize(path, selected)
     port = RollingAdmissionPort(
         path,
@@ -282,11 +270,11 @@ async def test_slice6_capacity_admits_after_a_normal_completed_turn(
     )
 
 
-async def test_slice6_limit_migration_reserves_the_new_approval_write_gate(
+async def test_current_limit_migration_preserves_predecessor_charges(
     tmp_path: Path,
 ) -> None:
     previous = slice5_admission_limits(20)
-    current = slice6_admission_limits(20)
+    current = current_admission_limits(20)
     path = tmp_path / "admission.json"
     RollingAdmissionPort.initialize(path, previous)
     now = datetime(2026, 9, 7, tzinfo=UTC)
@@ -296,9 +284,9 @@ async def test_slice6_limit_migration_reserves_the_new_approval_write_gate(
             RunId("slice-five-root"),
             ThreadId("channel"),
             1,
-            SLICE2_KERNEL_LIMITS.max_provider_turns,
-            SLICE2_KERNEL_LIMITS.max_provider_input_tokens,
-            SLICE2_KERNEL_LIMITS.max_provider_output_tokens,
+            12,
+            400_000,
+            40_000,
         )
     )
     assert isinstance(root, AdmissionGranted)
@@ -327,7 +315,7 @@ async def test_all_calendar_limit_migration_accepts_the_production_predecessor(
     tmp_path: Path,
 ) -> None:
     previous = pre_all_calendar_slice6_admission_limits(20)
-    current = slice6_admission_limits(20)
+    current = current_admission_limits(20)
     assert previous.json() == {
         "max_input_tokens": 13_417_600,
         "max_no_progress_attempts": 3,
@@ -349,9 +337,9 @@ async def test_all_calendar_limit_migration_accepts_the_production_predecessor(
             RunId("pre-all-calendar-root"),
             ThreadId("channel"),
             1,
-            SLICE2_KERNEL_LIMITS.max_provider_turns,
-            SLICE2_KERNEL_LIMITS.max_provider_input_tokens,
-            SLICE2_KERNEL_LIMITS.max_provider_output_tokens,
+            12,
+            400_000,
+            40_000,
         )
     )
     assert isinstance(root, AdmissionGranted)
@@ -382,128 +370,10 @@ async def test_all_calendar_limit_migration_accepts_the_production_predecessor(
     )
 
 
-async def test_slice5_limit_migration_conservatively_enlarges_interrupted_root(
-    tmp_path: Path,
+async def test_plan_factory_returns_fresh_exact_budget(
+    current_definitions: RoleDefinitions,
 ) -> None:
-    previous = slice3_admission_limits(20)
-    current = slice5_admission_limits(20)
-    path = tmp_path / "admission.json"
-    RollingAdmissionPort.initialize(path, previous)
-    now = datetime(2026, 9, 6, tzinfo=UTC)
-    port = RollingAdmissionPort(path, previous, clock=lambda: now)
-    root = await port.reserve(
-        AdmissionRequest(
-            RunId("slice-four-root"),
-            ThreadId("channel"),
-            1,
-            SLICE2_KERNEL_LIMITS.max_provider_turns,
-            SLICE2_KERNEL_LIMITS.max_provider_input_tokens,
-            SLICE2_KERNEL_LIMITS.max_provider_output_tokens,
-        )
-    )
-    assert isinstance(root, AdmissionGranted)
-    assert await port.recover_orphans() == (RunId("slice-four-root"),)
-
-    assert RollingAdmissionPort.migrate_limits(path, previous=previous, current=current)
-    state = json.loads(path.read_text(encoding="utf-8"))
-    reservation = state["reservations"][0]
-    assert state["configuration"] == current.json()
-    assert reservation["reserved_turns"] == root.token.reserved_turns + 48
-    assert reservation["reserved_input_tokens"] == (
-        root.token.reserved_input_tokens + 2_124_288
-    )
-    assert reservation["reserved_output_tokens"] == (
-        root.token.reserved_output_tokens + 451_072
-    )
-    assert reservation["actual_turns"] == reservation["reserved_turns"]
-    assert reservation["actual_input_tokens"] == reservation["reserved_input_tokens"]
-    assert reservation["actual_output_tokens"] == reservation["reserved_output_tokens"]
-    assert not RollingAdmissionPort.migrate_limits(
-        path, previous=previous, current=current
-    )
-
-
-async def test_slice3_capacity_fits_worst_foreground_then_background_rememberer(
-    tmp_path: Path,
-) -> None:
-    maximum_owner_inputs = 20
-    selected = slice3_admission_limits(maximum_owner_inputs)
-    path = tmp_path / "admission.json"
-    RollingAdmissionPort.initialize(path, selected)
-    port = RollingAdmissionPort(
-        path,
-        selected,
-        clock=lambda: datetime(2026, 9, 4, tzinfo=UTC),
-    )
-    main = SLICE2_KERNEL_LIMITS
-    foreground = await port.reserve(
-        AdmissionRequest(
-            RunId("foreground"),
-            ThreadId("channel"),
-            1,
-            main.max_provider_turns,
-            main.max_provider_input_tokens,
-            main.max_provider_output_tokens,
-        )
-    )
-    assert isinstance(foreground, AdmissionGranted)
-    recall = SLICE3_RECALL_KERNEL_LIMITS
-    for index in range(maximum_owner_inputs):
-        child = await port.reserve(
-            AdmissionRequest(
-                RunId(f"recaller-{index}"),
-                None,
-                None,
-                recall.max_provider_turns,
-                recall.max_provider_input_tokens,
-                recall.max_provider_output_tokens,
-                foreground.token,
-            )
-        )
-        assert isinstance(child, AdmissionGranted)
-        await port.settle(
-            child.token,
-            AdmissionUsage(
-                recall.max_provider_turns,
-                ProviderUsage(input_tokens=None, output_tokens=None),
-                60.0,
-            ),
-        )
-    await port.settle(
-        foreground.token,
-        AdmissionUsage(
-            main.max_provider_turns,
-            ProviderUsage(input_tokens=None, output_tokens=None),
-            300.0,
-        ),
-    )
-
-    remember = SLICE3_REMEMBER_KERNEL_LIMITS
-    background = await port.reserve(
-        AdmissionRequest(
-            RunId("rememberer"),
-            None,
-            None,
-            remember.max_provider_turns,
-            remember.max_provider_input_tokens,
-            remember.max_provider_output_tokens,
-        )
-    )
-    assert isinstance(background, AdmissionGranted)
-    assert background.token.reserved_turns == remember.max_provider_turns
-    assert background.token.reserved_input_tokens == (
-        remember.max_provider_input_tokens + selected.root_input_token_overshoot
-    )
-    assert background.token.reserved_output_tokens == (
-        remember.max_provider_output_tokens + selected.root_output_token_overshoot
-    )
-
-
-async def test_plan_factory_returns_fresh_exact_budget() -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="UTC",
-    )
+    definitions = current_definitions
     plan = definitions.plans["main"]
     factory = ExactToolBudgetFactory()
     first = factory.create(plan)
@@ -533,6 +403,6 @@ def test_agent_control_upgrade_preserves_previous_admission_vector(
     assert previous.max_output_tokens == 2_086_784
     path = tmp_path / "admission.json"
     RollingAdmissionPort.initialize(path, previous)
-    current = slice6_admission_limits(20)
+    current = current_admission_limits(20)
     assert RollingAdmissionPort.migrate_limits(path, previous=previous, current=current)
     assert json.loads(path.read_text())["configuration"] == current.json()

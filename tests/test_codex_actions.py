@@ -12,7 +12,6 @@ from llm_agent_kernel import Checkpoint, InputId, ThreadId
 from llm_agent_kernel.decisions import ModelDecisionRequest, ModelDecisionScope
 from llm_tools import ReplayPolicy, ToolEffect, ToolId, raw_input_digest
 from llm_tools.execution import ParsedJson
-from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import AgentSessionRef, AgentTerminal
 
 from jarvis.actions import (
@@ -32,7 +31,7 @@ from jarvis.codex_history import (
 from jarvis.connectors import GoogleTokenManager
 from jarvis.db import create_engine
 from jarvis.decisions import PostgresModelDecisionJournal
-from jarvis.definitions import build_slice1_definitions
+from jarvis.definitions import RoleDefinitions
 from jarvis.messages import (
     ACTION_MODEL_CONTEXT_SEPARATOR,
     ClaimedMessages,
@@ -194,6 +193,7 @@ def test_unknown_resolution_preserves_confirmed_prefix_without_claiming_failure(
     reason="requires the disposable PostgreSQL action boundary",
 )
 async def test_uncertain_agent_action_survives_restart_without_reentry(
+    current_definitions: RoleDefinitions,
     tmp_path: Path,
 ) -> None:
     contract = _contract(billed_once=True)
@@ -312,9 +312,7 @@ async def test_uncertain_agent_action_survives_restart_without_reentry(
                         stage_gmail_update_basis=actions.stage_gmail_update_basis,
                         stage_external_attempts=actions.stage_external_attempts,
                     ),
-                    plan=build_slice1_definitions(
-                        provider=frozen_provider(), owner_timezone="UTC"
-                    ).plans["main"],
+                    plan=current_definitions.plans["main"],
                     source_conversation_id=channel,
                 )
                 assert await recovery.recover(allow_queued_execution=False) == 1

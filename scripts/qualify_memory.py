@@ -63,9 +63,9 @@ from pydantic import SecretStr
 from sqlalchemy import func, insert, select, text
 
 from jarvis.admission import (
+    RollingAdmissionLimits,
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
-    slice3_admission_limits,
 )
 from jarvis.codex_config import CodexHostConfig
 from jarvis.context import IsolatedRecaller, RecallEvidence
@@ -81,7 +81,8 @@ from jarvis.db import (
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    SLICE2_KERNEL_LIMITS,
+    RECALLER_KERNEL_LIMITS,
+    REMEMBERER_KERNEL_LIMITS,
     build_recaller,
     build_rememberer,
     verify_runtime_dependencies,
@@ -114,6 +115,9 @@ MEMORIES = ROOT / "eval" / "recall-memories.jsonl"
 CASES = ROOT / "eval" / "recall.jsonl"
 SEEDED_SUMMARY_ID = UUID("10000000-0000-4000-8000-000000000001")
 _SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
+MEMORY_PROBE_ROOT_TURNS = 12
+MEMORY_PROBE_ROOT_INPUT_TOKENS = 400_000
+MEMORY_PROBE_ROOT_OUTPUT_TOKENS = 40_000
 _RECALL_TERMINAL_OUTCOMES = frozenset(
     (
         *(item.value for item in ThreadStopKind),
@@ -139,6 +143,51 @@ _PROVIDER_TERMINAL_CODES = frozenset(
         "turn_timeout",
     )
 )
+
+
+def qualification_admission_limits(maximum_recall_cases: int) -> RollingAdmissionLimits:
+    if type(maximum_recall_cases) is not int or maximum_recall_cases <= 0:
+        raise ValueError("maximum recall cases must be a positive integer")
+    root_input_overshoot = 32_768
+    root_output_overshoot = 8_192
+    serial_child_turns = (
+        maximum_recall_cases * RECALLER_KERNEL_LIMITS.max_provider_turns
+    )
+    serial_child_input_tokens = maximum_recall_cases * (
+        RECALLER_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+    )
+    serial_child_output_tokens = maximum_recall_cases * (
+        RECALLER_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+    )
+    maximum_foreground_turns = MEMORY_PROBE_ROOT_TURNS + serial_child_turns
+    maximum_foreground_input_tokens = (
+        MEMORY_PROBE_ROOT_INPUT_TOKENS
+        + root_input_overshoot
+        + serial_child_input_tokens
+    )
+    maximum_foreground_output_tokens = (
+        MEMORY_PROBE_ROOT_OUTPUT_TOKENS
+        + root_output_overshoot
+        + serial_child_output_tokens
+    )
+    return RollingAdmissionLimits(
+        max_turns=(
+            maximum_foreground_turns + REMEMBERER_KERNEL_LIMITS.max_provider_turns
+        ),
+        max_input_tokens=(
+            maximum_foreground_input_tokens
+            + REMEMBERER_KERNEL_LIMITS.max_provider_input_tokens
+            + root_input_overshoot
+        ),
+        max_output_tokens=(
+            maximum_foreground_output_tokens
+            + REMEMBERER_KERNEL_LIMITS.max_provider_output_tokens
+            + root_output_overshoot
+        ),
+        serial_child_turns=serial_child_turns,
+        serial_child_input_tokens=serial_child_input_tokens,
+        serial_child_output_tokens=serial_child_output_tokens,
+    )
 
 
 class QualificationFailure(RuntimeError):
@@ -776,7 +825,7 @@ async def _run_production_roles(
             provider=provider_configuration,
             owner_timezone=arguments.owner_timezone,
         )
-        limits = slice3_admission_limits(len(cases))
+        limits = qualification_admission_limits(len(cases))
         RollingAdmissionPort.initialize(
             arguments.runtime_state_directory / "admission.json", limits
         )
@@ -797,9 +846,9 @@ async def _run_production_roles(
                     RunId(str(uuid4())),
                     ThreadId("slice-3-recall-qualification"),
                     1,
-                    SLICE2_KERNEL_LIMITS.max_provider_turns,
-                    SLICE2_KERNEL_LIMITS.max_provider_input_tokens,
-                    SLICE2_KERNEL_LIMITS.max_provider_output_tokens,
+                    MEMORY_PROBE_ROOT_TURNS,
+                    MEMORY_PROBE_ROOT_INPUT_TOKENS,
+                    MEMORY_PROBE_ROOT_OUTPUT_TOKENS,
                 )
             )
             if not isinstance(root, AdmissionGranted):

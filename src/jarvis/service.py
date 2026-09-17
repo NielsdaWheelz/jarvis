@@ -48,7 +48,6 @@ from jarvis import memory_workers
 from jarvis.actions import ClaimedSchedule, ScheduleStateChanged
 from jarvis.admission import (
     ExactToolBudgetFactory,
-    RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
 from jarvis.approval_runtime import ApprovalActionHandler
@@ -60,10 +59,8 @@ from jarvis.context import (
 )
 from jarvis.decisions import ModelJournalFactory
 from jarvis.definitions import (
-    SLICE6_TOOL_LIMITS,
-    Slice1Definitions,
-    Slice2Definitions,
-    Slice6Definitions,
+    MAIN_MAXIMUM_TOOL_LIMITS,
+    RoleDefinitions,
 )
 from jarvis.discord import (
     CatchUpResult,
@@ -74,7 +71,7 @@ from jarvis.discord import (
     DiscordOwnerMessage,
 )
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime
+from jarvis.kernel import KernelRuntime
 from jarvis.memory import (
     MemoryStore,
 )
@@ -170,7 +167,8 @@ class _StoredMainEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     kind: Literal["jarvis-main-evidence.v1"]
     observations: Annotated[
-        tuple[_StoredObservation, ...], Field(max_length=SLICE6_TOOL_LIMITS.max_calls)
+        tuple[_StoredObservation, ...],
+        Field(max_length=MAIN_MAXIMUM_TOOL_LIMITS.max_calls),
     ]
 
 
@@ -233,7 +231,7 @@ class CapturingReadDispatcher:
             ],
         }
         encoded = canonical_json_bytes(value)
-        if len(encoded) > SLICE6_TOOL_LIMITS.max_output_bytes + 16_384:
+        if len(encoded) > MAIN_MAXIMUM_TOOL_LIMITS.max_output_bytes + 16_384:
             raise ValueError("Main model evidence exceeds its frozen tool output bound")
         return _StoredMainEvidence.model_validate_json(encoded).model_dump(mode="json")
 
@@ -299,19 +297,15 @@ class JarvisThreadRunner:
         *,
         settings: Settings,
         store: MessageStore,
-        admission: RollingAdmissionPort | RootTrackingAdmissionPort,
+        admission: RootTrackingAdmissionPort,
         kernel_runtime: KernelRuntime,
         model_decisions: ModelJournalFactory,
-        definitions: Slice1Definitions | Slice2Definitions | Slice6Definitions,
+        definitions: RoleDefinitions,
         history: PostgresCanonicalHistory,
-        dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
-        checkpoint_dispatcher_factory: Callable[
-            [PostgresInputCheckpoint], ToolDispatchPort
-        ]
-        | None = None,
-        memory: MemoryStore | None = None,
-        memory_dispatcher_factory: Callable[[], MemoryReadDispatcherPort] | None = None,
-        rememberer: memory_workers.RemembererWorker | None = None,
+        dispatcher_factory: Callable[[PostgresInputCheckpoint], ToolDispatchPort],
+        memory: MemoryStore,
+        memory_dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
+        rememberer: memory_workers.RemembererWorker,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -321,19 +315,9 @@ class JarvisThreadRunner:
         self._definitions = definitions
         self._history = history
         self._dispatcher_factory = dispatcher_factory
-        self._checkpoint_dispatcher_factory = checkpoint_dispatcher_factory
         self._memory = memory
         self._memory_dispatcher_factory = memory_dispatcher_factory
         self._rememberer = rememberer
-        if isinstance(definitions, Slice6Definitions) and (
-            not isinstance(admission, RootTrackingAdmissionPort)
-            or memory is None
-            or memory_dispatcher_factory is None
-            or rememberer is None
-        ):
-            raise ValueError(
-                "memory-enabled runner requires complete isolated memory composition"
-            )
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint: PostgresInputCheckpoint | None = None
 
@@ -384,7 +368,7 @@ class JarvisThreadRunner:
         def on_settlement(owner_message_ids: tuple[UUID, ...]) -> None:
             assert dispatcher is not None
             material_context = dispatcher.take_material_sections()
-            if owner_message_ids and self._rememberer is not None:
+            if owner_message_ids:
                 self._rememberer.enqueue(owner_message_ids, material_context)
 
         checkpoints = PostgresInputCheckpoint(
@@ -399,32 +383,25 @@ class JarvisThreadRunner:
             on_settlement=on_settlement,
         )
         dispatcher = CapturingReadDispatcher(
-            self._checkpoint_dispatcher_factory(checkpoints)
-            if self._checkpoint_dispatcher_factory is not None
-            else self._dispatcher_factory(),
+            self._dispatcher_factory(checkpoints),
             turn_evidence,
         )
-        recaller = None
-        if isinstance(self._definitions, Slice6Definitions):
-            assert isinstance(self._admission, RootTrackingAdmissionPort)
-            assert self._memory is not None
-            assert self._memory_dispatcher_factory is not None
-            recaller = IsolatedRecaller(
-                definition=self._definitions.recaller,
-                plan=self._definitions.plans["recaller"],
-                admission=self._admission,
-                provider=self._kernel_runtime.provider,
-                dispatcher_factory=self._memory_dispatcher_factory,
-                memory=self._memory,
-                trace=self._store,
-                model_decisions=self._model_decisions,
-            )
+        recaller = IsolatedRecaller(
+            definition=self._definitions.recaller,
+            plan=self._definitions.plans["recaller"],
+            admission=self._admission,
+            provider=self._kernel_runtime.provider,
+            dispatcher_factory=self._memory_dispatcher_factory,
+            memory=self._memory,
+            trace=self._store,
+            model_decisions=self._model_decisions,
+        )
         context = JarvisContextSource(
             thread_id,
             self._history,
             recaller=recaller,
             cancellation=cancellation,
-            batch_clock=checkpoints if recaller is not None else None,
+            batch_clock=checkpoints,
         )
         async with self._checkpoint_lock:
             if self._checkpoint is not None:

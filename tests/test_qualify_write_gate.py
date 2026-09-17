@@ -22,9 +22,9 @@ from llm_tools import ToolId, canonical_json_bytes
 from provider_fixture import frozen_provider
 
 from jarvis.definitions import (
-    SLICE1_KERNEL_LIMITS,
+    WRITE_GATE_KERNEL_LIMITS,
     AutomaticWriteGateResult,
-    build_slice5_write_gate,
+    build_write_gate,
 )
 from jarvis.write_gate import WriteGateDecision
 
@@ -123,7 +123,7 @@ def test_trial_validation_requires_clean_exact_decision_and_support() -> None:
 
 
 def test_qualifier_uses_exact_production_gate_contract_and_empty_plan() -> None:
-    definition, plan = build_slice5_write_gate(
+    definition, plan = build_write_gate(
         provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
 
@@ -146,13 +146,13 @@ def test_qualifier_admission_reserves_one_bounded_child_per_paid_case() -> None:
     limits = qualification_admission_limits()
 
     assert limits.serial_child_turns == (
-        len(TRIALS) * SLICE1_KERNEL_LIMITS.max_provider_turns
+        len(TRIALS) * WRITE_GATE_KERNEL_LIMITS.max_provider_turns
     )
     assert limits.serial_child_input_tokens == len(TRIALS) * (
-        SLICE1_KERNEL_LIMITS.max_provider_input_tokens + 32_768
+        WRITE_GATE_KERNEL_LIMITS.max_provider_input_tokens + 32_768
     )
     assert limits.serial_child_output_tokens == len(TRIALS) * (
-        SLICE1_KERNEL_LIMITS.max_provider_output_tokens + 8_192
+        WRITE_GATE_KERNEL_LIMITS.max_provider_output_tokens + 8_192
     )
     assert limits.max_turns == 1 + limits.serial_child_turns
     assert limits.max_input_tokens == 1 + 32_768 + limits.serial_child_input_tokens

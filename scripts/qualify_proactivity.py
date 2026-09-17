@@ -75,11 +75,11 @@ from jarvis.db import (
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
+    EXTERNAL_READ_IDS,
     QUALIFIED_CODEX_MODELS,
-    SLICE2_READ_IDS,
-    Slice6Definitions,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    RoleDefinitions,
+    build_definitions,
+    build_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.discord import (
@@ -112,7 +112,7 @@ from jarvis.schedule_tools import (
 from jarvis.service import JarvisThreadRunner, flush_pending_deliveries
 from jarvis.settings import Settings
 from jarvis.terminal import TurnEvidence
-from jarvis.write_composition import build_slice6_composition
+from jarvis.tool_composition import build_tool_composition
 from jarvis.write_dispatch import WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate
 
@@ -204,13 +204,11 @@ def assert_sanitized_output(
         raise QualificationFailure("output", "private_value_exposed")
 
 
-def proactive_plan_evidence(definitions: Slice6Definitions) -> dict[str, object]:
+def proactive_plan_evidence(definitions: RoleDefinitions) -> dict[str, object]:
     scheduled = definitions.plans["scheduled_wake"]
-    if definitions.plans["proactive"] is not scheduled:
-        raise QualificationFailure("plan", "proactive_alias_changed")
     require_host_plan(scheduled, definitions.main.maximum_profile)
     tool_ids = tuple(grant.id for grant in scheduled.profile.ordered_grants)
-    if tool_ids != SLICE2_READ_IDS:
+    if tool_ids != EXTERNAL_READ_IDS:
         raise QualificationFailure("plan", "proactive_tools_changed")
     if any(
         scheduled.catalog_view.binding(tool_id).spec.effect is not ToolEffect.Read
@@ -252,13 +250,13 @@ def validate_result_evidence(result: dict[str, object]) -> None:
         plan.get("read_only") is True,
         plan.get("recall_available") is False,
         tuple(cast("tuple[str, ...]", plan.get("tool_ids")))
-        == tuple(map(str, SLICE2_READ_IDS)),
+        == tuple(map(str, EXTERNAL_READ_IDS)),
         schedule.get("exact_due") is True,
         schedule.get("host_wake_count") == 2,
         schedule.get("idempotent_claim") is True,
         schedule.get("overdue_restart") is True,
         schedule.get("wake_outcomes") == 2,
-        all(tool_id in tuple(map(str, SLICE2_READ_IDS)) for tool_id in dispatches),
+        all(tool_id in tuple(map(str, EXTERNAL_READ_IDS)) for tool_id in dispatches),
     )
     if not all(required):
         raise QualificationFailure("evidence", "qualification_incomplete")
@@ -380,7 +378,7 @@ async def _execute_schedule(
 async def _fallback_next_host(
     *,
     messages: MessageStore,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     conversation_id: str,
     expected_plan_revision: str,
 ) -> None:
@@ -538,7 +536,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     profile_key=settings.codex_profile_key,
                     model_key=settings.codex_model,
                 )
-                provisional_gate, _ = build_slice5_write_gate(
+                provisional_gate, _ = build_write_gate(
                     provider=provider_configuration,
                 )
                 agents = AgentController(
@@ -546,7 +544,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     client_config=settings.agent_client_config_path,
                     actions=actions,
                 )
-                composition = build_slice6_composition(
+                composition = build_tool_composition(
                     settings=settings,
                     google_oauth_http=google_oauth_http,
                     google_api_http=google_api_http,
@@ -560,7 +558,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                         provisional_gate.fingerprint
                     ),
                 )
-                definitions = build_slice6_definitions(
+                definitions = build_definitions(
                     catalog=composition.catalog,
                     provider=provider_configuration,
                     owner_timezone=settings.owner_timezone,
@@ -801,7 +799,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     kernel_runtime=kernel_runtime,
                     definitions=definitions,
                     history=PostgresCanonicalHistory(engine),
-                    checkpoint_dispatcher_factory=dispatcher_factory,
+                    dispatcher_factory=dispatcher_factory,
                     memory=memory,
                     memory_dispatcher_factory=lambda: MemoryToolDispatcher(
                         recorder=PostgresReadRecorder(engine)

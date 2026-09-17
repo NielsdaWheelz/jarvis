@@ -58,7 +58,7 @@ async def resolve_provider_configuration(
     )
 
 
-class EmptySlice1Dispatcher:
+class EmptyToolDispatcher:
     async def dispatch(
         self,
         *,
@@ -70,7 +70,7 @@ class EmptySlice1Dispatcher:
         lineage: ToolDispatchLineage,
     ) -> Never:
         del binding, validated_input, plan, budgets, cancellation, lineage
-        raise ToolDispatchDefect("Slice 1 has no model-callable tools")
+        raise ToolDispatchDefect("an empty tool plan cannot dispatch a tool")
 
 
 @dataclass(slots=True)
@@ -153,7 +153,7 @@ def build_kernel_runtime(
 
 
 __all__ = [
-    "EmptySlice1Dispatcher",
+    "EmptyToolDispatcher",
     "KernelRuntime",
     "build_agent_runtime",
     "build_kernel_runtime",

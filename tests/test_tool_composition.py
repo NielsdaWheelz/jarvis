@@ -1,92 +1,40 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
+from composition_fixture import (
+    ActionsFixture,
+    MemoryEmbedderFixture,
+    MemoryRepositoryFixture,
+    composition_settings,
+)
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
 from llm_tools import Available, PromptText, ToolId, canonical_json_bytes
 from provider_fixture import frozen_provider
-from pydantic import SecretStr
 
 from jarvis.agent_control import AgentController
-from jarvis.agent_tools import AGENT_TOOL_IDS
-from jarvis.config import DiscordSettings
+from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.definitions import (
-    SLICE2_READ_IDS,
-    SLICE3_MEMORY_READ_IDS,
-    SLICE6_KERNEL_LIMITS,
-    SLICE6_PLAN_TOOL_LIMITS,
-    SLICE6_TOOL_LIMITS,
-    SLICE6_WRITE_IDS,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    EXTERNAL_READ_IDS,
+    MAIN_KERNEL_LIMITS,
+    MAIN_MAXIMUM_TOOL_LIMITS,
+    MAIN_TOOL_LIMITS,
+    MAIN_WRITE_IDS,
+    MEMORY_READ_IDS,
+    build_definitions,
+    build_write_gate,
     load_session_manifest,
     session_compatibility_revision,
 )
-from jarvis.settings import Settings
 from jarvis.terminal import JarvisTerminal
-from jarvis.write_composition import build_slice6_catalog
+from jarvis.tool_composition import build_tool_composition
 
 
-class ActionsFixture:
-    async def stage_gmail_update_basis(self, **values: object) -> object:
-        raise AssertionError(values)
-
-    async def schedule_target(self, action_id: object) -> object:
-        raise AssertionError(action_id)
-
-    async def stage_external_attempts(self, **values: object) -> object:
-        raise AssertionError(values)
-
-
-class _MemoryRepository:
-    async def search(self, *args: object, **kwargs: object) -> object:
-        raise AssertionError((args, kwargs))
-
-    async def open(self, *args: object, **kwargs: object) -> object:
-        raise AssertionError((args, kwargs))
-
-
-class _MemoryEmbedder:
-    async def embed(self, values: object) -> object:
-        raise AssertionError(values)
-
-
-def composition_settings(tmp_path: Path) -> Settings:
-    key = base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("=")
-    return Settings(
-        database_url=SecretStr("postgresql://synthetic"),
-        discord=DiscordSettings(
-            bot_token=SecretStr("synthetic-discord-token"),
-            owner_user_id=1,
-            guild_id=2,
-            channel_id=3,
-        ),
-        owner_timezone="UTC",
-        codex_profile_key="personal",
-        codex_model="gpt-5.6-terra",
-        agent_cli_path=tmp_path / "skid",
-        agent_client_config_path=tmp_path / "agent-client.json",
-        codex_host_config_path=tmp_path / "codex",
-        runtime_state_directory=tmp_path / "runtime",
-        google_oauth_state_path=tmp_path / "google.json",
-        google_oauth_client_id=SecretStr("synthetic-google-client"),
-        google_oauth_client_secret=SecretStr("synthetic-google-secret"),
-        connector_encryption_key_version="v2",
-        connector_encryption_keys=SecretStr(json.dumps({"v2": key})),
-        connector_encryption_secret=SecretStr("synthetic-encryption-secret"),
-        maps_api_key=SecretStr("synthetic-maps-key"),
-        brave_api_key=SecretStr("synthetic-brave-key"),
-        embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
-        verified_owner_only_calendar_ids=("owner@example.invalid",),
-    )
-
-
-async def test_slice6_catalog_and_plans_select_every_qualified_binding(
+async def test_catalog_and_plans_select_every_qualified_binding(
     tmp_path: Path,
 ) -> None:
     clients = tuple(
@@ -99,19 +47,19 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         )
         for _ in range(4)
     )
-    gate, _ = build_slice5_write_gate(
+    gate, _ = build_write_gate(
         provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
     try:
         catalog, rotated = (
-            build_slice6_catalog(
+            build_tool_composition(
                 settings=composition_settings(tmp_path),
                 google_oauth_http=clients[0],
                 google_api_http=clients[1],
                 maps_http=clients[2],
                 brave_http=clients[3],
-                memory_repository=cast("Any", _MemoryRepository()),
-                memory_embedder=cast("Any", _MemoryEmbedder()),
+                memory_repository=cast("Any", MemoryRepositoryFixture()),
+                memory_embedder=cast("Any", MemoryEmbedderFixture()),
                 actions=cast("Any", ActionsFixture()),
                 agents=AgentController(
                     executable=tmp_path / "skid",
@@ -119,7 +67,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
                     actions=cast("Any", ActionsFixture()),
                 ),
                 automatic_write_gate_definition_fingerprint=gate_fingerprint,
-            )
+            ).catalog
             for gate_fingerprint in (gate.fingerprint, "b" * 64)
         )
     finally:
@@ -219,23 +167,23 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
         "reconciliation_thread_minimal_gets_per_observation": 1,
         "reconciliation_thread_raw_message_gets_per_observation": 100,
     }
-    definitions = build_slice6_definitions(
+    definitions = build_definitions(
         catalog=catalog,
         provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
-    assert definitions.main.limits == SLICE6_KERNEL_LIMITS
-    assert definitions.main.maximum_profile.run_limits == SLICE6_TOOL_LIMITS
-    assert definitions.plans["main"].profile.run_limits == SLICE6_PLAN_TOOL_LIMITS
+    assert definitions.main.limits == MAIN_KERNEL_LIMITS
+    assert definitions.main.maximum_profile.run_limits == MAIN_MAXIMUM_TOOL_LIMITS
+    assert definitions.plans["main"].profile.run_limits == MAIN_TOOL_LIMITS
 
     assert set(definitions.main.maximum_profile.grants) == set(
-        (*SLICE2_READ_IDS, *SLICE6_WRITE_IDS, *AGENT_TOOL_IDS)
+        (*EXTERNAL_READ_IDS, *MAIN_WRITE_IDS, *AGENT_READ_IDS)
     )
     assert set(definitions.plans["main"].profile.grants) == set(catalog.tool_ids) - {
-        *SLICE3_MEMORY_READ_IDS
+        *MEMORY_READ_IDS
     }
     assert set(definitions.plans["scheduled_wake"].profile.grants) == set(
-        SLICE2_READ_IDS
+        EXTERNAL_READ_IDS
     )
     assert not definitions.automatic_write_gate.maximum_profile.grants
     assert not definitions.plans["automatic_write_gate"].profile.grants
@@ -282,7 +230,7 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     for role in ("recaller", "rememberer", "dreamer", "automatic_write_gate"):
         assert getattr(definitions, role).session_mode is SessionMode.isolated
     for name in definitions.plans:
-        role = "main" if name in {"proactive", "scheduled_wake"} else name
+        role = "main" if name == "scheduled_wake" else name
         require_host_plan(
             definitions.plans[name], getattr(definitions, role).maximum_profile
         )

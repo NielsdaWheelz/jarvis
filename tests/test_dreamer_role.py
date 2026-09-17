@@ -20,10 +20,10 @@ from pydantic import ValidationError
 
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.definitions import (
-    SLICE2_READ_IDS,
-    SLICE3_MEMORY_READ_IDS,
-    SLICE4_DREAM_KERNEL_LIMITS,
-    SLICE4_DREAM_TOOL_LIMITS,
+    DREAMER_KERNEL_LIMITS,
+    DREAMER_TOOL_LIMITS,
+    EXTERNAL_READ_IDS,
+    MEMORY_READ_IDS,
     DreamResult,
     build_dreamer,
     build_recaller,
@@ -55,9 +55,9 @@ def test_dreamer_definition_is_an_exact_isolated_memory_read_role() -> None:
     assert dreamer.session_mode is SessionMode.isolated
     assert isinstance(dreamer.output_contract, StructuredOutput)
     assert dreamer.output_contract.name == "jarvis_dream"
-    assert tuple(dreamer.maximum_profile.grants) == SLICE3_MEMORY_READ_IDS
-    assert tuple(plan.profile.grants) == SLICE3_MEMORY_READ_IDS
-    assert set(plan.profile.grants).isdisjoint(SLICE2_READ_IDS)
+    assert tuple(dreamer.maximum_profile.grants) == MEMORY_READ_IDS
+    assert tuple(plan.profile.grants) == MEMORY_READ_IDS
+    assert set(plan.profile.grants).isdisjoint(EXTERNAL_READ_IDS)
     assert all(
         plan.catalog_view.spec(tool_id).effect is ToolEffect.Read
         for tool_id in plan.profile.grants
@@ -98,7 +98,7 @@ def test_dreamer_definition_is_an_exact_isolated_memory_read_role() -> None:
 def test_dreamer_limits_and_plan_aware_budget_are_exact() -> None:
     dreamer, plan = build_test_dreamer()
 
-    assert SLICE4_DREAM_TOOL_LIMITS == RunLimits(
+    assert DREAMER_TOOL_LIMITS == RunLimits(
         max_calls=8,
         max_external_attempts=8,
         max_input_bytes=32_768,
@@ -106,7 +106,7 @@ def test_dreamer_limits_and_plan_aware_budget_are_exact() -> None:
         max_in_flight=1,
         max_elapsed_seconds=60.0,
     )
-    assert SLICE4_DREAM_KERNEL_LIMITS == KernelLimits(
+    assert DREAMER_KERNEL_LIMITS == KernelLimits(
         max_provider_turns=10,
         max_protocol_repairs=2,
         max_no_progress_attempts=3,
@@ -115,9 +115,9 @@ def test_dreamer_limits_and_plan_aware_budget_are_exact() -> None:
         max_provider_output_tokens=16_000,
         max_new_context_bytes=262_144,
     )
-    assert dreamer.maximum_profile.run_limits == SLICE4_DREAM_TOOL_LIMITS
-    assert plan.profile.run_limits == SLICE4_DREAM_TOOL_LIMITS
-    assert dreamer.limits == SLICE4_DREAM_KERNEL_LIMITS
+    assert dreamer.maximum_profile.run_limits == DREAMER_TOOL_LIMITS
+    assert plan.profile.run_limits == DREAMER_TOOL_LIMITS
+    assert dreamer.limits == DREAMER_KERNEL_LIMITS
     first = ExactToolBudgetFactory().create(plan)
     second = ExactToolBudgetFactory().create(plan)
     assert first is not second

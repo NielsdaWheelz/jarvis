@@ -35,12 +35,12 @@ from jarvis.write_tools import calendar_main_family, gmail_main_family
 
 
 @dataclass(frozen=True, slots=True)
-class Slice6Composition:
+class ToolComposition:
     catalog: ToolCatalog
     google_write: GoogleWriteConnector
 
 
-def build_slice6_composition(
+def build_tool_composition(
     *,
     settings: Settings,
     google_oauth_http: httpx.AsyncClient,
@@ -52,7 +52,7 @@ def build_slice6_composition(
     actions: ActionStore,
     agents: AgentController,
     automatic_write_gate_definition_fingerprint: str,
-) -> Slice6Composition:
+) -> ToolComposition:
     if (
         not automatic_write_gate_definition_fingerprint
         or automatic_write_gate_definition_fingerprint
@@ -131,36 +131,7 @@ def build_slice6_composition(
         for tool_id in catalog.tool_ids
     ):
         raise RuntimeError("every Slice 6 binding must be available")
-    return Slice6Composition(catalog, google_write)
-
-
-def build_slice6_catalog(
-    *,
-    settings: Settings,
-    google_oauth_http: httpx.AsyncClient,
-    google_api_http: httpx.AsyncClient,
-    maps_http: httpx.AsyncClient,
-    brave_http: httpx.AsyncClient,
-    memory_repository: MemoryRepository,
-    memory_embedder: MemoryEmbedder,
-    actions: ActionStore,
-    agents: AgentController,
-    automatic_write_gate_definition_fingerprint: str,
-) -> ToolCatalog:
-    return build_slice6_composition(
-        settings=settings,
-        google_oauth_http=google_oauth_http,
-        google_api_http=google_api_http,
-        maps_http=maps_http,
-        brave_http=brave_http,
-        memory_repository=memory_repository,
-        memory_embedder=memory_embedder,
-        actions=actions,
-        agents=agents,
-        automatic_write_gate_definition_fingerprint=(
-            automatic_write_gate_definition_fingerprint
-        ),
-    ).catalog
+    return ToolComposition(catalog, google_write)
 
 
 def _bind_write_policy(
@@ -193,8 +164,4 @@ def _bind_write_policy(
     return ToolFamily(family.namespace, family.declarations, tuple(bindings))
 
 
-__all__ = [
-    "Slice6Composition",
-    "build_slice6_catalog",
-    "build_slice6_composition",
-]
+__all__ = ["ToolComposition", "build_tool_composition"]

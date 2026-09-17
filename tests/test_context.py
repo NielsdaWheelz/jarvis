@@ -12,11 +12,17 @@ from llm_agent_kernel import (
     bootstrap_context,
     run_context,
 )
-from llm_tools import PromptSection, PromptSectionKind, PromptSections, PromptText
+from llm_tools import (
+    PromptSection,
+    PromptSectionKind,
+    PromptSections,
+    PromptText,
+    ToolCatalog,
+)
 from provider_fixture import frozen_provider
 
 from jarvis.context import CanonicalMessage, JarvisContextSource
-from jarvis.definitions import build_slice1_definitions
+from jarvis.definitions import build_definitions
 
 
 class History:
@@ -37,8 +43,11 @@ class History:
         return self.messages
 
 
-async def test_stateless_bootstrap_uses_plain_canonical_context_once() -> None:
-    definitions = build_slice1_definitions(
+async def test_stateless_bootstrap_uses_plain_canonical_context_once(
+    current_catalog: ToolCatalog,
+) -> None:
+    definitions = build_definitions(
+        catalog=current_catalog,
         provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="America/Los_Angeles",
     )
@@ -92,8 +101,11 @@ async def test_stateless_bootstrap_uses_plain_canonical_context_once() -> None:
     assert "provider_runtime" not in repr(canonical)
 
 
-async def test_healthy_continuation_does_not_repeat_history_or_timezone() -> None:
-    definitions = build_slice1_definitions(
+async def test_healthy_continuation_does_not_repeat_history_or_timezone(
+    current_catalog: ToolCatalog,
+) -> None:
+    definitions = build_definitions(
+        catalog=current_catalog,
         provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )

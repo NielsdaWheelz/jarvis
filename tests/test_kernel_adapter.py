@@ -6,9 +6,15 @@ import stat
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import pytest
+from composition_fixture import (
+    MemoryEmbedderFixture,
+    MemoryRepositoryFixture,
+    build_test_catalog,
+)
 from llm_agent_kernel import (
     CancellationToken,
     Checkpoint,
@@ -50,15 +56,14 @@ from jarvis.admission import (
 from jarvis.config import DiscordSettings
 from jarvis.context import CanonicalMessage, JarvisContextSource
 from jarvis.definitions import (
-    build_slice2_definitions,
+    build_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.kernel import (
-    EmptySlice1Dispatcher,
+    EmptyToolDispatcher,
     build_agent_runtime,
     build_kernel_runtime,
 )
-from jarvis.read_composition import build_read_catalog
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.settings import Settings
 
@@ -122,10 +127,18 @@ class _RecordingRuntime:
             session_ref=session.ref,
             structured_output=freeze_json_object(
                 {
-                    "type": "say",
-                    "say": {"text": "contained response"},
+                    "type": "finish",
+                    "say": None,
                     "call_tool": None,
-                    "finish": None,
+                    "finish": {
+                        "reason": None,
+                        "result": {
+                            "response": {
+                                "type": "answered",
+                                "text": "contained response",
+                            }
+                        },
+                    },
                 }
             ),
             usage=Absent(),
@@ -189,8 +202,8 @@ async def test_runtime_bundle_uses_production_contained_provider(
 
 
 def test_slice1_dispatcher_satisfies_kernel_port() -> None:
-    dispatcher: ToolDispatchPort = EmptySlice1Dispatcher()
-    assert isinstance(dispatcher, EmptySlice1Dispatcher)
+    dispatcher: ToolDispatchPort = EmptyToolDispatcher()
+    assert isinstance(dispatcher, EmptyToolDispatcher)
 
 
 async def test_production_builder_excludes_ambient_credentials_from_real_run(
@@ -277,22 +290,21 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         shared_cwd_parent=cwd_parent,
         session_ref_path=tmp_path / "session.json",
     )
-    clients = [httpx.AsyncClient(trust_env=False) for _ in range(4)]
-    catalog = build_read_catalog(
-        settings=settings,
-        google_oauth_http=clients[0],
-        google_api_http=clients[1],
-        maps_http=clients[2],
-        brave_http=clients[3],
+    client = httpx.AsyncClient(trust_env=False)
+    provider = frozen_provider(settings.codex_profile_key, settings.codex_model, "high")
+    catalog = build_test_catalog(
+        settings,
+        client,
+        provider,
+        memory_repository=cast(Any, MemoryRepositoryFixture()),
+        memory_embedder=cast(Any, MemoryEmbedderFixture()),
     )
-    definitions = build_slice2_definitions(
+    definitions = build_definitions(
         catalog=catalog,
-        provider=frozen_provider(
-            settings.codex_profile_key, settings.codex_model, "high"
-        ),
+        provider=provider,
         owner_timezone=settings.owner_timezone,
     )
-    plan = definitions.plans["main"]
+    plan = definitions.plans["scheduled_wake"]
     sections = PromptSections(
         (
             PromptSection(
@@ -364,8 +376,7 @@ async def test_production_builder_excludes_ambient_credentials_from_real_run(
         )
     finally:
         await bundle.close()
-        for client in clients:
-            await client.aclose()
+        await client.aclose()
 
     assert isinstance(outcome, ThreadCompleted)
     assert len(recorded) == 1

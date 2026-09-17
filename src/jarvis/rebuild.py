@@ -14,8 +14,8 @@ from sqlalchemy import select, text
 from jarvis.admission import RollingAdmissionLimits
 from jarvis.db import memory_log, memory_summary
 from jarvis.definitions import (
-    SLICE3_RECALL_KERNEL_LIMITS,
-    SLICE4_DREAM_KERNEL_LIMITS,
+    DREAMER_KERNEL_LIMITS,
+    RECALLER_KERNEL_LIMITS,
 )
 from jarvis.embeddings import MAX_EMBEDDING_BATCH_SIZE
 from jarvis.memory import (
@@ -243,17 +243,15 @@ def rebuild_admission_limits(
     _positive(case_count, "rebuild recall case count")
     recall_runs = case_count * 2
     serial_turns = (
-        recall_runs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
-        + SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
+        recall_runs * RECALLER_KERNEL_LIMITS.max_provider_turns
+        + DREAMER_KERNEL_LIMITS.max_provider_turns
     )
     serial_input = recall_runs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT
-    ) + (SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT)
+        RECALLER_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT
+    ) + (DREAMER_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT)
     serial_output = recall_runs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
-    ) + (
-        SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
-    )
+        RECALLER_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
+    ) + (DREAMER_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT)
     return RollingAdmissionLimits(
         max_turns=1 + serial_turns,
         max_input_tokens=1 + _INPUT_TOKEN_OVERSHOOT + serial_input,
@@ -266,12 +264,12 @@ def rebuild_admission_limits(
 
 def corpus_rebuild_admission_limits() -> RollingAdmissionLimits:
     """Reserve one stopped production rebuild and its one Dreamer child."""
-    serial_turns = SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
+    serial_turns = DREAMER_KERNEL_LIMITS.max_provider_turns
     serial_input = (
-        SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT
+        DREAMER_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT
     )
     serial_output = (
-        SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
+        DREAMER_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
     )
     return RollingAdmissionLimits(
         max_turns=1 + serial_turns,

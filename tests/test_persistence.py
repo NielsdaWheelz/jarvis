@@ -44,7 +44,7 @@ from llm_agent_kernel import (
 )
 from llm_tools import ReplayPolicy, ToolEffect, raw_input_digest, render_prompt
 from llm_tools.execution import ParsedJson
-from provider_fixture import decision_key, frozen_provider
+from provider_fixture import decision_key
 from pydantic import SecretStr
 from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -54,7 +54,7 @@ from jarvis.actions import ExecutionContract
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.config import DiscordSettings
 from jarvis.db import action, create_engine, memory_log, message
-from jarvis.definitions import build_slice1_definitions
+from jarvis.definitions import RoleDefinitions
 from jarvis.discord import (
     CatchUpResult,
     Control,
@@ -538,6 +538,7 @@ async def test_settlement_and_delivery_are_one_way_watermarks(
 
 
 async def test_delayed_restart_delivery_reuses_persisted_identity(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -547,7 +548,9 @@ async def test_delayed_restart_delivery_reuses_persisted_identity(
         "delayed-restart-delivery-owner",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "delayed-restart-delivery-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "delayed-restart-delivery-run"
+    )
     claimed = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("delayed-restart-delivery-token"),
@@ -1004,6 +1007,7 @@ async def test_post_run_metrics_fill_is_idempotent(engine: AsyncEngine) -> None:
 
 
 def _checkpoint(
+    definitions: RoleDefinitions,
     engine: AsyncEngine,
     conversation_id: str,
     run_id: str,
@@ -1013,10 +1017,6 @@ def _checkpoint(
     store: MessageStore | None = None,
     evidence: TurnEvidence | None = None,
 ) -> PostgresInputCheckpoint:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
-        owner_timezone="America/Los_Angeles",
-    )
     return PostgresInputCheckpoint(
         store=store or MessageStore(engine),
         thread_id=ThreadId(conversation_id),
@@ -1058,6 +1058,7 @@ def _overlong_rendered_terminal() -> StructuredConclusion:
 
 
 async def test_structured_terminal_settles_exact_disposition_and_remains_memorable(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -1067,7 +1068,9 @@ async def test_structured_terminal_settles_exact_disposition_and_remains_memorab
         "structured-terminal-input",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "structured-terminal-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "structured-terminal-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("structured-terminal-owner")
     )
@@ -1103,6 +1106,7 @@ async def test_structured_terminal_settles_exact_disposition_and_remains_memorab
 
 
 async def test_incomplete_calendar_evidence_promotes_answer_to_partial(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -1120,6 +1124,7 @@ async def test_incomplete_calendar_evidence_promotes_answer_to_partial(
         matched_events=241,
     )
     checkpoint = _checkpoint(
+        current_definitions,
         engine,
         conversation_id,
         "partial-calendar-run",
@@ -1160,6 +1165,7 @@ async def test_incomplete_calendar_evidence_promotes_answer_to_partial(
 
 
 async def test_host_input_cannot_settle_with_a_silent_structured_terminal(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -1172,7 +1178,9 @@ async def test_host_input_cannot_settle_with_a_silent_structured_terminal(
         source_message_id=f"{uuid4()}:succeeded",
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, "host-silent-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "host-silent-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("host-silent-owner")
     )
@@ -1206,6 +1214,7 @@ async def test_host_input_cannot_settle_with_a_silent_structured_terminal(
 
 
 async def test_host_only_action_resolution_has_empty_write_gate_authority(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -1218,7 +1227,9 @@ async def test_host_only_action_resolution_has_empty_write_gate_authority(
         source_message_id=f"{uuid4()}:succeeded",
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, "host-only-write-gate-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "host-only-write-gate-run"
+    )
     claimed = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("host-only-write-gate-owner")
     )
@@ -1322,7 +1333,10 @@ async def _claimed_schedule_action(
 
 
 class _CheckpointServiceRunner:
-    def __init__(self, engine: AsyncEngine, conversation_id: str) -> None:
+    def __init__(
+        self, definitions: RoleDefinitions, engine: AsyncEngine, conversation_id: str
+    ) -> None:
+        self._definitions = definitions
         self._engine = engine
         self._conversation_id = conversation_id
         self._invocations = 0
@@ -1337,6 +1351,7 @@ class _CheckpointServiceRunner:
         self._invocations += 1
         run_id = f"poison-service-run-{self._invocations}"
         checkpoint = _checkpoint(
+            self._definitions,
             self._engine,
             self._conversation_id,
             run_id,
@@ -1475,7 +1490,10 @@ class _ControlOnlyRunner:
 
 
 class _ActiveControlRunner:
-    def __init__(self, engine: AsyncEngine, store: MessageStore) -> None:
+    def __init__(
+        self, definitions: RoleDefinitions, engine: AsyncEngine, store: MessageStore
+    ) -> None:
+        self._definitions = definitions
         self._engine = engine
         self._store = store
         self._checkpoint: PostgresInputCheckpoint | None = None
@@ -1490,6 +1508,7 @@ class _ActiveControlRunner:
         self.calls += 1
         run_id = RunId(f"active-control-run-{self.calls}")
         checkpoint = _checkpoint(
+            self._definitions,
             self._engine,
             "33",
             str(run_id),
@@ -1530,7 +1549,10 @@ class _ActiveControlRunner:
 
 
 class _IdleBoundaryRunner:
-    def __init__(self, engine: AsyncEngine, conversation_id: str) -> None:
+    def __init__(
+        self, definitions: RoleDefinitions, engine: AsyncEngine, conversation_id: str
+    ) -> None:
+        self._definitions = definitions
         self._engine = engine
         self._conversation_id = conversation_id
         self.calls = 0
@@ -1545,7 +1567,9 @@ class _IdleBoundaryRunner:
         del cancellation
         self.calls += 1
         run_id = f"idle-boundary-run-{self.calls}"
-        checkpoint = _checkpoint(self._engine, self._conversation_id, run_id)
+        checkpoint = _checkpoint(
+            self._definitions, self._engine, self._conversation_id, run_id
+        )
         result = await checkpoint.claim(
             ThreadId(self._conversation_id),
             OwnerToken(f"idle-boundary-owner-{self.calls}"),
@@ -1589,7 +1613,10 @@ class _IdleBoundaryRunner:
 
 
 class _DeferredThenCheckpointRunner:
-    def __init__(self, engine: AsyncEngine, store: MessageStore) -> None:
+    def __init__(
+        self, definitions: RoleDefinitions, engine: AsyncEngine, store: MessageStore
+    ) -> None:
+        self._definitions = definitions
         self._engine = engine
         self._store = store
         self.calls = 0
@@ -1612,7 +1639,7 @@ class _DeferredThenCheckpointRunner:
             return PreflightDeferred(reset_at)
 
         run_id = f"reset-retry-run-{self.calls}"
-        checkpoint = _checkpoint(self._engine, "33", run_id)
+        checkpoint = _checkpoint(self._definitions, self._engine, "33", run_id)
         result = await checkpoint.claim(
             ThreadId("33"),
             OwnerToken(f"reset-retry-owner-{self.calls}"),
@@ -1659,6 +1686,7 @@ class _ResetSleep:
 
 
 async def test_service_processes_successor_after_durable_poison_conclusion(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
@@ -1686,7 +1714,7 @@ async def test_service_processes_successor_after_durable_poison_conclusion(
 
     paused_path = tmp_path / "poison-service-paused.json"
     PausedState.initialize(paused_path)
-    runner = _CheckpointServiceRunner(engine, conversation_id)
+    runner = _CheckpointServiceRunner(current_definitions, engine, conversation_id)
     delivery = _SuccessfulDelivery(starting_id=9_100)
     service = _OneDrainService(
         settings=Settings(
@@ -1748,6 +1776,7 @@ async def test_service_processes_successor_after_durable_poison_conclusion(
 
 
 async def test_service_event_preserves_input_arriving_at_idle_boundary(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
@@ -1755,7 +1784,7 @@ async def test_service_event_preserves_input_arriving_at_idle_boundary(
     conversation_id = "33"
     paused_path = tmp_path / "idle-boundary-paused.json"
     PausedState.initialize(paused_path)
-    runner = _IdleBoundaryRunner(engine, conversation_id)
+    runner = _IdleBoundaryRunner(current_definitions, engine, conversation_id)
     delivery = _SuccessfulDelivery()
     service = JarvisService(
         settings=Settings(
@@ -1816,6 +1845,7 @@ async def test_service_event_preserves_input_arriving_at_idle_boundary(
 
 
 async def test_capacity_reset_timer_retries_untouched_input_without_external_wake(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
@@ -1827,7 +1857,7 @@ async def test_capacity_reset_timer_retries_untouched_input_without_external_wak
     )
     paused_path = tmp_path / "reset-retry-paused.json"
     PausedState.initialize(paused_path)
-    runner = _DeferredThenCheckpointRunner(engine, store)
+    runner = _DeferredThenCheckpointRunner(current_definitions, engine, store)
     delivery = _SuccessfulDelivery(starting_id=9_150)
     sleep = _ResetSleep()
     service = JarvisService(
@@ -2250,6 +2280,7 @@ async def test_one_signal_drains_queued_pause_then_resume(
 
 
 async def test_active_pause_then_resume_preserves_canonical_control_order(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     tmp_path: Path,
 ) -> None:
@@ -2264,7 +2295,7 @@ async def test_active_pause_then_resume_preserves_canonical_control_order(
     paused_path = tmp_path / "active-pause-resume.json"
     PausedState.initialize(paused_path)
     paused = PausedState(paused_path)
-    runner = _ActiveControlRunner(engine, store)
+    runner = _ActiveControlRunner(current_definitions, engine, store)
     delivery = _SuccessfulDelivery(starting_id=9_350)
     service = JarvisService(
         settings=Settings(
@@ -2346,6 +2377,7 @@ async def test_active_pause_then_resume_preserves_canonical_control_order(
 
 
 async def test_checkpoint_settlement_retry_reuses_conclusion_identity(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = _LostSettlementAcknowledgementStore(engine)
@@ -2356,6 +2388,7 @@ async def test_checkpoint_settlement_retry_reuses_conclusion_identity(
         source_conversation_id=conversation_id,
     )
     checkpoint = _checkpoint(
+        current_definitions,
         engine,
         conversation_id,
         "settlement-ack-loss-run",
@@ -2424,6 +2457,7 @@ async def test_checkpoint_settlement_retry_reuses_conclusion_identity(
 
 
 async def test_kernel_checkpoint_claim_poll_settle_and_history(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2436,7 +2470,7 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
         text_value="current synthetic owner input",
         created_at=started_at,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "kernel-run")
+    checkpoint = _checkpoint(current_definitions, engine, conversation_id, "kernel-run")
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("kernel-owner"),
@@ -2448,7 +2482,7 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
         render_prompt(claim.inputs[0].sections).count("current synthetic owner input")
         == 1
     )
-    assert str(claim.plan.profile.id) == "slice1_main"
+    assert str(claim.plan.profile.id) == "slice6_main"
     assert isinstance(
         await checkpoint.claim(
             ThreadId(conversation_id),
@@ -2493,6 +2527,7 @@ async def test_kernel_checkpoint_claim_poll_settle_and_history(
 
 
 async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2503,10 +2538,7 @@ async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
         source_conversation_id=conversation_id,
     )
     groups: list[tuple[UUID, ...]] = []
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
-        owner_timezone="America/Los_Angeles",
-    )
+    definitions = current_definitions
     checkpoint = PostgresInputCheckpoint(
         store=store,
         thread_id=ThreadId(conversation_id),
@@ -2563,6 +2595,7 @@ async def test_checkpoint_exposes_each_eligible_settlement_group_in_order(
 
 
 async def test_active_poll_host_settles_resume_overflow_without_model_input(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2573,6 +2606,7 @@ async def test_active_poll_host_settles_resume_overflow_without_model_input(
         source_conversation_id=conversation_id,
     )
     checkpoint = _checkpoint(
+        current_definitions,
         engine,
         conversation_id,
         "resume-overflow-run",
@@ -2618,7 +2652,9 @@ async def test_active_poll_host_settles_resume_overflow_without_model_input(
     ) == ("Resumed.", "Resumed.")
 
 
-async def test_kernel_stop_poll_settles_before_release(engine: AsyncEngine) -> None:
+async def test_kernel_stop_poll_settles_before_release(
+    current_definitions: RoleDefinitions, engine: AsyncEngine
+) -> None:
     store = MessageStore(engine)
     conversation_id = "kernel-stop-channel"
     initial_id = await _owner(
@@ -2626,7 +2662,9 @@ async def test_kernel_stop_poll_settles_before_release(engine: AsyncEngine) -> N
         "kernel-stop-initial",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "kernel-stop-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "kernel-stop-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("kernel-stop-owner"),
@@ -2671,6 +2709,7 @@ async def test_kernel_stop_poll_settles_before_release(engine: AsyncEngine) -> N
     ],
 )
 async def test_host_input_remains_visible_when_polled_control_preempts(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     source: str,
     control: str,
@@ -2697,7 +2736,9 @@ async def test_host_input_remains_visible_when_polled_control_preempts(
         source_message_id=source_message_id,
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, f"host-control-run-{source}")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, f"host-control-run-{source}"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken(f"host-control-owner-{source}"),
@@ -2735,6 +2776,7 @@ async def test_host_input_remains_visible_when_polled_control_preempts(
 
 
 async def test_idle_control_and_exhausted_input_are_host_settled(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2753,7 +2795,9 @@ async def test_idle_control_and_exhausted_input_are_host_settled(
         (value.message_id, value.control, value.requires_recovery_run)
         for value in controls
     ) == ((resume_id, "resume", False),)
-    control_checkpoint = _checkpoint(engine, control_conversation, "idle-control-run")
+    control_checkpoint = _checkpoint(
+        current_definitions, engine, control_conversation, "idle-control-run"
+    )
     settled = await control_checkpoint.settle_idle_control(
         message_id=resume_id,
         control="resume",
@@ -2774,6 +2818,7 @@ async def test_idle_control_and_exhausted_input_are_host_settled(
     )
     for attempt in range(1, 4):
         interrupted = _checkpoint(
+            current_definitions,
             engine,
             exhausted_conversation,
             f"exhausted-run-{attempt}",
@@ -2785,6 +2830,7 @@ async def test_idle_control_and_exhausted_input_are_host_settled(
         assert isinstance(claim, ClaimAcquired)
         await interrupted.release(claim.claim, "synthetic process interruption")
     recovery_checkpoint = _checkpoint(
+        current_definitions,
         engine,
         exhausted_conversation,
         "exhausted-run-4",
@@ -2836,6 +2882,7 @@ async def test_idle_control_and_exhausted_input_are_host_settled(
     ),
 )
 async def test_exhausted_host_input_keeps_safe_visible_outcome(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     source: str,
     text_value: str,
@@ -2868,7 +2915,9 @@ async def test_exhausted_host_input_keeps_safe_visible_outcome(
             .where(message.c.id == inserted.message.id)
             .values(processing_attempts=3)
         )
-    checkpoint = _checkpoint(engine, conversation, f"{conversation}-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation, f"{conversation}-run"
+    )
 
     assert isinstance(
         await checkpoint.claim(
@@ -2891,6 +2940,7 @@ async def test_exhausted_host_input_keeps_safe_visible_outcome(
 
 
 async def test_claimed_durable_stop_preempts_before_provider_and_truncates_batch(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -2921,7 +2971,9 @@ async def test_claimed_durable_stop_preempts_before_provider_and_truncates_batch
     )
     assert tuple(value.message_id for value in pending_controls) == (stop_id,)
     assert pending_controls[0].requires_recovery_run is True
-    checkpoint = _checkpoint(engine, conversation_id, "durable-stop-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "durable-stop-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("durable-stop-owner"),
@@ -2965,7 +3017,9 @@ async def test_claimed_durable_stop_preempts_before_provider_and_truncates_batch
     assert processed[later_id] is None
 
 
-async def test_final_poll_append_is_left_for_next_run(engine: AsyncEngine) -> None:
+async def test_final_poll_append_is_left_for_next_run(
+    current_definitions: RoleDefinitions, engine: AsyncEngine
+) -> None:
     store = MessageStore(engine)
     conversation_id = "final-poll-race-channel"
     first_id = await _owner(
@@ -2973,7 +3027,9 @@ async def test_final_poll_append_is_left_for_next_run(engine: AsyncEngine) -> No
         "final-poll-first",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "final-poll-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "final-poll-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("final-poll-owner"),
@@ -3002,6 +3058,7 @@ async def test_final_poll_append_is_left_for_next_run(engine: AsyncEngine) -> No
 
 
 async def test_resume_arriving_during_claim_is_host_settled_not_appended(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3011,7 +3068,9 @@ async def test_resume_arriving_during_claim_is_host_settled_not_appended(
         "active-resume-initial",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "active-resume-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "active-resume-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("active-resume-owner"),
@@ -3044,6 +3103,7 @@ async def test_resume_arriving_during_claim_is_host_settled_not_appended(
 
 
 async def test_kernel_park_is_durable_and_release_does_not_rearm(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3053,7 +3113,9 @@ async def test_kernel_park_is_durable_and_release_does_not_rearm(
         "kernel-park-input",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "kernel-park-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "kernel-park-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("kernel-park-owner"),
@@ -3072,6 +3134,7 @@ async def test_kernel_park_is_durable_and_release_does_not_rearm(
 
 
 async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3081,7 +3144,9 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
         "long-response-input",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "long-response-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "long-response-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("long-response-owner"),
@@ -3125,6 +3190,7 @@ async def test_checkpoint_maps_undeliverable_response_to_short_conclusion(
     ],
 )
 async def test_checkpoint_exposes_a_truthful_host_owned_failure(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     reason: StopReason,
     expected: str,
@@ -3136,7 +3202,9 @@ async def test_checkpoint_exposes_a_truthful_host_owned_failure(
         f"{reason.value}-input",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, f"{reason.value}-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, f"{reason.value}-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken(f"{reason.value}-owner"),
@@ -3157,6 +3225,7 @@ async def test_checkpoint_exposes_a_truthful_host_owned_failure(
 
 
 async def test_overlong_action_resolution_terminal_uses_safe_host_fallback(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3174,7 +3243,9 @@ async def test_overlong_action_resolution_terminal_uses_safe_host_fallback(
         source_message_id="synthetic-action:succeeded",
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, "long-action-resolution-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "long-action-resolution-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("long-action-resolution-owner")
     )
@@ -3203,6 +3274,7 @@ async def test_overlong_action_resolution_terminal_uses_safe_host_fallback(
 
 
 async def test_overlong_scheduled_wake_terminal_uses_reminder_fallback(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3222,7 +3294,9 @@ async def test_overlong_scheduled_wake_terminal_uses_reminder_fallback(
         source_message_id=str(schedule_action_id),
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, "long-scheduled-wake-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "long-scheduled-wake-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("long-scheduled-wake-owner")
     )
@@ -3251,6 +3325,7 @@ async def test_overlong_scheduled_wake_terminal_uses_reminder_fallback(
 
 
 async def test_scheduled_wake_cannot_settle_with_a_silent_structured_terminal(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3270,7 +3345,9 @@ async def test_scheduled_wake_cannot_settle_with_a_silent_structured_terminal(
         source_message_id=str(schedule_action_id),
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, "scheduled-silent-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "scheduled-silent-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id), OwnerToken("scheduled-silent-owner")
     )
@@ -3301,7 +3378,9 @@ async def test_scheduled_wake_cannot_settle_with_a_silent_structured_terminal(
     assert tuple(value.text for value in pending) == (f"Reminder: {instruction}",)
 
 
-async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) -> None:
+async def test_scheduled_wake_claim_selects_read_only_plan(
+    current_definitions: RoleDefinitions, engine: AsyncEngine
+) -> None:
     store = MessageStore(engine)
     conversation_id = "scheduled-plan-channel"
     schedule_action_id = await _claimed_schedule_action(
@@ -3318,13 +3397,15 @@ async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) 
         source_message_id=str(schedule_action_id),
         created_at=datetime.now(UTC),
     )
-    checkpoint = _checkpoint(engine, conversation_id, "scheduled-plan-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "scheduled-plan-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("scheduled-plan-owner"),
     )
     assert isinstance(result, ClaimAcquired)
-    assert str(result.claim.plan.profile.id) == "slice1_scheduled_wake"
+    assert str(result.claim.plan.profile.id) == "slice6_scheduled_wake"
     await checkpoint.settle(
         result.claim,
         result.claim.through_checkpoint,
@@ -3342,6 +3423,7 @@ async def test_scheduled_wake_claim_selects_proactive_plan(engine: AsyncEngine) 
 
 
 async def test_promoted_action_host_silent_gets_visible_fallback_and_one_host_per_run(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
 ) -> None:
     store = MessageStore(engine)
@@ -3351,7 +3433,9 @@ async def test_promoted_action_host_silent_gets_visible_fallback_and_one_host_pe
         "action-fallback-owner",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "action-fallback-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "action-fallback-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("action-fallback-owner-token"),
@@ -3393,7 +3477,9 @@ async def test_promoted_action_host_silent_gets_visible_fallback_and_one_host_pe
         "Action update: synthetic action succeeded",
     )
 
-    next_checkpoint = _checkpoint(engine, conversation_id, "second-action-fallback-run")
+    next_checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "second-action-fallback-run"
+    )
     next_result = await next_checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("second-action-fallback-owner-token"),
@@ -3404,7 +3490,9 @@ async def test_promoted_action_host_silent_gets_visible_fallback_and_one_host_pe
     )
 
 
-async def test_owner_only_silent_terminal_remains_silent(engine: AsyncEngine) -> None:
+async def test_owner_only_silent_terminal_remains_silent(
+    current_definitions: RoleDefinitions, engine: AsyncEngine
+) -> None:
     store = MessageStore(engine)
     conversation_id = "owner-silent-finish-channel"
     await _owner(
@@ -3412,7 +3500,9 @@ async def test_owner_only_silent_terminal_remains_silent(engine: AsyncEngine) ->
         "owner-silent-finish",
         source_conversation_id=conversation_id,
     )
-    checkpoint = _checkpoint(engine, conversation_id, "owner-silent-finish-run")
+    checkpoint = _checkpoint(
+        current_definitions, engine, conversation_id, "owner-silent-finish-run"
+    )
     result = await checkpoint.claim(
         ThreadId(conversation_id),
         OwnerToken("owner-silent-finish-token"),

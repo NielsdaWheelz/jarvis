@@ -98,6 +98,12 @@ values. Override its `JARVIS_SOURCE_*` paths only to name an equivalent private
 source. Codex authentication and native history remain exclusively in the
 three development-user account homes; never copy either into Jarvis state.
 
+remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
+source and installed environment before deploying; the installer rejects it.
+keep `JARVIS_CONNECTOR_ENCRYPTION_SECRET` and
+`JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION` unchanged. no ciphertext migration is
+needed. track completion in the [environment cutover issue](issues/connector-keyring-cutover.md).
+
 The qualified Google client, connector-encryption, Maps, Brave, Discord, and
 embedding settings remain host-owned and never enter model context or the Codex
 child environment. `JARVIS_EMBEDDING_OPENAI_API_KEY` is the qualified OpenAI

@@ -33,7 +33,6 @@ source = pathlib.Path(sys.argv[1])
 target = pathlib.Path(sys.argv[2])
 required = {
     "JARVIS_BRAVE_API_KEY",
-    "JARVIS_CONNECTOR_ENCRYPTION_KEYS",
     "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION",
     "JARVIS_CONNECTOR_ENCRYPTION_SECRET",
     "JARVIS_DISCORD_BOT_TOKEN",

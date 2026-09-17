@@ -65,6 +65,7 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryIdentity, MemoryStore, StoredMemory
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, RemembererWorker
 from jarvis.messages import MessageStore, StoredMessage
 from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
@@ -81,12 +82,7 @@ from jarvis.read_tools import (
     GmailSearchInput,
     GmailSearchSuccess,
 )
-from jarvis.service import (
-    DreamerRunCompleted,
-    DreamerWorker,
-    JarvisThreadRunner,
-    RemembererWorker,
-)
+from jarvis.service import JarvisThreadRunner
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL, Settings
 
 _SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))

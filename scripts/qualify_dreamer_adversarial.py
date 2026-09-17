@@ -52,9 +52,9 @@ from jarvis.memory_retrieval import (
     OpenedMemory,
     RetrievedMemory,
 )
+from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import RunReadRecorder
-from jarvis.service import DreamerRunCompleted, DreamerWorker
 
 SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
 TRIALS = (

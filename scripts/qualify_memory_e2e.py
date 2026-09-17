@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the sanitized paid Slice 4 dreaming-memory end-to-end qualification."""
+"""Run current dreaming-memory qualification with a read-only Main plan."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ import os
 import stat
 from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol, cast
 from urllib.parse import quote
 from uuid import UUID, uuid4
@@ -29,13 +30,14 @@ from llm_agent_kernel import (
 from llm_tools import BudgetState, FrozenToolPlan, ToolBinding, ToolId
 from sqlalchemy import func, select
 
+from jarvis.actions import ActionStore
 from jarvis.admission import (
     ExactToolBudgetFactory,
     RollingAdmissionLimits,
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
-    slice3_admission_limits,
 )
+from jarvis.agent_control import AgentController
 from jarvis.codex_config import CodexHostConfig
 from jarvis.db import (
     action,
@@ -49,9 +51,13 @@ from jarvis.db import (
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
+    SLICE3_RECALL_KERNEL_LIMITS,
+    SLICE3_REMEMBER_KERNEL_LIMITS,
     SLICE4_DREAM_KERNEL_LIMITS,
-    Slice4Definitions,
-    build_slice4_definitions,
+    SLICE6_KERNEL_LIMITS,
+    Slice6Definitions,
+    build_slice5_write_gate,
+    build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
@@ -68,7 +74,6 @@ from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, RemembererWorker
 from jarvis.messages import MessageStore, StoredMessage
 from jarvis.ownership import Database, deployment_ownership
-from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.read_tools import (
@@ -84,6 +89,7 @@ from jarvis.read_tools import (
 )
 from jarvis.service import JarvisThreadRunner
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL, Settings
+from jarvis.write_composition import build_slice6_catalog
 
 _SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
 _CALENDAR_WINDOW_DAYS = 366
@@ -219,31 +225,39 @@ def _required(name: str) -> str:
 
 
 def qualification_admission_limits() -> RollingAdmissionLimits:
-    """Bound two foreground memory cycles and one isolated Dreamer run."""
-    one_cycle = slice3_admission_limits(1)
-    dream_input = SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens
-    dream_output = SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens
+    """Bound two read-only current Main cycles and one isolated Dreamer run."""
+    input_overshoot = 32_768
+    output_overshoot = 8_192
+    cycle = (
+        SLICE6_KERNEL_LIMITS,
+        SLICE3_RECALL_KERNEL_LIMITS,
+        SLICE3_REMEMBER_KERNEL_LIMITS,
+    )
     return RollingAdmissionLimits(
-        window_seconds=one_cycle.window_seconds,
         max_turns=(
-            2 * one_cycle.max_turns + SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
+            2 * sum(role.max_provider_turns for role in cycle)
+            + SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
         ),
         max_input_tokens=(
-            2 * one_cycle.max_input_tokens
-            + dream_input
-            + one_cycle.root_input_token_overshoot
+            2 * sum(role.max_provider_input_tokens + input_overshoot for role in cycle)
+            + SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens
+            + input_overshoot
         ),
         max_output_tokens=(
-            2 * one_cycle.max_output_tokens
-            + dream_output
-            + one_cycle.root_output_token_overshoot
+            2
+            * sum(role.max_provider_output_tokens + output_overshoot for role in cycle)
+            + SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens
+            + output_overshoot
         ),
-        max_no_progress_attempts=one_cycle.max_no_progress_attempts,
-        root_input_token_overshoot=one_cycle.root_input_token_overshoot,
-        root_output_token_overshoot=one_cycle.root_output_token_overshoot,
-        serial_child_turns=one_cycle.serial_child_turns,
-        serial_child_input_tokens=one_cycle.serial_child_input_tokens,
-        serial_child_output_tokens=one_cycle.serial_child_output_tokens,
+        root_input_token_overshoot=input_overshoot,
+        root_output_token_overshoot=output_overshoot,
+        serial_child_turns=SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns,
+        serial_child_input_tokens=(
+            SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + input_overshoot
+        ),
+        serial_child_output_tokens=(
+            SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + output_overshoot
+        ),
     )
 
 
@@ -621,7 +635,7 @@ async def _memory_state(engine: Database) -> MemoryState:
 async def _dispatch_read(
     *,
     dispatcher: ReadToolDispatcher[RunReadRecorder],
-    definitions: Slice4Definitions,
+    definitions: Slice6Definitions,
     budgets: BudgetState,
     tool_id: str,
     validated_input: object,
@@ -649,7 +663,7 @@ async def _dispatch_read(
 
 async def _select_live_resources(
     *,
-    definitions: Slice4Definitions,
+    definitions: Slice6Definitions,
     host_secrets: tuple[str, ...],
     gmail_query: str,
     owner_timezone: str,
@@ -740,7 +754,7 @@ def _build_roles(
     *,
     settings: Settings,
     engine: Database,
-    definitions: Slice4Definitions,
+    definitions: Slice6Definitions,
     runtime: KernelRuntime,
     embedder: OpenAIEmbedder,
     resources: LiveResources,
@@ -825,7 +839,7 @@ async def _owner_conclusion(
 async def _discard_main_reference(
     *,
     settings: Settings,
-    definitions: Slice4Definitions,
+    definitions: Slice6Definitions,
     runtime: KernelRuntime,
     runner: JarvisThreadRunner,
     require_present: bool,
@@ -844,7 +858,7 @@ async def _discard_main_reference(
 async def cleanup_cycle_runtime(
     *,
     settings: Settings,
-    definitions: Slice4Definitions,
+    definitions: Slice6Definitions,
     runtime: KernelRuntime,
     runner: JarvisThreadRunner | None,
     primary_error: BaseException | None,
@@ -908,15 +922,6 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                     settings.embedding_openai_api_key,
                     http_client=embedding_http,
                 )
-                catalog = build_slice3_catalog(
-                    settings=settings,
-                    google_oauth_http=google_oauth_http,
-                    google_api_http=google_api_http,
-                    maps_http=maps_http,
-                    brave_http=brave_http,
-                    memory_repository=PostgresMemoryRepository(engine),
-                    memory_embedder=embedder,
-                )
                 first_agent_runtime = build_agent_runtime(
                     provider_state_root=settings.runtime_state_directory,
                     codex_endpoints=host.endpoints,
@@ -927,10 +932,39 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                     profile_key=settings.codex_profile_key,
                     model_key=settings.codex_model,
                 )
-                definitions = build_slice4_definitions(
+                gate, _ = build_slice5_write_gate(provider=provider_configuration)
+                actions = ActionStore(engine)
+                catalog = build_slice6_catalog(
+                    settings=settings,
+                    google_oauth_http=google_oauth_http,
+                    google_api_http=google_api_http,
+                    maps_http=maps_http,
+                    brave_http=brave_http,
+                    memory_repository=PostgresMemoryRepository(engine),
+                    memory_embedder=embedder,
+                    actions=actions,
+                    agents=AgentController(
+                        executable=settings.agent_cli_path,
+                        client_config=settings.agent_client_config_path,
+                        actions=actions,
+                    ),
+                    automatic_write_gate_definition_fingerprint=gate.fingerprint,
+                )
+                definitions = build_slice6_definitions(
                     catalog=catalog,
                     provider=provider_configuration,
                     owner_timezone=settings.owner_timezone,
+                )
+                # This diagnostic qualifies current roles with read-only authority.
+                # Full owner-turn authority is qualified by qualify_e2e.py.
+                definitions = replace(
+                    definitions,
+                    plans=MappingProxyType(
+                        {
+                            **definitions.plans,
+                            "main": definitions.plans["scheduled_wake"],
+                        }
+                    ),
                 )
 
                 stage = "resource_selection"
@@ -1183,6 +1217,11 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                         "model": EMBEDDING_MODEL,
                     },
                     "first_cycle": first_report,
+                    "main": {
+                        "definition_fingerprint": definitions.main.fingerprint,
+                        "plan_revision": definitions.plans["main"].plan_revision,
+                        "scope": "read_only_diagnostic",
+                    },
                     "resources": {
                         "calendar_normal_event_selected": True,
                         "gmail_thread_selected": True,

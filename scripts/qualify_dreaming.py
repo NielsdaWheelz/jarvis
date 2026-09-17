@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the paid Slice 4 frozen rebuild and Dreamer qualification."""
+"""Run current frozen rebuild and dreamer qualification."""
 
 from __future__ import annotations
 
@@ -34,7 +34,6 @@ from qualify_memory import (
 )
 from qualify_memory import (
     populate_fixture_embeddings,
-    qualification_settings,
     seed_recall_fixtures,
     verify_embedding_credential_denies_generation,
 )
@@ -47,7 +46,8 @@ from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    build_slice4_definitions,
+    build_dreamer,
+    build_recaller,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
@@ -59,9 +59,9 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker
 from jarvis.ownership import deployment_ownership
-from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.rebuild import (
     DreamMutationProgress,
@@ -252,7 +252,6 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
     arguments.runtime_state_directory.mkdir(mode=0o700)
     phase_evidence_path = arguments.runtime_state_directory / PHASE_EVIDENCE_FILENAME
     fixtures, cases = load_recall_set(MEMORIES, CASES)
-    settings = qualification_settings(arguments)
     raw_engine = create_engine(arguments.database_url)
     async with AsyncExitStack() as database_lifetime:
         database_lifetime.push_async_callback(raw_engine.dispose)
@@ -311,14 +310,8 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                 await verify_embedding_credential_denies_generation(
                     arguments.embedding_api_key
                 )
-                catalog = build_slice3_catalog(
-                    settings=settings,
-                    google_oauth_http=http,
-                    google_api_http=http,
-                    maps_http=http,
-                    brave_http=http,
-                    memory_repository=PostgresMemoryRepository(engine),
-                    memory_embedder=embedder,
+                catalog = compose_memory_catalog(
+                    PostgresMemoryRepository(engine), embedder
                 )
                 provider_configuration = await resolve_provider_configuration(
                     runtime=agent_runtime,
@@ -326,7 +319,12 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     model_key=arguments.model,
                     reasoning=arguments.reasoning_effort,
                 )
-                definitions = build_slice4_definitions(
+                recaller_definition, recaller_plan = build_recaller(
+                    catalog=catalog,
+                    provider=provider_configuration,
+                    owner_timezone=arguments.owner_timezone,
+                )
+                dreamer_definition, dreamer_plan = build_dreamer(
                     catalog=catalog,
                     provider=provider_configuration,
                     owner_timezone=arguments.owner_timezone,
@@ -371,8 +369,8 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
 
                         return IsolatedRecaller(
                             model_decisions=journals,
-                            definition=definitions.recaller,
-                            plan=definitions.plans["recaller"],
+                            definition=recaller_definition,
+                            plan=recaller_plan,
                             admission=admission,
                             provider=runtime.provider,
                             dispatcher_factory=lambda: MemoryToolDispatcher(
@@ -396,8 +394,8 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                         model_decisions=lambda evidence: PostgresModelDecisionJournal(
                             engine, evidence=evidence
                         ),
-                        definition=definitions.dreamer,
-                        plan=definitions.plans["dreamer"],
+                        definition=dreamer_definition,
+                        plan=dreamer_plan,
                         admission=admission,
                         provider=runtime.provider,
                         dispatcher_factory=lambda: MemoryToolDispatcher(
@@ -476,9 +474,9 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                         **EXPECTED_GIT_PINS,
                     },
                     "dreamer": {
-                        "definition_fingerprint": definitions.dreamer.fingerprint,
+                        "definition_fingerprint": dreamer_definition.fingerprint,
                         "inserted": rebuilt.summaries_inserted,
-                        "plan_revision": definitions.plans["dreamer"].plan_revision,
+                        "plan_revision": dreamer_plan.plan_revision,
                         "provider_turns": sum(
                             item.metrics.provider_turns for item in dream_runs
                         ),
@@ -495,7 +493,7 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                         "removed": rebuilt.summaries_removed,
                         "runs": rebuilt.dreamer_runs,
                         "session_compatibility_revision": (
-                            definitions.dreamer.session_compatibility_revision
+                            dreamer_definition.session_compatibility_revision
                         ),
                     },
                     "embedding": {

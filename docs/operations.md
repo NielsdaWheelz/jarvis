@@ -3,8 +3,8 @@
 Jarvis Slice 6 is one CPython 3.12.13-or-later process within the 3.12 series,
 one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
-is the exact v1 catalog in SPEC 7.3. The selected Main plan contains twelve
-external/native reads and ten writes. Gmail send and shared, unknown-calendar, or
+is the exact v1 catalog in SPEC 7.3. The selected Main plan contains thirteen
+external/native reads and thirteen writes. Gmail send and shared, unknown-calendar, or
 attendee-bearing Calendar writes use the host-owned approval path; the six Slice
 5 writes retain their documented automatic cases. The isolated memory roles
 receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
@@ -439,14 +439,16 @@ All live qualification scripts emit bounded JSON containing statuses, counts, re
 timings, and token usage only. They never emit prompts, replies, Discord IDs,
 session IDs, credentials, or provider event payloads.
 
-Run the Slice 3 memory qualifier against its own empty, freshly migrated
+Run the memory qualifier against its own empty, freshly migrated
 database. The script inserts only the frozen redacted fixture corpus, embeds it
 through the production provider-runtime port, proves the embedding credential
 is rejected for generation, runs every owner-approved recall case through a
-fresh isolated Terra recaller whose first typed observation comes from the one
+current isolated Terra recaller whose first typed observation comes from the one
 kernel-dispatched deterministic `memory.search`, and runs a fresh isolated
 zero-memory rememberer that must advance its owner watermark without adding a
 memory or action. The runtime-state directory must not exist before the command.
+The qualifier now uses the shipped recaller prompt; historical Slice 3 scores
+remain evidence for their recorded prompt and do not qualify this configuration.
 
 ```sh
 JARVIS_MEMORY_LIVE=1 \
@@ -461,12 +463,15 @@ JARVIS_EMBEDDING_OPENAI_API_KEY=... \
   uv run python scripts/qualify_memory.py
 ```
 
-Run the final Slice 3 product acceptance against another empty, freshly
+Run the memory end-to-end qualifier against another empty, freshly
 migrated database. The Gmail query must identify at least one safe real thread;
 the calendar must contain a normal event within one year of the run. This probe
 stores a linked preference, destroys and rebuilds the provider runtime, recalls
 the preference indirectly, reopens the exact live Gmail thread and Calendar
 event, and proves that neither cycle creates actions or duplicate memory text.
+It uses the current structured Main definition with the existing external-read
+plan as a diagnostic tightening. Full owner-turn action and approval behavior
+is qualified separately by `qualify_e2e.py`.
 
 ```sh
 JARVIS_MEMORY_E2E_LIVE=1 \
@@ -479,8 +484,9 @@ JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-e2e-runtime \
 
 Supply the remaining ordinary production settings, including the exact Codex
 and embedding configuration above. The qualifier expands only its rolling
-admission capacity to exactly two full one-owner cycles plus one Dreamer run;
-role plans, per-run limits, and production admission behavior remain unchanged.
+admission capacity to exactly two current one-owner cycles plus one Dreamer run.
+Main's per-run model limits remain current; its selected diagnostic plan excludes
+writes. Production admission and owner-turn plan selection remain unchanged.
 
 Run one manual dream only while the service is stopped. It takes the deployment
 lock, skips provider I/O when raw memory is empty, and prints counts only:
@@ -507,7 +513,7 @@ Dreamer pass, and embeds regenerated summaries. It never starts the service.
 Failure exits nonzero; inspect and retain its private journal, keep the service
 stopped, and rerun from immutable raw memory after correcting the cause.
 
-Before a production rebuild release, run the Slice 4 paid rebuild qualifier on
+Before a production rebuild release, run the paid rebuild qualifier on
 a distinct empty, freshly migrated qualification database. It alone seeds the
 frozen synthetic corpus and records the required pre/wipe/dream/post score, so
 exact S01/M11/M12 fixture identities never enter permanent production memory.

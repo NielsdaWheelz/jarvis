@@ -118,10 +118,8 @@ def build_agent_runtime(
     *,
     provider_state_root: Path,
     codex_endpoints: Mapping[str, Path],
-    verify_dependencies: bool = True,
 ) -> AgentRuntime:
-    if verify_dependencies:
-        verify_runtime_dependencies()
+    verify_runtime_dependencies()
     return AgentRuntime(
         AgentRuntimeConfig(
             state_root_base=provider_state_root,

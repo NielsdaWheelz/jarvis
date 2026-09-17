@@ -8,7 +8,7 @@ that the six specified tables or their columns are unnecessary.
 | slice | implementation owners | contract to preserve |
 |---|---|---|
 | role and capability construction | `definitions.py`, `tool_composition.py`, `kernel.py` | exact role, catalog, plan, and session identities |
-| conversation and context | `messages.py`, `checkpoints.py`, `context.py`, `history.py`, `terminal.py`, `JarvisThreadRunner` | canonical input, atomic settlement, truthful output |
+| conversation and context | `messages.py`, `checkpoints.py`, `context.py`, `history.py`, `terminal.py`, `thread_runtime.py` | canonical input, atomic settlement, truthful output |
 | service and discord | `service.py`, `discord.py`, `cli.py` | single-channel ingress, outbox, shutdown, foreground priority |
 | provider sessions and capacity | `session.py`, `codex_config.py`, `admission.py`, `state.py` | disposable sessions, bounded provider work, ownership |
 | paid decision and read recovery | `decisions.py`, `read_positions.py`, read dispatchers | original decisions and receipts replay without redispatch |
@@ -39,6 +39,11 @@ approval handler. context requires recall, the run cancellation token, and its
 authoritative batch clock. these constructors describe the complete application;
 absent-feature modes from earlier slices are removed. gateway and timer binding
 still resolve the real callback cycles during startup.
+
+`thread_runtime.py` owns main-run construction, its observation evidence, and the
+handoff to remembering. `service.py` owns ingress, delivery, and work scheduling.
+the cli constructs both explicitly; provider-runtime construction always verifies
+the frozen dependencies.
 
 conversation settlement has one required callback for transferring an owner group
 to remembering. checkpoint state retains consumed ids for metrics and callback

@@ -82,9 +82,10 @@ from jarvis.rebuild import (
     corpus_rebuild_admission_limits,
     rebuild_memory_corpus,
 )
-from jarvis.service import JarvisService, JarvisThreadRunner
+from jarvis.service import JarvisService
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+from jarvis.thread_runtime import JarvisThreadRunner
 from jarvis.tool_composition import build_tool_composition
 from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate

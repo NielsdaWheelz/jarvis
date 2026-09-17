@@ -129,7 +129,7 @@ class WriteToolDispatcher:
         source_conversation_id: str,
         verified_owner_only_calendar_ids: tuple[str, ...],
         host_secrets: tuple[str, ...],
-        schedule_changed: ScheduleChanged = lambda: None,
+        schedule_changed: ScheduleChanged,
     ) -> None:
         self._checkpoint = checkpoint
         self._gate = gate
@@ -376,8 +376,8 @@ class ActionRecovery:
         google_write: GoogleWriteConnector,
         plan: FrozenToolPlan,
         source_conversation_id: str,
-        schedule_changed: ScheduleChanged = lambda: None,
-        approval_disabler: ApprovalDisabler | None = None,
+        schedule_changed: ScheduleChanged,
+        approval_disabler: ApprovalDisabler,
     ) -> None:
         self._actions = actions
         self._google_write = google_write
@@ -416,10 +416,6 @@ class ActionRecovery:
                 await self._actions.approval_discord_message_id_or_none(pending.id)
             )
             if discord_message_id is not None:
-                if self._approval_disabler is None:
-                    raise RuntimeError(
-                        "delivered incompatible approval requires a component disabler"
-                    )
                 await self._approval_disabler(pending)
             await self._actions.cancel_nonexecuting(
                 action_id=pending.id,
@@ -476,10 +472,6 @@ class ActionRecovery:
                             "reason_code": "owner_denied",
                         }
                     ):
-                        if self._approval_disabler is None:
-                            raise RuntimeError(
-                                "denied recovery requires a Discord component disabler"
-                            )
                         await self._approval_disabler(value)
                 await self._actions.finish_recovered_origins(
                     reports=tuple(
@@ -560,10 +552,6 @@ class ActionRecovery:
                 and current.decided_at is not None
                 and current.attempts == 0
             ):
-                if self._approval_disabler is None:
-                    raise RuntimeError(
-                        "approved recovery requires a Discord component disabler"
-                    )
                 await self._approval_disabler(current)
                 if not allow_queued_execution:
                     return

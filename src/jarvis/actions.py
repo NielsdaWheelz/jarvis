@@ -821,21 +821,6 @@ class ActionStore:
             )
         return discord_message_id
 
-    async def executing(self) -> tuple[StoredAction, ...]:
-        async with self.engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .where(action.c.status == "executing")
-                        .order_by(action.c.created_at, action.c.id)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        return tuple(map(_stored_action, rows))
-
     async def executing_schedule_receipts(
         self, *, limit: int = 100
     ) -> tuple[StoredAction, ...]:
@@ -1494,121 +1479,6 @@ class ActionStore:
                 recorded_at=timestamp,
             )
 
-    async def finish_schedule(
-        self,
-        *,
-        action_id: UUID,
-        wake_outcome: Mapping[str, object],
-    ) -> StoredAction:
-        outcome = _json_object(dict(wake_outcome), "schedule wake outcome")
-        outcome_type, recorded_at = _wake_outcome(outcome)
-        if outcome_type == "cancelled":
-            raise ValueError("schedule cancellation requires its atomic cancel action")
-        status: Literal["succeeded", "failed"] = (
-            "succeeded" if outcome_type == "concluded" else "failed"
-        )
-        async with self.engine.begin() as connection:
-            return await _finish_schedule_in_transaction(
-                connection,
-                action_id=action_id,
-                outcome=outcome,
-                status=status,
-                recorded_at=recorded_at,
-            )
-
-    async def insert_resolution_message(
-        self,
-        *,
-        action_id: UUID,
-        source_conversation_id: str,
-        text: str,
-        created_at: datetime | None = None,
-    ) -> ResolutionInsert:
-        if (
-            not source_conversation_id
-            or source_conversation_id != source_conversation_id.strip()
-        ):
-            raise ValueError("source conversation ID must be non-empty and canonical")
-        if not text or len(text.encode("utf-8")) > _MAX_RESOLUTION_TEXT_BYTES:
-            raise ValueError("action-resolution text must be non-empty and bounded")
-        timestamp = created_at or datetime.now(UTC)
-        _aware(timestamp, "action-resolution creation time")
-        async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            if stored.status not in {"succeeded", "failed", "uncertain", "cancelled"}:
-                raise ActionPersistenceDefect(
-                    "action-resolution message requires a resolved action"
-                )
-            source_message_id = f"{stored.id}:{stored.status}"
-            message_id = uuid5(
-                NAMESPACE_URL,
-                f"jarvis-action-resolution-v1:{source_message_id}",
-            )
-            row = (
-                await connection.execute(
-                    postgresql_insert(message)
-                    .values(
-                        id=message_id,
-                        role="host",
-                        text=text,
-                        source="action",
-                        source_conversation_id=source_conversation_id,
-                        source_message_id=source_message_id,
-                        created_at=timestamp,
-                        processed_at=None,
-                        processing_attempts=0,
-                        processing_parked_at=None,
-                        remembered_at=None,
-                        trace={},
-                    )
-                    .on_conflict_do_nothing(constraint="uq_message_source_identity")
-                    .returning(message.c.id)
-                )
-            ).scalar_one_or_none()
-            if row is not None:
-                return ResolutionInsert(message_id, inserted=True)
-            existing = (
-                (
-                    await connection.execute(
-                        select(message).where(
-                            message.c.source == "action",
-                            message.c.source_message_id == source_message_id,
-                        )
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            identity = (
-                existing["id"],
-                existing["role"],
-                existing["text"],
-                existing["source_conversation_id"],
-            )
-            if identity != (message_id, "host", text, source_conversation_id):
-                raise ActionPersistenceDefect(
-                    "action-resolution identity has different content"
-                )
-            return ResolutionInsert(message_id, inserted=False)
-
-    async def finish_recovered_origin(
-        self,
-        *,
-        action_id: UUID,
-        source_conversation_id: str,
-        text: str,
-        created_at: datetime | None = None,
-    ) -> ResolutionInsert:
-        """Atomically consume an interrupted lineage and enqueue its resolution."""
-
-        return (
-            await self.finish_recovered_origins(
-                reports=((action_id, text),),
-                source_conversation_id=source_conversation_id,
-                created_at=created_at,
-            )
-        )[0]
-
     async def finish_recovered_origins(
         self,
         *,
@@ -2174,32 +2044,16 @@ async def finish_schedule_conclusion(
     recorded_at: datetime,
 ) -> StoredAction:
     _aware(recorded_at, "schedule conclusion time")
-    return await _finish_schedule_in_transaction(
-        connection,
-        action_id=action_id,
-        outcome={
-            "type": "concluded",
-            "conclusion_message_id": str(conclusion_message_id),
-            "recorded_at": recorded_at.isoformat(),
-        },
-        status="succeeded",
-        recorded_at=recorded_at,
-    )
-
-
-async def _finish_schedule_in_transaction(
-    connection: AsyncConnection,
-    *,
-    action_id: UUID,
-    outcome: dict[str, object],
-    status: Literal["succeeded", "failed"],
-    recorded_at: datetime,
-) -> StoredAction:
+    outcome: dict[str, object] = {
+        "type": "concluded",
+        "conclusion_message_id": str(conclusion_message_id),
+        "recorded_at": recorded_at.isoformat(),
+    }
     stored = await _require_locked_action(connection, action_id)
     _require_schedule_creation(stored)
     if stored.status in {"succeeded", "failed"}:
         existing = _schedule_result(stored)
-        if stored.status != status or existing["wake_outcome"] != outcome:
+        if stored.status != "succeeded" or existing["wake_outcome"] != outcome:
             raise ActionPersistenceDefect("schedule outcome changed")
         return stored
     if stored.status != "executing":
@@ -2209,7 +2063,7 @@ async def _finish_schedule_in_transaction(
     return await _update_action(
         connection,
         action_id,
-        status=status,
+        status="succeeded",
         completed_at=recorded_at,
         result=result,
     )

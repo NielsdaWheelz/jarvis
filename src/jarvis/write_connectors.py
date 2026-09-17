@@ -141,15 +141,6 @@ class GmailUpdateReconciliationBasis:
         ):
             raise ValueError("Gmail update reconciliation basis is invalid")
 
-    def as_dict(self) -> dict[str, str]:
-        return {
-            "type": self.type,
-            "draft_id": self.draft_id,
-            "thread_id": self.thread_id,
-            "jarvis_effect_id": self.jarvis_effect_id,
-            "old_content_digest": self.old_content_digest,
-        }
-
 
 @dataclass(frozen=True, slots=True)
 class _ObservedDraft:

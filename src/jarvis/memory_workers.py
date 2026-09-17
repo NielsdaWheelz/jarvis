@@ -46,6 +46,7 @@ from jarvis.memory import (
     SummaryMutationBatch,
 )
 from jarvis.messages import MessageStore
+from jarvis.ownership import DeploymentOwnershipDefect
 
 LOGGER = logging.getLogger(__name__)
 
@@ -145,6 +146,8 @@ class RemembererWorker:
                 group = await self._memory.prepare_rememberer_group(
                     owner_message_ids=immediate.owner_message_ids,
                 )
+            except DeploymentOwnershipDefect:
+                raise
             except Exception:
                 self._immediate.pop(0)
                 return False
@@ -213,6 +216,8 @@ class RemembererWorker:
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
             )
+        except DeploymentOwnershipDefect:
+            raise
         except Exception:
             await self._record_attempt(
                 group,
@@ -271,6 +276,8 @@ class RemembererWorker:
                     duration_ms=round(metrics.duration_seconds * 1_000),
                 ),
             )
+        except DeploymentOwnershipDefect:
+            raise
         except Exception:
             pass
         finally:
@@ -308,6 +315,8 @@ class RemembererWorker:
                 output_tokens=None if metrics is None else metrics.usage.output_tokens,
                 duration_seconds=None if metrics is None else metrics.duration_seconds,
             )
+        except DeploymentOwnershipDefect:
+            raise
         except Exception:
             return
 
@@ -367,6 +376,8 @@ class RemembererWorker:
                     identity=row.identity,
                     embedding=vector,
                 )
+            except DeploymentOwnershipDefect:
+                raise
             except Exception:
                 break
             updated = True
@@ -507,6 +518,8 @@ class DreamerWorker:
                 parent_admission=parent_admission,
                 cancellation=cancellation,
             )
+        except DeploymentOwnershipDefect:
+            raise
         except Exception:
             return None
         if (
@@ -540,6 +553,8 @@ class DreamerWorker:
         commit = None
         try:
             commit = await self._memory.apply_summary_mutations(batch=batch)
+        except DeploymentOwnershipDefect:
+            raise
         except Exception:
             pass
         finally:

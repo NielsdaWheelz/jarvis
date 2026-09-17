@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from jarvis.memory_retrieval import MemoryIdentity
 from jarvis.memory_tools import MEMORY_TOOL_IDS, MemoryRowIdentity
+from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_dispatch import ReadRecorder
 
 
@@ -150,6 +151,8 @@ class MemoryToolDispatcher[RecorderT: ReadRecorder]:
                     telemetry=_NoTelemetry(),
                 ),
             )
+        except DeploymentOwnershipDefect:
+            raise
         except Exception as exc:
             raise ToolDispatchDefect("memory read dispatch failed") from exc
         if tool_id == ToolId("memory.search"):

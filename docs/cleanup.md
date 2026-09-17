@@ -93,9 +93,12 @@ live-state evidence recorded under
 [hosted verification](issues/github-actions-billing.md) is separately blocked by
 the github account billing restriction.
 
+the database owner reports disconnection during queries and commit as ownership
+loss. memory workers, dispatch, and approval handling preserve that defect;
+background coordination lets unexpected failures reach the service lifetime.
+ordinary memory failures retain their retry behavior. this replaces silent idle
+results with process failure and the existing restart recovery path.
+
 the next verified slices are the [unused google keyring](issues/unused-google-keyring.md),
 [read dispatcher interface](issues/read-dispatch-interface.md), and
-[optional approval ports](issues/optional-approval-ports.md). implementation paused
-when the audit reproduced [hidden background ownership failures](issues/background-ownership-defects.md),
-which conflict with spec section 11. that issue records the bounded repair and
-the repository instruction requiring the pause.
+[optional approval ports](issues/optional-approval-ports.md).

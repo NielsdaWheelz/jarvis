@@ -28,6 +28,7 @@ from llm_tools import (
 )
 
 from jarvis.agent_tools import AGENT_READ_IDS
+from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 
 _SECRET_PATTERN = re.compile(
@@ -129,6 +130,8 @@ class ReadToolDispatcher[RecorderT: ReadRecorder]:
                     telemetry=_NoTelemetry(),
                 ),
             )
+        except DeploymentOwnershipDefect:
+            raise
         except Exception as exc:
             raise ToolDispatchDefect("automatic read dispatch failed") from exc
         return DispatchCompleted(result)

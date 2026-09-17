@@ -561,10 +561,7 @@ class JarvisService:
             if self._work.is_set():
                 cancellation.cancel()
         try:
-            try:
-                return await worker.run_one(cancellation)
-            except Exception:
-                return False
+            return await worker.run_one(cancellation)
         finally:
             async with self._active_lock:
                 if self._background_cancellation is cancellation:

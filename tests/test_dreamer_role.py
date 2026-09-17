@@ -29,11 +29,13 @@ from jarvis.definitions import (
     SLICE4_DREAM_KERNEL_LIMITS,
     SLICE4_DREAM_TOOL_LIMITS,
     DreamResult,
+    build_dreamer,
     build_slice3_definitions,
     build_slice4_definitions,
     load_session_manifest,
     session_compatibility_revision,
 )
+from jarvis.memory_tools import compose_memory_catalog
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.settings import Settings
 
@@ -91,12 +93,13 @@ async def build_test_slice4_definitions(tmp_path: Path) -> Any:
     ), catalog
 
 
-async def test_dreamer_definition_is_an_exact_isolated_memory_read_role(
-    tmp_path: Path,
-) -> None:
-    definitions, catalog = await build_test_slice4_definitions(tmp_path)
-    dreamer = definitions.dreamer
-    plan = definitions.plans["dreamer"]
+def test_dreamer_definition_is_an_exact_isolated_memory_read_role() -> None:
+    catalog = compose_memory_catalog(cast(Any, object()), cast(Any, object()))
+    dreamer, plan = build_dreamer(
+        catalog=catalog,
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
+        owner_timezone="UTC",
+    )
 
     assert dreamer.session_mode is SessionMode.isolated
     assert isinstance(dreamer.output_contract, StructuredOutput)
@@ -108,9 +111,9 @@ async def test_dreamer_definition_is_an_exact_isolated_memory_read_role(
         plan.catalog_view.spec(tool_id).effect is ToolEffect.Read
         for tool_id in plan.profile.grants
     )
-    assert tuple(catalog.tool_ids) == tuple(
-        sorted((*SLICE2_READ_IDS, *SLICE3_MEMORY_READ_IDS))
-    )
+    assert tuple(map(str, catalog.tool_ids)) == ("memory.open", "memory.search")
+    assert str(dreamer.maximum_profile.id) == "slice4_dreamer_maximum"
+    assert str(plan.profile.id) == "slice4_dreamer"
     require_host_plan(plan, dreamer.maximum_profile)
     assert plan.is_tightening_of(dreamer.maximum_profile)
     for forbidden_tool in (

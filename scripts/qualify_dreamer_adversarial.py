@@ -15,13 +15,11 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
-import httpx
 from llm_agent_kernel import CancellationToken
 from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
 from llm_tools import canonical_json_bytes
 from pydantic import SecretStr
 from qualify_memory import Arguments as MemoryArguments
-from qualify_memory import qualification_settings
 
 from jarvis.admission import (
     RollingAdmissionLimits,
@@ -32,7 +30,7 @@ from jarvis.codex_config import CodexHostConfig
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     SLICE4_DREAM_KERNEL_LIMITS,
-    build_slice4_definitions,
+    build_dreamer,
     verify_runtime_dependencies,
 )
 from jarvis.kernel import (
@@ -52,8 +50,8 @@ from jarvis.memory_retrieval import (
     OpenedMemory,
     RetrievedMemory,
 )
+from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker
-from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_dispatch import RunReadRecorder
 
 SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
@@ -326,30 +324,18 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
     embedder = _Embedder()
     stage = "composition"
     try:
-        async with (
-            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
-            build_agent_runtime(
-                provider_state_root=arguments.runtime_state_directory,
-                codex_endpoints=host.endpoints,
-            ) as agent_runtime,
-        ):
-            settings = qualification_settings(arguments)
-            catalog = build_slice3_catalog(
-                settings=settings,
-                google_oauth_http=http,
-                google_api_http=http,
-                maps_http=http,
-                brave_http=http,
-                memory_repository=repository,
-                memory_embedder=embedder,
-            )
+        async with build_agent_runtime(
+            provider_state_root=arguments.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        ) as agent_runtime:
+            catalog = compose_memory_catalog(repository, embedder)
             provider_configuration = await resolve_provider_configuration(
                 runtime=agent_runtime,
                 profile_key=arguments.profile,
                 model_key=arguments.model,
                 reasoning=arguments.reasoning_effort,
             )
-            definitions = build_slice4_definitions(
+            definition, plan = build_dreamer(
                 catalog=catalog,
                 provider=provider_configuration,
                 owner_timezone=arguments.owner_timezone,
@@ -374,8 +360,8 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
                     memory = _Memory(repository.rows)
                     outcome = await DreamerWorker(
                         model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
-                        definition=definitions.dreamer,
-                        plan=definitions.plans["dreamer"],
+                        definition=definition,
+                        plan=plan,
                         admission=admission,
                         provider=runtime.provider,
                         dispatcher_factory=lambda: MemoryToolDispatcher(
@@ -413,8 +399,8 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
 
                 contradiction_outcome = await DreamerWorker(
                     model_decisions=lambda evidence: InMemoryModelDecisionJournal(),
-                    definition=definitions.dreamer,
-                    plan=definitions.plans["dreamer"],
+                    definition=definition,
+                    plan=plan,
                     admission=admission,
                     provider=runtime.provider,
                     dispatcher_factory=contradiction_dispatcher,
@@ -455,10 +441,10 @@ async def _run(arguments: MemoryArguments) -> dict[str, object]:
             },
             "dependencies": dict(EXPECTED_GIT_PINS),
             "dreamer": {
-                "definition_fingerprint": definitions.dreamer.fingerprint,
-                "plan_revision": definitions.plans["dreamer"].plan_revision,
+                "definition_fingerprint": definition.fingerprint,
+                "plan_revision": plan.plan_revision,
                 "session_compatibility_revision": (
-                    definitions.dreamer.session_compatibility_revision
+                    definition.session_compatibility_revision
                 ),
             },
             "route": arguments.model,

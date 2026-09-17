@@ -779,44 +779,6 @@ class MessageStore:
             )
             return bool(count)
 
-    async def has_pending_work(self, *, source_conversation_id: str) -> bool:
-        _nonempty(source_conversation_id, "source conversation id")
-        if await self.circuit_is_open():
-            return False
-        async with self._engine.connect() as connection:
-            return await _has_pending(connection, source_conversation_id)
-
-    async def oldest_foreground(
-        self,
-        *,
-        source_conversation_id: str,
-    ) -> StoredMessage | None:
-        _nonempty(source_conversation_id, "source conversation id")
-        async with self._engine.connect() as connection:
-            row = (
-                (
-                    await connection.execute(
-                        select(message)
-                        .where(
-                            message.c.source_conversation_id == source_conversation_id,
-                            message.c.role.in_(("owner", "host")),
-                            message.c.source != "schedule_wake",
-                            message.c.processed_at.is_(None),
-                            message.c.processing_parked_at.is_(None),
-                        )
-                        .order_by(
-                            case((message.c.role == "owner", 0), else_=1),
-                            message.c.created_at,
-                            message.c.id,
-                        )
-                        .limit(1)
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-        return _stored_message(row) if row is not None else None
-
     async def record_admission_deferral(
         self,
         *,

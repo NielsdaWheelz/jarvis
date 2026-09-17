@@ -72,7 +72,6 @@ _REASON_SEPARATOR = re.compile(r"[^a-z0-9]+")
 @dataclass(slots=True)
 class _ActiveClaim:
     claim: InputClaim
-    owner_token: OwnerToken
     route: str
     message_ids: tuple[UUID, ...]
     checkpoint: Checkpoint
@@ -102,8 +101,8 @@ class PostgresInputCheckpoint:
         maximum_batch_size: int,
         maximum_attempts: int,
         turn_evidence: TurnEvidence,
+        on_settlement: Callable[[tuple[UUID, ...]], None],
         maximum_response_characters: int = 2_000,
-        on_settlement: Callable[[tuple[UUID, ...]], None] | None = None,
     ) -> None:
         if type(maximum_batch_size) is not int or maximum_batch_size <= 0:
             raise ValueError("maximum batch size must be a positive integer")
@@ -128,19 +127,10 @@ class PostgresInputCheckpoint:
         self._active: _ActiveClaim | None = None
         self._consumed_message_ids: tuple[UUID, ...] = ()
         self._consumed_owner_message_ids: tuple[UUID, ...] = ()
-        self._consumed_owner_groups: tuple[tuple[UUID, ...], ...] = ()
 
     @property
     def consumed_message_ids(self) -> tuple[UUID, ...]:
         return self._consumed_message_ids
-
-    @property
-    def consumed_owner_message_ids(self) -> tuple[UUID, ...]:
-        return self._consumed_owner_message_ids
-
-    @property
-    def consumed_owner_groups(self) -> tuple[tuple[UUID, ...], ...]:
-        return self._consumed_owner_groups
 
     async def as_of_for_inputs(self, inputs: tuple[HostInput, ...]) -> datetime:
         if not inputs:
@@ -208,6 +198,7 @@ class PostgresInputCheckpoint:
             )
 
     async def claim(self, thread_id: ThreadId, owner_token: OwnerToken) -> ClaimResult:
+        del owner_token
         if thread_id != self._thread_id:
             raise CheckpointStateDefect(
                 "checkpoint thread does not match configuration"
@@ -266,7 +257,6 @@ class PostgresInputCheckpoint:
             )
             self._active = _ActiveClaim(
                 claim=claim,
-                owner_token=owner_token,
                 route=selection.route,
                 message_ids=tuple(value.id for value in selected_messages),
                 checkpoint=claim.through_checkpoint,
@@ -446,8 +436,7 @@ class PostgresInputCheckpoint:
             ):
                 owner_group = self._record_consumed_owners(active)
             self._active = None
-            if self._on_settlement is not None:
-                self._on_settlement(owner_group)
+            self._on_settlement(owner_group)
             return SettleMoreInput() if result.more_input else SettleIdle()
 
     async def release(self, claim: InputClaim, reason: str) -> ReleaseResult:
@@ -551,7 +540,6 @@ class PostgresInputCheckpoint:
         )
         if group:
             self._consumed_owner_message_ids += group
-            self._consumed_owner_groups += (group,)
         return group
 
     def _require_active(

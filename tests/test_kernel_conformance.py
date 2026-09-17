@@ -384,7 +384,7 @@ def _runner(
         history=history,
         model_decisions=model_decisions,
         dispatcher_factory=dispatcher_factory,
-        memory=memory,
+        memory_repository=PostgresMemoryRepository(engine),
         memory_dispatcher_factory=lambda: MemoryToolDispatcher(
             recorder=PostgresReadRecorder(engine)
         ),

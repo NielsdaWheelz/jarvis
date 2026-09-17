@@ -340,6 +340,7 @@ async def _serve(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
                     memory = MemoryStore(database)
+                    memory_repository = PostgresMemoryRepository(database)
                     actions = ActionStore(database)
                     agent_runtime = build_agent_runtime(
                         provider_state_root=settings.runtime_state_directory,
@@ -368,7 +369,7 @@ async def _serve(
                         google_api_http=google_api_http,
                         maps_http=maps_http,
                         brave_http=brave_http,
-                        memory_repository=PostgresMemoryRepository(database),
+                        memory_repository=memory_repository,
                         memory_embedder=embedder,
                         actions=actions,
                         agents=agents,
@@ -467,7 +468,7 @@ async def _serve(
                                 ),
                             )
                         ),
-                        memory=memory,
+                        memory_repository=memory_repository,
                         memory_dispatcher_factory=memory_dispatcher,
                         rememberer=rememberer,
                     )

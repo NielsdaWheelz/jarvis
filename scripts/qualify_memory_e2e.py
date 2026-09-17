@@ -69,9 +69,9 @@ from jarvis.kernel import (
     build_kernel_runtime,
     resolve_provider_configuration,
 )
-from jarvis.memory import MemoryIdentity, MemoryStore, StoredMemory
+from jarvis.memory import MemoryIdentity, MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
-from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_retrieval import OpenedMemory, PostgresMemoryRepository
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, RemembererWorker
 from jarvis.messages import MessageStore, StoredMessage
 from jarvis.ownership import Database, deployment_ownership
@@ -141,23 +141,17 @@ class MemoryState:
     summaries: tuple[SummaryRow, ...] = field(default=(), repr=False)
 
 
-class _RecordingMemoryStore(MemoryStore):
+class _RecordingMemoryRepository(PostgresMemoryRepository):
     def __init__(self, engine: Database) -> None:
         super().__init__(engine)
         self.opened_identities: list[MemoryIdentity] = []
 
-    async def open_memories(
-        self,
-        *,
-        identities: tuple[MemoryIdentity, ...],
-        maximum_rows: int,
-    ) -> tuple[StoredMemory, ...]:
-        rows = await super().open_memories(
-            identities=identities,
-            maximum_rows=maximum_rows,
+    async def open(self, identities: Sequence[MemoryIdentity]) -> OpenedMemory:
+        opened = await super().open(identities)
+        self.opened_identities.extend(
+            MemoryIdentity(row.table_kind, row.id) for row in opened.rows
         )
-        self.opened_identities.extend(row.identity for row in rows)
-        return rows
+        return opened
 
 
 class _TargetRecordingDispatcher:
@@ -760,13 +754,14 @@ def _build_roles(
     embedder: OpenAIEmbedder,
     resources: LiveResources,
     dispatchers: list[_TargetRecordingDispatcher],
-) -> tuple[JarvisThreadRunner, RemembererWorker, _RecordingMemoryStore]:
+) -> tuple[JarvisThreadRunner, RemembererWorker, _RecordingMemoryRepository]:
     admission = RootTrackingAdmissionPort(
         RollingAdmissionPort(
             settings.admission_journal_path, qualification_admission_limits()
         )
     )
-    memory = _RecordingMemoryStore(engine)
+    memory = MemoryStore(engine)
+    memory_repository = _RecordingMemoryRepository(engine)
     messages = MessageStore(engine)
     rememberer = RemembererWorker(
         model_decisions=lambda evidence: PostgresModelDecisionJournal(
@@ -806,14 +801,14 @@ def _build_roles(
             definitions=definitions,
             history=PostgresCanonicalHistory(engine),
             dispatcher_factory=dispatcher_factory,
-            memory=memory,
+            memory_repository=memory_repository,
             memory_dispatcher_factory=lambda: MemoryToolDispatcher(
                 recorder=PostgresReadRecorder(engine)
             ),
             rememberer=rememberer,
         ),
         rememberer,
-        memory,
+        memory_repository,
     )
 
 
@@ -990,7 +985,7 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                 first_runner: JarvisThreadRunner | None = None
                 first_error: BaseException | None = None
                 try:
-                    first_runner, first_rememberer, _first_memory = _build_roles(
+                    first_runner, first_rememberer, _first_repository = _build_roles(
                         settings=settings,
                         engine=engine,
                         definitions=definitions,
@@ -1137,7 +1132,7 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                 second_runner: JarvisThreadRunner | None = None
                 second_error: BaseException | None = None
                 try:
-                    second_runner, second_rememberer, second_memory = _build_roles(
+                    second_runner, second_rememberer, second_repository = _build_roles(
                         settings=settings,
                         engine=engine,
                         definitions=definitions,
@@ -1159,7 +1154,7 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                         raise QualificationCheckFailed("second_thread_not_completed")
                     if len(second_dispatchers) != 1:
                         raise QualificationCheckFailed("main_dispatcher_count_invalid")
-                    recaller_opened = tuple(second_memory.opened_identities)
+                    recaller_opened = tuple(second_repository.opened_identities)
                     if await second_rememberer.run_one(CancellationToken()) is not True:
                         raise QualificationCheckFailed(
                             "second_rememberer_not_completed"

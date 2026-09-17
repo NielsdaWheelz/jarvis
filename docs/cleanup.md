@@ -28,27 +28,23 @@ and remove its branch/worktree. existing behavioral regressions remain.
 synthetic provider transports and disposable postgres establish local integration
 behavior; they are not evidence of live provider or production acceptance.
 
-the first cut retires the obsolete pre-approval write runtime. its qualifier uses
-the current catalog and plan while retaining its five explicit draft/calendar
-operations. current production identities remain unchanged. historical admission
-values remain in admission sizing used by migration and the stopped proactivity
-qualifier; no old runtime constructor is needed to describe those numbers.
+runtime construction builds the five current roles directly. the conversation
+runner requires its memory ports and one checkpoint-aware dispatcher factory.
+tests use the current catalog; role-only consumers construct their selected role.
+current python names describe roles and tool composition. durable profile ids
+retain their historical strings, preserving current role and plan identities.
 
-memory workers now own rememberer and dreamer execution in `memory_workers.py`.
-stopped memory maintenance constructs only the dreamer and its two memory
-bindings. it retains shared settings validation but no longer validates unused
-external connector construction. current role and plan identities are unchanged.
-current runtime construction now builds each role directly, without constructing
-and replacing older roles. slice3/4 constructors and result bundles are removed;
-their qualification consumers use current roles. slice1/2 test runtimes and the
-remaining obsolete read catalog are removed. the conversation runner requires
-its current memory ports and one checkpoint-aware dispatcher factory. tests use
-the current catalog; role-only tests construct only their selected role.
-the duplicated slice3 read catalog is deleted after its consumers moved to the
-memory-only or current full catalog; no shared factory is needed.
-current python names describe roles and tool composition; durable profile ids
-retain their historical strings. the unused `proactive` plan alias is removed,
-leaving the explicit `scheduled_wake` selection.
+memory workers own rememberer and dreamer execution in `memory_workers.py`.
+stopped maintenance constructs only the dreamer and its two memory bindings.
+it retains shared settings validation without constructing unused connectors.
+qualifiers exercise current roles and own their diagnostic budgets; older paid
+recall scores do not qualify a changed prompt.
+
+host recall and memory tools use the same repository implementation for exact-id
+reads. the host still validates the model's selection, reopens the stored rows,
+and rejects an incomplete or reordered result before rendering prompt sections.
+this read projection contains text, timestamps, and summary lineage; it does not
+load embeddings. memory writes remain owned by `MemoryStore` transactions.
 
 discord delivery now has one response/retry policy for ordinary messages,
 approval attachments, and disabling approval components. each operation keeps
@@ -59,7 +55,9 @@ framework or new state.
 the wake timer emits a parameterless work notification. requested time remains
 in the scheduled action; the timer uses its clock only to decide when to notify.
 
-the remaining implementation follow-up is recorded under
+historical admission values remain only where migration and the stopped
+proactivity qualifier still use them. removing those predecessors requires the
+live-state evidence recorded under
 [admission predecessors](issues/admission-predecessors.md).
 
 [hosted verification](issues/github-actions-billing.md) is separately blocked by

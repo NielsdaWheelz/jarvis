@@ -72,9 +72,7 @@ from jarvis.discord import (
 )
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import KernelRuntime
-from jarvis.memory import (
-    MemoryStore,
-)
+from jarvis.memory_retrieval import MemoryRepository
 from jarvis.messages import InboundInsert, MessageStore, PendingControl, StoredMessage
 from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.read_tools import CalendarListEventsSuccess
@@ -303,7 +301,7 @@ class JarvisThreadRunner:
         definitions: RoleDefinitions,
         history: PostgresCanonicalHistory,
         dispatcher_factory: Callable[[PostgresInputCheckpoint], ToolDispatchPort],
-        memory: MemoryStore,
+        memory_repository: MemoryRepository,
         memory_dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
         rememberer: memory_workers.RemembererWorker,
     ) -> None:
@@ -315,7 +313,7 @@ class JarvisThreadRunner:
         self._definitions = definitions
         self._history = history
         self._dispatcher_factory = dispatcher_factory
-        self._memory = memory
+        self._memory_repository = memory_repository
         self._memory_dispatcher_factory = memory_dispatcher_factory
         self._rememberer = rememberer
         self._checkpoint_lock = asyncio.Lock()
@@ -392,7 +390,7 @@ class JarvisThreadRunner:
             admission=self._admission,
             provider=self._kernel_runtime.provider,
             dispatcher_factory=self._memory_dispatcher_factory,
-            memory=self._memory,
+            memory_repository=self._memory_repository,
             trace=self._store,
             model_decisions=self._model_decisions,
         )

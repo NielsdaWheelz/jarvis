@@ -527,6 +527,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 clients.push_async_callback(agent_runtime.close)
                 messages = MessageStore(engine)
                 memory = MemoryStore(engine)
+                memory_repository = PostgresMemoryRepository(engine)
                 embedder = OpenAIEmbedder(
                     settings.embedding_openai_api_key,
                     http_client=embedding_http,
@@ -550,7 +551,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     google_api_http=google_api_http,
                     maps_http=maps_http,
                     brave_http=brave_http,
-                    memory_repository=PostgresMemoryRepository(engine),
+                    memory_repository=memory_repository,
                     memory_embedder=embedder,
                     actions=actions,
                     agents=agents,
@@ -800,7 +801,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     definitions=definitions,
                     history=PostgresCanonicalHistory(engine),
                     dispatcher_factory=dispatcher_factory,
-                    memory=memory,
+                    memory_repository=memory_repository,
                     memory_dispatcher_factory=lambda: MemoryToolDispatcher(
                         recorder=PostgresReadRecorder(engine)
                     ),

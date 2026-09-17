@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -95,12 +95,14 @@ from jarvis.memory import (
     StoredRawMemory,
 )
 from jarvis.memory_dispatch import MemoryDispatchEvidence
+from jarvis.memory_retrieval import OpenedMemory, RetrievedMemory
 from jarvis.memory_tools import MemorySearchInput, compose_memory_catalog
 from jarvis.memory_workers import BackgroundDeferred, RemembererWorker
 
 NOW = datetime(2026, 9, 4, 17, tzinfo=UTC)
 OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
 MEMORY_ID = UUID("00000000-0000-0000-0000-000000000002")
+SUMMARY_ID = UUID("00000000-0000-0000-0000-000000000003")
 
 
 class _Dispatcher:
@@ -126,19 +128,28 @@ class _InitialReadDispatcher:
         return DispatchCompleted({"type": "Success", "value": {"candidates": []}})
 
 
-class _OpenedMemory:
-    def __init__(self, rows: tuple[StoredRawMemory, ...]) -> None:
+class _MemoryRepository:
+    def __init__(self, rows: tuple[RetrievedMemory, ...]) -> None:
         self.rows = rows
+        self.opened: list[tuple[MemoryIdentity, ...]] = []
 
-    async def open_memories(
+    async def search(
         self,
+        query: str,
         *,
-        identities: tuple[MemoryIdentity, ...],
-        maximum_rows: int,
-    ) -> tuple[StoredRawMemory, ...]:
-        assert identities == tuple(row.identity for row in self.rows)
-        assert maximum_rows == 20
-        return self.rows
+        lexical_limit: int,
+        semantic_limit: int,
+        query_embedding: Sequence[float] | None,
+    ) -> tuple[RetrievedMemory, ...]:
+        raise AssertionError("host rehydration only opens selected memories")
+
+    async def open(self, identities: Sequence[MemoryIdentity]) -> OpenedMemory:
+        self.opened.append(tuple(identities))
+        present = tuple(MemoryIdentity(row.table_kind, row.id) for row in self.rows)
+        return OpenedMemory(
+            self.rows,
+            tuple(identity for identity in identities if identity not in present),
+        )
 
 
 class _Trace:
@@ -307,9 +318,19 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
 ) -> None:
     definition, plan = _recaller()
     identity = MemoryIdentity("memory_log", MEMORY_ID)
-    row = StoredRawMemory(MEMORY_ID, "exact stored preference", NOW, None)
+    summary_identity = MemoryIdentity("memory_summary", SUMMARY_ID)
+    repository = _MemoryRepository(
+        (
+            RetrievedMemory(
+                "memory_summary", SUMMARY_ID, "exact stored summary", NOW, (MEMORY_ID,)
+            ),
+            RetrievedMemory(
+                "memory_log", MEMORY_ID, "exact stored preference", NOW, ()
+            ),
+        )
+    )
     dispatcher = _Dispatcher(
-        MemoryDispatchEvidence((identity,), (identity, identity), 2)
+        MemoryDispatchEvidence((identity,), (summary_identity, identity, identity), 2)
     )
     trace = _Trace()
     admission, root_token = await _active_admission(tmp_path)
@@ -320,7 +341,10 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
         return OneShotCompleted(
             RunMetrics(RunId("recall"), 3, ProviderUsage(100, 20), 0.5, False),
             RecallResult(
-                memories=[RecalledMemory(table_kind="memory_log", id=str(MEMORY_ID))]
+                memories=[
+                    RecalledMemory(table_kind="memory_summary", id=str(SUMMARY_ID)),
+                    RecalledMemory(table_kind="memory_log", id=str(MEMORY_ID)),
+                ]
             ).model_dump(mode="json"),
         )
 
@@ -332,7 +356,7 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(Any, dispatcher),
-        memory=_OpenedMemory((row,)),
+        memory_repository=repository,
         trace=trace,
     )
 
@@ -344,7 +368,16 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
     )
 
     rendered = render_prompt(recalled)
+    assert repository.opened == [(summary_identity, identity)]
+    assert 'table_kind="memory_summary"' in rendered
+    assert f'source_memory_ids="{MEMORY_ID}"' in rendered
+    assert rendered.count("source_memory_ids=") == 1
+    assert "exact stored summary" in rendered
     assert "exact stored preference" in rendered
+    assert rendered.index("exact stored summary") < rendered.index(
+        "exact stored preference"
+    )
+    assert str(SUMMARY_ID) in rendered
     assert str(MEMORY_ID) in rendered
     assert observed["parent_admission"] == root_token
     assert observed["inputs"] == (_input(),)
@@ -361,10 +394,14 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
         )
     )
     assert trace.values[0]["candidate_identities"] == (identity,)
-    assert trace.values[0]["selected_identities"] == (identity,)
+    assert trace.values[0]["selected_identities"] == (summary_identity, identity)
     assert recaller.last_evidence is not None
     assert recaller.last_evidence.search_calls == 2
-    assert recaller.last_evidence.opened_identities == (identity, identity)
+    assert recaller.last_evidence.opened_identities == (
+        summary_identity,
+        identity,
+        identity,
+    )
 
     await admission.settle(
         cast(Any, root_token), AdmissionUsage(0, ProviderUsage(), 0.0)
@@ -389,8 +426,8 @@ async def test_recaller_host_rehydration_defect_propagates(
         )
 
     class BrokenMemory:
-        async def open_memories(self, **kwargs: object) -> object:
-            del kwargs
+        async def open(self, identities: Sequence[MemoryIdentity]) -> OpenedMemory:
+            del identities
             raise RuntimeError("content-free storage defect")
 
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
@@ -403,7 +440,7 @@ async def test_recaller_host_rehydration_defect_propagates(
         dispatcher_factory=lambda: cast(
             Any, _Dispatcher(MemoryDispatchEvidence((identity,), (), 1))
         ),
-        memory=cast(Any, BrokenMemory()),
+        memory_repository=cast(Any, BrokenMemory()),
         trace=_Trace(),
     )
 
@@ -414,6 +451,69 @@ async def test_recaller_host_rehydration_defect_propagates(
             recent_context=PromptSections(()),
             cancellation=CancellationToken(),
         )
+
+
+@pytest.mark.parametrize("scenario", ["unknown", "missing", "reordered"])
+async def test_recaller_rejects_unverified_or_inexact_rehydration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    definition, plan = _recaller()
+    selected = (
+        MemoryIdentity("memory_log", MEMORY_ID),
+        MemoryIdentity("memory_summary", SUMMARY_ID),
+    )
+    rows = (
+        RetrievedMemory("memory_log", MEMORY_ID, "exact raw text", NOW, ()),
+        RetrievedMemory(
+            "memory_summary", SUMMARY_ID, "exact summary", NOW, (MEMORY_ID,)
+        ),
+    )
+    repository = _MemoryRepository(rows[:1] if scenario == "missing" else rows[::-1])
+    candidates = selected[:1] if scenario == "unknown" else selected
+    trace = _Trace()
+    admission, root_token = await _active_admission(tmp_path)
+
+    async def scripted(**kwargs: object) -> OneShotCompleted:
+        del kwargs
+        return OneShotCompleted(
+            RunMetrics(RunId("recall"), 1, ProviderUsage(), 0.1, False),
+            RecallResult(
+                memories=[
+                    RecalledMemory(table_kind=item.table_kind, id=str(item.id))
+                    for item in selected
+                ]
+            ).model_dump(mode="json"),
+        )
+
+    monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
+    recaller = IsolatedRecaller(
+        model_decisions=model_journal,
+        definition=definition,
+        plan=plan,
+        admission=admission,
+        provider=cast(Any, object()),
+        dispatcher_factory=lambda: cast(
+            Any, _Dispatcher(MemoryDispatchEvidence(candidates, (), 1))
+        ),
+        memory_repository=repository,
+        trace=trace,
+    )
+
+    assert await recaller.recall(
+        _input(),
+        as_of=NOW,
+        recent_context=PromptSections(()),
+        cancellation=CancellationToken(),
+    ) == PromptSections(())
+    assert repository.opened == ([] if scenario == "unknown" else [selected])
+    assert trace.values[0]["terminal_outcome"] == (
+        "invalid_selection" if scenario == "unknown" else "missing_selection"
+    )
+    await admission.settle(
+        cast(Any, root_token), AdmissionUsage(0, ProviderUsage(), 0.0)
+    )
 
 
 async def test_recaller_initial_query_preserves_bounded_owner_head_and_tail(
@@ -441,7 +541,7 @@ async def test_recaller_initial_query_preserves_bounded_owner_head_and_tail(
         dispatcher_factory=lambda: cast(
             Any, _Dispatcher(MemoryDispatchEvidence((), (), 1))
         ),
-        memory=_OpenedMemory(()),
+        memory_repository=_MemoryRepository(()),
         trace=_Trace(),
     )
     owner_input = _input("head " + ("😀" * 3_000) + " tail")
@@ -484,7 +584,7 @@ async def test_recaller_cancellation_prevents_initial_read_dispatch(
             admission=admission,
             provider=cast(Any, object()),
             dispatcher_factory=lambda: cast(Any, dispatcher),
-            memory=_OpenedMemory(()),
+            memory_repository=_MemoryRepository(()),
             trace=trace,
         )
         assert await recaller.recall(
@@ -516,7 +616,7 @@ async def test_recaller_initial_read_failure_prevents_provider_io(
             admission=admission,
             provider=cast(Any, object()),
             dispatcher_factory=lambda: cast(Any, dispatcher),
-            memory=_OpenedMemory(()),
+            memory_repository=_MemoryRepository(()),
             trace=trace,
         )
         with pytest.raises(ContextSourceDefect, match="configuration defect"):
@@ -559,7 +659,7 @@ async def test_recaller_ordinary_stop_records_empty_and_does_not_invent_context(
         dispatcher_factory=lambda: cast(
             Any, _Dispatcher(MemoryDispatchEvidence((), (), 0))
         ),
-        memory=_OpenedMemory(()),
+        memory_repository=_MemoryRepository(()),
         trace=trace,
     )
 
@@ -601,7 +701,7 @@ async def test_recaller_rejects_valid_finish_without_completed_search(
         dispatcher_factory=lambda: cast(
             Any, _Dispatcher(MemoryDispatchEvidence((), (), 0))
         ),
-        memory=_OpenedMemory(()),
+        memory_repository=_MemoryRepository(()),
         trace=trace,
     )
 
@@ -644,7 +744,7 @@ async def test_recaller_configuration_stop_records_then_fails_closed(
         dispatcher_factory=lambda: cast(
             Any, _Dispatcher(MemoryDispatchEvidence((), (), 0))
         ),
-        memory=_OpenedMemory(()),
+        memory_repository=_MemoryRepository(()),
         trace=trace,
     )
 

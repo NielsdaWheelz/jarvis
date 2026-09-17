@@ -95,7 +95,7 @@ from jarvis.kernel import (
 )
 from jarvis.memory import MemoryIdentity, MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
-from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_retrieval import MemoryRepository, PostgresMemoryRepository
 from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore
@@ -330,13 +330,6 @@ class _Embedder(Protocol):
 
 
 class _EmbeddingStore(Protocol):
-    async def open_memories(
-        self,
-        *,
-        identities: tuple[MemoryIdentity, ...],
-        maximum_rows: int,
-    ) -> tuple[object, ...]: ...
-
     async def update_embedding(
         self,
         *,
@@ -568,24 +561,21 @@ def fixture_insert_values(
 
 async def populate_fixture_embeddings(
     store: _EmbeddingStore,
+    repository: MemoryRepository,
     embedder: _Embedder,
     fixtures: tuple[RecallFixture, ...],
 ) -> dict[str, object]:
     identities = tuple(MemoryIdentity(item.table_kind, item.id) for item in fixtures)
-    memories = await store.open_memories(
-        identities=identities,
-        maximum_rows=len(identities),
-    )
+    memories = (await repository.open(identities)).rows
     if len(memories) != len(fixtures):
         raise ProbeCheckFailed("fixture_memory_missing")
     texts: list[str] = []
     for memory, identity in zip(memories, identities, strict=True):
-        if getattr(memory, "identity", None) != identity:
+        if MemoryIdentity(memory.table_kind, memory.id) != identity:
             raise ProbeCheckFailed("fixture_memory_order_changed")
-        text = getattr(memory, "text", None)
-        if type(text) is not str:
+        if type(memory.text) is not str:
             raise ProbeCheckFailed("fixture_memory_text_invalid")
-        texts.append(text)
+        texts.append(memory.text)
     vectors = await embedder.embed(tuple(texts))
     if len(vectors) != len(identities) or any(
         len(vector) != EMBEDDING_DIMENSION for vector in vectors
@@ -758,7 +748,10 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 )
                 stage = "embedding"
                 embedding = await populate_fixture_embeddings(
-                    MemoryStore(engine), embedder, fixtures
+                    MemoryStore(engine),
+                    PostgresMemoryRepository(engine),
+                    embedder,
+                    fixtures,
                 )
                 stage = "generation_denial"
                 await verify_embedding_credential_denies_generation(
@@ -808,7 +801,8 @@ async def _run_production_roles(
         provider_state_root=arguments.runtime_state_directory,
         codex_endpoints=host.endpoints,
     ) as agent_runtime:
-        catalog = compose_memory_catalog(PostgresMemoryRepository(engine), embedder)
+        memory_repository = PostgresMemoryRepository(engine)
+        catalog = compose_memory_catalog(memory_repository, embedder)
         provider_configuration = await resolve_provider_configuration(
             runtime=agent_runtime,
             profile_key=arguments.profile,
@@ -865,7 +859,7 @@ async def _run_production_roles(
                 dispatcher_factory=lambda: MemoryToolDispatcher(
                     recorder=PostgresReadRecorder(engine)
                 ),
-                memory=MemoryStore(engine),
+                memory_repository=memory_repository,
                 trace=trace,
             )
             try:

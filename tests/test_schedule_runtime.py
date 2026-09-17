@@ -60,7 +60,7 @@ from jarvis.messages import (
     SettlementTrace,
     StoredMessage,
 )
-from jarvis.proactivity import DueWakeSignal, ProcessLocalWakeTimer
+from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.schedule_tools import schedule_family
 from jarvis.service import IngressStore, JarvisService, ThreadRunner
 from jarvis.settings import Settings
@@ -383,7 +383,7 @@ async def test_service_does_not_run_for_a_not_yet_due_wake(
     delivery = _Delivery()
     timer = ProcessLocalWakeTimer(
         store=schedules,
-        on_due=lambda _signal: None,
+        on_due=lambda: None,
         clock=lambda: now,
         sleep=sleep,
     )
@@ -412,7 +412,7 @@ async def test_timer_reschedule_preempts_sleep_and_arms_service(
     service: JarvisService | None = None
     timer = ProcessLocalWakeTimer(
         store=schedules,
-        on_due=lambda _signal: cast(JarvisService, service).request_work(),
+        on_due=lambda: cast(JarvisService, service).request_work(),
         clock=lambda: now,
         sleep=sleep,
     )
@@ -447,7 +447,7 @@ async def test_overdue_restart_immediately_arms_service(
 
     timer = ProcessLocalWakeTimer(
         store=schedules,
-        on_due=lambda _signal: cast(JarvisService, service).request_work(),
+        on_due=lambda: cast(JarvisService, service).request_work(),
         clock=lambda: now,
         sleep=unexpected_sleep,
     )
@@ -790,10 +790,10 @@ async def test_new_timer_observes_persisted_overdue_schedule(
         conversation_id=f"schedule-overdue-{uuid4()}",
     )
     cancellation = CancellationToken()
-    signals: list[DueWakeSignal] = []
+    notifications: list[datetime] = []
 
-    def due(signal: DueWakeSignal) -> None:
-        signals.append(signal)
+    def due() -> None:
+        notifications.append(now)
         cancellation.cancel()
 
     await ProcessLocalWakeTimer(
@@ -802,9 +802,7 @@ async def test_new_timer_observes_persisted_overdue_schedule(
         clock=lambda: now,
     ).run(cancellation)
 
-    assert len(signals) == 1
-    assert signals[0].execute_after == stored.execute_after
-    assert signals[0].overdue
+    assert notifications == [now]
     claim = await actions.claim_due_schedule(
         action_id=stored.id,
         plan=plan,

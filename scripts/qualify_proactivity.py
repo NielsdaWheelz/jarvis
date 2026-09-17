@@ -101,7 +101,7 @@ from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.ownership import Database, deployment_ownership
-from jarvis.proactivity import DueWakeSignal, ProcessLocalWakeTimer
+from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.schedule_tools import (
@@ -682,7 +682,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 )
                 current = exact_created_at
                 exact_delays: list[float] = []
-                exact_signals: list[DueWakeSignal] = []
+                exact_notifications: list[datetime] = []
                 exact_cancellation = CancellationToken()
 
                 async def exact_sleep(delay: float) -> None:
@@ -690,20 +690,20 @@ async def _run(settings: Settings) -> dict[str, object]:
                     exact_delays.append(delay)
                     current = exact_due
 
-                def exact_signal(signal: DueWakeSignal) -> None:
-                    exact_signals.append(signal)
+                def exact_notification() -> None:
+                    exact_notifications.append(current)
                     exact_cancellation.cancel()
 
                 await ProcessLocalWakeTimer(
                     store=actions,
-                    on_due=exact_signal,
+                    on_due=exact_notification,
                     clock=lambda: current,
                     sleep=exact_sleep,
                 ).run(exact_cancellation)
                 if (
                     len(exact_delays) != 1
                     or exact_delays[0] != (exact_due - exact_created_at).total_seconds()
-                    or exact_signals != [DueWakeSignal(exact_due, exact_due)]
+                    or exact_notifications != [exact_due]
                 ):
                     raise QualificationFailure("schedule", "exact_due_timer_changed")
                 first_claim = await actions.claim_due_schedule(
@@ -830,25 +830,26 @@ async def _run(settings: Settings) -> dict[str, object]:
                     model_step_ordinal=1,
                 )
                 overdue_cancellation = CancellationToken()
-                overdue_signals: list[DueWakeSignal] = []
+                overdue_now = overdue_due + timedelta(minutes=1)
+                overdue_notifications: list[datetime] = []
 
-                def overdue_signal(signal: DueWakeSignal) -> None:
-                    overdue_signals.append(signal)
+                def overdue_notification() -> None:
+                    overdue_notifications.append(overdue_now)
                     overdue_cancellation.cancel()
 
                 await ProcessLocalWakeTimer(
                     store=actions,
-                    on_due=overdue_signal,
-                    clock=lambda: overdue_due + timedelta(minutes=1),
+                    on_due=overdue_notification,
+                    clock=lambda: overdue_now,
                     sleep=lambda _delay: asyncio.sleep(0),
                 ).run(overdue_cancellation)
-                if len(overdue_signals) != 1 or not overdue_signals[0].overdue:
+                if overdue_notifications != [overdue_now]:
                     raise QualificationFailure("schedule", "overdue_restart_changed")
                 overdue_claim = await actions.claim_due_schedule(
                     action_id=overdue_action_id,
                     plan=definitions.plans["main"],
                     source_conversation_id=conversation_id,
-                    now=overdue_due + timedelta(minutes=1),
+                    now=overdue_now,
                 )
                 if overdue_claim is None:
                     raise QualificationFailure(

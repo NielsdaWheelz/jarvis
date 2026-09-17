@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 
@@ -15,16 +14,6 @@ class DueWakeStore(Protocol):
     async def next_due_at(self) -> datetime | None: ...
 
 
-@dataclass(frozen=True, slots=True)
-class DueWakeSignal:
-    execute_after: datetime
-    observed_at: datetime
-
-    @property
-    def overdue(self) -> bool:
-        return self.observed_at > self.execute_after
-
-
 class ProcessLocalWakeTimer:
     """Signal due schedule work; PostgreSQL remains the durable scheduler."""
 
@@ -32,7 +21,7 @@ class ProcessLocalWakeTimer:
         self,
         *,
         store: DueWakeStore,
-        on_due: Callable[[DueWakeSignal], None],
+        on_due: Callable[[], None],
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -68,7 +57,7 @@ class ProcessLocalWakeTimer:
                 return
             if self._changed.is_set():
                 continue
-            self._on_due(DueWakeSignal(execute_after, observed_at))
+            self._on_due()
             if await self._wait(cancellation, None) != "changed":
                 return
 
@@ -113,4 +102,4 @@ class ProcessLocalWakeTimer:
         return "elapsed"
 
 
-__all__ = ["DueWakeSignal", "DueWakeStore", "ProcessLocalWakeTimer"]
+__all__ = ["DueWakeStore", "ProcessLocalWakeTimer"]

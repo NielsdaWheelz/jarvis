@@ -28,7 +28,7 @@ from jarvis.memory import (
     SummaryMutationCommit,
 )
 from jarvis.memory_dispatch import MemoryDispatchEvidence
-from jarvis.service import BackgroundDeferred, DreamerRunCompleted, DreamerWorker
+from jarvis.memory_workers import BackgroundDeferred, DreamerRunCompleted, DreamerWorker
 
 NOW = datetime(2026, 9, 5, 19, tzinfo=UTC)
 RESET_AT = NOW + timedelta(minutes=10)
@@ -140,7 +140,7 @@ async def test_zero_raw_memory_skips_admission_and_provider(
         del kwargs
         raise AssertionError("zero-memory dream invoked the provider")
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", provider_not_called)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", provider_not_called)
 
     assert await worker.run_at(as_of=NOW, cancellation=CancellationToken()) is None
     assert memory.raw_count_calls == 1
@@ -172,7 +172,7 @@ async def test_completed_result_maps_once_to_the_atomic_host_batch(
         observed.update(kwargs)
         return _completed(result.model_dump(mode="json"))
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
 
     outcome = await worker.run_at(as_of=NOW, cancellation=CancellationToken())
 
@@ -236,7 +236,7 @@ async def test_completed_result_retains_contradiction_and_both_raw_sources(
             }
         )
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
 
     outcome = await worker.run_at(as_of=NOW, cancellation=CancellationToken())
 
@@ -278,7 +278,7 @@ async def test_invalid_failed_or_cancelled_run_applies_no_mutation(
         cancellation.cancel()
         return _completed({"insertions": [], "remove_summary_ids": []})
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", result)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", result)
 
     assert await worker.run_at(as_of=NOW, cancellation=cancellation) is None
     assert memory.batches == []
@@ -296,7 +296,7 @@ async def test_background_preflight_defers_without_provider_or_mutation(
         del kwargs
         raise AssertionError("deferred dream invoked the provider")
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", provider_not_called)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", provider_not_called)
 
     outcome = await worker.run_at(as_of=NOW, cancellation=CancellationToken())
 
@@ -316,7 +316,7 @@ async def test_completed_result_without_authoritative_search_is_rejected(
         del kwargs
         return _completed({"insertions": [], "remove_summary_ids": []})
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
 
     assert await worker.run_at(as_of=NOW, cancellation=CancellationToken()) is None
     assert memory.batches == []
@@ -338,7 +338,7 @@ async def test_foreground_interrupt_before_commit_discards_the_result(
         await provider_release.wait()
         return _completed({"insertions": [], "remove_summary_ids": []})
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     running = asyncio.create_task(worker.run_at(as_of=NOW, cancellation=cancellation))
     await asyncio.wait_for(provider_started.wait(), timeout=1)
 
@@ -372,7 +372,7 @@ async def test_foreground_interrupt_waits_for_atomic_commit_boundary(
             }
         )
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     running = asyncio.create_task(worker.run_at(as_of=NOW, cancellation=cancellation))
     await asyncio.wait_for(memory.commit_started.wait(), timeout=1)
 

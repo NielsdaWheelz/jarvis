@@ -89,6 +89,7 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryIdentity, MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore
 from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
@@ -100,7 +101,6 @@ from jarvis.recall_evaluation import (
     load_recall_set,
     score_recall,
 )
-from jarvis.service import RemembererWorker
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL, Settings
 
 ROOT = Path(__file__).resolve().parents[1]

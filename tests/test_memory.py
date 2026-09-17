@@ -43,8 +43,8 @@ from jarvis.memory import (
 )
 from jarvis.memory_dispatch import MemoryDispatchEvidence
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore
-from jarvis.service import RemembererWorker
 from jarvis.settings import MAXIMUM_BATCH_SIZE
 
 DATABASE_URL = os.environ.get("JARVIS_TEST_DATABASE_URL")
@@ -288,7 +288,7 @@ async def test_worker_embedding_failure_preserves_committed_lexical_memory(
             assert inputs == (memory_text,)
             raise EmbeddingFailure("embedding provider call failed")
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     admission_path = tmp_path / "embedding-failure-admission.json"
     limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(admission_path, limits)

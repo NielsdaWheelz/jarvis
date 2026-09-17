@@ -13,7 +13,7 @@ that the six specified tables or their columns are unnecessary.
 | provider sessions and capacity | `session.py`, `codex_config.py`, `admission.py`, `state.py` | disposable sessions, bounded provider work, ownership |
 | paid decision and read recovery | `decisions.py`, `read_positions.py`, read dispatchers | original decisions and receipts replay without redispatch |
 | memory storage and retrieval | `memory.py`, `memory_retrieval.py`, `memory_tools.py`, `embeddings.py` | immutable raw memory, rebuildable derived state |
-| memory work and rebuild | memory workers in `service.py`, `rebuild.py`, recall probes | isolated cognition, transactional commit, cancellation |
+| memory work and rebuild | `memory_workers.py`, `rebuild.py`, recall probes | isolated cognition, transactional commit, cancellation |
 | connector reads | `read_tools.py`, `connectors.py`, `read_dispatch.py` | bounded observations, exact identifiers, typed completeness |
 | writes and recovery | `write_tools.py`, `write_connectors.py`, `write_dispatch.py`, `actions.py` | immutable effects, finite attempts, evidence-based recovery |
 | grounding and approvals | `write_gate.py`, `write_policy.py`, `approval.py`, `approval_runtime.py` | current owner authority and exact approved payload |
@@ -36,7 +36,6 @@ qualifier; no old runtime constructor is needed to describe those numbers.
 
 follow-ups are recorded individually under [issues](issues/):
 [direct role construction](issues/direct-role-construction.md),
-[memory worker ownership](issues/memory-worker-ownership.md),
 [read construction](issues/read-construction.md),
 [wake notification](issues/wake-notification.md),
 [discord retries](issues/discord-delivery-retries.md), and

@@ -64,6 +64,12 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_workers import (
+    BackgroundDeferred,
+    DreamerRunCompleted,
+    DreamerWorker,
+    RemembererWorker,
+)
 from jarvis.messages import MessageStore
 from jarvis.ownership import Database, deployment_ownership
 from jarvis.proactivity import ProcessLocalWakeTimer
@@ -78,14 +84,7 @@ from jarvis.rebuild import (
     corpus_rebuild_admission_limits,
     rebuild_memory_corpus,
 )
-from jarvis.service import (
-    BackgroundDeferred,
-    DreamerRunCompleted,
-    DreamerWorker,
-    JarvisService,
-    JarvisThreadRunner,
-    RemembererWorker,
-)
+from jarvis.service import JarvisService, JarvisThreadRunner
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 from jarvis.write_composition import build_slice6_composition

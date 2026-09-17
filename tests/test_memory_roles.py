@@ -97,8 +97,8 @@ from jarvis.memory import (
 )
 from jarvis.memory_dispatch import MemoryDispatchEvidence
 from jarvis.memory_tools import MemorySearchInput
+from jarvis.memory_workers import BackgroundDeferred, RemembererWorker
 from jarvis.read_composition import build_slice3_catalog
-from jarvis.service import BackgroundDeferred, RemembererWorker
 from jarvis.settings import Settings
 
 NOW = datetime(2026, 9, 4, 17, tzinfo=UTC)
@@ -831,7 +831,7 @@ async def test_restart_sweep_zero_memory_result_advances_through_atomic_commit(
             RememberResult(memories=[]).model_dump(mode="json"),
         )
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     worker = RemembererWorker(
         model_decisions=model_journal,
         definition=definitions.rememberer,
@@ -879,7 +879,7 @@ async def test_cancelled_rememberer_commits_no_memory_or_watermark(
             ThreadStopKind.cancelled,
         )
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", cancelled)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", cancelled)
     worker = RemembererWorker(
         model_decisions=model_journal,
         definition=definitions.rememberer,
@@ -939,7 +939,7 @@ async def test_failed_or_invalid_rememberer_records_only_attempt_summary(
         del kwargs
         return outcome
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", stopped)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", stopped)
     worker = RemembererWorker(
         model_decisions=model_journal,
         definition=definitions.rememberer,
@@ -1000,7 +1000,7 @@ async def test_rememberer_propagates_background_admission_reset(
         del kwargs
         raise AssertionError("deferred rememberer started provider I/O")
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", should_not_run)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", should_not_run)
     worker = RemembererWorker(
         model_decisions=model_journal,
         definition=definitions.rememberer,
@@ -1045,7 +1045,7 @@ async def test_foreground_waits_for_atomic_rememberer_commit_boundary(
             ),
         )
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     worker = RemembererWorker(
         model_decisions=model_journal,
         definition=definitions.rememberer,
@@ -1097,7 +1097,7 @@ async def test_foreground_cancels_in_flight_derived_embedding(
             ),
         )
 
-    monkeypatch.setattr("jarvis.service.run_one_shot", completed)
+    monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     worker = RemembererWorker(
         model_decisions=model_journal,
         definition=definitions.rememberer,

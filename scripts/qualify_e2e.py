@@ -72,6 +72,7 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore
 from jarvis.ownership import Database, deployment_ownership
 from jarvis.read_dispatch import ReadToolDispatcher
@@ -83,7 +84,7 @@ from jarvis.read_tools import (
     MapsGetPlaceInput,
     PlaceLocation,
 )
-from jarvis.service import JarvisService, JarvisThreadRunner, RemembererWorker
+from jarvis.service import JarvisService, JarvisThreadRunner
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 from jarvis.write_composition import build_slice6_composition

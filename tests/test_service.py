@@ -40,9 +40,9 @@ from jarvis.discord import (
     DiscordApprovalInteraction,
     DiscordOwnerMessage,
 )
+from jarvis.memory_workers import BackgroundDeferred
 from jarvis.messages import InboundInsert, PendingControl, StoredMessage
 from jarvis.service import (
-    BackgroundDeferred,
     CapturingReadDispatcher,
     IngressStore,
     JarvisService,

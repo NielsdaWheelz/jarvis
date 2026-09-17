@@ -59,6 +59,7 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker
 from jarvis.ownership import deployment_ownership
 from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_positions import PostgresReadRecorder
@@ -70,7 +71,6 @@ from jarvis.rebuild import (
 )
 from jarvis.recall_evaluation import RecallCase, RecallScore, load_recall_set
 from jarvis.recall_probe import RecallProbeResult, RecallProbeTrace, run_recall_probe
-from jarvis.service import DreamerRunCompleted, DreamerWorker
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL
 
 ROOT = Path(__file__).resolve().parents[1]

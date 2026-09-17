@@ -622,16 +622,6 @@ class DeliveryFailed:
 type DeliveryResult = DeliverySucceeded | DeliveryFailed
 
 
-@dataclass(frozen=True, slots=True)
-class _AttemptFailed:
-    kind: DeliveryFailureKind
-    retryable: bool
-    ambiguous: bool
-    http_status: int | None = None
-    retry_after_seconds: float | None = None
-
-
-type AttemptResult = DeliverySucceeded | _AttemptFailed
 type Sleep = Callable[[float], Awaitable[None]]
 type _AttachmentUpload = tuple[str, str, bytes]
 
@@ -683,11 +673,14 @@ class DiscordCreateMessageClient:
         if not content or len(content) > DISCORD_MAX_CONTENT_CHARACTERS:
             raise ValueError("Discord content must contain 1 to 2000 characters")
 
+        nonce = discord_nonce(persisted_message_id)
         return await self._deliver(
-            content=content,
-            nonce=discord_nonce(persisted_message_id),
-            components=None,
-            attachment=None,
+            lambda: self._create_request(
+                content=content,
+                nonce=nonce,
+                components=None,
+                attachment=None,
+            )
         )
 
     async def create_approval_message(
@@ -727,19 +720,17 @@ class DiscordCreateMessageClient:
         except UnicodeDecodeError as exc:
             raise ValueError("approval attachment is not UTF-8") from exc
 
+        nonce = discord_nonce(approval_message_id)
+        components = approval_components(
+            action_id, approval_message_id, disabled=disabled
+        )
         return await self._deliver(
-            content=content,
-            nonce=discord_nonce(approval_message_id),
-            components=approval_components(
-                action_id,
-                approval_message_id,
-                disabled=disabled,
-            ),
-            attachment=(
-                attachment_name,
-                attachment_media_type,
-                attachment_content,
-            ),
+            lambda: self._create_request(
+                content=content,
+                nonce=nonce,
+                components=components,
+                attachment=(attachment_name, attachment_media_type, attachment_content),
+            )
         )
 
     async def disable_approval_message(
@@ -758,33 +749,45 @@ class DiscordCreateMessageClient:
             or str(int(discord_message_id)) != discord_message_id
         ):
             raise ValueError("Discord approval message ID is invalid")
-        last_failure: _AttemptFailed | None = None
-        attempts = 0
+
+        async def request() -> httpx.Response:
+            return await self._http_client.patch(
+                f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}"
+                f"/messages/{discord_message_id}",
+                headers={
+                    "Authorization": "Bot "
+                    + self._settings.bot_token.get_secret_value(),
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "components": approval_components(
+                        action_id,
+                        approval_message_id,
+                        disabled=True,
+                    ),
+                    "allowed_mentions": {"parse": []},
+                    "flags": SUPPRESS_EMBEDS,
+                },
+                timeout=self._settings.request_timeout_seconds,
+            )
+
+        return await self._deliver(request, expected_message_id=discord_message_id)
+
+    async def _deliver(
+        self,
+        request: Callable[[], Awaitable[httpx.Response]],
+        *,
+        expected_message_id: str | None = None,
+    ) -> DeliveryResult:
+        """Apply one bounded response and retry policy to host-owned requests."""
+
         for attempt in range(1, self._settings.delivery_max_attempts + 1):
-            attempts = attempt
             try:
-                response = await self._http_client.patch(
-                    f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}"
-                    f"/messages/{discord_message_id}",
-                    headers={
-                        "Authorization": "Bot "
-                        + self._settings.bot_token.get_secret_value(),
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "components": approval_components(
-                            action_id,
-                            approval_message_id,
-                            disabled=True,
-                        ),
-                        "allowed_mentions": {"parse": []},
-                        "flags": SUPPRESS_EMBEDS,
-                    },
-                    timeout=self._settings.request_timeout_seconds,
-                )
+                response = await request()
             except httpx.RequestError:
-                last_failure = _AttemptFailed(
+                failure = DeliveryFailed(
                     kind=DeliveryFailureKind.TRANSPORT,
+                    attempts=attempt,
                     retryable=True,
                     ambiguous=True,
                 )
@@ -794,114 +797,72 @@ class DiscordCreateMessageClient:
                         payload = cast(object, response.json())
                     except ValueError:
                         payload = None
+                    message_id = (
+                        cast("dict[str, object]", payload).get("id")
+                        if isinstance(payload, dict)
+                        else None
+                    )
                     if (
-                        isinstance(payload, dict)
-                        and cast("dict[str, object]", payload).get("id")
-                        == discord_message_id
+                        isinstance(message_id, str)
+                        and (
+                            expected_message_id is None
+                            or message_id == expected_message_id
+                        )
+                        and message_id.isascii()
+                        and message_id.isdecimal()
+                        and int(message_id) > 0
                     ):
-                        return DeliverySucceeded(discord_message_id, attempt)
-                    last_failure = _AttemptFailed(
+                        return DeliverySucceeded(message_id, attempt)
+                    failure = DeliveryFailed(
                         kind=DeliveryFailureKind.INVALID_RESPONSE,
+                        attempts=attempt,
                         retryable=True,
                         ambiguous=True,
                         http_status=response.status_code,
                     )
                 elif response.status_code == 429:
-                    last_failure = _AttemptFailed(
+                    failure = DeliveryFailed(
                         kind=DeliveryFailureKind.RATE_LIMITED,
+                        attempts=attempt,
                         retryable=True,
                         ambiguous=False,
                         http_status=response.status_code,
                         retry_after_seconds=_retry_after_seconds(response),
                     )
                 elif response.status_code == 408 or 500 <= response.status_code <= 599:
-                    last_failure = _AttemptFailed(
+                    failure = DeliveryFailed(
                         kind=DeliveryFailureKind.SERVER,
+                        attempts=attempt,
                         retryable=True,
                         ambiguous=True,
                         http_status=response.status_code,
                     )
                 else:
-                    last_failure = _AttemptFailed(
+                    failure = DeliveryFailed(
                         kind=DeliveryFailureKind.REJECTED,
+                        attempts=attempt,
                         retryable=False,
                         ambiguous=False,
                         http_status=response.status_code,
                     )
-            if (
-                not last_failure.retryable
-                or attempt == self._settings.delivery_max_attempts
-            ):
-                break
+            if not failure.retryable or attempt == self._settings.delivery_max_attempts:
+                return failure
             delay = self._settings.delivery_retry_delays_seconds[attempt - 1]
-            if last_failure.retry_after_seconds is not None:
-                if last_failure.retry_after_seconds > MAX_RETRY_AFTER_SLEEP_SECONDS:
-                    break
-                delay = max(delay, last_failure.retry_after_seconds)
+            if failure.retry_after_seconds is not None:
+                if failure.retry_after_seconds > MAX_RETRY_AFTER_SLEEP_SECONDS:
+                    return failure
+                delay = max(delay, failure.retry_after_seconds)
             await self._sleep(delay)
-        if last_failure is None:  # pragma: no cover
-            raise AssertionError("approval disable policy made no attempt")
-        return DeliveryFailed(
-            kind=last_failure.kind,
-            attempts=attempts,
-            retryable=last_failure.retryable,
-            ambiguous=last_failure.ambiguous,
-            http_status=last_failure.http_status,
-            retry_after_seconds=last_failure.retry_after_seconds,
-        )
+        raise AssertionError("delivery policy made no attempt")  # pragma: no cover
 
-    async def _deliver(
+    async def _create_request(
         self,
         *,
         content: str,
         nonce: str,
         components: list[dict[str, object]] | None,
         attachment: _AttachmentUpload | None,
-    ) -> DeliveryResult:
-        """Apply the bounded ordinary Discord delivery policy."""
-
-        last_failure: _AttemptFailed | None = None
-        attempts = 0
-        for attempt in range(1, self._settings.delivery_max_attempts + 1):
-            attempts = attempt
-            result = await self._attempt(
-                content=content,
-                nonce=nonce,
-                components=components,
-                attachment=attachment,
-            )
-            if isinstance(result, DeliverySucceeded):
-                return DeliverySucceeded(result.discord_message_id, attempt)
-            last_failure = result
-            if not result.retryable or attempt == self._settings.delivery_max_attempts:
-                break
-
-            delay = self._settings.delivery_retry_delays_seconds[attempt - 1]
-            if result.retry_after_seconds is not None:
-                if result.retry_after_seconds > MAX_RETRY_AFTER_SLEEP_SECONDS:
-                    break
-                delay = max(delay, result.retry_after_seconds)
-            await self._sleep(delay)
-
-        if last_failure is None:  # pragma: no cover
-            raise AssertionError("delivery policy made no attempt")
-        return DeliveryFailed(
-            kind=last_failure.kind,
-            attempts=attempts,
-            retryable=last_failure.retryable,
-            ambiguous=last_failure.ambiguous,
-            http_status=last_failure.http_status,
-            retry_after_seconds=last_failure.retry_after_seconds,
-        )
-
-    async def _attempt(
-        self,
-        *,
-        content: str,
-        nonce: str,
-        components: list[dict[str, object]] | None,
-        attachment: _AttachmentUpload | None,
-    ) -> AttemptResult:
+    ) -> httpx.Response:
         payload: dict[str, object] = {
             "content": content,
             "nonce": nonce,
@@ -911,90 +872,36 @@ class DiscordCreateMessageClient:
         }
         if components is not None:
             payload["components"] = components
-        try:
-            url = (
-                f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}/messages"
+        url = f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}/messages"
+        authorization = {
+            "Authorization": "Bot " + self._settings.bot_token.get_secret_value()
+        }
+        if attachment is None:
+            return await self._http_client.post(
+                url,
+                headers={**authorization, "Content-Type": "application/json"},
+                json=payload,
+                timeout=self._settings.request_timeout_seconds,
             )
-            authorization = {
-                "Authorization": "Bot " + self._settings.bot_token.get_secret_value()
+        filename, media_type, body = attachment
+        payload["attachments"] = [
+            {
+                "id": "0",
+                "filename": filename,
+                "description": "Complete Jarvis approval payload",
             }
-            if attachment is None:
-                response = await self._http_client.post(
-                    url,
-                    headers={**authorization, "Content-Type": "application/json"},
-                    json=payload,
-                    timeout=self._settings.request_timeout_seconds,
+        ]
+        return await self._http_client.post(
+            url,
+            headers=authorization,
+            data={
+                "payload_json": json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
                 )
-            else:
-                filename, media_type, body = attachment
-                payload["attachments"] = [
-                    {
-                        "id": "0",
-                        "filename": filename,
-                        "description": "Complete Jarvis approval payload",
-                    }
-                ]
-                response = await self._http_client.post(
-                    url,
-                    headers=authorization,
-                    data={
-                        "payload_json": json.dumps(
-                            payload,
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                            sort_keys=True,
-                        )
-                    },
-                    files={"files[0]": (filename, body, media_type)},
-                    timeout=self._settings.request_timeout_seconds,
-                )
-        except httpx.RequestError:
-            return _AttemptFailed(
-                kind=DeliveryFailureKind.TRANSPORT,
-                retryable=True,
-                ambiguous=True,
-            )
-
-        if response.status_code == 200:
-            try:
-                raw_body = cast(object, response.json())
-            except ValueError:
-                raw_body = None
-            if isinstance(raw_body, dict):
-                body = cast("dict[str, object]", raw_body)
-                message_id = body.get("id")
-                if (
-                    isinstance(message_id, str)
-                    and message_id.isascii()
-                    and message_id.isdecimal()
-                    and int(message_id) > 0
-                ):
-                    return DeliverySucceeded(message_id, 1)
-            return _AttemptFailed(
-                kind=DeliveryFailureKind.INVALID_RESPONSE,
-                retryable=True,
-                ambiguous=True,
-                http_status=response.status_code,
-            )
-
-        if response.status_code == 429:
-            return _AttemptFailed(
-                kind=DeliveryFailureKind.RATE_LIMITED,
-                retryable=True,
-                ambiguous=False,
-                http_status=response.status_code,
-                retry_after_seconds=_retry_after_seconds(response),
-            )
-        if response.status_code == 408 or 500 <= response.status_code <= 599:
-            return _AttemptFailed(
-                kind=DeliveryFailureKind.SERVER,
-                retryable=True,
-                ambiguous=True,
-                http_status=response.status_code,
-            )
-        return _AttemptFailed(
-            kind=DeliveryFailureKind.REJECTED,
-            retryable=False,
-            ambiguous=False,
-            http_status=response.status_code,
+            },
+            files={"files[0]": (filename, body, media_type)},
+            timeout=self._settings.request_timeout_seconds,
         )

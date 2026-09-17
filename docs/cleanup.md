@@ -50,10 +50,15 @@ current python names describe roles and tool composition; durable profile ids
 retain their historical strings. the unused `proactive` plan alias is removed,
 leaving the explicit `scheduled_wake` selection.
 
+discord delivery now has one response/retry policy for ordinary messages,
+approval attachments, and disabling approval components. each operation keeps
+its request construction; disabling still requires the exact requested id.
+the small request callback replaces duplicated policy, with no generic retry
+framework or new state.
+
 follow-ups are recorded individually under [issues](issues/):
 [wake notification](issues/wake-notification.md),
-[discord retries](issues/discord-delivery-retries.md), and
-[admission predecessors](issues/admission-predecessors.md).
+and [admission predecessors](issues/admission-predecessors.md).
 
 [hosted verification](issues/github-actions-billing.md) is separately blocked by
 the github account billing restriction.

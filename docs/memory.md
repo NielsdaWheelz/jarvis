@@ -265,9 +265,10 @@ A summary:
 - Introduces no material claim unsupported by its sources.
 - Preserves meaningful disagreement or uncertainty.
 
-The host proves only structural lineage. Prose groundedness is a Dreamer model
-contract evaluated with frozen recall cases and adversarial trials; neither the
-database nor host code claims deterministic semantic proof.
+the host proves only structural lineage. prose groundedness remains a dreamer
+model contract; neither the database nor host code claims deterministic semantic
+proof. its former recall cases and adversarial trials were removed under
+[adr 0046](decisions/0046-reset-testing.md).
 
 The dreamer cannot update raw memory, execute external actions, alter prompts or
 permissions, edit code, or deploy itself.
@@ -295,67 +296,40 @@ A model change is an offline rebuild:
 3. Apply a migration if the vector dimension changes.
 4. Update deployment configuration.
 5. Re-embed the entire corpus.
-6. Run recall evaluation.
-7. Restart Jarvis.
+6. restart jarvis after the rebuild completes successfully.
 
 Because all old vectors are cleared before new vectors are written and service
 remains stopped, the system never searches a mixed vector space.
 
-## Recall evaluation
+## recall evaluation
 
-`eval/recall.jsonl` is a version-controlled, synthetic or redacted set of at
-least fifteen owner-authored or explicitly owner-approved cases. Model-invented
-cases are never described as owner-authored:
+[adr 0046](decisions/0046-reset-testing.md) removes the old recall corpus,
+scoring code, and live qualification harnesses. recall-quality and adversarial
+qualification execution gates are suspended. dated scores remain historical
+evidence for their recorded revisions; there is no current automated quality
+claim. the gap is recorded in [testing redesign](issues/testing-redesign.md).
 
-```json
-{"id":"R07","query":"...","must_recall_ids":["..."],"lane":"semantic"}
-```
+## rebuild contract
 
-The set includes:
+`jarvis rebuild-memory` runs against the deployment corpus only while the service
+is stopped and the command holds the deployment lock. it:
 
-- At least five semantic cases whose queries share no important keyword with the
-  expected memories.
-- At least three lexical cases involving a name or rare term.
-- At least three empty cases where returning no memory is correct.
-- At least one contradiction case.
-- At least one summary-lineage case.
+1. records a count and digest of raw identity, text, and creation time.
+2. deletes every `memory_summary` row and clears every embedding atomically.
+3. checks raw data is unchanged and raw lexical retrieval still works.
+4. re-embeds every raw row.
+5. runs one bounded dreamer pass to regenerate summaries.
+6. embeds every regenerated summary and checks raw data is unchanged.
 
-Cases originate from real Slice 3 usage but contain no private raw data in the
-repository. They run through one documented command.
+the full-text expression indexes remain usable across the wipe; no mixed
+embedding space is served. existing bounds, vector validation, raw-integrity
+checks, and structural lineage validation remain runtime safeguards. failure
+exits nonzero without starting the service; correct the cause and rerun from
+immutable raw memory while the service remains stopped.
 
-## Rebuild contract
-
-The frozen pre/wipe/rebuild/post qualification runs against a distinct fresh
-migrated qualification database seeded only with the checked-in synthetic
-corpus. The stopped `jarvis rebuild-memory` command separately reuses the
-deployment lock for the real deployment corpus. Keeping those databases
-separate prevents immutable synthetic fixture UUIDs from polluting production
-memory and prevents a normal private corpus from being coupled to S01.
-
-The qualification path:
-
-1. Record the recall evaluation result.
-2. Delete every `memory_summary` row.
-3. Clear every embedding and rebuildable search artifact.
-4. Rebuild raw full-text search and embeddings.
-5. Run one bounded dreamer pass to regenerate summaries.
-6. Embed and index summaries.
-7. Run recall evaluation again.
-
-The production path performs steps 2 through 6 on the private corpus while the
-service remains stopped. Its full-text expression indexes remain usable across
-the wipe; no mixed embedding space is served.
-
-The post-rebuild result must be no worse than the pre-rebuild result. Generated
-summary UUIDs and text need not be byte-identical. The frozen S01 logical role is
-bound after rebuild only when exactly one regenerated summary has the flattened
-lineage set `{M11, M12}`; zero or multiple matches fail, and the original compact
-selection plus source-opening requirements apply to that regenerated identity.
-This is evaluation-only binding, not a production alias. Failure exits nonzero
-without starting the service; rerunning from immutable raw memory is safe.
-The production command proves structural/raw invariants but does not run the
-synthetic evaluator against private deployment rows; the separate fresh-database
-qualification is its release gate.
+the command does not score recall quality or run synthetic cases against private
+rows. its structural/raw checks do not prove semantic quality or that recall is
+no worse after rebuilding. that verification gap remains open under adr 0046.
 
 ## Current-state rule
 

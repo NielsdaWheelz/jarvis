@@ -30,8 +30,6 @@ dev = [
   "build==1.3.0",
   "pip-audit==2.9.0",
   "pyright==1.1.405",
-  "pytest==9.0.3",
-  "pytest-asyncio==1.4.0",
   "ruff==0.12.11",
 ]
 
@@ -41,14 +39,8 @@ packages = ["src/jarvis"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.pytest.ini_options]
-addopts = "--strict-config --strict-markers"
-asyncio_mode = "auto"
-markers = ["postgres: requires a disposable PostgreSQL database"]
-testpaths = ["tests"]
-
 [tool.pyright]
-include = ["src", "tests", "scripts"]
+include = ["src", "scripts"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 

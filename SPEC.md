@@ -8,6 +8,16 @@ Audience: product, engineering, design, operations, and future coding agents
 
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
+testing reset (2026-09-17): [adr 0046](docs/decisions/0046-reset-testing.md)
+removes the existing tests, fixtures, evaluation corpus, and qualification
+machinery. during this owner-accepted gap, earlier requirements to run automated
+tests, repeated acceptance trials, replay proofs, or live qualification are
+suspended as change/release gates. product behavior, runtime validation,
+containment, authority, and recovery requirements remain binding. static and
+build checks are the current verification surface; they do not establish
+behavioral or live acceptance. the subsequent pr begins the
+[testing redesign](docs/issues/testing-redesign.md).
+
 Integration baseline (2026-09-09): retain ADR 0040's six-table durability,
 owner-bound transactions, authenticated catalog selection, and CPython floor.
 [ADR 0041](docs/decisions/0041-control-shared-codex-workers.md) adds shared Codex
@@ -778,7 +788,9 @@ connections, and likely future context. It cannot modify raw memory, use externa
 tools, change instructions or permissions, edit code, or deploy itself.
 
 Wiping every summary and embedding and rebuilding from `memory_log` MUST restore
-a usable memory system against the fixed recall evaluation set.
+a usable memory system. the fixed recall evaluation set and scorer are removed
+under adr 0046; quality verification awaits the testing redesign. the production
+rebuild retains its structural and raw-memory checks.
 
 ### 6.6 Memory is evidence
 
@@ -1671,8 +1683,8 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 - Backup and restore: deliberately deferred beyond v1. Loss of the devbox,
   database, or disk can permanently lose Jarvis state; adding backup later does
   not require an application-schema change.
-- Testing: pytest, Hypothesis where useful, library-supplied test doubles, and
-  synthetic or redacted connector fixtures.
+- verification during the adr 0046 reset: static and package-build checks only;
+  the replacement behavioral testing approach is deferred to the next pr.
 - Deployment: one host-native systemd service on the existing Hetzner
   `dev-server`, plus a dedicated database and least-privilege roles in its
   native loopback-only PostgreSQL 16. Jarvis opens no public listener. It MUST
@@ -2137,6 +2149,10 @@ product-domain code.
   rolling capacity, and poison inputs cannot renew their budget across restarts.
 
 ## 12. Definition of done
+
+adr 0046 suspends the old verification machinery and execution gates. the
+criteria below retain the intended product behavior; static/build success during
+the reset is not evidence that v1 acceptance is complete.
 
 V1 is complete when every mandatory criterion in
 [docs/acceptance.md](docs/acceptance.md) passes on the intended Linux deployment

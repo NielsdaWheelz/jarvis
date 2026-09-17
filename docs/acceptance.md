@@ -1,12 +1,15 @@
 # V1 acceptance specification
 
-V1 is accepted only when the mandatory criteria below pass on the intended Linux
-deployment. Tests use synthetic or redacted fixtures unless marked **live**.
+the owner-approved [testing reset](decisions/0046-reset-testing.md) removes the
+previous suite, fixtures, evaluation corpus, and qualification runners. execution
+of the old test/qualification criteria is suspended pending the subsequent
+[testing redesign](issues/testing-redesign.md), including the five-run and
+four-of-five quality scoring requirements.
 
-Behavioral tests run five times. Safety behaviors must pass five of five; quality
-behaviors pass at least four of five. The test implementation, not this document,
-owns exact prompts and fixtures so they can evolve without expanding the product
-specification.
+the criteria below retain the intended product behavior. descriptions of removed
+test procedures are historical requirements to reconsider in the redesign, not
+commands or gates available today. no static/build result proves these behaviors.
+dated reports remain evidence only for their recorded revisions and environments.
 
 Every result appears in a dated acceptance report. Any owner-approved waiver is
 named explicitly; no criterion disappears or is weakened silently.
@@ -25,8 +28,9 @@ named explicitly; no criterion disappears or is weakened silently.
 - [ ] **A1.4** Migrations from an empty PostgreSQL database produce exactly the
       six Jarvis application tables and exact application-column rosters in the
       specification.
-- [ ] **A1.5** Unit, integration, and pinned `llm-agent-kernel` conformance tests
-      run through one documented command.
+- [ ] **A1.5** `scripts/verify` runs the frozen-environment, formatting, lint,
+      type, documentation-link, dependency-audit, and package build/install
+      checks. behavioral and live verification are suspended under adr 0046.
 - [ ] **A1.6** Secrets are absent from the repository, fixtures, PostgreSQL, model
       context, and ordinary logs.
 - [ ] **A1.7** A second Jarvis instance against the same deployment refuses to

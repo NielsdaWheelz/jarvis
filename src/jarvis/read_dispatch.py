@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from urllib.parse import unquote, unquote_plus
 
@@ -18,19 +17,13 @@ from llm_tools import (
     BudgetState,
     ExecutionContext,
     FrozenToolPlan,
-    InvocationPosition,
     ParsedJson,
     PositionRecorder,
-    PositionState,
     Principal,
-    ReplayPolicy,
-    Reservation,
     Scope,
-    Settlement,
     ToolBinding,
     ToolEffect,
     ToolExecutor,
-    ToolId,
     ToolResult,
 )
 
@@ -52,22 +45,6 @@ _SECRET_PATTERN = re.compile(
 _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput"}}
 
 
-@dataclass(slots=True)
-class _Record:
-    tool_id: ToolId
-    tool_contract_revision: str
-    policy_revision: str
-    plan_revision: str
-    input_digest: str
-    replay_policy: ReplayPolicy
-    reservation: Reservation | None = None
-    reservation_accepted: bool | None = None
-    terminal_result: ToolResult | None = None
-    settlement: Settlement | None = None
-    in_flight: bool = False
-    uncertain: bool = False
-
-
 class ReadDispatchPort(ToolDispatchPort, Protocol):
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
@@ -78,145 +55,6 @@ class ReadRecorder(PositionRecorder, Protocol):
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
     ) -> None: ...
-
-
-class RunReadRecorder:
-    """Non-durable invocation state owned by one kernel run."""
-
-    def __init__(self) -> None:
-        self._records: dict[InvocationPosition, _Record] = {}
-
-    async def recover_budget(
-        self, *, lineage: ToolDispatchLineage, budgets: BudgetState
-    ) -> None:
-        del lineage, budgets
-
-    @property
-    def durable(self) -> bool:
-        return False
-
-    @property
-    def position_count(self) -> int:
-        return len(self._records)
-
-    @property
-    def terminal_count(self) -> int:
-        return sum(
-            record.terminal_result is not None for record in self._records.values()
-        )
-
-    @property
-    def uncertain_count(self) -> int:
-        return sum(record.uncertain for record in self._records.values())
-
-    async def occupy(
-        self,
-        *,
-        position: InvocationPosition,
-        tool_id: ToolId,
-        tool_contract_revision: str,
-        policy_revision: str,
-        plan_revision: str,
-        input_digest: str,
-        replay_policy: ReplayPolicy,
-    ) -> PositionState:
-        record = self._records.get(position)
-        if record is None:
-            record = _Record(
-                tool_id,
-                tool_contract_revision,
-                policy_revision,
-                plan_revision,
-                input_digest,
-                replay_policy,
-            )
-            self._records[position] = record
-        elif (
-            record.tool_id != tool_id
-            or record.tool_contract_revision != tool_contract_revision
-            or record.policy_revision != policy_revision
-            or record.plan_revision != plan_revision
-            or record.input_digest != input_digest
-            or record.replay_policy is not replay_policy
-        ):
-            raise ValueError("read invocation position was reused inconsistently")
-        return PositionState(record.terminal_result, record.uncertain, 0)
-
-    async def reserve(
-        self,
-        *,
-        position: InvocationPosition,
-        budgets: BudgetState,
-        reservation: Reservation,
-    ) -> bool:
-        record = self._records[position]
-        if record.reservation is not None:
-            if record.reservation != reservation:
-                raise ValueError("read invocation reservation changed")
-            assert record.reservation_accepted is not None
-            return record.reservation_accepted
-        accepted = await budgets.reserve(position, reservation)
-        record.reservation = reservation
-        record.reservation_accepted = accepted
-        return accepted
-
-    async def dispatch_started(
-        self,
-        *,
-        position: InvocationPosition,
-        replay_policy: ReplayPolicy,
-    ) -> PositionState:
-        record = self._records[position]
-        if record.replay_policy is not replay_policy:
-            raise ValueError("read invocation replay policy changed")
-        if record.terminal_result is not None:
-            return PositionState(record.terminal_result, False, 0)
-        if record.uncertain:
-            return PositionState(None, True, 0)
-        if record.in_flight:
-            return PositionState(None, True, 0)
-        record.in_flight = True
-        return PositionState(None, False, 0)
-
-    async def dispatch_abandoned(
-        self,
-        *,
-        position: InvocationPosition,
-        replay_policy: ReplayPolicy,
-        actual_attempts: int,
-        lease_recovered: bool,
-    ) -> None:
-        del position, replay_policy, actual_attempts, lease_recovered
-        raise ValueError("process-local read dispatch cannot be recovered")
-
-    async def uncertain(self, *, position: InvocationPosition) -> None:
-        record = self._records[position]
-        if record.terminal_result is not None:
-            raise ValueError("terminal read invocation cannot become uncertain")
-        record.uncertain = True
-        record.in_flight = False
-
-    async def terminalize_and_settle(
-        self,
-        *,
-        position: InvocationPosition,
-        budgets: BudgetState,
-        result: ToolResult,
-        settlement: Settlement,
-    ) -> ToolResult:
-        record = self._records[position]
-        if record.uncertain:
-            raise ValueError("uncertain read invocation cannot terminalize")
-        if record.terminal_result is not None:
-            if record.terminal_result != result or record.settlement != settlement:
-                raise ValueError("read invocation terminal result changed")
-            return record.terminal_result
-        if record.reservation_accepted:
-            await budgets.settle(position, settlement)
-        record.terminal_result = result
-        record.settlement = settlement
-        record.in_flight = False
-        return result
 
 
 class _NoTelemetry:
@@ -323,4 +161,4 @@ def contains_secret(value: object, host_secrets: tuple[str, ...]) -> bool:
     return False
 
 
-__all__ = ["ReadToolDispatcher", "RunReadRecorder", "contains_secret"]
+__all__ = ["ReadToolDispatcher", "contains_secret"]

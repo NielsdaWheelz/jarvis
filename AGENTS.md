@@ -9,6 +9,9 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- adr 0046 governs the owner-approved testing reset. all previous test and
+  qualification execution gates are suspended pending the subsequent redesign;
+  runtime safeguards and product requirements remain binding.
 - adr 0044 governs the accepted tmux agent-control upgrade and supersedes only
   the prior worker routing/catalog/launcher restrictions; cognition rules remain.
 - If code and specification disagree, stop and surface the discrepancy.
@@ -279,8 +282,11 @@ These instructions govern all work in this repository.
   input batch or background job receives one host-generated `as_of`; a batch
   appended mid-loop gets its own. Embedding and tool-only continuations do not
   receive a repeated clock.
-- Every behavioral change needs tests against the relevant acceptance criteria.
-- Library dependency and model upgrades are explicit and replay-tested. Native
+- during the testing reset, run `scripts/verify` for static and build checks and
+  report behavioral verification as not run. do not restore old tests or add a
+  replacement harness before the separately requested testing redesign.
+- Library dependency and model upgrades remain explicit; their former replay
+  qualification gate is suspended under adr 0046. Native
   Codex tracks latest stable through the host installer under ADR 0042; protocol
   and authority checks remain strict, with no native version admission gate.
 - Avoid abstractions with one caller unless they enforce a stated boundary.

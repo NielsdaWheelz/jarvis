@@ -48,7 +48,7 @@ read_position
 2. [Architecture](docs/architecture.md) — runtime, component, data, and tool
    boundaries.
 3. [Memory](docs/memory.md) — exact rememberer, recaller, and dreamer behavior,
-   plus the physical schema and the recall evaluation set.
+   plus the physical schema and rebuild contract.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
 5. [Implementation plan](docs/implementation-plan.md) — ordered, independently
@@ -59,6 +59,11 @@ When documents disagree, `SPEC.md` wins. Changing a frozen decision requires an
 ADR that also updates every affected normative document in the same change.
 
 ## Status
+
+the owner-approved [testing reset](docs/decisions/0046-reset-testing.md) removes
+the old suite and qualification machinery. historical slice reports below do
+not establish current behavioral verification. the next pr begins the
+[testing redesign](docs/issues/testing-redesign.md).
 
 - Baseline date: 2026-09-07
 - Status: v1 specification frozen; Slices 0 through 6 complete and qualified;
@@ -72,24 +77,22 @@ ADR that also updates every affected normative document in the same change.
 ## Development and verification
 
 Development uses the CPython 3.12.13 pin in `.python-version`; supported runtimes
-are 3.12.13 or later in the 3.12 series. It requires `uv` 0.11.28, Docker, and
-PostgreSQL with the
-`vector` extension. Start the pinned database image, create a disposable test
-database, and run every deterministic gate with one command:
+are 3.12.13 or later in the 3.12 series. with `uv` 0.11.28 installed, run:
 
 ```sh
-docker compose up -d --wait
-docker compose exec -T postgres createdb -U jarvis_migrator jarvis_test
-docker compose exec -T postgres psql -U jarvis_migrator -d postgres \
-  -c 'GRANT CONNECT ON DATABASE jarvis_test TO jarvis_runtime'
-JARVIS_TEST_MIGRATION_DATABASE_URL=postgresql://jarvis_migrator:jarvis-migrator-dev@127.0.0.1:54328/jarvis_test \
-JARVIS_TEST_DATABASE_URL=postgresql://jarvis_runtime:jarvis-runtime-dev@127.0.0.1:54328/jarvis_test \
-  scripts/verify
+scripts/verify
 ```
 
-Migration tests downgrade that database to an empty schema. See
-[the operations guide](docs/operations.md) for private state initialization,
-deployment, restart recovery, and operator-only release of parked input.
+this runs frozen-dependency, formatting, lint, type, documentation-link,
+dependency-audit, and package build/install checks. no database, docker, or
+provider credentials are needed. it runs no behavioral tests, migrations,
+dependency suites, or live qualifications.
+
+running the application still requires postgres with pgvector. `compose.yaml`
+provides the local development database used by `.env.example` and
+`.env.migration.example`; start it with `docker compose up -d --wait`.
+see [the operations guide](docs/operations.md) for private state initialization,
+deployment, migrations, restart recovery, and operator-only release of parked input.
 
 ## Explicit non-goals
 

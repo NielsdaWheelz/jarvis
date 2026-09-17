@@ -22,11 +22,11 @@ that the six specified tables or their columns are unnecessary.
 | schema and deployment | `db.py`, `ownership.py`, `migrations/`, `deploy/` | six application tables, one deployment owner |
 
 each pr follows: trace callers and specification, verify a concrete finding,
-characterize the affected path, make one coherent change, independently review,
-run required checks, remove temporary characterization, commit, push, merge,
-and remove its branch/worktree. existing behavioral regressions remain.
-synthetic provider transports and disposable postgres establish local integration
-behavior; they are not evidence of live provider or production acceptance.
+make one coherent change, independently review, and run the current required
+checks. [adr 0046](decisions/0046-reset-testing.md) removes the old tests,
+fixtures, and qualification machinery. static/build checks do not establish
+behavioral, live provider, or production acceptance. the separate
+[testing redesign](issues/testing-redesign.md) defines the replacement.
 
 runtime construction builds the five current roles directly. the conversation
 runner requires its memory ports and one checkpoint-aware dispatcher factory.

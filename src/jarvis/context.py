@@ -102,14 +102,6 @@ class MemoryReadDispatcherPort(ToolDispatchPort, Protocol):
     def restore_model_evidence(self, value: object) -> None: ...
 
 
-@dataclass(frozen=True, slots=True)
-class RecallEvidence:
-    candidate_identities: tuple[MemoryIdentity, ...]
-    selected_identities: tuple[MemoryIdentity, ...]
-    opened_identities: tuple[MemoryIdentity, ...]
-    search_calls: int
-
-
 class IsolatedRecaller:
     def __init__(
         self,
@@ -131,11 +123,6 @@ class IsolatedRecaller:
         self._memory_repository = memory_repository
         self._trace = trace
         self._model_decisions = model_decisions
-        self._last_evidence: RecallEvidence | None = None
-
-    @property
-    def last_evidence(self) -> RecallEvidence | None:
-        return self._last_evidence
 
     async def recall(
         self,
@@ -224,12 +211,6 @@ class IsolatedRecaller:
                         terminal_outcome = "missing_selection"
                         memories = ()
         metrics = outcome.metrics
-        self._last_evidence = RecallEvidence(
-            candidates,
-            selected,
-            opened,
-            search_calls,
-        )
         await self._trace.record_recall(
             message_id=message_id,
             candidate_identities=candidates,
@@ -511,6 +492,5 @@ __all__ = [
     "IsolatedRecaller",
     "JarvisContextSource",
     "MemoryReadDispatcherPort",
-    "RecallEvidence",
     "RecallTracePort",
 ]

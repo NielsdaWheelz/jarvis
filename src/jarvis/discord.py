@@ -203,34 +203,6 @@ def approval_interaction_from_event(
     )
 
 
-def validate_approval_interaction_relationship(
-    interaction: DiscordApprovalInteraction,
-    *,
-    action_id: UUID,
-    approval_message_id: UUID,
-    discord_message_id: str,
-    action_status: str,
-) -> None:
-    """Bind a parsed click to the current stored action/message relationship."""
-
-    if interaction.action_id != action_id:
-        raise DiscordInteractionRejected("approval interaction action does not match")
-    if interaction.approval_message_id != approval_message_id:
-        raise DiscordInteractionRejected(
-            "approval interaction internal message does not match"
-        )
-    if (
-        not discord_message_id.isascii()
-        or not discord_message_id.isdecimal()
-        or int(discord_message_id) <= 0
-        or str(int(discord_message_id)) != discord_message_id
-        or interaction.discord_message_id != discord_message_id
-    ):
-        raise DiscordInteractionRejected("approval interaction message does not match")
-    if action_status != "awaiting_approval":
-        raise DiscordInteractionRejected("approval component is stale")
-
-
 def classify_control(content: str) -> Control | None:
     """Classify only an exact, trimmed, case-insensitive control message."""
 

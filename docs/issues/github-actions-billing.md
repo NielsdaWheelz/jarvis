@@ -10,5 +10,6 @@ check `104590969543`; its annotation says recent payments failed or the spending
 limit must increase. the job has no steps or logs.
 
 resolved when the account restriction is corrected and the exact-head hosted
-workflow runs successfully. local `scripts/verify` can establish deterministic
-verification while this is unresolved; it does not establish hosted ci success.
+workflow runs successfully. local `scripts/verify` can establish static and
+build verification while this is unresolved; under adr 0046 it runs no behavioral
+tests. it does not establish hosted ci success.

@@ -210,26 +210,23 @@ the same minimal-thread plus at-most-one-hundred raw-message expansion if its
 known draft disappears; that read shape and ceiling are revisioned policy
 inputs, while the unshipped v1 implementation name remains unchanged.
 
-## Verification
-
-Point the verifier only at a disposable database. Migration tests downgrade it
-to an empty schema.
+## verification
 
 ```sh
-docker compose up -d --wait
-docker compose exec -T postgres createdb -U jarvis_migrator jarvis_test
-docker compose exec -T postgres psql -U jarvis_migrator -d postgres \
-  -c 'GRANT CONNECT ON DATABASE jarvis_test TO jarvis_runtime'
-JARVIS_TEST_MIGRATION_DATABASE_URL=postgresql://jarvis_migrator:jarvis-migrator-dev@127.0.0.1:54328/jarvis_test \
-JARVIS_TEST_DATABASE_URL=postgresql://jarvis_runtime:jarvis-runtime-dev@127.0.0.1:54328/jarvis_test \
-  scripts/verify
+scripts/verify
 ```
 
-The command checks the frozen environment, formatting, linting, typing, tests,
-migrations and schema drift, package artifacts, and installed dependency
-vulnerabilities.
+the command checks the frozen environment, formatting, lint, types, documentation
+links, package build/install, and installed dependency vulnerabilities. it needs
+no database and runs no behavioral tests.
 
-## Paid qualifications
+[adr 0046](decisions/0046-reset-testing.md) removes the test suites, fixtures,
+evaluation corpus, and qualification harnesses. their execution gates are
+suspended pending the [testing redesign](issues/testing-redesign.md). dated
+qualification reports remain historical evidence for their recorded revisions;
+static and build success does not establish current behavioral qualification.
+
+## shared runtime and fleet control
 
 Main retains its compatible native thread across owner requests and process
 restarts; Codex owns automatic compaction (ADR 0043). Jarvis does not expire
@@ -238,13 +235,10 @@ Per-request and rolling budgets still apply. An oversized continuation can fail
 at the native context boundary; existing failure/reconstruction handling does
 not authorize replay of an unknown paid decision or effect.
 
-Run every live qualification from the exact revision being recorded and against
-an empty, freshly migrated disposable database. Each runtime-state path must be
-unused and its existing parent must be mode 0700. Set
-`JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json`; that root-owned
-mapping must name the running shared services and exact mode-02750
-cognition parent. Never copy Codex authentication into the checkout or process
-environment, and never start a private App Server from a qualifier.
+set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json`; that root-owned
+mapping must name the running shared services and exact mode-02750 cognition
+parent. never copy Codex authentication into the checkout or process environment,
+and never start a private app server for jarvis.
 
 peer agent control requires the installed skid cli and a private mode-0600 peer
 configuration readable by jarvis. the fleet operator distributes the configured
@@ -257,17 +251,11 @@ then switch callers together. no old grammar/target compatibility mode remains.
 preserve native cognition, busy provider services, canonical action history and
 private peer configuration; no provider restart is needed for worker-interface work.
 
-qualify ordinary owner requests naming a session without copied references. jarvis
-uses list/info to resolve it; the gate sees name/machine metadata from one bounded
-info call and the original ref. prove metadata failure occurs before mutation and
-that info's refreshed ref cannot replace the originally submitted effect target.
-cover all nine tools, including startup-dialog keys, remote codex/claude, and
-separate stop versus kill outcomes. retain owner event ids and content-free
-operation/outcome/attempt evidence. unknown writes are never repeated.
-
-read skid's `docs/agent-control-ux.md` for exact acceptance and live/device approval
-requirements. use only exact test-owned sessions; missing boundaries are NOT_RUN.
-phone grouping is removed by the coordinated skid cutover, not by jarvis cleanup.
+jarvis uses list/info to resolve owner requests naming a session. the gate sees
+name/machine metadata from one bounded info call and the original ref. metadata
+failure prevents mutation; info's refreshed ref cannot replace the originally
+submitted effect target. unknown writes are never repeated. phone grouping is
+removed by the coordinated skid cutover, not by jarvis cleanup.
 
 the service retains `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir` and
 `JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`. it invokes ordinary
@@ -275,218 +263,12 @@ commands with `--config` and `--json`; send text goes to `--stdin`. the executab
 administrative basename is unchanged. nine worker tools share the existing 19-call
 run allowance; this release changes neither admission journals nor kernel budgets.
 
-Slice 6 live Gmail send and shared-calendar trials use the exact production
-catalog, action recorder, renderers, handler, connector, recovery path, and a
-dedicated Discord Gateway session while holding the deployment lock. The
-configured owner must click every real Approve or Deny component. Qualification
-code may inject an ambiguous provider response after acceptance, but it must not
-simulate the interaction, call the decision store directly, or bypass the
-component relationship. The Calendar trial creates, updates, and deletes its
-event through three distinct approved actions; cleanup never bypasses Calendar
-approval. Use only the configured owner-controlled recipient and calendar, and
-remove every synthetic email, event, and Discord message after recording
-sanitized evidence. A missing or failed cleanup remains an explicit operator
-obligation in the qualification report.
-
-Run the AutomaticWriteGate matrix once with no retries. It submits five
-synthetic-safe prompt-injection denials and three direct-owner usability cases
-through the exact isolated empty-plan production role. Its output contains only
-decisions, counts, role/plan/schema identities, usage, and timings:
-
-```sh
-JARVIS_CODEX_MODEL=gpt-5.6-terra \
-JARVIS_CODEX_PROFILE_KEY=personal \
-JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json \
-JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/slice5-gate-runtime \
-  uv run python scripts/qualify_write_gate.py --confirm-paid
-```
-
-Run the live Gmail and Calendar mutations against their own empty database. The
-qualifier creates and updates one unsent draft, creates/updates/deletes one
-no-attendee event on the explicitly named verified owner-only calendar, checks
-provider reconciliation and one action per effect, and removes every external
-artifact in `finally`. The artificial post-receipt Gmail-create reconciliation
-may report either the exact positive match or bounded uncertainty when the
-unordered sample omits it; the qualifier rejects `absent`, requires the original
-action to remain at one executor entry, and never repeats the create:
-
-```sh
-JARVIS_LIVE_WRITES=1 \
-JARVIS_LIVE_WRITE_CALENDAR_ID=primary \
-  uv run python scripts/qualify_writes.py
-```
-
-Run the paid scheduled-wake and Discord qualification against another empty
-database and fresh private runtime. It covers a separate schedule cancellation,
-exact due-time timer behavior, overdue restart behavior, a real read-only Terra
-proactive run with no recall, deterministic visible fallbacks, idempotent host
-messages, atomic wake outcomes, and live Discord delivery. It deletes every
-created Discord message before reporting success:
-
-```sh
-JARVIS_PROACTIVITY_LIVE=1 \
-JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice5-proactivity-runtime \
-  uv run python scripts/qualify_proactivity.py
-```
-
-All three commands require the ordinary production settings documented above.
-The write and proactivity databases and all private runtime directories are
-qualification evidence; retain their exact names in the Slice 5 report until an
-operator explicitly authorizes disposal.
-
-First run all ten live read operations through the production catalog,
-dispatcher, frozen Main plan, and exact budget. The configured Gmail query must
-match a thread. The Calendar probe uses the fixed host result bound and must
-contain at least three normal events with `end.type=unspecified`; its sanitized
-output reports only calendar/event totals, typed coverage, and that count. It
-must also prove that CalendarList discovery ran with hidden reader-or-better
-entries enabled, followed every selected page within the bound, and that
-aggregate results identify their source calendars without printing names or
-IDs. The Maps query
-must match a destination reachable from the origin, and the Web query's first
-result must be a public readable page. The output contains counts and contract
-identities only, never retrieved content or stable provider IDs.
-
-```sh
-JARVIS_LIVE_READS=1 \
-JARVIS_LIVE_GMAIL_QUERY='newer_than:365d' \
-JARVIS_LIVE_MAPS_QUERY='configured synthetic destination' \
-JARVIS_LIVE_MAPS_ORIGIN='configured synthetic origin' \
-JARVIS_LIVE_WEB_QUERY='IANA reserved domains' \
-  uv run python scripts/qualify_reads.py
-```
-
-For an all-calendar-only release or deployment check, run the focused probe
-through the same production catalog, dispatcher, frozen plan, and budget. It
-requires the observed 35 calendars by default, proves the aggregate scan covers
-the same calendar set, requires complete typed coverage and at least 1,000 compact
-events in the centered two-week window, and prints counts and identities only:
-
-```sh
-JARVIS_CALENDAR_LIVE=1 \
-JARVIS_LIVE_MIN_CALENDARS=35 \
-JARVIS_LIVE_MIN_EVENTS=1000 \
-  uv run python scripts/qualify_calendars.py
-```
-
-`qualify_codex.py` performs the three required paid consumer probes in one run:
-main-session continuation/restart/reconstruction, an isolated closed
-structured result, and a logical tool call whose provider wire carries JSON
-string arguments. Run it once for every exact model recorded in the
-compatibility manifest; the current set contains only `gpt-5.6-terra`:
-
-The conversation probe uses current structured Main with a zero-tool tightening
-and real PostgreSQL checkpoint, decision, and history ports. Three inputs retain
-the native thread across fresh runtime bundles; deliberate reference loss then
-proves canonical reconstruction. This narrow consumer proof does not replace
-the separate full-service recall, remembering, Discord, or worker journey.
-
-```sh
-JARVIS_CODEX_LIVE=1 \
-JARVIS_CODEX_MODEL=gpt-5.6-terra \
-JARVIS_CODEX_PROFILE_KEY=personal \
-JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json \
-JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/terra-runtime \
-JARVIS_LIVE_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_terra_probe \
-JARVIS_OWNER_TIMEZONE=America/Los_Angeles \
-JARVIS_CODEX_REASONING_EFFORT=high \
-  uv run python scripts/qualify_codex.py
-```
-
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe
 that exposed that retirement is preserved in ADR 0028; do not retry it as a
 supported route or switch Jarvis to API-key authentication.
 
-Run the live Discord transport qualification with only the bot token and the
-three configured IDs injected by the secret manager. It checks Gateway scope,
-effective permissions, exact intents, mention/embed controls, and an accepted
-response lost across a reconstructed client using one enforced nonce. Its
-synthetic bot message is removed in `finally`.
-
-```sh
-JARVIS_DISCORD_LIVE=1 \
-JARVIS_DISCORD_BOT_TOKEN=... \
-JARVIS_DISCORD_OWNER_USER_ID=... \
-JARVIS_DISCORD_GUILD_ID=... \
-JARVIS_DISCORD_CHANNEL_ID=... \
-  uv run python scripts/qualify_discord.py
-```
-
-The final end-to-end probe is deliberately incapable of consuming arbitrary
-channel history. On an empty migrated database, the owner must post one natural
-compound question that asks Jarvis to search and read a matching Gmail thread,
-list Calendar events and read one returned event, search places and fetch one
-returned place's details before routing to a returned place, search the public
-Web and read a returned page, and include a unique non-secret marker. Then supply
-both its Discord message ID and the marker. Inject the ordinary production
-settings, plus the following guards, from operator-controlled credential files.
-Keep the catch-up limit at most 100. The probe requires exactly one selected
-owner input, one durable response, and one visible delivery, and removes only
-that bot response.
-
-```sh
-JARVIS_LIVE_E2E=1 \
-JARVIS_MAXIMUM_BATCH_SIZE=1 \
-JARVIS_DELIVERY_BATCH_SIZE=1 \
-JARVIS_DISCORD_CATCH_UP_LIMIT=100 \
-JARVIS_LIVE_OWNER_MESSAGE_ID=... \
-JARVIS_LIVE_EXPECTED_REPLY_MARKER=... \
-  uv run python scripts/qualify_e2e.py
-```
-
-All live qualification scripts emit bounded JSON containing statuses, counts, revisions,
-timings, and token usage only. They never emit prompts, replies, Discord IDs,
-session IDs, credentials, or provider event payloads.
-
-Run the memory qualifier against its own empty, freshly migrated
-database. The script inserts only the frozen redacted fixture corpus, embeds it
-through the production provider-runtime port, proves the embedding credential
-is rejected for generation, runs every owner-approved recall case through a
-current isolated Terra recaller whose first typed observation comes from the one
-kernel-dispatched deterministic `memory.search`, and runs a fresh isolated
-zero-memory rememberer that must advance its owner watermark without adding a
-memory or action. The runtime-state directory must not exist before the command.
-The qualifier now uses the shipped recaller prompt; historical Slice 3 scores
-remain evidence for their recorded prompt and do not qualify this configuration.
-
-```sh
-JARVIS_MEMORY_LIVE=1 \
-JARVIS_CODEX_MODEL=gpt-5.6-terra \
-JARVIS_CODEX_PROFILE_KEY=personal \
-JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json \
-JARVIS_LIVE_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-runtime \
-JARVIS_LIVE_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_memory_probe \
-JARVIS_OWNER_TIMEZONE=America/Los_Angeles \
-JARVIS_CODEX_REASONING_EFFORT=high \
-JARVIS_EMBEDDING_OPENAI_API_KEY=... \
-  uv run python scripts/qualify_memory.py
-```
-
-Run the memory end-to-end qualifier against another empty, freshly
-migrated database. The Gmail query must identify at least one safe real thread;
-the calendar must contain a normal event within one year of the run. This probe
-stores a linked preference, destroys and rebuilds the provider runtime, recalls
-the preference indirectly, reopens the exact live Gmail thread and Calendar
-event, and proves that neither cycle creates actions or duplicate memory text.
-It uses the current structured Main definition with the existing external-read
-plan as a diagnostic tightening. Full owner-turn action and approval behavior
-is qualified separately by `qualify_e2e.py`.
-
-```sh
-JARVIS_MEMORY_E2E_LIVE=1 \
-JARVIS_MAXIMUM_BATCH_SIZE=1 \
-JARVIS_MEMORY_E2E_GMAIL_QUERY='newer_than:365d' \
-JARVIS_DATABASE_URL=postgresql://jarvis_runtime:...@host/jarvis_memory_e2e \
-JARVIS_RUNTIME_STATE_DIRECTORY=/private/unused/slice3-memory-e2e-runtime \
-  uv run python scripts/qualify_memory_e2e.py
-```
-
-Supply the remaining ordinary production settings, including the exact Codex
-and embedding configuration above. The qualifier expands only its rolling
-admission capacity to exactly two current one-owner cycles plus one Dreamer run.
-Main's per-run model limits remain current; its selected diagnostic plan excludes
-writes. Production admission and owner-turn plan selection remain unchanged.
+## memory maintenance
 
 Run one manual dream only while the service is stopped. It takes the deployment
 lock, skips provider I/O when raw memory is empty, and prints counts only:
@@ -513,32 +295,9 @@ Dreamer pass, and embeds regenerated summaries. It never starts the service.
 Failure exits nonzero; inspect and retain its private journal, keep the service
 stopped, and rerun from immutable raw memory after correcting the cause.
 
-Before a production rebuild release, run the paid rebuild qualifier on
-a distinct empty, freshly migrated qualification database. It alone seeds the
-frozen synthetic corpus and records the required pre/wipe/dream/post score, so
-exact S01/M11/M12 fixture identities never enter permanent production memory.
-The separate adversarial qualifier performs exactly five paid synthetic
-injection trials without retry:
-
-```sh
-uv run python scripts/qualify_dreaming.py --confirm-paid
-uv run python scripts/qualify_dreamer_adversarial.py --confirm-paid
-```
-
-Both memory qualifiers intentionally leave their isolated PostgreSQL database
-and private runtime-state directory intact so failures can be inspected without
-mutating permanent raw memory. They contain private canonical inputs, memory,
-and live reference state. After recording the sanitized JSON evidence, the
-operator must securely dispose of those qualification-only resources using the
-deployment's database and filesystem administration procedures; Jarvis has no
-memory-deletion path.
-
-The frozen set can also score sanitized observation JSON without a provider
-call:
-
-```sh
-uv run python scripts/evaluate_recall.py --observations observations.json
-```
+these structural/raw checks remain runtime safeguards. recall-quality scoring
+and its former release gate are suspended under adr 0046; a successful rebuild
+does not prove recall quality.
 
 Migrations own application objects and grant only the required DML to
 `jarvis_runtime`. That role cannot delete or truncate `memory_log`, cannot

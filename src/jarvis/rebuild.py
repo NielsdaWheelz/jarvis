@@ -98,7 +98,7 @@ class _RebuildStore(Protocol):
 
     async def update_embedding(
         self, *, identity: MemoryIdentity, embedding: Sequence[float]
-    ) -> StoredMemory: ...
+    ) -> None: ...
 
     async def summary_count(self) -> int: ...
 
@@ -187,8 +187,8 @@ class PostgresRebuildStore:
 
     async def update_embedding(
         self, *, identity: MemoryIdentity, embedding: Sequence[float]
-    ) -> StoredMemory:
-        return await self._memory.update_embedding(
+    ) -> None:
+        await self._memory.update_embedding(
             identity=identity,
             embedding=embedding,
         )

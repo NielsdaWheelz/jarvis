@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -78,7 +78,6 @@ class StoredRawMemory:
     id: UUID
     text: str
     created_at: datetime
-    embedding: tuple[float, ...] | None
 
     @property
     def identity(self) -> MemoryIdentity:
@@ -91,7 +90,6 @@ class StoredMemorySummary:
     text: str
     source_memory_ids: tuple[UUID, ...]
     created_at: datetime
-    embedding: tuple[float, ...] | None
 
     @property
     def identity(self) -> MemoryIdentity:
@@ -390,9 +388,12 @@ class MemoryStore:
                 created_rows = (
                     (
                         await connection.execute(
-                            select(memory_summary).where(
-                                memory_summary.c.id.in_(new_ids)
-                            )
+                            select(
+                                memory_summary.c.id,
+                                memory_summary.c.text,
+                                memory_summary.c.source_memory_ids,
+                                memory_summary.c.created_at,
+                            ).where(memory_summary.c.id.in_(new_ids))
                         )
                     )
                     .mappings()
@@ -653,7 +654,11 @@ class MemoryStore:
             created_rows: Sequence[RowMapping] = (
                 (
                     await connection.execute(
-                        select(memory_log).where(memory_log.c.id.in_(memory_ids))
+                        select(
+                            memory_log.c.id,
+                            memory_log.c.text,
+                            memory_log.c.created_at,
+                        ).where(memory_log.c.id.in_(memory_ids))
                     )
                 )
                 .mappings()
@@ -678,7 +683,11 @@ class MemoryStore:
             raw_rows = (
                 (
                     await connection.execute(
-                        select(memory_log)
+                        select(
+                            memory_log.c.id,
+                            memory_log.c.text,
+                            memory_log.c.created_at,
+                        )
                         .where(memory_log.c.embedding.is_(None))
                         .order_by(memory_log.c.created_at, memory_log.c.id)
                         .limit(maximum_rows)
@@ -690,7 +699,12 @@ class MemoryStore:
             summary_rows = (
                 (
                     await connection.execute(
-                        select(memory_summary)
+                        select(
+                            memory_summary.c.id,
+                            memory_summary.c.text,
+                            memory_summary.c.source_memory_ids,
+                            memory_summary.c.created_at,
+                        )
                         .where(memory_summary.c.embedding.is_(None))
                         .order_by(memory_summary.c.created_at, memory_summary.c.id)
                         .limit(maximum_rows)
@@ -717,27 +731,18 @@ class MemoryStore:
         *,
         identity: MemoryIdentity,
         embedding: Sequence[float],
-    ) -> StoredMemory:
+    ) -> None:
         value = _validated_embedding(embedding)
         table = memory_log if identity.table_kind == "memory_log" else memory_summary
         async with self._engine.begin() as connection:
-            row = (
-                (
-                    await connection.execute(
-                        update(table)
-                        .where(table.c.id == identity.id)
-                        .values(embedding=value)
-                        .returning(*table.c)
-                    )
-                )
-                .mappings()
-                .one_or_none()
+            updated_id = await connection.scalar(
+                update(table)
+                .where(table.c.id == identity.id)
+                .values(embedding=value)
+                .returning(table.c.id)
             )
-        if row is None:
+        if updated_id is None:
             raise MemoryPersistenceDefect("embedding update references missing memory")
-        if identity.table_kind == "memory_log":
-            return _stored_raw_memory(row)
-        return _stored_memory_summary(row)
 
 
 async def _prepare_group(
@@ -927,7 +932,6 @@ def _stored_raw_memory(row: RowMapping) -> StoredRawMemory:
         id=cast(UUID, row["id"]),
         text=cast(str, row["text"]),
         created_at=cast(datetime, row["created_at"]),
-        embedding=_stored_embedding(row["embedding"]),
     )
 
 
@@ -937,14 +941,7 @@ def _stored_memory_summary(row: RowMapping) -> StoredMemorySummary:
         text=cast(str, row["text"]),
         source_memory_ids=tuple(cast(Sequence[UUID], row["source_memory_ids"])),
         created_at=cast(datetime, row["created_at"]),
-        embedding=_stored_embedding(row["embedding"]),
     )
-
-
-def _stored_embedding(value: object) -> tuple[float, ...] | None:
-    if value is None:
-        return None
-    return tuple(float(item) for item in cast(Iterable[float], value))
 
 
 def _validated_embedding(value: Sequence[float]) -> list[float]:

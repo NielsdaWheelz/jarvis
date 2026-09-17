@@ -72,6 +72,7 @@ from jarvis.codex_history import (
     CodexStarted,
 )
 from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
+from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_dispatch import ReadDispatchPort, contains_secret
 from jarvis.schedule_tools import ScheduleCreateRequest, ScheduleWakeInput
 from jarvis.write_connectors import (
@@ -214,7 +215,7 @@ class WriteToolDispatcher:
                 as_of=as_of,
                 cancellation=cancellation,
             )
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, DeploymentOwnershipDefect):
             raise
         except Exception as error:
             LOGGER.warning(
@@ -400,6 +401,8 @@ class ActionRecovery:
                 render_approval(pending.id, pending.tool_name, value)
                 if isinstance(value, GmailSendDraftInput):
                     compatible = await gmail_send_basis_is_current(self._actions, value)
+            except DeploymentOwnershipDefect:
+                raise
             except (ApprovalRenderError, RuntimeError, ValueError):
                 compatible = False
             if compatible:

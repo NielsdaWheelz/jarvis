@@ -9,6 +9,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Protocol
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 DEPLOYMENT_LOCK_KEY = int.from_bytes(
@@ -48,8 +49,15 @@ class _OwnedDatabase:
                 raise DeploymentOwnershipDefect(
                     "deployment owner connection is no longer usable"
                 )
-            async with self._connection.begin():
-                yield self._connection
+            try:
+                async with self._connection.begin():
+                    yield self._connection
+            except DBAPIError as exc:
+                if exc.connection_invalidated:
+                    raise DeploymentOwnershipDefect(
+                        "deployment owner connection was lost"
+                    ) from exc
+                raise
 
     def connect(self) -> AbstractAsyncContextManager[AsyncConnection]:
         return self.begin()

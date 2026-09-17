@@ -36,6 +36,7 @@ from jarvis.discord import (
     DiscordCreateMessageClient,
     acknowledge_and_disable_approval,
 )
+from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.write_dispatch import (
     NoTelemetry,
     action_resolution_text,
@@ -202,6 +203,8 @@ class ApprovalActionHandler:
                     discord_message_id=interaction.discord_message_id,
                     source_conversation_id=self._source_conversation_id,
                 )
+        except DeploymentOwnershipDefect:
+            raise
         except (ActionPersistenceDefect, RuntimeError, ValueError):
             return None
         if not decision.applied:

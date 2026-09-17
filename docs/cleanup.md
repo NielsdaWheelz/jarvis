@@ -108,4 +108,8 @@ read dispatchers depend directly on the recorder protocol and keep that recorder
 private. their unused accessors and supporting generic parameters are removed;
 execution, recovery, and evidence remain unchanged.
 
-the next verified slice is [optional approval ports](issues/optional-approval-ports.md).
+approval recovery requires its component disabler and schedule callback, and
+write dispatch requires that callback. approval completion uses the service's
+cancellation token; ordinary and approval delivery share the configured discord
+client. unused implicit dependencies and the alternate ordinary transport are
+removed. startup callback closures still resolve the wake timer's real lifetime.

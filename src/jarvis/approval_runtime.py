@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Protocol
 from uuid import UUID
 
 import discord
@@ -46,15 +45,6 @@ from jarvis.write_dispatch import (
 from jarvis.write_tools import GmailSendDraftInput
 
 
-class OrdinaryDelivery(Protocol):
-    async def create_message(
-        self,
-        *,
-        persisted_message_id: UUID | str,
-        content: str,
-    ) -> DeliveryResult: ...
-
-
 class ApprovalAwareDiscordDelivery:
     """Rebuild approval components and the full preview from durable state."""
 
@@ -64,12 +54,10 @@ class ApprovalAwareDiscordDelivery:
         actions: ActionStore,
         plan: FrozenToolPlan,
         discord: DiscordCreateMessageClient,
-        ordinary: OrdinaryDelivery | None = None,
     ) -> None:
         self._actions = actions
         self._plan = plan
         self._discord = discord
-        self._ordinary = ordinary or discord
 
     async def create_message(
         self,
@@ -80,13 +68,13 @@ class ApprovalAwareDiscordDelivery:
         try:
             message_id = UUID(str(persisted_message_id))
         except ValueError:
-            return await self._ordinary.create_message(
+            return await self._discord.create_message(
                 persisted_message_id=persisted_message_id,
                 content=content,
             )
         stored = await self._actions.get_by_approval_message(message_id)
         if stored is None:
-            return await self._ordinary.create_message(
+            return await self._discord.create_message(
                 persisted_message_id=persisted_message_id,
                 content=content,
             )
@@ -215,14 +203,14 @@ class ApprovalActionHandler:
     async def complete(
         self,
         claimed: ClaimedApproval,
-        cancellation: CancellationToken | None = None,
+        cancellation: CancellationToken,
     ) -> bool:
         """Execute an approved action or report a denial after acknowledgement."""
 
         if claimed.decision is ApprovalComponentDecision.DENY:
             await self._report(claimed.action)
             return True
-        if cancellation is not None and cancellation.cancelled:
+        if cancellation.cancelled:
             return False
         binding = require_current_action_binding(claimed.action, self._plan)
         value = binding.spec.input_type.model_validate(claimed.action.arguments)
@@ -231,8 +219,6 @@ class ApprovalActionHandler:
         ):
             raise RuntimeError("approved Gmail send lost its creation basis")
         grant = self._plan.grant(claimed.action.tool_name)
-        if cancellation is None:
-            cancellation = CancellationToken()
         recorder = ActionPositionRecorder(
             store=self._actions,
             action_id=claimed.action.id,

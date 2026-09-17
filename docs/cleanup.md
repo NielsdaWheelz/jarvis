@@ -85,10 +85,10 @@ body directly.
 the wake timer emits a parameterless work notification. requested time remains
 in the scheduled action; the timer uses its clock only to decide when to notify.
 
-historical admission values remain only where journal migration still uses them.
-removing those predecessors requires the
-live-state evidence recorded under
-[admission predecessors](issues/admission-predecessors.md).
+admission constructs only current limits; startup and manual dreaming no longer
+migrate historical envelopes. validation, reservation, settlement and conservative
+orphan recovery are unchanged. the stopped deployment must complete the
+[journal cutover](issues/admission-journal-cutover.md) before activation.
 
 [hosted verification](issues/github-actions-billing.md) is separately blocked by
 the github account billing restriction.

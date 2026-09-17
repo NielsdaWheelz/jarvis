@@ -170,66 +170,6 @@ class RollingAdmissionPort:
             },
         )
 
-    @classmethod
-    def migrate_limits(
-        cls,
-        path: Path,
-        *,
-        previous: RollingAdmissionLimits | tuple[RollingAdmissionLimits, ...],
-        current: RollingAdmissionLimits,
-    ) -> bool:
-        """Conservatively enlarge an existing stopped deployment's reservations."""
-
-        try:
-            candidates = previous if isinstance(previous, tuple) else (previous,)
-            if not candidates:
-                raise ValueError("admission migration requires a predecessor")
-            value = read_private_json(path)
-            if value is None:
-                raise ValueError("admission journal is missing")
-            journal = _Journal.model_validate(value)
-            if journal.schema_version != "jarvis-admission.v1":
-                raise ValueError("admission journal version is invalid")
-            if journal.configuration == current.json():
-                _validate_journal(journal, current)
-                return False
-            matched = next(
-                (
-                    candidate
-                    for candidate in candidates
-                    if journal.configuration == candidate.json()
-                ),
-                None,
-            )
-            if matched is None:
-                raise ValueError("admission journal has an unexpected configuration")
-            _validate_journal(journal, matched)
-            deltas = (
-                current.serial_child_turns - matched.serial_child_turns,
-                current.serial_child_input_tokens - matched.serial_child_input_tokens,
-                current.serial_child_output_tokens - matched.serial_child_output_tokens,
-            )
-            if any(value < 0 for value in deltas):
-                raise ValueError("admission migration cannot reduce reserved capacity")
-            for root in journal.reservations:
-                if root.thread_id is None:
-                    continue
-                root.reserved_turns += deltas[0]
-                root.reserved_input_tokens += deltas[1]
-                root.reserved_output_tokens += deltas[2]
-                if root.state == "interrupted":
-                    root.actual_turns = root.reserved_turns
-                    root.actual_input_tokens = root.reserved_input_tokens
-                    root.actual_output_tokens = root.reserved_output_tokens
-            journal.configuration = current.json()
-            _validate_journal(journal, current)
-            replace_private_json(path, journal.model_dump(mode="json"))
-            return True
-        except (OSError, TypeError, ValueError) as error:
-            raise AdmissionStateDefect(
-                "admission journal cannot migrate to current limits"
-            ) from error
-
     async def preflight(
         self,
         *,
@@ -539,66 +479,12 @@ class RootTrackingAdmissionPort:
             return await self._delegate.recover_orphans()
 
 
-def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
-    if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
-        raise ValueError("maximum owner inputs must be a positive integer")
-    root_input_overshoot = 32_768
-    root_output_overshoot = 8_192
-    # Preserve the historical envelope for admission-journal migration.
-    maximum_gate_calls = 16
-    serial_child_turns = (
-        maximum_owner_inputs * RECALLER_KERNEL_LIMITS.max_provider_turns
-        + maximum_gate_calls * WRITE_GATE_KERNEL_LIMITS.max_provider_turns
-    )
-    serial_child_input_tokens = maximum_owner_inputs * (
-        RECALLER_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
-    ) + maximum_gate_calls * (
-        WRITE_GATE_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
-    )
-    serial_child_output_tokens = maximum_owner_inputs * (
-        RECALLER_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
-    ) + maximum_gate_calls * (
-        WRITE_GATE_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
-    )
-    foreground_turns = 18 + serial_child_turns
-    foreground_input = 600_000 + root_input_overshoot + serial_child_input_tokens
-    foreground_output = 60_000 + root_output_overshoot + serial_child_output_tokens
-    return RollingAdmissionLimits(
-        max_turns=foreground_turns + REMEMBERER_KERNEL_LIMITS.max_provider_turns,
-        max_input_tokens=(
-            foreground_input
-            + REMEMBERER_KERNEL_LIMITS.max_provider_input_tokens
-            + root_input_overshoot
-        ),
-        max_output_tokens=(
-            foreground_output
-            + REMEMBERER_KERNEL_LIMITS.max_provider_output_tokens
-            + root_output_overshoot
-        ),
-        serial_child_turns=serial_child_turns,
-        serial_child_input_tokens=serial_child_input_tokens,
-        serial_child_output_tokens=serial_child_output_tokens,
-    )
-
-
 def current_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
-    return _current_admission_limits(maximum_owner_inputs, MAIN_TOOL_LIMITS.max_calls)
-
-
-def pre_agent_control_slice6_admission_limits(
-    maximum_owner_inputs: int,
-) -> RollingAdmissionLimits:
-    """The shipped five-worker-tool envelope, retained for journal migration."""
-    return _current_admission_limits(maximum_owner_inputs, 17)
-
-
-def _current_admission_limits(
-    maximum_owner_inputs: int, maximum_gate_calls: int
-) -> RollingAdmissionLimits:
     if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
         raise ValueError("maximum owner inputs must be a positive integer")
     root_input_overshoot = 32_768
     root_output_overshoot = 8_192
+    maximum_gate_calls = MAIN_TOOL_LIMITS.max_calls
     serial_child_turns = (
         maximum_owner_inputs * RECALLER_KERNEL_LIMITS.max_provider_turns
         + maximum_gate_calls * WRITE_GATE_KERNEL_LIMITS.max_provider_turns
@@ -648,14 +534,6 @@ def _current_admission_limits(
         serial_child_input_tokens=serial_child_input_tokens,
         serial_child_output_tokens=serial_child_output_tokens,
     )
-
-
-def pre_all_calendar_slice6_admission_limits(
-    maximum_owner_inputs: int,
-) -> RollingAdmissionLimits:
-    """Return the exact Slice 6 envelope used by the preceding production release."""
-
-    return _current_admission_limits(maximum_owner_inputs, 16)
 
 
 @dataclass(slots=True)
@@ -1160,7 +1038,4 @@ __all__ = [
     "RollingAdmissionPort",
     "RootTrackingAdmissionPort",
     "current_admission_limits",
-    "pre_agent_control_slice6_admission_limits",
-    "pre_all_calendar_slice6_admission_limits",
-    "slice5_admission_limits",
 ]

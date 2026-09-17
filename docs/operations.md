@@ -122,6 +122,9 @@ migrations and initialization in systemd one-shots that inject the root-only
 environment after changing to the `jarvis` identity. Finally select the release
 and enable the service:
 
+for an existing deployment, complete the
+[admission journal cutover](#admission-journal-cutover) before activation.
+
 ```sh
 deploy/install-release
 deploy/activate-release "$(git rev-parse HEAD)"
@@ -164,6 +167,107 @@ binding policy that commits to it. Before this cutover, prove the production
 action ledger contains no `queued`, `awaiting_approval`, or `executing` row made
 under the predecessor identity. A terminal historical action remains evidence
 and is never rewritten.
+
+## admission journal cutover
+
+startup and manual dreaming accept only the current admission configuration
+under [adr 0047](decisions/0047-require-current-admission-journals.md). before
+activating this cut, validate or normalize the stopped deployment's journal
+through release `51f62c86322a66224d1576395b5795ae823c1f75`.
+
+if absent, install that exact commit with `deploy/install-release` from a clean
+checkout of it. this also installs its service unit; it does not select the release
+or start it. never activate the transitional release or run its service or dream
+command.
+
+run the following on the deployment host through an operator allowed to use
+sudo. it reads only the configured database url, runtime directory and batch
+size; keep those settings unchanged through target activation. the existing
+normalizer preserves identities and expiry, enlarges predecessor reservations
+conservatively, and leaves settled actual usage intact. orphan recovery releases
+only live slots; ordinary rolling-window expiry still applies. no provider or
+connector is constructed.
+
+```sh
+prior_release=/opt/jarvis/releases/51f62c86322a66224d1576395b5795ae823c1f75
+sudo test -f "$prior_release/RELEASE.json" &&
+sudo systemctl stop jarvis.service &&
+sudo systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-admission-cutover \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property="WorkingDirectory=$prior_release" \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  "$prior_release/.venv/bin/python" - <<'PY'
+import asyncio
+import os
+from pathlib import Path
+
+from jarvis.admission import (
+    RollingAdmissionPort,
+    current_admission_limits,
+    pre_agent_control_slice6_admission_limits,
+    pre_all_calendar_slice6_admission_limits,
+    slice5_admission_limits,
+)
+from jarvis.db import create_engine
+from jarvis.ownership import deployment_ownership
+from jarvis.process_security import deny_same_identity_process_inspection
+
+
+async def prepare():
+    deny_same_identity_process_inspection()
+    directory = Path(os.environ["JARVIS_RUNTIME_STATE_DIRECTORY"])
+    batch = int(os.environ.get("JARVIS_MAXIMUM_BATCH_SIZE", "20"))
+    if not directory.is_absolute() or not 1 <= batch <= 100:
+        raise ValueError("invalid admission configuration")
+    path = directory / "admission.json"
+    limits = current_admission_limits(batch)
+    engine = create_engine(os.environ["JARVIS_DATABASE_URL"])
+    try:
+        async with deployment_ownership(engine):
+            RollingAdmissionPort.migrate_limits(
+                path,
+                previous=(
+                    pre_agent_control_slice6_admission_limits(batch),
+                    pre_all_calendar_slice6_admission_limits(batch),
+                    slice5_admission_limits(batch),
+                ),
+                current=limits,
+            )
+            await RollingAdmissionPort(path, limits).recover_orphans()
+    finally:
+        await engine.dispose()
+
+
+try:
+    asyncio.run(prepare())
+except Exception:
+    raise SystemExit("admission preparation failed; leave service stopped") from None
+print("admission journal current; orphan slots released without refund")
+PY
+```
+
+continue with target activation only after success. an unknown, missing or corrupt
+journal leaves the service stopped for investigation. do not reset, delete or
+replace it with an empty journal to bypass this prerequisite. repository checks
+and synthetic fixtures do not establish that the private deployment journal is
+ready; the outstanding deployment work is tracked in
+[admission journal cutover](issues/admission-journal-cutover.md).
+
+after successful preparation, install the target release normally. an already
+installed release skips unit installation, so restore the chosen target's unit
+explicitly before `deploy/activate-release`. replace `FULL_TARGET_COMMIT` with
+the target's full commit:
+
+```sh
+target_release=/opt/jarvis/releases/FULL_TARGET_COMMIT
+sudo install -m 0644 -o root -g root \
+  "$target_release/deploy/jarvis.service" /etc/systemd/system/jarvis.service &&
+sudo systemctl daemon-reload
+```
 
 ## Approval operation
 
@@ -351,11 +455,9 @@ targets.
 Production rolling admission holds two complete worst-case foreground
 envelopes plus one Rememberer allowance in each six-hour window. This lets one
 full reservation coexist with up to one foreground envelope of already-settled
-actual use. The all-calendar release recognizes only its exact preceding Slice
-6 envelope and atomically enlarges retained foreground reservations by one
-isolated write-gate allowance while the service is stopped. An already-current
-journal is unchanged. Every other changed configuration fails closed; preserve
-it for diagnosis rather than guessing or deleting capacity evidence.
+actual use. only the current journal configuration is accepted. an older journal
+requires the stopped [admission journal cutover](#admission-journal-cutover).
+preserve charged capacity rather than guessing or deleting its evidence.
 
 An undelivered approval outbox row remains pending with null
 `source_message_id`; startup rerenders it from the action and reuses the same
@@ -406,7 +508,7 @@ jarvis release-parked MESSAGE_ID [MESSAGE_ID ...]
 This does not reset `processing_attempts` and does not arm hidden successor
 work. Never edit `trace` to control scheduling.
 
-If the admission journal is missing, corrupt, or has a changed configuration,
+If the admission journal is missing or corrupt,
 Jarvis fails closed. With the service stopped, preserve the bad journal for
 diagnosis, verify that no cognitive process owns the deployment, and explicitly
 replace only `admission.json` with a freshly initialized journal using the same

@@ -45,7 +45,7 @@ contracts remain binding; dated evidence remains historical.
 | [0034](0034-reserve-two-foreground-envelopes.md) | Reserve two worst-case foreground envelopes in each rolling admission window | Accepted; amends admission and Slice 7 |
 | [0035](0035-contain-codex-app-server-authority.md) | Own and fail closed on the complete Codex App Server authority surface | Accepted; supersedes the active provider/kernel pins and strengthens 0020/0026 containment |
 | [0036](0036-default-calendar-reads-to-primary.md) | Default Calendar list reads to the owner's primary calendar | Superseded by 0037 after the owner clarified the all-calendar product requirement |
-| [0037](0037-read-and-use-all-owner-calendars.md) | Read and target every owner-visible Google calendar | Accepted; adds bounded live discovery and supersedes primary-only event listing |
+| [0037](0037-read-and-use-all-owner-calendars.md) | Read and target every owner-visible Google calendar | Accepted; automatic predecessor admission migration superseded by 0047 |
 | [0038](0038-truthful-terminals-and-bounded-calendar-completeness.md) | Use typed truthful terminals and host-owned bounded Calendar completeness | Accepted; supersedes 0037's event cap/pagination and amends the Main terminal contract |
 | [0039](0039-personalize-only-the-main-agent.md) | Give Main the owner's voice and stable personal context | Accepted; amends the Main role and public-Web search behavior |
 | [0040](0040-shared-kernel-durable-decisions.md) | Shared kernel with durable inference and Read positions | Accepted; six-table durability, authenticated model selection, and owner-bound transactions |
@@ -55,6 +55,7 @@ contracts remain binding; dated evidence remains historical.
 | [0044](0044-control-tmux-agents-through-skid.md) | control peer tmux agents through the common skid cli | accepted implementation target; supersedes 0041's worker routing and launcher |
 | [0045](0045-use-the-ordinary-fleet-cli.md) | ordinary fleet cli and opaque references | accepted implementation target; supersedes 0044 cli grammar and roster |
 | [0046](0046-reset-testing.md) | remove the old testing system before redesign | accepted; suspends earlier test and qualification execution gates |
+| [0047](0047-require-current-admission-journals.md) | require current admission journals | accepted; retires 0037's automatic predecessor recognition under the owner's hard-cut instruction |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

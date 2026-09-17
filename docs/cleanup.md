@@ -56,9 +56,11 @@ its request construction; disabling still requires the exact requested id.
 the small request callback replaces duplicated policy, with no generic retry
 framework or new state.
 
-follow-ups are recorded individually under [issues](issues/):
-[wake notification](issues/wake-notification.md),
-and [admission predecessors](issues/admission-predecessors.md).
+the wake timer emits a parameterless work notification. requested time remains
+in the scheduled action; the timer uses its clock only to decide when to notify.
+
+the remaining implementation follow-up is recorded under
+[admission predecessors](issues/admission-predecessors.md).
 
 [hosted verification](issues/github-actions-billing.md) is separately blocked by
 the github account billing restriction.

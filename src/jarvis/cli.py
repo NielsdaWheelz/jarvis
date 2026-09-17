@@ -515,7 +515,7 @@ async def _serve(
                     )
                     wake_timer = ProcessLocalWakeTimer(
                         store=actions,
-                        on_due=lambda _: service.request_work(),
+                        on_due=service.request_work,
                     )
                     service.bind_wake_timer(wake_timer)
                     if shutdown.is_set():

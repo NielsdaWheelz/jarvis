@@ -43,12 +43,13 @@ from jarvis.actions import (
     ExecutionContract,
 )
 from jarvis.admission import ExactToolBudgetFactory
+from jarvis.agent_control import AgentController
 from jarvis.connectors import GoogleTokenManager
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    build_slice5_definitions,
     build_slice5_write_gate,
+    build_slice6_definitions,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
@@ -58,7 +59,7 @@ from jarvis.messages import MessageStore
 from jarvis.ownership import deployment_ownership
 from jarvis.read_tools import CALENDAR_API_BASE_URL, GMAIL_API_BASE_URL
 from jarvis.settings import Settings
-from jarvis.write_composition import Slice5Composition, build_slice5_composition
+from jarvis.write_composition import Slice6Composition, build_slice6_composition
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     ReconciliationResult,
@@ -311,7 +312,7 @@ async def _run(settings: Settings, calendar_id: str) -> dict[str, object]:
         cleanup: dict[str, bool] | None = None
         primary_error: BaseException | None = None
         result: dict[str, object] | None = None
-        composition: Slice5Composition | None = None
+        composition: Slice6Composition | None = None
         host = settings.codex_host_config
         agent_runtime = build_agent_runtime(
             provider_state_root=settings.runtime_state_directory,
@@ -328,7 +329,7 @@ async def _run(settings: Settings, calendar_id: str) -> dict[str, object]:
             provisional_gate, _ = build_slice5_write_gate(
                 provider=provider_configuration,
             )
-            composition = build_slice5_composition(
+            composition = build_slice6_composition(
                 settings=settings,
                 google_oauth_http=clients[0],
                 google_api_http=clients[1],
@@ -340,11 +341,16 @@ async def _run(settings: Settings, calendar_id: str) -> dict[str, object]:
                     http_client=clients[4],
                 ),
                 actions=actions,
+                agents=AgentController(
+                    executable=settings.agent_cli_path,
+                    client_config=settings.agent_client_config_path,
+                    actions=actions,
+                ),
                 automatic_write_gate_definition_fingerprint=(
                     provisional_gate.fingerprint
                 ),
             )
-            definitions = build_slice5_definitions(
+            definitions = build_slice6_definitions(
                 catalog=composition.catalog,
                 provider=provider_configuration,
                 owner_timezone=settings.owner_timezone,

@@ -75,7 +75,6 @@ from jarvis.definitions import (
     Slice2Definitions,
     Slice3Definitions,
     Slice4Definitions,
-    Slice5Definitions,
     Slice6Definitions,
 )
 from jarvis.discord import (
@@ -889,7 +888,6 @@ class JarvisThreadRunner:
             | Slice2Definitions
             | Slice3Definitions
             | Slice4Definitions
-            | Slice5Definitions
             | Slice6Definitions
         ),
         history: PostgresCanonicalHistory,
@@ -916,12 +914,7 @@ class JarvisThreadRunner:
         self._rememberer = rememberer
         if isinstance(
             definitions,
-            (
-                Slice3Definitions
-                | Slice4Definitions
-                | Slice5Definitions
-                | Slice6Definitions
-            ),
+            (Slice3Definitions | Slice4Definitions | Slice6Definitions),
         ) and (
             not isinstance(admission, RootTrackingAdmissionPort)
             or memory is None
@@ -1004,12 +997,7 @@ class JarvisThreadRunner:
         recaller = None
         if isinstance(
             self._definitions,
-            (
-                Slice3Definitions
-                | Slice4Definitions
-                | Slice5Definitions
-                | Slice6Definitions
-            ),
+            (Slice3Definitions | Slice4Definitions | Slice6Definitions),
         ):
             assert isinstance(self._admission, RootTrackingAdmissionPort)
             assert self._memory is not None

@@ -65,6 +65,11 @@ embedding update queries return only an id to detect a missing row, avoiding a
 round trip of the stored vector. vector validation, database columns, and raw-memory
 immutability remain unchanged.
 
+new memories and embedding backfill share one batch-write loop. it reports
+partial progress to background scheduling and stops between writes on cancellation
+or failure. the embedding adapter always uses provider-runtime with the managed
+http client; its unused alternate runtime injection is removed.
+
 discord delivery now has one response/retry policy for ordinary messages,
 approval attachments, and disabling approval components. each operation keeps
 its request construction; disabling still requires the exact requested id.

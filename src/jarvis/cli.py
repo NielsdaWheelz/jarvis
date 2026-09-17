@@ -402,9 +402,7 @@ async def _serve(
                     ) -> PostgresModelDecisionJournal:
                         return PostgresModelDecisionJournal(database, evidence=evidence)
 
-                    def memory_dispatcher() -> MemoryToolDispatcher[
-                        PostgresReadRecorder
-                    ]:
+                    def memory_dispatcher() -> MemoryToolDispatcher:
                         return MemoryToolDispatcher(PostgresReadRecorder(database))
 
                     store = MessageStore(database)

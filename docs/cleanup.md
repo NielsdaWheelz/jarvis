@@ -104,5 +104,8 @@ unused keyring parser, setting, and secret matching entries are removed. deploym
 still requires the [environment cutover](issues/connector-keyring-cutover.md);
 existing token ciphertext needs no migration.
 
-the next verified slices are the [read dispatcher interface](issues/read-dispatch-interface.md) and
-[optional approval ports](issues/optional-approval-ports.md).
+read dispatchers depend directly on the recorder protocol and keep that recorder
+private. their unused accessors and supporting generic parameters are removed;
+execution, recovery, and evidence remain unchanged.
+
+the next verified slice is [optional approval ports](issues/optional-approval-ports.md).

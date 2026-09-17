@@ -55,19 +55,15 @@ class _StoredMemoryEvidence(BaseModel):
     search_calls: Annotated[int, Field(ge=0, le=8)]
 
 
-class MemoryToolDispatcher[RecorderT: ReadRecorder]:
+class MemoryToolDispatcher:
     """Execute only exact frozen memory reads from an isolated role run."""
 
-    def __init__(self, recorder: RecorderT) -> None:
+    def __init__(self, recorder: ReadRecorder) -> None:
         self._recorder = recorder
         self._candidate_ids: list[MemoryIdentity] = []
         self._candidate_id_set: set[MemoryIdentity] = set()
         self._opened_ids: list[MemoryIdentity] = []
         self._search_calls = 0
-
-    @property
-    def recorder(self) -> RecorderT:
-        return self._recorder
 
     @property
     def evidence(self) -> MemoryDispatchEvidence:

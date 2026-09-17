@@ -467,6 +467,11 @@ release is enabled and every preceding Slice 7 gate passes.
 
 ## Slice 8: shared Codex control
 
+historical delivery plan: the worker-control requirements below are superseded by
+[adr 0044](decisions/0044-control-tmux-agents-through-skid.md) and
+[adr 0045](decisions/0045-use-the-ordinary-fleet-cli.md). their cognition and
+durable-recovery requirements remain binding.
+
 Status: implemented on the isolated feature branch on 2026-09-09; live
 acceptance is `NOT_RUN`.
 

@@ -14,14 +14,15 @@ from llm_tools import ToolEffect, ToolId
 from provider_fixture import frozen_provider
 from pydantic import SecretStr
 
+from jarvis.agent_control import AgentController
 from jarvis.config import DiscordSettings
 from jarvis.definitions import (
     SLICE2_READ_IDS,
-    build_slice5_definitions,
     build_slice5_write_gate,
+    build_slice6_definitions,
 )
 from jarvis.settings import Settings
-from jarvis.write_composition import build_slice5_catalog
+from jarvis.write_composition import build_slice6_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 _QUALIFIER = run_path(str(ROOT / "scripts" / "qualify_proactivity.py"))
@@ -104,7 +105,7 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
         gate, _ = build_slice5_write_gate(
             provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         )
-        catalog = build_slice5_catalog(
+        catalog = build_slice6_catalog(
             settings=_settings(tmp_path),
             google_oauth_http=clients[0],
             google_api_http=clients[1],
@@ -113,9 +114,14 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
             memory_repository=cast("Any", _MemoryRepository()),
             memory_embedder=cast("Any", _MemoryEmbedder()),
             actions=cast("Any", _Actions()),
+            agents=AgentController(
+                executable=tmp_path / "skid",
+                client_config=tmp_path / "agent-client.json",
+                actions=cast("Any", _Actions()),
+            ),
             automatic_write_gate_definition_fingerprint=gate.fingerprint,
         )
-        definitions = build_slice5_definitions(
+        definitions = build_slice6_definitions(
             catalog=catalog,
             provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
             owner_timezone="UTC",

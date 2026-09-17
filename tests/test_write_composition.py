@@ -8,27 +8,20 @@ from typing import Any, cast
 
 import httpx
 from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
-from llm_tools import Available, PromptText, ToolId, Unavailable, canonical_json_bytes
+from llm_tools import Available, PromptText, ToolId, canonical_json_bytes
 from provider_fixture import frozen_provider
 from pydantic import SecretStr
 
-from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import AGENT_TOOL_IDS
 from jarvis.config import DiscordSettings
-from jarvis.db import create_engine
 from jarvis.definitions import (
     SLICE2_READ_IDS,
     SLICE3_MEMORY_READ_IDS,
-    SLICE5_KERNEL_LIMITS,
-    SLICE5_PLAN_TOOL_LIMITS,
-    SLICE5_TOOL_LIMITS,
-    SLICE5_WRITE_IDS,
     SLICE6_KERNEL_LIMITS,
     SLICE6_PLAN_TOOL_LIMITS,
     SLICE6_TOOL_LIMITS,
     SLICE6_WRITE_IDS,
-    build_slice5_definitions,
     build_slice5_write_gate,
     build_slice6_definitions,
     load_session_manifest,
@@ -36,7 +29,7 @@ from jarvis.definitions import (
 )
 from jarvis.settings import Settings
 from jarvis.terminal import JarvisTerminal
-from jarvis.write_composition import build_slice5_catalog, build_slice6_catalog
+from jarvis.write_composition import build_slice6_catalog
 
 
 class _Actions:
@@ -93,7 +86,7 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
+async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     tmp_path: Path,
 ) -> None:
     clients = tuple(
@@ -106,48 +99,38 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         )
         for _ in range(4)
     )
+    gate, _ = build_slice5_write_gate(
+        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
+    )
     try:
-        catalog = build_slice5_catalog(
-            settings=_settings(tmp_path),
-            google_oauth_http=clients[0],
-            google_api_http=clients[1],
-            maps_http=clients[2],
-            brave_http=clients[3],
-            memory_repository=cast("Any", _MemoryRepository()),
-            memory_embedder=cast("Any", _MemoryEmbedder()),
-            actions=cast("Any", _Actions()),
-            automatic_write_gate_definition_fingerprint="a" * 64,
-        )
-        rotated = build_slice5_catalog(
-            settings=_settings(tmp_path),
-            google_oauth_http=clients[0],
-            google_api_http=clients[1],
-            maps_http=clients[2],
-            brave_http=clients[3],
-            memory_repository=cast("Any", _MemoryRepository()),
-            memory_embedder=cast("Any", _MemoryEmbedder()),
-            actions=cast("Any", _Actions()),
-            automatic_write_gate_definition_fingerprint="b" * 64,
-        )
-        gate, _ = build_slice5_write_gate(
-            provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
-        )
-        production_catalog = build_slice5_catalog(
-            settings=_settings(tmp_path),
-            google_oauth_http=clients[0],
-            google_api_http=clients[1],
-            maps_http=clients[2],
-            brave_http=clients[3],
-            memory_repository=cast("Any", _MemoryRepository()),
-            memory_embedder=cast("Any", _MemoryEmbedder()),
-            actions=cast("Any", _Actions()),
-            automatic_write_gate_definition_fingerprint=gate.fingerprint,
+        catalog, rotated = (
+            build_slice6_catalog(
+                settings=_settings(tmp_path),
+                google_oauth_http=clients[0],
+                google_api_http=clients[1],
+                maps_http=clients[2],
+                brave_http=clients[3],
+                memory_repository=cast("Any", _MemoryRepository()),
+                memory_embedder=cast("Any", _MemoryEmbedder()),
+                actions=cast("Any", _Actions()),
+                agents=AgentController(
+                    executable=tmp_path / "skid",
+                    client_config=tmp_path / "agent-client.json",
+                    actions=cast("Any", _Actions()),
+                ),
+                automatic_write_gate_definition_fingerprint=gate_fingerprint,
+            )
+            for gate_fingerprint in (gate.fingerprint, "b" * 64)
         )
     finally:
         for client in clients:
             await client.aclose()
 
-    assert frozenset(catalog.tool_ids) == {
+    assert all(
+        isinstance(catalog.binding(tool_id).execute, Available)
+        for tool_id in catalog.tool_ids
+    )
+    assert set(catalog.tool_ids) == {
         ToolId("gmail.search"),
         ToolId("gmail.read_thread"),
         ToolId("gmail.create_draft"),
@@ -167,13 +150,16 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         ToolId("memory.search"),
         ToolId("memory.open"),
         ToolId("schedule.wake"),
+        ToolId("agent.list"),
+        ToolId("agent.info"),
+        ToolId("agent.read"),
+        ToolId("agent.start"),
+        ToolId("agent.send"),
+        ToolId("agent.keys"),
+        ToolId("agent.interrupt"),
+        ToolId("agent.stop"),
+        ToolId("agent.kill"),
     }
-    for tool_id in catalog.tool_ids:
-        execute = catalog.binding(tool_id).execute
-        if tool_id == ToolId("gmail.send_draft"):
-            assert isinstance(execute, Unavailable)
-        else:
-            assert isinstance(execute, Available)
     assert catalog.binding(ToolId("schedule.wake")).implementation_revision == (
         "jarvis-schedule-wake-v1"
     )
@@ -193,7 +179,7 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
             "threads.get(format=minimal)-then-messages.get(format=raw)"
         ),
         "send": False,
-        "automatic_write_gate_definition_fingerprint": "a" * 64,
+        "automatic_write_gate_definition_fingerprint": gate.fingerprint,
     }
     calendar = catalog.binding(ToolId("calendar.create_event"))
     assert calendar.policy_inputs["verified_owner_calendar_ids_digest"] == (
@@ -209,79 +195,6 @@ async def test_slice5_catalog_has_exact_maximum_surface_and_unavailable_send(
         == catalog.binding(ToolId("gmail.search")).policy_revision
     )
 
-    definitions = build_slice5_definitions(
-        catalog=production_catalog,
-        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
-        owner_timezone="UTC",
-    )
-    assert definitions.main.limits == SLICE5_KERNEL_LIMITS
-    assert definitions.main.maximum_profile.run_limits == SLICE5_TOOL_LIMITS
-    assert definitions.plans["main"].profile.run_limits == SLICE5_PLAN_TOOL_LIMITS
-    assert set(definitions.main.maximum_profile.grants) == set(
-        (*SLICE2_READ_IDS, *SLICE5_WRITE_IDS)
-    )
-    assert set(definitions.plans["main"].profile.grants) == set(catalog.tool_ids) - {
-        *SLICE3_MEMORY_READ_IDS,
-        ToolId("gmail.send_draft"),
-    }
-    assert set(definitions.plans["scheduled_wake"].profile.grants) == set(
-        SLICE2_READ_IDS
-    )
-    assert not definitions.automatic_write_gate.maximum_profile.grants
-    assert not definitions.plans["automatic_write_gate"].profile.grants
-    manifest = load_session_manifest()
-    for role in ("main", "recaller", "rememberer", "dreamer", "automatic_write_gate"):
-        assert getattr(definitions, role).session_compatibility_revision == (
-            session_compatibility_revision(manifest, role)
-        )
-
-
-async def test_slice6_catalog_and_plans_select_every_qualified_binding(
-    tmp_path: Path,
-) -> None:
-    clients = tuple(
-        httpx.AsyncClient(
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(500, request=request)
-            ),
-            trust_env=False,
-            follow_redirects=False,
-        )
-        for _ in range(4)
-    )
-    gate, _ = build_slice5_write_gate(
-        provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
-    )
-    try:
-        catalog = build_slice6_catalog(
-            settings=_settings(tmp_path),
-            google_oauth_http=clients[0],
-            google_api_http=clients[1],
-            maps_http=clients[2],
-            brave_http=clients[3],
-            memory_repository=cast("Any", _MemoryRepository()),
-            memory_embedder=cast("Any", _MemoryEmbedder()),
-            actions=cast("Any", _Actions()),
-            agents=AgentController(
-                executable=tmp_path / "skid",
-                client_config=tmp_path / "agent-client.json",
-                actions=ActionStore(
-                    create_engine(
-                        "postgresql+psycopg://unused:unused@127.0.0.1:1/unused"
-                    )
-                ),
-            ),
-            automatic_write_gate_definition_fingerprint=gate.fingerprint,
-        )
-    finally:
-        for client in clients:
-            await client.aclose()
-
-    assert all(
-        isinstance(catalog.binding(tool_id).execute, Available)
-        for tool_id in catalog.tool_ids
-    )
-    assert set(AGENT_TOOL_IDS) <= set(catalog.tool_ids)
     send = catalog.binding(ToolId("gmail.send_draft"))
     assert send.implementation_revision == "jarvis-gmail-send_draft-v1"
     assert send.policy_inputs == {

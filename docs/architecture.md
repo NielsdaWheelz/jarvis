@@ -804,6 +804,8 @@ PostgreSQL owns exactly:
 - `memory_log`
 - `memory_summary`
 - `action`
+- `model_decision`
+- `read_position`
 
 Existing integration state stays with its current owner. Configuration owns the
 owner ID, Discord guild and channel IDs, timezone, paused flag, model

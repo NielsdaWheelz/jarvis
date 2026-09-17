@@ -35,8 +35,6 @@ from jarvis.definitions import (
     SLICE2_KERNEL_LIMITS,
     SLICE3_RECALL_KERNEL_LIMITS,
     SLICE3_REMEMBER_KERNEL_LIMITS,
-    SLICE5_KERNEL_LIMITS,
-    SLICE5_PLAN_TOOL_LIMITS,
     SLICE6_KERNEL_LIMITS,
     SLICE6_PLAN_TOOL_LIMITS,
 )
@@ -594,7 +592,8 @@ def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
         raise ValueError("maximum owner inputs must be a positive integer")
     root_input_overshoot = 32_768
     root_output_overshoot = 8_192
-    maximum_gate_calls = SLICE5_PLAN_TOOL_LIMITS.max_calls
+    # Preserve the historical envelope for admission-journal migration.
+    maximum_gate_calls = 16
     serial_child_turns = (
         maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
         + maximum_gate_calls * SLICE1_KERNEL_LIMITS.max_provider_turns
@@ -609,17 +608,9 @@ def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
     ) + maximum_gate_calls * (
         SLICE1_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
     )
-    foreground_turns = SLICE5_KERNEL_LIMITS.max_provider_turns + serial_child_turns
-    foreground_input = (
-        SLICE5_KERNEL_LIMITS.max_provider_input_tokens
-        + root_input_overshoot
-        + serial_child_input_tokens
-    )
-    foreground_output = (
-        SLICE5_KERNEL_LIMITS.max_provider_output_tokens
-        + root_output_overshoot
-        + serial_child_output_tokens
-    )
+    foreground_turns = 18 + serial_child_turns
+    foreground_input = 600_000 + root_input_overshoot + serial_child_input_tokens
+    foreground_output = 60_000 + root_output_overshoot + serial_child_output_tokens
     return RollingAdmissionLimits(
         max_turns=foreground_turns + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns,
         max_input_tokens=(

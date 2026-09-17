@@ -32,7 +32,7 @@ from jarvis.terminal import JarvisTerminal
 from jarvis.write_composition import build_slice6_catalog
 
 
-class _Actions:
+class ActionsFixture:
     async def stage_gmail_update_basis(self, **values: object) -> object:
         raise AssertionError(values)
 
@@ -56,7 +56,7 @@ class _MemoryEmbedder:
         raise AssertionError(values)
 
 
-def _settings(tmp_path: Path) -> Settings:
+def composition_settings(tmp_path: Path) -> Settings:
     key = base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("=")
     return Settings(
         database_url=SecretStr("postgresql://synthetic"),
@@ -105,18 +105,18 @@ async def test_slice6_catalog_and_plans_select_every_qualified_binding(
     try:
         catalog, rotated = (
             build_slice6_catalog(
-                settings=_settings(tmp_path),
+                settings=composition_settings(tmp_path),
                 google_oauth_http=clients[0],
                 google_api_http=clients[1],
                 maps_http=clients[2],
                 brave_http=clients[3],
                 memory_repository=cast("Any", _MemoryRepository()),
                 memory_embedder=cast("Any", _MemoryEmbedder()),
-                actions=cast("Any", _Actions()),
+                actions=cast("Any", ActionsFixture()),
                 agents=AgentController(
                     executable=tmp_path / "skid",
                     client_config=tmp_path / "agent-client.json",
-                    actions=cast("Any", _Actions()),
+                    actions=cast("Any", ActionsFixture()),
                 ),
                 automatic_write_gate_definition_fingerprint=gate_fingerprint,
             )

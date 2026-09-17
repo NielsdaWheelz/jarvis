@@ -6,9 +6,10 @@ from runpy import run_path
 from typing import Any, cast
 from uuid import UUID
 
-import httpx
 import pytest
-from llm_tools import PromptSections, ToolId
+from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
+from llm_tools import PromptSections, ToolEffect, ToolId
+from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import (
     AgentFailure,
     AgentQuotaExhausted,
@@ -33,8 +34,9 @@ _verify_embedding_credential_denies_generation = _QUALIFIER[
 ]
 _verified_zero_memory_result = _QUALIFIER["verified_zero_memory_result"]
 _Arguments = _QUALIFIER["Arguments"]
-_build_slice3_catalog = _QUALIFIER["build_slice3_catalog"]
-_qualification_settings = _QUALIFIER["qualification_settings"]
+_compose_memory_catalog = _QUALIFIER["compose_memory_catalog"]
+_build_recaller = _QUALIFIER["build_recaller"]
+_build_rememberer = _QUALIFIER["build_rememberer"]
 _NoopRecallTrace = _QUALIFIER["_NoopRecallTrace"]
 _ProductionRecallRunner = _QUALIFIER["_ProductionRecallRunner"]
 _QualificationProvider = _QUALIFIER["QualificationProvider"]
@@ -106,46 +108,47 @@ class _RecallRunner:
         )
 
 
-async def test_memory_role_catalog_accepts_inert_synthetic_connector_settings(
-    tmp_path: Path,
-) -> None:
-    arguments = _Arguments(
-        model="gpt-5.6-terra",
-        profile="personal",
-        codex_host_config_path=tmp_path / "codex-profiles.json",
-        runtime_state_directory=tmp_path / "runtime",
-        database_url="postgresql://synthetic",
-        embedding_api_key=SecretStr("synthetic-embedding-key"),
-        owner_timezone="UTC",
-        reasoning_effort="high",
-    )
-    clients = tuple(
-        httpx.AsyncClient(
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(500, request=request)
-            ),
-            trust_env=False,
+def test_memory_roles_require_only_the_memory_catalog() -> None:
+    catalog = _compose_memory_catalog(object(), _Embedder())
+    assert tuple(catalog.tool_ids) == (ToolId("memory.open"), ToolId("memory.search"))
+    for build_role in (_build_recaller, _build_rememberer):
+        definition, plan = build_role(
+            catalog=catalog,
+            provider=frozen_provider(),
+            owner_timezone="UTC",
         )
-        for _ in range(4)
-    )
-    try:
-        catalog = _build_slice3_catalog(
-            settings=_qualification_settings(arguments),
-            google_oauth_http=clients[0],
-            google_api_http=clients[1],
-            maps_http=clients[2],
-            brave_http=clients[3],
-            memory_repository=object(),
-            memory_embedder=_Embedder(),
+        assert definition.session_mode is SessionMode.isolated
+        assert isinstance(definition.output_contract, StructuredOutput)
+        assert tuple(plan.profile.grants) == catalog.tool_ids
+        assert all(
+            plan.catalog_view.spec(tool_id).effect is ToolEffect.Read
+            for tool_id in plan.profile.grants
         )
-    finally:
-        for client in clients:
-            await client.aclose()
-
-    assert len(catalog.tool_ids) == 12
+        require_host_plan(plan, definition.maximum_profile)
     assert catalog.binding(ToolId("memory.search")).implementation_revision == (
         "jarvis-memory-search-v1"
     )
+
+
+@pytest.mark.parametrize("timezone", ("UTC", "America/Los_Angeles", "not-a-zone"))
+def test_memory_qualification_requires_an_installed_owner_timezone(
+    tmp_path: Path, timezone: str
+) -> None:
+    values = {
+        "model": "gpt-5.6-terra",
+        "profile": "personal",
+        "codex_host_config_path": tmp_path / "codex-profiles.json",
+        "runtime_state_directory": tmp_path / "runtime",
+        "database_url": "postgresql://synthetic",
+        "embedding_api_key": SecretStr("synthetic-embedding-key"),
+        "owner_timezone": timezone,
+        "reasoning_effort": "high",
+    }
+    if timezone == "not-a-zone":
+        with pytest.raises(ValueError, match="installed IANA timezone"):
+            _Arguments(**values)
+    else:
+        assert _Arguments(**values).owner_timezone == timezone
 
 
 async def test_noncompleted_recaller_reports_only_validated_terminal_reason() -> None:

@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
 import pytest
 from llm_agent_kernel import (
+    AgentDefinition,
     CancellationToken,
     OneShotCompleted,
     OneShotStopped,
@@ -17,8 +17,9 @@ from llm_agent_kernel import (
     RunMetrics,
     ThreadStopKind,
 )
+from llm_tools import FrozenToolPlan
 from provider_fixture import model_journal
-from test_dreamer_role import build_test_slice4_definitions
+from test_dreamer_role import build_test_dreamer
 
 from jarvis.definitions import DreamResult
 from jarvis.memory import (
@@ -99,25 +100,24 @@ class _Memory:
         return SummaryMutationCommit(created, batch.remove_summary_ids, NOW)
 
 
-async def _worker(
-    tmp_path: Path,
+def _worker(
     *,
     memory: _Memory,
     admission: _Admission | None = None,
     search_calls: int = 1,
-) -> tuple[DreamerWorker, Any]:
-    definitions, _ = await build_test_slice4_definitions(tmp_path)
+) -> tuple[DreamerWorker, tuple[AgentDefinition, FrozenToolPlan]]:
+    dreamer, plan = build_test_dreamer()
     return (
         DreamerWorker(
             model_decisions=model_journal,
-            definition=definitions.dreamer,
-            plan=definitions.plans["dreamer"],
+            definition=dreamer,
+            plan=plan,
             admission=cast(Any, admission or _Admission()),
             provider=cast(Any, object()),
             dispatcher_factory=lambda: cast(Any, _Dispatcher(search_calls)),
             memory=cast(Any, memory),
         ),
-        definitions,
+        (dreamer, plan),
     )
 
 
@@ -130,11 +130,10 @@ def _completed(result: dict[str, object]) -> OneShotCompleted:
 
 async def test_zero_raw_memory_skips_admission_and_provider(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory(raw_count=0)
     admission = _Admission()
-    worker, _ = await _worker(tmp_path, memory=memory, admission=admission)
+    worker, _ = _worker(memory=memory, admission=admission)
 
     async def provider_not_called(**kwargs: object) -> object:
         del kwargs
@@ -150,11 +149,10 @@ async def test_zero_raw_memory_skips_admission_and_provider(
 
 async def test_completed_result_maps_once_to_the_atomic_host_batch(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory()
     admission = _Admission()
-    worker, definitions = await _worker(tmp_path, memory=memory, admission=admission)
+    worker, (dreamer, plan) = _worker(memory=memory, admission=admission)
     observed: dict[str, object] = {}
     result = DreamResult.model_validate(
         {
@@ -192,8 +190,8 @@ async def test_completed_result_maps_once_to_the_atomic_host_batch(
         )
     ]
     assert admission.calls == [(10, 160_000, 16_000)]
-    assert observed["definition"] == definitions.dreamer
-    assert observed["plan"] == definitions.plans["dreamer"]
+    assert observed["definition"] == dreamer
+    assert observed["plan"] == plan
     inputs = cast("tuple[Any, ...]", observed["inputs"])
     assert len(inputs) == 1
     assert inputs[0].source_timestamp == NOW
@@ -210,10 +208,9 @@ async def test_completed_result_maps_once_to_the_atomic_host_batch(
 
 async def test_completed_result_retains_contradiction_and_both_raw_sources(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory()
-    worker, _ = await _worker(tmp_path, memory=memory)
+    worker, _ = _worker(memory=memory)
     contradictory_text = (
         "Synthetic raw memories disagree: one records the Ember review as approved; "
         "the other records it as unresolved. The current status is uncertain."
@@ -257,11 +254,10 @@ async def test_completed_result_retains_contradiction_and_both_raw_sources(
 @pytest.mark.parametrize("kind", ("invalid", "failed", "exception", "cancelled"))
 async def test_invalid_failed_or_cancelled_run_applies_no_mutation(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     kind: str,
 ) -> None:
     memory = _Memory()
-    worker, _ = await _worker(tmp_path, memory=memory)
+    worker, _ = _worker(memory=memory)
     cancellation = CancellationToken()
 
     async def result(**kwargs: object) -> OneShotCompleted | OneShotStopped:
@@ -286,11 +282,10 @@ async def test_invalid_failed_or_cancelled_run_applies_no_mutation(
 
 async def test_background_preflight_defers_without_provider_or_mutation(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory()
     admission = _Admission(RESET_AT)
-    worker, _ = await _worker(tmp_path, memory=memory, admission=admission)
+    worker, _ = _worker(memory=memory, admission=admission)
 
     async def provider_not_called(**kwargs: object) -> object:
         del kwargs
@@ -307,10 +302,9 @@ async def test_background_preflight_defers_without_provider_or_mutation(
 
 async def test_completed_result_without_authoritative_search_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory()
-    worker, _ = await _worker(tmp_path, memory=memory, search_calls=0)
+    worker, _ = _worker(memory=memory, search_calls=0)
 
     async def completed(**kwargs: object) -> OneShotCompleted:
         del kwargs
@@ -324,10 +318,9 @@ async def test_completed_result_without_authoritative_search_is_rejected(
 
 async def test_foreground_interrupt_before_commit_discards_the_result(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory()
-    worker, _ = await _worker(tmp_path, memory=memory)
+    worker, _ = _worker(memory=memory)
     provider_started = asyncio.Event()
     provider_release = asyncio.Event()
     cancellation = CancellationToken()
@@ -352,10 +345,9 @@ async def test_foreground_interrupt_before_commit_discards_the_result(
 
 async def test_foreground_interrupt_waits_for_atomic_commit_boundary(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     memory = _Memory(block_commit=True)
-    worker, _ = await _worker(tmp_path, memory=memory)
+    worker, _ = _worker(memory=memory)
     cancellation = CancellationToken()
 
     async def completed(**kwargs: object) -> OneShotCompleted:

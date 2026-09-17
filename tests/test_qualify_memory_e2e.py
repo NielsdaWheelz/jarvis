@@ -8,8 +8,23 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
+from llm_agent_kernel import (
+    AdmissionDeferred,
+    AdmissionGranted,
+    AdmissionRequest,
+    AdmissionUsage,
+    ProviderUsage,
+    RunId,
+    ThreadId,
+)
 
-from jarvis.admission import slice3_admission_limits
+from jarvis.admission import RollingAdmissionPort, RootTrackingAdmissionPort
+from jarvis.definitions import (
+    SLICE3_RECALL_KERNEL_LIMITS,
+    SLICE3_REMEMBER_KERNEL_LIMITS,
+    SLICE4_DREAM_KERNEL_LIMITS,
+    SLICE6_KERNEL_LIMITS,
+)
 from jarvis.memory import MemoryIdentity
 from jarvis.messages import StoredMessage
 from jarvis.settings import EMBEDDING_DIMENSION
@@ -90,17 +105,61 @@ def _owner(*, remembered: bool = True) -> StoredMessage:
     )
 
 
-def test_two_cycle_admission_is_finite_and_exactly_doubled() -> None:
-    one = slice3_admission_limits(1)
-    two = qualification_admission_limits()
+async def test_admission_fits_two_current_memory_cycles_and_one_dream(
+    tmp_path: Path,
+) -> None:
+    limits = qualification_admission_limits()
+    path = tmp_path / "admission.json"
+    RollingAdmissionPort.initialize(path, limits)
+    admission = RootTrackingAdmissionPort(RollingAdmissionPort(path, limits))
+    roles = (
+        SLICE6_KERNEL_LIMITS,
+        SLICE3_REMEMBER_KERNEL_LIMITS,
+        SLICE4_DREAM_KERNEL_LIMITS,
+        SLICE6_KERNEL_LIMITS,
+        SLICE3_REMEMBER_KERNEL_LIMITS,
+    )
+    for index, role in enumerate(roles):
+        foreground = role is SLICE6_KERNEL_LIMITS
+        root = await admission.reserve(
+            AdmissionRequest(
+                RunId(f"qualification-{index}"),
+                ThreadId(f"owner-{index}") if foreground else None,
+                1 if foreground else None,
+                role.max_provider_turns,
+                role.max_provider_input_tokens,
+                role.max_provider_output_tokens,
+            )
+        )
+        assert isinstance(root, AdmissionGranted)
+        if foreground:
+            recall = SLICE3_RECALL_KERNEL_LIMITS
+            child = await admission.reserve(
+                AdmissionRequest(
+                    RunId(f"recaller-{index}"),
+                    None,
+                    None,
+                    recall.max_provider_turns,
+                    recall.max_provider_input_tokens,
+                    recall.max_provider_output_tokens,
+                    parent=root.token,
+                )
+            )
+            assert isinstance(child, AdmissionGranted)
+            await admission.settle(
+                child.token,
+                AdmissionUsage(recall.max_provider_turns, ProviderUsage(), 0.0),
+            )
+        await admission.settle(
+            root.token,
+            AdmissionUsage(role.max_provider_turns, ProviderUsage(), 0.0),
+        )
 
-    assert two.max_turns == 2 * one.max_turns + 10
-    assert two.max_input_tokens == 2 * one.max_input_tokens + 160_000 + 32_768
-    assert two.max_output_tokens == 2 * one.max_output_tokens + 16_000 + 8_192
-    assert two.serial_child_turns == one.serial_child_turns
-    assert two.serial_child_input_tokens == one.serial_child_input_tokens
-    assert two.serial_child_output_tokens == one.serial_child_output_tokens
-    assert two.window_seconds == one.window_seconds
+    assert limits.max_turns == 86
+    extra = await admission.reserve(
+        AdmissionRequest(RunId("extra"), None, None, 1, 1, 1)
+    )
+    assert isinstance(extra, AdmissionDeferred)
 
 
 def test_owner_inputs_use_documented_natural_language_refs() -> None:

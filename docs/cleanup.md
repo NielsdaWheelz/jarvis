@@ -38,10 +38,15 @@ memory workers now own rememberer and dreamer execution in `memory_workers.py`.
 stopped memory maintenance constructs only the dreamer and its two memory
 bindings. it retains shared settings validation but no longer validates unused
 external connector construction. current role and plan identities are unchanged.
+current runtime construction now builds each role directly, without constructing
+and replacing older roles. slice3/4 constructors and result bundles are removed;
+their qualification consumers use current roles. slice1/2 test runtimes remain
+the next bounded cut.
+the duplicated slice3 read catalog is deleted after its consumers moved to the
+memory-only or current full catalog; no shared factory is needed.
 
 follow-ups are recorded individually under [issues](issues/):
 [direct role construction](issues/direct-role-construction.md),
-[read construction](issues/read-construction.md),
 [wake notification](issues/wake-notification.md),
 [discord retries](issues/discord-delivery-retries.md), and
 [admission predecessors](issues/admission-predecessors.md).

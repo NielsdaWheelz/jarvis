@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import base64
-import json
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, cast
 
-import httpx
 import pytest
 from llm_agent_kernel import (
+    AgentDefinition,
     FinishStep,
     KernelLimits,
     SessionMode,
@@ -16,13 +13,12 @@ from llm_agent_kernel import (
     require_host_plan,
     validate_provider_step,
 )
-from llm_tools import PromptText, RunLimits, ToolEffect
+from llm_tools import FrozenToolPlan, PromptText, RunLimits, ToolEffect
 from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import freeze_json_object, thaw_json_value
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from jarvis.admission import ExactToolBudgetFactory
-from jarvis.config import DiscordSettings
 from jarvis.definitions import (
     SLICE2_READ_IDS,
     SLICE3_MEMORY_READ_IDS,
@@ -30,67 +26,22 @@ from jarvis.definitions import (
     SLICE4_DREAM_TOOL_LIMITS,
     DreamResult,
     build_dreamer,
-    build_slice3_definitions,
-    build_slice4_definitions,
+    build_recaller,
     load_session_manifest,
     session_compatibility_revision,
 )
 from jarvis.memory_tools import compose_memory_catalog
-from jarvis.read_composition import build_slice3_catalog
-from jarvis.settings import Settings
 
 RAW_ID = "00000000-0000-4000-8000-000000000001"
 SUMMARY_ID = "00000000-0000-4000-8000-000000000002"
 
 
-async def build_test_slice4_definitions(tmp_path: Path) -> Any:
-    key = base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("=")
-    settings = Settings(
-        database_url=SecretStr("postgresql+psycopg://jarvis:secret@db/jarvis"),
-        discord=DiscordSettings(
-            bot_token=SecretStr("synthetic-discord-token"),
-            owner_user_id=1,
-            guild_id=2,
-            channel_id=3,
-        ),
-        owner_timezone="UTC",
-        codex_profile_key="personal",
-        codex_model="gpt-5.6-terra",
-        agent_cli_path=tmp_path / "skid",
-        agent_client_config_path=tmp_path / "agent-client.json",
-        codex_host_config_path=tmp_path / "codex",
-        runtime_state_directory=tmp_path / "runtime",
-        google_oauth_state_path=tmp_path / "google.json",
-        google_oauth_client_id=SecretStr("synthetic-client"),
-        google_oauth_client_secret=SecretStr("synthetic-secret"),
-        verified_owner_only_calendar_ids=("primary",),
-        connector_encryption_key_version="v1",
-        connector_encryption_keys=SecretStr(json.dumps({"v1": key})),
-        connector_encryption_secret=SecretStr("synthetic-encryption"),
-        maps_api_key=SecretStr("synthetic-maps"),
-        brave_api_key=SecretStr("synthetic-brave"),
-        embedding_openai_api_key=SecretStr("synthetic-embedding"),
-    )
-    async with (
-        httpx.AsyncClient() as oauth,
-        httpx.AsyncClient() as google,
-        httpx.AsyncClient() as maps,
-        httpx.AsyncClient() as brave,
-    ):
-        catalog = build_slice3_catalog(
-            settings=settings,
-            google_oauth_http=oauth,
-            google_api_http=google,
-            maps_http=maps,
-            brave_http=brave,
-            memory_repository=cast(Any, object()),
-            memory_embedder=cast(Any, object()),
-        )
-    return build_slice4_definitions(
-        catalog=catalog,
+def build_test_dreamer() -> tuple[AgentDefinition, FrozenToolPlan]:
+    return build_dreamer(
+        catalog=compose_memory_catalog(cast(Any, object()), cast(Any, object())),
         provider=frozen_provider("test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
-    ), catalog
+    )
 
 
 def test_dreamer_definition_is_an_exact_isolated_memory_read_role() -> None:
@@ -144,10 +95,8 @@ def test_dreamer_definition_is_an_exact_isolated_memory_read_role() -> None:
             )
 
 
-async def test_dreamer_limits_and_plan_aware_budget_are_exact(tmp_path: Path) -> None:
-    definitions, _ = await build_test_slice4_definitions(tmp_path)
-    dreamer = definitions.dreamer
-    plan = definitions.plans["dreamer"]
+def test_dreamer_limits_and_plan_aware_budget_are_exact() -> None:
+    dreamer, plan = build_test_dreamer()
 
     assert SLICE4_DREAM_TOOL_LIMITS == RunLimits(
         max_calls=8,
@@ -175,8 +124,8 @@ async def test_dreamer_limits_and_plan_aware_budget_are_exact(tmp_path: Path) ->
     assert first.limits == second.limits == plan.profile.run_limits
 
 
-async def test_dreamer_has_a_closed_bounded_terminal_contract(tmp_path: Path) -> None:
-    definitions, _ = await build_test_slice4_definitions(tmp_path)
+def test_dreamer_has_a_closed_bounded_terminal_contract() -> None:
+    dreamer, plan = build_test_dreamer()
     result = {
         "insertions": [
             {"text": "Synthetic grounded summary.", "source_memory_ids": [RAW_ID]}
@@ -192,13 +141,14 @@ async def test_dreamer_has_a_closed_bounded_terminal_contract(tmp_path: Path) ->
                 "finish": {"reason": None, "result": result},
             }
         ),
-        definitions.dreamer.output_contract,
-        definitions.plans["dreamer"],
+        dreamer.output_contract,
+        plan,
     )
 
     assert isinstance(step, FinishStep)
     assert thaw_json_value(step.result) == result
-    schema = definitions.dreamer.output_contract.schema
+    assert isinstance(dreamer.output_contract, StructuredOutput)
+    schema = dreamer.output_contract.schema
     assert schema["additionalProperties"] is False
     assert schema["required"] == ("insertions", "remove_summary_ids")
     definitions_schema = cast("Mapping[str, object]", schema["$defs"])
@@ -229,23 +179,13 @@ async def test_dreamer_has_a_closed_bounded_terminal_contract(tmp_path: Path) ->
             DreamResult.model_validate(invalid)
 
 
-async def test_only_behaviorally_affected_role_identities_rotate_for_slice4(
-    tmp_path: Path,
-) -> None:
-    definitions, catalog = await build_test_slice4_definitions(tmp_path)
-    slice3 = build_slice3_definitions(
-        catalog=catalog,
+def test_dreamer_contract_revision_changes_only_its_session_identity() -> None:
+    dreamer, _ = build_test_dreamer()
+    recaller, _ = build_recaller(
+        catalog=compose_memory_catalog(cast(Any, object()), cast(Any, object())),
         provider=frozen_provider("test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
     )
-    for role in ("main", "rememberer", "automatic_write_gate"):
-        assert getattr(definitions, role) == getattr(slice3, role)
-        assert definitions.plans[role] == slice3.plans[role]
-    assert definitions.recaller != slice3.recaller
-    assert definitions.plans["recaller"] == slice3.plans["recaller"]
-    assert definitions.dreamer != slice3.dreamer
-    assert definitions.plans["dreamer"] != slice3.plans["dreamer"]
-
     manifest = load_session_manifest()
     previous = dict(manifest)
     role_revisions = dict(
@@ -253,13 +193,13 @@ async def test_only_behaviorally_affected_role_identities_rotate_for_slice4(
     )
     role_revisions["dreamer"] = "jarvis-dreamer-slice-4-v4"
     previous["role_contract_revisions"] = role_revisions
-    assert definitions.dreamer.session_compatibility_revision == (
+    assert dreamer.session_compatibility_revision == (
         session_compatibility_revision(manifest, "dreamer")
     )
-    assert definitions.dreamer.session_compatibility_revision != (
+    assert dreamer.session_compatibility_revision != (
         session_compatibility_revision(previous, "dreamer")
     )
-    assert definitions.recaller.session_compatibility_revision == (
+    assert recaller.session_compatibility_revision == (
         session_compatibility_revision(manifest, "recaller")
     )
     for role in ("main", "recaller", "rememberer", "automatic_write_gate"):
@@ -268,9 +208,9 @@ async def test_only_behaviorally_affected_role_identities_rotate_for_slice4(
         )
 
 
-async def test_dreamer_prompt_states_the_model_contract(tmp_path: Path) -> None:
-    definitions, _ = await build_test_slice4_definitions(tmp_path)
-    prompt = definitions.dreamer.role.instructions.sections[0].body
+def test_dreamer_prompt_states_the_model_contract() -> None:
+    dreamer, _ = build_test_dreamer()
+    prompt = dreamer.role.instructions.sections[0].body
     assert isinstance(prompt, PromptText)
     text = prompt.text
     for required in (
@@ -306,11 +246,13 @@ async def test_dreamer_prompt_states_the_model_contract(tmp_path: Path) -> None:
         assert required in text
 
 
-async def test_slice4_recaller_forbids_commentary_tool_proposals(
-    tmp_path: Path,
-) -> None:
-    definitions, _ = await build_test_slice4_definitions(tmp_path)
-    prompt = definitions.recaller.role.instructions.sections[0].body
+def test_recaller_forbids_commentary_tool_proposals() -> None:
+    recaller, _ = build_recaller(
+        catalog=compose_memory_catalog(cast(Any, object()), cast(Any, object())),
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
+        owner_timezone="UTC",
+    )
+    prompt = recaller.role.instructions.sections[0].body
 
     assert isinstance(prompt, PromptText)
     assert "Do not answer the owner's question" in prompt.text

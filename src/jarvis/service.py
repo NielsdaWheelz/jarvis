@@ -63,8 +63,6 @@ from jarvis.definitions import (
     SLICE6_TOOL_LIMITS,
     Slice1Definitions,
     Slice2Definitions,
-    Slice3Definitions,
-    Slice4Definitions,
     Slice6Definitions,
 )
 from jarvis.discord import (
@@ -304,13 +302,7 @@ class JarvisThreadRunner:
         admission: RollingAdmissionPort | RootTrackingAdmissionPort,
         kernel_runtime: KernelRuntime,
         model_decisions: ModelJournalFactory,
-        definitions: (
-            Slice1Definitions
-            | Slice2Definitions
-            | Slice3Definitions
-            | Slice4Definitions
-            | Slice6Definitions
-        ),
+        definitions: Slice1Definitions | Slice2Definitions | Slice6Definitions,
         history: PostgresCanonicalHistory,
         dispatcher_factory: Callable[[], ToolDispatchPort] = EmptySlice1Dispatcher,
         checkpoint_dispatcher_factory: Callable[
@@ -333,10 +325,7 @@ class JarvisThreadRunner:
         self._memory = memory
         self._memory_dispatcher_factory = memory_dispatcher_factory
         self._rememberer = rememberer
-        if isinstance(
-            definitions,
-            (Slice3Definitions | Slice4Definitions | Slice6Definitions),
-        ) and (
+        if isinstance(definitions, Slice6Definitions) and (
             not isinstance(admission, RootTrackingAdmissionPort)
             or memory is None
             or memory_dispatcher_factory is None
@@ -416,10 +405,7 @@ class JarvisThreadRunner:
             turn_evidence,
         )
         recaller = None
-        if isinstance(
-            self._definitions,
-            (Slice3Definitions | Slice4Definitions | Slice6Definitions),
-        ):
+        if isinstance(self._definitions, Slice6Definitions):
             assert isinstance(self._admission, RootTrackingAdmissionPort)
             assert self._memory is not None
             assert self._memory_dispatcher_factory is not None

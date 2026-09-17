@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the paid Slice 3 memory qualification with sanitized output."""
+"""Run current memory-role qualification with sanitized output."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from llm_agent_kernel import (
@@ -32,7 +33,13 @@ from llm_agent_kernel import (
     ThreadId,
     ThreadStopKind,
 )
-from llm_tools import PromptSection, PromptSectionKind, PromptSections, PromptText
+from llm_tools import (
+    FrozenToolPlan,
+    PromptSection,
+    PromptSectionKind,
+    PromptSections,
+    PromptText,
+)
 from provider_runtime import (
     Credentials,
     GenerateIntent,
@@ -61,7 +68,6 @@ from jarvis.admission import (
     slice3_admission_limits,
 )
 from jarvis.codex_config import CodexHostConfig
-from jarvis.config import DiscordSettings
 from jarvis.context import IsolatedRecaller, RecallEvidence
 from jarvis.db import (
     action,
@@ -76,8 +82,8 @@ from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
     SLICE2_KERNEL_LIMITS,
-    Slice3Definitions,
-    build_slice3_definitions,
+    build_recaller,
+    build_rememberer,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
@@ -89,10 +95,10 @@ from jarvis.kernel import (
 from jarvis.memory import MemoryIdentity, MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore
 from jarvis.ownership import Database, deployment_ownership
-from jarvis.read_composition import build_slice3_catalog
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.recall_evaluation import (
     RecallCase,
@@ -101,14 +107,13 @@ from jarvis.recall_evaluation import (
     load_recall_set,
     score_recall,
 )
-from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL, Settings
+from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORIES = ROOT / "eval" / "recall-memories.jsonl"
 CASES = ROOT / "eval" / "recall.jsonl"
 SEEDED_SUMMARY_ID = UUID("10000000-0000-4000-8000-000000000001")
 _SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
-_SYNTHETIC_CONNECTOR_KEYRING = '{"v2":"cXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXE"}'
 _RECALL_TERMINAL_OUTCOMES = frozenset(
     (
         *(item.value for item in ThreadStopKind),
@@ -305,6 +310,14 @@ class Arguments:
     embedding_api_key: SecretStr
     owner_timezone: str
     reasoning_effort: str
+
+    def __post_init__(self) -> None:
+        try:
+            ZoneInfo(self.owner_timezone)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError(
+                "owner timezone must be an installed IANA timezone"
+            ) from error
 
 
 class _NoopRecallTrace:
@@ -742,30 +755,23 @@ async def _run_production_roles(
     tuple[dict[str, object], ...],
     dict[str, object],
 ]:
-    async with (
-        httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
-        build_agent_runtime(
-            provider_state_root=arguments.runtime_state_directory,
-            codex_endpoints=host.endpoints,
-        ) as agent_runtime,
-    ):
-        settings = qualification_settings(arguments)
-        catalog = build_slice3_catalog(
-            settings=settings,
-            google_oauth_http=http,
-            google_api_http=http,
-            maps_http=http,
-            brave_http=http,
-            memory_repository=PostgresMemoryRepository(engine),
-            memory_embedder=embedder,
-        )
+    async with build_agent_runtime(
+        provider_state_root=arguments.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    ) as agent_runtime:
+        catalog = compose_memory_catalog(PostgresMemoryRepository(engine), embedder)
         provider_configuration = await resolve_provider_configuration(
             runtime=agent_runtime,
             profile_key=arguments.profile,
             model_key=arguments.model,
             reasoning=arguments.reasoning_effort,
         )
-        definitions = build_slice3_definitions(
+        recaller_definition, recaller_plan = build_recaller(
+            catalog=catalog,
+            provider=provider_configuration,
+            owner_timezone=arguments.owner_timezone,
+        )
+        rememberer_definition, rememberer_plan = build_rememberer(
             catalog=catalog,
             provider=provider_configuration,
             owner_timezone=arguments.owner_timezone,
@@ -803,8 +809,8 @@ async def _run_production_roles(
                 model_decisions=lambda evidence: PostgresModelDecisionJournal(
                     engine, evidence=evidence
                 ),
-                definition=definitions.recaller,
-                plan=definitions.plans["recaller"],
+                definition=recaller_definition,
+                plan=recaller_plan,
                 admission=admission,
                 provider=provider,
                 dispatcher_factory=lambda: MemoryToolDispatcher(
@@ -824,7 +830,8 @@ async def _run_production_roles(
                 )
             rememberer = await _run_zero_memory_rememberer(
                 engine=engine,
-                definitions=definitions,
+                definition=rememberer_definition,
+                plan=rememberer_plan,
                 admission=admission,
                 provider=provider,
                 embedder=embedder,
@@ -834,41 +841,11 @@ async def _run_production_roles(
             await runtime.close()
 
 
-def qualification_settings(arguments: Arguments) -> Settings:
-    """Build structurally valid inert connector settings for memory-only probes."""
-    return Settings(
-        database_url=SecretStr(arguments.database_url),
-        discord=DiscordSettings(
-            bot_token=SecretStr("qualification-placeholder"),
-            owner_user_id=1,
-            guild_id=2,
-            channel_id=3,
-        ),
-        owner_timezone=arguments.owner_timezone,
-        codex_profile_key=arguments.profile,
-        codex_model=arguments.model,
-        agent_cli_path=arguments.runtime_state_directory / "unused-agent-cli",
-        agent_client_config_path=arguments.runtime_state_directory
-        / "unused-agent-client.json",
-        codex_host_config_path=arguments.codex_host_config_path,
-        runtime_state_directory=arguments.runtime_state_directory,
-        google_oauth_state_path=arguments.runtime_state_directory / "google.json",
-        google_oauth_client_id=SecretStr("qualification-unused-google-client"),
-        google_oauth_client_secret=SecretStr("qualification-unused-google-secret"),
-        connector_encryption_key_version="v2",
-        connector_encryption_keys=SecretStr(_SYNTHETIC_CONNECTOR_KEYRING),
-        connector_encryption_secret=SecretStr("qualification-unused-encryption"),
-        maps_api_key=SecretStr("qualification-unused-maps-key"),
-        brave_api_key=SecretStr("qualification-unused-brave-key"),
-        embedding_openai_api_key=arguments.embedding_api_key,
-        verified_owner_only_calendar_ids=("primary",),
-    )
-
-
 async def _run_zero_memory_rememberer(
     *,
     engine: Database,
-    definitions: Slice3Definitions,
+    definition: AgentDefinition,
+    plan: FrozenToolPlan,
     admission: RootTrackingAdmissionPort,
     provider: QualificationProvider,
     embedder: OpenAIEmbedder,
@@ -907,8 +884,8 @@ async def _run_zero_memory_rememberer(
         model_decisions=lambda evidence: PostgresModelDecisionJournal(
             engine, evidence=evidence
         ),
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=provider,
         dispatcher_factory=lambda: MemoryToolDispatcher(

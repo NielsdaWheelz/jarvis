@@ -99,6 +99,10 @@ background coordination lets unexpected failures reach the service lifetime.
 ordinary memory failures retain their retry behavior. this replaces silent idle
 results with process failure and the existing restart recovery path.
 
-the next verified slices are the [unused google keyring](issues/unused-google-keyring.md),
-[read dispatcher interface](issues/read-dispatch-interface.md), and
+google token encryption uses the qualified single secret and key version. the
+unused keyring parser, setting, and secret matching entries are removed. deployment
+still requires the [environment cutover](issues/connector-keyring-cutover.md);
+existing token ciphertext needs no migration.
+
+the next verified slices are the [read dispatcher interface](issues/read-dispatch-interface.md) and
 [optional approval ports](issues/optional-approval-ports.md).

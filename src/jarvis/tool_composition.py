@@ -69,7 +69,6 @@ def build_tool_composition(
         client_id=settings.google_oauth_client_id.get_secret_value(),
         client_secret=settings.google_oauth_client_secret.get_secret_value(),
         active_key_version=settings.connector_encryption_key_version,
-        configured_keys=settings.connector_encryption_keys.get_secret_value(),
         single_secret=settings.connector_encryption_secret.get_secret_value(),
     )
     google_read = GoogleReadConnector(client=google_api_http, tokens=tokens)

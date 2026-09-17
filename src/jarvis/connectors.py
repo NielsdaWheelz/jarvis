@@ -177,46 +177,6 @@ def _array(value: object, name: str) -> list[object]:
     return cast("list[object]", value)
 
 
-def _parse_keyring(configured: str | None, single_secret: str) -> dict[str, bytes]:
-    entries: dict[str, str] = {}
-    if configured and configured.strip():
-        try:
-            parsed: object = json.loads(configured)
-        except json.JSONDecodeError:
-            for item in configured.split(","):
-                version, separator, value = item.strip().partition(":")
-                if (
-                    not separator
-                    or _KEY_VERSION.fullmatch(version) is None
-                    or not value
-                ):
-                    raise GoogleCredentialDefect(
-                        "connector keyring entry must be version:key"
-                    ) from None
-                entries[version] = value
-        else:
-            try:
-                parsed_mapping = _mapping(parsed, "connector keyring")
-            except ValueError as exc:
-                raise GoogleCredentialDefect(
-                    "connector keyring shape is invalid"
-                ) from exc
-            if any(not isinstance(value, str) for value in parsed_mapping.values()):
-                raise GoogleCredentialDefect("connector keyring shape is invalid")
-            entries = cast("dict[str, str]", parsed_mapping)
-    if not entries:
-        if not single_secret.strip():
-            raise GoogleCredentialDefect("connector encryption secret is empty")
-        return {"derived": hashlib.sha256(single_secret.encode()).digest()}
-    keys = {version: _b64decode(value.strip()) for version, value in entries.items()}
-    if any(
-        _KEY_VERSION.fullmatch(version) is None or len(key) != 32
-        for version, key in keys.items()
-    ):
-        raise GoogleCredentialDefect("connector encryption key is invalid")
-    return keys
-
-
 def _handoff_key(single_secret: str) -> bytes:
     decoded = _b64decode(single_secret)
     return decoded if len(decoded) == 32 else hashlib.sha256(decoded).digest()
@@ -233,7 +193,6 @@ class GoogleTokenManager:
         client_id: str,
         client_secret: str,
         active_key_version: str,
-        configured_keys: str | None,
         single_secret: str,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -252,9 +211,6 @@ class GoogleTokenManager:
         self._client_id = client_id
         self._client_secret = client_secret
         self._active_key_version = active_key_version
-        configured_keyring = _parse_keyring(configured_keys, single_secret)
-        if active_key_version not in configured_keyring:
-            raise GoogleCredentialDefect("active connector key is absent")
         self._handoff_key = _handoff_key(single_secret)
         self._now = now
         self._access_token: str | None = None

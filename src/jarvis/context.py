@@ -236,9 +236,9 @@ class JarvisContextSource:
         thread_id: ThreadId,
         history: CanonicalHistoryPort,
         *,
-        recaller: IsolatedRecaller | None = None,
-        cancellation: CancellationToken | None = None,
-        batch_clock: BatchClockPort | None = None,
+        recaller: IsolatedRecaller,
+        cancellation: CancellationToken,
+        batch_clock: BatchClockPort,
         history_limit: int = 100,
         history_max_bytes: int = 65_536,
     ) -> None:
@@ -251,12 +251,8 @@ class JarvisContextSource:
         self._history_limit = history_limit
         self._history_max_bytes = history_max_bytes
         self._recaller = recaller
-        self._cancellation = cancellation or CancellationToken()
+        self._cancellation = cancellation
         self._batch_clock = batch_clock
-        if recaller is not None and batch_clock is None:
-            raise ValueError(
-                "recall-aware context requires an authoritative batch clock"
-            )
         self._recall_cache: dict[InputId, PromptSections] = {}
 
     async def bootstrap(
@@ -281,18 +277,12 @@ class JarvisContextSource:
         through_checkpoint: Checkpoint,
     ) -> PromptSections:
         del definition, through_checkpoint
-        if (
-            not inputs
-            or self._recaller is None
-            or not any(_is_owner_input(item) for item in inputs)
-        ):
+        if not inputs or not any(_is_owner_input(item) for item in inputs):
             return PromptSections(())
         excluded = tuple(
             dict.fromkeys(item.input_id for item in (*claim.inputs, *inputs))
         )
         history = self._history_sections(await self._completed_history(excluded))
-        if self._batch_clock is None:
-            raise ContextSourceDefect("recall-aware context has no batch clock")
         return await self._recall_sections(
             inputs,
             as_of=await self._batch_clock.as_of_for_inputs(inputs),
@@ -357,8 +347,6 @@ class JarvisContextSource:
         as_of: datetime,
         recent_context: PromptSections,
     ) -> PromptSections:
-        if self._recaller is None:
-            return PromptSections(())
         recalled: list[PromptSection] = []
         for item in inputs:
             if not _is_owner_input(item):

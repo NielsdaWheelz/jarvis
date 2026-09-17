@@ -517,12 +517,12 @@ class JarvisService:
         paused: PausedState,
         delivery: CreateMessagePort,
         runner: ThreadRunner,
-        background: BackgroundWorkerPort | None = None,
-        dreamer: BackgroundWorkerPort | None = None,
-        scheduled_wakes: ScheduledWakeStore | None = None,
-        action_plan: FrozenToolPlan | None = None,
-        action_recovery: ActionRecoveryPort | None = None,
-        approval_handler: ApprovalActionHandler | None = None,
+        background: BackgroundWorkerPort,
+        dreamer: BackgroundWorkerPort,
+        scheduled_wakes: ScheduledWakeStore,
+        action_plan: FrozenToolPlan,
+        action_recovery: ActionRecoveryPort,
+        approval_handler: ApprovalActionHandler,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -535,8 +535,6 @@ class JarvisService:
         self._background = background
         self._dreamer = dreamer
         self._scheduled_wakes = scheduled_wakes
-        if (scheduled_wakes is None) != (action_plan is None):
-            raise ValueError("scheduled wakes require exactly one current action plan")
         self._action_plan = action_plan
         self._action_recovery = action_recovery
         self._approval_handler = approval_handler
@@ -565,7 +563,7 @@ class JarvisService:
         self._gateway = gateway
 
     def bind_wake_timer(self, timer: ProcessLocalWakeTimer) -> None:
-        if self._wake_timer is not None or self._scheduled_wakes is None:
+        if self._wake_timer is not None:
             raise RuntimeError("the scheduled-wake timer cannot be bound")
         self._wake_timer = timer
 
@@ -610,7 +608,7 @@ class JarvisService:
     ) -> None:
         """Claim one configured component before serial effect execution."""
 
-        if self._approval_handler is None or await self._paused.is_paused():
+        if await self._paused.is_paused():
             return
         claimed = await self._approval_handler.claim_and_acknowledge(
             event,
@@ -680,11 +678,10 @@ class JarvisService:
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
-        if self._dreamer is not None:
-            self._dream_timer_task = asyncio.create_task(
-                self._dream_timer(),
-                name="jarvis-dream-timer",
-            )
+        self._dream_timer_task = asyncio.create_task(
+            self._dream_timer(),
+            name="jarvis-dream-timer",
+        )
         if self._wake_timer is not None:
             self._wake_cancellation = CancellationToken()
             self._wake_timer_task = asyncio.create_task(
@@ -707,13 +704,12 @@ class JarvisService:
                 self._reset_task.cancel()
                 await asyncio.gather(self._reset_task, return_exceptions=True)
                 self._reset_task = None
-            if self._dream_timer_task is not None:
-                self._dream_timer_task.cancel()
-                await asyncio.gather(
-                    self._dream_timer_task,
-                    return_exceptions=True,
-                )
-                self._dream_timer_task = None
+            self._dream_timer_task.cancel()
+            await asyncio.gather(
+                self._dream_timer_task,
+                return_exceptions=True,
+            )
+            self._dream_timer_task = None
             if self._wake_cancellation is not None:
                 self._wake_cancellation.cancel()
             if self._wake_timer_task is not None:
@@ -799,18 +795,16 @@ class JarvisService:
                     return
                 if recovered_actions:
                     continue
-                if self._scheduled_wakes is not None:
-                    assert self._action_plan is not None
-                    claimed = await self._scheduled_wakes.claim_next_due_schedule(
-                        plan=self._action_plan,
-                        source_conversation_id=str(self._settings.discord.channel_id),
-                    )
-                    if claimed is not None:
-                        if self._wake_timer is not None:
-                            self._wake_timer.notify_changed()
-                        if isinstance(claimed, ScheduleStateChanged):
-                            await self._recover_actions(allow_queued_execution=False)
-                        continue
+                claimed = await self._scheduled_wakes.claim_next_due_schedule(
+                    plan=self._action_plan,
+                    source_conversation_id=str(self._settings.discord.channel_id),
+                )
+                if claimed is not None:
+                    if self._wake_timer is not None:
+                        self._wake_timer.notify_changed()
+                    if isinstance(claimed, ScheduleStateChanged):
+                        await self._recover_actions(allow_queued_execution=False)
+                    continue
                 cancellation = CancellationToken()
                 async with self._active_lock:
                     if self._shutdown.is_set():
@@ -865,8 +859,6 @@ class JarvisService:
                     return
 
     async def _recover_actions(self, *, allow_queued_execution: bool) -> int:
-        if self._action_recovery is None:
-            return 0
         recovered_actions = await self._action_recovery.recover(
             allow_queued_execution=allow_queued_execution
         )
@@ -880,9 +872,9 @@ class JarvisService:
 
     async def _run_background_once(
         self,
-        worker: BackgroundWorkerPort | None,
+        worker: BackgroundWorkerPort,
     ) -> bool | memory_workers.BackgroundDeferred:
-        if worker is None or self._work.is_set() or self._shutdown.is_set():
+        if self._work.is_set() or self._shutdown.is_set():
             return False
         cancellation = CancellationToken()
         async with self._active_lock:

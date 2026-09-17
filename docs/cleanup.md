@@ -34,6 +34,12 @@ tests use the current catalog; role-only consumers construct their selected role
 current python names describe roles and tool composition. durable profile ids
 retain their historical strings, preserving current role and plan identities.
 
+the service requires its memory workers, scheduled wakes, action recovery, and
+approval handler. context requires recall, the run cancellation token, and its
+authoritative batch clock. these constructors describe the complete application;
+absent-feature modes from earlier slices are removed. gateway and timer binding
+still resolve the real callback cycles during startup.
+
 memory workers own rememberer and dreamer execution in `memory_workers.py`.
 stopped maintenance constructs only the dreamer and its two memory bindings.
 it retains shared settings validation without constructing unused connectors.

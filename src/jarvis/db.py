@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import cast
 
 from pgvector.sqlalchemy import VECTOR  # pyright: ignore[reportMissingTypeStubs]
@@ -22,11 +20,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.ext.asyncio import (
-    AsyncConnection,
-    AsyncEngine,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.types import TypeEngine
 
 NAMING_CONVENTION = {
@@ -337,9 +331,3 @@ def create_engine(database_url: str) -> AsyncEngine:
         normalize_database_url(database_url),
         pool_pre_ping=True,
     )
-
-
-@asynccontextmanager
-async def transaction(engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
-    async with engine.begin() as connection:
-        yield connection

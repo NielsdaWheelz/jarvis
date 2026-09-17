@@ -6,8 +6,8 @@ configuration machinery after the runtime has moved on.
 
 evidence: `RollingAdmissionPort.migrate_limits` callers in `src/jarvis/cli.py` and
 the predecessor limit constructors in `src/jarvis/admission.py`.
-the stopped proactivity qualifier also uses `slice5_admission_limits` and must
-move to current sizing before that helper can be deleted.
+the former stopped proactivity qualifier was removed under adr 0046; journal
+migration is now the only caller of the historical limit constructors.
 
 blocker: the deployed journal has not been inspected in this cleanup. confirm its
 configuration matches the current one without exposing payloads or resetting

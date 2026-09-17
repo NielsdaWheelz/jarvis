@@ -13,7 +13,7 @@ that the six specified tables or their columns are unnecessary.
 | provider sessions and capacity | `session.py`, `codex_config.py`, `admission.py`, `state.py` | disposable sessions, bounded provider work, ownership |
 | paid decision and read recovery | `decisions.py`, `read_positions.py`, read dispatchers | original decisions and receipts replay without redispatch |
 | memory storage and retrieval | `memory.py`, `memory_retrieval.py`, `memory_tools.py`, `embeddings.py` | immutable raw memory, rebuildable derived state |
-| memory work and rebuild | `memory_workers.py`, `rebuild.py`, recall probes | isolated cognition, transactional commit, cancellation |
+| memory work and rebuild | `memory_workers.py`, `rebuild.py` | isolated cognition, transactional commit, cancellation |
 | connector reads | `read_tools.py`, `connectors.py`, `read_dispatch.py` | bounded observations, exact identifiers, typed completeness |
 | writes and recovery | `write_tools.py`, `write_connectors.py`, `write_dispatch.py`, `actions.py` | immutable effects, finite attempts, evidence-based recovery |
 | grounding and approvals | `write_gate.py`, `write_policy.py`, `approval.py`, `approval_runtime.py` | current owner authority and exact approved payload |
@@ -30,7 +30,7 @@ behavioral, live provider, or production acceptance. the separate
 
 runtime construction builds the five current roles directly. the conversation
 runner requires its memory ports and one checkpoint-aware dispatcher factory.
-tests use the current catalog; role-only consumers construct their selected role.
+role-only consumers construct their selected role.
 current python names describe roles and tool composition. durable profile ids
 retain their historical strings, preserving current role and plan identities.
 
@@ -40,11 +40,14 @@ authoritative batch clock. these constructors describe the complete application;
 absent-feature modes from earlier slices are removed. gateway and timer binding
 still resolve the real callback cycles during startup.
 
+conversation settlement has one required callback for transferring an owner group
+to remembering. checkpoint state retains consumed ids for metrics and callback
+deduplication; it no longer exports unused owner-id history or stores an unused
+owner token. unused message queries and the unowned transaction wrapper are gone.
+
 memory workers own rememberer and dreamer execution in `memory_workers.py`.
 stopped maintenance constructs only the dreamer and its two memory bindings.
 it retains shared settings validation without constructing unused connectors.
-qualifiers exercise current roles and own their diagnostic budgets; older paid
-recall scores do not qualify a changed prompt.
 
 host recall and memory tools use the same repository implementation for exact-id
 reads. the host still validates the model's selection, reopens the stored rows,
@@ -72,8 +75,8 @@ body directly.
 the wake timer emits a parameterless work notification. requested time remains
 in the scheduled action; the timer uses its clock only to decide when to notify.
 
-historical admission values remain only where migration and the stopped
-proactivity qualifier still use them. removing those predecessors requires the
+historical admission values remain only where journal migration still uses them.
+removing those predecessors requires the
 live-state evidence recorded under
 [admission predecessors](issues/admission-predecessors.md).
 

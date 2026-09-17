@@ -703,16 +703,22 @@ def test_approval_interaction_accepts_exact_durable_relationship() -> None:
     )
 
 
-async def test_approval_delivery_uses_attachment_nonce_and_host_components() -> None:
+async def test_approval_delivery_replays_attachment_nonce_and_host_components() -> None:
     requests: list[httpx.Request] = []
+    sleeps: list[float] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ReadTimeout("lost acknowledgement", request=request)
         return httpx.Response(200, json={"id": "987"})
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await DiscordCreateMessageClient(
-            _settings(), client
+            _settings(), client, sleep=sleep
         ).create_approval_message(
             action_id=ACTION_ID,
             approval_message_id=APPROVAL_MESSAGE_ID,
@@ -722,31 +728,109 @@ async def test_approval_delivery_uses_attachment_nonce_and_host_components() -> 
             attachment_content=b"complete synthetic payload\n",
         )
 
-    assert result == DeliverySucceeded("987", 1)
-    request = requests[0]
-    assert request.headers["Authorization"] == "Bot private-token"
-    assert request.headers["Content-Type"].startswith("multipart/form-data; boundary=")
-    body = request.content
-    assert discord_nonce(APPROVAL_MESSAGE_ID).encode() in body
-    assert b'"allowed_mentions":{"parse":[]}' in body
-    assert f'"flags":{SUPPRESS_EMBEDS}'.encode() in body
-    assert (
-        approval_custom_id(
-            ACTION_ID,
-            APPROVAL_MESSAGE_ID,
+    assert result == DeliverySucceeded("987", 2)
+    assert sleeps == [0.01]
+    assert len(requests) == 2
+    for request in requests:
+        assert request.method == "POST"
+        assert str(request.url) == "https://discord.com/api/v10/channels/33/messages"
+        assert request.headers["Authorization"] == "Bot private-token"
+        assert request.headers["Content-Type"].startswith(
+            "multipart/form-data; boundary="
+        )
+        body = request.content
+        assert discord_nonce(APPROVAL_MESSAGE_ID).encode() in body
+        assert b'"enforce_nonce":true' in body
+        assert b'"allowed_mentions":{"parse":[]}' in body
+        assert f'"flags":{SUPPRESS_EMBEDS}'.encode() in body
+        for decision in (
             ApprovalComponentDecision.APPROVE,
-        ).encode()
-        in body
-    )
-    assert (
-        approval_custom_id(
-            ACTION_ID,
-            APPROVAL_MESSAGE_ID,
             ApprovalComponentDecision.DENY,
-        ).encode()
-        in body
-    )
-    assert b"complete synthetic payload\n" in body
+        ):
+            assert (
+                approval_custom_id(ACTION_ID, APPROVAL_MESSAGE_ID, decision).encode()
+                in body
+            )
+        assert b'filename="jarvis-approval.txt"' in body
+        assert b"Content-Type: text/plain; charset=utf-8" in body
+        assert b"complete synthetic payload\n" in body
+
+
+@pytest.mark.parametrize(
+    ("status", "response_id", "expected"),
+    (
+        pytest.param(200, "987", DeliverySucceeded("987", 1), id="exact-id"),
+        pytest.param(
+            200,
+            "986",
+            DeliveryFailed(DeliveryFailureKind.INVALID_RESPONSE, 3, True, True, 200),
+            id="wrong-id",
+        ),
+        pytest.param(
+            200,
+            "9" * 5_000,
+            DeliveryFailed(DeliveryFailureKind.INVALID_RESPONSE, 3, True, True, 200),
+            id="oversized-wrong-id",
+        ),
+        pytest.param(
+            403,
+            "987",
+            DeliveryFailed(DeliveryFailureKind.REJECTED, 1, False, False, 403),
+            id="permanent-rejection",
+        ),
+        pytest.param(
+            408,
+            "987",
+            DeliveryFailed(DeliveryFailureKind.SERVER, 3, True, True, 408),
+            id="request-timeout",
+        ),
+        pytest.param(
+            503,
+            "987",
+            DeliveryFailed(DeliveryFailureKind.SERVER, 3, True, True, 503),
+            id="server-failure",
+        ),
+    ),
+)
+async def test_approval_disable_requires_exact_acknowledgement(
+    status: int, response_id: str, expected: DeliverySucceeded | DeliveryFailed
+) -> None:
+    requests: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status, json={"id": response_id})
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await DiscordCreateMessageClient(
+            _settings(), client, sleep=sleep
+        ).disable_approval_message(
+            action_id=ACTION_ID,
+            approval_message_id=APPROVAL_MESSAGE_ID,
+            discord_message_id="987",
+        )
+
+    assert result == expected
+    assert len(requests) == expected.attempts
+    assert sleeps == ([] if expected.attempts == 1 else [0.01, 0.02])
+    for request in requests:
+        assert request.method == "PATCH"
+        assert (
+            str(request.url) == "https://discord.com/api/v10/channels/33/messages/987"
+        )
+        assert request.headers["Authorization"] == "Bot private-token"
+        assert request.headers["Content-Type"] == "application/json"
+        assert json.loads(request.content) == {
+            "components": approval_components(
+                ACTION_ID, APPROVAL_MESSAGE_ID, disabled=True
+            ),
+            "allowed_mentions": {"parse": []},
+            "flags": SUPPRESS_EMBEDS,
+        }
 
 
 class _InteractionResponse:

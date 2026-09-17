@@ -2023,6 +2023,11 @@ retains their conservative turn/token charge until window expiry. Missing or
 corrupt state fails closed until an explicit operator reset. Alembic may own its
 migration table.
 
+the runtime accepts only the current admission-journal configuration. before
+activating a release on an older journal, the stopped deployment must normalize
+it through the pinned prior release without dropping unexpired reservations or
+their charges; see [adr 0047](docs/decisions/0047-require-current-admission-journals.md).
+
 The qualified mode-0600 Google handoff stores each OAuth token as
 `aesgcm.v1.<base64url(nonce || AES-GCM ciphertext)>`, with a 12-byte nonce. Its
 metadata names `AES-256-GCM`, key version `<version>`, and associated-data

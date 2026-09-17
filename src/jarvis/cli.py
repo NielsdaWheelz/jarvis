@@ -32,9 +32,6 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
     current_admission_limits,
-    pre_agent_control_slice6_admission_limits,
-    pre_all_calendar_slice6_admission_limits,
-    slice5_admission_limits,
 )
 from jarvis.agent_control import AgentController
 from jarvis.approval_runtime import (
@@ -296,19 +293,6 @@ async def _serve(
     try:
         async with deployment_ownership(engine) as database:
             try:
-                RollingAdmissionPort.migrate_limits(
-                    settings.admission_journal_path,
-                    previous=(
-                        pre_agent_control_slice6_admission_limits(
-                            settings.maximum_batch_size
-                        ),
-                        pre_all_calendar_slice6_admission_limits(
-                            settings.maximum_batch_size
-                        ),
-                        slice5_admission_limits(settings.maximum_batch_size),
-                    ),
-                    current=current_admission_limits(settings.maximum_batch_size),
-                )
                 admission_store = RollingAdmissionPort(
                     settings.admission_journal_path,
                     current_admission_limits(settings.maximum_batch_size),
@@ -588,19 +572,6 @@ async def dream_once(
             if await MemoryStore(database).raw_memory_count() == 0:
                 return None
             limits = current_admission_limits(settings.maximum_batch_size)
-            RollingAdmissionPort.migrate_limits(
-                settings.admission_journal_path,
-                previous=(
-                    pre_agent_control_slice6_admission_limits(
-                        settings.maximum_batch_size
-                    ),
-                    pre_all_calendar_slice6_admission_limits(
-                        settings.maximum_batch_size
-                    ),
-                    slice5_admission_limits(settings.maximum_batch_size),
-                ),
-                current=limits,
-            )
             admission_store = RollingAdmissionPort(
                 settings.admission_journal_path,
                 limits,

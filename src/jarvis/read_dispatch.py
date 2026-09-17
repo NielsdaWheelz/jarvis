@@ -63,16 +63,14 @@ class _NoTelemetry:
         del name, attributes
 
 
-class ReadToolDispatcher[RecorderT: ReadRecorder]:
+class ReadToolDispatcher:
     """Execute only the automatic Slice 2 reads through llm-tools."""
 
-    def __init__(self, *, host_secrets: tuple[str, ...], recorder: RecorderT) -> None:
+    def __init__(
+        self, *, host_secrets: tuple[str, ...], recorder: ReadRecorder
+    ) -> None:
         self._host_secrets = tuple(value for value in host_secrets if value)
         self._recorder = recorder
-
-    @property
-    def recorder(self) -> RecorderT:
-        return self._recorder
 
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState

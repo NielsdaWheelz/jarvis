@@ -27,8 +27,8 @@ from jarvis.agent_control import AgentController
 from jarvis.db import action, create_engine
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    build_definitions,
+    build_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
@@ -42,7 +42,7 @@ from jarvis.read_tools import (
     CalendarListEventsInput,
 )
 from jarvis.settings import Settings
-from jarvis.write_composition import build_slice6_catalog
+from jarvis.tool_composition import build_tool_composition
 
 
 class QualificationFailure(RuntimeError):
@@ -125,10 +125,10 @@ async def _run(
                 profile_key=settings.codex_profile_key,
                 model_key=settings.codex_model,
             )
-            gate, _ = build_slice5_write_gate(
+            gate, _ = build_write_gate(
                 provider=provider_configuration,
             )
-            catalog = build_slice6_catalog(
+            catalog = build_tool_composition(
                 settings=settings,
                 google_oauth_http=clients[0],
                 google_api_http=clients[1],
@@ -146,8 +146,8 @@ async def _run(
                     actions=ActionStore(engine),
                 ),
                 automatic_write_gate_definition_fingerprint=gate.fingerprint,
-            )
-            definitions = build_slice6_definitions(
+            ).catalog
+            definitions = build_definitions(
                 catalog=catalog,
                 provider=provider_configuration,
                 owner_timezone=settings.owner_timezone,

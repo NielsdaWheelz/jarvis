@@ -93,8 +93,8 @@ from jarvis.db import (
 )
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    build_definitions,
+    build_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.discord import (
@@ -115,7 +115,7 @@ from jarvis.ownership import deployment_ownership
 from jarvis.read_tools import GMAIL_API_BASE_URL
 from jarvis.service import flush_pending_deliveries
 from jarvis.settings import Settings
-from jarvis.write_composition import Slice6Composition, build_slice6_composition
+from jarvis.tool_composition import ToolComposition, build_tool_composition
 from jarvis.write_connectors import (
     ReconciliationResult,
     calendar_event_id,
@@ -1115,7 +1115,7 @@ async def _cleanup_calendar_with_approvals(
     *,
     actions: ActionStore,
     messages: MessageStore,
-    composition: Slice6Composition,
+    composition: ToolComposition,
     plan: Any,
     session: LiveApprovalSession,
     discord: DiscordCreateMessageClient,
@@ -1207,7 +1207,7 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
         artifacts = Artifacts()
         result: dict[str, object] | None = None
         primary_error: BaseException | None = None
-        composition: Slice6Composition | None = None
+        composition: ToolComposition | None = None
         actions: ActionStore | None = None
         messages: MessageStore | None = None
         session: LiveApprovalSession | None = None
@@ -1265,10 +1265,10 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                     profile_key=settings.codex_profile_key,
                     model_key=settings.codex_model,
                 )
-                gate, _ = build_slice5_write_gate(
+                gate, _ = build_write_gate(
                     provider=provider_configuration,
                 )
-                composition = build_slice6_composition(
+                composition = build_tool_composition(
                     settings=settings,
                     google_oauth_http=oauth_http,
                     google_api_http=google_http,
@@ -1287,7 +1287,7 @@ async def _run(settings: Settings, arguments: LiveArguments) -> dict[str, object
                     ),
                     automatic_write_gate_definition_fingerprint=gate.fingerprint,
                 )
-                definitions = build_slice6_definitions(
+                definitions = build_definitions(
                     catalog=composition.catalog,
                     provider=provider_configuration,
                     owner_timezone=settings.owner_timezone,

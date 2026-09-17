@@ -28,6 +28,7 @@ from llm_agent_kernel import (
     DispatchCompleted,
     HostInput,
     InputId,
+    KernelLimits,
     OneShotStopped,
     OwnerToken,
     ProviderConfiguration,
@@ -99,21 +100,20 @@ from jarvis.db import (
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     DEFAULT_NATIVE_CONTEXT_LIMITS,
+    EMPTY_TOOL_LIMITS,
     EXPECTED_GIT_PINS,
     QUALIFIED_CODEX_MODELS,
-    SLICE1_TOOL_LIMITS,
-    SLICE2_KERNEL_LIMITS,
     DreamResult,
-    Slice6Definitions,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    RoleDefinitions,
+    build_definitions,
+    build_write_gate,
     validate_native_context_bounds,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import (
-    EmptySlice1Dispatcher,
+    EmptyToolDispatcher,
     KernelRuntime,
     build_agent_runtime,
     build_kernel_runtime,
@@ -126,7 +126,17 @@ from jarvis.service import CapturingReadDispatcher
 from jarvis.session import AtomicSessionRefPort
 from jarvis.settings import Settings
 from jarvis.terminal import TurnEvidence
-from jarvis.write_composition import build_slice6_composition
+from jarvis.tool_composition import build_tool_composition
+
+ECHO_KERNEL_LIMITS = KernelLimits(
+    max_provider_turns=12,
+    max_protocol_repairs=2,
+    max_no_progress_attempts=3,
+    max_cooperative_seconds=600.0,
+    max_provider_input_tokens=400_000,
+    max_provider_output_tokens=40_000,
+    max_new_context_bytes=706_144,
+)
 
 _SUPPORTED_ROUTES = frozenset(QUALIFIED_CODEX_MODELS)
 
@@ -139,11 +149,11 @@ def _definitions(
     runtime: AgentRuntime,
     provider: ProviderConfiguration,
     http_client: httpx.AsyncClient,
-) -> tuple[Slice6Definitions, FrozenToolPlan]:
+) -> tuple[RoleDefinitions, FrozenToolPlan]:
     """Current Main contract, with no external tools granted by this consumer probe."""
     actions = ActionStore(engine)
-    gate, _ = build_slice5_write_gate(provider=provider)
-    catalog = build_slice6_composition(
+    gate, _ = build_write_gate(provider=provider)
+    catalog = build_tool_composition(
         settings=settings,
         google_oauth_http=http_client,
         google_api_http=http_client,
@@ -161,13 +171,13 @@ def _definitions(
         ),
         automatic_write_gate_definition_fingerprint=gate.fingerprint,
     ).catalog
-    definitions = build_slice6_definitions(
+    definitions = build_definitions(
         catalog=catalog,
         provider=provider,
         owner_timezone=settings.owner_timezone,
     )
     profile = CapabilityProfile(
-        ProfileId("codex_consumer_no_tools"), (), SLICE1_TOOL_LIMITS
+        ProfileId("codex_consumer_no_tools"), (), EMPTY_TOOL_LIMITS
     ).freeze(catalog)
     plan = ToolPlan(profile.id, HostTable()).freeze(catalog, profile)
     require_host_plan(plan, definitions.main.maximum_profile)
@@ -304,7 +314,7 @@ async def _conversation_turn(
     engine: Database,
     settings: Settings,
     runtime: KernelRuntime,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     plan: FrozenToolPlan,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
@@ -352,7 +362,7 @@ async def _conversation_turn(
         maximum_attempts=limits.max_no_progress_attempts,
         turn_evidence=evidence,
     )
-    dispatcher = CapturingReadDispatcher(EmptySlice1Dispatcher(), evidence)
+    dispatcher = CapturingReadDispatcher(EmptyToolDispatcher(), evidence)
     outcome = await run_thread(
         decisions=PostgresModelDecisionJournal(engine, evidence=dispatcher),
         run_id=run_id,
@@ -398,7 +408,7 @@ async def _conversation_probe(
     arguments: Arguments,
     settings: Settings,
     host: CodexHostConfig,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     plan: FrozenToolPlan,
     admission_limits: RollingAdmissionLimits,
     store: MessageStore,
@@ -469,7 +479,7 @@ async def _structured_probe(
     arguments: Arguments,
     settings: Settings,
     host: CodexHostConfig,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     plan: FrozenToolPlan,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
@@ -495,7 +505,7 @@ async def _structured_probe(
             source_sections=PromptSections(()),
             admission=admission,
             provider=runtime.provider,
-            dispatcher=EmptySlice1Dispatcher(),
+            dispatcher=EmptyToolDispatcher(),
             budget_factory=ExactToolBudgetFactory(),
         )
     finally:
@@ -513,7 +523,7 @@ async def _structured_probe(
 
 
 def _tool_probe_definition(
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
 ) -> tuple[AgentDefinition, FrozenToolPlan, ToolBinding[Any, Any, Any]]:
     spec: ToolSpec[ProbeToolInput, ProbeToolSuccess, NoDeclaredError] = ToolSpec(
         id=ToolId("qualification.echo"),
@@ -565,7 +575,7 @@ def _tool_probe_definition(
         session_compatibility_revision=(
             f"{definitions.main.session_compatibility_revision}:qualification-echo-v1"
         ),
-        limits=SLICE2_KERNEL_LIMITS,
+        limits=ECHO_KERNEL_LIMITS,
     )
     validate_native_context_bounds(definition, DEFAULT_NATIVE_CONTEXT_LIMITS)
     return definition, plan, cast("ToolBinding[Any, Any, Any]", binding)
@@ -576,7 +586,7 @@ async def _tool_argument_probe(
     arguments: Arguments,
     settings: Settings,
     host: CodexHostConfig,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     admission: RollingAdmissionPort,
 ) -> dict[str, object]:
     definition, plan, binding = _tool_probe_definition(definitions)

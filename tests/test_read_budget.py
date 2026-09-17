@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from composition_fixture import with_read_bindings
 from llm_agent_kernel import (
     CancellationToken,
     Checkpoint,
@@ -14,6 +15,7 @@ from llm_agent_kernel import (
 )
 from llm_tools import (
     SafeWebReader,
+    ToolCatalog,
     ToolId,
     WebReadInput,
     WebSearchError,
@@ -28,11 +30,12 @@ from llm_tools import (
 from provider_fixture import decision_key, frozen_provider
 
 from jarvis.admission import ExactToolBudgetFactory, InProcessBudgetState
-from jarvis.definitions import build_slice2_definitions
+from jarvis.definitions import build_definitions
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.read_tools import (
     AddressLocation,
     CalendarGetEventInput,
+    CalendarListCalendarsInput,
     CalendarListEventsInput,
     ConnectorFailure,
     GmailReadThreadInput,
@@ -119,10 +122,12 @@ class _FailingResolver:
         raise OSError("synthetic")
 
 
-async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
+async def test_exact_plan_budget_runs_all_ten_reads_serially(
+    current_catalog: ToolCatalog,
+) -> None:
     reads = _FailingReads()
     web_calls: list[str] = []
-    catalog = compose_read_catalog(
+    reads_catalog = compose_read_catalog(
         google=reads,
         maps=reads,
         web=web_family(
@@ -133,12 +138,13 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
             read=bind_web_read(SafeWebReader(resolver=_FailingResolver(web_calls))),
         ),
     )
-    definitions = build_slice2_definitions(
+    catalog = with_read_bindings(current_catalog, reads_catalog)
+    definitions = build_definitions(
         catalog=catalog,
-        provider=frozen_provider("synthetic", "gpt-5.6-terra", "high"),
+        provider=frozen_provider(),
         owner_timezone="UTC",
     )
-    plan = definitions.plans["main"]
+    plan = definitions.plans["scheduled_wake"]
     require_host_plan(plan, definitions.main.maximum_profile)
     budgets = ExactToolBudgetFactory().create(plan)
     assert isinstance(budgets, InProcessBudgetState)
@@ -147,6 +153,7 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
     calls = (
         ("gmail.search", GmailSearchInput(query="x", max_results=1)),
         ("gmail.read_thread", GmailReadThreadInput(thread_id="t", max_messages=1)),
+        ("calendar.list_calendars", CalendarListCalendarsInput()),
         (
             "calendar.list_events",
             CalendarListEventsInput(
@@ -195,8 +202,8 @@ async def test_exact_plan_budget_runs_all_nine_reads_serially() -> None:
         )
         results.append(completed.result["type"])
 
-    assert results == ["Failure"] * 9
-    assert reads.calls == [name for name, _ in calls[:7]]
+    assert results == ["Failure"] * 10
+    assert reads.calls == [name for name, _ in calls[:8]]
     assert web_calls == ["web.search", "web.read"]
-    assert dispatcher.recorder.terminal_count == 9
+    assert dispatcher.recorder.terminal_count == 10
     assert dispatcher.recorder.uncertain_count == 0

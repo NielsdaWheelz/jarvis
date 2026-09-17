@@ -38,6 +38,7 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
 )
 from jarvis.agent_control import AgentController
+from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.codex_config import CodexHostConfig
 from jarvis.db import (
     action,
@@ -50,14 +51,14 @@ from jarvis.db import (
 )
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
+    DREAMER_KERNEL_LIMITS,
     EXPECTED_GIT_PINS,
-    SLICE3_RECALL_KERNEL_LIMITS,
-    SLICE3_REMEMBER_KERNEL_LIMITS,
-    SLICE4_DREAM_KERNEL_LIMITS,
-    SLICE6_KERNEL_LIMITS,
-    Slice6Definitions,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    MAIN_KERNEL_LIMITS,
+    RECALLER_KERNEL_LIMITS,
+    REMEMBERER_KERNEL_LIMITS,
+    RoleDefinitions,
+    build_definitions,
+    build_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.embeddings import OpenAIEmbedder
@@ -89,7 +90,7 @@ from jarvis.read_tools import (
 )
 from jarvis.service import JarvisThreadRunner
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL, Settings
-from jarvis.write_composition import build_slice6_catalog
+from jarvis.tool_composition import build_tool_composition
 
 _SUPPORTED_ROUTES = frozenset(("gpt-5.6-terra",))
 _CALENDAR_WINDOW_DAYS = 366
@@ -229,34 +230,34 @@ def qualification_admission_limits() -> RollingAdmissionLimits:
     input_overshoot = 32_768
     output_overshoot = 8_192
     cycle = (
-        SLICE6_KERNEL_LIMITS,
-        SLICE3_RECALL_KERNEL_LIMITS,
-        SLICE3_REMEMBER_KERNEL_LIMITS,
+        MAIN_KERNEL_LIMITS,
+        RECALLER_KERNEL_LIMITS,
+        REMEMBERER_KERNEL_LIMITS,
     )
     return RollingAdmissionLimits(
         max_turns=(
             2 * sum(role.max_provider_turns for role in cycle)
-            + SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
+            + DREAMER_KERNEL_LIMITS.max_provider_turns
         ),
         max_input_tokens=(
             2 * sum(role.max_provider_input_tokens + input_overshoot for role in cycle)
-            + SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens
+            + DREAMER_KERNEL_LIMITS.max_provider_input_tokens
             + input_overshoot
         ),
         max_output_tokens=(
             2
             * sum(role.max_provider_output_tokens + output_overshoot for role in cycle)
-            + SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens
+            + DREAMER_KERNEL_LIMITS.max_provider_output_tokens
             + output_overshoot
         ),
         root_input_token_overshoot=input_overshoot,
         root_output_token_overshoot=output_overshoot,
-        serial_child_turns=SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns,
+        serial_child_turns=RECALLER_KERNEL_LIMITS.max_provider_turns,
         serial_child_input_tokens=(
-            SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + input_overshoot
+            RECALLER_KERNEL_LIMITS.max_provider_input_tokens + input_overshoot
         ),
         serial_child_output_tokens=(
-            SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + output_overshoot
+            RECALLER_KERNEL_LIMITS.max_provider_output_tokens + output_overshoot
         ),
     )
 
@@ -635,7 +636,7 @@ async def _memory_state(engine: Database) -> MemoryState:
 async def _dispatch_read(
     *,
     dispatcher: ReadToolDispatcher[RunReadRecorder],
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     budgets: BudgetState,
     tool_id: str,
     validated_input: object,
@@ -663,7 +664,7 @@ async def _dispatch_read(
 
 async def _select_live_resources(
     *,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     host_secrets: tuple[str, ...],
     gmail_query: str,
     owner_timezone: str,
@@ -754,7 +755,7 @@ def _build_roles(
     *,
     settings: Settings,
     engine: Database,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     runtime: KernelRuntime,
     embedder: OpenAIEmbedder,
     resources: LiveResources,
@@ -784,7 +785,9 @@ def _build_roles(
         maximum_messages_per_group=1,
     )
 
-    def dispatcher_factory() -> _TargetRecordingDispatcher:
+    def dispatcher_factory(
+        _checkpoint: PostgresInputCheckpoint,
+    ) -> _TargetRecordingDispatcher:
         dispatcher = _TargetRecordingDispatcher(
             engine, settings.host_secrets, resources
         )
@@ -839,7 +842,7 @@ async def _owner_conclusion(
 async def _discard_main_reference(
     *,
     settings: Settings,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     runtime: KernelRuntime,
     runner: JarvisThreadRunner,
     require_present: bool,
@@ -858,7 +861,7 @@ async def _discard_main_reference(
 async def cleanup_cycle_runtime(
     *,
     settings: Settings,
-    definitions: Slice6Definitions,
+    definitions: RoleDefinitions,
     runtime: KernelRuntime,
     runner: JarvisThreadRunner | None,
     primary_error: BaseException | None,
@@ -932,9 +935,9 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                     profile_key=settings.codex_profile_key,
                     model_key=settings.codex_model,
                 )
-                gate, _ = build_slice5_write_gate(provider=provider_configuration)
+                gate, _ = build_write_gate(provider=provider_configuration)
                 actions = ActionStore(engine)
-                catalog = build_slice6_catalog(
+                catalog = build_tool_composition(
                     settings=settings,
                     google_oauth_http=google_oauth_http,
                     google_api_http=google_api_http,
@@ -949,8 +952,8 @@ async def _run(settings: Settings, gmail_query: str) -> dict[str, object]:
                         actions=actions,
                     ),
                     automatic_write_gate_definition_fingerprint=gate.fingerprint,
-                )
-                definitions = build_slice6_definitions(
+                ).catalog
+                definitions = build_definitions(
                     catalog=catalog,
                     provider=provider_configuration,
                     owner_timezone=settings.owner_timezone,

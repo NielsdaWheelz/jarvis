@@ -2,14 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
+from composition_fixture import (
+    MemoryEmbedderFixture,
+    MemoryRepositoryFixture,
+    build_test_catalog,
+    composition_settings,
+)
 from llm_agent_kernel import (
     KERNEL_BASE_INSTRUCTION,
     KERNEL_BASE_INSTRUCTION_IDENTITY,
     AgentDefinition,
-    ConversationalOutput,
     FinishStep,
     SessionMode,
     StructuredOutput,
@@ -17,7 +24,7 @@ from llm_agent_kernel import (
     require_host_plan,
     validate_provider_step,
 )
-from llm_tools import FrozenToolPlan
+from llm_tools import FrozenToolPlan, ToolCatalog
 from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import (
     TextContent,
@@ -28,21 +35,22 @@ from provider_runtime.agent_runtime import (
 from jarvis.definitions import (
     QUALIFIED_CODEX_MODELS,
     NativeContextLimits,
-    build_slice1_definitions,
+    RoleDefinitions,
+    build_definitions,
     load_session_manifest,
     session_compatibility_revision,
     validate_native_context_bounds,
 )
+from jarvis.memory_retrieval import MemoryEmbedder, MemoryRepository
 
 
-def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="America/Los_Angeles",
-    )
+def test_definitions_have_closed_contracts_and_proven_host_plans(
+    current_definitions: RoleDefinitions,
+) -> None:
+    definitions = current_definitions
 
     assert definitions.main.session_mode is SessionMode.continuing
-    assert isinstance(definitions.main.output_contract, ConversationalOutput)
+    assert isinstance(definitions.main.output_contract, StructuredOutput)
     for definition in (
         definitions.recaller,
         definitions.rememberer,
@@ -55,17 +63,26 @@ def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
         _assert_codex_closed_schema(definition.output_contract.wire_schema)
         _assert_codex_closed_schema(provider_wire_schema(definition.output_contract))
         assert definition.session_compatibility_revision
-    for plan in definitions.plans.values():
-        assert not plan.profile.ordered_grants
-        assert plan.profile.run_limits.max_external_attempts == 0
-        assert plan.is_tightening_of(plan.profile)
+    assert set(definitions.plans) == {
+        "main",
+        "scheduled_wake",
+        "recaller",
+        "rememberer",
+        "dreamer",
+        "automatic_write_gate",
+    }
+    for name, plan in definitions.plans.items():
+        role = "main" if name == "scheduled_wake" else name
+        require_host_plan(plan, getattr(definitions, role).maximum_profile)
+    gate_plan = definitions.plans["automatic_write_gate"]
+    assert not gate_plan.profile.ordered_grants
+    assert gate_plan.profile.run_limits.max_external_attempts == 0
     assert definitions.plans["main"].plan_revision != (
         definitions.plans["scheduled_wake"].plan_revision
     )
     assert definitions.plans["main"].profile.profile_revision != (
         definitions.plans["scheduled_wake"].profile.profile_revision
     )
-    assert definitions.plans["proactive"] is definitions.plans["scheduled_wake"]
     assert definitions.plans["scheduled_wake"].is_tightening_of(
         definitions.main.maximum_profile
     )
@@ -77,11 +94,10 @@ def test_slice1_definitions_are_closed_and_have_empty_host_plans() -> None:
         definitions.plans["extra"] = definitions.plans["main"]  # type: ignore[index]
 
 
-def test_isolated_result_contracts_accept_decoded_json_arrays() -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="America/Los_Angeles",
-    )
+def test_isolated_result_contracts_accept_decoded_json_arrays(
+    current_definitions: RoleDefinitions,
+) -> None:
+    definitions = current_definitions
     memory_id = "00000000-0000-4000-8000-000000000001"
     summary_id = "00000000-0000-4000-8000-000000000002"
     owner_id = "00000000-0000-4000-8000-000000000003"
@@ -203,12 +219,11 @@ def test_manifest_publishes_exact_dependency_and_role_revisions() -> None:
     assert session_compatibility_revision(qualified_models_changed, "main") == original
 
 
-def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
+def test_model_set_exclusion_and_selected_model_fingerprint(
+    current_definitions: RoleDefinitions,
+) -> None:
     manifest = load_session_manifest()
-    terra = build_slice1_definitions(
-        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="UTC",
-    ).main
+    terra = current_definitions.main
     membership_changed = {
         **manifest,
         "qualified_models": ["gpt-5.6-terra", "synthetic-future-model"],
@@ -228,16 +243,15 @@ def test_model_set_exclusion_and_selected_model_fingerprint() -> None:
     assert selected_model_changed.fingerprint != terra.fingerprint
 
 
-def test_provider_native_material_has_independent_bounds() -> None:
+def test_provider_native_material_has_independent_bounds(
+    current_definitions: RoleDefinitions,
+) -> None:
     assert KERNEL_BASE_INSTRUCTION_IDENTITY == (
         "llm-agent-kernel-contained-structured-agent-v1:sha256:"
         "1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7"
     )
     kernel_system_bytes = len(KERNEL_BASE_INSTRUCTION.encode())
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="UTC",
-    )
+    definitions = current_definitions
     provider = replace(
         definitions.main.provider,
         system=(TextContent("x" * 17),),
@@ -280,16 +294,19 @@ def test_provider_native_material_has_independent_bounds() -> None:
         )
 
 
-def test_only_qualified_models_are_admitted() -> None:
+def test_only_qualified_models_are_admitted(current_catalog: ToolCatalog) -> None:
     assert QUALIFIED_CODEX_MODELS == ("gpt-5.6-terra",)
-    with pytest.raises(ValueError, match="qualified Slice 1 route"):
-        build_slice1_definitions(
+    with pytest.raises(ValueError, match="qualified"):
+        build_definitions(
+            catalog=current_catalog,
             provider=frozen_provider("jarvis-test", "gpt-5.4", "high"),
             owner_timezone="UTC",
         )
 
 
-def test_frozen_catalog_selection_is_shared_and_rotates_session_identity() -> None:
+async def test_frozen_catalog_selection_is_shared_and_rotates_session_identity(
+    tmp_path: Path,
+) -> None:
     from dataclasses import replace
 
     from llm_agent_kernel import ProviderConfiguration
@@ -302,10 +319,21 @@ def test_frozen_catalog_selection_is_shared_and_rotates_session_identity() -> No
         agent_definition_revision="catalog-v1",
         row_fingerprint="a" * 64,
     )
-    original = build_slice1_definitions(provider=provider, owner_timezone="UTC")
+    async with httpx.AsyncClient() as http:
+        original, rotated = (
+            build_definitions(
+                catalog=build_test_catalog(
+                    composition_settings(tmp_path),
+                    http,
+                    selection,
+                    memory_repository=cast(MemoryRepository, MemoryRepositoryFixture()),
+                    memory_embedder=cast(MemoryEmbedder, MemoryEmbedderFixture()),
+                ),
+                provider=selection,
+                owner_timezone="UTC",
+            )
+            for selection in (provider, replace(provider, row_fingerprint="b" * 64))
+        )
     assert original.main.provider is provider
     assert original.recaller.provider is provider
-    rotated = build_slice1_definitions(
-        provider=replace(provider, row_fingerprint="b" * 64), owner_timezone="UTC"
-    )
     assert original.main.fingerprint != rotated.main.fingerprint

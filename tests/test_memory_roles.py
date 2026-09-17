@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID
 
-import httpx
 import pytest
 from llm_agent_kernel import (
     AdmissionGranted,
@@ -68,7 +67,6 @@ from provider_runtime.agent_runtime import (
     thaw_json_value,
 )
 from provider_runtime.types import Absent, CancelSignal
-from test_write_composition import ActionsFixture, composition_settings
 
 from jarvis.admission import (
     ExactToolBudgetFactory,
@@ -76,19 +74,16 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
-from jarvis.agent_control import AgentController
 from jarvis.context import IsolatedRecaller, JarvisContextSource, RecallEvidence
 from jarvis.definitions import (
-    SLICE2_READ_IDS,
-    SLICE3_MEMORY_READ_IDS,
+    EXTERNAL_READ_IDS,
+    MEMORY_READ_IDS,
     RecalledMemory,
     RecallResult,
     RememberResult,
+    RoleDefinitions,
     build_recaller,
     build_rememberer,
-    build_slice1_definitions,
-    build_slice5_write_gate,
-    build_slice6_definitions,
     load_session_manifest,
     session_compatibility_revision,
 )
@@ -102,7 +97,6 @@ from jarvis.memory import (
 from jarvis.memory_dispatch import MemoryDispatchEvidence
 from jarvis.memory_tools import MemorySearchInput, compose_memory_catalog
 from jarvis.memory_workers import BackgroundDeferred, RemembererWorker
-from jarvis.write_composition import build_slice6_catalog
 
 NOW = datetime(2026, 9, 4, 17, tzinfo=UTC)
 OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -215,12 +209,10 @@ class _BatchClock:
         return self.as_of
 
 
-async def test_context_recalls_each_owner_batch_once_at_its_authoritative_clock() -> (
-    None
-):
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+async def test_context_recalls_each_owner_batch_once_at_its_authoritative_clock(
+    current_definitions: RoleDefinitions,
+) -> None:
+    definitions = current_definitions
     initial_owner = _input()
     host = HostInput(
         InputId("00000000-0000-0000-0000-000000000010"),
@@ -313,9 +305,7 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _recaller()
     identity = MemoryIdentity("memory_log", MEMORY_ID)
     row = StoredRawMemory(MEMORY_ID, "exact stored preference", NOW, None)
     dispatcher = _Dispatcher(
@@ -337,8 +327,8 @@ async def test_recaller_returns_only_host_rehydrated_exact_rows(
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
         model_decisions=model_journal,
-        definition=definitions.recaller,
-        plan=definitions.plans["recaller"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(Any, dispatcher),
@@ -385,9 +375,7 @@ async def test_recaller_host_rehydration_defect_propagates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _recaller()
     identity = MemoryIdentity("memory_log", MEMORY_ID)
     admission, _root_token = await _active_admission(tmp_path)
 
@@ -408,8 +396,8 @@ async def test_recaller_host_rehydration_defect_propagates(
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
         model_decisions=model_journal,
-        definition=definitions.recaller,
-        plan=definitions.plans["recaller"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -432,9 +420,7 @@ async def test_recaller_initial_query_preserves_bounded_owner_head_and_tail(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _recaller()
     observed: dict[str, object] = {}
     admission, root_token = await _active_admission(tmp_path)
 
@@ -448,8 +434,8 @@ async def test_recaller_initial_query_preserves_bounded_owner_head_and_tail(
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
         model_decisions=model_journal,
-        definition=definitions.recaller,
-        plan=definitions.plans["recaller"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -552,9 +538,7 @@ async def test_recaller_ordinary_stop_records_empty_and_does_not_invent_context(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _recaller()
     trace = _Trace()
     admission, root_token = await _active_admission(tmp_path)
 
@@ -568,8 +552,8 @@ async def test_recaller_ordinary_stop_records_empty_and_does_not_invent_context(
     monkeypatch.setattr("jarvis.context.run_one_shot", stopped)
     recaller = IsolatedRecaller(
         model_decisions=model_journal,
-        definition=definitions.recaller,
-        plan=definitions.plans["recaller"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -596,9 +580,7 @@ async def test_recaller_rejects_valid_finish_without_completed_search(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _recaller()
     trace = _Trace()
     admission, root_token = await _active_admission(tmp_path)
 
@@ -612,8 +594,8 @@ async def test_recaller_rejects_valid_finish_without_completed_search(
     monkeypatch.setattr("jarvis.context.run_one_shot", scripted)
     recaller = IsolatedRecaller(
         model_decisions=model_journal,
-        definition=definitions.recaller,
-        plan=definitions.plans["recaller"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -641,9 +623,7 @@ async def test_recaller_configuration_stop_records_then_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _recaller()
     trace = _Trace()
     admission, _root_token = await _active_admission(tmp_path)
 
@@ -657,8 +637,8 @@ async def test_recaller_configuration_stop_records_then_fails_closed(
     monkeypatch.setattr("jarvis.context.run_one_shot", stopped)
     recaller = IsolatedRecaller(
         model_decisions=model_journal,
-        definition=definitions.recaller,
-        plan=definitions.plans["recaller"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -817,9 +797,7 @@ async def test_restart_sweep_zero_memory_result_advances_through_atomic_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _rememberer()
     memory = _RememberMemory(_rememberer_group())
     admission, root_token = await _active_admission(tmp_path)
     await admission.settle(
@@ -837,8 +815,8 @@ async def test_restart_sweep_zero_memory_result_advances_through_atomic_commit(
     monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     worker = RemembererWorker(
         model_decisions=model_journal,
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -865,9 +843,7 @@ async def test_cancelled_rememberer_commits_no_memory_or_watermark(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _rememberer()
     memory = _RememberMemory(_rememberer_group())
     messages = _Messages()
     admission, root_token = await _active_admission(tmp_path)
@@ -885,8 +861,8 @@ async def test_cancelled_rememberer_commits_no_memory_or_watermark(
     monkeypatch.setattr("jarvis.memory_workers.run_one_shot", cancelled)
     worker = RemembererWorker(
         model_decisions=model_journal,
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -928,9 +904,7 @@ async def test_failed_or_invalid_rememberer_records_only_attempt_summary(
     outcome: OneShotStopped | OneShotCompleted,
     terminal_outcome: str,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _rememberer()
     memory = _RememberMemory(_rememberer_group())
     messages = _Messages()
     admission, root_token = await _active_admission(tmp_path)
@@ -945,8 +919,8 @@ async def test_failed_or_invalid_rememberer_records_only_attempt_summary(
     monkeypatch.setattr("jarvis.memory_workers.run_one_shot", stopped)
     worker = RemembererWorker(
         model_decisions=model_journal,
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -970,14 +944,12 @@ async def test_rememberer_propagates_background_admission_reset(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _rememberer()
     selected = RollingAdmissionLimits(
         window_seconds=60,
-        max_turns=4,
-        max_input_tokens=100_002,
-        max_output_tokens=20_002,
+        max_turns=definition.limits.max_provider_turns + 1,
+        max_input_tokens=definition.limits.max_provider_input_tokens + 2,
+        max_output_tokens=definition.limits.max_provider_output_tokens + 2,
         root_input_token_overshoot=1,
         root_output_token_overshoot=1,
     )
@@ -1006,8 +978,8 @@ async def test_rememberer_propagates_background_admission_reset(
     monkeypatch.setattr("jarvis.memory_workers.run_one_shot", should_not_run)
     worker = RemembererWorker(
         model_decisions=model_journal,
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -1030,9 +1002,7 @@ async def test_foreground_waits_for_atomic_rememberer_commit_boundary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _rememberer()
     memory = _BlockingCommitMemory(_rememberer_group())
     admission, root_token = await _active_admission(tmp_path)
     await admission.settle(
@@ -1051,8 +1021,8 @@ async def test_foreground_waits_for_atomic_rememberer_commit_boundary(
     monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     worker = RemembererWorker(
         model_decisions=model_journal,
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -1081,9 +1051,7 @@ async def test_foreground_cancels_in_flight_derived_embedding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definition, plan = _rememberer()
     memory = _CreatedMemory(_rememberer_group())
     embedder = _BlockingEmbedder()
     admission, root_token = await _active_admission(tmp_path)
@@ -1103,8 +1071,8 @@ async def test_foreground_cancels_in_flight_derived_embedding(
     monkeypatch.setattr("jarvis.memory_workers.run_one_shot", completed)
     worker = RemembererWorker(
         model_decisions=model_journal,
-        definition=definitions.rememberer,
-        plan=definitions.plans["rememberer"],
+        definition=definition,
+        plan=plan,
         admission=admission,
         provider=cast(Any, object()),
         dispatcher_factory=lambda: cast(
@@ -1128,10 +1096,10 @@ async def test_foreground_cancels_in_flight_derived_embedding(
 
 
 def test_memory_role_contract_constants_are_exact_and_disjoint() -> None:
-    assert len(SLICE2_READ_IDS) == 10
-    assert len(SLICE3_MEMORY_READ_IDS) == 2
-    assert set(SLICE2_READ_IDS).isdisjoint(SLICE3_MEMORY_READ_IDS)
-    assert set(SLICE3_MEMORY_READ_IDS) == {
+    assert len(EXTERNAL_READ_IDS) == 10
+    assert len(MEMORY_READ_IDS) == 2
+    assert set(EXTERNAL_READ_IDS).isdisjoint(MEMORY_READ_IDS)
+    assert set(MEMORY_READ_IDS) == {
         ToolId("memory.search"),
         ToolId("memory.open"),
     }
@@ -1139,6 +1107,14 @@ def test_memory_role_contract_constants_are_exact_and_disjoint() -> None:
 
 def _recaller() -> tuple[AgentDefinition, FrozenToolPlan]:
     return build_recaller(
+        catalog=compose_memory_catalog(cast(Any, object()), cast(Any, object())),
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
+        owner_timezone="UTC",
+    )
+
+
+def _rememberer() -> tuple[AgentDefinition, FrozenToolPlan]:
+    return build_rememberer(
         catalog=compose_memory_catalog(cast(Any, object()), cast(Any, object())),
         provider=frozen_provider("test", "gpt-5.6-terra", "high"),
         owner_timezone="UTC",
@@ -1339,8 +1315,8 @@ def test_memory_definitions_publish_exact_role_catalogs() -> None:
     manifest = load_session_manifest()
     for role, (definition, plan) in roles.items():
         assert definition.session_mode is SessionMode.isolated
-        assert tuple(definition.maximum_profile.grants) == SLICE3_MEMORY_READ_IDS
-        assert tuple(plan.profile.grants) == SLICE3_MEMORY_READ_IDS
+        assert tuple(definition.maximum_profile.grants) == MEMORY_READ_IDS
+        assert tuple(plan.profile.grants) == MEMORY_READ_IDS
         assert all(
             plan.catalog_view.spec(tool_id).effect is ToolEffect.Read
             for tool_id in plan.profile.grants
@@ -1363,31 +1339,9 @@ def test_memory_definitions_publish_exact_role_catalogs() -> None:
 
 
 async def test_recalled_authority_cannot_expand_a_selected_read_plan(
-    tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    provider = frozen_provider("test", "gpt-5.6-terra", "high")
-    gate, _ = build_slice5_write_gate(provider=provider)
-    actions = cast(Any, ActionsFixture())
-    async with httpx.AsyncClient() as http:
-        catalog = build_slice6_catalog(
-            settings=composition_settings(tmp_path),
-            google_oauth_http=http,
-            google_api_http=http,
-            maps_http=http,
-            brave_http=http,
-            memory_repository=cast(Any, object()),
-            memory_embedder=cast(Any, object()),
-            actions=actions,
-            agents=AgentController(
-                executable=tmp_path / "skid",
-                client_config=tmp_path / "agent.json",
-                actions=actions,
-            ),
-            automatic_write_gate_definition_fingerprint=gate.fingerprint,
-        )
-    definitions = build_slice6_definitions(
-        catalog=catalog, provider=provider, owner_timezone="UTC"
-    )
+    definitions = current_definitions
     plan = definitions.plans["scheduled_wake"]
     assert plan.is_tightening_of(definitions.main.maximum_profile)
 
@@ -1454,8 +1408,8 @@ async def test_recalled_authority_cannot_expand_a_selected_read_plan(
         plan.catalog_view.spec(tool_id).effect is ToolEffect.Read
         for tool_id in plan.profile.grants
     )
-    assert set(plan.profile.grants) == set(SLICE2_READ_IDS)
-    assert set(plan.profile.grants).isdisjoint(SLICE3_MEMORY_READ_IDS)
+    assert set(plan.profile.grants) == set(EXTERNAL_READ_IDS)
+    assert set(plan.profile.grants).isdisjoint(MEMORY_READ_IDS)
     rejected = 0
     for tool_id in (
         "gmail.send_draft",

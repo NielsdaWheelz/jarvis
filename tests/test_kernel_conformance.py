@@ -5,7 +5,7 @@ import json
 import os
 import time
 from collections import deque
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +13,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
+from composition_fixture import with_read_bindings
 from llm_agent_kernel import (
     AdmissionRequest,
     AdmissionResult,
@@ -37,11 +38,11 @@ from llm_agent_kernel import (
     StoppedConclusion,
     StopReason,
     StoredSessionRef,
-    StructuredOutput,
     ThreadCompleted,
     ThreadId,
     ThreadStopKind,
     ThreadStopped,
+    ToolDispatchPort,
     run_thread,
 )
 from llm_agent_kernel.fakes import InMemoryModelDecisionJournal
@@ -52,6 +53,7 @@ from llm_tools import (
     PromptText,
     RunLimits,
     SafeWebReader,
+    ToolCatalog,
     ToolId,
     WebSearchError,
     WebSearchErrorCode,
@@ -86,29 +88,36 @@ from jarvis.admission import (
     InProcessBudgetState,
     RollingAdmissionLimits,
     RollingAdmissionPort,
+    RootTrackingAdmissionPort,
+    current_admission_limits,
 )
+from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.config import DiscordSettings
 from jarvis.context import CanonicalMessage, JarvisContextSource
 from jarvis.db import action, create_engine, message
-from jarvis.decisions import PostgresModelDecisionJournal
+from jarvis.decisions import ModelJournalFactory, PostgresModelDecisionJournal
 from jarvis.definitions import (
-    SLICE1_KERNEL_LIMITS,
-    SLICE2_READ_IDS,
-    SLICE2_WEB_SEARCH_LIMITS,
-    SLICE6_KERNEL_LIMITS,
-    build_slice1_definitions,
-    build_slice2_definitions,
+    EXTERNAL_READ_IDS,
+    MEMORY_READ_IDS,
+    WEB_SEARCH_LIMITS,
+    RoleDefinitions,
+    build_definitions,
 )
 from jarvis.history import PostgresCanonicalHistory
-from jarvis.kernel import EmptySlice1Dispatcher, KernelRuntime, build_kernel_runtime
+from jarvis.kernel import EmptyToolDispatcher, KernelRuntime, build_kernel_runtime
+from jarvis.memory import MemoryStore
+from jarvis.memory_dispatch import MemoryToolDispatcher
+from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_tools import compose_memory_catalog
+from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore, SettlementTrace
 from jarvis.messages import Settlement as MessageSettlement
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.read_tools import ConnectorFailure, compose_read_catalog
 from jarvis.service import JarvisThreadRunner
 from jarvis.session import AtomicSessionRefPort
-from jarvis.settings import Settings
-from jarvis.terminal import JarvisTerminal
+from jarvis.settings import EMBEDDING_DIMENSION, Settings
 
 AS_OF = datetime(2026, 9, 3, 12, tzinfo=UTC)
 THREAD_ID = ThreadId("discord-channel-1")
@@ -341,19 +350,57 @@ class _Clock:
         return self.value
 
 
-def _definitions() -> Any:
-    return build_slice1_definitions(
-        provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="America/Los_Angeles",
-    )
+def _answer(text: str) -> dict[str, object]:
+    return {
+        "type": "finish",
+        "result": {"response": {"type": "answered", "text": text}},
+    }
 
 
-def _with_structured_main(definitions: Any) -> Any:
-    return replace(
-        definitions,
-        main=replace(
-            definitions.main,
-            output_contract=StructuredOutput("jarvis_terminal", JarvisTerminal),
+class _Embedder:
+    async def embed(self, inputs: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        return tuple((1.0,) + (0.0,) * (EMBEDDING_DIMENSION - 1) for _ in inputs)
+
+
+def _runner(
+    *,
+    settings: Settings,
+    engine: AsyncEngine,
+    store: MessageStore,
+    admission: RootTrackingAdmissionPort,
+    kernel_runtime: KernelRuntime,
+    definitions: RoleDefinitions,
+    history: PostgresCanonicalHistory,
+    model_decisions: ModelJournalFactory,
+    dispatcher_factory: Callable[[PostgresInputCheckpoint], ToolDispatchPort],
+) -> JarvisThreadRunner:
+    memory = MemoryStore(engine)
+    return JarvisThreadRunner(
+        settings=settings,
+        store=store,
+        admission=admission,
+        kernel_runtime=kernel_runtime,
+        definitions=definitions,
+        history=history,
+        model_decisions=model_decisions,
+        dispatcher_factory=dispatcher_factory,
+        memory=memory,
+        memory_dispatcher_factory=lambda: MemoryToolDispatcher(
+            recorder=PostgresReadRecorder(engine)
+        ),
+        rememberer=RemembererWorker(
+            model_decisions=model_decisions,
+            definition=definitions.rememberer,
+            plan=definitions.plans["rememberer"],
+            admission=admission,
+            provider=kernel_runtime.provider,
+            dispatcher_factory=lambda: MemoryToolDispatcher(
+                recorder=PostgresReadRecorder(engine)
+            ),
+            memory=memory,
+            messages=store,
+            embedder=_Embedder(),
+            maximum_messages_per_group=settings.maximum_batch_size,
         ),
     )
 
@@ -433,7 +480,9 @@ class _UnavailableResolver:
         raise OSError("synthetic")
 
 
-def _slice2_definitions(*, slow_search_deadline: float | None = None) -> Any:
+def _read_definitions(
+    current_catalog: ToolCatalog, *, slow_search_deadline: float | None = None
+) -> tuple[ToolCatalog, RoleDefinitions]:
     reads = _UnavailableReads()
     catalog = compose_read_catalog(
         google=reads,
@@ -448,10 +497,11 @@ def _slice2_definitions(*, slow_search_deadline: float | None = None) -> Any:
             read=bind_web_read(SafeWebReader(resolver=_UnavailableResolver())),
         ),
     )
-    return catalog, build_slice2_definitions(
+    catalog = with_read_bindings(current_catalog, catalog)
+    return catalog, build_definitions(
         catalog=catalog,
         provider=frozen_provider("jarvis-test", "gpt-5.6-terra", "high"),
-        owner_timezone="America/Los_Angeles",
+        owner_timezone="UTC",
     )
 
 
@@ -490,7 +540,7 @@ async def _run(
         admission=admission,
         sessions=sessions,
         context_source=context_source,
-        dispatcher=dispatcher or EmptySlice1Dispatcher(),
+        dispatcher=dispatcher or EmptyToolDispatcher(),
         budget_factory=budget_factory or ExactToolBudgetFactory(),
         cancellation=cancellation,
         clock=clock or time.monotonic,
@@ -499,8 +549,9 @@ async def _run(
 
 async def test_session_loss_after_model_entry_parks_without_redispatch(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     first = _claim(definitions.plans["main"], name="first")
     second = _claim(definitions.plans["main"], name="second")
     checkpoints = InMemoryInputCheckpointPort(
@@ -512,7 +563,7 @@ async def test_session_loss_after_model_entry_parks_without_redispatch(
         _History((CanonicalMessage("prior", "assistant", "earlier", AS_OF),)),
     )
 
-    first_runtime = _Runtime([{"type": "say", "text": "first answer"}])
+    first_runtime = _Runtime([_answer("first answer")])
     first_provider = CodexProvider(
         cast(AgentRuntime, first_runtime), cwd_parent=tmp_path, cache_continuing=False
     )
@@ -529,7 +580,7 @@ async def test_session_loss_after_model_entry_parks_without_redispatch(
         await first_provider.shutdown()
 
     second_runtime = _Runtime(
-        [{"type": "say", "text": "reconstructed answer"}], reject_next_stream=True
+        [_answer("reconstructed answer")], reject_next_stream=True
     )
     second_provider = CodexProvider(
         cast(AgentRuntime, second_runtime), cwd_parent=tmp_path, cache_continuing=False
@@ -556,9 +607,10 @@ async def test_session_loss_after_model_entry_parks_without_redispatch(
 
 async def test_main_bounds_keep_one_session_across_owner_runs_and_adapter_restart(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _with_structured_main(_definitions())
-    definition = replace(definitions.main, limits=SLICE6_KERNEL_LIMITS)
+    definitions = current_definitions
+    definition = definitions.main
     runtime = _Runtime(
         [
             {
@@ -612,10 +664,11 @@ async def test_main_bounds_keep_one_session_across_owner_runs_and_adapter_restar
     )
 
 
-async def test_slice2_compound_reads_are_serial_and_observed_before_say(
+async def test_compound_reads_are_serial_and_observed_before_terminal(
     tmp_path: Path,
+    current_catalog: ToolCatalog,
 ) -> None:
-    catalog, definitions = _slice2_definitions()
+    catalog, definitions = _read_definitions(current_catalog)
     claim = _claim(
         definitions.plans["main"],
         name="compound",
@@ -655,7 +708,7 @@ async def test_slice2_compound_reads_are_serial_and_observed_before_say(
             "tool_id": "web.read",
             "arguments": {"url": "https://public.example/"},
         },
-        {"type": "say", "text": "Compound read answer."},
+        _answer("Compound read answer."),
     ]
     reported_usage = [_usage(index * 10, index) for index in range(1, 7)]
     runtime = _Runtime(steps, usages=reported_usage)
@@ -694,17 +747,18 @@ async def test_slice2_compound_reads_are_serial_and_observed_before_say(
         assert "Failure" in rendered
     assert dispatcher.recorder.terminal_count == 5
     assert dispatcher.recorder.uncertain_count == 0
-    assert frozenset(catalog.tool_ids) == frozenset(
+    assert frozenset(catalog.tool_ids) - frozenset(MEMORY_READ_IDS) == frozenset(
         grant.id for grant in definitions.plans["main"].profile.ordered_grants
     )
 
 
 async def test_absent_provider_usage_retains_the_admission_reservation(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     claim = _claim(definitions.plans["main"], name="absent-usage")
-    runtime = _Runtime([{"type": "say", "text": "Bounded answer."}])
+    runtime = _Runtime([_answer("Bounded answer.")])
     provider = CodexProvider(
         cast(AgentRuntime, runtime), cwd_parent=tmp_path, cache_continuing=False
     )
@@ -742,8 +796,9 @@ async def test_absent_provider_usage_retains_the_admission_reservation(
 
 async def test_resumed_conversation_settles_invocation_local_usage(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     checkpoints = InMemoryInputCheckpointPort(
         (
             ClaimAcquired(_claim(definitions.plans["main"], name="usage-first")),
@@ -752,8 +807,8 @@ async def test_resumed_conversation_settles_invocation_local_usage(
     )
     runtime = _Runtime(
         [
-            {"type": "say", "text": "First answer."},
-            {"type": "say", "text": "Second answer."},
+            _answer("First answer."),
+            _answer("Second answer."),
         ],
         usages=[_usage(100, 10), _usage(30, 3)],
     )
@@ -808,8 +863,9 @@ async def test_resumed_conversation_settles_invocation_local_usage(
 
 async def test_invalid_protocol_repairs_are_bounded_and_poison_is_consumed(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     claim = _claim(definitions.plans["main"], name="poison")
     checkpoints = InMemoryInputCheckpointPort((ClaimAcquired(claim),))
     runtime = _Runtime(
@@ -846,8 +902,9 @@ async def test_invalid_protocol_repairs_are_bounded_and_poison_is_consumed(
 
 async def test_cancellation_and_host_stop_preempt_before_provider_io(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     cancelled_claim = _claim(definitions.plans["main"], name="cancelled")
     cancelled_checkpoints = InMemoryInputCheckpointPort(
         (ClaimAcquired(cancelled_claim),)
@@ -907,15 +964,18 @@ async def test_cancellation_and_host_stop_preempt_before_provider_io(
     ]
 
 
-async def test_crash_after_session_ref_cas_forces_cold_recovery(tmp_path: Path) -> None:
-    definitions = _definitions()
+async def test_crash_after_session_ref_cas_forces_cold_recovery(
+    tmp_path: Path,
+    current_definitions: RoleDefinitions,
+) -> None:
+    definitions = current_definitions
     references = AtomicSessionRefPort(tmp_path / "crash-session.json")
     crashed_claim = _claim(definitions.plans["main"], name="crashed")
     crashed_checkpoints = _CrashAfterSessionCas((ClaimAcquired(crashed_claim),))
     runtime = _Runtime(
         [
-            {"type": "say", "text": "speculative"},
-            {"type": "say", "text": "recovered"},
+            _answer("speculative"),
+            _answer("recovered"),
         ]
     )
     provider = CodexProvider(cast(AgentRuntime, runtime), cwd_parent=tmp_path)
@@ -958,8 +1018,9 @@ async def test_crash_after_session_ref_cas_forces_cold_recovery(tmp_path: Path) 
     DATABASE_URL is None,
     reason="JARVIS_TEST_DATABASE_URL is not configured",
 )
-async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
+async def test_web_deadline_settles_owner_input_without_action_or_park(
     tmp_path: Path,
+    current_catalog: ToolCatalog,
 ) -> None:
     if DATABASE_URL is None:
         pytest.skip("JARVIS_TEST_DATABASE_URL is not configured")
@@ -993,12 +1054,17 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
         brave_api_key=SecretStr("synthetic-brave-key"),
         embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
-    admission_limits = RollingAdmissionLimits()
+    admission_limits = current_admission_limits(settings.maximum_batch_size)
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    catalog, definitions = _slice2_definitions(slow_search_deadline=12.0)
-    definitions = _with_structured_main(definitions)
+    catalog, definitions = _read_definitions(
+        with_read_bindings(
+            current_catalog,
+            compose_memory_catalog(PostgresMemoryRepository(engine), _Embedder()),
+        ),
+        slow_search_deadline=12.0,
+    )
     assert definitions.plans["main"].grant(ToolId("web.search")).limits == (
-        SLICE2_WEB_SEARCH_LIMITS
+        WEB_SEARCH_LIMITS
     )
     search_binding = catalog.binding(ToolId("web.search"))
     assert search_binding.implementation_revision == "llm-tools-web-search-v2"
@@ -1024,6 +1090,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     )
     runtime = _Runtime(
         [
+            {"type": "finish", "result": {"memories": []}},
             {
                 "type": "call_tool",
                 "tool_id": "gmail.search",
@@ -1080,7 +1147,9 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     )
     dispatchers: list[ReadToolDispatcher[RunReadRecorder]] = []
 
-    def dispatcher_factory() -> ReadToolDispatcher[RunReadRecorder]:
+    def dispatcher_factory(
+        _checkpoint: PostgresInputCheckpoint,
+    ) -> ReadToolDispatcher[RunReadRecorder]:
         dispatcher = ReadToolDispatcher(
             recorder=RunReadRecorder(), host_secrets=settings.host_secrets
         )
@@ -1088,13 +1157,16 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
         return dispatcher
 
     try:
-        outcome = await JarvisThreadRunner(
+        outcome = await _runner(
+            engine=engine,
             model_decisions=model_journal,
             settings=settings,
             store=store,
-            admission=RollingAdmissionPort(
-                settings.admission_journal_path,
-                admission_limits,
+            admission=RootTrackingAdmissionPort(
+                RollingAdmissionPort(
+                    settings.admission_journal_path,
+                    admission_limits,
+                )
             ),
             kernel_runtime=bundle,
             definitions=definitions,
@@ -1135,9 +1207,9 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
     assert settlement["outcome"] == "answered"
     assert assistant_text == "The compound reads completed boundedly."
     assert action_count_after == action_count_before
-    assert frozenset(catalog.tool_ids) == frozenset(SLICE2_READ_IDS)
+    assert frozenset(EXTERNAL_READ_IDS) < frozenset(catalog.tool_ids)
     web_continuation = "\n".join(
-        item.text for item in runtime.turns[4].input if isinstance(item, TextContent)
+        item.text for item in runtime.turns[5].input if isinstance(item, TextContent)
     )
     assert "UpstreamUnavailable" in web_continuation
     assert "RecoveryRequired" not in web_continuation
@@ -1152,6 +1224,7 @@ async def test_slice2_web_deadline_settles_owner_input_without_action_or_park(
 )
 async def test_postgres_replays_original_paid_terminal_after_publication_crash(
     tmp_path: Path,
+    current_catalog: ToolCatalog,
 ) -> None:
     if DATABASE_URL is None:
         pytest.skip("JARVIS_TEST_DATABASE_URL is not configured")
@@ -1185,15 +1258,15 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
         brave_api_key=SecretStr("synthetic-brave-key"),
         embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
-    admission_limits = RollingAdmissionLimits()
+    admission_limits = current_admission_limits(settings.maximum_batch_size)
     RollingAdmissionPort.initialize(settings.admission_journal_path, admission_limits)
-    definitions = _with_structured_main(
-        build_slice1_definitions(
-            provider=frozen_provider(
-                settings.codex_profile_key, settings.codex_model, "high"
-            ),
-            owner_timezone=settings.owner_timezone,
-        )
+    definitions = build_definitions(
+        catalog=with_read_bindings(
+            current_catalog,
+            compose_memory_catalog(PostgresMemoryRepository(engine), _Embedder()),
+        ),
+        provider=frozen_provider(),
+        owner_timezone=settings.owner_timezone,
     )
     references = AtomicSessionRefPort(
         settings.session_reference_path,
@@ -1211,6 +1284,7 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
 
     first_runtime = _Runtime(
         [
+            {"type": "finish", "result": {"memories": []}},
             {
                 "type": "finish",
                 "result": {
@@ -1219,7 +1293,7 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
                         "text": "original answer",
                     }
                 },
-            }
+            },
         ]
     )
     first_provider = CodexProvider(
@@ -1235,15 +1309,19 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
     )
     try:
         with pytest.raises(_Crash):
-            await JarvisThreadRunner(
+            await _runner(
+                dispatcher_factory=lambda _checkpoint: EmptyToolDispatcher(),
+                engine=engine,
                 model_decisions=lambda evidence: PostgresModelDecisionJournal(
                     engine, evidence=evidence
                 ),
                 settings=settings,
                 store=crash_store,
-                admission=RollingAdmissionPort(
-                    settings.admission_journal_path,
-                    admission_limits,
+                admission=RootTrackingAdmissionPort(
+                    RollingAdmissionPort(
+                        settings.admission_journal_path,
+                        admission_limits,
+                    )
                 ),
                 kernel_runtime=first_bundle,
                 definitions=definitions,
@@ -1295,15 +1373,19 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
     )
     store = MessageStore(engine)
     try:
-        recovered = await JarvisThreadRunner(
+        recovered = await _runner(
+            dispatcher_factory=lambda _checkpoint: EmptyToolDispatcher(),
+            engine=engine,
             model_decisions=lambda evidence: PostgresModelDecisionJournal(
                 engine, evidence=evidence
             ),
             settings=settings,
             store=store,
-            admission=RollingAdmissionPort(
-                settings.admission_journal_path,
-                admission_limits,
+            admission=RootTrackingAdmissionPort(
+                RollingAdmissionPort(
+                    settings.admission_journal_path,
+                    admission_limits,
+                )
             ),
             kernel_runtime=second_bundle,
             definitions=definitions,
@@ -1345,6 +1427,7 @@ async def test_postgres_replays_original_paid_terminal_after_publication_crash(
 )
 async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
     tmp_path: Path,
+    current_catalog: ToolCatalog,
 ) -> None:
     if DATABASE_URL is None:
         pytest.skip("JARVIS_TEST_DATABASE_URL is not configured")
@@ -1378,12 +1461,14 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
         brave_api_key=SecretStr("synthetic-brave-key"),
         embedding_openai_api_key=SecretStr("synthetic-embedding-key"),
     )
-    limits = RollingAdmissionLimits()
+    limits = current_admission_limits(settings.maximum_batch_size)
     RollingAdmissionPort.initialize(settings.admission_journal_path, limits)
-    definitions = build_slice1_definitions(
-        provider=frozen_provider(
-            settings.codex_profile_key, settings.codex_model, "high"
+    definitions = build_definitions(
+        catalog=with_read_bindings(
+            current_catalog,
+            compose_memory_catalog(PostgresMemoryRepository(engine), _Embedder()),
         ),
+        provider=frozen_provider(),
         owner_timezone=settings.owner_timezone,
     )
     store = MessageStore(engine)
@@ -1410,12 +1495,13 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
         SessionCoordinator(provider, references),
         references,
     )
-    admission = _ReserveStateDefect(
-        settings.admission_journal_path,
-        limits,
+    admission = RootTrackingAdmissionPort(
+        _ReserveStateDefect(settings.admission_journal_path, limits)
     )
     try:
-        outcome = await JarvisThreadRunner(
+        outcome = await _runner(
+            dispatcher_factory=lambda _checkpoint: EmptyToolDispatcher(),
+            engine=engine,
             model_decisions=model_journal,
             settings=settings,
             store=store,
@@ -1462,13 +1548,17 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
                 CheckpointStateDefect,
                 match="cognitive circuit is parked",
             ):
-                await JarvisThreadRunner(
+                await _runner(
+                    dispatcher_factory=lambda _checkpoint: EmptyToolDispatcher(),
+                    engine=engine,
                     model_decisions=model_journal,
                     settings=settings,
                     store=store,
-                    admission=RollingAdmissionPort(
-                        settings.admission_journal_path,
-                        limits,
+                    admission=RootTrackingAdmissionPort(
+                        RollingAdmissionPort(
+                            settings.admission_journal_path,
+                            limits,
+                        )
                     ),
                     kernel_runtime=restarted_bundle,
                     definitions=definitions,
@@ -1493,16 +1583,19 @@ async def test_postgres_claim_parks_post_preflight_admission_inconsistency(
 
 async def test_mid_loop_append_is_admitted_and_final_settlement_race_stays_next(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
-    first = _claim(definitions.plans["main"], name="append", text="first")
-    appended = _input("input-appended", "second")
+    definitions = current_definitions
+    first = _claim(
+        definitions.plans["main"], name="append", text="synthetic-first-owner-input"
+    )
+    appended = _input("input-appended", "synthetic-second-owner-input")
     checkpoints = InMemoryInputCheckpointPort((ClaimAcquired(first),))
     checkpoints.queue_poll(
         first.claim_id,
         AppendInputs((appended,), Checkpoint("checkpoint-appended"), AS_OF),
     )
-    runtime = _Runtime([{"type": "say", "text": "both"}])
+    runtime = _Runtime([_answer("both")])
     provider = CodexProvider(cast(AgentRuntime, runtime), cwd_parent=tmp_path)
     try:
         outcome = await _run(
@@ -1526,8 +1619,8 @@ async def test_mid_loop_append_is_admitted_and_final_settlement_race_stays_next(
     rendered = "\n".join(
         part.text for part in runtime.turns[0].input if isinstance(part, TextContent)
     )
-    assert rendered.count("first") == 1
-    assert rendered.count("second") == 1
+    assert rendered.count("synthetic-first-owner-input") == 1
+    assert rendered.count("synthetic-second-owner-input") == 1
 
     race_claim = _claim(definitions.plans["main"], name="race")
     racing = _input("input-racing", "late follow-up")
@@ -1540,7 +1633,7 @@ async def test_mid_loop_append_is_admitted_and_final_settlement_race_stays_next(
         AppendInputs((racing,), Checkpoint("checkpoint-racing"), AS_OF),
     )
     race_checkpoints.settle_results.append(SettleMoreInput())
-    race_runtime = _Runtime([{"type": "say", "text": "answer before race"}])
+    race_runtime = _Runtime([_answer("answer before race")])
     race_provider = CodexProvider(cast(AgentRuntime, race_runtime), cwd_parent=tmp_path)
     try:
         raced = await _run(
@@ -1566,8 +1659,9 @@ async def test_mid_loop_append_is_admitted_and_final_settlement_race_stays_next(
 
 async def test_attempt_ceiling_and_plan_budget_defect_are_deterministic(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     poison = _claim(definitions.plans["main"], name="attempt", attempt=4)
     poison_checkpoints = InMemoryInputCheckpointPort((ClaimAcquired(poison),))
     runtime = _Runtime([])
@@ -1626,8 +1720,9 @@ async def test_attempt_ceiling_and_plan_budget_defect_are_deterministic(
 
 async def test_compatibility_change_rotates_without_resuming_old_session(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     old = definitions.main
     rotated = replace(
         old,
@@ -1641,8 +1736,8 @@ async def test_compatibility_change_rotates_without_resuming_old_session(
     )
     runtime = _Runtime(
         [
-            {"type": "say", "text": "old"},
-            {"type": "say", "text": "new"},
+            _answer("old"),
+            _answer("new"),
         ]
     )
     provider = CodexProvider(cast(AgentRuntime, runtime), cwd_parent=tmp_path)
@@ -1673,15 +1768,16 @@ async def test_compatibility_change_rotates_without_resuming_old_session(
 
 async def test_cooperative_deadline_allows_one_finite_provider_turn_overshoot(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     definition = replace(
         definitions.main,
-        limits=replace(SLICE1_KERNEL_LIMITS, max_cooperative_seconds=1.0),
+        limits=replace(definitions.main.limits, max_cooperative_seconds=1.0),
     )
     clock = _Clock()
     runtime = _Runtime(
-        [{"type": "say", "text": "too late"}],
+        [_answer("too late")],
         on_stream=lambda: setattr(clock, "value", 2.0),
     )
     provider = CodexProvider(cast(AgentRuntime, runtime), cwd_parent=tmp_path)
@@ -1718,11 +1814,12 @@ async def test_cooperative_deadline_allows_one_finite_provider_turn_overshoot(
 
 async def test_exhausted_cooperative_deadline_stops_at_next_safe_boundary(
     tmp_path: Path,
+    current_definitions: RoleDefinitions,
 ) -> None:
-    definitions = _definitions()
+    definitions = current_definitions
     definition = replace(
         definitions.main,
-        limits=replace(SLICE1_KERNEL_LIMITS, max_cooperative_seconds=1.0),
+        limits=replace(definitions.main.limits, max_cooperative_seconds=1.0),
     )
     clock = _Clock()
 

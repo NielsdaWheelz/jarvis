@@ -17,12 +17,12 @@ from pydantic import SecretStr
 from jarvis.agent_control import AgentController
 from jarvis.config import DiscordSettings
 from jarvis.definitions import (
-    SLICE2_READ_IDS,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    EXTERNAL_READ_IDS,
+    build_definitions,
+    build_write_gate,
 )
 from jarvis.settings import Settings
-from jarvis.write_composition import build_slice6_catalog
+from jarvis.tool_composition import build_tool_composition
 
 ROOT = Path(__file__).resolve().parents[1]
 _QUALIFIER = run_path(str(ROOT / "scripts" / "qualify_proactivity.py"))
@@ -102,10 +102,10 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
         for _ in range(4)
     )
     try:
-        gate, _ = build_slice5_write_gate(
+        gate, _ = build_write_gate(
             provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
         )
-        catalog = build_slice6_catalog(
+        catalog = build_tool_composition(
             settings=_settings(tmp_path),
             google_oauth_http=clients[0],
             google_api_http=clients[1],
@@ -120,8 +120,8 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
                 actions=cast("Any", _Actions()),
             ),
             automatic_write_gate_definition_fingerprint=gate.fingerprint,
-        )
-        definitions = build_slice6_definitions(
+        ).catalog
+        definitions = build_definitions(
             catalog=catalog,
             provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
             owner_timezone="UTC",
@@ -132,10 +132,9 @@ async def test_proactivity_qualifier_uses_exact_read_only_plan_without_recall(
 
     evidence = proactive_plan_evidence(definitions)
 
-    assert evidence["tool_ids"] == tuple(map(str, SLICE2_READ_IDS))
+    assert evidence["tool_ids"] == tuple(map(str, EXTERNAL_READ_IDS))
     assert evidence["read_only"] is True
     assert evidence["recall_available"] is False
-    assert definitions.plans["proactive"] is definitions.plans["scheduled_wake"]
     for tool_id in definitions.plans["scheduled_wake"].profile.grants:
         assert not str(tool_id).startswith("memory.")
         assert (
@@ -165,7 +164,7 @@ def _valid_evidence() -> dict[str, object]:
         "plan": {
             "read_only": True,
             "recall_available": False,
-            "tool_ids": tuple(map(str, SLICE2_READ_IDS)),
+            "tool_ids": tuple(map(str, EXTERNAL_READ_IDS)),
         },
         "schedule": {
             "exact_due": True,
@@ -208,7 +207,7 @@ def test_qualifier_cannot_report_pass_without_every_schedule_invariant() -> None
             validate_result_evidence(changed)
     changed = copy.deepcopy(valid)
     cast("dict[str, object]", changed["plan"])["tool_ids"] = (
-        *map(str, SLICE2_READ_IDS),
+        *map(str, EXTERNAL_READ_IDS),
         "memory.search",
     )
     with pytest.raises(RuntimeError, match="evidence"):
@@ -273,4 +272,4 @@ def test_sanitizer_and_disabled_main_emit_no_private_values(
         "status": "failed",
     }
     assert "JARVIS_PROACTIVITY_LIVE" not in json.dumps(value)
-    assert ToolId("schedule.wake") not in SLICE2_READ_IDS
+    assert ToolId("schedule.wake") not in EXTERNAL_READ_IDS

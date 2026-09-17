@@ -1,6 +1,6 @@
 # Production operations
 
-Jarvis Slice 6 is one CPython 3.12.13-or-later process within the 3.12 series,
+Jarvis is one CPython 3.12.13-or-later process within the 3.12 series,
 one PostgreSQL database, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
 is the exact v1 catalog in SPEC 7.3. The selected Main plan contains thirteen

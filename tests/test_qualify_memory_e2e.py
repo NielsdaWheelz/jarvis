@@ -20,10 +20,10 @@ from llm_agent_kernel import (
 
 from jarvis.admission import RollingAdmissionPort, RootTrackingAdmissionPort
 from jarvis.definitions import (
-    SLICE3_RECALL_KERNEL_LIMITS,
-    SLICE3_REMEMBER_KERNEL_LIMITS,
-    SLICE4_DREAM_KERNEL_LIMITS,
-    SLICE6_KERNEL_LIMITS,
+    DREAMER_KERNEL_LIMITS,
+    MAIN_KERNEL_LIMITS,
+    RECALLER_KERNEL_LIMITS,
+    REMEMBERER_KERNEL_LIMITS,
 )
 from jarvis.memory import MemoryIdentity
 from jarvis.messages import StoredMessage
@@ -113,14 +113,14 @@ async def test_admission_fits_two_current_memory_cycles_and_one_dream(
     RollingAdmissionPort.initialize(path, limits)
     admission = RootTrackingAdmissionPort(RollingAdmissionPort(path, limits))
     roles = (
-        SLICE6_KERNEL_LIMITS,
-        SLICE3_REMEMBER_KERNEL_LIMITS,
-        SLICE4_DREAM_KERNEL_LIMITS,
-        SLICE6_KERNEL_LIMITS,
-        SLICE3_REMEMBER_KERNEL_LIMITS,
+        MAIN_KERNEL_LIMITS,
+        REMEMBERER_KERNEL_LIMITS,
+        DREAMER_KERNEL_LIMITS,
+        MAIN_KERNEL_LIMITS,
+        REMEMBERER_KERNEL_LIMITS,
     )
     for index, role in enumerate(roles):
-        foreground = role is SLICE6_KERNEL_LIMITS
+        foreground = role is MAIN_KERNEL_LIMITS
         root = await admission.reserve(
             AdmissionRequest(
                 RunId(f"qualification-{index}"),
@@ -133,7 +133,7 @@ async def test_admission_fits_two_current_memory_cycles_and_one_dream(
         )
         assert isinstance(root, AdmissionGranted)
         if foreground:
-            recall = SLICE3_RECALL_KERNEL_LIMITS
+            recall = RECALLER_KERNEL_LIMITS
             child = await admission.reserve(
                 AdmissionRequest(
                     RunId(f"recaller-{index}"),

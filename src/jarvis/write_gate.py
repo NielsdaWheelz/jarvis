@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
 from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import AutomaticWriteGateResult
-from jarvis.kernel import EmptySlice1Dispatcher
+from jarvis.kernel import EmptyToolDispatcher
 
 _MAX_OWNER_TEXT_BYTES = 8_000
 _RELATIVE_TIME = re.compile(
@@ -323,7 +323,7 @@ class AutomaticWriteGate:
             ),
             admission=self._admission,
             provider=self._provider,
-            dispatcher=EmptySlice1Dispatcher(),
+            dispatcher=EmptyToolDispatcher(),
             budget_factory=ExactToolBudgetFactory(),
             input_projection=(
                 InputProjectionRequest(render_batch_as_of=True)

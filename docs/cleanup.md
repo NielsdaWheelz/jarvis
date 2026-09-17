@@ -7,7 +7,7 @@ that the six specified tables or their columns are unnecessary.
 
 | slice | implementation owners | contract to preserve |
 |---|---|---|
-| role and capability construction | `definitions.py`, `read_composition.py`, `write_composition.py`, `kernel.py` | exact role, catalog, plan, and session identities |
+| role and capability construction | `definitions.py`, `tool_composition.py`, `kernel.py` | exact role, catalog, plan, and session identities |
 | conversation and context | `messages.py`, `checkpoints.py`, `context.py`, `history.py`, `terminal.py`, `JarvisThreadRunner` | canonical input, atomic settlement, truthful output |
 | service and discord | `service.py`, `discord.py`, `cli.py` | single-channel ingress, outbox, shutdown, foreground priority |
 | provider sessions and capacity | `session.py`, `codex_config.py`, `admission.py`, `state.py` | disposable sessions, bounded provider work, ownership |
@@ -40,13 +40,17 @@ bindings. it retains shared settings validation but no longer validates unused
 external connector construction. current role and plan identities are unchanged.
 current runtime construction now builds each role directly, without constructing
 and replacing older roles. slice3/4 constructors and result bundles are removed;
-their qualification consumers use current roles. slice1/2 test runtimes remain
-the next bounded cut.
+their qualification consumers use current roles. slice1/2 test runtimes and the
+remaining obsolete read catalog are removed. the conversation runner requires
+its current memory ports and one checkpoint-aware dispatcher factory. tests use
+the current catalog; role-only tests construct only their selected role.
 the duplicated slice3 read catalog is deleted after its consumers moved to the
 memory-only or current full catalog; no shared factory is needed.
+current python names describe roles and tool composition; durable profile ids
+retain their historical strings. the unused `proactive` plan alias is removed,
+leaving the explicit `scheduled_wake` selection.
 
 follow-ups are recorded individually under [issues](issues/):
-[direct role construction](issues/direct-role-construction.md),
 [wake notification](issues/wake-notification.md),
 [discord retries](issues/discord-delivery-retries.md), and
 [admission predecessors](issues/admission-predecessors.md).

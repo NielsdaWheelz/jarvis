@@ -18,7 +18,7 @@ from llm_agent_kernel import (
     RunMetrics,
 )
 from llm_tools import PromptSections
-from provider_fixture import frozen_provider, model_journal
+from provider_fixture import model_journal
 from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -31,7 +31,7 @@ from jarvis.admission import (
     RootTrackingAdmissionPort,
 )
 from jarvis.db import action, create_engine, memory_log, memory_summary, message
-from jarvis.definitions import RememberResult, build_slice1_definitions
+from jarvis.definitions import RememberResult, RoleDefinitions
 from jarvis.embeddings import EmbeddingFailure
 from jarvis.memory import (
     MemoryIdentity,
@@ -247,6 +247,7 @@ async def test_zero_memory_result_advances_the_complete_group(
 
 
 async def test_worker_embedding_failure_preserves_committed_lexical_memory(
+    current_definitions: RoleDefinitions,
     engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -292,9 +293,7 @@ async def test_worker_embedding_failure_preserves_committed_lexical_memory(
     admission_path = tmp_path / "embedding-failure-admission.json"
     limits = RollingAdmissionLimits()
     RollingAdmissionPort.initialize(admission_path, limits)
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
-    )
+    definitions = current_definitions
     memory = MemoryStore(engine)
     worker = RemembererWorker(
         model_decisions=model_journal,

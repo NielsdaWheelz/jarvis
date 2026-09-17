@@ -61,7 +61,7 @@ from jarvis.agent_tools import (
 )
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.db import action, create_engine, message
-from jarvis.definitions import build_slice5_write_gate
+from jarvis.definitions import build_write_gate
 from jarvis.messages import MessageStore
 from jarvis.read_dispatch import ReadToolDispatcher, RunReadRecorder
 from jarvis.terminal import TurnEvidence
@@ -606,7 +606,7 @@ async def test_host_action_resolution_cannot_authorize_a_write(
         ThreadId(conversation_id), OwnerToken("host-action-resolution-owner")
     )
     assert isinstance(claimed, ClaimAcquired)
-    gate_definition, gate_plan = build_slice5_write_gate(
+    gate_definition, gate_plan = build_write_gate(
         provider=frozen_provider("synthetic-profile", "gpt-5.6-terra", "high"),
     )
     result = await _dispatch(

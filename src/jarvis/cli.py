@@ -31,10 +31,10 @@ from jarvis.actions import ActionStore
 from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
+    current_admission_limits,
     pre_agent_control_slice6_admission_limits,
     pre_all_calendar_slice6_admission_limits,
     slice5_admission_limits,
-    slice6_admission_limits,
 )
 from jarvis.agent_control import AgentController
 from jarvis.approval_runtime import (
@@ -47,9 +47,9 @@ from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
+    build_definitions,
     build_dreamer,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    build_write_gate,
 )
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
@@ -85,7 +85,7 @@ from jarvis.rebuild import (
 from jarvis.service import JarvisService, JarvisThreadRunner
 from jarvis.settings import Settings
 from jarvis.state import PausedState
-from jarvis.write_composition import build_slice6_composition
+from jarvis.tool_composition import build_tool_composition
 from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate
 
@@ -215,7 +215,7 @@ def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
     PausedState.initialize(settings.paused_state_path)
     RollingAdmissionPort.initialize(
         settings.admission_journal_path,
-        slice6_admission_limits(settings.maximum_batch_size),
+        current_admission_limits(settings.maximum_batch_size),
     )
 
 
@@ -306,11 +306,11 @@ async def _serve(
                         ),
                         slice5_admission_limits(settings.maximum_batch_size),
                     ),
-                    current=slice6_admission_limits(settings.maximum_batch_size),
+                    current=current_admission_limits(settings.maximum_batch_size),
                 )
                 admission_store = RollingAdmissionPort(
                     settings.admission_journal_path,
-                    slice6_admission_limits(settings.maximum_batch_size),
+                    current_admission_limits(settings.maximum_batch_size),
                 )
                 recovered = await admission_store.recover_orphans()
                 if recovered:
@@ -354,7 +354,7 @@ async def _serve(
                         profile_key=settings.codex_profile_key,
                         model_key=settings.codex_model,
                     )
-                    provisional_gate, _ = build_slice5_write_gate(
+                    provisional_gate, _ = build_write_gate(
                         provider=provider_configuration,
                     )
                     agents = AgentController(
@@ -362,7 +362,7 @@ async def _serve(
                         client_config=settings.agent_client_config_path,
                         actions=actions,
                     )
-                    composition = build_slice6_composition(
+                    composition = build_tool_composition(
                         settings=settings,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
@@ -376,7 +376,7 @@ async def _serve(
                             provisional_gate.fingerprint
                         ),
                     )
-                    definitions = build_slice6_definitions(
+                    definitions = build_definitions(
                         catalog=composition.catalog,
                         provider=provider_configuration,
                         owner_timezone=settings.owner_timezone,
@@ -443,7 +443,7 @@ async def _serve(
                         model_decisions=model_decisions,
                         definitions=definitions,
                         history=history,
-                        checkpoint_dispatcher_factory=lambda checkpoint: (
+                        dispatcher_factory=lambda checkpoint: (
                             WriteToolDispatcher(
                                 checkpoint=checkpoint,
                                 gate=gate,
@@ -587,7 +587,7 @@ async def dream_once(
         async with deployment_ownership(engine) as database:
             if await MemoryStore(database).raw_memory_count() == 0:
                 return None
-            limits = slice6_admission_limits(settings.maximum_batch_size)
+            limits = current_admission_limits(settings.maximum_batch_size)
             RollingAdmissionPort.migrate_limits(
                 settings.admission_journal_path,
                 previous=(

@@ -28,8 +28,8 @@ from jarvis.admission import (
 )
 from jarvis.codex_config import CodexHostConfig
 from jarvis.definitions import (
+    DREAMER_KERNEL_LIMITS,
     EXPECTED_GIT_PINS,
-    SLICE4_DREAM_KERNEL_LIMITS,
     build_dreamer,
     verify_runtime_dependencies,
 )
@@ -298,11 +298,9 @@ def _arguments(argv: Sequence[str] | None) -> MemoryArguments:
 
 
 def qualification_admission_limits() -> RollingAdmissionLimits:
-    turns = PAID_RUNS * SLICE4_DREAM_KERNEL_LIMITS.max_provider_turns
-    inputs = PAID_RUNS * (SLICE4_DREAM_KERNEL_LIMITS.max_provider_input_tokens + 32_768)
-    outputs = PAID_RUNS * (
-        SLICE4_DREAM_KERNEL_LIMITS.max_provider_output_tokens + 8_192
-    )
+    turns = PAID_RUNS * DREAMER_KERNEL_LIMITS.max_provider_turns
+    inputs = PAID_RUNS * (DREAMER_KERNEL_LIMITS.max_provider_input_tokens + 32_768)
+    outputs = PAID_RUNS * (DREAMER_KERNEL_LIMITS.max_provider_output_tokens + 8_192)
     return RollingAdmissionLimits(
         max_turns=turns,
         max_input_tokens=inputs,

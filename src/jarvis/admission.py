@@ -31,12 +31,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from jarvis._atomic_json import read_private_json, replace_private_json
 from jarvis.definitions import (
-    SLICE1_KERNEL_LIMITS,
-    SLICE2_KERNEL_LIMITS,
-    SLICE3_RECALL_KERNEL_LIMITS,
-    SLICE3_REMEMBER_KERNEL_LIMITS,
-    SLICE6_KERNEL_LIMITS,
-    SLICE6_PLAN_TOOL_LIMITS,
+    MAIN_KERNEL_LIMITS,
+    MAIN_TOOL_LIMITS,
+    RECALLER_KERNEL_LIMITS,
+    REMEMBERER_KERNEL_LIMITS,
+    WRITE_GATE_KERNEL_LIMITS,
 )
 
 
@@ -540,53 +539,6 @@ class RootTrackingAdmissionPort:
             return await self._delegate.recover_orphans()
 
 
-def slice3_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
-    if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
-        raise ValueError("maximum owner inputs must be a positive integer")
-    root_input_overshoot = 32_768
-    root_output_overshoot = 8_192
-    serial_child_turns = (
-        maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
-    )
-    serial_child_input_tokens = maximum_owner_inputs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
-    )
-    serial_child_output_tokens = maximum_owner_inputs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
-    )
-    maximum_foreground_turns = (
-        SLICE2_KERNEL_LIMITS.max_provider_turns + serial_child_turns
-    )
-    maximum_foreground_input_tokens = (
-        SLICE2_KERNEL_LIMITS.max_provider_input_tokens
-        + root_input_overshoot
-        + serial_child_input_tokens
-    )
-    maximum_foreground_output_tokens = (
-        SLICE2_KERNEL_LIMITS.max_provider_output_tokens
-        + root_output_overshoot
-        + serial_child_output_tokens
-    )
-    return RollingAdmissionLimits(
-        max_turns=(
-            maximum_foreground_turns + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns
-        ),
-        max_input_tokens=(
-            maximum_foreground_input_tokens
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_input_tokens
-            + root_input_overshoot
-        ),
-        max_output_tokens=(
-            maximum_foreground_output_tokens
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
-            + root_output_overshoot
-        ),
-        serial_child_turns=serial_child_turns,
-        serial_child_input_tokens=serial_child_input_tokens,
-        serial_child_output_tokens=serial_child_output_tokens,
-    )
-
-
 def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
     if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
         raise ValueError("maximum owner inputs must be a positive integer")
@@ -595,32 +547,32 @@ def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
     # Preserve the historical envelope for admission-journal migration.
     maximum_gate_calls = 16
     serial_child_turns = (
-        maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
-        + maximum_gate_calls * SLICE1_KERNEL_LIMITS.max_provider_turns
+        maximum_owner_inputs * RECALLER_KERNEL_LIMITS.max_provider_turns
+        + maximum_gate_calls * WRITE_GATE_KERNEL_LIMITS.max_provider_turns
     )
     serial_child_input_tokens = maximum_owner_inputs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+        RECALLER_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
     ) + maximum_gate_calls * (
-        SLICE1_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+        WRITE_GATE_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
     )
     serial_child_output_tokens = maximum_owner_inputs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+        RECALLER_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
     ) + maximum_gate_calls * (
-        SLICE1_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+        WRITE_GATE_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
     )
     foreground_turns = 18 + serial_child_turns
     foreground_input = 600_000 + root_input_overshoot + serial_child_input_tokens
     foreground_output = 60_000 + root_output_overshoot + serial_child_output_tokens
     return RollingAdmissionLimits(
-        max_turns=foreground_turns + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns,
+        max_turns=foreground_turns + REMEMBERER_KERNEL_LIMITS.max_provider_turns,
         max_input_tokens=(
             foreground_input
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_input_tokens
+            + REMEMBERER_KERNEL_LIMITS.max_provider_input_tokens
             + root_input_overshoot
         ),
         max_output_tokens=(
             foreground_output
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
+            + REMEMBERER_KERNEL_LIMITS.max_provider_output_tokens
             + root_output_overshoot
         ),
         serial_child_turns=serial_child_turns,
@@ -629,20 +581,18 @@ def slice5_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits
     )
 
 
-def slice6_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
-    return _slice6_admission_limits(
-        maximum_owner_inputs, SLICE6_PLAN_TOOL_LIMITS.max_calls
-    )
+def current_admission_limits(maximum_owner_inputs: int) -> RollingAdmissionLimits:
+    return _current_admission_limits(maximum_owner_inputs, MAIN_TOOL_LIMITS.max_calls)
 
 
 def pre_agent_control_slice6_admission_limits(
     maximum_owner_inputs: int,
 ) -> RollingAdmissionLimits:
     """The shipped five-worker-tool envelope, retained for journal migration."""
-    return _slice6_admission_limits(maximum_owner_inputs, 17)
+    return _current_admission_limits(maximum_owner_inputs, 17)
 
 
-def _slice6_admission_limits(
+def _current_admission_limits(
     maximum_owner_inputs: int, maximum_gate_calls: int
 ) -> RollingAdmissionLimits:
     if type(maximum_owner_inputs) is not int or maximum_owner_inputs <= 0:
@@ -650,27 +600,27 @@ def _slice6_admission_limits(
     root_input_overshoot = 32_768
     root_output_overshoot = 8_192
     serial_child_turns = (
-        maximum_owner_inputs * SLICE3_RECALL_KERNEL_LIMITS.max_provider_turns
-        + maximum_gate_calls * SLICE1_KERNEL_LIMITS.max_provider_turns
+        maximum_owner_inputs * RECALLER_KERNEL_LIMITS.max_provider_turns
+        + maximum_gate_calls * WRITE_GATE_KERNEL_LIMITS.max_provider_turns
     )
     serial_child_input_tokens = maximum_owner_inputs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+        RECALLER_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
     ) + maximum_gate_calls * (
-        SLICE1_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
+        WRITE_GATE_KERNEL_LIMITS.max_provider_input_tokens + root_input_overshoot
     )
     serial_child_output_tokens = maximum_owner_inputs * (
-        SLICE3_RECALL_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+        RECALLER_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
     ) + maximum_gate_calls * (
-        SLICE1_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
+        WRITE_GATE_KERNEL_LIMITS.max_provider_output_tokens + root_output_overshoot
     )
-    foreground_turns = SLICE6_KERNEL_LIMITS.max_provider_turns + serial_child_turns
+    foreground_turns = MAIN_KERNEL_LIMITS.max_provider_turns + serial_child_turns
     foreground_input = (
-        SLICE6_KERNEL_LIMITS.max_provider_input_tokens
+        MAIN_KERNEL_LIMITS.max_provider_input_tokens
         + root_input_overshoot
         + serial_child_input_tokens
     )
     foreground_output = (
-        SLICE6_KERNEL_LIMITS.max_provider_output_tokens
+        MAIN_KERNEL_LIMITS.max_provider_output_tokens
         + root_output_overshoot
         + serial_child_output_tokens
     )
@@ -682,16 +632,16 @@ def _slice6_admission_limits(
     return RollingAdmissionLimits(
         max_turns=(
             rolling_foreground_envelopes * foreground_turns
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_turns
+            + REMEMBERER_KERNEL_LIMITS.max_provider_turns
         ),
         max_input_tokens=(
             rolling_foreground_envelopes * foreground_input
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_input_tokens
+            + REMEMBERER_KERNEL_LIMITS.max_provider_input_tokens
             + root_input_overshoot
         ),
         max_output_tokens=(
             rolling_foreground_envelopes * foreground_output
-            + SLICE3_REMEMBER_KERNEL_LIMITS.max_provider_output_tokens
+            + REMEMBERER_KERNEL_LIMITS.max_provider_output_tokens
             + root_output_overshoot
         ),
         serial_child_turns=serial_child_turns,
@@ -705,7 +655,7 @@ def pre_all_calendar_slice6_admission_limits(
 ) -> RollingAdmissionLimits:
     """Return the exact Slice 6 envelope used by the preceding production release."""
 
-    return _slice6_admission_limits(maximum_owner_inputs, 16)
+    return _current_admission_limits(maximum_owner_inputs, 16)
 
 
 @dataclass(slots=True)
@@ -1209,9 +1159,8 @@ __all__ = [
     "RollingAdmissionLimits",
     "RollingAdmissionPort",
     "RootTrackingAdmissionPort",
+    "current_admission_limits",
     "pre_agent_control_slice6_admission_limits",
     "pre_all_calendar_slice6_admission_limits",
-    "slice3_admission_limits",
     "slice5_admission_limits",
-    "slice6_admission_limits",
 ]

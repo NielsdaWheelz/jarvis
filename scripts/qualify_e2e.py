@@ -49,10 +49,10 @@ from jarvis.db import (
 from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
+    MAIN_KERNEL_LIMITS,
     QUALIFIED_CODEX_MODELS,
-    SLICE6_KERNEL_LIMITS,
-    build_slice5_write_gate,
-    build_slice6_definitions,
+    build_definitions,
+    build_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.discord import (
@@ -87,7 +87,7 @@ from jarvis.read_tools import (
 from jarvis.service import JarvisService, JarvisThreadRunner
 from jarvis.settings import Settings
 from jarvis.state import PausedState
-from jarvis.write_composition import build_slice6_composition
+from jarvis.tool_composition import build_tool_composition
 from jarvis.write_dispatch import WriteToolDispatcher
 from jarvis.write_gate import AutomaticWriteGate
 
@@ -439,7 +439,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 profile_key=settings.codex_profile_key,
                 model_key=settings.codex_model,
             )
-            provisional_gate, _ = build_slice5_write_gate(
+            provisional_gate, _ = build_write_gate(
                 provider=provider_configuration,
             )
             agents = AgentController(
@@ -447,7 +447,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 client_config=settings.agent_client_config_path,
                 actions=actions,
             )
-            composition = build_slice6_composition(
+            composition = build_tool_composition(
                 settings=settings,
                 google_oauth_http=google_oauth_http,
                 google_api_http=google_api_http,
@@ -461,7 +461,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                     provisional_gate.fingerprint
                 ),
             )
-            definitions = build_slice6_definitions(
+            definitions = build_definitions(
                 catalog=composition.catalog,
                 provider=provider_configuration,
                 owner_timezone=settings.owner_timezone,
@@ -535,7 +535,7 @@ async def _run(settings: Settings) -> dict[str, object]:
                 kernel_runtime=kernel_runtime,
                 definitions=definitions,
                 history=PostgresCanonicalHistory(engine),
-                checkpoint_dispatcher_factory=dispatcher_factory,
+                dispatcher_factory=dispatcher_factory,
                 memory=memory,
                 memory_dispatcher_factory=lambda: MemoryToolDispatcher(
                     recorder=PostgresReadRecorder(engine)
@@ -613,12 +613,12 @@ async def _run(settings: Settings) -> dict[str, object]:
                             reservation.get("actual_output_tokens"),
                         )
                         expected_reserved = (
-                            SLICE6_KERNEL_LIMITS.max_provider_turns
+                            MAIN_KERNEL_LIMITS.max_provider_turns
                             + admission_limits.serial_child_turns,
-                            SLICE6_KERNEL_LIMITS.max_provider_input_tokens
+                            MAIN_KERNEL_LIMITS.max_provider_input_tokens
                             + admission_limits.root_input_token_overshoot
                             + admission_limits.serial_child_input_tokens,
-                            SLICE6_KERNEL_LIMITS.max_provider_output_tokens
+                            MAIN_KERNEL_LIMITS.max_provider_output_tokens
                             + admission_limits.root_output_token_overshoot
                             + admission_limits.serial_child_output_tokens,
                         )

@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from runpy import run_path
 from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from llm_agent_kernel import SessionMode, StructuredOutput, require_host_plan
+from llm_agent_kernel import (
+    AdmissionGranted,
+    AdmissionRequest,
+    AdmissionUsage,
+    ProviderUsage,
+    RunId,
+    SessionMode,
+    StructuredOutput,
+    ThreadId,
+    require_host_plan,
+)
 from llm_tools import PromptSections, ToolEffect, ToolId
 from provider_fixture import frozen_provider
 from provider_runtime.agent_runtime import (
@@ -19,7 +30,9 @@ from provider_runtime.agent_runtime import (
 from provider_runtime.errors import CredentialRejected
 from pydantic import SecretStr
 
+from jarvis.admission import RollingAdmissionPort
 from jarvis.context import RecallEvidence
+from jarvis.definitions import RECALLER_KERNEL_LIMITS, REMEMBERER_KERNEL_LIMITS
 from jarvis.memory import MemoryIdentity, MemoryTableKind
 from jarvis.recall_evaluation import RecallCase, load_recall_set
 from jarvis.settings import EMBEDDING_DIMENSION
@@ -45,6 +58,11 @@ _failure_evidence = _QUALIFIER["failure_evidence"]
 _qualification_failure = _QUALIFIER["qualification_failure"]
 _QUALIFIER_GLOBALS = _verify_embedding_credential_denies_generation.__globals__
 _ProbeCheckFailed = cast("type[Exception]", _QUALIFIER["ProbeCheckFailed"])
+
+_qualification_admission_limits = _QUALIFIER["qualification_admission_limits"]
+_MEMORY_PROBE_ROOT_TURNS = _QUALIFIER["MEMORY_PROBE_ROOT_TURNS"]
+_MEMORY_PROBE_ROOT_INPUT_TOKENS = _QUALIFIER["MEMORY_PROBE_ROOT_INPUT_TOKENS"]
+_MEMORY_PROBE_ROOT_OUTPUT_TOKENS = _QUALIFIER["MEMORY_PROBE_ROOT_OUTPUT_TOKENS"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -519,3 +537,85 @@ def test_zero_memory_rememberer_rejects_any_durable_row_addition() -> None:
         )
 
     assert str(failure.value) == "rememberer_zero_memory_changed_durable_rows"
+
+
+def test_qualification_capacity_reserves_one_recaller_per_maximum_owner_input() -> None:
+    selected = _qualification_admission_limits(20)
+    assert selected.serial_child_turns == 200
+    assert selected.serial_child_input_tokens == 3_855_360
+    assert selected.serial_child_output_tokens == 483_840
+
+
+async def test_qualification_capacity_fits_worst_foreground_then_background_rememberer(
+    tmp_path: Path,
+) -> None:
+    maximum_owner_inputs = 20
+    selected = _qualification_admission_limits(maximum_owner_inputs)
+    path = tmp_path / "admission.json"
+    RollingAdmissionPort.initialize(path, selected)
+    port = RollingAdmissionPort(
+        path,
+        selected,
+        clock=lambda: datetime(2026, 9, 4, tzinfo=UTC),
+    )
+    foreground = await port.reserve(
+        AdmissionRequest(
+            RunId("foreground"),
+            ThreadId("channel"),
+            1,
+            _MEMORY_PROBE_ROOT_TURNS,
+            _MEMORY_PROBE_ROOT_INPUT_TOKENS,
+            _MEMORY_PROBE_ROOT_OUTPUT_TOKENS,
+        )
+    )
+    assert isinstance(foreground, AdmissionGranted)
+    recall = RECALLER_KERNEL_LIMITS
+    for index in range(maximum_owner_inputs):
+        child = await port.reserve(
+            AdmissionRequest(
+                RunId(f"recaller-{index}"),
+                None,
+                None,
+                recall.max_provider_turns,
+                recall.max_provider_input_tokens,
+                recall.max_provider_output_tokens,
+                foreground.token,
+            )
+        )
+        assert isinstance(child, AdmissionGranted)
+        await port.settle(
+            child.token,
+            AdmissionUsage(
+                recall.max_provider_turns,
+                ProviderUsage(input_tokens=None, output_tokens=None),
+                60.0,
+            ),
+        )
+    await port.settle(
+        foreground.token,
+        AdmissionUsage(
+            _MEMORY_PROBE_ROOT_TURNS,
+            ProviderUsage(input_tokens=None, output_tokens=None),
+            300.0,
+        ),
+    )
+
+    remember = REMEMBERER_KERNEL_LIMITS
+    background = await port.reserve(
+        AdmissionRequest(
+            RunId("rememberer"),
+            None,
+            None,
+            remember.max_provider_turns,
+            remember.max_provider_input_tokens,
+            remember.max_provider_output_tokens,
+        )
+    )
+    assert isinstance(background, AdmissionGranted)
+    assert background.token.reserved_turns == remember.max_provider_turns
+    assert background.token.reserved_input_tokens == (
+        remember.max_provider_input_tokens + selected.root_input_token_overshoot
+    )
+    assert background.token.reserved_output_tokens == (
+        remember.max_provider_output_tokens + selected.root_output_token_overshoot
+    )

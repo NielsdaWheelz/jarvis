@@ -38,8 +38,8 @@ from jarvis.admission import (
 from jarvis.codex_config import CodexHostConfig
 from jarvis.definitions import (
     EXPECTED_GIT_PINS,
-    SLICE1_KERNEL_LIMITS,
-    build_slice5_write_gate,
+    WRITE_GATE_KERNEL_LIMITS,
+    build_write_gate,
     verify_runtime_dependencies,
 )
 from jarvis.kernel import (
@@ -287,9 +287,11 @@ def output_schema_digest(definition: AgentDefinition) -> str:
 
 def qualification_admission_limits() -> RollingAdmissionLimits:
     count = len(TRIALS)
-    serial_turns = count * SLICE1_KERNEL_LIMITS.max_provider_turns
-    serial_input = count * (SLICE1_KERNEL_LIMITS.max_provider_input_tokens + 32_768)
-    serial_output = count * (SLICE1_KERNEL_LIMITS.max_provider_output_tokens + 8_192)
+    serial_turns = count * WRITE_GATE_KERNEL_LIMITS.max_provider_turns
+    serial_input = count * (WRITE_GATE_KERNEL_LIMITS.max_provider_input_tokens + 32_768)
+    serial_output = count * (
+        WRITE_GATE_KERNEL_LIMITS.max_provider_output_tokens + 8_192
+    )
     return RollingAdmissionLimits(
         max_turns=1 + serial_turns,
         max_input_tokens=1 + 32_768 + serial_input,
@@ -388,7 +390,7 @@ async def _run(arguments: Arguments) -> dict[str, object]:
                 model_key=arguments.model,
                 reasoning=arguments.reasoning_effort,
             )
-            definition, plan = build_slice5_write_gate(
+            definition, plan = build_write_gate(
                 provider=provider_configuration,
             )
             limits = qualification_admission_limits()

@@ -11,7 +11,6 @@ from llm_agent_kernel import (
     AdmissionGranted,
     AdmissionRequest,
     AdmissionUsage,
-    BatchAsOfMode,
     CancellationToken,
     InputProjectionPolicy,
     OneShotCompleted,
@@ -23,7 +22,7 @@ from llm_agent_kernel import (
     ThreadStopKind,
     bootstrap_context,
 )
-from llm_tools import PromptSections, ToolId
+from llm_tools import ToolId
 from provider_fixture import frozen_provider, model_journal
 from pydantic import ValidationError
 
@@ -32,7 +31,7 @@ from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
 )
-from jarvis.definitions import AutomaticWriteGateResult, build_slice1_definitions
+from jarvis.definitions import AutomaticWriteGateResult, build_write_gate
 from jarvis.write_gate import (
     AutomaticWriteGate,
     EffectAudience,
@@ -57,15 +56,9 @@ def _inputs(*texts: str) -> tuple[GateOwnerInput, ...]:
 
 
 def _definition_and_plan() -> tuple[object, object]:
-    definitions = build_slice1_definitions(
-        provider=frozen_provider("test", "gpt-5.6-terra", "high"), owner_timezone="UTC"
+    return build_write_gate(
+        provider=frozen_provider("test", "gpt-5.6-terra", "high"),
     )
-    definition = replace(
-        definitions.automatic_write_gate,
-        stable_context=PromptSections(()),
-        input_projection_policy=InputProjectionPolicy(False, BatchAsOfMode.on_request),
-    )
-    return definition, definitions.plans["automatic_write_gate"]
 
 
 async def _active_admission(

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Final, Protocol
+from typing import Final
 
 import httpx
 from provider_runtime import (
     Credentials,
     EmbeddingCall,
-    EmbeddingResponse,
     Present,
     ProviderCredential,
     ProviderRuntime,
@@ -26,15 +25,6 @@ class EmbeddingFailure(RuntimeError):
     """A content-free embedding failure safe for ordinary diagnostics."""
 
 
-class _EmbeddingRuntime(Protocol):
-    async def embed(
-        self,
-        call: EmbeddingCall,
-        *,
-        credential: ProviderCredential,
-    ) -> EmbeddingResponse: ...
-
-
 class OpenAIEmbedder:
     """Call provider-runtime with a credential unavailable to cognitive roles."""
 
@@ -42,23 +32,14 @@ class OpenAIEmbedder:
         self,
         api_key: SecretStr,
         *,
-        http_client: httpx.AsyncClient | None = None,
-        runtime: _EmbeddingRuntime | None = None,
+        http_client: httpx.AsyncClient,
     ) -> None:
         key = api_key.get_secret_value()
         if not key or key != key.strip():
             raise ValueError(
                 "embedding credential must be non-empty without edge whitespace"
             )
-        if runtime is None and http_client is None:
-            raise ValueError("embedding runtime requires a managed HTTP client")
-        if runtime is not None and http_client is not None:
-            raise ValueError("embedding runtime and HTTP client are mutually exclusive")
-        self._runtime = (
-            runtime
-            if runtime is not None
-            else ProviderRuntime(Credentials(), http_client=http_client)
-        )
+        self._runtime = ProviderRuntime(Credentials(), http_client=http_client)
         self._credential = ProviderCredential(provider="openai", key=key)
 
     async def embed(self, inputs: Sequence[str]) -> tuple[tuple[float, ...], ...]:

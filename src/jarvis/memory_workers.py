@@ -41,7 +41,7 @@ from jarvis.memory import (
     MemoryStore,
     RemembererGroup,
     RemembererRunSummary,
-    StoredRawMemory,
+    StoredMemory,
     SummaryInsertionCandidate,
     SummaryMutationBatch,
 )
@@ -132,7 +132,12 @@ class RemembererWorker:
                 maximum_messages_per_group=self._maximum_messages_per_group,
             )
             if not groups:
-                return await self._backfill(cancellation)
+                rows = await self._memory.select_null_embedding_candidates(
+                    maximum_rows=32
+                )
+                if not rows or cancellation.cancelled:
+                    return False
+                return await self._embed_rows(rows, cancellation)
             group = groups[0]
             material_context = PromptSections(())
         else:
@@ -283,7 +288,7 @@ class RemembererWorker:
             return False
         if cancellation.cancelled or not commit.created:
             return True
-        await self._embed_created(commit.created, cancellation)
+        await self._embed_rows(commit.created, cancellation)
         return True
 
     async def _record_attempt(
@@ -341,33 +346,11 @@ class RemembererWorker:
         sections.extend(recalled.sections)
         return PromptSections(tuple(sections))
 
-    async def _embed_created(
+    async def _embed_rows(
         self,
-        rows: tuple[StoredRawMemory, ...],
+        rows: tuple[StoredMemory, ...],
         cancellation: CancellationToken,
-    ) -> None:
-        vectors = await self._embedding_vectors(
-            tuple(row.text for row in rows), cancellation
-        )
-        if vectors is None:
-            return
-        if cancellation.cancelled or len(vectors) != len(rows):
-            return
-        for row, vector in zip(rows, vectors, strict=True):
-            if cancellation.cancelled:
-                return
-            try:
-                await self._memory.update_embedding(
-                    identity=row.identity,
-                    embedding=vector,
-                )
-            except Exception:
-                return
-
-    async def _backfill(self, cancellation: CancellationToken) -> bool:
-        rows = await self._memory.select_null_embedding_candidates(maximum_rows=32)
-        if not rows or cancellation.cancelled:
-            return False
+    ) -> bool:
         vectors = await self._embedding_vectors(
             tuple(row.text for row in rows), cancellation
         )

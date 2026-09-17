@@ -58,6 +58,12 @@ its request construction; disabling still requires the exact requested id.
 the small request callback replaces duplicated policy, with no generic retry
 framework or new state.
 
+action storage exposes only the entrypoints used by production. recovered actions
+settle their admitted input union through one grouped transaction; due wakes
+complete inside the message settlement transaction. unused action methods and a
+connector serializer are removed, and schedule conclusion owns its transaction
+body directly.
+
 the wake timer emits a parameterless work notification. requested time remains
 in the scheduled action; the timer uses its clock only to decide when to notify.
 

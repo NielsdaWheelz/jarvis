@@ -143,24 +143,24 @@ repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
 builder caches. It refuses tracked changes.
 
-`activate-release FULL_GIT_COMMIT [--accept-pending-actions]` never stops
-Jarvis. It refuses, each with its own line, unless the release is installed, the
-three environment files exist and are not symlinks, `jarvis.service` shows
-`ActiveState=inactive`, `Result=success` and `MainPID=0`, `paused.json` reads exactly
-`{"paused": true, "schema_version": "jarvis-paused.v1"}`, and `admission.json`
-exists. It never initializes state. It then counts `queued`,
-`awaiting_approval` and `executing` actions from the target release under the
-deployment lock, before migration, and prints `pending actions:` with the
-counts; a nonzero count refuses with `pending actions hold activation:` unless
-the operator passes `--accept-pending-actions`, which is only for a future
-same-catalog activation whose pending rows were inspected and remain
-compatible. It then migrates as `jarvis_migrator`, installs the selected
-release's own `deploy/jarvis.service` and reloads systemd, atomically changes
-`/opt/jarvis/current`, runs `reset-failed` and starts the service, which starts
-paused. A killed, crashed or timed-out stop is refused with `jarvis.service did
-not stop cleanly`; inspect it, then run `sudo systemctl reset-failed
-jarvis.service` explicitly before activating. A PostgreSQL advisory lock makes a second process fail rather
-than overlap.
+`activate-release FULL_GIT_COMMIT` never stops Jarvis. It refuses, each with its
+own line, unless the release is installed, the three environment files exist and
+are not symlinks, `jarvis.service` shows `ActiveState=inactive`,
+`Result=success` and `MainPID=0`, `paused.json` reads exactly `{"paused": true,
+"schema_version": "jarvis-paused.v1"}`, and `admission.json` exists. It never
+initializes state. It then counts `queued`, `awaiting_approval` and `executing`
+actions from the target release under the deployment lock, before migration, and
+prints `pending actions:` with the counts; a nonzero count refuses with `pending
+actions hold activation:`. There is no override: the gate does not check pending
+rows against the target release's tool catalog, so only an empty inventory
+establishes compatibility. A future activation that must carry pending rows
+needs that check first. It then migrates as `jarvis_migrator`, installs the
+selected release's own `deploy/jarvis.service` and reloads systemd, atomically
+changes `/opt/jarvis/current`, runs `reset-failed` and starts the service, which
+starts paused. A killed, crashed or timed-out stop is refused with
+`jarvis.service did not stop cleanly`; inspect it, then run `sudo systemctl
+reset-failed jarvis.service` explicitly before activating. A PostgreSQL advisory
+lock makes a second process fail rather than overlap.
 
 a fresh deployment is a separate manual procedure outside `activate-release`:
 after migration, run `jarvis initialize-state` once in the same systemd one-shot
@@ -463,8 +463,7 @@ PY
 
 then activate the target. activation counts pending actions again in the
 stopped state under the deployment lock, before migration, releases the lock,
-and refuses any nonzero count. never pass `--accept-pending-actions` in this
-cutover:
+and refuses any nonzero count:
 
 ```sh
 deploy/activate-release FULL_TARGET_COMMIT
@@ -476,8 +475,10 @@ the owner sends `resume` only after `deploy/verify-containment` passes.
 
 step 7. run `deploy/verify-containment`.
 
-step 8. the owner sends `resume`. the live codex and claude journey remains
-[herdr live acceptance](issues/herdr-live-acceptance.md).
+step 8. the owner sends `resume`. the live codex and claude journey belongs to
+isolated qualification before skid publication
+([herdr live acceptance](issues/herdr-live-acceptance.md)); nothing in this
+procedure qualifies it, and production's first turn is observed, not qualified.
 
 ### rollback
 

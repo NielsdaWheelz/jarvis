@@ -319,27 +319,34 @@ in Slice 0.
       adversarial shell/exec probe causes zero host effect; any observed
       authority event yields only the truthful host-authored runtime-failure
       response.
-- [ ] **A4.16** Main exposes exactly `codex.list`, `codex.read`, `codex.start`,
-      `codex.prompt`, and `codex.interrupt` in addition to the existing catalog;
-      scheduled and internal roles expose none. Inputs reject unknown fields,
-      invalid profiles, malformed handles, generic cognition targets, and
-      oversize content before host I/O. The host rejects out-of-root cwd before
-      native creation; native exact-Steer rejects stale turns before steering.
-      Start first resolves an existing canonical permitted cwd through the
-      closed host helper, then creates one prompt-free native thread,
-      unsubscribes Jarvis, creates and observes one exact ordinary tmux session,
-      and performs native Submit. Launch revalidates the exact cwd.
-      `Started` does not claim asynchronous TUI attachment or worker completion.
-      Submit truthfully means start-or-steer. Interrupt reports the observed
-      Interrupted, natural Finished, Stale, or Unknown outcome without retry.
-      Worker approvals receive no Jarvis response. Every mutation is BilledOnce
-      with one executor entry; Partial/Unknown retain the exact surviving prefix,
-      and cancellation/restart/original-input reconsideration never redispatches
-      an ambiguous effect. Workers run independently without entering the
-      cognition decoder or adding a worker table. A thread-only failure prefix
-      does not promise durable native history. The no-prompt failure proof uses
-      the exact native creation receipt and zero input frames, never a missing
-      history read as evidence of no dispatch.
+- [ ] **A4.16** Main exposes exactly `agent.list`, `agent.info`, `agent.read`,
+      `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`
+      and `agent.kill` in addition to the existing catalog; scheduled and
+      internal roles expose none. Inputs are closed: refs are opaque strings of
+      at most 4096 characters, read coverage is `recent|visible` with 1–32768
+      bytes, send text is 1–32768 exact utf-8 bytes, keys are 1–16 of the nine
+      logical keys, start permits only an advertised profile. Every invocation
+      uses the absolute executable, `--config`, `--json`, the exact argv per
+      adr 0048 and no shell. Results decode the actual envelopes before exit
+      status and reject unknown fields, duplicate keys and inconsistent
+      shape/status pairs. Send, keys, interrupt and stop preflight one fleet
+      list requiring exactly one terminal whose current agent ref equals the
+      submitted ref; kill preflights one info returning the same terminal ref;
+      start needs none; missing owner input denies before lookup; failed or
+      ambiguous lookup creates no action; an unrelated unavailable peer does not
+      veto an exact match; a replaced agent is never substituted. The gate sees
+      peer label, optional product name, the original ref and the stop/kill
+      closure-scope disclosure only. Every mutation is BilledOnce with one
+      executor entry: complete success settles that operation only; not-sent
+      and sent failures settle failed with code, dispatch and partial prefix;
+      unknown dispatch, unknown outcome, or a malformed, oversized, lost or
+      timed-out reply after child start settles uncertain with
+      `agent_control_v2` evidence; cancellation/restart/original-input
+      reconsideration never redispatches. Partial fleet inventory renders as an
+      incomplete observation, never as an empty or complete fleet. Old receipts
+      of both earlier generations remain readable after restart with bounded
+      notices; no canonical row changes. Live codex/claude journeys are
+      `NOT_RUN` until pr 4's isolated fleet exists; absence is not a pass.
 
 ## A5. Memory
 

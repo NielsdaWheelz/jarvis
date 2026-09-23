@@ -25,6 +25,7 @@ type TerminalOutcome = Literal[
 type ConclusionKind = Literal["conversation", "silent"]
 
 DISCORD_CONTENT_MAX_CHARACTERS = 2_000
+_FLEET_COUNT_LIMIT = 10_000
 _CALENDAR_COVERAGE_REASONS: tuple[CalendarCoverageReason, ...] = (
     "calendar_failure",
     "calendar_limit",
@@ -117,11 +118,22 @@ class _CalendarIncompleteness:
     matched_events: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class _AgentInventoryIncompleteness:
+    unavailable_peers: int
+    partial_peers: int
+    unaddressable_terminals: int
+    unaddressable_workspaces: int
+
+
 @dataclass(slots=True)
 class TurnEvidence:
-    """Run-local Calendar incompleteness, without provider data or model prose."""
+    """Run-local Calendar and fleet incompleteness, without payloads or prose."""
 
     calendar_incompleteness: tuple[_CalendarIncompleteness, ...] = field(
+        default=(), init=False
+    )
+    agent_inventory_incompleteness: tuple[_AgentInventoryIncompleteness, ...] = field(
         default=(), init=False
     )
 
@@ -164,6 +176,30 @@ class TurnEvidence:
             ),
         )
 
+    def record_agent_inventory_incompleteness(
+        self,
+        *,
+        unavailable_peers: int,
+        partial_peers: int,
+        unaddressable_terminals: int,
+        unaddressable_workspaces: int,
+    ) -> None:
+        counts = (
+            unavailable_peers,
+            partial_peers,
+            unaddressable_terminals,
+            unaddressable_workspaces,
+        )
+        if any(type(count) is not int or count < 0 for count in counts):
+            raise ValueError("fleet inventory counts must be non-negative integers")
+        if not any(counts):
+            raise ValueError("incomplete fleet inventory requires a nonzero count")
+        self.agent_inventory_incompleteness += (
+            _AgentInventoryIncompleteness(
+                *(min(count, _FLEET_COUNT_LIMIT) for count in counts)
+            ),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class RenderedTerminal:
@@ -192,16 +228,26 @@ def render_terminal(
     terminal: JarvisTerminal,
     evidence: TurnEvidence,
 ) -> RenderedTerminal:
-    """Apply Calendar completeness policy and render one final host response."""
+    """Apply read completeness policy and render one final host response."""
 
     response = terminal.response
-    if evidence.calendar_incompleteness and response.type in ("answered", "silent"):
+    calendar = evidence.calendar_incompleteness
+    fleet = evidence.agent_inventory_incompleteness
+    if (calendar or fleet) and response.type in ("answered", "silent"):
+        parts: list[str] = []
+        if calendar:
+            parts.append(_calendar_limitation(evidence))
+        if fleet:
+            parts.append(_fleet_limitation(evidence))
+        limitation = " ".join(parts)
+        if len(limitation) > 500:
+            raise ValueError("read coverage limitation exceeds its content bound")
         text = (
             response.text
             if response.type == "answered"
-            else "I couldn\u2019t produce a complete calendar answer."
+            else "I couldn\u2019t produce a complete answer."
         )
-        content = f"Partial result — {_calendar_limitation(evidence)}\n\n{text}"
+        content = f"Partial result — {limitation}\n\n{text}"
         return RenderedTerminal("partial", "conversation", content)
 
     if response.type == "answered":
@@ -252,10 +298,24 @@ def _calendar_limitation(evidence: TurnEvidence) -> str:
         details.append("not every matching event fit in the response")
     if "deadline" in reasons:
         details.append("the calendar read reached its deadline")
-    limitation = "; ".join((lead, *details)) + "."
-    if len(limitation) > 500:
-        raise ValueError("Calendar coverage limitation exceeds its content bound")
-    return limitation
+    return "; ".join((lead, *details)) + "."
+
+
+def _fleet_limitation(evidence: TurnEvidence) -> str:
+    records = evidence.agent_inventory_incompleteness
+    lead = (
+        "Fleet inventory was incomplete"
+        if len(records) == 1
+        else f"Fleet inventory was incomplete in {len(records)} reads"
+    )
+    return (
+        f"{lead}: host scans unavailable "
+        f"{sum(record.unavailable_peers for record in records)}, partial "
+        f"{sum(record.partial_peers for record in records)}; unaddressable "
+        f"terminals {sum(record.unaddressable_terminals for record in records)}, "
+        f"workspaces {sum(record.unaddressable_workspaces for record in records)}; "
+        "the rest is unknown."
+    )
 
 
 __all__ = [

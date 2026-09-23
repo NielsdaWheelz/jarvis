@@ -95,7 +95,6 @@ class EffectTarget(BaseModel):
         "profile",
         "cwd",
         "terminal_name",
-        "turn_id",
         "machine",
         "terminal_id",
     ]
@@ -179,6 +178,7 @@ class WriteEffectDescriptor(BaseModel):
     use_default_reminders: bool | None = None
     has_expected_etag: bool | None = None
     has_reply_target: bool | None = None
+    closure_scope: Literal["native_linked_workspace_group_may_close"] | None = None
     omitted_freeform: Annotated[tuple[OmittedFreeform, ...], Field(max_length=8)] = ()
 
     @field_validator("execute_after")

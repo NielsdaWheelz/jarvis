@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
-from llm_tools import DeclaredToolFailure, ExecutionContext, HandlerSuccess
+from llm_tools import (
+    DeclaredToolFailure,
+    ExecutionContext,
+    HandlerSuccess,
+    canonical_json_bytes,
+)
 from pydantic import BaseModel
 
 from jarvis.agent_tools import (
@@ -24,8 +29,16 @@ from jarvis.agent_tools import (
     AgentRefInput,
     AgentSendInput,
     AgentStartInput,
+    AgentStartResult,
     AgentStopResult,
+    AgentWireError,
     AgentWriteResult,
+    AgentWriteTarget,
+    agent_error_type,
+    agent_failure_partial,
+    agent_failure_settles,
+    agent_tool_limits,
+    validate_agent_failure,
 )
 
 if TYPE_CHECKING:
@@ -34,6 +47,10 @@ if TYPE_CHECKING:
 
 class AgentOutcomeUnknown(RuntimeError):
     """The existing BilledOnce recorder must settle without replaying the CLI."""
+
+
+class AgentTargetUnavailable(RuntimeError):
+    """Preflight lookup could not prove exactly one original target."""
 
 
 def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -47,6 +64,20 @@ def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _constant(value: str) -> object:
     raise ValueError("non-finite JSON value")
+
+
+def _require_clean_strings(value: object) -> None:
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if "\x00" in item:
+                raise ValueError("NUL in CLI output")
+            item.encode("utf-8")
+        elif isinstance(item, dict):
+            pending.extend(cast(dict[str, object], item).items())
+        elif isinstance(item, list | tuple):
+            pending.extend(cast(list[object], item))
 
 
 class AgentController:
@@ -67,11 +98,6 @@ class AgentController:
         context: ExecutionContext | None,
     ) -> HandlerSuccess[T]:
         write = verb not in {"list", "info", "read"}
-        encoded = value.model_dump_json(exclude_none=True).encode("utf-8")
-        if len(encoded) > 65536:
-            raise DeclaredToolFailure(
-                AgentError(code="input_limit", dispatch="not_sent"), actual_attempts=0
-            )
         argv = [
             str(self.executable),
             "--config",
@@ -96,27 +122,33 @@ class AgentController:
                     value.name,
                 )
             )
-        elif isinstance(
-            value, AgentRefInput | AgentReadInput | AgentSendInput | AgentKeysInput
-        ):
-            argv.extend(("--ref", value.ref))
-            if isinstance(value, AgentReadInput):
-                argv.extend(("--max-bytes", str(value.maxBytes)))
-            if (
-                isinstance(value, AgentReadInput | AgentSendInput)
-                and value.mode == "terminal"
-            ):
+        elif isinstance(value, AgentReadInput):
+            argv.extend(
+                (
+                    "--ref",
+                    value.ref,
+                    "--coverage",
+                    value.coverage,
+                    "--max-bytes",
+                    str(value.maxBytes),
+                )
+            )
+        elif isinstance(value, AgentSendInput):
+            argv.extend(("--ref", value.ref, "--stdin"))
+            if value.mode == "terminal":
                 argv.append("--terminal")
-            if isinstance(value, AgentSendInput):
-                argv.append("--stdin")
-                stdin = value.text.encode("utf-8")
-            if isinstance(value, AgentKeysInput):
-                argv.extend(value.keys)
+            stdin = value.text.encode("utf-8")
+        elif isinstance(value, AgentKeysInput):
+            argv.extend(("--ref", value.ref, *value.keys))
+        elif isinstance(value, AgentRefInput):
+            argv.extend(("--ref", value.ref))
         else:
             raise ValueError("unsupported agent input")
+        limits = agent_tool_limits(verb)
+        limit = limits.max_output_bytes
         process: asyncio.subprocess.Process | None = None
         try:
-            async with asyncio.timeout(15):
+            async with asyncio.timeout(limits.deadline_seconds):
                 process = await asyncio.create_subprocess_exec(
                     *argv,
                     stdin=asyncio.subprocess.PIPE,
@@ -127,89 +159,83 @@ class AgentController:
                 process.stdin.write(stdin)
                 await process.stdin.drain()
                 process.stdin.close()
-                maximum = 1048576 if verb == "list" else 65536
                 output = bytearray()
-                while chunk := await process.stdout.read(
-                    min(8192, maximum + 1 - len(output))
-                ):
+                while chunk := await process.stdout.read(limit + 2 - len(output)):
                     output.extend(chunk)
-                    if len(output) > maximum:
+                    if len(output) > limit + 1:
                         raise ValueError("CLI output limit")
                 returncode = await process.wait()
-                envelope = json.loads(
-                    output.decode("utf-8"),
-                    object_pairs_hook=_object,
-                    parse_constant=_constant,
-                )
-                if not isinstance(envelope, dict):
-                    raise ValueError("invalid CLI envelope")
-                envelope = cast(dict[str, object], envelope)
-                if (
-                    set(envelope) == {"ok", "error"}
-                    and envelope["ok"] is False
-                    and returncode in {1, 2}
+            document = bytes(output).removesuffix(b"\n")
+            if len(document) == len(output) or document != document.strip():
+                raise ValueError("CLI output is not one JSON line")
+            envelope = json.loads(
+                document.decode("utf-8"),
+                object_pairs_hook=_object,
+                parse_constant=_constant,
+            )
+            _require_clean_strings(envelope)
+            if not isinstance(envelope, dict):
+                raise ValueError("invalid CLI envelope")
+            envelope = cast(dict[str, object], envelope)
+            fields = set(envelope)
+            target = fields & {"label", "machine"}
+            if target not in (set(), {"label", "machine"}) or not all(
+                isinstance(envelope[key], str) for key in target
+            ):
+                raise ValueError("invalid CLI envelope target")
+            observed: T | AgentError
+            if (
+                fields - target in ({"ok", "error"}, {"ok", "error", "partial"})
+                and envelope["ok"] is False
+                and returncode in {1, 2}
+            ):
+                wire = AgentWireError.model_validate(envelope["error"])
+                if returncode == 2 and (
+                    fields != {"ok", "error"}
+                    or (wire.code, wire.dispatch) != ("invalid_input", "not_sent")
                 ):
-                    error = AgentError.model_validate(envelope["error"])
-                    if write and error.dispatch == "unknown":
-                        raise AgentOutcomeUnknown(
-                            "agent command outcome unconfirmed; do not repeat"
-                        )
-                    raise DeclaredToolFailure(error, actual_attempts=1)
-                if (
-                    set(envelope) != {"ok", "result"}
-                    or envelope["ok"] is not True
-                    or returncode not in {0, 1}
-                ):
-                    raise ValueError("invalid CLI envelope")
-                result = result_type.model_validate(envelope["result"])
-                partial = (
-                    (isinstance(result, AgentListResult) and result.partial)
-                    or (
-                        isinstance(result, AgentWriteResult)
-                        and result.outcome == "unknown"
-                    )
-                    or (
-                        isinstance(result, AgentStopResult)
-                        and (
-                            result.agent == "unconfirmed"
-                            or result.terminal == "unconfirmed"
-                        )
-                    )
-                )
-                if returncode != int(partial):
+                    raise ValueError("invalid CLI usage envelope")
+                failure: dict[str, object] = {
+                    "code": wire.code,
+                    "message": wire.message,
+                    "dispatch": wire.dispatch or "unknown",
+                    "label": envelope.get("label"),
+                    "machine": envelope.get("machine"),
+                }
+                if "partial" in envelope:
+                    failure["partial"] = envelope["partial"]
+                observed = validate_agent_failure(verb, failure)
+            elif fields == {"ok", "result"} and envelope["ok"] is True:
+                observed = result_type.model_validate(envelope["result"])
+                if isinstance(observed, AgentWriteResult) and not observed.complete:
+                    exits = {0, 1}
+                elif isinstance(observed, AgentListResult) and observed.partial:
+                    exits = {1}
+                else:
+                    exits = {0}
+                if returncode not in exits:
                     raise ValueError("CLI exit status differs from its result")
-                if isinstance(result, AgentWriteResult | AgentStopResult) and partial:
-                    if (
-                        context is None
-                        or context.effect_id is None
-                        or context.position != context.effect_id
-                    ):
-                        raise RuntimeError(
-                            "agent Write requires its durable action position"
-                        )
-                    stage = asyncio.create_task(
-                        self._actions.stage_agent_control(
-                            action_id=UUID(str(context.effect_id)),
-                            evidence=AgentActionEvidence(observed=result),
-                        )
-                    )
-                    try:
-                        await asyncio.shield(stage)
-                    except asyncio.CancelledError:
-                        await stage
-                        raise
-                    raise AgentOutcomeUnknown(
-                        "agent command partially confirmed; do not repeat"
-                    )
-                return HandlerSuccess(result, actual_attempts=1)
-        except (OSError, TimeoutError, ValueError, KeyError, TypeError) as exc:
-            if write and process is not None:
+                normalized = {
+                    "type": "Success",
+                    "value": observed.model_dump(mode="json"),
+                }
+                if len(canonical_json_bytes(normalized)) > limit:
+                    raise ValueError("normalized result exceeds its declared limit")
+            else:
+                raise ValueError("invalid CLI envelope")
+        except (OSError, TimeoutError, ValueError, TypeError, RecursionError) as exc:
+            if process is None:
+                raise DeclaredToolFailure(
+                    agent_error_type(verb)(code="unavailable", dispatch="not_sent"),
+                    actual_attempts=0,
+                ) from exc
+            if write:
                 raise AgentOutcomeUnknown(
                     "agent command reply unavailable; do not repeat"
                 ) from exc
             raise DeclaredToolFailure(
-                AgentError(code="unavailable", dispatch="not_sent"),
-                actual_attempts=1 if process is not None else 0,
+                agent_error_type(verb)(code="unavailable", dispatch="unknown"),
+                actual_attempts=1,
             ) from exc
         finally:
             if process is not None and process.returncode is None:
@@ -220,9 +246,64 @@ class AgentController:
                 except TimeoutError:
                     process.kill()
                     await process.wait()
+        if isinstance(observed, AgentError):
+            failed = not write or agent_failure_settles(observed)
+            if failed and agent_failure_partial(observed) is None:
+                raise DeclaredToolFailure(observed, actual_attempts=1)
+        elif isinstance(observed, AgentWriteResult) and not observed.complete:
+            failed = False
+        else:
+            return HandlerSuccess(observed, actual_attempts=1)
+        if (
+            context is None
+            or context.effect_id is None
+            or context.position != context.effect_id
+        ):
+            raise RuntimeError("agent Write requires its durable action position")
+        stage = asyncio.create_task(
+            self._actions.stage_agent_control(
+                action_id=UUID(str(context.effect_id)),
+                evidence=AgentActionEvidence(observed=observed),
+            )
+        )
+        try:
+            await asyncio.shield(stage)
+        except asyncio.CancelledError:
+            await stage
+            raise
+        if failed:
+            raise DeclaredToolFailure(observed, actual_attempts=1)
+        raise AgentOutcomeUnknown("agent command outcome unconfirmed; do not repeat")
+
+    async def locate_agent(self, ref: str) -> AgentWriteTarget:
+        try:
+            inventory = (await self.list(AgentListInput())).value
+        except DeclaredToolFailure as exc:
+            raise AgentTargetUnavailable("fleet inventory unavailable") from exc
+        matches = [
+            (peer.label, terminal.name)
+            for peer in inventory.peers
+            for terminal in peer.terminals or ()
+            if terminal.agent is not None and terminal.agent.ref == ref
+        ]
+        if len(matches) != 1:
+            raise AgentTargetUnavailable(f"{len(matches)} current agents match the ref")
+        label, name = matches[0]
+        return AgentWriteTarget(label=label, name=name, ref=ref)
+
+    async def locate_terminal(self, ref: str) -> AgentWriteTarget:
+        try:
+            observed = (await self.info(AgentRefInput(ref=ref))).value
+        except DeclaredToolFailure as exc:
+            raise AgentTargetUnavailable("terminal observation unavailable") from exc
+        if observed.terminal.ref != ref:
+            raise AgentTargetUnavailable("observed terminal differs from the ref")
+        return AgentWriteTarget(
+            label=observed.label, name=observed.terminal.name, ref=ref
+        )
 
     async def list(
-        self, value: AgentListInput, context: ExecutionContext
+        self, value: AgentListInput, context: ExecutionContext | None = None
     ) -> HandlerSuccess[AgentListResult]:
         return await self._run("list", value, AgentListResult, context)
 
@@ -238,8 +319,8 @@ class AgentController:
 
     async def start(
         self, value: AgentStartInput, context: ExecutionContext
-    ) -> HandlerSuccess[AgentInfoResult]:
-        return await self._run("start", value, AgentInfoResult, context)
+    ) -> HandlerSuccess[AgentStartResult]:
+        return await self._run("start", value, AgentStartResult, context)
 
     async def send(
         self, value: AgentSendInput, context: ExecutionContext

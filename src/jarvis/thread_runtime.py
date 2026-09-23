@@ -42,6 +42,7 @@ from jarvis.admission import (
     ExactToolBudgetFactory,
     RootTrackingAdmissionPort,
 )
+from jarvis.agent_tools import AgentListResult
 from jarvis.checkpoints import PostgresInputCheckpoint
 from jarvis.context import (
     IsolatedRecaller,
@@ -137,6 +138,20 @@ class CapturingReadDispatcher:
                 calendars_completed=coverage.calendars_completed,
                 matched_events=coverage.matched_events,
             )
+        if tool_id == "agent.list" and result.get("type") == "Success":
+            inventory = AgentListResult.model_validate(result.get("value"))
+            peers = inventory.peers
+            if inventory.partial:
+                self._evidence.record_agent_inventory_incompleteness(
+                    unavailable_peers=sum(not peer.ok for peer in peers),
+                    partial_peers=sum(peer.partial is True for peer in peers),
+                    unaddressable_terminals=sum(
+                        peer.unaddressableTerminals or 0 for peer in peers
+                    ),
+                    unaddressable_workspaces=sum(
+                        peer.unaddressableWorkspaces or 0 for peer in peers
+                    ),
+                )
         self._observations.append((tool_id, ordinal, result))
 
     def snapshot_model_evidence(self) -> dict[str, object]:
@@ -156,6 +171,7 @@ class CapturingReadDispatcher:
         stored = _StoredMainEvidence.model_validate_json(canonical_json_bytes(value))
         self._observations.clear()
         self._evidence.calendar_incompleteness = ()
+        self._evidence.agent_inventory_incompleteness = ()
         for observation in stored.observations:
             self._record_observation(
                 observation.tool_id, observation.ordinal, observation.result

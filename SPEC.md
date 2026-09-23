@@ -34,6 +34,9 @@ worker controls with the common skid cli. its explicit worker deltas supersede
 conflicting historical codex-only/launcher restrictions below; cognition is unchanged.
 [adr 0045](docs/decisions/0045-use-the-ordinary-fleet-cli.md) replaces the worker
 cli grammar and targets with ordinary argv and opaque references, and adds info/kill.
+[adr 0048](docs/decisions/0048-align-with-the-herdr-fleet-cli.md) aligns the consumer
+with skid's herdr runtime: separate terminal/agent refs, explicit readiness and
+dispatch, exact original-target preflight, closed partial prefixes and 256 kib envelopes.
 
 ## 1. Product definition
 
@@ -86,9 +89,9 @@ V1 MUST NOT add:
 - A workflow framework or general agent platform beyond the bounded
   `llm-agent-kernel` library.
 - A peer-agent ownership graph, task schema, completion scheduler, or general
-  execution framework. owner-directed tmux agent interaction uses section 7.3.
+  execution framework. owner-directed terminal agent interaction uses section 7.3.
 - A general-purpose remote shell, SSH, terminal, or unconstrained browser agent.
-- OnePassword or Nexus integration. skid owns the common tmux agent-control
+- OnePassword or Nexus integration. skid owns the common herdr agent-control
   api; jarvis consumes its cli without duplicating provider or terminal control.
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
@@ -359,8 +362,9 @@ Jarvis acts without approval for:
   calendar.
 - Creating or cancelling a `schedule.wake`.
 - owner-directed `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`,
-  and `agent.stop`, grounded by `AutomaticWriteGate`; explicit terminal input
-  may answer worker permission dialogs under existing host-user authority.
+  `agent.stop` and `agent.kill`, grounded by `AutomaticWriteGate`; explicit
+  terminal input may answer worker permission dialogs under existing host-user
+  authority. stop and kill disclose possible linked-workspace-group closure.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -845,8 +849,8 @@ invocation. A drain is an exclusive work epoch within a thread run. A one-shot
 run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
-a persistent peer model. the nine agent controls are owner-directed tmux
-operations outside the cognitive decoder; they
+a persistent peer model. the nine agent controls are owner-directed herdr
+terminal operations outside the cognitive decoder; they
 add no peer graph, completion callback, scheduler, transcript store, or worker
 ownership state. The main definition is
 `continuing` with a closed structured terminal contract and the exact main
@@ -1140,42 +1144,113 @@ V1 exposes exactly the following canonical model tools:
 
 agent controls invoke the absolute installed skid executable with explicit
 `--config PATH`, ordinary command arguments, `--json`, bounded stdout, and suppressed
-stderr. send uses `--stdin` for literal text; other commands have empty stdin.
-no shell, json-request stdin, second fleet client, native worker client, or dedicated
-terminal launcher remains. list/start select configured machine labels; addressed
-operations echo the opaque `ref` returned by list/info. the cli owns reference
-encoding and the common inventory/result projection; jarvis never decodes refs.
+stderr. send uses `--stdin` for exact utf-8 text of 1–32768 bytes with no trimming,
+added newline or NUL; other commands have empty stdin. no shell, json-request stdin,
+second fleet client, native worker client, or dedicated terminal launcher remains.
+list/start select configured machine labels; addressed operations echo an opaque
+`ref` of at most 4096 characters returned by list/info. the cli owns reference
+encoding, kind/lifetime validation and the common projection; jarvis never decodes
+refs or derives one ref from another.
 
-start requires name, machine and profile; cwd defaults to remote `~`. it creates an
-ordinary terminal without an initial prompt or readiness promise. info observes
-that exact session now and may return a newly observed agent ref; mutations retain
-the submitted ref and never follow a replacement. list/info/read observe native or
-inferred state and bounded provider/terminal output. send/keys deliver deliberate
-input, including startup dialogs. codex remains terminal-only; claude-work retains
-native state/history/stop. interrupt reports delivery, not proven cancellation.
-stop reports provider halt and terminal closure separately. kill closes only the
-exact session without requesting provider halt; shared work may remain elsewhere.
-a delivered halt affects work in every linked session.
+the exact argv is `list [--machine M]`, `info --ref R`, `start --machine M
+--profile P --cwd C -- NAME`, `read --ref R --coverage recent|visible --max-bytes N`,
+`send --ref R --stdin [--terminal]`, `keys --ref R KEY...`, and
+`interrupt|stop|kill --ref R`. info and kill address a terminal ref; read, send,
+keys, interrupt and stop address an agent ref. list returns the fleet inventory,
+including ordinary shells and unavailable peers; info returns one terminal with its
+optional current agent. start submits a launch in a new workspace named after the
+terminal, with no prompt and no readiness guarantee, and permits only an advertised
+host profile. read returns bounded terminal text with explicit scope; bytes are
+1–32768. keys sends 1–16 of `enter, escape, ctrl-c, up, down, left, right, tab,
+backspace`. ordinary send requires `readiness: ready`; `--terminal` deliberately
+bypasses readiness only. interrupt sends one provider interrupt key and confirms
+nothing. stop interrupts, then closes the original terminal; kill closes it without
+interrupt; either close may be refused and may close linked workspaces and their
+running terminals.
 
-before an addressed write reaches the existing gate, the dispatcher calls the same
-controller's `info --ref` once. only its bounded machine label/session name and the
-original ref enter existing effect-target fields; no worker text/status/history is
-provided to the gate. missing owner input denies before that read. metadata failure
-is `write_check_unavailable/not_sent`, creates no action, and causes no mutation.
-the action and executor retain the ORIGINAL arguments/ref, never the refreshed ref.
-start requires no lookup. this adds one bounded metadata read per addressed write;
-it creates no new preparation framework, cache, authority source, or action row.
+results are closed models defined once in `agent_tools.py`, with wire field names
+retained: status `{state: working|blocked|idle|unknown, source: herdr|unavailable,
+reason?: default_idle|unrecognized|observation_failed}`; agent `{ref, provider,
+provenRuntimeProfile?, providerSession?, status, readiness: ready|blocked|unconfirmed,
+methods: {read,send,interrupt: terminal|unavailable}}`; terminal `{ref, name?,
+nativeLabel?, character: {key,displayName}, workspaceRef, cwd?, launchProfile?,
+objective?, agent?}`; peer `{label, machine, ok:true, observedAt, partial,
+unaddressableTerminals, unaddressableWorkspaces, profiles, workspaces, terminals}`
+or `{label, machine, ok:false, error: {code,message}}`; inventory `{partial, peers}`
+where `partial` equals any failed or partial peer; info `{label, machine,
+observedAt, terminal}`; start adds `launch: submitted, dispatch: sent`; read
+`{label, machine, text, source: terminal, scope: terminal_history|visible,
+truncated}`; write `{label, machine, method: terminal, outcome: written|unknown,
+dispatch: sent|unknown}`; stop `{label, machine, agent: interrupt_sent|exited,
+terminal: closed, dispatch: sent}`; kill `{label, machine, terminal: closed,
+dispatch: sent}`. booleans and counts are strict, timestamps aware, empty arrays
+valid. an absent name is valid and `nativeLabel` is only a hint. `idle` alone is
+not readiness; descriptive profile/session metadata never gates an action.
 
-writes retain `ReplayPolicy.BilledOnce`, one executor entry, and terminal
-uncertainty after possible dispatch. timeout, child loss, lost acknowledgment,
-or partial stop never authorizes replay. killing the cli does not cancel remote
-work. control input/output is bounded to 64 kib; fleet list output to 1 mib;
-each cli execution is bounded to 15 seconds. parse the envelope before exit status:
-exit 1 plus success preserves partial inventory or unconfirmed action evidence;
-complete success requires exit 0. truncated bounded reads remain successful.
-nine tools share the existing run allowance; no budget is enlarged. immutable
-historical receipts remain readable, but no old execution parser remains.
-the exact schemas are skid's `docs/agent-control-ux.md` and adr 0045.
+jarvis decodes `{ok:true,result}` or `{ok:false,error:{code,message,dispatch?},
+partial?}`, with optional outer `label,machine`, before interpreting exit status:
+0 for a complete result, 1 for failure, partial inventory or unknown write outcome,
+2 for usage; an incomplete write result (`outcome: unknown` or `dispatch: unknown`)
+may exit 0 or 1 and is always staged as uncertain. omitted dispatch is `unknown`;
+not-sent is never inferred from exit status. inconsistent shape/status pairs, duplicate keys, non-json values and
+unknown fields are rejected. partial errors are closed per operation: start
+`{stage: resource_created}` or `{stage: identified, terminal}`; stop `{agent:
+interrupt_sent|exited|unconfirmed, terminal: refused|unconfirmed|not_attempted}`;
+kill `{terminal: refused}`. `AgentFailure` carries `code, message?, label?,
+machine?, dispatch: not_sent|sent|unknown, partial?`; local `policy_denied` and
+`write_check_unavailable` remain `not_sent`.
+
+before an addressed write reaches the existing gate, and only after current owner
+input is present, the dispatcher proves the original target: send, keys, interrupt
+and stop run one bounded fleet `list` through the same controller and require
+exactly one terminal whose current `agent.ref` equals the submitted ref; kill runs
+one `info` with the terminal ref and requires the same ref back. start needs no
+lookup. only the peer label, an optional product name and the original ref enter
+existing effect-target fields; no native label, objective, status, terminal text or
+history reaches the gate. no match, several matches, invalid output, a fleet reply
+above 1 mib, or lookup failure is `write_check_unavailable/not_sent`, creates no
+action and mutates nothing; a positive exact match remains usable when unrelated
+peers are unavailable. the descriptor carries `closure_scope:
+native_linked_workspace_group_may_close` for stop and kill; an owner restriction
+incompatible with a possible cascade is denied, never reinterpreted. the action
+and executor retain the original arguments and ref; a fresh lookup may inform a
+later decision but never changes an existing action.
+
+writes retain `ReplayPolicy.BilledOnce`, one executor entry, `max_attempts=1`,
+and terminal uncertainty after possible dispatch. a complete success settles only
+that operation, never task completion or a confirmed descendant halt. a `not_sent`
+failure without partial, or a `sent` failure other than `OutcomeUnknown` whose
+partial is one the host emits (start: none, `resource_created`, `identified`;
+stop: `unconfirmed/not_attempted` or `interrupt_sent|exited` with
+`not_attempted|refused`; kill: none or `refused`; send/keys/interrupt: none),
+settles `failed` with its code, dispatch and partial facts, which may include a
+created terminal or a sent interrupt; a partial prefix is staged before the
+failure settles. an `unknown` dispatch, `OutcomeUnknown`, an unknown write
+outcome, a contradictory dispatch/partial pair, a malformed, oversized, lost or
+timed-out reply after child start, or interrupted unsettled execution settles
+`uncertain` with every validated prefix staged as `{type: agent_control_v2,
+observed: null|write|AgentFailure}` inside the existing `agent_uncertainty_v1`
+wrapper. no partial field alone classifies an outcome. no result, later
+inventory or process exit authorizes replay. encoded input and control results are
+bounded to 256 kib and the fleet list to 1 mib, measured on both the cli's stdout
+(plus its final newline) and the normalized tool result that llm-tools budgets, and
+each cli execution to 15 seconds, except the read-only fleet list at 17 seconds so that
+one hung peer yields a partial inventory instead of an unavailable one (the cli's
+own 15-second clock starts after it parses its arguments); a borderline write
+reply lost to the shared deadline stays uncertain rather than gaining a longer
+outer timeout. terminal-mode override is a main-role discipline visible in the
+stored arguments, not a gate descriptor fact. killing the child never
+cancels remote work. nine tools share the existing run allowance; large valid
+results may exhaust it and are never clipped.
+
+partial fleet inventory is turn evidence: bounded unavailable-peer and
+unaddressable-resource counts enter the existing evidence path, compose with
+calendar incompleteness, downgrade `answered`/`silent` to `partial`, count scans
+rather than hosts, and survive snapshot restoration. historical receipts of the
+earlier tool generations decode only through `agent_history.py`, selected by the
+stored execution contract revision; live schemas accept only this contract and no
+old execution grammar remains. the exact wire contract is skid's herdr pr 1
+retained gateway operations and adr 0048.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 
@@ -1654,9 +1729,9 @@ at a defined boundary; recomputation occurs only on a later explicitly admitted
 schedule, never by unconditional cleanup rearming.
 
 accepted codex and claude agents execute independently on their selected hosts
-after dispatch. Their native event streams never enter the serial
-cognition decoder, consume its provider lease, or grant new Jarvis authority.
-the start action terminates at truthful terminal creation; Jarvis neither
+after dispatch. their terminal output never enters the serial cognition
+decoder, consumes its provider lease, or grants new Jarvis authority.
+the start action terminates at a submitted launch, not readiness; Jarvis neither
 waits durably for worker completion nor schedules a successor from it.
 
 No second PostgreSQL conversation lock is required while the global ownership
@@ -2137,8 +2212,8 @@ product-domain code.
   that host, disk, or database loss may permanently destroy Jarvis state.
 - Production activation does not reboot the shared devbox. A pending kernel
   update remains explicit operational debt for an owner-selected maintenance
-  window; tmux sessions and their live processes are not treated as recoverable
-  across that reboot.
+  window; worker terminals and their live processes are not treated as
+  recoverable across that reboot.
 - Jarvis uses live tools for current external state and distinguishes that state
   from recalled memory.
 - Discord typing is the only synchronous progress signal. A persisted Main
@@ -2212,8 +2287,8 @@ Frozen decisions:
   receipts that remain replayable across the later wake lifecycle.
 - No v1 redaction or destructive memory consolidation.
 - No Android, OnePassword, Nexus, Skidbladnir source/API, or other unlisted
-  application integration. Worker terminals are ordinary tmux sessions visible
-  through unchanged Skidbladnir.
+  application integration. worker terminals are ordinary herdr terminals
+  visible through Skidbladnir.
 
 Changing one requires an ADR stating observed evidence, migration impact, and
 the acceptance criteria affected.

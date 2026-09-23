@@ -493,8 +493,11 @@ def agent_family(controller: AgentController) -> ToolFamily:
             "stop",
             "Interrupt by agent ref, then close the original terminal. Closure may be "
             "refused. Closing a final pane may close linked workspaces and their "
-            "running terminals. A not_attempted close is unconfirmed, not skipped. "
-            "Closure confirms no descendant halt; never report all workers stopped.",
+            "running terminals. partial.terminal not_attempted means no close was "
+            "sent; refused means herdr rejected the close request and implies "
+            "nothing about the terminal's state; unconfirmed means the close reply "
+            "was lost and it may have closed. Closure confirms no descendant halt; "
+            "never report all workers stopped.",
             AgentRefInput,
             controller.stop,
         ),

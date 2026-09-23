@@ -139,9 +139,6 @@ value = {
 path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
 path.chmod(0o644)
 PY
-sudo install -m 0644 -o root -g root \
-  "$release/deploy/jarvis.service" /etc/systemd/system/jarvis.service
-sudo systemctl daemon-reload
 complete=1
 printf 'Installed inactive release: %s\n' "$commit"
 REMOTE

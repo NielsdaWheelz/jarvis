@@ -15,3 +15,9 @@ the deployment journal validates under current limits without losing unexpired
 reservation identities, expiry or charges. until then, do not activate the new
 release or reset the journal to make it start. no production action was taken in
 this cleanup.
+
+the [herdr cutover](../operations.md#herdr-cutover-pr-4) runbook orders this
+preparation after the owner pause and cooperative stop (step 3) and before the
+target's installation and activation; the journal must be current before
+`deploy/activate-release`, which requires `admission.json` and never
+initializes it. still open as of 2026-09-23.

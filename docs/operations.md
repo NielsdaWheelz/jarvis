@@ -117,13 +117,14 @@ Calendar writes only for those IDs, without attendees or notification, after
 AutomaticWriteGate allows the current owner request. Every other case requires
 Approve or Deny.
 
-Install the exact committed release without activating it, then atomically run
-migrations and initialization in systemd one-shots that inject the root-only
-environment after changing to the `jarvis` identity. Finally select the release
-and enable the service:
+The production deployment exists. Install the exact committed release without
+activating it, then, with the service stopped and owner-paused, migrate in a
+systemd one-shot that injects the root-only environment after changing to the
+`jarvis` identity, select the release and start it:
 
 for an existing deployment, complete the
-[admission journal cutover](#admission-journal-cutover) before activation.
+[admission journal cutover](#admission-journal-cutover) before activation. the
+herdr catalog switch follows the [herdr cutover](#herdr-cutover-pr-4) runbook.
 
 ```sh
 deploy/install-release
@@ -136,15 +137,36 @@ deploy/verify-containment
 --frozen --no-dev --no-editable --link-mode copy`. After root-owning the tree,
 it verifies the release-contained interpreter, dependency identity and CLI as
 the actual `jarvis` service identity before recording the commit/tree/lock
-digest and installing the inactive service unit. Rechecking an existing receipt
+digest. It never writes the global service unit. Rechecking an existing receipt
 also requires that service-identity proof; an unusable release is rejected, not
 repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
-builder caches. It refuses tracked changes. `activate-release` requires
-both split database credentials, migrates as `jarvis_migrator`, initializes
-content-free runtime state once, atomically changes `/opt/jarvis/current`, and
-starts the service. A PostgreSQL advisory lock makes a second process fail
-rather than overlap.
+builder caches. It refuses tracked changes.
+
+`activate-release FULL_GIT_COMMIT [--accept-pending-actions]` never stops
+Jarvis. It refuses, each with its own line, unless the release is installed, the
+three environment files exist and are not symlinks, `jarvis.service` shows
+`ActiveState=inactive`, `Result=success` and `MainPID=0`, `paused.json` reads exactly
+`{"paused": true, "schema_version": "jarvis-paused.v1"}`, and `admission.json`
+exists. It never initializes state. It then counts `queued`,
+`awaiting_approval` and `executing` actions from the target release under the
+deployment lock, before migration, and prints `pending actions:` with the
+counts; a nonzero count refuses with `pending actions hold activation:` unless
+the operator passes `--accept-pending-actions`, which is only for a future
+same-catalog activation whose pending rows were inspected and remain
+compatible. It then migrates as `jarvis_migrator`, installs the selected
+release's own `deploy/jarvis.service` and reloads systemd, atomically changes
+`/opt/jarvis/current`, runs `reset-failed` and starts the service, which starts
+paused. A killed, crashed or timed-out stop is refused with `jarvis.service did
+not stop cleanly`; inspect it, then run `sudo systemctl reset-failed
+jarvis.service` explicitly before activating. A PostgreSQL advisory lock makes a second process fail rather
+than overlap.
+
+a fresh deployment is a separate manual procedure outside `activate-release`:
+after migration, run `jarvis initialize-state` once in the same systemd one-shot
+shape with `database-runtime.env` and `jarvis.env`, then install the unit, select
+the release and start it by hand. initialized state is unpaused, which
+`activate-release` rejects by design.
 
 `verify-containment` runs after activation without printing secret values. It
 proves the three environment files are root-owned mode 0600 and unreadable by
@@ -176,9 +198,10 @@ activating this cut, validate or normalize the stopped deployment's journal
 through release `51f62c86322a66224d1576395b5795ae823c1f75`.
 
 if absent, install that exact commit with `deploy/install-release` from a clean
-checkout of it. this also installs its service unit; it does not select the release
-or start it. never activate the transitional release or run its service or dream
-command.
+checkout of it. that commit's installer also overwrites the global service unit;
+it does not select the release or start it, and target activation reinstalls the
+target's unit. never activate the transitional release or run its service or
+dream command.
 
 run the following on the deployment host through an operator allowed to use
 sudo. it reads only the configured database url, runtime directory and batch
@@ -257,17 +280,278 @@ and synthetic fixtures do not establish that the private deployment journal is
 ready; the outstanding deployment work is tracked in
 [admission journal cutover](issues/admission-journal-cutover.md).
 
-after successful preparation, install the target release normally. an already
-installed release skips unit installation, so restore the chosen target's unit
-explicitly before `deploy/activate-release`. replace `FULL_TARGET_COMMIT` with
-the target's full commit:
+after successful preparation, install the target release normally;
+`deploy/activate-release` installs the selected release's unit and reloads
+systemd.
+
+## herdr cutover (pr 4)
+
+this switch activates the herdr-aligned catalog of
+[adr 0048](decisions/0048-align-with-the-herdr-fleet-cli.md). the changed catalog
+rotates the shared plan and the gate fingerprint participates in every write
+binding, so every nonterminal action is incompatible, not only agent actions. no
+old grammar or target compatibility mode remains. run the steps in order. a
+failed step leaves jarvis on the old release or stopped for repair; nothing
+retries.
+
+step 1. while the old release runs, take a read-only inventory. `serve` holds the
+deployment lock, so this one-shot takes no lock and prints counts only:
 
 ```sh
-target_release=/opt/jarvis/releases/FULL_TARGET_COMMIT
-sudo install -m 0644 -o root -g root \
-  "$target_release/deploy/jarvis.service" /etc/systemd/system/jarvis.service &&
-sudo systemctl daemon-reload
+sudo systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-cutover-inventory \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property=WorkingDirectory=/opt/jarvis/current \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  /opt/jarvis/current/.venv/bin/python - <<'PY'
+import os
+
+from sqlalchemy import create_engine, text
+
+from jarvis.db import normalize_database_url
+from jarvis.process_security import deny_same_identity_process_inspection
+
+PENDING = "status in ('queued', 'awaiting_approval', 'executing')"
+QUERIES = (
+    ("actions", f"select status, count(*) from action where {PENDING} group by 1"),
+    (
+        "action kinds",
+        "select tool_name || ':' || status, count(*) from action "
+        f"where {PENDING} group by 1",
+    ),
+    (
+        "input",
+        "select case when processing_parked_at is null then 'waking' "
+        "else 'parked' end, count(*) from message "
+        "where role in ('owner', 'host') and processed_at is null group by 1",
+    ),
+    (
+        "decisions",
+        "select case when d.terminal is null then 'open' "
+        "else 'completed_unsettled' end, count(*) from model_decision d "
+        "left join message m on m.id = d.first_input_id "
+        "where d.terminal is null "
+        "or (d.first_input_id is not null and m.processed_at is null) group by 1",
+    ),
+    (
+        "reads",
+        "select state, count(*) from read_position "
+        "where state <> 'completed' group by 1",
+    ),
+)
+
+deny_same_identity_process_inspection()
+engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
+try:
+    with engine.connect() as connection:
+        for label, query in QUERIES:
+            rows = sorted(connection.execute(text(query)).all())
+            print(label, " ".join(f"{key}={count}" for key, count in rows) or "none")
+finally:
+    engine.dispose()
+PY
 ```
+
+`actions` and `action kinds` exhaust the status query, including mail and
+calendar approvals and receipt-backed `schedule.wake` reminders that startup
+recovery selectors omit. nonzero counts hold activation. finish or reconcile
+each action, or obtain the owner's explicit denial or cancellation through the
+existing operations, then rerun the inventory; activation proceeds only at
+zero. never change action rows by sql, and never cancel an `executing` action
+whose external effect is uncertain. preserve lineage and history: never restamp
+contracts, reset attempts or silently lose reminders.
+
+tell the owner, per item, what was cancelled, that it performed no external
+effect, and that nothing replaces it; a new approval or reminder needs a fresh
+owner request. for example: "The reminder set for 2026-09-30 was cancelled for
+the upgrade and will not fire. Nothing replaces it; ask again to set a new
+one."
+
+unknown dispatch may have taken effect. it is never retried: inspect current
+state with list or info, then decide any new action deliberately; this action
+will not be repeated automatically.
+
+`input` counts unprocessed owner and host rows: `waking` rows await a turn,
+`parked` rows stay parked until an operator releases them. `decisions` counts
+paid model decisions with no terminal (`open`) and completed decisions whose
+first input never settled (`completed_unsettled`). `reads` counts read
+positions not `completed`. these need not reach zero: let the old release
+finish the turn, or the owner's `stop` settles it with a stopped conclusion.
+what remains keeps its fail-closed recovery and is never replayed under the
+new plan; a main run whose stored observations include an old-shape
+`agent.list` success fails closed, so finish or cancel such runs first.
+attributing a remaining row to a turn is manual owner-guided inspection of
+`message.created_at`, `processing_attempts` and `processing_parked_at`,
+`model_decision.scope_key`, `ordinal` and `completed_at`, and
+`read_position.state` and `updated_at`; never print text, request, terminal,
+result, contract or trace columns.
+
+step 2. close phone and interactive fleet callers. the owner sends `pause`. verify
+the durable pause, then stop jarvis cooperatively and confirm how it stopped:
+
+```sh
+sudo cat /var/lib/jarvis/runtime/paused.json
+sudo systemctl stop jarvis.service
+sudo systemctl show --property=ActiveState,Result,MainPID jarvis.service
+```
+
+`paused` must be true, and the service must show `ActiveState=inactive`,
+`Result=success` and `MainPID=0`. the stop sends SIGINT, and the host joins its
+worker before exiting, so a clean stop is the evidence that no turn is still
+running. step 6 counts pending actions again in this stopped state and refuses
+nonzero counts. attribute any remaining `open` decision with the manual
+owner-guided inspection from step 1. a killed, crashed or timed-out stop
+(`failed`, or another `Result`) ends the procedure: inspect it, and do not
+replace the unit, cli or release. only after that inspection may
+`sudo systemctl reset-failed jarvis.service` clear it; `deploy/activate-release`
+refuses until then. run no dream, rebuild or other operator process until step 8.
+
+step 3. if not already done, run the [admission journal cutover](#admission-journal-cutover);
+the target requires it. its `systemctl stop` is now a no-op.
+
+step 4. from a clean checkout of the full target commit, install the inactive
+release. it no longer writes the global unit:
+
+```sh
+deploy/install-release
+```
+
+step 5. from the same pinned dev-server checkout, apply devbox
+(`./devbox apply`), then arch and macbook (`./workstation apply` on each).
+verify each host before moving to the next. devbox apply replaces
+`/usr/local/libexec/skidbladnir`, so jarvis MUST already be stopped. then check
+fleet and cli identity. from the macbook's skid checkout,
+`SKIDBLADNIR_DEV_SERVER_CHECKOUT=<that dev-server checkout> scripts/fleet verify`
+must pass for macbook, devbox and arch. every peer must run the pinned skid
+release that carries truthful stop partials (skid pr 4); an earlier peer
+reports a rejected close as `not_attempted`, which this release's stop copy
+reads as "no close was sent". on devbox,
+`sudo /usr/local/libexec/skidbladnir version` must print the pinned tag and
+source commit, `sudo stat -c '%a %U' /etc/jarvis/agent-client.json` must print
+`600 jarvis`, and the file keeps its three peers.
+
+step 6. just before activating, record the database clock for the rollback
+check. it prints one timestamp:
+
+```sh
+sudo systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-activation-clock \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property=WorkingDirectory=/opt/jarvis/current \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  /opt/jarvis/current/.venv/bin/python - <<'PY'
+import os
+
+from sqlalchemy import create_engine, text
+
+from jarvis.db import normalize_database_url
+from jarvis.process_security import deny_same_identity_process_inspection
+
+deny_same_identity_process_inspection()
+engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
+try:
+    with engine.connect() as connection:
+        print(connection.scalar(text("select now()")).isoformat())
+finally:
+    engine.dispose()
+PY
+```
+
+then activate the target. activation counts pending actions again in the
+stopped state under the deployment lock, before migration, releases the lock,
+and refuses any nonzero count. never pass `--accept-pending-actions` in this
+cutover:
+
+```sh
+deploy/activate-release FULL_TARGET_COMMIT
+```
+
+the service starts paused. startup recovery runs before ingress, so a paused
+start is not a read-only audit. an active service is not live qualification;
+the owner sends `resume` only after `deploy/verify-containment` passes.
+
+step 7. run `deploy/verify-containment`.
+
+step 8. the owner sends `resume`. the live codex and claude journey remains
+[herdr live acceptance](issues/herdr-live-acceptance.md).
+
+### rollback
+
+rollback is the same command with the previous commit, after the owner pauses
+and the service stops cleanly as in step 2; a failed stop needs the same
+inspection and explicit `reset-failed`. it installs that release's own unit. the
+previous skid cli returns only through the previous dev-server apply, also with
+jarvis stopped. before this release has written durable work, a qualified
+same-schema previous release may return with its matching cli and unit. count
+that work, including updates to rows that predate activation; replace
+`ACTIVATED_AT` with the timestamp step 6 printed:
+
+```sh
+sudo systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-rollback-inventory \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property=WorkingDirectory=/opt/jarvis/current \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  /opt/jarvis/current/.venv/bin/python - ACTIVATED_AT <<'PY'
+import os
+import sys
+from datetime import datetime
+
+from sqlalchemy import create_engine, text
+
+from jarvis.db import normalize_database_url
+from jarvis.process_security import deny_same_identity_process_inspection
+
+CHANGED = (
+    (
+        "action",
+        "created_at >= :since or decided_at >= :since or completed_at >= :since",
+    ),
+    ("model_decision", "created_at >= :since or completed_at >= :since"),
+    ("read_position", "created_at >= :since or updated_at >= :since"),
+    ("message", "processed_at >= :since"),
+)
+
+deny_same_identity_process_inspection()
+since = datetime.fromisoformat(sys.argv[1])
+engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
+try:
+    with engine.connect() as connection:
+        for table, changed in CHANGED:
+            count = connection.scalar(
+                text(f"select count(*) from {table} where {changed}"),
+                {"since": since},
+            )
+            print(f"{table}={count}")
+finally:
+    engine.dispose()
+PY
+```
+
+any nonzero count is new durable work. then activate only a release qualified to
+read its `agent_control_v2` receipts, positions and decisions; otherwise keep
+jarvis stopped and repair forward. the rollback target must also be qualified
+against the current admission journal
+([adr 0047](decisions/0047-require-current-admission-journals.md)), or jarvis
+stays stopped. never rewind the database, delete or rewrite rows, or reset
+budgets.
+
+### what activation does not prove
+
+- activation proves one selected release, unit and `current` agree and the
+  service stayed running for ten seconds without restart. it is not a model
+  turn, fleet control or containment.
+- `pending actions: queued=0 awaiting_approval=0 executing=0` covers actions
+  only. unsettled input, decisions and reads stay fail-closed and are not
+  counted by the gate.
+- a passing `scripts/fleet verify` shows versions and reachability, not that
+  jarvis can control a worker; the live journey is still `NOT_RUN`.
 
 ## Approval operation
 
@@ -355,19 +639,8 @@ configuration readable by jarvis. the fleet operator distributes the configured
 hosts' existing bearers; provider credentials remain on their hosts. refresh
 these copies after bearer rotation. there is no fleet hub or credential daemon.
 
-before activating the herdr-aligned catalog, inventory every nonterminal action
-under the old release, not only agent actions: the changed catalog rotates the
-shared plan and the gate fingerprint participates in every write binding. finish,
-reconcile or explicitly cancel incompatible actions, including approvals and
-scheduled wakes, preserving their lineage and history; never restamp contracts,
-reset attempts or silently lose reminders. stage matching skid (herdr runtime,
-merged pr 2 or later) and jarvis releases, then switch callers together. no old
-grammar/target compatibility mode remains. incomplete model/read positions keep
-their fail-closed recovery: a main run interrupted across the switch whose stored
-observations include an old-shape `agent.list` success fails closed on recovery,
-so finish or cancel such runs before switching. source rollback after new `agent_control_v2` receipts
-exist is not automatically safe: qualify a rollback consumer that reads them, or
-repair forward; never delete or rewrite history to roll back.
+the herdr-aligned catalog is activated only through the
+[herdr cutover](#herdr-cutover-pr-4) runbook.
 
 jarvis uses list/info to resolve owner requests naming a terminal. before an
 addressed write, one bounded fleet list must contain exactly one terminal whose

@@ -7,11 +7,11 @@ from typing import Literal, cast
 from llm_tools import ToolId
 
 from jarvis.agent_tools import (
-    AgentInfoResult,
     AgentKeysInput,
     AgentRefInput,
     AgentSendInput,
     AgentStartInput,
+    AgentWriteTarget,
 )
 from jarvis.schedule_tools import (
     ScheduleCancelRequest,
@@ -100,19 +100,21 @@ def write_effect_descriptor(
     tool_id: ToolId,
     value: object,
     *,
-    agent_info: AgentInfoResult | None = None,
+    target: AgentWriteTarget | None = None,
 ) -> WriteEffectDescriptor:
     """Project one strictly validated input into the gate's scalar allowlist."""
 
     name = str(tool_id)
     if name == "agent.start" and isinstance(value, AgentStartInput):
-        targets = (
-            EffectTarget(kind="machine", value=value.machine),
-            EffectTarget(kind="profile", value=value.profile),
-            EffectTarget(kind="cwd", value=value.cwd),
+        return WriteEffectDescriptor(
+            operation="start",
+            targets=(
+                EffectTarget(kind="machine", value=value.machine),
+                EffectTarget(kind="profile", value=value.profile),
+                EffectTarget(kind="cwd", value=value.cwd),
+                EffectTarget(kind="terminal_name", value=value.name),
+            ),
         )
-        targets += (EffectTarget(kind="terminal_name", value=value.name),)
-        return WriteEffectDescriptor(operation="start", targets=targets)
     if name in {
         "agent.send",
         "agent.keys",
@@ -120,25 +122,32 @@ def write_effect_descriptor(
         "agent.stop",
         "agent.kill",
     } and isinstance(value, AgentSendInput | AgentKeysInput | AgentRefInput):
-        if agent_info is None:
-            raise ValueError("addressed agent write requires current session metadata")
-        targets = (
-            EffectTarget(kind="machine", value=agent_info.label),
-            EffectTarget(kind="terminal_name", value=agent_info.session.name),
-            EffectTarget(kind="terminal_id", value=value.ref),
-        )
-        omitted = (
-            (OmittedFreeform.from_text("worker_input", value.text),)
-            if isinstance(value, AgentSendInput)
-            else ()
-        )
+        if target is None or target.ref != value.ref:
+            raise ValueError("addressed agent write requires its original target")
         return WriteEffectDescriptor(
             operation=cast(
                 Literal["send", "keys", "interrupt", "stop", "kill"],
                 name.removeprefix("agent."),
             ),
-            targets=targets,
-            omitted_freeform=omitted,
+            targets=(
+                EffectTarget(kind="machine", value=target.label),
+                *(
+                    ()
+                    if target.name is None
+                    else (EffectTarget(kind="terminal_name", value=target.name),)
+                ),
+                EffectTarget(kind="terminal_id", value=target.ref),
+            ),
+            omitted_freeform=(
+                (OmittedFreeform.from_text("worker_input", value.text),)
+                if isinstance(value, AgentSendInput)
+                else ()
+            ),
+            closure_scope=(
+                "native_linked_workspace_group_may_close"
+                if name in {"agent.stop", "agent.kill"}
+                else None
+            ),
         )
     if name == "gmail.create_draft" and isinstance(value, GmailCreateDraftInput):
         return _gmail_descriptor("create", value.content)

@@ -46,20 +46,25 @@ from jarvis.actions import (
     ActionStore,
     ExecutionContract,
     StoredAction,
+    agent_receipt_is_live,
     agent_uncertainty_result,
 )
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
+from jarvis.agent_history import (
+    HistoricalAgentActionEvidence,
+    HistoricalAgentError,
+    historical_agent_success_type,
+)
 from jarvis.agent_tools import (
+    AGENT_SUCCESS_TYPES,
     AGENT_WRITE_IDS,
-    AgentActionEvidence,
     AgentError,
     AgentKeysInput,
-    AgentKillResult,
     AgentRefInput,
     AgentSendInput,
-    AgentStopResult,
-    AgentWriteResult,
+    validate_agent_evidence,
+    validate_agent_failure,
 )
 from jarvis.approval import ApprovalRenderError, render_approval
 from jarvis.checkpoints import PostgresInputCheckpoint
@@ -193,17 +198,20 @@ class WriteToolDispatcher:
                     lineage.model_decision_id,
                 )
                 return _write_check_failure(tool_id, "policy_denied")
-            agent_info = None
+            target = None
             if tool_id in AGENT_WRITE_IDS and isinstance(
                 validated_input, AgentRefInput | AgentSendInput | AgentKeysInput
             ):
-                stage = "target_metadata"
-                agent_info = (
-                    await self._agents.info(AgentRefInput(ref=validated_input.ref))
-                ).value
+                stage = "target_lookup"
+                locate = (
+                    self._agents.locate_terminal
+                    if tool_id == ToolId("agent.kill")
+                    else self._agents.locate_agent
+                )
+                target = await locate(validated_input.ref)
             stage = "descriptor"
             descriptor = write_effect_descriptor(
-                tool_id, validated_input, agent_info=agent_info
+                tool_id, validated_input, target=target
             )
             stage = "gate"
             gate = await self._gate.evaluate(
@@ -834,8 +842,8 @@ def action_resolution_text(stored: StoredAction) -> str:
             raise RuntimeError("uncertain action lacks safe reconciliation evidence")
         evidence = evidence_code
         instruction = (
-            "\nOwner action: inspect the current provider state before retrying or "
-            "taking further action."
+            "\nOwner action: inspect current state; this action will not be repeated "
+            "automatically."
         )
     elif stored.status == "failed":
         assert stored.result is not None
@@ -850,6 +858,18 @@ def action_resolution_text(stored: StoredAction) -> str:
             if isinstance(error_type, str)
             else "Validated failure receipt recorded."
         )
+        if (
+            error_type == "AgentFailure"
+            and stored.tool_name in AGENT_WRITE_IDS
+            and agent_receipt_is_live(stored)
+        ):
+            sent = _agent_failure(stored, stored.result["error"])["dispatch"] == "sent"
+            evidence = (
+                "Validated failure receipt recorded: AgentFailure, sent; failed does "
+                "not mean no effect."
+                if sent
+                else "Validated failure receipt recorded: AgentFailure, not sent."
+            )
     elif stored.status == "cancelled":
         assert stored.result is not None
         reason = stored.result.get("reason_code")
@@ -942,16 +962,14 @@ async def gmail_send_basis_is_current(
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
-    if stored.tool_name in AGENT_WRITE_IDS and stored.status == "uncertain":
-        control = AgentActionEvidence.model_validate(stored.result.get("control"))
+    if (
+        stored.status == "uncertain"
+        and stored.result.get("type") == "agent_uncertainty_v1"
+    ):
+        control = _agent_control(stored, stored.result.get("control"))
         return {
             "type": "Failure",
-            "error": {
-                "type": "Unknown",
-                "observed": control.observed.model_dump(mode="json")
-                if control.observed is not None
-                else None,
-            },
+            "error": {"type": "Unknown", "observed": control["observed"]},
         }
     if (
         stored.tool_name in AGENT_WRITE_IDS
@@ -965,7 +983,7 @@ def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
         ):
             return {
                 "type": "Failure",
-                "error": AgentError.model_validate(error).model_dump(mode="json"),
+                "error": _agent_failure(stored, stored.result["error"]),
             }
     if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS and stored.status == "uncertain":
         control = CodexActionEvidence.model_validate(stored.result.get("control"))
@@ -1022,7 +1040,6 @@ def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
 
 
 def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
-    result = _safe_resolution_result(stored)
     if stored.status == "uncertain":
         assert stored.result is not None
         result = stored.result
@@ -1031,15 +1048,21 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
             "evidence_code": _safe_atom(result.get("evidence_code"), 256),
             "recorded_at": _safe_atom(result.get("recorded_at"), 64),
         }
-        if stored.tool_name in AGENT_WRITE_IDS:
-            safe["control"] = AgentActionEvidence.model_validate(
-                result.get("control")
-            ).model_dump(mode="json")
-        if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
+        if result.get("type") == "agent_uncertainty_v1":
+            control = _agent_control(stored, result.get("control"))
+            observed = control["observed"]
+            safe["control"] = {
+                "type": control["type"],
+                "observed": None
+                if observed is None
+                else _bounded_agent_observation(cast(dict[str, object], observed)),
+            }
+        if result.get("type") == "codex_uncertainty_v1":
             safe["control"] = CodexActionEvidence.model_validate(
                 result.get("control")
             ).model_dump(mode="json")
         return safe
+    result = _safe_resolution_result(stored)
     if result.get("type") == "Failure":
         error = result.get("error")
         if not isinstance(error, dict):
@@ -1049,10 +1072,7 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
             stored.tool_name in AGENT_WRITE_IDS
             and safe_error.get("type") == "AgentFailure"
         ):
-            return {
-                "type": "failure",
-                "error": AgentError.model_validate(safe_error).model_dump(mode="json"),
-            }
+            return {"type": "failure", "error": _bounded_agent_failure(safe_error)}
         if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS and safe_error.get(
             "type"
         ) in {
@@ -1077,26 +1097,19 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
         }
     tool_name = str(stored.tool_name)
     if stored.tool_name in AGENT_WRITE_IDS:
-        value = _success_result_value(result)
-        if tool_name == "agent.start":
-            # This display reads immutable receipts from both shipped start schemas.
-            # Execution accepts only the current tool contract.
-            session = value.get("session")
-            if not isinstance(session, dict):
-                raise RuntimeError("start receipt lacks session metadata")
-            return {
-                "type": "agent_started",
-                "observedAt": _safe_atom(value.get("observedAt"), 96),
-                "name": _safe_atom(cast(dict[str, object], session).get("name"), 96),
-            }
-        agent_model = (
-            AgentStopResult
-            if tool_name == "agent.stop"
-            else AgentKillResult
-            if tool_name == "agent.kill"
-            else AgentWriteResult
+        receipt = _agent_success(stored, _success_result_value(result))
+        if tool_name != "agent.start":
+            return _bounded_agent_receipt(receipt)
+        created = cast(
+            dict[str, object], receipt.get("terminal", receipt.get("session"))
         )
-        return agent_model.model_validate(value).model_dump(mode="json")
+        name = created.get("name")
+        return {
+            "type": "agent_started",
+            "observedAt": _safe_atom(receipt["observedAt"], 96),
+            **({} if name is None else {"name": _safe_atom(name, 96)}),
+            **({} if "launch" not in receipt else {"launch": receipt["launch"]}),
+        }
     if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
         value = _success_result_value(result)
         model = (
@@ -1167,6 +1180,62 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
     if tool_name == "schedule.wake":
         return _safe_schedule_result(result)
     raise RuntimeError("action has no safe deterministic result renderer")
+
+
+def _agent_success(stored: StoredAction, value: object) -> dict[str, object]:
+    tool = str(stored.tool_name)
+    model = (
+        AGENT_SUCCESS_TYPES[tool.removeprefix("agent.")]
+        if agent_receipt_is_live(stored)
+        else historical_agent_success_type(
+            stored.execution_contract.implementation_revision, tool
+        )
+    )
+    return model.model_validate(value).model_dump(mode="json")
+
+
+def _agent_failure(stored: StoredAction, error: object) -> dict[str, object]:
+    if agent_receipt_is_live(stored):
+        verb = str(stored.tool_name).removeprefix("agent.")
+        return validate_agent_failure(verb, error).model_dump(mode="json")
+    return HistoricalAgentError.model_validate(error).model_dump(mode="json")
+
+
+def _agent_control(stored: StoredAction, control: object) -> dict[str, object]:
+    if agent_receipt_is_live(stored):
+        verb = str(stored.tool_name).removeprefix("agent.")
+        return validate_agent_evidence(verb, control).model_dump(mode="json")
+    return HistoricalAgentActionEvidence.model_validate(control).model_dump(mode="json")
+
+
+def _bounded_agent_receipt(receipt: dict[str, object]) -> dict[str, object]:
+    return {
+        name: _safe_atom(value, 96)
+        for name, value in receipt.items()
+        if name not in {"label", "machine"} and value is not None
+    }
+
+
+def _bounded_agent_failure(error: dict[str, object]) -> dict[str, object]:
+    bounded: dict[str, object] = {
+        "type": "AgentFailure",
+        "code": _safe_atom(error.get("code"), 128),
+        "dispatch": _safe_atom(error.get("dispatch"), 16),
+    }
+    partial = error.get("partial")
+    if isinstance(partial, dict):
+        bounded["partial"] = {
+            name: _safe_atom(value, 32)
+            for name, value in cast(dict[str, object], partial).items()
+            if isinstance(value, str)
+        }
+    return bounded
+
+
+def _bounded_agent_observation(observed: dict[str, object]) -> dict[str, object]:
+    if observed.get("type") == "AgentFailure":
+        return _bounded_agent_failure(observed)
+    return _bounded_agent_receipt(observed)
 
 
 def _success_result_value(result: dict[str, object]) -> dict[str, object]:

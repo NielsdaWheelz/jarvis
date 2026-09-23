@@ -1,6 +1,6 @@
 # adr 0045: use the ordinary fleet cli
 
-- status: accepted implementation target, 2026-09-13; live acceptance pending.
+- status: accepted implementation target, 2026-09-13; live acceptance pending; `info` preflight, session projection and blanket partial-stop uncertainty superseded by [adr 0048](0048-align-with-the-herdr-fleet-cli.md).
 - authority: owner approved skid's `docs/agent-control-ux.md` implementation.
 - supersedes: adr 0044's json-stdin cli grammar, structured target inputs, and seven-tool roster.
 - preserves: direct peers, provider policy, write grounding, non-replay, cognition, kernel, budgets, and immutable history.

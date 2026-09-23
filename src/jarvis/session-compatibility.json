@@ -9,9 +9,9 @@
     "gpt-5.6-terra"
   ],
   "role_contract_revisions": {
-    "automatic_write_gate": "jarvis-write-gate-codex-control-v1",
+    "automatic_write_gate": "jarvis-write-gate-herdr-control-v1",
     "dreamer": "jarvis-dreamer-slice-4-v6",
-    "main": "jarvis-main-codex-control-v1",
+    "main": "jarvis-main-herdr-control-v1",
     "recaller": "jarvis-recaller-slice-4-v17",
     "rememberer": "jarvis-rememberer-slice-3-v1"
   },

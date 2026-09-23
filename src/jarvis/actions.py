@@ -31,7 +31,16 @@ from sqlalchemy import RowMapping, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.agent_tools import AGENT_WRITE_IDS, AgentActionEvidence
+from jarvis.agent_history import (
+    HISTORICAL_AGENT_IMPLEMENTATION_REVISIONS,
+    HistoricalAgentActionEvidence,
+)
+from jarvis.agent_tools import (
+    AGENT_IMPLEMENTATION_REVISION,
+    AGENT_WRITE_IDS,
+    AgentActionEvidence,
+    validate_agent_evidence,
+)
 from jarvis.codex_history import HISTORICAL_CODEX_WRITE_IDS, CodexActionEvidence
 from jarvis.db import action, message
 from jarvis.messages import (
@@ -1137,9 +1146,9 @@ class ActionStore:
                 raise ActionPersistenceDefect(
                     "Agent evidence requires one active entry"
                 )
-            return await _update_action(
-                connection, action_id, result=evidence.model_dump(mode="json")
-            )
+            staged = evidence.model_dump(mode="json")
+            _agent_evidence(stored, staged)
+            return await _update_action(connection, action_id, result=staged)
 
     async def stage_external_attempts(
         self,
@@ -1251,14 +1260,14 @@ class ActionStore:
         timestamp = resolved_at or datetime.now(UTC)
         _aware(timestamp, "action reconciliation time")
         canonical_result = _json_object(dict(result), "action result")
-        if status == "uncertain":
-            canonical_result = _uncertainty_result(canonical_result)
-        else:
+        if status != "uncertain":
             tool_result = _tool_result(canonical_result)
             if (status == "succeeded") != (tool_result["type"] == "Success"):
                 raise ValueError("action status disagrees with its tool result")
         async with self.engine.begin() as connection:
             stored = await _require_locked_action(connection, action_id)
+            if status == "uncertain":
+                canonical_result = _uncertainty_result(stored, canonical_result)
             if stored.status in {"succeeded", "failed"}:
                 if stored.status != status or stored.result != canonical_result:
                     raise ActionPersistenceDefect("terminal action resolution changed")
@@ -2507,7 +2516,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
         }:
             _schedule_result(stored)
         elif stored.status == "uncertain":
-            _uncertainty_result(stored.result)
+            _uncertainty_result(stored, stored.result)
         elif stored.status in {"succeeded", "failed"}:
             result = _tool_result(stored.result)
             if (stored.status == "succeeded") != (result["type"] == "Success"):
@@ -2516,8 +2525,8 @@ def _validate_stored_action(stored: StoredAction) -> None:
             _gmail_update_basis(stored.result)
         elif stored.result.get("type") == "action_recovery_v1":
             _recovery_state(stored.result)
-        elif stored.result.get("type") == "agent_control_v1":
-            AgentActionEvidence.model_validate(stored.result)
+        elif stored.result.get("type") in {"agent_control_v1", "agent_control_v2"}:
+            _agent_evidence(stored, stored.result)
         elif stored.result.get("type") == "codex_control_v1":
             CodexActionEvidence.model_validate(stored.result)
 
@@ -2605,16 +2614,15 @@ def _recovery_state(result: dict[str, object]) -> dict[str, object]:
     return canonical
 
 
-def _uncertainty_result(result: dict[str, object]) -> dict[str, object]:
+def _uncertainty_result(
+    stored: StoredAction, result: dict[str, object]
+) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
     codex = canonical.get("type") == "codex_uncertainty_v1"
     keys = {"type", "evidence_code", "recorded_at"}
-    agent = canonical.get("type") == "agent_uncertainty_v1"
-    if agent:
+    if canonical.get("type") == "agent_uncertainty_v1":
         keys.add("control")
-        canonical["control"] = AgentActionEvidence.model_validate(
-            canonical.get("control")
-        ).model_dump(mode="json")
+        _agent_evidence(stored, canonical.get("control"))
     if codex:
         keys.add("control")
         canonical["control"] = CodexActionEvidence.model_validate(
@@ -2645,18 +2653,46 @@ def agent_uncertainty_result(stored: StoredAction) -> dict[str, object]:
     if stored.execution_contract.replay_policy is not ReplayPolicy.BilledOnce:
         raise ValueError("agent uncertainty requires a BilledOnce action")
     if stored.status == "uncertain" and stored.result is not None:
-        return _uncertainty_result(stored.result)
-    evidence = (
-        AgentActionEvidence.model_validate(stored.result)
-        if stored.result is not None
-        else AgentActionEvidence()
-    )
+        return _uncertainty_result(stored, stored.result)
+    if stored.result is None:
+        control: dict[str, object] = {
+            "type": "agent_control_v2"
+            if agent_receipt_is_live(stored)
+            else "agent_control_v1",
+            "observed": None,
+        }
+    else:
+        _agent_evidence(stored, stored.result)
+        control = stored.result
     return {
         "type": "agent_uncertainty_v1",
         "evidence_code": "agent-control-outcome-unconfirmed-no-repeat",
         "recorded_at": datetime.now(UTC).isoformat(),
-        "control": evidence.model_dump(mode="json"),
+        "control": control,
     }
+
+
+def agent_receipt_is_live(stored: StoredAction) -> bool:
+    """Select an agent row's receipt generation by its recorded implementation."""
+
+    # recovery before this cut wrapped in-flight codex rows as agent_control_v1
+    if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
+        return False
+    if stored.tool_name not in AGENT_WRITE_IDS:
+        raise ActionPersistenceDefect("action is not an agent write")
+    revision = stored.execution_contract.implementation_revision
+    if revision == AGENT_IMPLEMENTATION_REVISION:
+        return True
+    if revision in HISTORICAL_AGENT_IMPLEMENTATION_REVISIONS:
+        return False
+    raise ActionPersistenceDefect("agent action has an unknown implementation")
+
+
+def _agent_evidence(stored: StoredAction, value: object) -> None:
+    if agent_receipt_is_live(stored):
+        validate_agent_evidence(str(stored.tool_name).removeprefix("agent."), value)
+    else:
+        HistoricalAgentActionEvidence.model_validate(value)
 
 
 def _gmail_update_basis(value: dict[str, object]) -> dict[str, object]:
@@ -2891,5 +2927,7 @@ __all__ = [
     "ResolutionInsert",
     "StoredAction",
     "TerminalActionStatus",
+    "agent_receipt_is_live",
+    "agent_uncertainty_result",
     "finish_schedule_conclusion",
 ]

@@ -12,8 +12,10 @@ These instructions govern all work in this repository.
 - adr 0046 governs the owner-approved testing reset. all previous test and
   qualification execution gates are suspended pending the subsequent redesign;
   runtime safeguards and product requirements remain binding.
-- adr 0044 governs the accepted tmux agent-control upgrade and supersedes only
-  the prior worker routing/catalog/launcher restrictions; cognition rules remain.
+- adr 0044 governs the accepted agent-control upgrade and supersedes only the
+  prior worker routing/catalog/launcher restrictions; cognition rules remain.
+  adr 0048 aligns the consumer with skid's herdr cli and supersedes only the
+  affected portions of adrs 0044/0045.
 - If code and specification disagree, stop and surface the discrepancy.
 - If a specification silence would change user-visible behavior, authority,
   irreversible data, or external compatibility, stop and surface it. Ordinary

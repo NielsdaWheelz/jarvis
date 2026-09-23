@@ -355,23 +355,35 @@ configuration readable by jarvis. the fleet operator distributes the configured
 hosts' existing bearers; provider credentials remain on their hosts. refresh
 these copies after bearer rotation. there is no fleet hub or credential daemon.
 
-before activating the nine-tool catalog, drain non-terminal agent actions bound
-to the previous tool implementation. stage matching skid and jarvis releases,
-then switch callers together. no old grammar/target compatibility mode remains.
-preserve native cognition, busy provider services, canonical action history and
-private peer configuration; no provider restart is needed for worker-interface work.
+before activating the herdr-aligned catalog, inventory every nonterminal action
+under the old release, not only agent actions: the changed catalog rotates the
+shared plan and the gate fingerprint participates in every write binding. finish,
+reconcile or explicitly cancel incompatible actions, including approvals and
+scheduled wakes, preserving their lineage and history; never restamp contracts,
+reset attempts or silently lose reminders. stage matching skid (herdr runtime,
+merged pr 2 or later) and jarvis releases, then switch callers together. no old
+grammar/target compatibility mode remains. incomplete model/read positions keep
+their fail-closed recovery: a main run interrupted across the switch whose stored
+observations include an old-shape `agent.list` success fails closed on recovery,
+so finish or cancel such runs before switching. source rollback after new `agent_control_v2` receipts
+exist is not automatically safe: qualify a rollback consumer that reads them, or
+repair forward; never delete or rewrite history to roll back.
 
-jarvis uses list/info to resolve owner requests naming a session. the gate sees
-name/machine metadata from one bounded info call and the original ref. metadata
-failure prevents mutation; info's refreshed ref cannot replace the originally
-submitted effect target. unknown writes are never repeated. phone grouping is
-removed by the coordinated skid cutover, not by jarvis cleanup.
+jarvis uses list/info to resolve owner requests naming a terminal. before an
+addressed write, one bounded fleet list must contain exactly one terminal whose
+current agent ref equals the submitted ref (kill uses one info on the terminal
+ref). the gate sees peer label, optional product name, the original ref and the
+stop/kill closure-scope disclosure. lookup failure prevents mutation; a refreshed
+ref never replaces the originally submitted target. unknown writes are never
+repeated; the owner notice says to inspect current state.
 
 the service retains `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir` and
 `JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`. it invokes ordinary
 commands with `--config` and `--json`; send text goes to `--stdin`. the executable's
 administrative basename is unchanged. nine worker tools share the existing 19-call
-run allowance; this release changes neither admission journals nor kernel budgets.
+run allowance with 256 kib control envelopes and a 1 mib fleet reply; this release
+changes neither admission journals nor kernel budgets. the live codex/claude
+journey is recorded in [herdr live acceptance](issues/herdr-live-acceptance.md).
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

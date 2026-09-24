@@ -59,68 +59,23 @@ PY
 sudo test -f "$runtime/admission.json" ||
   refuse "admission journal is missing: $runtime/admission.json"
 
-# counts only, from the target release under the deployment lock, before alembic.
-inventory_unit="jarvis-inventory-${commit:0:12}-$RANDOM"
-counts="$(sudo systemd-run --quiet --wait --pipe --collect --unit="$inventory_unit" \
+# the target release classifies every unfinished action against its own plan,
+# read-only under the deployment lock, before alembic. only a ledger whose rows
+# are all compatible proceeds; a release without the check is refused, never
+# skipped, and there is no override.
+check_unit="jarvis-check-${commit:0:12}-$RANDOM"
+check_status=0
+check="$(sudo systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
   --property=Type=oneshot \
   --property=User=jarvis \
   --property=Group=jarvis \
+  --property=SupplementaryGroups=codex-clients \
   --property="WorkingDirectory=$release" \
   --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  "$release/.venv/bin/python" - <<'PY'
-import asyncio
-import os
-
-from sqlalchemy import text
-
-from jarvis.db import create_engine
-from jarvis.ownership import DeploymentAlreadyOwned, deployment_ownership
-from jarvis.process_security import deny_same_identity_process_inspection
-
-STATUSES = ("queued", "awaiting_approval", "executing")
-
-
-async def inventory() -> dict[str, int]:
-    deny_same_identity_process_inspection()
-    engine = create_engine(os.environ["JARVIS_DATABASE_URL"])
-    try:
-        async with deployment_ownership(engine) as database:
-            async with database.connect() as connection:
-                rows = await connection.execute(
-                    text(
-                        "select status, count(*) from action "
-                        "where status = any(:statuses) group by status"
-                    ),
-                    {"statuses": list(STATUSES)},
-                )
-                observed = {status: count for status, count in rows}
-    finally:
-        await engine.dispose()
-    return {status: observed.get(status, 0) for status in STATUSES}
-
-
-try:
-    counts = asyncio.run(inventory())
-except DeploymentAlreadyOwned:
-    raise SystemExit(3) from None
-except Exception:
-    raise SystemExit(1) from None
-print(" ".join(f"{status}={counts[status]}" for status in STATUSES))
-PY
-)" || {
-  status=$?
-  if ((status == 3)); then
-    refuse "another jarvis process owns the deployment; leave service stopped"
-  fi
-  refuse "pending-action inventory failed; leave service stopped"
-}
-[[ "$counts" =~ ^queued=[0-9]+\ awaiting_approval=[0-9]+\ executing=[0-9]+$ ]] ||
-  refuse "pending-action inventory failed; leave service stopped"
-# no override: compatibility of pending rows with the target catalog is not
-# checked here, so only an empty inventory may proceed.
-[[ "$counts" == "queued=0 awaiting_approval=0 executing=0" ]] ||
-  refuse "pending actions hold activation: $counts"
-printf 'pending actions: %s\n' "$counts"
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  "$release/.venv/bin/jarvis" check-activation </dev/null)" || check_status=$?
+[[ -z "$check" ]] || printf '%s\n' "$check"
+((check_status == 0)) || refuse "activation check did not pass; leave service stopped"
 
 migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
 sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \

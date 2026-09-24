@@ -26,14 +26,18 @@ from llm_agent_kernel import (
     RunId,
     ThreadId,
 )
+from llm_tools import FrozenToolPlan
+from provider_runtime.agent_runtime import AgentRuntime
+from sqlalchemy import text
 
-from jarvis.actions import ActionStore
+from jarvis.actions import ActionPersistenceDefect, ActionStore
 from jarvis.admission import (
     RollingAdmissionPort,
     RootTrackingAdmissionPort,
     current_admission_limits,
 )
 from jarvis.agent_control import AgentController
+from jarvis.approval import ApprovalRenderError, render_approval
 from jarvis.approval_runtime import (
     ApprovalActionHandler,
     ApprovalAwareDiscordDelivery,
@@ -44,6 +48,7 @@ from jarvis.config import ConfigurationError
 from jarvis.db import create_engine
 from jarvis.decisions import ModelEvidence, PostgresModelDecisionJournal
 from jarvis.definitions import (
+    RoleDefinitions,
     build_definitions,
     build_dreamer,
     build_write_gate,
@@ -67,7 +72,11 @@ from jarvis.memory_workers import (
     RemembererWorker,
 )
 from jarvis.messages import MessageStore
-from jarvis.ownership import Database, deployment_ownership
+from jarvis.ownership import (
+    Database,
+    DeploymentAlreadyOwned,
+    deployment_ownership,
+)
 from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
@@ -83,9 +92,15 @@ from jarvis.service import JarvisService
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 from jarvis.thread_runtime import JarvisThreadRunner
-from jarvis.tool_composition import build_tool_composition
-from jarvis.write_dispatch import ActionRecovery, WriteToolDispatcher
+from jarvis.tool_composition import ToolComposition, build_tool_composition
+from jarvis.write_dispatch import (
+    ActionRecovery,
+    WriteToolDispatcher,
+    gmail_send_basis_is_current,
+    require_current_action_binding,
+)
 from jarvis.write_gate import AutomaticWriteGate
+from jarvis.write_tools import GmailSendDraftInput
 
 LOGGER = logging.getLogger(__name__)
 
@@ -268,6 +283,55 @@ async def run_service(
                 raise result
 
 
+async def _compose_main(
+    *,
+    settings: Settings,
+    agent_runtime: AgentRuntime,
+    actions: ActionStore,
+    memory_repository: PostgresMemoryRepository,
+    embedder: OpenAIEmbedder,
+    google_oauth_http: httpx.AsyncClient,
+    google_api_http: httpx.AsyncClient,
+    maps_http: httpx.AsyncClient,
+    brave_http: httpx.AsyncClient,
+) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
+    """Compose the release's tools and role plans from the live codex catalog."""
+
+    provider_configuration = await resolve_provider_configuration(
+        runtime=agent_runtime,
+        profile_key=settings.codex_profile_key,
+        model_key=settings.codex_model,
+    )
+    provisional_gate, _ = build_write_gate(
+        provider=provider_configuration,
+    )
+    agents = AgentController(
+        executable=settings.agent_cli_path,
+        client_config=settings.agent_client_config_path,
+        actions=actions,
+    )
+    composition = build_tool_composition(
+        settings=settings,
+        google_oauth_http=google_oauth_http,
+        google_api_http=google_api_http,
+        maps_http=maps_http,
+        brave_http=brave_http,
+        memory_repository=memory_repository,
+        memory_embedder=embedder,
+        actions=actions,
+        agents=agents,
+        automatic_write_gate_definition_fingerprint=provisional_gate.fingerprint,
+    )
+    definitions = build_definitions(
+        catalog=composition.catalog,
+        provider=provider_configuration,
+        owner_timezone=settings.owner_timezone,
+    )
+    if definitions.automatic_write_gate.fingerprint != provisional_gate.fingerprint:
+        raise StartupDefect("write-gate definition changed during composition")
+    return composition, definitions, agents
+
+
 async def serve(settings: Settings, host: CodexHostConfig) -> None:
     """Translate the Runner's first SIGINT into a cooperative stop request."""
     shutdown = asyncio.Event()
@@ -335,45 +399,17 @@ async def _serve(
                         settings.embedding_openai_api_key,
                         http_client=embedding_http,
                     )
-                    provider_configuration = await resolve_provider_configuration(
-                        runtime=agent_runtime,
-                        profile_key=settings.codex_profile_key,
-                        model_key=settings.codex_model,
-                    )
-                    provisional_gate, _ = build_write_gate(
-                        provider=provider_configuration,
-                    )
-                    agents = AgentController(
-                        executable=settings.agent_cli_path,
-                        client_config=settings.agent_client_config_path,
-                        actions=actions,
-                    )
-                    composition = build_tool_composition(
+                    composition, definitions, agents = await _compose_main(
                         settings=settings,
+                        agent_runtime=agent_runtime,
+                        actions=actions,
+                        memory_repository=memory_repository,
+                        embedder=embedder,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
                         maps_http=maps_http,
                         brave_http=brave_http,
-                        memory_repository=memory_repository,
-                        memory_embedder=embedder,
-                        actions=actions,
-                        agents=agents,
-                        automatic_write_gate_definition_fingerprint=(
-                            provisional_gate.fingerprint
-                        ),
                     )
-                    definitions = build_definitions(
-                        catalog=composition.catalog,
-                        provider=provider_configuration,
-                        owner_timezone=settings.owner_timezone,
-                    )
-                    if (
-                        definitions.automatic_write_gate.fingerprint
-                        != provisional_gate.fingerprint
-                    ):
-                        raise StartupDefect(
-                            "write-gate definition changed during composition"
-                        )
                     kernel_runtime = build_kernel_runtime(
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
@@ -560,6 +596,100 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
         await engine.dispose()
 
 
+async def check_activation(
+    settings: Settings,
+    host: CodexHostConfig,
+) -> tuple[tuple[UUID, str, str, str], ...]:
+    """Classify each unfinished action against this release's plan; read-only."""
+
+    deny_same_identity_process_inspection()
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with (
+            deployment_ownership(engine) as database,
+            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
+        ):
+            actions = ActionStore(database)
+            agent_runtime = build_agent_runtime(
+                provider_state_root=settings.runtime_state_directory,
+                codex_endpoints=host.endpoints,
+            )
+            try:
+                # the unused http client fills every connector slot: nothing dispatches.
+                _, definitions, _ = await _compose_main(
+                    settings=settings,
+                    agent_runtime=agent_runtime,
+                    actions=actions,
+                    memory_repository=PostgresMemoryRepository(database),
+                    embedder=OpenAIEmbedder(
+                        settings.embedding_openai_api_key, http_client=http
+                    ),
+                    google_oauth_http=http,
+                    google_api_http=http,
+                    maps_http=http,
+                    brave_http=http,
+                )
+                plan = definitions.plans["main"]
+                # raw text so an empty ledger passes whatever the target schema; the
+                # lock connection is not reentrant, so this read ends before any load.
+                async with database.connect() as connection:
+                    unfinished = (
+                        await connection.execute(
+                            text(
+                                "select id, status, tool_name from action "
+                                "where status = any(:statuses) order by created_at, id"
+                            ),
+                            {"statuses": ["queued", "awaiting_approval", "executing"]},
+                        )
+                    ).all()
+                verdicts: list[tuple[UUID, str, str, str]] = []
+                for action_id, status, tool_name in unfinished:
+                    verdict = (
+                        "in_flight"
+                        if status == "executing"
+                        else await _pending_action_verdict(actions, plan, action_id)
+                    )
+                    verdicts.append((action_id, status, tool_name, verdict))
+                return tuple(verdicts)
+            finally:
+                await agent_runtime.close()
+    finally:
+        await engine.dispose()
+
+
+async def _pending_action_verdict(
+    actions: ActionStore,
+    plan: FrozenToolPlan,
+    action_id: UUID,
+) -> str:
+    """Apply startup recovery's revalidation to one queued or pending row."""
+
+    try:
+        stored = await actions.get(action_id)
+    except ActionPersistenceDefect:
+        return "incompatible does_not_load"
+    if stored is None:
+        raise ActionPersistenceDefect("unfinished action vanished under the lock")
+    try:
+        binding = require_current_action_binding(stored, plan)
+    except RuntimeError:
+        return "incompatible binding"
+    value = binding.spec.input_type.model_validate(stored.arguments)
+    if stored.status == "awaiting_approval":
+        try:
+            render_approval(stored.id, stored.tool_name, value)
+        except ApprovalRenderError:
+            return "incompatible render"
+    if isinstance(value, GmailSendDraftInput):
+        try:
+            current = await gmail_send_basis_is_current(actions, value)
+        except ValueError:
+            return "incompatible gmail_basis"
+        if not current:
+            return "incompatible gmail_basis"
+    return "compatible"
+
+
 async def dream_once(
     settings: Settings,
     host: CodexHostConfig,
@@ -687,6 +817,10 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the Jarvis Discord service")
     commands.add_parser("initialize-state", help="initialize private host state")
+    commands.add_parser(
+        "check-activation",
+        help="check unfinished actions against this release while stopped",
+    )
     commands.add_parser("dream", help="run one isolated dream while stopped")
     commands.add_parser(
         "rebuild-memory",
@@ -711,6 +845,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             asyncio.run(serve(settings, host))
         elif arguments.command == "initialize-state":
             initialize_state(settings, host)
+        elif arguments.command == "check-activation":
+            try:
+                verdicts = asyncio.run(check_activation(settings, host))
+            except DeploymentAlreadyOwned:
+                print("another jarvis process owns the deployment")
+                return 1
+            for action_id, status, tool_name, verdict in verdicts:
+                print(f"action {action_id} {status} {tool_name} {verdict}")
+            compatible = sum(verdict == "compatible" for *_, verdict in verdicts)
+            in_flight = sum(verdict == "in_flight" for *_, verdict in verdicts)
+            incompatible = len(verdicts) - compatible - in_flight
+            print(
+                f"activation check: compatible={compatible} "
+                f"incompatible={incompatible} in_flight={in_flight}"
+            )
+            if compatible != len(verdicts):
+                return 1
         elif arguments.command == "dream":
             result = asyncio.run(dream_once(settings, host))
             if result is None:
@@ -747,6 +898,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 __all__ = [
     "StartupDefect",
+    "check_activation",
     "dream_once",
     "initialize_state",
     "main",

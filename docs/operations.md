@@ -148,13 +148,32 @@ own line, unless the release is installed, the three environment files exist and
 are not symlinks, `jarvis.service` shows `ActiveState=inactive`,
 `Result=success` and `MainPID=0`, `paused.json` reads exactly `{"paused": true,
 "schema_version": "jarvis-paused.v1"}`, and `admission.json` exists. It never
-initializes state. It then counts `queued`, `awaiting_approval` and `executing`
-actions from the target release under the deployment lock, before migration, and
-prints `pending actions:` with the counts; a nonzero count refuses with `pending
-actions hold activation:`. There is no override: the gate does not check pending
-rows against the target release's tool catalog, so only an empty inventory
-establishes compatibility. A future activation that must carry pending rows
-needs that check first. It then migrates as `jarvis_migrator`, installs the
+initializes state. It then runs the target release's `jarvis check-activation`
+in a one-shot unit with `database-runtime.env`, `jarvis.env` and the
+`codex-clients` group, under the deployment lock and before migration. The check
+composes the target release's main plan exactly as `serve` does, from the live
+Codex model catalog, so a stopped Codex app-server blocks activation. It writes
+nothing. It classifies every `queued`, `awaiting_approval` and `executing`
+action and prints one content-free line per row, `action <id> <status> <tool>
+<verdict>`, then `activation check: compatible=N incompatible=N in_flight=N`.
+An `executing` row is `in_flight`, whether entered, a claimed reminder, or
+approved but not entered. Any other row is `compatible` only when the target
+release loads it, its stored execution contract matches the target plan, a
+pending approval still renders, and a Gmail send still has its Jarvis draft
+basis; otherwise it is `incompatible` with `does_not_load`, `binding`, `render`
+or `gmail_basis`. Any `in_flight` or `incompatible` row, a deployment lock held
+by another process (`another jarvis process owns the deployment`), or a failed
+check refuses with `activation check did not pass; leave service stopped`.
+There is no override, cancellation, restamping or replay: compatible rows stay
+untouched for startup recovery, which revalidates them. A verdict holds only
+while the Codex catalog row and the environment stay unchanged; if either
+changes before `serve` starts, startup recovery's own validation runs and may
+cancel. A release that predates `check-activation` fails the one-shot and is
+refused, not skipped. A release that changes the `action` schema activates only
+with no unfinished actions, because the check runs before migration and every
+row then fails to load and the check fails. Decisions and read positions are not
+inspected. It then
+migrates as `jarvis_migrator`, installs the
 selected release's own `deploy/jarvis.service` and reloads systemd, atomically
 changes `/opt/jarvis/current`, runs `reset-failed` and starts the service, which
 starts paused. A killed, crashed or timed-out stop is refused with
@@ -179,10 +198,12 @@ service then receives the non-secret cognition profile/socket view and its priva
 skid peer configuration;
 it receives no Codex credential or development-user account-home access.
 
-Do not activate an older release across an incompatible migration or a
-non-terminal action contract. A same-schema rollback may select an already
-installed release through `deploy/activate-release <commit>` only after the
-service is stopped and the action ledger is inspected.
+Do not activate an older release across an incompatible migration. A
+same-schema rollback may select an already installed release through
+`deploy/activate-release <commit>` only after the service is stopped, and only
+to a release that carries `check-activation`; older releases are refused, not
+skipped. That release's check then judges each unfinished action against its
+own plan.
 
 ADR 0035 rotates the AutomaticWriteGate fingerprint and therefore every Write
 binding policy that commits to it. Before this cutover, prove the production
@@ -358,10 +379,11 @@ PY
 calendar approvals and receipt-backed `schedule.wake` reminders that startup
 recovery selectors omit. nonzero counts hold activation. finish or reconcile
 each action, or obtain the owner's explicit denial or cancellation through the
-existing operations, then rerun the inventory; activation proceeds only at
-zero. never change action rows by sql, and never cancel an `executing` action
-whose external effect is uncertain. preserve lineage and history: never restamp
-contracts, reset attempts or silently lose reminders.
+existing operations, then rerun the inventory. the plan rotation makes every
+such row incompatible under the target release's check, so activation proceeds
+only at zero. never change action rows by sql, and never cancel an `executing`
+action whose external effect is uncertain. preserve lineage and history: never
+restamp contracts, reset attempts or silently lose reminders.
 
 tell the owner, per item, what was cancelled, that it performed no external
 effect, and that nothing replaces it; a new approval or reminder needs a fresh
@@ -400,8 +422,9 @@ sudo systemctl show --property=ActiveState,Result,MainPID jarvis.service
 `paused` must be true, and the service must show `ActiveState=inactive`,
 `Result=success` and `MainPID=0`. the stop sends SIGINT, and the host joins its
 worker before exiting, so a clean stop is the evidence that no turn is still
-running. step 6 counts pending actions again in this stopped state and refuses
-nonzero counts. attribute any remaining `open` decision with the manual
+running. step 6 checks every unfinished action again in this stopped state with
+the target release's `check-activation`, which for this cutover passes only at
+zero. attribute any remaining `open` decision with the manual
 owner-guided inspection from step 1. a killed, crashed or timed-out stop
 (`failed`, or another `Result`) ends the procedure: inspect it, and do not
 replace the unit, cli or release. only after that inspection may
@@ -461,9 +484,13 @@ finally:
 PY
 ```
 
-then activate the target. activation counts pending actions again in the
-stopped state under the deployment lock, before migration, releases the lock,
-and refuses any nonzero count:
+then activate the target. activation runs the target release's `jarvis
+check-activation` in the stopped state under the deployment lock, before
+migration, prints its per-action verdicts and summary, releases the lock, and
+refuses with `activation check did not pass; leave service stopped` unless every
+row is compatible. the plan rotation makes every pending row incompatible, so
+for this cutover it passes only at zero. like `serve`, the check reads the live
+codex catalog, so the codex app-server must be running:
 
 ```sh
 deploy/activate-release FULL_TARGET_COMMIT
@@ -482,14 +509,17 @@ procedure qualifies it, and production's first turn is observed, not qualified.
 
 ### rollback
 
-rollback is the same command with the previous commit, after the owner pauses
-and the service stops cleanly as in step 2; a failed stop needs the same
-inspection and explicit `reset-failed`. it installs that release's own unit. the
-previous skid cli returns only through the previous dev-server apply, also with
-jarvis stopped. before this release has written durable work, a qualified
-same-schema previous release may return with its matching cli and unit. count
-that work, including updates to rows that predate activation; replace
-`ACTIVATED_AT` with the timestamp step 6 printed:
+rollback is the same command with the previous commit, only to a release that
+carries `check-activation`; older releases are refused, not skipped. this
+cutover's predecessor predates the check, so rollback to it is refused: jarvis
+stays stopped and repair goes forward. a later rollback target runs after the
+owner pauses and the service stops cleanly as in step 2; a failed stop needs the
+same inspection and explicit `reset-failed`. it installs that release's own
+unit. the previous skid cli returns only through the previous dev-server apply,
+also with jarvis stopped. before this release has written durable work, a
+qualified same-schema previous release may return with its matching cli and
+unit. count that work, including updates to rows that predate activation;
+replace `ACTIVATED_AT` with the timestamp step 6 printed:
 
 ```sh
 sudo systemd-run --quiet --wait --pipe --collect \
@@ -548,9 +578,11 @@ budgets.
 - activation proves one selected release, unit and `current` agree and the
   service stayed running for ten seconds without restart. it is not a model
   turn, fleet control or containment.
-- `pending actions: queued=0 awaiting_approval=0 executing=0` covers actions
-  only. unsettled input, decisions and reads stay fail-closed and are not
-  counted by the gate.
+- `activation check: compatible=N incompatible=0 in_flight=0` covers actions
+  only, and only when it ran. unsettled input, decisions and reads stay
+  fail-closed and are not inspected by the gate. a codex catalog or environment
+  change before `serve` starts can still let startup recovery cancel a row the
+  check called compatible.
 - a passing `scripts/fleet verify` shows versions and reachability, not that
   jarvis can control a worker; the live journey is still `NOT_RUN`.
 

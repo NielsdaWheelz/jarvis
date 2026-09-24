@@ -1176,7 +1176,11 @@ stderr's last line counts: the gate's exact `herdr-gate: command refused` is
 closing anything (`server_not_running`, `protocol_mismatch`, `agent_not_found`,
 `agent_target_ambiguous`, `agent_not_ready`, `agent_blocked`,
 `empty_agent_prompt`, `invalid_key`, `invalid_env`, `pane_not_found`,
-`confirmation_required`) and `sent` for any other. exit 2 is `usage/not_sent`; a
+`confirmation_required`) and `sent` for any other. `agent start` is excluded:
+its cli waits for the agent after typing the command and can raise
+`agent_not_ready`, `server_not_running` or `protocol_mismatch` then, and the
+workspace exists anyway, so a start's errors are always `sent` with the created
+terminal. exit 2 is `usage/not_sent`; a
 child that never started is `unavailable/not_sent`. any other exit, a timeout, or
 an oversized or malformed reply is a lost reply.
 

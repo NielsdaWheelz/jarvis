@@ -158,9 +158,10 @@ nothing. It classifies every `queued`, `awaiting_approval` and `executing`
 action and prints one content-free line per row, `action <id> <status> <tool>
 <verdict>`, one `turn <input id> incompatible` line per stale turn, then
 `activation check: compatible=N incompatible=N in_flight=N stale_turns=N`. a
-stale turn is an unprocessed, unparked input whose recorded main decisions carry
-another definition fingerprint or a plan other than the target's main and
-scheduled-wake plans: the kernel resumes a turn only under its recorded
+stale turn is an unprocessed, unparked input of jarvis's thread (the configured
+channel) whose recorded main decisions carry another definition fingerprint or a
+plan other than the target's main and scheduled-wake plans; other threads are
+never claimed and never counted: the kernel resumes a turn only under its recorded
 authority, so the target would park that input as a configuration error and
 open the cognitive circuit.
 An `executing` row is `in_flight`, whether entered, a claimed reminder, or
@@ -617,16 +618,16 @@ obtain the owner's explicit denial or cancellation of every counted action under
 the same rules and owner notices. actions must reach zero. never change rows by
 sql.
 
-step 2. the owner sends `stop` for any turn in flight, which settles it, then
-`pause`. a turn that pause preempts keeps its recorded decisions and cannot resume
-under the new plan. verify the durable pause, stop jarvis cooperatively and
+step 2. the owner sends `pause`, which also settles any turn in flight with a
+stopped conclusion. verify the durable pause, stop jarvis cooperatively and
 confirm a clean stop exactly as in [pr 4 step 2](#herdr-cutover-pr-4): `paused`
 true, then `ActiveState=inactive`, `Result=success`, `MainPID=0`. any other stop
 ends the procedure for inspection; only then may an explicit `reset-failed` clear
 it. run no dream, rebuild or other operator process until step 8.
 
 step 3. count stale turns in the stopped state, the same rule the target's
-`check-activation` enforces in step 6. it prints one number:
+`check-activation` enforces in step 6. a clean pause leaves none; a turn cut off
+by a crash can. it prints one number:
 
 ```sh
 sudo systemd-run --quiet --wait --pipe --collect \
@@ -636,6 +637,7 @@ sudo systemd-run --quiet --wait --pipe --collect \
   --property=Group=jarvis \
   --property=WorkingDirectory=/opt/jarvis/current \
   --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
   /opt/jarvis/current/.venv/bin/python - <<'PY'
 import os
 
@@ -654,8 +656,10 @@ try:
                 text(
                     "select count(distinct d.first_input_id) from model_decision d "
                     "join message m on m.id = d.first_input_id "
-                    "where m.processed_at is null and m.processing_parked_at is null"
-                )
+                    "where d.thread_id = :thread and m.processed_at is null "
+                    "and m.processing_parked_at is null"
+                ),
+                {"thread": str(int(os.environ["JARVIS_DISCORD_CHANNEL_ID"]))},
             ),
         )
 finally:
@@ -665,8 +669,9 @@ PY
 
 every recorded decision is the old release's, so every one counted is stale. a
 nonzero count needs the old release once more: `sudo systemctl start
-jarvis.service` (it starts paused), the owner sends `stop` for the turn and then
-`pause`, and step 2 repeats. parked inputs are excluded; they stay the operator's.
+jarvis.service` (it starts paused), the owner sends `resume` so it finishes the
+turn, then `pause`, and step 2 repeats. parked inputs are excluded; they stay the
+operator's. inputs of any other thread are never claimed and are not counted.
 
 step 4. apply dev-server's pr 5 step 1 from its checkout at the merged commit,
 with jarvis stopped:
@@ -676,11 +681,14 @@ with jarvis stopped:
 ```
 
 it generates `/etc/jarvis-herdr/id_ed25519` and prints `ACTION jarvis.gate` with
-the public key line. commit that line as dev-server's
-`assets/herdr/jarvis-gate.pub`, push it, then apply again so every owner account
-authorizes it:
+the public key line. write that line, ending with a newline, as dev-server's
+`assets/herdr/jarvis-gate.pub`, commit it to dev-server's main and push (no pr
+needed), then apply again so every owner account authorizes it:
 
 ```sh
+printf '%s\n' 'ssh-ed25519 AAAA... jarvis-herdr@devbox' >assets/herdr/jarvis-gate.pub
+git commit assets/herdr/jarvis-gate.pub -m 'commit the jarvis gate key'
+git push origin main
 ./devbox apply
 ./workstation apply   # on the macbook; on arch once it is reachable
 ```
@@ -726,9 +734,12 @@ then step 5 again. the service starts paused, and startup recovery runs before
 ingress.
 
 step 7. run `deploy/verify-containment`. besides the existing boundary it checks
-`/etc/jarvis-herdr`'s modes and, under `jarvis.service`'s identity and sandbox,
-that jarvis reaches every gate for `agent list`, is refused `status --json`, and
-has no forwarding (`ssh -W` and `-R` are refused). while arch is unreachable, run
+`/etc/jarvis-herdr`'s modes and, as jarvis in a transient unit that copies the
+service's user, group, filesystem protections, `NoNewPrivileges` and
+`RestrictAddressFamilies` (the properties that decide what ssh reads and
+reaches, not the rest of its hardening), that jarvis reaches every listed gate
+for `agent list`, is refused `status --json`, and has no forwarding (`ssh -W` and
+`-R` are refused). while arch is unreachable, run
 it as `JARVIS_GATE_MACHINES='devbox macbook' deploy/verify-containment` and keep
 arch open in [herdr gate activation](issues/herdr-gate-activation.md). a failure
 leaves jarvis paused for forward repair.

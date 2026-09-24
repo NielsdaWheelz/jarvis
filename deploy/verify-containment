@@ -2,13 +2,18 @@
 set -euo pipefail
 
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
-# the herdr gates to probe; while a host is unreachable the operator names the
-# others and records the gap.
-gate_machines="${JARVIS_GATE_MACHINES:-devbox macbook arch}"
+# the herdr gates to probe, one ssh config label per word; while a host is
+# unreachable the operator names the others and records the gap. ssh joins the
+# labels into the remote command line, so each must be a plain label.
+read -ra gate_machines <<<"${JARVIS_GATE_MACHINES:-devbox macbook arch}"
+((${#gate_machines[@]} > 0))
+for machine in "${gate_machines[@]}"; do
+  [[ "$machine" =~ ^[a-z][a-z0-9-]*$ ]]
+done
 
-ssh "$target" bash -s -- "$gate_machines" <<'REMOTE'
+ssh "$target" bash -s -- "${gate_machines[@]}" <<'REMOTE'
 set -euo pipefail
-gate_machines="$1"
+(($# > 0))
 
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
   /etc/jarvis/migration.env; do
@@ -62,8 +67,13 @@ done
 [[ "$(sudo stat -c '%U:%G:%a' "$herdr/id_ed25519")" == jarvis:jarvis:600 ]]
 [[ "$(sudo stat -c '%U:%G:%a' "$herdr/ssh_config")" == root:jarvis:640 ]]
 [[ "$(sudo stat -c '%U:%G:%a' "$herdr/known_hosts")" == root:jarvis:640 ]]
-# every probe runs as jarvis.service does: its identity and sandbox, no
-# inherited environment, and a bound in case a refusal never comes.
+# every probe runs as jarvis in a transient unit with only the service's
+# properties that decide what ssh can read and reach: its identity, its view of
+# the filesystem (the key, config and known hosts under /etc, its home), no new
+# privileges, and its socket families. the rest of jarvis.service's hardening
+# (kernel, clock, cgroup and /proc protections, resource limits, the
+# codex-clients group) does not bear on ssh and is not copied. a unit starts
+# with no inherited environment; RuntimeMaxSec bounds a refusal that never comes.
 as_jarvis=(sudo systemd-run --quiet --wait --pipe --collect
   --property=User=jarvis --property=Group=jarvis
   --property=ProtectHome=true --property=ProtectSystem=strict
@@ -80,7 +90,7 @@ refused() {
   fi
   printf '%s\n' "$output"
 }
-for machine in $gate_machines; do
+for machine in "$@"; do
   "${as_jarvis[@]}" "$machine" 'agent list' </dev/null | python3 -c \
     'import json, sys; assert json.load(sys.stdin)["result"]["type"] == "agent_list"'
   # the forced command refuses anything outside the allowlist before herdr

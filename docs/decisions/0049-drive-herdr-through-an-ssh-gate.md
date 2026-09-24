@@ -66,7 +66,12 @@ creating or closing anything, read from its source: `server_not_running` and
 `empty_agent_prompt` and `invalid_key` (prompt and send-keys,
 `src/app/api/agents.rs`), `invalid_env` (workspace create) and `pane_not_found`
 and `confirmation_required` (pane close, `src/app/api/panes.rs`); any other
-herdr error to a write is `sent`. exit 2 is `usage/not_sent`; anything else, a
+herdr error to a write is `sent`. `agent start` is excluded: its cli keeps
+polling after it typed the command, and that wait can end in `agent_not_ready`
+(a blocked startup), `server_not_running` or `protocol_mismatch`
+(`src/cli/agent.rs`, the post-typing wait and its transport errors), with the
+workspace already created, so start forces every error to `sent` with the
+created terminal. exit 2 is `usage/not_sent`; anything else, a
 timeout, or an oversized or malformed reply is a lost reply.
 
 references. jarvis encodes the machine and `terminal_id` (plus herdr's agent
@@ -126,14 +131,17 @@ every pending action incompatible, so the
 [herdr gate cutover](../operations.md#herdr-gate-cutover-pr-5) activates only at
 zero. the kernel resumes a turn only under its recorded definition and plan and
 parks any other, which opens the cognitive circuit, so `check-activation` also
-counts stale turns (unprocessed, unparked inputs whose recorded main decisions
-carry another definition or plan) and refuses unless there are none; tolerating
+counts stale turns (unprocessed, unparked inputs of jarvis's own thread, the
+configured channel, whose recorded main decisions carry another definition or
+plan) and refuses unless there are none; tolerating
 old observation shapes on restore would not help, since the recorded authority
 check rejects the turn anyway. v4 receipts decode through `agent_history.py`.
 forward only: the previous release needs the skid cli, which pr 5 removes last.
-`verify-containment` probes every gate under `jarvis.service`'s identity and
-sandbox: an allowed read, a refused command, and refused `ssh -W` and `-R`
-forwarding, which proves `restrict`.
+`verify-containment` probes every listed gate as jarvis, in a transient unit that
+copies only the service properties deciding what ssh reads and reaches (user and
+group, `ProtectHome`, `ProtectSystem`, `PrivateTmp`, `PrivateDevices`,
+`NoNewPrivileges`, `RestrictAddressFamilies`): an allowed read, a refused
+command, and refused `ssh -W` and `-R` forwarding, which proves `restrict`.
 
 proof ran on darwin through a user-level `sshd` with its own host key, the
 dev-server gate verbatim behind `restrict,command=`, and a disposable herdr
@@ -150,10 +158,13 @@ agent, the stop interrupt staged on success, a read above 32 kib kept as a tail,
 herdr down (`server_not_running`, not sent), refusal codes mapped to not sent, a
 forged ref naming an unconfigured machine refused before any ssh, and the known
 gap (a hand-started agent of the same name in the same terminal passed the old
-ref's check). `verify-containment`'s probe loop ran against the same sshd, with
-negative controls (an unreachable host and a key without `restrict` both fail
-it); its systemd sandbox did not run on darwin. the stale-turn query ran on a
-disposable migrated postgres. the scaffolding was deleted under adr 0046;
+ref's check). `verify-containment` ran through its real outer ssh transport into a stand-in
+deploy account on the same sshd, with its probe section byte for byte and `sudo`
+and `systemd-run` as pass-through stand-ins (no systemd on darwin; the root-only
+checks before the probes were left out): every listed label was probed, and an
+unreachable host, a gate key without `restrict` and a malformed label each
+failed it; the previous version probed only the first label. both stale-turn queries ran on a
+disposable migrated postgres, scoped to jarvis's thread. the scaffolding was deleted under adr 0046;
 production activation and the linux hosts are `NOT_RUN`.
 
 costs: one ssh handshake per call and no connection reuse, so send, keys and

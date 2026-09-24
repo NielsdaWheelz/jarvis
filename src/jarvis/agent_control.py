@@ -626,6 +626,10 @@ class AgentController:
             "agent_started",
         )
         if isinstance(started, AgentError):
+            # the dispatch is forced to sent: the workspace exists, and herdr's cli
+            # waits for the agent after typing its command, so even
+            # agent_not_ready, server_not_running or protocol_mismatch can come
+            # after the spawn (src/cli/agent.rs, the post-typing wait).
             failure = started
         elif started.agent is None:
             raise AgentOutcomeUnknown("herdr's start reply names no agent")

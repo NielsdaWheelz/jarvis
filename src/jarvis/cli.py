@@ -643,8 +643,9 @@ async def check_activation(
                             {"statuses": ["queued", "awaiting_approval", "executing"]},
                         )
                     ).all()
-                    # the kernel resumes a turn only under its recorded definition
-                    # and plan; any other parks the input and opens the circuit.
+                    # the kernel resumes a turn of jarvis's thread only under its
+                    # recorded definition and plan; any other parks the input and
+                    # opens the circuit. other threads are never claimed here.
                     stale_turns = tuple(
                         (
                             await connection.execute(
@@ -652,7 +653,8 @@ async def check_activation(
                                     "select distinct d.first_input_id "
                                     "from model_decision d "
                                     "join message m on m.id = d.first_input_id "
-                                    "where m.processed_at is null "
+                                    "where d.thread_id = :thread "
+                                    "and m.processed_at is null "
                                     "and m.processing_parked_at is null "
                                     "and (d.request->>'definition_fingerprint' "
                                     "<> :definition "
@@ -660,6 +662,7 @@ async def check_activation(
                                     "order by 1"
                                 ),
                                 {
+                                    "thread": str(settings.discord.channel_id),
                                     "definition": definitions.main.fingerprint,
                                     "plans": [
                                         plan.plan_revision,

@@ -14,7 +14,8 @@ evidence (2026-09-24): the codec, tools, history decoding, stale-turn check and
 the gate probes of `deploy/verify-containment` passed on darwin through a
 user-level `sshd`, the dev-server gate verbatim, a disposable herdr 0.9.1 server
 and a disposable postgres (the adr's proof); the scaffolding is deleted. never
-exercised: `verify-containment`'s `systemd-run` sandbox (linux only), a stop
+exercised: `verify-containment` on linux (its `systemd-run` unit and the checks
+before the gate probes), a stop
 whose close herdr refuses or whose pane vanishes after the interrupt, and herdr's
 exit-2 usage path.
 

@@ -503,7 +503,7 @@ step 7. run `deploy/verify-containment`.
 
 step 8. the owner sends `resume`. the live codex and claude journey belongs to
 isolated qualification before skid publication
-([herdr live acceptance](issues/herdr-live-acceptance.md)); nothing in this
+([pr 4 qualification](qualification/2026-09-23-herdr-pr4.md)); nothing in this
 procedure qualifies it, and production's first turn is observed, not qualified.
 
 ### rollback
@@ -689,7 +689,7 @@ commands with `--config` and `--json`; send text goes to `--stdin`. the executab
 administrative basename is unchanged. nine worker tools share the existing 19-call
 run allowance with 256 kib control envelopes and a 1 mib fleet reply; this release
 changes neither admission journals nor kernel budgets. the live codex/claude
-journey is recorded in [herdr live acceptance](issues/herdr-live-acceptance.md).
+journey is recorded in the [pr 4 qualification](qualification/2026-09-23-herdr-pr4.md).
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

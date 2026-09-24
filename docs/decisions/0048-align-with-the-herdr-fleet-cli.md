@@ -80,7 +80,7 @@ postgres against the real merged cli codec and a scripted loopback gateway,
 then were deleted under adr 0046. the live codex/claude journey is `NOT_RUN`:
 no herdr runtime is installed on the development host, the fleet still serves
 the pre-herdr gateway, and the cli accepts only https on 8443.
-[the issue record](../issues/herdr-live-acceptance.md) owns that boundary and
+it ran on 2026-09-24 ([pr 4 qualification](../qualification/2026-09-23-herdr-pr4.md)), and
 [the qualification record](../qualification/2026-09-23-herdr-pr3.md) the evidence.
 
 costs: one fleet list per addressed write; 256 kib envelopes inside unchanged

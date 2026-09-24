@@ -599,8 +599,9 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
 async def check_activation(
     settings: Settings,
     host: CodexHostConfig,
-) -> tuple[tuple[UUID, str, str, str], ...]:
-    """Classify each unfinished action against this release's plan; read-only."""
+) -> tuple[tuple[tuple[UUID, str, str, str], ...], tuple[UUID, ...]]:
+    """Classify each unfinished action against this release's plan and find the
+    turns it could not resume; read-only."""
 
     deny_same_identity_process_inspection()
     engine = create_engine(settings.database_url.get_secret_value())
@@ -642,6 +643,34 @@ async def check_activation(
                             {"statuses": ["queued", "awaiting_approval", "executing"]},
                         )
                     ).all()
+                    # the kernel resumes a turn only under its recorded definition
+                    # and plan; any other parks the input and opens the circuit.
+                    stale_turns = tuple(
+                        (
+                            await connection.execute(
+                                text(
+                                    "select distinct d.first_input_id "
+                                    "from model_decision d "
+                                    "join message m on m.id = d.first_input_id "
+                                    "where m.processed_at is null "
+                                    "and m.processing_parked_at is null "
+                                    "and (d.request->>'definition_fingerprint' "
+                                    "<> :definition "
+                                    "or d.request->>'plan_revision' <> all(:plans)) "
+                                    "order by 1"
+                                ),
+                                {
+                                    "definition": definitions.main.fingerprint,
+                                    "plans": [
+                                        plan.plan_revision,
+                                        definitions.plans[
+                                            "scheduled_wake"
+                                        ].plan_revision,
+                                    ],
+                                },
+                            )
+                        ).scalars()
+                    )
                 verdicts: list[tuple[UUID, str, str, str]] = []
                 for action_id, status, tool_name in unfinished:
                     verdict = (
@@ -650,7 +679,7 @@ async def check_activation(
                         else await _pending_action_verdict(actions, plan, action_id)
                     )
                     verdicts.append((action_id, status, tool_name, verdict))
-                return tuple(verdicts)
+                return tuple(verdicts), stale_turns
             finally:
                 await agent_runtime.close()
     finally:
@@ -847,20 +876,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             initialize_state(settings, host)
         elif arguments.command == "check-activation":
             try:
-                verdicts = asyncio.run(check_activation(settings, host))
+                verdicts, stale_turns = asyncio.run(check_activation(settings, host))
             except DeploymentAlreadyOwned:
                 print("another jarvis process owns the deployment")
                 return 1
             for action_id, status, tool_name, verdict in verdicts:
                 print(f"action {action_id} {status} {tool_name} {verdict}")
+            for input_id in stale_turns:
+                print(f"turn {input_id} incompatible")
             compatible = sum(verdict == "compatible" for *_, verdict in verdicts)
             in_flight = sum(verdict == "in_flight" for *_, verdict in verdicts)
             incompatible = len(verdicts) - compatible - in_flight
             print(
                 f"activation check: compatible={compatible} "
-                f"incompatible={incompatible} in_flight={in_flight}"
+                f"incompatible={incompatible} in_flight={in_flight} "
+                f"stale_turns={len(stale_turns)}"
             )
-            if compatible != len(verdicts):
+            if compatible != len(verdicts) or stale_turns:
                 return 1
         elif arguments.command == "dream":
             result = asyncio.run(dream_once(settings, host))

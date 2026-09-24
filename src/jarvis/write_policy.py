@@ -140,7 +140,11 @@ def write_effect_descriptor(
                     if target.name is None
                     else (EffectTarget(kind="terminal_name", value=target.name),)
                 ),
-                EffectTarget(kind="pane", value=target.pane),
+                *(
+                    ()
+                    if target.pane is None
+                    else (EffectTarget(kind="pane", value=target.pane),)
+                ),
             ),
             omitted_freeform=(
                 (OmittedFreeform.from_text("worker_input", value.text),)

@@ -35,8 +35,8 @@ AGENT_RAW_LIMIT_BYTES = 32_768
 AGENT_CALL_SECONDS = 10.0
 # herdr's own readiness wait inside `agent start`, added to that call's clock.
 AGENT_START_WAIT_MS = 15_000
-# each deadline covers its calls' clocks plus slack, so a call's own clock, which
-# stages any known prefix, fires before the executor's.
+# each deadline covers its calls' clocks plus slack; a partial effect is staged
+# when it happens, so the executor's clock can cut nothing that is known.
 AGENT_DEADLINE_SECONDS = {
     "list": 15.0,
     "info": 15.0,
@@ -184,13 +184,14 @@ class AgentCloseResult(_Closed):
 
 
 class AgentStartPartial(_Closed):
-    """The terminal a start created before its agent failed or went unconfirmed."""
+    """The terminal a start created, staged as soon as herdr confirms it."""
 
     created: AgentTerminal
 
 
 class AgentStopPartial(_Closed):
-    """A stop that sent its interrupt; the close was not sent, refused or lost."""
+    """A stop that sent its interrupt; staged unconfirmed at once, and settled
+    not_attempted or refused when herdr says so."""
 
     interrupt: Literal["sent"] = "sent"
     terminal: Literal["not_attempted", "refused", "unconfirmed"]
@@ -220,7 +221,7 @@ class AgentActionEvidence(_Closed):
 class AgentWriteTarget(_Closed):
     machine: AgentLabel
     name: AgentName | None
-    pane: str = Field(min_length=1, max_length=128)
+    pane: str | None = Field(min_length=1, max_length=128)
 
 
 def agent_error_type(operation: str) -> type[AgentError]:

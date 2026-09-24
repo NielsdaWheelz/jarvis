@@ -7,7 +7,7 @@ import base64
 import shlex
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID
 
 from llm_tools import (
@@ -17,7 +17,7 @@ from llm_tools import (
     ToolId,
     canonical_json_bytes,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from jarvis.agent_tools import (
     AGENT_CALL_SECONDS,
@@ -34,6 +34,7 @@ from jarvis.agent_tools import (
     AgentListInput,
     AgentListResult,
     AgentMachine,
+    AgentName,
     AgentObservation,
     AgentReadInput,
     AgentReadResult,
@@ -56,19 +57,39 @@ if TYPE_CHECKING:
 
 SSH = "/usr/bin/ssh"
 # the gate's one content-free line when it refuses an argv before herdr runs.
-GATE_REFUSAL = b"herdr-gate: command refused\n"
+GATE_REFUSAL = b"herdr-gate: command refused"
 # sshd hands the command to the gate as SSH_ORIGINAL_COMMAND; stay far below
 # linux's 128 KiB bound on one environment string.
 _COMMAND_LIMIT_BYTES = 65_536
 _ERROR_LIMIT_BYTES = 65_536
+# herdr 0.9.1 codes that refuse before anything is written, typed, created or
+# closed: the cli's server and protocol checks (src/cli.rs), target resolution
+# and readiness for prompt and send-keys and key validation
+# (src/app/api/agents.rs), launch env validation (src/app/api/workspaces.rs),
+# and pane close's lookup and confirmation (src/app/api/panes.rs). any other
+# herdr error to a write counts as sent.
+_REFUSED_BEFORE_EFFECT = frozenset(
+    {
+        "server_not_running",
+        "protocol_mismatch",
+        "agent_not_found",
+        "agent_target_ambiguous",
+        "agent_not_ready",
+        "agent_blocked",
+        "empty_agent_prompt",
+        "invalid_key",
+        "invalid_env",
+        "pane_not_found",
+        "confirmation_required",
+    }
+)
+
+type _Id = Annotated[str, Field(min_length=1, max_length=128)]
+type _Path = Annotated[str, Field(max_length=4096)]
 
 
 class AgentOutcomeUnknown(RuntimeError):
     """The existing BilledOnce recorder must settle without replaying the command."""
-
-
-class AgentTargetUnavailable(RuntimeError):
-    """Preflight could not prove the original target is current."""
 
 
 class _ReplyLost(Exception):
@@ -76,23 +97,24 @@ class _ReplyLost(Exception):
 
 
 class _Wire(BaseModel):
-    """herdr's api envelope; unknown fields are ignored, as herdr's policy asks."""
+    """herdr's api envelope; unknown fields are ignored, as herdr's policy asks.
+    the bounds are the tool results' own, so a reply that decodes projects."""
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
 
 
 class _Pane(_Wire):
-    pane_id: str
-    terminal_id: str
-    cwd: str | None = None
-    foreground_cwd: str | None = None
+    pane_id: _Id
+    terminal_id: _Id
+    cwd: _Path | None = None
+    foreground_cwd: _Path | None = None
 
 
 class _Agent(_Wire):
-    pane_id: str
-    terminal_id: str
-    name: str | None = None
-    agent: str | None = None
+    pane_id: _Id
+    terminal_id: _Id
+    name: AgentName | None = None
+    agent: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     agent_status: AgentStatus
     interactive_ready: bool = False
 
@@ -136,35 +158,56 @@ def _encode(ref: _TerminalRef) -> str:
     return base64.urlsafe_b64encode(ref.model_dump_json().encode()).decode().rstrip("=")
 
 
-def _observation(machine: str, agent: _Agent) -> AgentObservation:
-    return AgentObservation(
-        ref=None
-        if agent.name is None
-        else _encode(
-            _AgentRef(machine=machine, terminal=agent.terminal_id, name=agent.name)
-        ),
-        name=agent.name,
-        kind=agent.agent,
-        status=agent.agent_status,
-        ready=agent.interactive_ready,
-    )
-
-
 def _terminal(machine: str, pane: _Pane, agent: _Agent | None) -> AgentTerminal:
     return AgentTerminal(
         ref=_encode(_TerminalRef(machine=machine, terminal=pane.terminal_id)),
         pane=pane.pane_id,
         cwd=pane.foreground_cwd or pane.cwd,
-        agent=None if agent is None else _observation(machine, agent),
+        agent=None
+        if agent is None
+        else AgentObservation(
+            ref=None
+            if agent.name is None
+            else _encode(
+                _AgentRef(machine=machine, terminal=agent.terminal_id, name=agent.name)
+            ),
+            name=agent.name,
+            kind=agent.agent,
+            status=agent.agent_status,
+            ready=agent.interactive_ready,
+        ),
     )
 
 
-async def _read(stream: asyncio.StreamReader, limit: int) -> bytes:
+def _invalid_reference(failure: type[AgentError] = AgentError) -> DeclaredToolFailure:
+    return DeclaredToolFailure(
+        failure(code="invalid_reference", dispatch="not_sent"), actual_attempts=0
+    )
+
+
+def _stop_failure(
+    failure: AgentError, terminal: Literal["not_attempted", "refused"]
+) -> DeclaredToolFailure:
+    return DeclaredToolFailure(
+        AgentStopFailure(
+            **failure.model_dump(exclude={"type", "dispatch"}),
+            dispatch="sent",
+            partial=AgentStopPartial(terminal=terminal),
+        ),
+        actual_attempts=1,
+    )
+
+
+async def _read(stream: asyncio.StreamReader, limit: int, tail: bool) -> bytes:
+    """At most `limit` bytes: the whole stream, or with `tail` its rolling end."""
+
     data = bytearray()
-    while chunk := await stream.read(limit + 1 - len(data)):
+    while chunk := await stream.read(65_536):
         data.extend(chunk)
         if len(data) > limit:
-            raise ValueError("gate reply exceeds its limit")
+            if not tail:
+                raise ValueError("gate reply exceeds its limit")
+            del data[:-limit]
     return bytes(data)
 
 
@@ -184,9 +227,14 @@ class AgentController:
         self._actions = actions
 
     async def _herdr(
-        self, machine: str, argv: list[str], *, limit: int = AGENT_CONTROL_LIMIT_BYTES
+        self,
+        machine: str,
+        argv: list[str],
+        *,
+        limit: int = AGENT_CONTROL_LIMIT_BYTES,
+        tail: bool = False,
     ) -> bytes | AgentError:
-        """herdr's stdout, or a refusal: not_sent before herdr ran, else sent."""
+        """herdr's stdout, or its refusal: not_sent when nothing took effect."""
 
         command = shlex.join(argv)
         if len(command.encode("utf-8")) > _COMMAND_LIMIT_BYTES:
@@ -214,8 +262,8 @@ class AgentController:
         try:
             async with asyncio.timeout(seconds):
                 assert process.stdout is not None and process.stderr is not None
-                stdout = await _read(process.stdout, limit)
-                stderr = await _read(process.stderr, _ERROR_LIMIT_BYTES)
+                stdout = await _read(process.stdout, limit, tail)
+                stderr = await _read(process.stderr, _ERROR_LIMIT_BYTES, False)
                 returncode = await process.wait()
         except (TimeoutError, ValueError) as exc:
             raise _ReplyLost from exc
@@ -230,22 +278,24 @@ class AgentController:
                     await process.wait()
         if returncode == 0:
             return stdout
-        if returncode == 1 and stderr == GATE_REFUSAL:
+        # the gate and herdr each end on one line; anything ssh said comes first.
+        last = (stderr.splitlines() or [b""])[-1]
+        if returncode == 1 and last == GATE_REFUSAL:
             return AgentError(code="gate_refused", machine=machine, dispatch="not_sent")
         if returncode == 2:
             return AgentError(code="usage", machine=machine, dispatch="not_sent")
         if returncode != 1:
             raise _ReplyLost(f"gate exited {returncode}")
         try:
-            refusal = _ErrorReply.model_validate_json(stderr).error
-            return AgentError(
-                code=refusal.code,
-                message=refusal.message if len(refusal.message) <= 1024 else None,
-                machine=machine,
-                dispatch="sent",
-            )
+            refusal = _ErrorReply.model_validate_json(last).error
         except ValueError as exc:
             raise _ReplyLost from exc
+        return AgentError(
+            code=refusal.code,
+            message=refusal.message if len(refusal.message) <= 1024 else None,
+            machine=machine,
+            dispatch="not_sent" if refusal.code in _REFUSED_BEFORE_EFFECT else "sent",
+        )
 
     async def _call(
         self,
@@ -267,20 +317,13 @@ class AgentController:
         return result
 
     async def _mutate(
-        self,
-        machine: str,
-        argv: list[str],
-        kind: str,
-        context: ExecutionContext,
-        known: AgentStartPartial | AgentStopPartial | None = None,
+        self, machine: str, argv: list[str], kind: str
     ) -> _Result | AgentError:
-        """Run one mutating command; a lost reply stages the known prefix, no repeat."""
+        """Run one mutating command; a lost reply may have taken effect."""
 
         try:
             return await self._call(machine, argv, kind)
         except _ReplyLost as exc:
-            if known is not None:
-                await self._stage(context, known)
             raise AgentOutcomeUnknown(
                 "agent command reply unavailable; do not repeat"
             ) from exc
@@ -288,6 +331,8 @@ class AgentController:
     async def _stage(
         self, context: ExecutionContext, known: AgentStartPartial | AgentStopPartial
     ) -> None:
+        """Record a partial effect when it happens, before anything can lose it."""
+
         if context.effect_id is None or context.position != context.effect_id:
             raise RuntimeError("agent Write requires its durable action position")
         stage = asyncio.create_task(
@@ -302,24 +347,21 @@ class AgentController:
             await stage
             raise
 
-    def _ref[T: _TerminalRef](
-        self, kind: type[T], ref: str, failure: type[AgentError] = AgentError
-    ) -> T:
-        try:
-            decoded = kind.model_validate_json(
-                base64.b64decode(ref + "=" * (-len(ref) % 4), b"-_", validate=True)
-            )
-            if decoded.machine not in self.machines:
-                raise ValueError("ref names no configured machine")
-        except ValueError as exc:
-            raise DeclaredToolFailure(
-                failure(code="invalid_reference", dispatch="not_sent"),
-                actual_attempts=0,
-            ) from exc
+    def _ref[T: _TerminalRef](self, kind: type[T], value: str) -> T:
+        """Decode a ref naming a configured machine; ValueError otherwise."""
+
+        decoded = kind.model_validate_json(
+            base64.b64decode(value + "=" * (-len(value) % 4), b"-_", validate=True)
+        )
+        # the label becomes an ssh argument: only configured hosts, never a new one.
+        if decoded.machine not in self.machines:
+            raise ValueError("ref names no configured machine")
         return decoded
 
-    async def _scan(self, machine: str) -> tuple[AgentTerminal, ...] | AgentError:
-        """One machine's terminals: its panes joined with herdr's agents."""
+    async def _scan(
+        self, machine: str
+    ) -> tuple[tuple[_Pane, _Agent | None], ...] | AgentError:
+        """One machine's panes, each with herdr's agent in its terminal, if any."""
 
         try:
             async with asyncio.timeout(AGENT_CALL_SECONDS):
@@ -339,16 +381,25 @@ class AgentController:
                 )
                 if isinstance(agents, AgentError):
                     return agents
-            hosted = {
-                (agent.pane_id, agent.terminal_id): agent
-                for agent in agents.agents or ()
-            }
-            return tuple(
-                _terminal(machine, pane, hosted.get((pane.pane_id, pane.terminal_id)))
-                for pane in panes.panes or ()
-            )
-        except (_ReplyLost, TimeoutError, ValueError):
+        except (_ReplyLost, TimeoutError):
             return AgentError(code="unavailable", machine=machine, dispatch="unknown")
+        hosted = {agent.terminal_id: agent for agent in agents.agents or ()}
+        return tuple((pane, hosted.get(pane.terminal_id)) for pane in panes.panes or ())
+
+    async def _hosting(
+        self, ref: _TerminalRef
+    ) -> tuple[_Pane, _Agent | None] | AgentError:
+        """The pane that holds the ref's terminal now, wherever it moved."""
+
+        scan = await self._scan(ref.machine)
+        if isinstance(scan, AgentError):
+            return scan
+        for pane, agent in scan:
+            if pane.terminal_id == ref.terminal:
+                return pane, agent
+        return AgentError(
+            code="stale_reference", machine=ref.machine, dispatch="not_sent"
+        )
 
     async def _agent_now(self, ref: _AgentRef) -> _Agent | AgentError:
         """herdr's agent of that name, while it is still the referenced terminal."""
@@ -377,42 +428,26 @@ class AgentController:
             )
         return agent
 
-    async def _terminal_now(self, ref: _TerminalRef) -> AgentTerminal | AgentError:
-        """The ref's terminal wherever its pane is now, while that terminal lives."""
-
-        scan = await self._scan(ref.machine)
-        if isinstance(scan, AgentError):
-            return scan
-        wanted = _encode(_TerminalRef(machine=ref.machine, terminal=ref.terminal))
-        for terminal in scan:
-            if terminal.ref == wanted:
-                return terminal
-        return AgentError(
-            code="stale_reference", machine=ref.machine, dispatch="not_sent"
-        )
-
     async def locate(self, tool_id: ToolId, ref: str) -> AgentWriteTarget:
-        """Prove an addressed write's original target before the gate sees it."""
+        """The gate's view of an addressed write's target; ValueError if unusable.
 
-        try:
-            if tool_id != ToolId("agent.kill"):
-                agent = self._ref(_AgentRef, ref)
-                current = await self._agent_now(agent)
-                if isinstance(current, AgentError):
-                    raise AgentTargetUnavailable("agent ref is not current")
-                return AgentWriteTarget(
-                    machine=agent.machine, name=agent.name, pane=current.pane_id
-                )
-            decoded = self._ref(_TerminalRef, ref)
-        except DeclaredToolFailure as exc:
-            raise AgentTargetUnavailable("ref does not decode") from exc
-        terminal = await self._terminal_now(decoded)
-        if isinstance(terminal, AgentError):
-            raise AgentTargetUnavailable("terminal ref is not current")
+        an agent ref already names its machine and agent, and the executor
+        re-checks it before writing; a terminal ref's hosted agent and pane are
+        known only to herdr.
+        """
+
+        if tool_id != ToolId("agent.kill"):
+            agent = self._ref(_AgentRef, ref)
+            return AgentWriteTarget(machine=agent.machine, name=agent.name, pane=None)
+        terminal = self._ref(_TerminalRef, ref)
+        hosting = await self._hosting(terminal)
+        if isinstance(hosting, AgentError):
+            raise ValueError(f"terminal ref is not current: {hosting.code}")
+        pane, hosted = hosting
         return AgentWriteTarget(
-            machine=decoded.machine,
-            name=None if terminal.agent is None else terminal.agent.name,
-            pane=terminal.pane,
+            machine=terminal.machine,
+            name=None if hosted is None else hosted.name,
+            pane=pane.pane_id,
         )
 
     async def list(
@@ -430,7 +465,10 @@ class AgentController:
         machines = tuple(
             AgentMachine(machine=label, error=scan.code)
             if isinstance(scan, AgentError)
-            else AgentMachine(machine=label, terminals=scan)
+            else AgentMachine(
+                machine=label,
+                terminals=tuple(_terminal(label, pane, agent) for pane, agent in scan),
+            )
             for label, scan in zip(labels, scans, strict=True)
         )
         result = AgentListResult(
@@ -448,22 +486,35 @@ class AgentController:
     async def info(
         self, value: AgentRefInput, context: ExecutionContext | None = None
     ) -> HandlerSuccess[AgentInfoResult]:
-        ref = self._ref(_TerminalRef, value.ref)
-        terminal = await self._terminal_now(ref)
-        if isinstance(terminal, AgentError):
-            raise DeclaredToolFailure(terminal, actual_attempts=1)
+        try:
+            ref = self._ref(_TerminalRef, value.ref)
+        except ValueError as exc:
+            raise _invalid_reference() from exc
+        hosting = await self._hosting(ref)
+        if isinstance(hosting, AgentError):
+            raise DeclaredToolFailure(hosting, actual_attempts=1)
         return HandlerSuccess(
-            AgentInfoResult(machine=ref.machine, terminal=terminal), actual_attempts=1
+            AgentInfoResult(
+                machine=ref.machine, terminal=_terminal(ref.machine, *hosting)
+            ),
+            actual_attempts=1,
         )
 
     async def read(
         self, value: AgentReadInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentReadResult]:
-        ref = self._ref(_AgentRef, value.ref)
+        try:
+            ref = self._ref(_AgentRef, value.ref)
+        except ValueError as exc:
+            raise _invalid_reference() from exc
         current = await self._agent_now(ref)
         if isinstance(current, AgentError):
             raise DeclaredToolFailure(current, actual_attempts=1)
+        unavailable = AgentError(
+            code="unavailable", machine=ref.machine, dispatch="unknown"
+        )
         try:
+            # one byte beyond the bound shows that herdr's text was cut.
             reply = await self._herdr(
                 ref.machine,
                 [
@@ -475,30 +526,22 @@ class AgentController:
                     "--lines",
                     str(value.lines),
                 ],
+                limit=AGENT_RAW_LIMIT_BYTES + 1,
+                tail=True,
             )
-            if isinstance(reply, AgentError):
-                raise DeclaredToolFailure(reply, actual_attempts=1)
-            text = reply.decode("utf-8")
-            if "\x00" in text:
-                raise ValueError("NUL in terminal text")
-        except (_ReplyLost, ValueError) as exc:
-            raise DeclaredToolFailure(
-                AgentError(code="unavailable", machine=ref.machine, dispatch="unknown"),
-                actual_attempts=1,
-            ) from exc
-        truncated = len(reply) > AGENT_RAW_LIMIT_BYTES
-        if truncated:
-            tail = reply[-AGENT_RAW_LIMIT_BYTES:]
-            start = 0
-            while start < len(tail) and tail[start] & 0xC0 == 0x80:
-                start += 1
-            text = tail[start:].decode("utf-8")
+        except _ReplyLost as exc:
+            raise DeclaredToolFailure(unavailable, actual_attempts=1) from exc
+        if isinstance(reply, AgentError):
+            raise DeclaredToolFailure(reply, actual_attempts=1)
+        text = reply[-AGENT_RAW_LIMIT_BYTES:].decode("utf-8", "ignore")
+        if "\x00" in text:
+            raise DeclaredToolFailure(unavailable, actual_attempts=1)
         return HandlerSuccess(
             AgentReadResult(
                 machine=ref.machine,
                 text=text,
                 coverage=value.coverage,
-                truncated=truncated,
+                truncated=len(reply) > AGENT_RAW_LIMIT_BYTES,
             ),
             actual_attempts=1,
         )
@@ -542,6 +585,7 @@ class AgentController:
                 AgentStartFailure(code=code, machine=machine, dispatch="not_sent"),
                 actual_attempts=1,
             )
+        # the gate admits any pane id: jarvis starts agents only in panes it made.
         created = await self._mutate(
             machine,
             [
@@ -555,16 +599,17 @@ class AgentController:
                 f"{variable}={home}/{directory}",
             ],
             "workspace_created",
-            context,
         )
         if isinstance(created, AgentError):
             raise DeclaredToolFailure(
                 AgentStartFailure.model_validate(created.model_dump()),
                 actual_attempts=1,
             )
-        if created.root_pane is None:
+        pane = created.root_pane
+        if pane is None:
             raise AgentOutcomeUnknown("created workspace has no root pane")
-        known = AgentStartPartial(created=_terminal(machine, created.root_pane, None))
+        known = AgentStartPartial(created=_terminal(machine, pane, None))
+        await self._stage(context, known)
         started = await self._mutate(
             machine,
             [
@@ -574,47 +619,58 @@ class AgentController:
                 "--kind",
                 kind,
                 "--pane",
-                created.root_pane.pane_id,
+                pane.pane_id,
                 "--timeout",
                 str(AGENT_START_WAIT_MS),
             ],
             "agent_started",
-            context,
-            known,
         )
         if isinstance(started, AgentError):
-            await self._stage(context, known)
-            raise DeclaredToolFailure(
-                AgentStartFailure(
-                    **started.model_dump(exclude={"type", "dispatch"}),
-                    dispatch="sent",
-                    partial=known,
+            failure = started
+        elif started.agent is None:
+            raise AgentOutcomeUnknown("herdr's start reply names no agent")
+        elif (started.agent.name, started.agent.terminal_id) != (
+            value.name,
+            pane.terminal_id,
+        ):
+            failure = AgentError(
+                code="start_mismatch", machine=machine, dispatch="sent"
+            )
+        else:
+            return HandlerSuccess(
+                AgentStartResult(
+                    machine=machine, terminal=_terminal(machine, pane, started.agent)
                 ),
                 actual_attempts=1,
             )
-        if started.agent is None:
-            await self._stage(context, known)
-            raise AgentOutcomeUnknown("started agent is missing from herdr's reply")
-        return HandlerSuccess(
-            AgentStartResult(
-                machine=machine,
-                terminal=_terminal(machine, created.root_pane, started.agent),
+        raise DeclaredToolFailure(
+            AgentStartFailure(
+                **failure.model_dump(exclude={"type", "dispatch"}),
+                dispatch="sent",
+                partial=known,
             ),
             actual_attempts=1,
         )
 
     async def _deliver(
-        self, value: str, argv: list[str], context: ExecutionContext
+        self,
+        value: str,
+        verb: str,
+        args: list[str],
+        reply: str,
+        context: ExecutionContext,
     ) -> HandlerSuccess[AgentWriteResult]:
         """Check an agent ref, then write once to herdr's agent of that name."""
 
-        ref = self._ref(_AgentRef, value)
+        try:
+            ref = self._ref(_AgentRef, value)
+        except ValueError as exc:
+            raise _invalid_reference() from exc
         current = await self._agent_now(ref)
         if isinstance(current, AgentError):
             raise DeclaredToolFailure(current, actual_attempts=1)
-        kind = "agent_prompted" if argv[0] == "prompt" else "ok"
         written = await self._mutate(
-            ref.machine, ["agent", argv[0], ref.name, *argv[1:]], kind, context
+            ref.machine, ["agent", verb, ref.name, *args], reply
         )
         if isinstance(written, AgentError):
             raise DeclaredToolFailure(written, actual_attempts=1)
@@ -626,22 +682,27 @@ class AgentController:
     async def send(
         self, value: AgentSendInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentWriteResult]:
-        return await self._deliver(value.ref, ["prompt", value.text], context)
+        return await self._deliver(
+            value.ref, "prompt", [value.text], "agent_prompted", context
+        )
 
     async def keys(
         self, value: AgentKeysInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentWriteResult]:
-        return await self._deliver(value.ref, ["send-keys", *value.keys], context)
+        return await self._deliver(value.ref, "send-keys", [*value.keys], "ok", context)
 
     async def interrupt(
         self, value: AgentRefInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentWriteResult]:
-        return await self._deliver(value.ref, ["send-keys", "ctrl+c"], context)
+        return await self._deliver(value.ref, "send-keys", ["ctrl+c"], "ok", context)
 
     async def stop(
         self, value: AgentRefInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentCloseResult]:
-        ref = self._ref(_AgentRef, value.ref, AgentStopFailure)
+        try:
+            ref = self._ref(_AgentRef, value.ref)
+        except ValueError as exc:
+            raise _invalid_reference(AgentStopFailure) from exc
         current = await self._agent_now(ref)
         if isinstance(current, AgentError):
             raise DeclaredToolFailure(
@@ -649,61 +710,42 @@ class AgentController:
                 actual_attempts=1,
             )
         interrupted = await self._mutate(
-            ref.machine, ["agent", "send-keys", ref.name, "ctrl+c"], "ok", context
+            ref.machine, ["agent", "send-keys", ref.name, "ctrl+c"], "ok"
         )
         if isinstance(interrupted, AgentError):
             raise DeclaredToolFailure(
                 AgentStopFailure.model_validate(interrupted.model_dump()),
                 actual_attempts=1,
             )
+        await self._stage(context, AgentStopPartial(terminal="unconfirmed"))
         # the agent may have exited and dropped its name; find its terminal's pane.
-        terminal = await self._terminal_now(ref)
-        if isinstance(terminal, AgentError):
-            raise await self._interrupted(context, terminal, "not_attempted")
+        hosting = await self._hosting(ref)
+        if isinstance(hosting, AgentError):
+            raise _stop_failure(hosting, "not_attempted")
         closed = await self._mutate(
-            ref.machine,
-            ["pane", "close", terminal.pane],
-            "ok",
-            context,
-            AgentStopPartial(terminal="unconfirmed"),
+            ref.machine, ["pane", "close", hosting[0].pane_id], "ok"
         )
         if isinstance(closed, AgentError):
-            raise await self._interrupted(context, closed, "refused")
+            raise _stop_failure(closed, "refused")
         return HandlerSuccess(
             AgentCloseResult(machine=ref.machine, terminal="closed"),
-            actual_attempts=1,
-        )
-
-    async def _interrupted(
-        self,
-        context: ExecutionContext,
-        failure: AgentError,
-        terminal: Literal["not_attempted", "refused"],
-    ) -> DeclaredToolFailure:
-        """A stop that sent its interrupt settles failed with that prefix staged."""
-
-        known = AgentStopPartial(terminal=terminal)
-        await self._stage(context, known)
-        return DeclaredToolFailure(
-            AgentStopFailure(
-                **failure.model_dump(exclude={"type", "dispatch"}),
-                dispatch="sent",
-                partial=known,
-            ),
             actual_attempts=1,
         )
 
     async def kill(
         self, value: AgentRefInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentCloseResult]:
-        ref = self._ref(_TerminalRef, value.ref)
-        current = await self._terminal_now(ref)
-        if isinstance(current, AgentError):
+        try:
+            ref = self._ref(_TerminalRef, value.ref)
+        except ValueError as exc:
+            raise _invalid_reference() from exc
+        hosting = await self._hosting(ref)
+        if isinstance(hosting, AgentError):
             raise DeclaredToolFailure(
-                current.model_copy(update={"dispatch": "not_sent"}), actual_attempts=1
+                hosting.model_copy(update={"dispatch": "not_sent"}), actual_attempts=1
             )
         closed = await self._mutate(
-            ref.machine, ["pane", "close", current.pane], "ok", context
+            ref.machine, ["pane", "close", hosting[0].pane_id], "ok"
         )
         if isinstance(closed, AgentError):
             raise DeclaredToolFailure(closed, actual_attempts=1)

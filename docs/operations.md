@@ -156,13 +156,19 @@ composes the target release's main plan exactly as `serve` does, from the live
 Codex model catalog, so a stopped Codex app-server blocks activation. It writes
 nothing. It classifies every `queued`, `awaiting_approval` and `executing`
 action and prints one content-free line per row, `action <id> <status> <tool>
-<verdict>`, then `activation check: compatible=N incompatible=N in_flight=N`.
+<verdict>`, one `turn <input id> incompatible` line per stale turn, then
+`activation check: compatible=N incompatible=N in_flight=N stale_turns=N`. a
+stale turn is an unprocessed, unparked input whose recorded main decisions carry
+another definition fingerprint or a plan other than the target's main and
+scheduled-wake plans: the kernel resumes a turn only under its recorded
+authority, so the target would park that input as a configuration error and
+open the cognitive circuit.
 An `executing` row is `in_flight`, whether entered, a claimed reminder, or
 approved but not entered. Any other row is `compatible` only when the target
 release loads it, its stored execution contract matches the target plan, a
 pending approval still renders, and a Gmail send still has its Jarvis draft
 basis; otherwise it is `incompatible` with `does_not_load`, `binding`, `render`
-or `gmail_basis`. Any `in_flight` or `incompatible` row, a deployment lock held
+or `gmail_basis`. Any `in_flight` or `incompatible` row, any stale turn, a deployment lock held
 by another process (`another jarvis process owns the deployment`), or a failed
 check refuses with `activation check did not pass; leave service stopped`.
 There is no override, cancellation, restamping or replay: compatible rows stay
@@ -172,8 +178,8 @@ changes before `serve` starts, startup recovery's own validation runs and may
 cancel. A release that predates `check-activation` fails the one-shot and is
 refused, not skipped. A release that changes the `action` schema activates only
 with no unfinished actions, because the check runs before migration and every
-row then fails to load and the check fails. Decisions and read positions are not
-inspected. It then
+row then fails to load and the check fails. Other decisions and read positions
+are not inspected. It then
 migrates as `jarvis_migrator`, installs the
 selected release's own `deploy/jarvis.service` and reloads systemd, atomically
 changes `/opt/jarvis/current` and starts the service, which starts paused. A killed, crashed or timed-out stop is refused with
@@ -598,48 +604,99 @@ this switch activates the herdr gate catalog of
 [adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md): jarvis stops
 calling the skid cli and drives each host's herdr through its ssh forced-command
 gate. the catalog, gate descriptor and both role revisions change, so the plan
-rotates and every nonterminal action is incompatible, not only agent actions.
-it is forward only: the new release cannot use the skid cli, and the previous one
-cannot use the gate. a failed step leaves jarvis on the old release or stopped for
-forward repair; nothing retries.
+rotates and every nonterminal action is incompatible, not only agent actions,
+and so is every unfinished turn. dev-server's pr 5 step 1 runs inside the stopped
+window, because its first devbox apply drains the shared codex servers. it is
+forward only: once step 5 rewrites the environment the old release no longer
+starts, and the new one cannot use the skid cli. a failed step leaves jarvis on
+the old release or stopped for forward repair; nothing retries.
 
-step 0. prerequisites, with the old release still running. dev-server's pr 5
-step 1 is applied on all three hosts: each owner account has
-`~/.local/libexec/herdr-gate` and its `restrict,command=` line for the committed
-`assets/herdr/jarvis-gate.pub`, devbox has `/etc/jarvis-herdr`, the pinned herdr
-server runs on every host, and skid is unchanged. prove the gate as jarvis, which
-is read-only and needs no stop:
-
-```sh
-for machine in devbox macbook arch; do
-  sudo -u jarvis env -i PATH=/usr/bin:/bin /usr/bin/ssh \
-    -F /etc/jarvis-herdr/ssh_config "$machine" 'agent list'
-  sudo -u jarvis env -i PATH=/usr/bin:/bin /usr/bin/ssh \
-    -F /etc/jarvis-herdr/ssh_config "$machine" 'status --json'
-done
-```
-
-each `agent list` prints one `agent_list` envelope and each `status --json` fails
-with exactly `herdr-gate: command refused`. a host key, key or gate failure is a
-dev-server repair; do not continue. an unreachable arch holds this cutover,
-because containment requires all three hosts.
-
-step 1. take the read-only inventory of the
+step 1. while the old release runs, take the read-only inventory of the
 [pr 4 step 1](#herdr-cutover-pr-4) one-shot unchanged, and finish, reconcile or
 obtain the owner's explicit denial or cancellation of every counted action under
-the same rules and owner notices. activation proceeds only at zero. a main run
-whose stored observations include an old-shape `agent.list` success fails closed
-under the new release, so finish or stop such turns first; never change rows by
+the same rules and owner notices. actions must reach zero. never change rows by
 sql.
 
-step 2. the owner sends `pause`; verify the durable pause, stop jarvis
-cooperatively and confirm a clean stop exactly as in
-[pr 4 step 2](#herdr-cutover-pr-4): `paused` true, then
-`ActiveState=inactive`, `Result=success`, `MainPID=0`. any other stop ends the
-procedure for inspection; only then may an explicit `reset-failed` clear it. run no
-dream, rebuild or other operator process until step 6.
+step 2. the owner sends `stop` for any turn in flight, which settles it, then
+`pause`. a turn that pause preempts keeps its recorded decisions and cannot resume
+under the new plan. verify the durable pause, stop jarvis cooperatively and
+confirm a clean stop exactly as in [pr 4 step 2](#herdr-cutover-pr-4): `paused`
+true, then `ActiveState=inactive`, `Result=success`, `MainPID=0`. any other stop
+ends the procedure for inspection; only then may an explicit `reset-failed` clear
+it. run no dream, rebuild or other operator process until step 8.
 
-step 3. from a clean checkout of the full target commit, install the new settings
+step 3. count stale turns in the stopped state, the same rule the target's
+`check-activation` enforces in step 6. it prints one number:
+
+```sh
+sudo systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-cutover-turns \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property=WorkingDirectory=/opt/jarvis/current \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  /opt/jarvis/current/.venv/bin/python - <<'PY'
+import os
+
+from sqlalchemy import create_engine, text
+
+from jarvis.db import normalize_database_url
+from jarvis.process_security import deny_same_identity_process_inspection
+
+deny_same_identity_process_inspection()
+engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
+try:
+    with engine.connect() as connection:
+        print(
+            "stale_turns",
+            connection.scalar(
+                text(
+                    "select count(distinct d.first_input_id) from model_decision d "
+                    "join message m on m.id = d.first_input_id "
+                    "where m.processed_at is null and m.processing_parked_at is null"
+                )
+            ),
+        )
+finally:
+    engine.dispose()
+PY
+```
+
+every recorded decision is the old release's, so every one counted is stale. a
+nonzero count needs the old release once more: `sudo systemctl start
+jarvis.service` (it starts paused), the owner sends `stop` for the turn and then
+`pause`, and step 2 repeats. parked inputs are excluded; they stay the operator's.
+
+step 4. apply dev-server's pr 5 step 1 from its checkout at the merged commit,
+with jarvis stopped:
+
+```sh
+./devbox apply --restart-codex
+```
+
+it generates `/etc/jarvis-herdr/id_ed25519` and prints `ACTION jarvis.gate` with
+the public key line. commit that line as dev-server's
+`assets/herdr/jarvis-gate.pub`, push it, then apply again so every owner account
+authorizes it:
+
+```sh
+./devbox apply
+./workstation apply   # on the macbook; on arch once it is reachable
+```
+
+prove the gate as jarvis, for each host that was applied:
+
+```sh
+sudo -u jarvis ssh -F /etc/jarvis-herdr/ssh_config devbox agent list
+sudo -u jarvis ssh -F /etc/jarvis-herdr/ssh_config devbox status --json
+```
+
+`agent list` prints one `agent_list` envelope and `status --json` fails with
+`herdr-gate: command refused`; repeat for `macbook` (and `arch`). a host key, key
+or gate failure is a dev-server repair; do not continue. skid is unchanged.
+
+step 5. from a clean checkout of the full target commit, install the new settings
 and the inactive release:
 
 ```sh
@@ -648,34 +705,42 @@ deploy/install-release
 ```
 
 the environment now carries `JARVIS_HERDR_SSH_CONFIG_PATH` and
-`JARVIS_HERDR_MACHINES` instead of the skid cli paths, which is why the old
-release cannot return. dev-server keeps `/usr/local/libexec/skidbladnir` and
+`JARVIS_HERDR_MACHINES` instead of the skid cli paths, so the old release no
+longer starts. dev-server keeps `/usr/local/libexec/skidbladnir` and
 `/etc/jarvis/agent-client.json` until its pr 5 step 4; nothing reads them.
 
-step 4. activate. `deploy/activate-release` runs the target release's `jarvis
+step 6. activate. `deploy/activate-release` runs the target release's `jarvis
 check-activation` in the stopped state under the deployment lock, before
 migration, and refuses with `activation check did not pass; leave service
-stopped` unless every row is compatible; for this cutover that means zero pending
-actions. the check reads the live codex catalog, so the codex app-server must be
-running:
+stopped` unless every action is compatible and `stale_turns=0`; for this cutover
+that means zero pending actions and zero unfinished turns. the check reads the
+live codex catalog, so the codex app-server must be running:
 
 ```sh
 deploy/activate-release FULL_TARGET_COMMIT
 ```
 
-the service starts paused, and startup recovery runs before ingress.
+a refusal for stale turns after step 5 is repaired by reinstalling the previous
+commit's settings with its `deploy/install-private-state`, then step 3's repair,
+then step 5 again. the service starts paused, and startup recovery runs before
+ingress.
 
-step 5. run `deploy/verify-containment`. besides the existing boundary it checks
-`/etc/jarvis-herdr`'s modes and that jarvis reaches every gate for `agent list`
-and is refused `status --json`. a failure leaves jarvis paused for forward repair.
+step 7. run `deploy/verify-containment`. besides the existing boundary it checks
+`/etc/jarvis-herdr`'s modes and, under `jarvis.service`'s identity and sandbox,
+that jarvis reaches every gate for `agent list`, is refused `status --json`, and
+has no forwarding (`ssh -W` and `-R` are refused). while arch is unreachable, run
+it as `JARVIS_GATE_MACHINES='devbox macbook' deploy/verify-containment` and keep
+arch open in [herdr gate activation](issues/herdr-gate-activation.md). a failure
+leaves jarvis paused for forward repair.
 
-step 6. the owner sends `resume`. the first owner-directed agent turn is observed,
+step 8. the owner sends `resume`. the first owner-directed agent turn is observed,
 not qualified; the isolated qualification of this codec is recorded in adr 0049.
 
 ### what the gate cutover does not prove
 
 - activation proves the selected release, unit and `current` agree and the service
-  stayed up for ten seconds. `activation check` covers actions only.
+  stayed up for ten seconds. `activation check` covers actions and stale turns
+  only.
 - `verify-containment` proves reachability and refusal through each gate, not that
   a codex or claude agent starts, answers or stops on the real hosts; that live
   journey is `NOT_RUN`.
@@ -780,9 +845,9 @@ before it writes.
 
 jarvis uses list/info to resolve owner requests naming a worker. every addressed
 call re-reads its target (`agent get` for an agent ref, one machine scan for a
-terminal ref) and requires the same name and `terminal_id`, once before the gate
-and again just before the write. the gate sees machine, agent name, current pane and
-the stop/kill closure-scope disclosure. a changed target prevents mutation; a
+terminal ref) and requires the same name and `terminal_id` just before it acts.
+the gate sees machine and agent name (for kill, the current pane and any hosted
+agent's name) and the stop/kill closure-scope disclosure. a changed target prevents mutation; a
 successor is never substituted. unknown writes are never repeated; the owner
 notice says to inspect current state. nine worker tools share the existing
 19-call run allowance with 256 kib control envelopes and a 1 mib inventory; this

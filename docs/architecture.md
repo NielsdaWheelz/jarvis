@@ -892,20 +892,21 @@ jarvis encodes its own opaque refs from herdr's ids: machine and `terminal_id`,
 plus the agent's herdr name for an agent ref. a pane id is only a location: herdr
 changes it when a pane moves and reissues it after a restart, and clears a name
 when its agent exits, but never repeats a `terminal_id`. so every addressed call
-re-reads its target, requires the same name and `terminal_id`, and writes to the
-name or to the pane that holds that terminal now. the dispatcher runs that check
-before the gate, which sees the machine, the name (for kill, the name of any
-hosted agent) and the current pane plus the stop/kill `closure_scope` disclosure;
-the executor runs it again just before the write. a changed target is not-sent and never substituted. start creates its
-own workspace with the profile's account home and starts the agent only in that
-new pane.
+re-reads its target just before acting, requires the same name and
+`terminal_id`, and writes to the name or to the pane that holds that terminal now;
+a changed target is not-sent and never substituted. an agent restarted by hand
+under the same name in the same terminal is indistinguishable and passes. the
+gate sees the machine and agent name straight from an agent ref, or, for kill,
+the pane holding the terminal and any hosted agent's name from one scan, plus the
+stop/kill `closure_scope` disclosure. start creates its own workspace with the
+profile's account home and starts the agent only in that new pane.
 
 reads retain the existing durable recorder; writes remain billed-once with one
 executor entry. herdr's error reply settles failed and sent; a check, gate or
 local refusal settles failed and not-sent; a lost reply after the mutating
 command started settles uncertain. start's created terminal and stop's sent
-interrupt are staged as `agent_control_v3` evidence before a failure settles or
-inside the existing uncertainty wrapper. stop and kill close the original pane and
+interrupt are staged as `agent_control_v3` evidence the moment herdr confirms
+them, so a later failure, lost reply, deadline or crash cannot lose them. stop and kill close the original pane and
 may close linked workspaces; closure may be refused; neither confirms a
 descendant halt. partial fleet inventory is turn evidence that composes with
 calendar incompleteness and survives restoration.

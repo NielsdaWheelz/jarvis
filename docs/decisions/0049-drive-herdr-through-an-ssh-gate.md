@@ -55,11 +55,19 @@ runs. the gate admits any pane id, so ownership is jarvis's rule: `start` create
 its own workspace and starts an agent only in that new pane.
 
 decoding. exit 0 is `{id, result:{type, …}}` whose `type` must be the command's
-own (plain text for `agent read`); unknown fields are ignored, as herdr asks. the
-gate's exact refusal line is `gate_refused/not_sent`; herdr's `{id,
-error:{code, message}}` on stderr with exit 1 is that code, `sent`; exit 2 is
-`usage/not_sent`; anything else, a timeout, or an oversized or malformed reply is
-a lost reply.
+own (plain text for `agent read`, of which a rolling tail is kept); unknown fields
+are ignored, as herdr asks. on exit 1 only stderr's last line counts, since ssh's
+own diagnostics come first: the gate's exact refusal line is
+`gate_refused/not_sent`, and herdr's `{id, error:{code, message}}` is that code.
+it is `not_sent` for the codes herdr 0.9.1 raises before writing, typing,
+creating or closing anything, read from its source: `server_not_running` and
+`protocol_mismatch` (the cli, before any request), `agent_not_found`,
+`agent_target_ambiguous`, `agent_not_ready`, `agent_blocked`,
+`empty_agent_prompt` and `invalid_key` (prompt and send-keys,
+`src/app/api/agents.rs`), `invalid_env` (workspace create) and `pane_not_found`
+and `confirmation_required` (pane close, `src/app/api/panes.rs`); any other
+herdr error to a write is `sent`. exit 2 is `usage/not_sent`; anything else, a
+timeout, or an oversized or malformed reply is a lost reply.
 
 references. jarvis encodes the machine and `terminal_id` (plus herdr's agent
 name for an agent ref) as unpadded base64url of canonical json: opaque to the
@@ -70,16 +78,27 @@ after a restart, while a `terminal_id` is never repeated and herdr's own `agent
 start` pins it. herdr clears a name when its agent exits or is replaced. every
 addressed call first re-reads its target (`agent get NAME`, or one machine scan
 finding the pane that holds a terminal ref's `terminal_id`) and requires the same
-name and `terminal_id`; writes go to the name or that current pane. the
-dispatcher runs the same check before the gate, and the executor again just
-before the write. a changed target fails before dispatch; the check/write race
-stays accepted.
+name and `terminal_id`; writes go to the name or that current pane. an exit, a
+restart, a start under the name elsewhere or a closed pane fails that check
+before dispatch. it cannot catch an agent started again by hand under the same
+name in the same terminal: name and `terminal_id` both survive, and herdr exposes
+nothing that tells the two apart. the check/write race stays accepted.
+
+the gate's view. send, keys, interrupt and stop take the machine and agent name
+from the ref itself, with no i/o; the executor's check is the guard, so a stale
+agent ref passes the gate and fails `stale_reference/not_sent` in the executor.
+kill's terminal ref names neither agent nor pane, so the dispatcher runs one
+machine scan for the pane that holds the terminal and the name of any agent
+there; a stale terminal ref fails there and creates no action. the gate loses
+only the pane for agent-ref writes, which owners name by agent, not pane.
 
 tools. list scans each machine (`pane list`, `agent list`) concurrently; an
 unreachable machine is an error entry and makes the inventory partial. info is
-one scan; read is the last 32 kib of `agent read`; start checks the name is free,
-creates a workspace labelled with it and carrying the profile's account home,
-then `agent start --timeout 15000`; send is `agent prompt`, whose blocked
+one scan; read keeps a rolling tail of `agent read` and returns its last 32 kib,
+`truncated` when anything was dropped; start checks the name is free, creates a
+workspace labelled with it and carrying the profile's account home, then `agent
+start --timeout 15000` on that pane, and requires herdr's reply to name the same
+agent and terminal (`start_mismatch/sent` otherwise); send is `agent prompt`, whose blocked
 refusal replaces jarvis's readiness gate and the terminal-mode bypass; keys and
 interrupt are `send-keys` (interrupt is `ctrl+c`); stop is interrupt, find the
 pane that holds the terminal now, `pane close`; kill is `pane close` on that
@@ -87,12 +106,15 @@ current pane. profiles (`personal`, `work`, `work2`,
 `claude-work`) are part of the tool contract; machine labels and each host's
 owner home are explicit settings (`JARVIS_HERDR_MACHINES`), never guessed.
 
-settlement. herdr's error reply settles `failed/sent`, which does not prove no
-effect; a check, gate or local refusal settles `failed/not_sent`. start's created
-terminal and stop's sent interrupt are staged as `agent_control_v3` before their
-failure settles; a lost reply after the mutating command started, or an
-unconfirmed close, settles `uncertain` with that prefix in the existing
-`agent_uncertainty_v1` wrapper. nothing replays.
+settlement. a herdr error to a write settles `failed` with the dispatch above;
+`sent` does not prove no effect. a check, gate or local refusal settles
+`failed/not_sent`. a partial effect is staged as `agent_control_v3` the moment
+herdr confirms it, not when the tool ends: start's created terminal right after
+`workspace create`, stop's interrupt, as `{interrupt: sent, terminal:
+unconfirmed}`, right after `send-keys`. a later failure settles with its own
+partial; a lost reply, a deadline or a crash after that point settles `uncertain`
+with what was staged, inside the existing `agent_uncertainty_v1` wrapper. nothing
+replays.
 
 ## cutover and proof
 
@@ -102,8 +124,16 @@ bindings move to `jarvis-agent-control-v5` with policy epoch
 effect target names the pane instead of the opaque ref. the plan rotation makes
 every pending action incompatible, so the
 [herdr gate cutover](../operations.md#herdr-gate-cutover-pr-5) activates only at
-zero. v4 receipts decode through `agent_history.py`. forward only: the previous
-release needs the skid cli, which pr 5 removes last.
+zero. the kernel resumes a turn only under its recorded definition and plan and
+parks any other, which opens the cognitive circuit, so `check-activation` also
+counts stale turns (unprocessed, unparked inputs whose recorded main decisions
+carry another definition or plan) and refuses unless there are none; tolerating
+old observation shapes on restore would not help, since the recorded authority
+check rejects the turn anyway. v4 receipts decode through `agent_history.py`.
+forward only: the previous release needs the skid cli, which pr 5 removes last.
+`verify-containment` probes every gate under `jarvis.service`'s identity and
+sandbox: an allowed read, a refused command, and refused `ssh -W` and `-R`
+forwarding, which proves `restrict`.
 
 proof ran on darwin through a user-level `sshd` with its own host key, the
 dev-server gate verbatim behind `restrict,command=`, and a disposable herdr
@@ -114,14 +144,26 @@ interrupt, stop, kill, stale refs after exit, name reuse and a herdr restart (th
 same pane id returned with a new `terminal_id` and survived every stale write), a
 pane moved to another workspace (new pane id, same refs, stopped by them), a
 partial inventory with an unreachable machine, non-allowlisted commands refused,
-a failed start with its staged terminal, and a lost start reply that staged its
-terminal and still produced the agent. the scaffolding was deleted under adr
-0046; production activation and the linux hosts are `NOT_RUN`.
+a failed start with its staged terminal, a start whose reply names another
+terminal, a lost start reply that had staged its terminal and still produced the
+agent, the stop interrupt staged on success, a read above 32 kib kept as a tail,
+herdr down (`server_not_running`, not sent), refusal codes mapped to not sent, a
+forged ref naming an unconfigured machine refused before any ssh, and the known
+gap (a hand-started agent of the same name in the same terminal passed the old
+ref's check). `verify-containment`'s probe loop ran against the same sshd, with
+negative controls (an unreachable host and a key without `restrict` both fail
+it); its systemd sandbox did not run on darwin. the stale-turn query ran on a
+disposable migrated postgres. the scaffolding was deleted under adr 0046;
+production activation and the linux hosts are `NOT_RUN`.
 
-costs: one ssh handshake per call and no connection reuse, so with the preflight
-and executor checks send, keys and interrupt cost three calls, kill five and stop
-six; herdr's readiness is trusted as is, including its misreads; an agent herdr
-detected without a name is reachable only as a terminal; interrupt is `ctrl+c`
-for codex too, where a second one quits an idle session; `agent read` loses
-herdr's own truncation flag; the gate refuses a prompt equal to `--` or a herdr
-global option; a herdr pin change requalifies this codec and the gate together.
+costs: one ssh handshake per call and no connection reuse, so send, keys and
+interrupt cost two calls, kill five and stop five; a stale agent ref costs a gate
+decision and a failed action instead of none; herdr's readiness is trusted as is,
+including its misreads; an agent herdr detected without a name is reachable only
+as a terminal, and a hand-restarted agent of the same name in the same terminal
+inherits old refs; interrupt is `ctrl+c` for codex too, where a second one quits
+an idle session; `agent read` loses herdr's own truncation flag, and jarvis's
+covers only its own cut; prompt text travels in argv, visible in process listings
+on devbox and the target; the gate refuses a prompt equal to `--` or a herdr
+global option; the not-sent codes are read from herdr 0.9.1's source, so a herdr
+pin change requalifies this codec and the gate together.

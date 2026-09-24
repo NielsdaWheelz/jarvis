@@ -2,9 +2,13 @@
 set -euo pipefail
 
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+# the herdr gates to probe; while a host is unreachable the operator names the
+# others and records the gap.
+gate_machines="${JARVIS_GATE_MACHINES:-devbox macbook arch}"
 
-ssh "$target" bash -s <<'REMOTE'
+ssh "$target" bash -s -- "$gate_machines" <<'REMOTE'
 set -euo pipefail
+gate_machines="$1"
 
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
   /etc/jarvis/migration.env; do
@@ -58,18 +62,34 @@ done
 [[ "$(sudo stat -c '%U:%G:%a' "$herdr/id_ed25519")" == jarvis:jarvis:600 ]]
 [[ "$(sudo stat -c '%U:%G:%a' "$herdr/ssh_config")" == root:jarvis:640 ]]
 [[ "$(sudo stat -c '%U:%G:%a' "$herdr/known_hosts")" == root:jarvis:640 ]]
-# jarvis reaches each host's gate for an allowed read and is refused anything
-# else before herdr runs; `status` is read-only even if a gate failed open.
-for machine in devbox macbook arch; do
-  gate=(sudo -u jarvis env -i PATH=/usr/bin:/bin /usr/bin/ssh -F "$herdr/ssh_config"
-    "$machine")
-  "${gate[@]}" 'agent list' | python3 -c \
-    'import json, sys; assert json.load(sys.stdin)["result"]["type"] == "agent_list"'
-  if refusal="$("${gate[@]}" 'status --json' 2>&1)"; then
-    printf 'the %s gate ran a command outside its allowlist\n' "$machine" >&2
-    exit 1
+# every probe runs as jarvis.service does: its identity and sandbox, no
+# inherited environment, and a bound in case a refusal never comes.
+as_jarvis=(sudo systemd-run --quiet --wait --pipe --collect
+  --property=User=jarvis --property=Group=jarvis
+  --property=ProtectHome=true --property=ProtectSystem=strict
+  --property=PrivateTmp=true --property=PrivateDevices=true
+  --property=NoNewPrivileges=true
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
+  --property=RuntimeMaxSec=30
+  /usr/bin/ssh -F "$herdr/ssh_config" -o LogLevel=INFO)
+refused() {
+  local output
+  if output="$("${as_jarvis[@]}" "$@" 2>&1 </dev/null)"; then
+    printf 'jarvis was not refused: ssh %s\n' "$*" >&2
+    return 1
   fi
-  [[ "$refusal" == 'herdr-gate: command refused' ]]
+  printf '%s\n' "$output"
+}
+for machine in $gate_machines; do
+  "${as_jarvis[@]}" "$machine" 'agent list' </dev/null | python3 -c \
+    'import json, sys; assert json.load(sys.stdin)["result"]["type"] == "agent_list"'
+  # the forced command refuses anything outside the allowlist before herdr
+  # runs; `status` is read-only even if a gate failed open.
+  refused "$machine" 'status --json' | grep -qx 'herdr-gate: command refused'
+  # restrict: jarvis's key opens no forwarding in either direction.
+  refused -W localhost:22 "$machine" | grep -q 'administratively prohibited'
+  refused -N -o ExitOnForwardFailure=yes -R 0:localhost:22 "$machine" |
+    grep -q 'remote port forwarding failed'
 done
 
 printf 'Jarvis connector-secret, process-inspection and herdr gate boundary passed.\n'

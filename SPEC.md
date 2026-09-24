@@ -1150,8 +1150,9 @@ agent controls drive each configured host's herdr through its ssh forced-command
 gate ([adr 0049](docs/decisions/0049-drive-herdr-through-an-ssh-gate.md)). every
 call is one `/usr/bin/ssh -F <JARVIS_HERDR_SSH_CONFIG_PATH> <label>
 <shlex-joined herdr argv>` child with environment `PATH=/usr/bin:/bin` only, closed
-stdin, stdout bounded to 256 kib (1 mib for `pane list` and `agent list`), stderr
-bounded to 64 kib, a joined command of at most 64 kib and a 10-second clock
+stdin, stdout bounded to 256 kib (1 mib for `pane list` and `agent list`; `agent
+read` keeps a rolling tail instead), stderr bounded to 64 kib, a joined command of
+at most 64 kib and a 10-second clock
 (`agent start` adds herdr's 15-second readiness wait). no
 shell, `--machine`, `--remote`, second client, skid executable or dedicated
 launcher remains. the gate, installed by dev-server in each owner account, splits
@@ -1168,12 +1169,16 @@ with `CLAUDE_CONFIG_DIR` at `.claude-work`. both enter the bindings' policy inpu
 
 decoding precedes interpretation: exit 0 is herdr's api envelope `{id,
 result:{type, …}}` whose `type` must be the command's own, or plain text for
-`agent read`; unknown fields are ignored, as herdr's policy asks. exit 1 whose
-stderr is exactly the gate's `herdr-gate: command refused` line is
-`gate_refused/not_sent`; exit 1 with herdr's `{id, error:{code, message}}` on
-stderr is that code with `sent`; exit 2 is `usage/not_sent`; a child that never
-started is `unavailable/not_sent`. any other exit, a timeout, or an oversized or
-malformed reply is a lost reply.
+`agent read`; unknown fields are ignored, as herdr's policy asks. on exit 1 only
+stderr's last line counts: the gate's exact `herdr-gate: command refused` is
+`gate_refused/not_sent`, and herdr's `{id, error:{code, message}}` is that code,
+`not_sent` for the codes herdr 0.9.1 raises before writing, typing, creating or
+closing anything (`server_not_running`, `protocol_mismatch`, `agent_not_found`,
+`agent_target_ambiguous`, `agent_not_ready`, `agent_blocked`,
+`empty_agent_prompt`, `invalid_key`, `invalid_env`, `pane_not_found`,
+`confirmation_required`) and `sent` for any other. exit 2 is `usage/not_sent`; a
+child that never started is `unavailable/not_sent`. any other exit, a timeout, or
+an oversized or malformed reply is a lost reply.
 
 references are jarvis's own opaque strings: unpadded base64url of canonical json
 naming the machine and herdr's `terminal_id`, plus herdr's agent name for an
@@ -1181,7 +1186,9 @@ agent ref, at most 1024 characters. the encoding is deterministic, so equality i
 identity; jarvis never derives one ref from another and the model never builds
 one. a pane id is a location, not an identity: herdr changes it when a pane moves
 to another workspace and reissues it after a restart, but never repeats a
-`terminal_id`, and it clears a name when its agent exits or is replaced. info and
+`terminal_id`, and it clears a name when its agent exits or is replaced. an agent
+started again by hand under the same name in the same terminal keeps both, so it
+passes the check; herdr exposes nothing that tells the two apart. info and
 kill take terminal refs; read, send, keys, interrupt and stop take agent refs. an
 agent herdr detected without a name is listed with no agent ref and is reachable
 only through its terminal ref. every addressed call first re-reads its target: an
@@ -1192,14 +1199,15 @@ writes go to the agent name or to that current pane. a changed target fails
 accepted.
 
 list scans the configured machines concurrently, each with `pane list` then
-`agent list` inside one 10-second budget, and joins agents to panes by pane id and
-`terminal_id`. info is one machine scan. read returns the last 32768 bytes of
-herdr's text for 1–1000 recent lines or the visible screen, with `truncated` when
-jarvis cut it. start requires the name to be free (`agent get` answers
+`agent list` inside one 10-second budget, and joins agents to panes by
+`terminal_id`. info is one machine scan. read keeps a rolling tail of herdr's text
+for 1–1000 recent lines or the visible screen and returns its last 32768 bytes,
+with `truncated` when anything before them was dropped. start requires the name to be free (`agent get` answers
 `agent_not_found`), creates a new workspace labelled with the name, in `cwd`
 (absolute, `~` or `~/…`, default the host's owner home) with the profile's account
 home, then runs `agent start` on that new pane only; herdr waits up to 15 seconds
-for readiness and sends no prompt. send is one `agent prompt`, which herdr refuses
+for readiness and sends no prompt; a reply whose agent has another name or
+terminal fails `start_mismatch/sent` with the created terminal. send is one `agent prompt`, which herdr refuses
 for a blocked or unready agent; no terminal-mode bypass remains. keys sends 1–16
 of `enter, escape, ctrl+c, up, down, left, right, tab, backspace`. interrupt sends
 `ctrl+c` and confirms nothing. stop interrupts, finds the pane that holds its
@@ -1222,13 +1230,14 @@ not_attempted|refused|unconfirmed}`. local `policy_denied` and
 `write_check_unavailable` remain `not_sent`.
 
 before an addressed write reaches the existing gate, and only after current owner
-input is present, the dispatcher runs the same target check: send, keys,
-interrupt and stop by `agent get`, kill by one machine scan. only the machine,
-herdr's agent name (kill: the name of an agent the terminal hosts, if any) and
-the pane enter the effect-target fields; no terminal text, status or history
-reaches the gate. a changed target or failed check is
-`write_check_unavailable/not_sent`, creates no action and mutates nothing; an
-unrelated unavailable machine does not veto it. the descriptor carries
+input is present, the dispatcher builds the gate's target: send, keys, interrupt
+and stop take the machine and herdr's agent name from the ref itself, with no
+i/o; kill runs one machine scan for the pane that holds its terminal and the name
+of any agent there. only those facts enter the effect-target fields; no terminal
+text, status or history reaches the gate. an undecodable ref, a stale terminal
+ref or a failed scan is `write_check_unavailable/not_sent`, creates no action and
+mutates nothing; an unrelated unavailable machine does not veto it. a stale agent
+ref passes the gate and fails `stale_reference/not_sent` in the executor. the descriptor carries
 `closure_scope: native_linked_workspace_group_may_close` for stop and kill; an
 owner restriction incompatible with a possible cascade is denied, never
 reinterpreted. the action and executor retain the original arguments and ref; the
@@ -1240,11 +1249,13 @@ and terminal uncertainty after possible dispatch. a complete success settles onl
 that operation, never task completion or a confirmed descendant halt. a failure
 settles `failed` with its code, dispatch and partial facts: `not_sent` when the
 check, gate or a local rule refused before the write, `sent` when herdr answered
-the write with an error, which does not prove no effect. a known prefix is staged
-as `{type: agent_control_v3, observed: null|created|stop partial}` before its
-failure settles. a lost reply after the mutating command started, an unconfirmed
-close, or interrupted unsettled execution settles `uncertain` with that staged
-prefix inside the existing `agent_uncertainty_v1` wrapper. no result, later
+the write with an error, which does not prove no effect. a partial effect is
+staged as `{type: agent_control_v3, observed: …}` the moment herdr confirms it:
+start's created terminal right after `workspace create`, stop's interrupt, as
+`{interrupt: sent, terminal: unconfirmed}`, right after `send-keys`. a later
+failure settles with its own partial; a lost reply after a mutating command
+started, or interrupted unsettled execution, settles `uncertain` with whatever was
+staged inside the existing `agent_uncertainty_v1` wrapper. no result, later
 inventory or process exit authorizes replay; a lost start can still create its
 agent. encoded input and control results are bounded to 256 kib and the inventory
 to 1 mib on the normalized tool result that llm-tools budgets; a larger inventory

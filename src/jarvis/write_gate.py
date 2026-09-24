@@ -96,7 +96,7 @@ class EffectTarget(BaseModel):
         "cwd",
         "terminal_name",
         "machine",
-        "terminal_id",
+        "pane",
     ]
     value: str = Field(min_length=1, max_length=4_096)
 

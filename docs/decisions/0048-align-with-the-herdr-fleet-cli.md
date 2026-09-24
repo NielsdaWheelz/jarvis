@@ -1,6 +1,8 @@
 # adr 0048: align with the herdr fleet cli
 
-- status: accepted implementation target, 2026-09-23; live acceptance `NOT_RUN`.
+- status: accepted implementation target, 2026-09-23; live acceptance `NOT_RUN`;
+  its skid cli codec, refs, send mode and preflight superseded by
+  [adr 0049](0049-drive-herdr-through-an-ssh-gate.md).
 - authority: the owner approved skid's herdr migration and its
   [pr 3 specification](https://github.com/NielsdaWheelz/skidbladnir/blob/main/docs/herdr-pr3.md)
   (skid `99990332cfcbb713a741e37519548c7e674a46db`, merged pr 134; jarvis baseline

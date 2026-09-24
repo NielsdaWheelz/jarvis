@@ -2,9 +2,18 @@
 set -euo pipefail
 
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+# the herdr gates to probe, one ssh config label per word; while a host is
+# unreachable the operator names the others and records the gap. ssh joins the
+# labels into the remote command line, so each must be a plain label.
+read -ra gate_machines <<<"${JARVIS_GATE_MACHINES:-devbox macbook arch}"
+((${#gate_machines[@]} > 0))
+for machine in "${gate_machines[@]}"; do
+  [[ "$machine" =~ ^[a-z][a-z0-9-]*$ ]]
+done
 
-ssh "$target" bash -s <<'REMOTE'
+ssh "$target" bash -s -- "${gate_machines[@]}" <<'REMOTE'
 set -euo pipefail
+(($# > 0))
 
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
   /etc/jarvis/migration.env; do
@@ -47,14 +56,51 @@ for socket in /run/codex-shared-personal/app-server.sock \
   sudo -u jarvis test -w "$socket"
 done
 
-sudo test -f /usr/local/libexec/skidbladnir
-sudo test ! -L /usr/local/libexec/skidbladnir
-[[ "$(sudo stat -c '%U:%G:%a' /usr/local/libexec/skidbladnir)" == root:root:755 ]]
-sudo -u jarvis test -x /usr/local/libexec/skidbladnir
-sudo test -f /etc/jarvis/agent-client.json
-sudo test ! -L /etc/jarvis/agent-client.json
-[[ "$(sudo stat -c '%U:%G:%a' /etc/jarvis/agent-client.json)" == jarvis:jarvis:600 ]]
-sudo -u jarvis test -r /etc/jarvis/agent-client.json
+herdr=/etc/jarvis-herdr
+sudo test -d "$herdr"
+sudo test ! -L "$herdr"
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr")" == root:jarvis:750 ]]
+for file in id_ed25519 ssh_config known_hosts; do
+  sudo test -f "$herdr/$file"
+  sudo test ! -L "$herdr/$file"
+done
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr/id_ed25519")" == jarvis:jarvis:600 ]]
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr/ssh_config")" == root:jarvis:640 ]]
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr/known_hosts")" == root:jarvis:640 ]]
+# every probe runs as jarvis in a transient unit with only the service's
+# properties that decide what ssh can read and reach: its identity, its view of
+# the filesystem (the key, config and known hosts under /etc, its home), no new
+# privileges, and its socket families. the rest of jarvis.service's hardening
+# (kernel, clock, cgroup and /proc protections, resource limits, the
+# codex-clients group) does not bear on ssh and is not copied. a unit starts
+# with no inherited environment; RuntimeMaxSec bounds a refusal that never comes.
+as_jarvis=(sudo systemd-run --quiet --wait --pipe --collect
+  --property=User=jarvis --property=Group=jarvis
+  --property=ProtectHome=true --property=ProtectSystem=strict
+  --property=PrivateTmp=true --property=PrivateDevices=true
+  --property=NoNewPrivileges=true
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
+  --property=RuntimeMaxSec=30
+  /usr/bin/ssh -F "$herdr/ssh_config" -o LogLevel=INFO)
+refused() {
+  local output
+  if output="$("${as_jarvis[@]}" "$@" 2>&1 </dev/null)"; then
+    printf 'jarvis was not refused: ssh %s\n' "$*" >&2
+    return 1
+  fi
+  printf '%s\n' "$output"
+}
+for machine in "$@"; do
+  "${as_jarvis[@]}" "$machine" 'agent list' </dev/null | python3 -c \
+    'import json, sys; assert json.load(sys.stdin)["result"]["type"] == "agent_list"'
+  # the forced command refuses anything outside the allowlist before herdr
+  # runs; `status` is read-only even if a gate failed open.
+  refused "$machine" 'status --json' | grep -qx 'herdr-gate: command refused'
+  # restrict: jarvis's key opens no forwarding in either direction.
+  refused -W localhost:22 "$machine" | grep -q 'administratively prohibited'
+  refused -N -o ExitOnForwardFailure=yes -R 0:localhost:22 "$machine" |
+    grep -q 'remote port forwarding failed'
+done
 
-printf 'Jarvis connector-secret and process-inspection boundary passed.\n'
+printf 'Jarvis connector-secret, process-inspection and herdr gate boundary passed.\n'
 REMOTE

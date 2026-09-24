@@ -1,6 +1,6 @@
 # adr 0044: control tmux agents through skid
 
-- status: accepted 2026-09-12; cli grammar, target inputs and roster superseded by [adr 0045](0045-use-the-ordinary-fleet-cli.md); native observation/halt, single-session closure, blanket partial-stop uncertainty and 64 kib bounds superseded by [adr 0048](0048-align-with-the-herdr-fleet-cli.md).
+- status: accepted 2026-09-12; cli grammar, target inputs and roster superseded by [adr 0045](0045-use-the-ordinary-fleet-cli.md); native observation/halt, single-session closure, blanket partial-stop uncertainty and 64 kib bounds superseded by [adr 0048](0048-align-with-the-herdr-fleet-cli.md); the skid cli transport superseded by [adr 0049](0049-drive-herdr-through-an-ssh-gate.md).
 - authority: the owner approved the cross-repository agent-control spec and its implementation.
 - supersedes: adr 0041's five devbox-only codex tools, dedicated terminal launcher,
   worker directory policy, and human-only worker permission responses.

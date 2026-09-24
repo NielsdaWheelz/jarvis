@@ -77,8 +77,8 @@ a useful convention to consider:
   `berthier-release`, `talleyrand-review`, `zifang-plan`.
 - keep these associations in the notebook. actual instructions define the work;
   a historical name does not request impersonation or establish a specialist role.
-- use the existing session-name surface and retain skid's returned references
-  for controls, as required by
+- use the name as the agent's herdr name (`[a-z][a-z0-9_-]{0,31}`) and retain
+  the references list and start return for controls, as required by
   [the agent-control contract](../SPEC.md#73-tool-contracts-and-exact-catalog).
 
 **open question:** how should jarvis's cabinet names coexist with skid's dwarf

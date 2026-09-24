@@ -56,8 +56,8 @@ deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
 That host convergence must also report one active operational `codex.runtime`
-identity, three healthy profile sockets, the installed skid cli/client config, and
-the mode-02750 empty cognition parent. A differing active identity is an
+identity, three healthy profile sockets, jarvis's herdr gate directory
+`/etc/jarvis-herdr`, and the mode-02750 empty cognition parent. A differing active identity is an
 operator drain/restart action, never an ordinary-apply restart. Before the hard
 cut, stop Jarvis, drain every non-terminal Codex control action and old private
 provider session, then activate the shared services without killing manual tmux
@@ -124,7 +124,8 @@ systemd one-shot that injects the root-only environment after changing to the
 
 for an existing deployment, complete the
 [admission journal cutover](#admission-journal-cutover) before activation. the
-herdr catalog switch follows the [herdr cutover](#herdr-cutover-pr-4) runbook.
+herdr catalog switch followed the [herdr cutover](#herdr-cutover-pr-4) runbook; the
+herdr gate switch follows the [herdr gate cutover](#herdr-gate-cutover-pr-5).
 
 ```sh
 deploy/install-release
@@ -155,13 +156,20 @@ composes the target release's main plan exactly as `serve` does, from the live
 Codex model catalog, so a stopped Codex app-server blocks activation. It writes
 nothing. It classifies every `queued`, `awaiting_approval` and `executing`
 action and prints one content-free line per row, `action <id> <status> <tool>
-<verdict>`, then `activation check: compatible=N incompatible=N in_flight=N`.
+<verdict>`, one `turn <input id> incompatible` line per stale turn, then
+`activation check: compatible=N incompatible=N in_flight=N stale_turns=N`. a
+stale turn is an unprocessed, unparked input of jarvis's thread (the configured
+channel) whose recorded main decisions carry another definition fingerprint or a
+plan other than the target's main and scheduled-wake plans; other threads are
+never claimed and never counted: the kernel resumes a turn only under its recorded
+authority, so the target would park that input as a configuration error and
+open the cognitive circuit.
 An `executing` row is `in_flight`, whether entered, a claimed reminder, or
 approved but not entered. Any other row is `compatible` only when the target
 release loads it, its stored execution contract matches the target plan, a
 pending approval still renders, and a Gmail send still has its Jarvis draft
 basis; otherwise it is `incompatible` with `does_not_load`, `binding`, `render`
-or `gmail_basis`. Any `in_flight` or `incompatible` row, a deployment lock held
+or `gmail_basis`. Any `in_flight` or `incompatible` row, any stale turn, a deployment lock held
 by another process (`another jarvis process owns the deployment`), or a failed
 check refuses with `activation check did not pass; leave service stopped`.
 There is no override, cancellation, restamping or replay: compatible rows stay
@@ -171,8 +179,8 @@ changes before `serve` starts, startup recovery's own validation runs and may
 cancel. A release that predates `check-activation` fails the one-shot and is
 refused, not skipped. A release that changes the `action` schema activates only
 with no unfinished actions, because the check runs before migration and every
-row then fails to load and the check fails. Decisions and read positions are not
-inspected. It then
+row then fails to load and the check fails. Other decisions and read positions
+are not inspected. It then
 migrates as `jarvis_migrator`, installs the
 selected release's own `deploy/jarvis.service` and reloads systemd, atomically
 changes `/opt/jarvis/current` and starts the service, which starts paused. A killed, crashed or timed-out stop is refused with
@@ -193,9 +201,14 @@ controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
 control; no provider connection is opened before the control succeeds. The
-service then receives the non-secret cognition profile/socket view and its private
-skid peer configuration;
-it receives no Codex credential or development-user account-home access.
+service then receives the non-secret cognition profile/socket view and its herdr
+gate key and ssh configuration; it receives no Codex credential or
+development-user account-home access. the script also checks
+`/etc/jarvis-herdr` (directory root:jarvis 0750, `id_ed25519` jarvis 0600,
+`ssh_config` and `known_hosts` root:jarvis 0640) and, as jarvis, that each of
+devbox, macbook and arch answers `agent list` through its gate and refuses
+`status --json` with exactly `herdr-gate: command refused`; an unreachable host
+fails it.
 
 Do not activate an older release across an incompatible migration. A
 same-schema rollback may select an already installed release through
@@ -586,6 +599,165 @@ budgets.
 - a passing `scripts/fleet verify` shows versions and reachability, not that
   jarvis can control a worker; the live journey is still `NOT_RUN`.
 
+## herdr gate cutover (pr 5)
+
+this switch activates the herdr gate catalog of
+[adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md): jarvis stops
+calling the skid cli and drives each host's herdr through its ssh forced-command
+gate. the catalog, gate descriptor and both role revisions change, so the plan
+rotates and every nonterminal action is incompatible, not only agent actions,
+and so is every unfinished turn. dev-server's pr 5 step 1 runs inside the stopped
+window, because its first devbox apply drains the shared codex servers. it is
+forward only: once step 5 rewrites the environment the old release no longer
+starts, and the new one cannot use the skid cli. a failed step leaves jarvis on
+the old release or stopped for forward repair; nothing retries.
+
+step 1. while the old release runs, take the read-only inventory of the
+[pr 4 step 1](#herdr-cutover-pr-4) one-shot unchanged, and finish, reconcile or
+obtain the owner's explicit denial or cancellation of every counted action under
+the same rules and owner notices. actions must reach zero. never change rows by
+sql.
+
+step 2. the owner sends `pause`, which also settles any turn in flight with a
+stopped conclusion. verify the durable pause, stop jarvis cooperatively and
+confirm a clean stop exactly as in [pr 4 step 2](#herdr-cutover-pr-4): `paused`
+true, then `ActiveState=inactive`, `Result=success`, `MainPID=0`. any other stop
+ends the procedure for inspection; only then may an explicit `reset-failed` clear
+it. run no dream, rebuild or other operator process until step 8.
+
+step 3. count stale turns in the stopped state, the same rule the target's
+`check-activation` enforces in step 6. a clean pause leaves none; a turn cut off
+by a crash can. it prints one number:
+
+```sh
+sudo systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-cutover-turns \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property=WorkingDirectory=/opt/jarvis/current \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  /opt/jarvis/current/.venv/bin/python - <<'PY'
+import os
+
+from sqlalchemy import create_engine, text
+
+from jarvis.db import normalize_database_url
+from jarvis.process_security import deny_same_identity_process_inspection
+
+deny_same_identity_process_inspection()
+engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
+try:
+    with engine.connect() as connection:
+        print(
+            "stale_turns",
+            connection.scalar(
+                text(
+                    "select count(distinct d.first_input_id) from model_decision d "
+                    "join message m on m.id = d.first_input_id "
+                    "where d.thread_id = :thread and m.processed_at is null "
+                    "and m.processing_parked_at is null"
+                ),
+                {"thread": str(int(os.environ["JARVIS_DISCORD_CHANNEL_ID"]))},
+            ),
+        )
+finally:
+    engine.dispose()
+PY
+```
+
+every recorded decision is the old release's, so every one counted is stale. a
+nonzero count needs the old release once more: `sudo systemctl start
+jarvis.service` (it starts paused), the owner sends `resume` so it finishes the
+turn, then `pause`, and step 2 repeats. parked inputs are excluded; they stay the
+operator's. inputs of any other thread are never claimed and are not counted.
+
+step 4. apply dev-server's pr 5 step 1 from its checkout at the merged commit,
+with jarvis stopped:
+
+```sh
+./devbox apply --restart-codex
+```
+
+it generates `/etc/jarvis-herdr/id_ed25519` and prints `ACTION jarvis.gate` with
+the public key line. write that line, ending with a newline, as dev-server's
+`assets/herdr/jarvis-gate.pub`, commit it to dev-server's main and push (no pr
+needed), then apply again so every owner account authorizes it:
+
+```sh
+printf '%s\n' 'ssh-ed25519 AAAA... jarvis-herdr@devbox' >assets/herdr/jarvis-gate.pub
+git commit assets/herdr/jarvis-gate.pub -m 'commit the jarvis gate key'
+git push origin main
+./devbox apply
+./workstation apply   # on the macbook; on arch once it is reachable
+```
+
+prove the gate as jarvis, for each host that was applied:
+
+```sh
+sudo -u jarvis ssh -F /etc/jarvis-herdr/ssh_config devbox agent list
+sudo -u jarvis ssh -F /etc/jarvis-herdr/ssh_config devbox status --json
+```
+
+`agent list` prints one `agent_list` envelope and `status --json` fails with
+`herdr-gate: command refused`; repeat for `macbook` (and `arch`). a host key, key
+or gate failure is a dev-server repair; do not continue. skid is unchanged.
+
+step 5. from a clean checkout of the full target commit, install the new settings
+and the inactive release:
+
+```sh
+deploy/install-private-state
+deploy/install-release
+```
+
+the environment now carries `JARVIS_HERDR_SSH_CONFIG_PATH` and
+`JARVIS_HERDR_MACHINES` instead of the skid cli paths, so the old release no
+longer starts. dev-server keeps `/usr/local/libexec/skidbladnir` and
+`/etc/jarvis/agent-client.json` until its pr 5 step 4; nothing reads them.
+
+step 6. activate. `deploy/activate-release` runs the target release's `jarvis
+check-activation` in the stopped state under the deployment lock, before
+migration, and refuses with `activation check did not pass; leave service
+stopped` unless every action is compatible and `stale_turns=0`; for this cutover
+that means zero pending actions and zero unfinished turns. the check reads the
+live codex catalog, so the codex app-server must be running:
+
+```sh
+deploy/activate-release FULL_TARGET_COMMIT
+```
+
+a refusal for stale turns after step 5 is repaired by reinstalling the previous
+commit's settings with its `deploy/install-private-state`, then step 3's repair,
+then step 5 again. the service starts paused, and startup recovery runs before
+ingress.
+
+step 7. run `deploy/verify-containment`. besides the existing boundary it checks
+`/etc/jarvis-herdr`'s modes and, as jarvis in a transient unit that copies the
+service's user, group, filesystem protections, `NoNewPrivileges` and
+`RestrictAddressFamilies` (the properties that decide what ssh reads and
+reaches, not the rest of its hardening), that jarvis reaches every listed gate
+for `agent list`, is refused `status --json`, and has no forwarding (`ssh -W` and
+`-R` are refused). while arch is unreachable, run
+it as `JARVIS_GATE_MACHINES='devbox macbook' deploy/verify-containment` and keep
+arch open in [herdr gate activation](issues/herdr-gate-activation.md). a failure
+leaves jarvis paused for forward repair.
+
+step 8. the owner sends `resume`. the first owner-directed agent turn is observed,
+not qualified; the isolated qualification of this codec is recorded in adr 0049.
+
+### what the gate cutover does not prove
+
+- activation proves the selected release, unit and `current` agree and the service
+  stayed up for ten seconds. `activation check` covers actions and stale turns
+  only.
+- `verify-containment` proves reachability and refusal through each gate, not that
+  a codex or claude agent starts, answers or stops on the real hosts; that live
+  journey is `NOT_RUN`.
+- herdr's readiness is trusted as is: codex's sign-in and trust screens read idle
+  and ready, so a send can land on a menu. read before send.
+
 ## Approval operation
 
 Approval is available only while `jarvis serve` owns the deployment. A current
@@ -667,29 +839,33 @@ mapping must name the running shared services and exact mode-02750 cognition
 parent. never copy Codex authentication into the checkout or process environment,
 and never start a private app server for jarvis.
 
-peer agent control requires the installed skid cli and a private mode-0600 peer
-configuration readable by jarvis. the fleet operator distributes the configured
-hosts' existing bearers; provider credentials remain on their hosts. refresh
-these copies after bearer rotation. there is no fleet hub or credential daemon.
+peer agent control drives each host's herdr through its ssh forced-command gate
+([adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md)). dev-server owns
+jarvis's side on devbox, `/etc/jarvis-herdr/` (jarvis's key, generated on devbox
+and never copied off; `ssh_config` naming `devbox`, `macbook` and `arch`;
+committed `known_hosts`), and each owner account's gate and
+`restrict,command=` line. provider credentials stay on their hosts; jarvis's
+process never reads them. there is no fleet hub, bearer or credential daemon.
 
-the herdr-aligned catalog is activated only through the
-[herdr cutover](#herdr-cutover-pr-4) runbook.
+the service reads `JARVIS_HERDR_SSH_CONFIG_PATH=/etc/jarvis-herdr/ssh_config` and
+`JARVIS_HERDR_MACHINES=devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal`,
+the label and owner home of each host; the profiles' account homes are relative to
+that home. every call is `/usr/bin/ssh -F <ssh_config> <label> <herdr argv>`.
+an unreachable host makes list partial and fails any call addressed to it
+before it writes.
 
-jarvis uses list/info to resolve owner requests naming a terminal. before an
-addressed write, one bounded fleet list must contain exactly one terminal whose
-current agent ref equals the submitted ref (kill uses one info on the terminal
-ref). the gate sees peer label, optional product name, the original ref and the
-stop/kill closure-scope disclosure. lookup failure prevents mutation; a refreshed
-ref never replaces the originally submitted target. unknown writes are never
-repeated; the owner notice says to inspect current state.
+jarvis uses list/info to resolve owner requests naming a worker. every addressed
+call re-reads its target (`agent get` for an agent ref, one machine scan for a
+terminal ref) and requires the same name and `terminal_id` just before it acts.
+the gate sees machine and agent name (for kill, the current pane and any hosted
+agent's name) and the stop/kill closure-scope disclosure. a changed target prevents mutation; a
+successor is never substituted. unknown writes are never repeated; the owner
+notice says to inspect current state. nine worker tools share the existing
+19-call run allowance with 256 kib control envelopes and a 1 mib inventory; this
+release changes neither admission journals nor kernel budgets.
 
-the service retains `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir` and
-`JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`. it invokes ordinary
-commands with `--config` and `--json`; send text goes to `--stdin`. the executable's
-administrative basename is unchanged. nine worker tools share the existing 19-call
-run allowance with 256 kib control envelopes and a 1 mib fleet reply; this release
-changes neither admission journals nor kernel budgets. the live codex/claude
-journey is recorded in the [pr 4 qualification](qualification/2026-09-23-herdr-pr4.md).
+the herdr gate catalog is activated only through the
+[herdr gate cutover](#herdr-gate-cutover-pr-5) runbook.
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

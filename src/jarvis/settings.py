@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, Literal, Self, cast
@@ -42,8 +43,10 @@ class Settings(BaseModel):
     codex_profile_key: Literal["personal"]
     codex_model: str = Field(min_length=1, max_length=255)
     codex_host_config_path: Path
-    agent_cli_path: Path
-    agent_client_config_path: Path
+    herdr_ssh_config_path: Path
+    # ssh config label -> the owner's home on that host, which the gate's
+    # account homes are relative to; declared per host, never guessed.
+    herdr_machines: tuple[tuple[str, str], ...] = Field(min_length=1, max_length=8)
     runtime_state_directory: Path
     google_oauth_state_path: Path
     google_oauth_client_id: SecretStr = Field(repr=False)
@@ -111,8 +114,7 @@ class Settings(BaseModel):
 
     @field_validator(
         "codex_host_config_path",
-        "agent_cli_path",
-        "agent_client_config_path",
+        "herdr_ssh_config_path",
         "runtime_state_directory",
         "google_oauth_state_path",
     )
@@ -120,6 +122,20 @@ class Settings(BaseModel):
     def _absolute_runtime_directory(cls, value: Path) -> Path:
         if not value.is_absolute():
             raise ValueError("runtime-state directory must be absolute")
+        return value
+
+    @field_validator("herdr_machines")
+    @classmethod
+    def _herdr_machines(
+        cls, value: tuple[tuple[str, str], ...]
+    ) -> tuple[tuple[str, str], ...]:
+        labels = [label for label, _ in value]
+        if len(set(labels)) != len(labels) or any(
+            re.fullmatch(r"[a-z][a-z0-9-]{0,62}", label) is None
+            or re.fullmatch(r"(/[A-Za-z0-9._-]+)+", home) is None
+            for label, home in value
+        ):
+            raise ValueError("herdr machines need unique labels and absolute homes")
         return value
 
     @property
@@ -222,9 +238,10 @@ class Settings(BaseModel):
                     Literal["personal"], required("JARVIS_CODEX_PROFILE_KEY")
                 ),
                 codex_model=required("JARVIS_CODEX_MODEL"),
-                agent_cli_path=Path(required("JARVIS_AGENT_CLI_PATH")),
-                agent_client_config_path=Path(
-                    required("JARVIS_AGENT_CLIENT_CONFIG_PATH")
+                herdr_ssh_config_path=Path(required("JARVIS_HERDR_SSH_CONFIG_PATH")),
+                herdr_machines=tuple(
+                    cast(tuple[str, str], tuple(item.split("=", 1)))
+                    for item in required("JARVIS_HERDR_MACHINES").split(",")
                 ),
                 codex_host_config_path=Path(required("JARVIS_CODEX_HOST_CONFIG_PATH")),
                 runtime_state_directory=Path(

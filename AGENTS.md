@@ -15,7 +15,9 @@ These instructions govern all work in this repository.
 - adr 0044 governs the accepted agent-control upgrade and supersedes only the
   prior worker routing/catalog/launcher restrictions; cognition rules remain.
   adr 0048 aligns the consumer with skid's herdr cli and supersedes only the
-  affected portions of adrs 0044/0045.
+  affected portions of adrs 0044/0045. adr 0049 replaces that cli with herdr
+  driven through each host's ssh forced-command gate and supersedes the
+  transport, codec, refs and preflight of adrs 0044/0045/0048.
 - If code and specification disagree, stop and surface the discrepancy.
 - If a specification silence would change user-visible behavior, authority,
   irreversible data, or external compatibility, stop and surface it. Ordinary

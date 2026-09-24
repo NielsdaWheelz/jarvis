@@ -323,30 +323,32 @@ in Slice 0.
       `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`
       and `agent.kill` in addition to the existing catalog; scheduled and
       internal roles expose none. Inputs are closed: refs are opaque strings of
-      at most 4096 characters, read coverage is `recent|visible` with 1–32768
-      bytes, send text is 1–32768 exact utf-8 bytes, keys are 1–16 of the nine
-      logical keys, start permits only an advertised profile. Every invocation
-      uses the absolute executable, `--config`, `--json`, the exact argv per
-      adr 0048 and no shell. Results decode the actual envelopes before exit
-      status and reject unknown fields, duplicate keys and inconsistent
-      shape/status pairs. Send, keys, interrupt and stop preflight one fleet
-      list requiring exactly one terminal whose current agent ref equals the
-      submitted ref; kill preflights one info returning the same terminal ref;
-      start needs none; missing owner input denies before lookup; failed or
-      ambiguous lookup creates no action; an unrelated unavailable peer does not
-      veto an exact match; a replaced agent is never substituted. The gate sees
-      peer label, optional product name, the original ref and the stop/kill
-      closure-scope disclosure only. Every mutation is BilledOnce with one
-      executor entry: complete success settles that operation only; not-sent
-      and sent failures settle failed with code, dispatch and partial prefix;
-      unknown dispatch, unknown outcome, or a malformed, oversized, lost or
-      timed-out reply after child start settles uncertain with
-      `agent_control_v2` evidence; cancellation/restart/original-input
-      reconsideration never redispatches. Partial fleet inventory renders as an
-      incomplete observation, never as an empty or complete fleet. Old receipts
-      of both earlier generations remain readable after restart with bounded
-      notices; no canonical row changes. Live codex/claude journeys are
-      `NOT_RUN` until pr 4's isolated fleet exists; absence is not a pass.
+      at most 1024 characters, read coverage is `recent|visible` with 1–1000
+      lines, send text is 1–32768 exact utf-8 bytes, keys are 1–16 of the nine
+      herdr keys, start permits only the four declared profiles on a configured
+      machine. Every call is one `/usr/bin/ssh -F` child to that host's gate
+      with the exact argv of adr 0049, a bounded reply and no shell; the gate
+      refuses anything outside the allowlist before herdr runs. Replies decode
+      herdr's envelope, error or the gate's refusal before exit status. Every
+      addressed call re-reads its target and requires the same name and
+      `terminal_id`, wherever its pane moved: an exited agent, a reused name
+      in another terminal or a herdr restart fails not-sent before any write
+      (for kill already before the gate, with no action). start creates its
+      own workspace with the profile's account home, starts only in that pane
+      and requires herdr's reply to name that agent and terminal; missing owner
+      input denies before lookup; an unrelated unavailable machine does not
+      veto a current target. The gate sees machine and agent name (kill: the
+      current pane and any hosted agent's name) and the stop/kill closure-scope
+      disclosure only. Partial effects are staged when herdr confirms them. Every mutation is BilledOnce with one executor entry:
+      complete success settles that operation only; not-sent and sent failures
+      settle failed with code, dispatch and partial prefix; a lost reply after
+      the mutating command started settles uncertain with `agent_control_v3`
+      evidence; cancellation/restart/original-input reconsideration never
+      redispatches. Partial fleet inventory renders as an incomplete
+      observation, never as an empty or complete fleet. Old receipts of every
+      earlier generation remain readable after restart with bounded notices; no
+      canonical row changes. Live codex/claude journeys on the real hosts are
+      `NOT_RUN` until the herdr gate cutover; absence is not a pass.
 
 ## A5. Memory
 

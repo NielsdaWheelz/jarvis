@@ -7,12 +7,12 @@ plan; their removed test procedures are not current gates or runnable commands.
 runtime contracts remain binding. the next pr begins the
 [testing redesign](issues/testing-redesign.md).
 
-next accepted upgrade: [herdr alignment](decisions/0048-align-with-the-herdr-fleet-cli.md)
-of the peer agent control introduced by adrs 0044/0045. the consumer now matches
-skid's merged herdr cli; deployment and the live codex/claude journey belong to
-skid's pr 4 and remain `NOT_RUN`; the dated
-[qualification record](qualification/2026-09-23-herdr-pr3.md) holds the candidate's
-boundary evidence. historical slice evidence below does not establish this capability.
+next accepted upgrade: [herdr gate](decisions/0049-drive-herdr-through-an-ssh-gate.md)
+replaces the skid cli consumer of adrs 0044/0045/0048: jarvis drives herdr on each
+host through its ssh forced-command gate. its isolated proof is recorded in the
+adr; production activation under the herdr gate cutover runbook and the live
+codex/claude journey on the real hosts remain `NOT_RUN`. historical slice
+evidence below does not establish this capability.
 
 Each slice is a small vertical increment. The plan names intended sequence, not a
 workflow system or calendar schedule.
@@ -478,8 +478,9 @@ release is enabled and every preceding Slice 7 gate passes.
 
 historical delivery plan: the worker-control requirements below are superseded by
 [adr 0044](decisions/0044-control-tmux-agents-through-skid.md),
-[adr 0045](decisions/0045-use-the-ordinary-fleet-cli.md) and
-[adr 0048](decisions/0048-align-with-the-herdr-fleet-cli.md). their cognition and
+[adr 0045](decisions/0045-use-the-ordinary-fleet-cli.md),
+[adr 0048](decisions/0048-align-with-the-herdr-fleet-cli.md) and
+[adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md). their cognition and
 durable-recovery requirements remain binding.
 
 Status: implemented on the isolated feature branch on 2026-09-09; live

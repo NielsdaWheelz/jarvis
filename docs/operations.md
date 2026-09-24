@@ -511,8 +511,9 @@ procedure qualifies it, and production's first turn is observed, not qualified.
 
 rollback is the same command with the previous commit, only to a release that
 carries `check-activation`; older releases are refused, not skipped. this
-cutover's predecessor predates the check, so rollback to it is refused: jarvis
-stays stopped and repair goes forward. a later rollback target runs after the
+cutover's predecessor (production `f4e2ce6129c0add09ddb50355a8997a1c589d3d1`)
+predates the check, so rollback to it is unavailable through
+`activate-release`: jarvis stays stopped and repair goes forward. a later rollback target runs after the
 owner pauses and the service stops cleanly as in step 2; a failed stop needs the
 same inspection and explicit `reset-failed`. it installs that release's own
 unit. the previous skid cli returns only through the previous dev-server apply,

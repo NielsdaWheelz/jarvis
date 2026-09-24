@@ -37,6 +37,9 @@ cli grammar and targets with ordinary argv and opaque references, and adds info/
 [adr 0048](docs/decisions/0048-align-with-the-herdr-fleet-cli.md) aligns the consumer
 with skid's herdr runtime: separate terminal/agent refs, explicit readiness and
 dispatch, exact original-target preflight, closed partial prefixes and 256 kib envelopes.
+[adr 0049](docs/decisions/0049-drive-herdr-through-an-ssh-gate.md) replaces the skid
+cli with herdr itself, driven through each host's ssh forced-command gate, with
+jarvis-owned refs checked against herdr before every addressed call.
 
 ## 1. Product definition
 
@@ -91,8 +94,9 @@ V1 MUST NOT add:
 - A peer-agent ownership graph, task schema, completion scheduler, or general
   execution framework. owner-directed terminal agent interaction uses section 7.3.
 - A general-purpose remote shell, SSH, terminal, or unconstrained browser agent.
-- OnePassword or Nexus integration. skid owns the common herdr agent-control
-  api; jarvis consumes its cli without duplicating provider or terminal control.
+- OnePassword or Nexus integration. herdr owns terminals and agents on each host;
+  jarvis drives them through a per-host ssh forced command that admits only its
+  allowlisted herdr commands, never a shell, and duplicates no provider control.
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
 - Slash commands, dashboards, or speculative action components.
@@ -1142,115 +1146,121 @@ V1 exposes exactly the following canonical model tools:
 | `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`, `agent.kill` | Main | peer agent control; automatic only when grounded in current owner input |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
-agent controls invoke the absolute installed skid executable with explicit
-`--config PATH`, ordinary command arguments, `--json`, bounded stdout, and suppressed
-stderr. send uses `--stdin` for exact utf-8 text of 1–32768 bytes with no trimming,
-added newline or NUL; other commands have empty stdin. no shell, json-request stdin,
-second fleet client, native worker client, or dedicated terminal launcher remains.
-list/start select configured machine labels; addressed operations echo an opaque
-`ref` of at most 4096 characters returned by list/info. the cli owns reference
-encoding, kind/lifetime validation and the common projection; jarvis never decodes
-refs or derives one ref from another.
+agent controls drive each configured host's herdr through its ssh forced-command
+gate ([adr 0049](docs/decisions/0049-drive-herdr-through-an-ssh-gate.md)). every
+call is one `/usr/bin/ssh -F <JARVIS_HERDR_SSH_CONFIG_PATH> <label>
+<shlex-joined herdr argv>` child with environment `PATH=/usr/bin:/bin` only, closed
+stdin, stdout bounded to 256 kib (1 mib for `pane list` and `agent list`), stderr
+bounded to 64 kib, a joined command of at most 64 kib and a 10-second clock
+(`agent start` adds herdr's 15-second readiness wait). no
+shell, `--machine`, `--remote`, second client, skid executable or dedicated
+launcher remains. the gate, installed by dev-server in each owner account, splits
+the command without a shell and admits only the allowlist this adr owns; the
+commands jarvis emits are `pane list`, `agent list`, `agent get NAME`, `agent read
+NAME --source recent|visible --lines N`, `workspace create --cwd ABS --label NAME
+--env VAR=HOME/DIR`, `agent start NAME --kind codex|claude --pane NEW --timeout
+15000`, `agent prompt NAME TEXT`, `agent send-keys NAME KEY...` and `pane close
+PANE`. machine labels and each host's owner home come from `JARVIS_HERDR_MACHINES`
+(`devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal`); profiles are part
+of the tool contract: `personal`, `work`, `work2` start codex with `CODEX_HOME` at
+the host's `.codex`, `.codex-work`, `.codex-work2`, and `claude-work` starts claude
+with `CLAUDE_CONFIG_DIR` at `.claude-work`. both enter the bindings' policy inputs.
 
-the exact argv is `list [--machine M]`, `info --ref R`, `start --machine M
---profile P --cwd C -- NAME`, `read --ref R --coverage recent|visible --max-bytes N`,
-`send --ref R --stdin [--terminal]`, `keys --ref R KEY...`, and
-`interrupt|stop|kill --ref R`. info and kill address a terminal ref; read, send,
-keys, interrupt and stop address an agent ref. list returns the fleet inventory,
-including ordinary shells and unavailable peers; info returns one terminal with its
-optional current agent. start submits a launch in a new workspace named after the
-terminal, with no prompt and no readiness guarantee, and permits only an advertised
-host profile. read returns bounded terminal text with explicit scope; bytes are
-1–32768. keys sends 1–16 of `enter, escape, ctrl-c, up, down, left, right, tab,
-backspace`. ordinary send requires `readiness: ready`; `--terminal` deliberately
-bypasses readiness only. interrupt sends one provider interrupt key and confirms
-nothing. stop interrupts, then closes the original terminal; kill closes it without
-interrupt; either close may be refused and may close linked workspaces and their
-running terminals.
+decoding precedes interpretation: exit 0 is herdr's api envelope `{id,
+result:{type, …}}` whose `type` must be the command's own, or plain text for
+`agent read`; unknown fields are ignored, as herdr's policy asks. exit 1 whose
+stderr is exactly the gate's `herdr-gate: command refused` line is
+`gate_refused/not_sent`; exit 1 with herdr's `{id, error:{code, message}}` on
+stderr is that code with `sent`; exit 2 is `usage/not_sent`; a child that never
+started is `unavailable/not_sent`. any other exit, a timeout, or an oversized or
+malformed reply is a lost reply.
 
-results are closed models defined once in `agent_tools.py`, with wire field names
-retained: status `{state: working|blocked|idle|unknown, source: herdr|unavailable,
-reason?: default_idle|unrecognized|observation_failed}`; agent `{ref, provider,
-provenRuntimeProfile?, providerSession?, status, readiness: ready|blocked|unconfirmed,
-methods: {read,send,interrupt: terminal|unavailable}}`; terminal `{ref, name?,
-nativeLabel?, character: {key,displayName}, workspaceRef, cwd?, launchProfile?,
-objective?, agent?}`; peer `{label, machine, ok:true, observedAt, partial,
-unaddressableTerminals, unaddressableWorkspaces, profiles, workspaces, terminals}`
-or `{label, machine, ok:false, error: {code,message}}`; inventory `{partial, peers}`
-where `partial` equals any failed or partial peer; info `{label, machine,
-observedAt, terminal}`; start adds `launch: submitted, dispatch: sent`; read
-`{label, machine, text, source: terminal, scope: terminal_history|visible,
-truncated}`; write `{label, machine, method: terminal, outcome: written|unknown,
-dispatch: sent|unknown}`; stop `{label, machine, agent: interrupt_sent|exited,
-terminal: closed, dispatch: sent}`; kill `{label, machine, terminal: closed,
-dispatch: sent}`. booleans and counts are strict, timestamps aware, empty arrays
-valid. an absent name is valid and `nativeLabel` is only a hint. `idle` alone is
-not readiness; descriptive profile/session metadata never gates an action.
+references are jarvis's own opaque strings: unpadded base64url of canonical json
+naming the machine and herdr's `terminal_id`, plus herdr's agent name for an
+agent ref, at most 1024 characters. the encoding is deterministic, so equality is
+identity; jarvis never derives one ref from another and the model never builds
+one. a pane id is a location, not an identity: herdr changes it when a pane moves
+to another workspace and reissues it after a restart, but never repeats a
+`terminal_id`, and it clears a name when its agent exits or is replaced. info and
+kill take terminal refs; read, send, keys, interrupt and stop take agent refs. an
+agent herdr detected without a name is listed with no agent ref and is reachable
+only through its terminal ref. every addressed call first re-reads its target: an
+agent ref by `agent get NAME`, requiring the same name and `terminal_id`; a
+terminal ref by one machine scan, finding the pane that holds its `terminal_id`.
+writes go to the agent name or to that current pane. a changed target fails
+`stale_reference/not_sent` before any write; the check/write race stays
+accepted.
 
-jarvis decodes `{ok:true,result}` or `{ok:false,error:{code,message,dispatch?},
-partial?}`, with optional outer `label,machine`, before interpreting exit status:
-0 for a complete result, 1 for failure, partial inventory or unknown write outcome,
-2 for usage; an incomplete write result (`outcome: unknown` or `dispatch: unknown`)
-may exit 0 or 1 and is always staged as uncertain. omitted dispatch is `unknown`;
-not-sent is never inferred from exit status. inconsistent shape/status pairs, duplicate keys, non-json values and
-unknown fields are rejected. partial errors are closed per operation: start
-`{stage: resource_created}` or `{stage: identified, terminal}`; stop `{agent:
-interrupt_sent|exited|unconfirmed, terminal: refused|unconfirmed|not_attempted}`;
-kill `{terminal: refused}`. `AgentFailure` carries `code, message?, label?,
-machine?, dispatch: not_sent|sent|unknown, partial?`; local `policy_denied` and
+list scans the configured machines concurrently, each with `pane list` then
+`agent list` inside one 10-second budget, and joins agents to panes by pane id and
+`terminal_id`. info is one machine scan. read returns the last 32768 bytes of
+herdr's text for 1–1000 recent lines or the visible screen, with `truncated` when
+jarvis cut it. start requires the name to be free (`agent get` answers
+`agent_not_found`), creates a new workspace labelled with the name, in `cwd`
+(absolute, `~` or `~/…`, default the host's owner home) with the profile's account
+home, then runs `agent start` on that new pane only; herdr waits up to 15 seconds
+for readiness and sends no prompt. send is one `agent prompt`, which herdr refuses
+for a blocked or unready agent; no terminal-mode bypass remains. keys sends 1–16
+of `enter, escape, ctrl+c, up, down, left, right, tab, backspace`. interrupt sends
+`ctrl+c` and confirms nothing. stop interrupts, finds the pane that holds its
+terminal now, then closes that pane; kill closes it without interrupt. a
+close may be refused, and closing a workspace's last pane closes the workspace and
+may close linked workspaces and their running terminals.
+
+results are closed models defined once in `agent_tools.py`: terminal `{ref, pane,
+cwd?, agent?}` with agent `{ref?, name?, kind?, status:
+idle|working|blocked|done|unknown, ready}` as herdr detects them; machine
+`{machine, terminals}` or `{machine, error}`; inventory `{partial, machines}` where
+`partial` equals any unavailable machine; info and start `{machine, terminal}`;
+read `{machine, text, coverage, truncated}`; send, keys and interrupt `{machine,
+outcome: written}`; stop and kill `{machine, terminal: closed}`. readiness has one
+owner, herdr's detection, which reads codex's sign-in and trust screens as idle
+and ready; jarvis parses no screen text. `AgentFailure` carries `code, message?,
+machine?, dispatch: not_sent|sent|unknown`; start adds `partial: {created:
+terminal}` and stop `partial: {interrupt: sent, terminal:
+not_attempted|refused|unconfirmed}`. local `policy_denied` and
 `write_check_unavailable` remain `not_sent`.
 
 before an addressed write reaches the existing gate, and only after current owner
-input is present, the dispatcher proves the original target: send, keys, interrupt
-and stop run one bounded fleet `list` through the same controller and require
-exactly one terminal whose current `agent.ref` equals the submitted ref; kill runs
-one `info` with the terminal ref and requires the same ref back. start needs no
-lookup. only the peer label, an optional product name and the original ref enter
-existing effect-target fields; no native label, objective, status, terminal text or
-history reaches the gate. no match, several matches, invalid output, a fleet reply
-above 1 mib, or lookup failure is `write_check_unavailable/not_sent`, creates no
-action and mutates nothing; a positive exact match remains usable when unrelated
-peers are unavailable. the descriptor carries `closure_scope:
-native_linked_workspace_group_may_close` for stop and kill; an owner restriction
-incompatible with a possible cascade is denied, never reinterpreted. the action
-and executor retain the original arguments and ref; a fresh lookup may inform a
-later decision but never changes an existing action.
+input is present, the dispatcher runs the same target check: send, keys,
+interrupt and stop by `agent get`, kill by one machine scan. only the machine,
+herdr's agent name (kill: the name of an agent the terminal hosts, if any) and
+the pane enter the effect-target fields; no terminal text, status or history
+reaches the gate. a changed target or failed check is
+`write_check_unavailable/not_sent`, creates no action and mutates nothing; an
+unrelated unavailable machine does not veto it. the descriptor carries
+`closure_scope: native_linked_workspace_group_may_close` for stop and kill; an
+owner restriction incompatible with a possible cascade is denied, never
+reinterpreted. the action and executor retain the original arguments and ref; the
+executor checks again immediately before writing, and a fresh lookup never changes
+an existing action.
 
 writes retain `ReplayPolicy.BilledOnce`, one executor entry, `max_attempts=1`,
 and terminal uncertainty after possible dispatch. a complete success settles only
-that operation, never task completion or a confirmed descendant halt. a `not_sent`
-failure without partial, or a `sent` failure other than `OutcomeUnknown` whose
-partial is one the host emits (start: none, `resource_created`, `identified`;
-stop: `unconfirmed/not_attempted` or `interrupt_sent|exited` with
-`not_attempted|refused`; kill: none or `refused`; send/keys/interrupt: none),
-settles `failed` with its code, dispatch and partial facts, which may include a
-created terminal or a sent interrupt; a partial prefix is staged before the
-failure settles. an `unknown` dispatch, `OutcomeUnknown`, an unknown write
-outcome, a contradictory dispatch/partial pair, a malformed, oversized, lost or
-timed-out reply after child start, or interrupted unsettled execution settles
-`uncertain` with every validated prefix staged as `{type: agent_control_v2,
-observed: null|write|AgentFailure}` inside the existing `agent_uncertainty_v1`
-wrapper. no partial field alone classifies an outcome. no result, later
-inventory or process exit authorizes replay. encoded input and control results are
-bounded to 256 kib and the fleet list to 1 mib, measured on both the cli's stdout
-(plus its final newline) and the normalized tool result that llm-tools budgets, and
-each cli execution to 15 seconds, except the read-only fleet list at 17 seconds so that
-one hung peer yields a partial inventory instead of an unavailable one (the cli's
-own 15-second clock starts after it parses its arguments); a borderline write
-reply lost to the shared deadline stays uncertain rather than gaining a longer
-outer timeout. terminal-mode override is a main-role discipline visible in the
-stored arguments, not a gate descriptor fact. killing the child never
-cancels remote work. nine tools share the existing run allowance; large valid
-results may exhaust it and are never clipped.
+that operation, never task completion or a confirmed descendant halt. a failure
+settles `failed` with its code, dispatch and partial facts: `not_sent` when the
+check, gate or a local rule refused before the write, `sent` when herdr answered
+the write with an error, which does not prove no effect. a known prefix is staged
+as `{type: agent_control_v3, observed: null|created|stop partial}` before its
+failure settles. a lost reply after the mutating command started, an unconfirmed
+close, or interrupted unsettled execution settles `uncertain` with that staged
+prefix inside the existing `agent_uncertainty_v1` wrapper. no result, later
+inventory or process exit authorizes replay; a lost start can still create its
+agent. encoded input and control results are bounded to 256 kib and the inventory
+to 1 mib on the normalized tool result that llm-tools budgets; a larger inventory
+fails `output_limit` rather than clipping. deadlines are 15 seconds for list and
+info, 25 for read, send, keys, interrupt and kill, 45 for stop and 50 for start;
+killing the ssh child never cancels remote work. nine tools share the existing run
+allowance; large valid results may exhaust it and are never clipped.
 
-partial fleet inventory is turn evidence: bounded unavailable-peer and
-unaddressable-resource counts enter the existing evidence path, compose with
-calendar incompleteness, downgrade `answered`/`silent` to `partial`, count scans
-rather than hosts, and survive snapshot restoration. historical receipts of the
-earlier tool generations decode only through `agent_history.py`, selected by the
-stored execution contract revision; live schemas accept only this contract and no
-old execution grammar remains. the exact wire contract is skid's herdr pr 1
-retained gateway operations and adr 0048.
+partial fleet inventory is turn evidence: the count of unavailable machine scans
+enters the existing evidence path, composes with calendar incompleteness,
+downgrades `answered`/`silent` to `partial`, counts scans rather than hosts, and
+survives snapshot restoration. historical receipts of the earlier tool
+generations, including adr 0048's skid cli receipts (`jarvis-agent-control-v4`),
+decode only through `agent_history.py`, selected by the stored execution contract
+revision; live schemas accept only this contract and no old execution grammar
+remains.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 
@@ -1809,7 +1819,8 @@ load the newly installed binary. CLI/server parity is not assumed.
 
 the root-owned codex host mapping retains the operational account endpoints and
 empty cognition parent needed by cognition. worker routing comes only from the
-explicit skid client configuration. deployment owns this mapping and removes
+explicit herdr gate settings, `JARVIS_HERDR_SSH_CONFIG_PATH` and
+`JARVIS_HERDR_MACHINES` (adr 0049). deployment owns this mapping and removes
 launcher-only fields with their final callers under adr 0044.
 
 The checked-in compatibility manifest schema v3 records

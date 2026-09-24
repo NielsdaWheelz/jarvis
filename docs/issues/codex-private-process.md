@@ -3,8 +3,8 @@
 problem: jarvis's cognition reaches codex only through the devbox's shared app
 servers (`codex-shared@*`, run as `niels`), attached by `provider-runtime`
 through `CODEX_APP_SERVER_SOCKET`. adr 0041 chose sharing so the `codex.*`
-tools could steer worker threads on the owner's personal server; adr 0044 and
-0048 moved worker control to skid and herdr, so jarvis is now the servers' only
+tools could steer worker threads on the owner's personal server; adrs 0044,
+0048 and 0049 moved worker control to skid and then herdr, so jarvis is now the servers' only
 client and the sharing serves nothing else.
 
 impact: dev-server keeps a cross-user service, its socket-permission

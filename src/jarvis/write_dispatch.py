@@ -52,8 +52,8 @@ from jarvis.actions import (
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
 from jarvis.agent_history import (
-    HistoricalAgentActionEvidence,
-    HistoricalAgentError,
+    historical_agent_error_type,
+    historical_agent_evidence_type,
     historical_agent_success_type,
 )
 from jarvis.agent_tools import (
@@ -203,12 +203,7 @@ class WriteToolDispatcher:
                 validated_input, AgentRefInput | AgentSendInput | AgentKeysInput
             ):
                 stage = "target_lookup"
-                locate = (
-                    self._agents.locate_terminal
-                    if tool_id == ToolId("agent.kill")
-                    else self._agents.locate_agent
-                )
-                target = await locate(validated_input.ref)
+                target = await self._agents.locate(tool_id, validated_input.ref)
             stage = "descriptor"
             descriptor = write_effect_descriptor(
                 tool_id, validated_input, target=target
@@ -858,18 +853,15 @@ def action_resolution_text(stored: StoredAction) -> str:
             if isinstance(error_type, str)
             else "Validated failure receipt recorded."
         )
-        if (
-            error_type == "AgentFailure"
-            and stored.tool_name in AGENT_WRITE_IDS
-            and agent_receipt_is_live(stored)
-        ):
-            sent = _agent_failure(stored, stored.result["error"])["dispatch"] == "sent"
-            evidence = (
-                "Validated failure receipt recorded: AgentFailure, sent; failed does "
-                "not mean no effect."
-                if sent
-                else "Validated failure receipt recorded: AgentFailure, not sent."
-            )
+        if error_type == "AgentFailure" and stored.tool_name in AGENT_WRITE_IDS:
+            dispatch = _agent_failure(stored, stored.result["error"])["dispatch"]
+            if dispatch == "sent":
+                evidence = (
+                    "Validated failure receipt recorded: AgentFailure, sent; failed "
+                    "does not mean no effect."
+                )
+            elif dispatch == "not_sent":
+                evidence = "Validated failure receipt recorded: AgentFailure, not sent."
     elif stored.status == "cancelled":
         assert stored.result is not None
         reason = stored.result.get("reason_code")
@@ -1103,12 +1095,24 @@ def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
         created = cast(
             dict[str, object], receipt.get("terminal", receipt.get("session"))
         )
-        name = created.get("name")
+        agent = created.get("agent")
+        name = created.get("name") or (
+            cast(dict[str, object], agent).get("name")
+            if isinstance(agent, dict)
+            else None
+        )
         return {
             "type": "agent_started",
-            "observedAt": _safe_atom(receipt["observedAt"], 96),
-            **({} if name is None else {"name": _safe_atom(name, 96)}),
-            **({} if "launch" not in receipt else {"launch": receipt["launch"]}),
+            **{
+                key: _safe_atom(value, 96)
+                for key, value in (
+                    ("observedAt", receipt.get("observedAt")),
+                    ("name", name),
+                    ("pane", created.get("pane")),
+                    ("launch", receipt.get("launch")),
+                )
+                if value is not None
+            },
         }
     if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
         value = _success_result_value(result)
@@ -1198,14 +1202,18 @@ def _agent_failure(stored: StoredAction, error: object) -> dict[str, object]:
     if agent_receipt_is_live(stored):
         verb = str(stored.tool_name).removeprefix("agent.")
         return validate_agent_failure(verb, error).model_dump(mode="json")
-    return HistoricalAgentError.model_validate(error).model_dump(mode="json")
+    revision = stored.execution_contract.implementation_revision
+    model = historical_agent_error_type(revision)
+    return model.model_validate(error).model_dump(mode="json")
 
 
 def _agent_control(stored: StoredAction, control: object) -> dict[str, object]:
     if agent_receipt_is_live(stored):
         verb = str(stored.tool_name).removeprefix("agent.")
         return validate_agent_evidence(verb, control).model_dump(mode="json")
-    return HistoricalAgentActionEvidence.model_validate(control).model_dump(mode="json")
+    revision = stored.execution_contract.implementation_revision
+    model = historical_agent_evidence_type(revision)
+    return model.model_validate(control).model_dump(mode="json")
 
 
 def _bounded_agent_receipt(receipt: dict[str, object]) -> dict[str, object]:
@@ -1224,17 +1232,29 @@ def _bounded_agent_failure(error: dict[str, object]) -> dict[str, object]:
     }
     partial = error.get("partial")
     if isinstance(partial, dict):
-        bounded["partial"] = {
-            name: _safe_atom(value, 32)
-            for name, value in cast(dict[str, object], partial).items()
-            if isinstance(value, str)
-        }
+        bounded["partial"] = _bounded_agent_partial(cast(dict[str, object], partial))
+    return bounded
+
+
+def _bounded_agent_partial(partial: dict[str, object]) -> dict[str, object]:
+    bounded: dict[str, object] = {
+        name: _safe_atom(value, 32)
+        for name, value in partial.items()
+        if isinstance(value, str)
+    }
+    created = partial.get("created")
+    if isinstance(created, dict):
+        bounded["created"] = _safe_atom(
+            cast(dict[str, object], created).get("pane"), 32
+        )
     return bounded
 
 
 def _bounded_agent_observation(observed: dict[str, object]) -> dict[str, object]:
     if observed.get("type") == "AgentFailure":
         return _bounded_agent_failure(observed)
+    if "created" in observed or "interrupt" in observed:
+        return _bounded_agent_partial(observed)
     return _bounded_agent_receipt(observed)
 
 

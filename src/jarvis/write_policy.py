@@ -111,7 +111,11 @@ def write_effect_descriptor(
             targets=(
                 EffectTarget(kind="machine", value=value.machine),
                 EffectTarget(kind="profile", value=value.profile),
-                EffectTarget(kind="cwd", value=value.cwd),
+                *(
+                    ()
+                    if value.cwd is None
+                    else (EffectTarget(kind="cwd", value=value.cwd),)
+                ),
                 EffectTarget(kind="terminal_name", value=value.name),
             ),
         )
@@ -122,7 +126,7 @@ def write_effect_descriptor(
         "agent.stop",
         "agent.kill",
     } and isinstance(value, AgentSendInput | AgentKeysInput | AgentRefInput):
-        if target is None or target.ref != value.ref:
+        if target is None:
             raise ValueError("addressed agent write requires its original target")
         return WriteEffectDescriptor(
             operation=cast(
@@ -130,13 +134,13 @@ def write_effect_descriptor(
                 name.removeprefix("agent."),
             ),
             targets=(
-                EffectTarget(kind="machine", value=target.label),
+                EffectTarget(kind="machine", value=target.machine),
                 *(
                     ()
                     if target.name is None
                     else (EffectTarget(kind="terminal_name", value=target.name),)
                 ),
-                EffectTarget(kind="terminal_id", value=target.ref),
+                EffectTarget(kind="pane", value=target.pane),
             ),
             omitted_freeform=(
                 (OmittedFreeform.from_text("worker_input", value.text),)

@@ -52,11 +52,12 @@ contracts remain binding; dated evidence remains historical.
 | [0041](0041-control-shared-codex-workers.md) | Control shared Codex workers through host-owned services | accepted; native pin superseded by 0042, worker control by 0044 |
 | [0042](0042-track-latest-stable-codex.md) | Track latest stable native Codex without widening authority | Accepted; supersedes 0041's native executable pin |
 | [0043](0043-retain-main-thread-through-native-compaction.md) | Retain Main's thread through native compaction | Accepted; removes host age-based rotation, preserves CAS and recovery |
-| [0044](0044-control-tmux-agents-through-skid.md) | control peer tmux agents through the common skid cli | accepted implementation target; supersedes 0041's worker routing and launcher; native observation/halt, single-session closure, partial-stop uncertainty and 64 kib bounds superseded by 0048 |
-| [0045](0045-use-the-ordinary-fleet-cli.md) | ordinary fleet cli and opaque references | accepted implementation target; supersedes 0044 cli grammar and roster; info preflight, session projection and partial-stop uncertainty superseded by 0048 |
+| [0044](0044-control-tmux-agents-through-skid.md) | control peer tmux agents through the common skid cli | accepted implementation target; supersedes 0041's worker routing and launcher; native observation/halt, single-session closure, partial-stop uncertainty and 64 kib bounds superseded by 0048; transport by 0049 |
+| [0045](0045-use-the-ordinary-fleet-cli.md) | ordinary fleet cli and opaque references | accepted implementation target; supersedes 0044 cli grammar and roster; info preflight, session projection and partial-stop uncertainty superseded by 0048; cli argv and refs by 0049 |
 | [0046](0046-reset-testing.md) | remove the old testing system before redesign | accepted; suspends earlier test and qualification execution gates |
 | [0047](0047-require-current-admission-journals.md) | require current admission journals | accepted; retires 0037's automatic predecessor recognition under the owner's hard-cut instruction |
-| [0048](0048-align-with-the-herdr-fleet-cli.md) | align with the herdr fleet cli | accepted implementation target; live acceptance `NOT_RUN`; supersedes 0044/0045 native observation, single-session closure, info preflight and 64 kib bounds |
+| [0048](0048-align-with-the-herdr-fleet-cli.md) | align with the herdr fleet cli | accepted implementation target; live acceptance `NOT_RUN`; supersedes 0044/0045 native observation, single-session closure, info preflight and 64 kib bounds; skid cli codec superseded by 0049 |
+| [0049](0049-drive-herdr-through-an-ssh-gate.md) | drive herdr through an ssh gate | accepted implementation target; production activation `NOT_RUN`; supersedes the skid cli transport, codec, refs and preflight of 0044/0045/0048 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

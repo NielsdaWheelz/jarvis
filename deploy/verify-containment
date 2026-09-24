@@ -47,14 +47,30 @@ for socket in /run/codex-shared-personal/app-server.sock \
   sudo -u jarvis test -w "$socket"
 done
 
-sudo test -f /usr/local/libexec/skidbladnir
-sudo test ! -L /usr/local/libexec/skidbladnir
-[[ "$(sudo stat -c '%U:%G:%a' /usr/local/libexec/skidbladnir)" == root:root:755 ]]
-sudo -u jarvis test -x /usr/local/libexec/skidbladnir
-sudo test -f /etc/jarvis/agent-client.json
-sudo test ! -L /etc/jarvis/agent-client.json
-[[ "$(sudo stat -c '%U:%G:%a' /etc/jarvis/agent-client.json)" == jarvis:jarvis:600 ]]
-sudo -u jarvis test -r /etc/jarvis/agent-client.json
+herdr=/etc/jarvis-herdr
+sudo test -d "$herdr"
+sudo test ! -L "$herdr"
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr")" == root:jarvis:750 ]]
+for file in id_ed25519 ssh_config known_hosts; do
+  sudo test -f "$herdr/$file"
+  sudo test ! -L "$herdr/$file"
+done
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr/id_ed25519")" == jarvis:jarvis:600 ]]
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr/ssh_config")" == root:jarvis:640 ]]
+[[ "$(sudo stat -c '%U:%G:%a' "$herdr/known_hosts")" == root:jarvis:640 ]]
+# jarvis reaches each host's gate for an allowed read and is refused anything
+# else before herdr runs; `status` is read-only even if a gate failed open.
+for machine in devbox macbook arch; do
+  gate=(sudo -u jarvis env -i PATH=/usr/bin:/bin /usr/bin/ssh -F "$herdr/ssh_config"
+    "$machine")
+  "${gate[@]}" 'agent list' | python3 -c \
+    'import json, sys; assert json.load(sys.stdin)["result"]["type"] == "agent_list"'
+  if refusal="$("${gate[@]}" 'status --json' 2>&1)"; then
+    printf 'the %s gate ran a command outside its allowlist\n' "$machine" >&2
+    exit 1
+  fi
+  [[ "$refusal" == 'herdr-gate: command refused' ]]
+done
 
-printf 'Jarvis connector-secret and process-inspection boundary passed.\n'
+printf 'Jarvis connector-secret, process-inspection and herdr gate boundary passed.\n'
 REMOTE

@@ -69,8 +69,8 @@ JARVIS_OWNER_TIMEZONE=America/Los_Angeles
 JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_MODEL=gpt-5.6-terra
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json
-JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
-JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json
+JARVIS_HERDR_SSH_CONFIG_PATH=/etc/jarvis-herdr/ssh_config
+JARVIS_HERDR_MACHINES=devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary

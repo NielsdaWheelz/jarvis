@@ -140,17 +140,11 @@ class CapturingReadDispatcher:
             )
         if tool_id == "agent.list" and result.get("type") == "Success":
             inventory = AgentListResult.model_validate(result.get("value"))
-            peers = inventory.peers
             if inventory.partial:
                 self._evidence.record_agent_inventory_incompleteness(
-                    unavailable_peers=sum(not peer.ok for peer in peers),
-                    partial_peers=sum(peer.partial is True for peer in peers),
-                    unaddressable_terminals=sum(
-                        peer.unaddressableTerminals or 0 for peer in peers
-                    ),
-                    unaddressable_workspaces=sum(
-                        peer.unaddressableWorkspaces or 0 for peer in peers
-                    ),
+                    unavailable_machines=sum(
+                        item.error is not None for item in inventory.machines
+                    )
                 )
         self._observations.append((tool_id, ordinal, result))
 

@@ -18,7 +18,7 @@ that the six specified tables or their columns are unnecessary.
 | writes and recovery | `write_tools.py`, `write_connectors.py`, `write_dispatch.py`, `actions.py` | immutable effects, finite attempts, evidence-based recovery |
 | grounding and approvals | `write_gate.py`, `write_policy.py`, `approval.py`, `approval_runtime.py` | current owner authority and exact approved payload |
 | scheduled wakes | `schedule_tools.py`, schedule transactions in `actions.py`, `proactivity.py` | immutable creation receipt, one durable waking input |
-| worker control | `agent_tools.py`, `agent_control.py` | opaque references, bounded cli operations, no blind replay |
+| worker control | `agent_tools.py`, `agent_control.py`, `agent_history.py` | opaque references checked against herdr, bounded gate calls, no blind replay |
 | schema and deployment | `db.py`, `ownership.py`, `migrations/`, `deploy/` | six application tables, one deployment owner |
 
 each pr follows: trace callers and specification, verify a concrete finding,

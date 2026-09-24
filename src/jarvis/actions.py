@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.agent_history import (
     HISTORICAL_AGENT_IMPLEMENTATION_REVISIONS,
-    HistoricalAgentActionEvidence,
+    historical_agent_evidence_type,
 )
 from jarvis.agent_tools import (
     AGENT_IMPLEMENTATION_REVISION,
@@ -2525,7 +2525,11 @@ def _validate_stored_action(stored: StoredAction) -> None:
             _gmail_update_basis(stored.result)
         elif stored.result.get("type") == "action_recovery_v1":
             _recovery_state(stored.result)
-        elif stored.result.get("type") in {"agent_control_v1", "agent_control_v2"}:
+        elif stored.result.get("type") in {
+            "agent_control_v1",
+            "agent_control_v2",
+            "agent_control_v3",
+        }:
             _agent_evidence(stored, stored.result)
         elif stored.result.get("type") == "codex_control_v1":
             CodexActionEvidence.model_validate(stored.result)
@@ -2649,18 +2653,20 @@ def _uncertainty_result(
 
 
 def agent_uncertainty_result(stored: StoredAction) -> dict[str, object]:
-    """An entered CLI command has no replay-safe absence proof."""
+    """An entered agent command has no replay-safe absence proof."""
     if stored.execution_contract.replay_policy is not ReplayPolicy.BilledOnce:
         raise ValueError("agent uncertainty requires a BilledOnce action")
     if stored.status == "uncertain" and stored.result is not None:
         return _uncertainty_result(stored, stored.result)
     if stored.result is None:
-        control: dict[str, object] = {
-            "type": "agent_control_v2"
+        empty = (
+            AgentActionEvidence()
             if agent_receipt_is_live(stored)
-            else "agent_control_v1",
-            "observed": None,
-        }
+            else historical_agent_evidence_type(
+                stored.execution_contract.implementation_revision
+            )()
+        )
+        control: dict[str, object] = empty.model_dump(mode="json")
     else:
         _agent_evidence(stored, stored.result)
         control = stored.result
@@ -2692,7 +2698,9 @@ def _agent_evidence(stored: StoredAction, value: object) -> None:
     if agent_receipt_is_live(stored):
         validate_agent_evidence(str(stored.tool_name).removeprefix("agent."), value)
     else:
-        HistoricalAgentActionEvidence.model_validate(value)
+        historical_agent_evidence_type(
+            stored.execution_contract.implementation_revision
+        ).model_validate(value)
 
 
 def _gmail_update_basis(value: dict[str, object]) -> dict[str, object]:

@@ -306,8 +306,8 @@ async def _compose_main(
         provider=provider_configuration,
     )
     agents = AgentController(
-        executable=settings.agent_cli_path,
-        client_config=settings.agent_client_config_path,
+        ssh_config=settings.herdr_ssh_config_path,
+        machines=dict(settings.herdr_machines),
         actions=actions,
     )
     composition = build_tool_composition(

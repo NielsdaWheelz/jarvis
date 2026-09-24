@@ -56,8 +56,8 @@ deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
 That host convergence must also report one active operational `codex.runtime`
-identity, three healthy profile sockets, the installed skid cli/client config, and
-the mode-02750 empty cognition parent. A differing active identity is an
+identity, three healthy profile sockets, jarvis's herdr gate directory
+`/etc/jarvis-herdr`, and the mode-02750 empty cognition parent. A differing active identity is an
 operator drain/restart action, never an ordinary-apply restart. Before the hard
 cut, stop Jarvis, drain every non-terminal Codex control action and old private
 provider session, then activate the shared services without killing manual tmux
@@ -124,7 +124,8 @@ systemd one-shot that injects the root-only environment after changing to the
 
 for an existing deployment, complete the
 [admission journal cutover](#admission-journal-cutover) before activation. the
-herdr catalog switch follows the [herdr cutover](#herdr-cutover-pr-4) runbook.
+herdr catalog switch followed the [herdr cutover](#herdr-cutover-pr-4) runbook; the
+herdr gate switch follows the [herdr gate cutover](#herdr-gate-cutover-pr-5).
 
 ```sh
 deploy/install-release
@@ -193,9 +194,14 @@ controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
 control; no provider connection is opened before the control succeeds. The
-service then receives the non-secret cognition profile/socket view and its private
-skid peer configuration;
-it receives no Codex credential or development-user account-home access.
+service then receives the non-secret cognition profile/socket view and its herdr
+gate key and ssh configuration; it receives no Codex credential or
+development-user account-home access. the script also checks
+`/etc/jarvis-herdr` (directory root:jarvis 0750, `id_ed25519` jarvis 0600,
+`ssh_config` and `known_hosts` root:jarvis 0640) and, as jarvis, that each of
+devbox, macbook and arch answers `agent list` through its gate and refuses
+`status --json` with exactly `herdr-gate: command refused`; an unreachable host
+fails it.
 
 Do not activate an older release across an incompatible migration. A
 same-schema rollback may select an already installed release through
@@ -586,6 +592,96 @@ budgets.
 - a passing `scripts/fleet verify` shows versions and reachability, not that
   jarvis can control a worker; the live journey is still `NOT_RUN`.
 
+## herdr gate cutover (pr 5)
+
+this switch activates the herdr gate catalog of
+[adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md): jarvis stops
+calling the skid cli and drives each host's herdr through its ssh forced-command
+gate. the catalog, gate descriptor and both role revisions change, so the plan
+rotates and every nonterminal action is incompatible, not only agent actions.
+it is forward only: the new release cannot use the skid cli, and the previous one
+cannot use the gate. a failed step leaves jarvis on the old release or stopped for
+forward repair; nothing retries.
+
+step 0. prerequisites, with the old release still running. dev-server's pr 5
+step 1 is applied on all three hosts: each owner account has
+`~/.local/libexec/herdr-gate` and its `restrict,command=` line for the committed
+`assets/herdr/jarvis-gate.pub`, devbox has `/etc/jarvis-herdr`, the pinned herdr
+server runs on every host, and skid is unchanged. prove the gate as jarvis, which
+is read-only and needs no stop:
+
+```sh
+for machine in devbox macbook arch; do
+  sudo -u jarvis env -i PATH=/usr/bin:/bin /usr/bin/ssh \
+    -F /etc/jarvis-herdr/ssh_config "$machine" 'agent list'
+  sudo -u jarvis env -i PATH=/usr/bin:/bin /usr/bin/ssh \
+    -F /etc/jarvis-herdr/ssh_config "$machine" 'status --json'
+done
+```
+
+each `agent list` prints one `agent_list` envelope and each `status --json` fails
+with exactly `herdr-gate: command refused`. a host key, key or gate failure is a
+dev-server repair; do not continue. an unreachable arch holds this cutover,
+because containment requires all three hosts.
+
+step 1. take the read-only inventory of the
+[pr 4 step 1](#herdr-cutover-pr-4) one-shot unchanged, and finish, reconcile or
+obtain the owner's explicit denial or cancellation of every counted action under
+the same rules and owner notices. activation proceeds only at zero. a main run
+whose stored observations include an old-shape `agent.list` success fails closed
+under the new release, so finish or stop such turns first; never change rows by
+sql.
+
+step 2. the owner sends `pause`; verify the durable pause, stop jarvis
+cooperatively and confirm a clean stop exactly as in
+[pr 4 step 2](#herdr-cutover-pr-4): `paused` true, then
+`ActiveState=inactive`, `Result=success`, `MainPID=0`. any other stop ends the
+procedure for inspection; only then may an explicit `reset-failed` clear it. run no
+dream, rebuild or other operator process until step 6.
+
+step 3. from a clean checkout of the full target commit, install the new settings
+and the inactive release:
+
+```sh
+deploy/install-private-state
+deploy/install-release
+```
+
+the environment now carries `JARVIS_HERDR_SSH_CONFIG_PATH` and
+`JARVIS_HERDR_MACHINES` instead of the skid cli paths, which is why the old
+release cannot return. dev-server keeps `/usr/local/libexec/skidbladnir` and
+`/etc/jarvis/agent-client.json` until its pr 5 step 4; nothing reads them.
+
+step 4. activate. `deploy/activate-release` runs the target release's `jarvis
+check-activation` in the stopped state under the deployment lock, before
+migration, and refuses with `activation check did not pass; leave service
+stopped` unless every row is compatible; for this cutover that means zero pending
+actions. the check reads the live codex catalog, so the codex app-server must be
+running:
+
+```sh
+deploy/activate-release FULL_TARGET_COMMIT
+```
+
+the service starts paused, and startup recovery runs before ingress.
+
+step 5. run `deploy/verify-containment`. besides the existing boundary it checks
+`/etc/jarvis-herdr`'s modes and that jarvis reaches every gate for `agent list`
+and is refused `status --json`. a failure leaves jarvis paused for forward repair.
+
+step 6. the owner sends `resume`. the first owner-directed agent turn is observed,
+not qualified; the isolated qualification of this codec is recorded in adr 0049.
+
+### what the gate cutover does not prove
+
+- activation proves the selected release, unit and `current` agree and the service
+  stayed up for ten seconds. `activation check` covers actions only.
+- `verify-containment` proves reachability and refusal through each gate, not that
+  a codex or claude agent starts, answers or stops on the real hosts; that live
+  journey is `NOT_RUN`.
+- herdr's readiness is trusted as is: codex's sign-in and trust screens read idle
+  and ready, so a send can land on a menu. read before send.
+
 ## Approval operation
 
 Approval is available only while `jarvis serve` owns the deployment. A current
@@ -667,29 +763,33 @@ mapping must name the running shared services and exact mode-02750 cognition
 parent. never copy Codex authentication into the checkout or process environment,
 and never start a private app server for jarvis.
 
-peer agent control requires the installed skid cli and a private mode-0600 peer
-configuration readable by jarvis. the fleet operator distributes the configured
-hosts' existing bearers; provider credentials remain on their hosts. refresh
-these copies after bearer rotation. there is no fleet hub or credential daemon.
+peer agent control drives each host's herdr through its ssh forced-command gate
+([adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md)). dev-server owns
+jarvis's side on devbox, `/etc/jarvis-herdr/` (jarvis's key, generated on devbox
+and never copied off; `ssh_config` naming `devbox`, `macbook` and `arch`;
+committed `known_hosts`), and each owner account's gate and
+`restrict,command=` line. provider credentials stay on their hosts; jarvis's
+process never reads them. there is no fleet hub, bearer or credential daemon.
 
-the herdr-aligned catalog is activated only through the
-[herdr cutover](#herdr-cutover-pr-4) runbook.
+the service reads `JARVIS_HERDR_SSH_CONFIG_PATH=/etc/jarvis-herdr/ssh_config` and
+`JARVIS_HERDR_MACHINES=devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal`,
+the label and owner home of each host; the profiles' account homes are relative to
+that home. every call is `/usr/bin/ssh -F <ssh_config> <label> <herdr argv>`.
+an unreachable host makes list partial and fails any call addressed to it
+before it writes.
 
-jarvis uses list/info to resolve owner requests naming a terminal. before an
-addressed write, one bounded fleet list must contain exactly one terminal whose
-current agent ref equals the submitted ref (kill uses one info on the terminal
-ref). the gate sees peer label, optional product name, the original ref and the
-stop/kill closure-scope disclosure. lookup failure prevents mutation; a refreshed
-ref never replaces the originally submitted target. unknown writes are never
-repeated; the owner notice says to inspect current state.
+jarvis uses list/info to resolve owner requests naming a worker. every addressed
+call re-reads its target (`agent get` for an agent ref, one machine scan for a
+terminal ref) and requires the same name and `terminal_id`, once before the gate
+and again just before the write. the gate sees machine, agent name, current pane and
+the stop/kill closure-scope disclosure. a changed target prevents mutation; a
+successor is never substituted. unknown writes are never repeated; the owner
+notice says to inspect current state. nine worker tools share the existing
+19-call run allowance with 256 kib control envelopes and a 1 mib inventory; this
+release changes neither admission journals nor kernel budgets.
 
-the service retains `JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir` and
-`JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json`. it invokes ordinary
-commands with `--config` and `--json`; send text goes to `--stdin`. the executable's
-administrative basename is unchanged. nine worker tools share the existing 19-call
-run allowance with 256 kib control envelopes and a 1 mib fleet reply; this release
-changes neither admission journals nor kernel budgets. the live codex/claude
-journey is recorded in the [pr 4 qualification](qualification/2026-09-23-herdr-pr4.md).
+the herdr gate catalog is activated only through the
+[herdr gate cutover](#herdr-gate-cutover-pr-5) runbook.
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

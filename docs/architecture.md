@@ -877,44 +877,45 @@ host-confidentiality boundary.
 
 main uses nine owner-directed tools: `agent.list`, `agent.info`, `agent.start`,
 `agent.read`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`, and
-`agent.kill`. [adr 0048](decisions/0048-align-with-the-herdr-fleet-cli.md) owns
-the herdr alignment; adr 0044's provider/authority boundaries and adr 0045's
-ordinary argv and opaque refs remain.
+`agent.kill`. [adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md) owns
+the transport and codec; adr 0044's provider/authority boundaries remain.
 
-jarvis invokes the installed executable with ordinary argv, `--config`, and
-`--json`. only send uses stdin, carrying literal prompt bytes. skid owns direct
-routing, reference encoding, kind/lifetime validation, the common projection,
-herdr status observation and terminal control. jarvis adds no second client or
-projection adapter and never derives one ref from another.
+herdr owns terminals, agents and readiness on each host. jarvis reaches it through
+one ssh call per herdr command to that host's forced-command gate, which admits
+only the adr's allowlist and runs no shell. `agent_control.py` is the whole codec:
+it builds argv, runs the bounded ssh child, decodes herdr's api envelope (or the
+gate's refusal, or herdr's error), and projects panes and agents into the closed
+models of `agent_tools.py`. machines and their owner homes are settings; profiles
+are part of the tool contract.
 
-list returns terminals with separate terminal and agent refs; info and kill take
-a terminal ref, read/send/keys/interrupt/stop take an agent ref. start submits a
-launch without readiness; ordinary send requires observed `readiness: ready`, and
-terminal mode is a deliberate override. before gating an addressed write, the
-dispatcher proves the original target: one bounded fleet list must contain
-exactly one terminal whose current agent ref equals the submitted ref, or for
-kill one info must return the same terminal ref. only peer label, optional
-product name, the original ref and, for stop/kill, the `closure_scope`
-disclosure enter the descriptor. original arguments remain immutable; a
-successor found by name, terminal, profile or cwd is never substituted. no
-owner input means denial before lookup; lookup failure, ambiguity or an
-oversized fleet reply is not-sent and creates no action.
+jarvis encodes its own opaque refs from herdr's ids: machine and `terminal_id`,
+plus the agent's herdr name for an agent ref. a pane id is only a location: herdr
+changes it when a pane moves and reissues it after a restart, and clears a name
+when its agent exits, but never repeats a `terminal_id`. so every addressed call
+re-reads its target, requires the same name and `terminal_id`, and writes to the
+name or to the pane that holds that terminal now. the dispatcher runs that check
+before the gate, which sees the machine, the name (for kill, the name of any
+hosted agent) and the current pane plus the stop/kill `closure_scope` disclosure;
+the executor runs it again just before the write. a changed target is not-sent and never substituted. start creates its
+own workspace with the profile's account home and starts the agent only in that
+new pane.
 
 reads retain the existing durable recorder; writes remain billed-once with one
-executor entry. the envelope is decoded before exit status; omitted dispatch is
-unknown. not-sent and sent failures settle failed with their code and partial
-prefix; unknown dispatch, unknown write outcome, or a malformed, oversized, lost
-or timed-out reply after child start settles uncertain with `agent_control_v2`
-evidence staged inside the existing uncertainty wrapper. stop and kill close
-the original terminal and may close linked workspaces; closure may be refused;
-neither confirms a descendant halt. partial fleet inventory is turn evidence
-that composes with calendar incompleteness and survives restoration.
+executor entry. herdr's error reply settles failed and sent; a check, gate or
+local refusal settles failed and not-sent; a lost reply after the mutating
+command started settles uncertain. start's created terminal and stop's sent
+interrupt are staged as `agent_control_v3` evidence before a failure settles or
+inside the existing uncertainty wrapper. stop and kill close the original pane and
+may close linked workspaces; closure may be refused; neither confirms a
+descendant halt. partial fleet inventory is turn evidence that composes with
+calendar incompleteness and survives restoration.
 
 all nine tools share existing run budgets with 256 kib control envelopes and a
-1 mib fleet reply. worker output supplies no new authority. there is no task
-schema, worker table, scheduler, transcript copy, reference cache, or additional
-preparation subsystem. historical receipts decode through `agent_history.py`;
-old execution grammar is removed.
+1 mib inventory. worker output supplies no new authority. there is no task
+schema, worker table, scheduler, transcript copy, reference cache, connection
+pool or additional preparation subsystem. historical receipts, including the
+skid cli generation's, decode through `agent_history.py`; old execution grammar
+is removed.
 
 ## Scheduling
 

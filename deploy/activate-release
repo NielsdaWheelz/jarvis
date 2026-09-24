@@ -93,7 +93,6 @@ temporary="/opt/jarvis/.current-$commit"
 sudo rm -f -- "$temporary"
 sudo ln -s "releases/$commit" "$temporary"
 sudo mv -Tf "$temporary" /opt/jarvis/current
-sudo systemctl reset-failed jarvis.service
 sudo systemctl enable --now jarvis.service
 sleep 10
 sudo test "$(sudo systemctl show --property=ActiveState --value jarvis.service)" = active

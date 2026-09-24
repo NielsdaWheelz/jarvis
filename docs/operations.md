@@ -175,8 +175,7 @@ row then fails to load and the check fails. Decisions and read positions are not
 inspected. It then
 migrates as `jarvis_migrator`, installs the
 selected release's own `deploy/jarvis.service` and reloads systemd, atomically
-changes `/opt/jarvis/current`, runs `reset-failed` and starts the service, which
-starts paused. A killed, crashed or timed-out stop is refused with
+changes `/opt/jarvis/current` and starts the service, which starts paused. A killed, crashed or timed-out stop is refused with
 `jarvis.service did not stop cleanly`; inspect it, then run `sudo systemctl
 reset-failed jarvis.service` explicitly before activating. A PostgreSQL advisory
 lock makes a second process fail rather than overlap.

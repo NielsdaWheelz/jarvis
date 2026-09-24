@@ -19,12 +19,16 @@ fleet peers still serve the pre-herdr v0.6.0 gateway because skid pr 4 is
 undeployed; the cli's peer origin check accepts only `https://HOST:8443`, and
 8443 on this host is production's tailscale serve for the live gateway that
 must not be touched. a local private-ca path is itself an accepted skid pr 2
-waiver.
+waiver. pr 4's jarvis slice added activation safety and a temporary source
+proof that the three stop failure shapes settle correctly through the real
+controller, dispatcher and isolated postgres; that is not this journey.
 
-known blockers: install the pinned herdr 0.9.1 on an isolated host or socket;
-run an isolated skid gateway with a trusted https front on 8443 of a host that
-is not serving production; provision test-owned codex/claude workers whose
-quota the owner accepts spending.
+known blockers, in the spec's order: a nonproduction linux host with a trusted
+https front on 8443 that does not serve production; isolated herdr, skid gateway
+and jarvis postgres/runtime state on that host, never production's; and
+test-owned codex and claude workers whose provider spend the owner approves.
+this journey gates skid publication and fleet activation under the
+[herdr cutover](../operations.md#herdr-cutover-pr-4) runbook, not the reverse.
 
 resolved when one linux codex + claude journey through the actual jarvis tools
 records versions, boundaries and verdicts (never prompts, terminal bytes or

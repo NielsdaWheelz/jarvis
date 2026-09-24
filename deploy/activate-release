@@ -3,24 +3,80 @@ set -euo pipefail
 
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 commit="${1:-}"
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || {
+if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
   printf 'usage: deploy/activate-release FULL_GIT_COMMIT\n' >&2
   exit 64
-}
+fi
 
 ssh "$target" bash -s -- "$commit" <<'REMOTE'
 set -euo pipefail
 commit="$1"
 release="/opt/jarvis/releases/$commit"
+runtime=/var/lib/jarvis/runtime
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
-sudo test -f "$release/RELEASE.json"
+
+refuse() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+sudo test -f "$release/RELEASE.json" || refuse "release is not installed: $commit"
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
   /etc/jarvis/migration.env; do
-  sudo test -f "$file"
-  sudo test ! -L "$file"
+  sudo test -f "$file" && sudo test ! -L "$file" ||
+    refuse "environment file is missing or a symlink: $file"
 done
 
-sudo systemctl stop jarvis.service 2>/dev/null || true
+# the operator stops jarvis cooperatively through the runbook; activation never
+# stops it. a killed, crashed or timed-out stop needs inspection and an explicit
+# reset-failed first.
+active_state="$(sudo systemctl show --property=ActiveState --value jarvis.service)"
+main_pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
+result="$(sudo systemctl show --property=Result --value jarvis.service)"
+if [[ "$active_state" != inactive || "$result" != success || "$main_pid" != 0 ]]; then
+  refuse "jarvis.service did not stop cleanly: ActiveState=$active_state Result=$result MainPID=$main_pid"
+fi
+
+# an existing deployment always has prepared state; never initialize it here.
+sudo python3 - "$runtime/paused.json" <<'PY' ||
+import json
+import pathlib
+import sys
+
+try:
+    value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1) from None
+if (
+    not isinstance(value, dict)
+    or set(value) != {"paused", "schema_version"}
+    or value["paused"] is not True
+    or value["schema_version"] != "jarvis-paused.v1"
+):
+    raise SystemExit(1)
+PY
+  refuse "paused state is not prepared: $runtime/paused.json must read paused true"
+sudo test -f "$runtime/admission.json" ||
+  refuse "admission journal is missing: $runtime/admission.json"
+
+# the target release classifies every unfinished action against its own plan,
+# read-only under the deployment lock, before alembic. only a ledger whose rows
+# are all compatible proceeds; a release without the check is refused, never
+# skipped, and there is no override.
+check_unit="jarvis-check-${commit:0:12}-$RANDOM"
+check_status=0
+check="$(sudo systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property=SupplementaryGroups=codex-clients \
+  --property="WorkingDirectory=$release" \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  "$release/.venv/bin/jarvis" check-activation </dev/null)" || check_status=$?
+[[ -z "$check" ]] || printf '%s\n' "$check"
+((check_status == 0)) || refuse "activation check did not pass; leave service stopped"
+
 migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
 sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
   --property=Type=oneshot \
@@ -29,33 +85,22 @@ sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
   --property="WorkingDirectory=$release" \
   --property=EnvironmentFile=/etc/jarvis/migration.env \
   "$release/.venv/bin/alembic" -c alembic.ini upgrade head
-if ! sudo test -f /var/lib/jarvis/runtime/paused.json && \
-  ! sudo test -f /var/lib/jarvis/runtime/admission.json; then
-  initialize_unit="jarvis-initialize-${commit:0:12}-$RANDOM"
-  sudo systemd-run --quiet --wait --collect --unit="$initialize_unit" \
-    --property=Type=oneshot \
-    --property=User=jarvis \
-    --property=Group=jarvis \
-    --property="WorkingDirectory=$release" \
-    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-    "$release/.venv/bin/jarvis" initialize-state
-else
-  sudo test -f /var/lib/jarvis/runtime/paused.json
-  sudo test -f /var/lib/jarvis/runtime/admission.json
-fi
 
+sudo install -m 0644 -o root -g root \
+  "$release/deploy/jarvis.service" /etc/systemd/system/jarvis.service
+sudo systemctl daemon-reload
 temporary="/opt/jarvis/.current-$commit"
 sudo rm -f -- "$temporary"
 sudo ln -s "releases/$commit" "$temporary"
 sudo mv -Tf "$temporary" /opt/jarvis/current
-sudo systemctl reset-failed jarvis.service
 sudo systemctl enable --now jarvis.service
 sleep 10
-sudo test "$(sudo systemctl is-active jarvis.service)" = active
+sudo test "$(sudo systemctl show --property=ActiveState --value jarvis.service)" = active
 sudo test "$(sudo systemctl show --property=SubState --value jarvis.service)" = running
 sudo test "$(sudo systemctl show --property=NRestarts --value jarvis.service)" = 0
 main_pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
 [[ "$main_pid" =~ ^[1-9][0-9]*$ ]]
 printf 'Activated Jarvis release: %s\n' "$commit"
+printf 'jarvis.service started paused; startup recovery runs before ingress, and no owner request is processed until resume\n'
+printf 'owner resume is a separate step after deploy/verify-containment passes\n'
 REMOTE

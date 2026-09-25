@@ -54,12 +54,16 @@ type AgentKey = Literal[
 type AgentProfile = Literal["personal", "work", "work2", "claude-work"]
 # profile: herdr agent kind, and the account home a new pane's shell receives,
 # relative to the target host's configured owner home. herdr's gate admits
-# exactly these homes.
+# exactly these private interactive homes. cognition account homes are separate.
 AGENT_PROFILES: dict[str, tuple[Literal["codex", "claude"], str, str]] = {
-    "personal": ("codex", "CODEX_HOME", ".codex"),
-    "work": ("codex", "CODEX_HOME", ".codex-work"),
-    "work2": ("codex", "CODEX_HOME", ".codex-work2"),
-    "claude-work": ("claude", "CLAUDE_CONFIG_DIR", ".claude-work"),
+    "personal": ("codex", "CODEX_HOME", ".local/share/herdr/providers/codex-personal"),
+    "work": ("codex", "CODEX_HOME", ".local/share/herdr/providers/codex-work"),
+    "work2": ("codex", "CODEX_HOME", ".local/share/herdr/providers/codex-work2"),
+    "claude-work": (
+        "claude",
+        "CLAUDE_CONFIG_DIR",
+        ".local/share/herdr/providers/claude-work",
+    ),
 }
 AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v5"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v3"

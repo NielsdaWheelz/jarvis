@@ -1,12 +1,12 @@
 # herdr gate activation
 
 problem: the [adr 0049](../decisions/0049-drive-herdr-through-an-ssh-gate.md)
-codec is not active. production still runs the skid cli release, and no codex or
-claude agent has been driven through a real host's gate by jarvis's own identity.
+codec is active on devbox, but arch's gate is not installed and no codex or
+claude agent has yet been driven through a real host's gate by jarvis's own
+identity.
 
-impact: until the cutover, skid pr 5 cannot delete the cli (its delivery step 4
-waits on this). after it, first use on devbox, macbook and arch is observed, not
-qualified: linux ssh and sshd behaviour, the owner's interactive aliases adding
+impact: arch's agents are unreachable (listed as partial). first use on devbox,
+macbook and arch is observed, not qualified: linux ssh and sshd behaviour, the owner's interactive aliases adding
 `--yolo` and `--dangerously-skip-permissions`, the respecting `codex` wrapper and
 real trust menus are unproven through the gate.
 
@@ -19,10 +19,15 @@ before the gate probes), a stop
 whose close herdr refuses or whose pane vanishes after the interrupt, and herdr's
 exit-2 usage path.
 
-known blockers: dev-server pr 5 step 1 is applied inside the cutover's stopped
-window (its first devbox apply needs `--restart-codex`), and arch must be
-reachable, or `verify-containment` runs with `JARVIS_GATE_MACHINES='devbox
-macbook'` and arch stays open here.
+2026-09-24 cutover: dev-server step 1 applied in the stopped window (key
+bootstrap `d9767a6`); gates proven as jarvis on devbox and macbook (`agent
+list` answers, `status --json` refused); `39d9c9c` activated with every count
+zero; `JARVIS_GATE_MACHINES='devbox macbook' deploy/verify-containment` passed,
+again after skid v0.8.0 and herdr's integrations; owner `resume`.
+
+known blockers: arch is down. once reachable: `./workstation apply` there
+(gate, key line, wrapper), then `deploy/verify-containment` with all three
+machines.
 
 resolved when the [herdr gate cutover](../operations.md#herdr-gate-cutover-pr-5)
 completes with `verify-containment` passing on all three hosts, and one

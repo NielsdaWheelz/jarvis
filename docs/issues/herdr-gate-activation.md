@@ -1,12 +1,10 @@
 # herdr gate activation
 
 problem: the [adr 0049](../decisions/0049-drive-herdr-through-an-ssh-gate.md)
-codec is active on devbox, but arch's gate is not installed and no codex or
-claude agent has yet been driven through a real host's gate by jarvis's own
-identity.
+codec is active and every host's gate answers, but no codex or claude agent has
+yet been driven through a real host's gate by jarvis's own identity.
 
-impact: arch's agents are unreachable (listed as partial). first use on devbox,
-macbook and arch is observed, not qualified: linux ssh and sshd behaviour, the owner's interactive aliases adding
+impact: first use on devbox, macbook and arch is observed, not qualified: linux ssh and sshd behaviour, the owner's interactive aliases adding
 `--yolo` and `--dangerously-skip-permissions`, the respecting `codex` wrapper and
 real trust menus are unproven through the gate.
 
@@ -25,9 +23,8 @@ list` answers, `status --json` refused); `39d9c9c` activated with every count
 zero; `JARVIS_GATE_MACHINES='devbox macbook' deploy/verify-containment` passed,
 again after skid v0.8.0 and herdr's integrations; owner `resume`.
 
-known blockers: arch is down. once reachable: `./workstation apply` there
-(gate, key line, wrapper), then `deploy/verify-containment` with all three
-machines.
+arch (2026-09-24, after its reboot): applied; `deploy/verify-containment`
+passes with all three machines.
 
 resolved when the [herdr gate cutover](../operations.md#herdr-gate-cutover-pr-5)
 completes with `verify-containment` passing on all three hosts, and one

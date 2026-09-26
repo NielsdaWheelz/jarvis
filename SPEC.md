@@ -1163,12 +1163,9 @@ NAME --source recent|visible --lines N`, `workspace create --cwd ABS --label NAM
 15000`, `agent prompt NAME TEXT`, `agent send-keys NAME KEY...` and `pane close
 PANE`. machine labels and each host's owner home come from `JARVIS_HERDR_MACHINES`
 (`devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal`); profiles are part
-of the tool contract. under each host's `.local/share/herdr/providers/`,
-`personal`, `work`, and `work2` start codex with `CODEX_HOME` at
-`codex-personal`, `codex-work`, and `codex-work2` respectively; `claude-work`
-starts claude with `CLAUDE_CONFIG_DIR` at `claude-work`. the complete profile
-map enters the bindings' policy inputs
-([adr 0050](docs/decisions/0050-separate-herdr-worker-provider-homes.md)).
+of the tool contract: `personal`, `work`, `work2` start codex with `CODEX_HOME` at
+the host's `.codex`, `.codex-work`, `.codex-work2`, and `claude-work` starts claude
+with `CLAUDE_CONFIG_DIR` at `.claude-work`. both enter the bindings' policy inputs.
 
 decoding precedes interpretation: exit 0 is herdr's api envelope `{id,
 result:{type, …}}` whose `type` must be the command's own, or plain text for

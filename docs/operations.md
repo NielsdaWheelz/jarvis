@@ -132,7 +132,7 @@ deploy/activate-release "$(git rev-parse HEAD)"
 deploy/verify-containment
 ```
 
-`install-release` archives only tracked `HEAD`, installs the exact
+`install-release [FULL_GIT_COMMIT]` archives the exact commit (default `HEAD`), installs the exact
 `.python-version` interpreter inside the release, and builds with `uv sync
 --frozen --no-dev --no-editable --link-mode copy`. After root-owning the tree,
 it verifies the release-contained interpreter, dependency identity and CLI as
@@ -142,6 +142,19 @@ also requires that service-identity proof; an unusable release is rejected, not
 repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
 builder caches. It refuses tracked changes.
+
+release retention is selected-only under
+[adr 0053](decisions/0053-retain-only-the-selected-release.md). before installation,
+older inactive releases are removed, keeping `/opt/jarvis/current` and at most
+the requested candidate. failed construction removes the new candidate.
+installation, activation and pruning hold `/opt/jarvis/.deploy.lock`, so cleanup
+cannot race another deployment command. after activation's startup checks pass,
+every other installed release is removed. no rollback or recovery copy is kept.
+
+to discard an abandoned candidate without activating anything, run
+`deploy/prune-releases` from the maintained checkout. it preserves the selected
+release even when the service is stopped, and refuses a missing or invalid
+`current` or a running service whose working directory differs from it.
 
 `activate-release FULL_GIT_COMMIT` never stops Jarvis. It refuses, each with its
 own line, unless the release is installed, the three environment files exist and
@@ -208,8 +221,9 @@ an unreachable host fails it. full gateway bearers replace ssh command allowlist
 an accepted cost rather than a new credential-scope boundary.
 
 Do not activate an older release across an incompatible migration. A
-same-schema rollback may select an already installed release through
-`deploy/activate-release <commit>` only after the service is stopped, and only
+same-schema rollback requires rebuilding with `deploy/install-release <commit>`
+from the clean maintained checkout, then `deploy/activate-release <commit>` only
+after the service is stopped, and only
 to a release that carries `check-activation`; older releases are refused, not
 skipped. That release's check then judges each unfinished action against its
 own plan.
@@ -227,11 +241,14 @@ under [adr 0047](decisions/0047-require-current-admission-journals.md). before
 activating this cut, validate or normalize the stopped deployment's journal
 through release `51f62c86322a66224d1576395b5795ae823c1f75`.
 
-if absent, install that exact commit with `deploy/install-release` from a clean
-checkout of it. that commit's installer also overwrites the global service unit;
-it does not select the release or start it, and target activation reinstalls the
-target's unit. never activate the transitional release or run its service or
+if absent, run `deploy/install-release 51f62c86322a66224d1576395b5795ae823c1f75`
+from the clean maintained checkout. its current deployment commands enforce
+retention and do not overwrite the service unit during installation. never run a
+historical installer, activate the transitional release, or run its service or
 dream command.
+
+this is a temporary migration candidate. rebuild it when absent and discard it
+after preparation under the selected-only retention policy.
 
 run the following on the deployment host through an operator allowed to use
 sudo. it reads only the configured database url, runtime directory and batch
@@ -245,7 +262,7 @@ connector is constructed.
 prior_release=/opt/jarvis/releases/51f62c86322a66224d1576395b5795ae823c1f75
 sudo test -f "$prior_release/RELEASE.json" &&
 sudo systemctl stop jarvis.service &&
-sudo systemd-run --quiet --wait --pipe --collect \
+sudo flock /opt/jarvis/.deploy.lock systemd-run --quiet --wait --pipe --collect \
   --unit=jarvis-admission-cutover \
   --property=Type=oneshot \
   --property=User=jarvis \
@@ -310,7 +327,9 @@ and synthetic fixtures do not establish that the private deployment journal is
 ready; the outstanding deployment work is tracked in
 [admission journal cutover](issues/admission-journal-cutover.md).
 
-after successful preparation, install the target release normally;
+after successful preparation, discard the temporary normalizer with
+`deploy/prune-releases` from the maintained checkout, then install the target
+release normally. the selected release and private journal remain intact.
 `deploy/activate-release` installs the selected release's unit and reloads
 systemd.
 

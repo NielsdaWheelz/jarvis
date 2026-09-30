@@ -1,0 +1,33 @@
+# shellcheck shell=bash
+# caller holds /opt/jarvis/.deploy.lock as root.
+prune_releases() {
+  local candidate="${1:-}" selected='' release main_pid
+  if [[ -n "$candidate" && ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'invalid staged release commit\n' >&2
+    return 1
+  fi
+  if [[ -L /opt/jarvis/current ]]; then
+    selected="$(readlink -e /opt/jarvis/current)" || return 1
+    if [[ ! "$selected" =~ ^/opt/jarvis/releases/[0-9a-f]{40}$ ||
+      ! -f "$selected/RELEASE.json" ]]; then
+      printf 'current does not select an installed jarvis release\n' >&2
+      return 1
+    fi
+    main_pid="$(systemctl show --property=MainPID --value jarvis.service)" || return 1
+    if [[ "$main_pid" != 0 &&
+      "$(readlink -e "/proc/$main_pid/cwd")" != "$selected" ]]; then
+      printf 'running jarvis process does not match current; refusing cleanup\n' >&2
+      return 1
+    fi
+  elif [[ -e /opt/jarvis/current || -z "$candidate" ]]; then
+    printf 'current release is missing or is not a symlink\n' >&2
+    return 1
+  fi
+
+  for release in /opt/jarvis/releases/*; do
+    [[ -d "$release" && "${release##*/}" =~ ^[0-9a-f]{40}$ ]] || continue
+    [[ "$release" == "$selected" || "${release##*/}" == "$candidate" ]] && continue
+    rm -rf -- "$release" || return 1
+    printf 'removed inactive jarvis release: %s\n' "${release##*/}"
+  done
+}

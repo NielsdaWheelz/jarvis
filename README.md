@@ -101,6 +101,8 @@ provides the local development database used by `.env.example` and
 `.env.migration.example`; start it with `docker compose up -d --wait`.
 see [the operations guide](docs/operations.md) for private state initialization,
 deployment, migrations, restart recovery, and operator-only release of parked input.
+production retains only the selected release after activation; a new installation
+temporarily stages one candidate and replaces any abandoned candidate.
 
 ## Explicit non-goals
 

@@ -2,13 +2,16 @@
 set -euo pipefail
 
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 commit="${1:-}"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
   printf 'usage: deploy/activate-release FULL_GIT_COMMIT\n' >&2
   exit 64
 fi
 
-ssh "$target" bash -s -- "$commit" <<'REMOTE'
+{
+cat "$repo_dir/deploy/release-functions"
+cat <<'REMOTE'
 set -euo pipefail
 commit="$1"
 release="/opt/jarvis/releases/$commit"
@@ -104,7 +107,9 @@ sudo test "$(sudo systemctl show --property=SubState --value jarvis.service)" = 
 sudo test "$(sudo systemctl show --property=NRestarts --value jarvis.service)" = 0
 main_pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
 [[ "$main_pid" =~ ^[1-9][0-9]*$ ]]
+prune_releases
 printf 'Activated Jarvis release: %s\n' "$commit"
 printf 'jarvis.service started paused; startup recovery runs before ingress, and no owner request is processed until resume\n'
 printf 'owner resume is a separate step after deploy/verify-containment passes\n'
 REMOTE
+} | ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- "$commit"

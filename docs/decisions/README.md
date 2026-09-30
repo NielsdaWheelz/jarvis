@@ -60,6 +60,7 @@ contracts remain binding; dated evidence remains historical.
 | [0049](0049-drive-herdr-through-an-ssh-gate.md) | drive herdr through an ssh gate | accepted implementation target; production activation `NOT_RUN`; supersedes the skid cli transport, codec, refs and preflight of 0044/0045/0048 |
 | [0051](0051-universal-memory.md) | one corpus, admitted capture, pull-only retrieval and logical erasure | accepted implementation target; amends 0002, 0008, 0031, 0040 and scoped 0046 verification; backup, native-memory disablement and historical import deferred to v2 |
 | [0052](0052-cut-worker-control-to-current-skid.md) | cut worker control to current skid | accepted implementation target; production activation and service qualification `NOT_RUN`; supersedes worker transport, roster, refs and receipt codecs of 0044/0045/0048/0049 |
+| [0053](0053-retain-only-the-selected-release.md) | retain only the selected release, with one temporary installation candidate | accepted; amends 0031's deployment policy and 0047's temporary normalizer handling |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

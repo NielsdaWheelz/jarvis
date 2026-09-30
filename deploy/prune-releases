@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+(($# == 0)) || { printf 'usage: deploy/prune-releases\n' >&2; exit 64; }
+
+{
+  cat "$repo_dir/deploy/release-functions"
+  printf '\nset -euo pipefail\nprune_releases\n'
+} | ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s

@@ -9,6 +9,8 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- adr 0053 retains only the selected deployment release and one temporary
+  installation candidate. do not keep rollback or migration releases indefinitely.
 - adr 0046 governs the owner-approved testing reset. all previous test and
   qualification execution gates are suspended pending the subsequent redesign;
   runtime safeguards and product requirements remain binding.

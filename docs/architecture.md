@@ -58,7 +58,11 @@ integration requires one.
 V1 runs on the existing Hetzner `dev-server`, never on the Nexus production
 host. Jarvis is a host-native systemd service under a dedicated `jarvis` Unix
 account. Immutable releases live at `/opt/jarvis/releases/<git-commit>` and an
-atomic `/opt/jarvis/current` symlink selects one release. Runtime state lives in
+atomic `/opt/jarvis/current` symlink selects one release.
+`/opt/jarvis/releases` retains that selected release, with one temporary candidate
+during installation. successful activation removes every other installed release;
+rollback requires rebuilding its exact commit. deployment commands share one
+host file lock. Runtime state lives in
 `/var/lib/jarvis`; root-owned configuration and credentials live in
 `/etc/jarvis`. The application opens no public listener and is administered
 only over the host's existing tailnet boundary.

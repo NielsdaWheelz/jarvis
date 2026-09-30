@@ -1835,6 +1835,15 @@ this repository owns releases, configuration, credentials, database roles and
 migrations, and the systemd unit. Co-location grants no access
 to Nexus credentials, files, database, or services.
 
+release retention follows [adr 0053](docs/decisions/0053-retain-only-the-selected-release.md).
+after successful activation, only the release selected by `/opt/jarvis/current`
+MUST remain installed. installation MAY temporarily retain that release and one
+candidate; it removes abandoned candidates before preparing another. installation,
+activation and explicit pruning serialize through `/opt/jarvis/.deploy.lock`.
+activation removes old releases only after its existing startup checks pass.
+rollback and one-time migration releases are rebuilt from their exact commits
+when needed, then removed after use; they are not retained as recovery copies.
+
 Production activation requires the installed PostgreSQL and pgvector identities
 to be recorded and qualified against the release. It does not require a host
 reboot: a pending newer kernel is recorded and applied only during a later

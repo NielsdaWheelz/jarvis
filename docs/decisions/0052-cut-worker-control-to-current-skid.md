@@ -1,7 +1,7 @@
 # adr 0052: cut worker control to current skid
 
-- status: accepted implementation target, 2026-09-29; production activation and
-  service fleet qualification `NOT_RUN`.
+- status: source implemented and worker client qualified on all three production
+  gateways, 2026-09-29. cognition and main-service activation remain `NOT_RUN`.
 - authority: owner-approved skid-only retirement specification and subsequent
   implementation request. keep the existing shared codex app server; repairing
   its missing deployment is a separate follow-up, and jarvis may remain down.

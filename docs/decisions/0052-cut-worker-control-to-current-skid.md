@@ -65,8 +65,17 @@ block activation and have no recovery codec.
 old code must settle or explicitly reconcile unfinished actions/turns, materialize
 required action resolutions and drain their processing and delivery before the
 catalog change. changing the cli or private client file requires a prepared
-pause and clean stop; identical bytes are inert. activation also refuses
+pause and clean stop; identical bytes in an admitted regular file with its
+required ownership and mode are inert. activation also refuses
 incompatible/in-flight actions, stale turns and undrained resolutions/delivery.
+
+final installer review qualified file-type/ownership/mode drift, exact boolean
+pause admission and exact-destination replacement with seventeen disposable
+shell/filesystem cases; ownership, service state and validator replies were
+stand-ins there. separately, the actual installed cli validated the real private
+configuration under service-uid restrictions, and identical apply preserved its
+inode and timestamps. directories are refused; symlink targets are preserved.
+temporary probes were removed after red/green and review.
 
 jarvis reads `/usr/local/libexec/skidbladnir` (regular root:root 0755) and
 `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by

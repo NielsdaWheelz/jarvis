@@ -352,8 +352,11 @@ retirement proceed. activation, normal cognition and actual service probes remai
    the worker installer copies a mode-0600 candidate under /etc/jarvis and validates it
    through the installed skid cli under the service's relevant restrictions.
    partial inventory proves config admission only. invalid config leaves the
-   installed file unchanged. changing bytes atomically replaces the client only
-   after the prepared pause/clean-stop checks; no bearer minting or peer table.
+   installed file unchanged. identical apply is inert only for a regular,
+   non-symlink, jarvis:jarvis mode-0600 file. replacement is atomic and requires
+   the prepared pause/clean-stop checks;
+   a symlink is replaced, while an existing directory is refused and preserved.
+   no bearer minting or peer table.
    `deploy/install-private-state` composes this step when all application and
    connector private state also needs installation. `deploy/verify-agent-client`
    qualifies all three peers as the service identity while jarvis is stopped;

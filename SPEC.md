@@ -40,6 +40,8 @@ dispatch, exact original-target preflight, closed partial prefixes and 256 kib e
 [adr 0049](docs/decisions/0049-drive-herdr-through-an-ssh-gate.md) replaces the skid
 cli with herdr itself, driven through each host's ssh forced-command gate, with
 jarvis-owned refs checked against herdr before every addressed call.
+[adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) supersedes
+those worker contracts with current skid and opaque archives; cognition is unchanged.
 
 ## 1. Product definition
 
@@ -94,9 +96,8 @@ V1 MUST NOT add:
 - A peer-agent ownership graph, task schema, completion scheduler, or general
   execution framework. owner-directed terminal agent interaction uses section 7.3.
 - A general-purpose remote shell, SSH, terminal, or unconstrained browser agent.
-- OnePassword or Nexus integration. herdr owns terminals and agents on each host;
-  jarvis drives them through a per-host ssh forced command that admits only its
-  allowlisted herdr commands, never a shell, and duplicates no provider control.
+- OnePassword or Nexus integration. skid owns terminals and agents on each host;
+  jarvis consumes its current cli without a shell or duplicate provider control.
 - Autonomous purchasing, financial activity, credential changes, or destructive
   remote execution.
 - Slash commands, dashboards, or speculative action components.
@@ -365,10 +366,11 @@ Jarvis acts without approval for:
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
 - Creating or cancelling a `schedule.wake`.
-- owner-directed `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`,
-  `agent.stop` and `agent.kill`, grounded by `AutomaticWriteGate`; explicit
+- owner-directed `agent.start`, `agent.send`, `agent.text`, `agent.keys`,
+  `agent.stop` and `agent.close`, grounded by `AutomaticWriteGate`; explicit
   terminal input may answer worker permission dialogs under existing host-user
-  authority. stop and kill disclose possible linked-workspace-group closure.
+  authority. stop mode and close scope distinguish captured native work from
+  exact terminal input and closure.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -853,8 +855,8 @@ invocation. A drain is an exclusive work epoch within a thread run. A one-shot
 run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
-a persistent peer model. the nine agent controls are owner-directed herdr
-terminal operations outside the cognitive decoder; they
+a persistent peer model. the nine agent controls are owner-directed skid
+terminal and conversation operations outside the cognitive decoder; they
 add no peer graph, completion callback, scheduler, transcript store, or worker
 ownership state. The main definition is
 `continuing` with a closed structured terminal contract and the exact main
@@ -1143,139 +1145,81 @@ V1 exposes exactly the following canonical model tools:
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
 | `agent.list`, `agent.info`, `agent.read` | Main | peer agent read; automatic |
-| `agent.start`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`, `agent.kill` | Main | peer agent control; automatic only when grounded in current owner input |
+| `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close` | Main | peer agent control; automatic only when grounded in current owner input |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
-agent controls drive each configured host's herdr through its ssh forced-command
-gate ([adr 0049](docs/decisions/0049-drive-herdr-through-an-ssh-gate.md)). every
-call is one `/usr/bin/ssh -F <JARVIS_HERDR_SSH_CONFIG_PATH> <label>
-<shlex-joined herdr argv>` child with environment `PATH=/usr/bin:/bin` only, closed
-stdin, stdout bounded to 256 kib (1 mib for `pane list` and `agent list`; `agent
-read` keeps a rolling tail instead), stderr bounded to 64 kib, a joined command of
-at most 64 kib and a 10-second clock
-(`agent start` adds herdr's 15-second readiness wait). no
-shell, `--machine`, `--remote`, second client, skid executable or dedicated
-launcher remains. the gate, installed by dev-server in each owner account, splits
-the command without a shell and admits only the allowlist this adr owns; the
-commands jarvis emits are `pane list`, `agent list`, `agent get NAME`, `agent read
-NAME --source recent|visible --lines N`, `workspace create --cwd ABS --label NAME
---env VAR=HOME/DIR`, `agent start NAME --kind codex|claude --pane NEW --timeout
-15000`, `agent prompt NAME TEXT`, `agent send-keys NAME KEY...` and `pane close
-PANE`. machine labels and each host's owner home come from `JARVIS_HERDR_MACHINES`
-(`devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal`); profiles are part
-of the tool contract: `personal`, `work`, `work2` start codex with `CODEX_HOME` at
-the host's `.codex`, `.codex-work`, `.codex-work2`, and `claude-work` starts claude
-with `CLAUDE_CONFIG_DIR` at `.claude-work`. both enter the bindings' policy inputs.
+worker control follows [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md).
+all inputs are closed; refs are opaque strings of 1–4096 characters. machines
+are `macbook|devbox|arch`; profiles are `personal|work|work2|claude-work`.
+start retains the existing name grammar and optional cwd bound.
 
-decoding precedes interpretation: exit 0 is herdr's api envelope `{id,
-result:{type, …}}` whose `type` must be the command's own, or plain text for
-`agent read`; unknown fields are ignored, as herdr's policy asks. on exit 1 only
-stderr's last line counts: the gate's exact `herdr-gate: command refused` is
-`gate_refused/not_sent`, and herdr's `{id, error:{code, message}}` is that code,
-`not_sent` for the codes herdr 0.9.1 raises before writing, typing, creating or
-closing anything (`server_not_running`, `protocol_mismatch`, `agent_not_found`,
-`agent_target_ambiguous`, `agent_not_ready`, `agent_blocked`,
-`empty_agent_prompt`, `invalid_key`, `invalid_env`, `pane_not_found`,
-`confirmation_required`) and `sent` for any other. `agent start` is excluded:
-its cli waits for the agent after typing the command and can raise
-`agent_not_ready`, `server_not_running` or `protocol_mismatch` then, and the
-workspace exists anyway, so a start's errors are always `sent` with the created
-terminal. exit 2 is `usage/not_sent`; a
-child that never started is `unavailable/not_sent`. any other exit, a timeout, or
-an oversized or malformed reply is a lost reply.
+| tool | required mode and additional input | fixed skid command |
+| --- | --- | --- |
+| agent.list | optional machine | list [--machine …] |
+| agent.info | ref, target: terminal or conversation | info --ref or inspect --ref |
+| agent.start | machine, profile, name, cwd? | start name --machine … --profile … [--cwd …] |
+| agent.read | ref, source: latest/history/terminal, maxBytes default 16384, maximum 32768 | read --ref [--history or --terminal] --max-bytes … |
+| agent.send | ref, text | send --ref --input peer --stdin |
+| agent.text | ref, text | text --ref --stdin |
+| agent.keys | ref, 1–16 keys | keys --ref key… |
+| agent.stop | ref, mode: native or terminal | stop --ref [--terminal] |
+| agent.close | ref, scope: conversation_and_terminal or terminal_only | close --ref [--terminal-only] |
 
-references are jarvis's own opaque strings: unpadded base64url of canonical json
-naming the machine and herdr's `terminal_id`, plus herdr's agent name for an
-agent ref, at most 1024 characters. the encoding is deterministic, so equality is
-identity; jarvis never derives one ref from another and the model never builds
-one. a pane id is a location, not an identity: herdr changes it when a pane moves
-to another workspace and reissues it after a restart, but never repeats a
-`terminal_id`, and it clears a name when its agent exits or is replaced. an agent
-started again by hand under the same name in the same terminal keeps both, so it
-passes the check; herdr exposes nothing that tells the two apart. info and
-kill take terminal refs; read, send, keys, interrupt and stop take agent refs. an
-agent herdr detected without a name is listed with no agent ref and is reachable
-only through its terminal ref. every addressed call first re-reads its target: an
-agent ref by `agent get NAME`, requiring the same name and `terminal_id`; a
-terminal ref by one machine scan, finding the pane that holds its `terminal_id`.
-writes go to the agent name or to that current pane. a changed target fails
-`stale_reference/not_sent` before any write; the check/write race stays
-accepted.
+all commands include fixed `--config` and `--json`, argv without a shell, minimal
+`PATH=/usr/bin:/bin` environment, and text through stdin. text is nonempty,
+at most 32768 utf-8 bytes and contains no nul. keys are exactly enter, escape,
+ctrl-c, up, down, left, right, tab, backspace, page-up and page-down. start sends
+no initial prompt and promises no readiness. no user native input, queue,
+interrupt or kill alias remains; native unavailability never selects terminal input.
 
-list scans the configured machines concurrently, each with `pane list` then
-`agent list` inside one 10-second budget, and joins agents to panes by
-`terminal_id`. info is one machine scan. read keeps a rolling tail of herdr's text
-for 1–1000 recent lines or the visible screen and returns its last 32768 bytes,
-with `truncated` when anything before them was dropped. start requires the name to be free (`agent get` answers
-`agent_not_found`), creates a new workspace labelled with the name, in `cwd`
-(absolute, `~` or `~/…`, default the host's owner home) with the profile's account
-home, then runs `agent start` on that new pane only; herdr waits up to 15 seconds
-for readiness and sends no prompt; a reply whose agent has another name or
-terminal fails `start_mismatch/sent` with the created terminal. send is one `agent prompt`, which herdr refuses
-for a blocked or unready agent; no terminal-mode bypass remains. keys sends 1–16
-of `enter, escape, ctrl+c, up, down, left, right, tab, backspace`. interrupt sends
-`ctrl+c` and confirms nothing. stop interrupts, finds the pane that holds its
-terminal now, then closes that pane; kill closes it without interrupt. a
-close may be refused, and closing a workspace's last pane closes the workspace and
-may close linked workspaces and their running terminals.
+skid owns opaque refs, target lifetime validation, native methods and result
+semantics. jarvis consumes their current closed shapes at `agent_tools.py`.
+`info target=conversation` uses the cli's captured-target inspection projection:
+`{label,machine,target:{ref,conversation,turn?},inspection:{ok,result|error},observedRef?}`.
+its target preserves the original ref even when inner inspection fails; outer
+admission failure has no target. a successful observation must match its captured
+conversation. `observedRef` exists only on success and is never substituted into
+an existing action. terminal reassociation or deletion does not invalidate a
+captured conversation; terminal operations require their exact original lifetime.
 
-results are closed models defined once in `agent_tools.py`: terminal `{ref, pane,
-cwd?, agent?}` with agent `{ref?, name?, kind?, status:
-idle|working|blocked|done|unknown, ready}` as herdr detects them; machine
-`{machine, terminals}` or `{machine, error}`; inventory `{partial, machines}` where
-`partial` equals any unavailable machine; info and start `{machine, terminal}`;
-read `{machine, text, coverage, truncated}`; send, keys and interrupt `{machine,
-outcome: written}`; stop and kill `{machine, terminal: closed}`. readiness has one
-owner, herdr's detection, which reads codex's sign-in and trust screens as idle
-and ready; jarvis parses no screen text. `AgentFailure` carries `code, message?,
-machine?, dispatch: not_sent|sent|unknown`; start adds `partial: {created:
-terminal}` and stop `partial: {interrupt: sent, terminal:
-not_attempted|refused|unconfirmed}`. local `policy_denied` and
-`write_check_unavailable` remain `not_sent`.
+before preparatory lookups, every worker write requires current owner input.
+native operations inspect their captured target successfully. optional terminal
+info grounds the owner's worker name only if its conversation equals the captured
+one; a missing/reassociated terminal cannot deny explicit conversation authority.
+terminal operations inspect their original terminal. compound close describes
+both original targets; an unavailable native halt may still permit explicitly
+authorized exact terminal closure. only normalized identity facts enter the gate,
+never worker prose. execute the original arguments once; gateway validation owns
+races after preflight. do not renew refs or retry through a replacement action.
 
-before an addressed write reaches the existing gate, and only after current owner
-input is present, the dispatcher builds the gate's target: send, keys, interrupt
-and stop take the machine and herdr's agent name from the ref itself, with no
-i/o; kill runs one machine scan for the pane that holds its terminal and the name
-of any agent there. only those facts enter the effect-target fields; no terminal
-text, status or history reaches the gate. an undecodable ref, a stale terminal
-ref or a failed scan is `write_check_unavailable/not_sent`, creates no action and
-mutates nothing; an unrelated unavailable machine does not veto it. a stale agent
-ref passes the gate and fails `stale_reference/not_sent` in the executor. the descriptor carries
-`closure_scope: native_linked_workspace_group_may_close` for stop and kill; an
-owner restriction incompatible with a possible cascade is denied, never
-reinterpreted. the action and executor retain the original arguments and ref; the
-executor checks again immediately before writing, and a fresh lookup never changes
-an existing action.
+parse `{ok:true,result}` or `{ok:false,error:{code,dispatch,conversation?}}`
+before exit status. optional absence, read method/scope/truncation, unavailable
+peers, partial inventory, known creation and separate close outcomes survive.
+partial inventory and unconfirmed results can exit nonzero. each subprocess has
+a twenty-second budget around skid's fifteen-second budget. drain stdout
+concurrently with stdin delivery, capped at one mib inventory or 64 kib otherwise.
+discard stderr at the file descriptor; capture and log no diagnostic bytes.
+early stdin closure does not erase a valid owned stdout receipt. tool bounds are twenty seconds for reads/start, forty-five for
+text/keys and sixty-five for native send/stop or compound close with two
+preflight reads. cleanup terminates only that cli child.
 
-writes retain `ReplayPolicy.BilledOnce`, one executor entry, `max_attempts=1`,
-and terminal uncertainty after possible dispatch. a complete success settles only
-that operation, never task completion or a confirmed descendant halt. a failure
-settles `failed` with its code, dispatch and partial facts: `not_sent` when the
-check, gate or a local rule refused before the write, `sent` when herdr answered
-the write with an error, which does not prove no effect. a partial effect is
-staged as `{type: agent_control_v3, observed: …}` the moment herdr confirms it:
-start's created terminal right after `workspace create`, stop's interrupt, as
-`{interrupt: sent, terminal: unconfirmed}`, right after `send-keys`. a later
-failure settles with its own partial; a lost reply after a mutating command
-started, or interrupted unsettled execution, settles `uncertain` with whatever was
-staged inside the existing `agent_uncertainty_v1` wrapper. no result, later
-inventory or process exit authorizes replay; a lost start can still create its
-agent. encoded input and control results are bounded to 256 kib and the inventory
-to 1 mib on the normalized tool result that llm-tools budgets; a larger inventory
-fails `output_limit` rather than clipping. deadlines are 15 seconds for list and
-info, 25 for read, send, keys, interrupt and kill, 45 for stop and 50 for start;
-killing the ssh child never cancels remote work. nine tools share the existing run
-allowance; large valid results may exhaust it and are never clipped.
+writes retain `BilledOnce`, one entry and max_attempts=1. preflight and spawn
+failure are not_sent. after spawn, lost/malformed replies, timeout and stdout
+overflow are unknown unless a valid owned receipt proves otherwise. stage known partial facts as `agent_control_v4` before settling
+uncertain; a creation refusal carrying a created conversation is partial even
+when terminal creation was not_sent. unconfirmed native or close outcomes settle
+uncertain, never success. native input accepted means admission, completion
+unconfirmed; terminal written means dispatched bytes. unsupported is not idle.
 
-partial fleet inventory is turn evidence: the count of unavailable machine scans
-enters the existing evidence path, composes with calendar incompleteness,
-downgrades `answered`/`silent` to `partial`, counts scans rather than hosts, and
-survives snapshot restoration. historical receipts of the earlier tool
-generations, including adr 0048's skid cli receipts (`jarvis-agent-control-v4`),
-decode only through `agent_history.py`, selected by the stored execution contract
-revision; live schemas accept only this contract and no old execution grammar
-remains.
+old finalized worker rows become opaque archives before current tool lookup,
+argument/receipt/evidence decoding or uncertainty rendering. old agent
+implementation revisions v1–v5 and the retired codex family preserve their raw
+records after common immutable digest/effect/lineage/state/time checks. render
+only action id, tool, recorded status and `receipt details unavailable after
+cutover`. remove both retired codecs. current malformed receipts remain defects;
+old nonterminal rows block activation. old code must settle/reconcile unfinished
+work and drain required action resolutions and delivery before activation.
+partial fleet evidence retains the existing incompleteness path and restoration.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 
@@ -1834,8 +1778,8 @@ load the newly installed binary. CLI/server parity is not assumed.
 
 the root-owned codex host mapping retains the operational account endpoints and
 empty cognition parent needed by cognition. worker routing comes only from the
-explicit herdr gate settings, `JARVIS_HERDR_SSH_CONFIG_PATH` and
-`JARVIS_HERDR_MACHINES` (adr 0049). deployment owns this mapping and removes
+explicit skid settings, `JARVIS_AGENT_CLI_PATH` and
+`JARVIS_AGENT_CLIENT_CONFIG_PATH` (adr 0052). deployment owns this mapping and removes
 launcher-only fields with their final callers under adr 0044.
 
 The checked-in compatibility manifest schema v3 records
@@ -2313,8 +2257,7 @@ Frozen decisions:
   receipts that remain replayable across the later wake lifecycle.
 - No v1 redaction or destructive memory consolidation.
 - No Android, OnePassword, Nexus, Skidbladnir source/API, or other unlisted
-  application integration. worker terminals are ordinary herdr terminals
-  visible through Skidbladnir.
+  application integration. worker terminals and conversations remain skid-owned.
 
 Changing one requires an ADR stating observed evidence, migration impact, and
 the acceptance criteria affected.

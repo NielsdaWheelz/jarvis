@@ -58,6 +58,7 @@ contracts remain binding; dated evidence remains historical.
 | [0047](0047-require-current-admission-journals.md) | require current admission journals | accepted; retires 0037's automatic predecessor recognition under the owner's hard-cut instruction |
 | [0048](0048-align-with-the-herdr-fleet-cli.md) | align with the herdr fleet cli | accepted implementation target; live acceptance `NOT_RUN`; supersedes 0044/0045 native observation, single-session closure, info preflight and 64 kib bounds; skid cli codec superseded by 0049 |
 | [0049](0049-drive-herdr-through-an-ssh-gate.md) | drive herdr through an ssh gate | accepted implementation target; production activation `NOT_RUN`; supersedes the skid cli transport, codec, refs and preflight of 0044/0045/0048 |
+| [0052](0052-cut-worker-control-to-current-skid.md) | cut worker control to current skid | accepted implementation target; production activation and service qualification `NOT_RUN`; supersedes worker transport, roster, refs and receipt codecs of 0044/0045/0048/0049 |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

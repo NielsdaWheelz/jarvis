@@ -1,5 +1,5 @@
 {
-  "application_session_contract_revision": "jarvis-shared-codex-durable-inference-v1",
+  "application_session_contract_revision": "jarvis-skid-captured-target-v1",
   "dependencies": {
     "llm-agent-kernel": "8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342",
     "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
@@ -9,9 +9,9 @@
     "gpt-5.6-terra"
   ],
   "role_contract_revisions": {
-    "automatic_write_gate": "jarvis-write-gate-herdr-gate-v1",
+    "automatic_write_gate": "jarvis-write-gate-skid-v1",
     "dreamer": "jarvis-dreamer-slice-4-v6",
-    "main": "jarvis-main-herdr-gate-v1",
+    "main": "jarvis-main-skid-v1",
     "recaller": "jarvis-recaller-slice-4-v17",
     "rememberer": "jarvis-rememberer-slice-3-v1"
   },

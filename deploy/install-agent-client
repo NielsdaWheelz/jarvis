@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+source_client="${JARVIS_SOURCE_AGENT_CLIENT_CONFIG:?supply the provisioned private skid client configuration}"
+[[ "$source_client" = /* && -f "$source_client" && ! -L "$source_client" ]] || {
+  printf 'missing or unsafe private agent client source\n' >&2
+  exit 1
+}
+remote="$(ssh "$target" mktemp -d /tmp/jarvis-agent-client.XXXXXX)"
+case "$remote" in /tmp/jarvis-agent-client.*) ;; *) exit 1 ;; esac
+scp -q "$source_client" "$target:$remote/client.json"
+ssh "$target" bash -s -- "$remote" <<'REMOTE'
+set -euo pipefail
+remote="$1"
+case "$remote" in /tmp/jarvis-agent-client.*) ;; *) exit 1 ;; esac
+cleanup() { rm -rf -- "$remote"; }
+trap cleanup EXIT HUP INT TERM
+[[ -f "$remote/client.json" && ! -L "$remote/client.json" ]]
+# Validate through skid's authoritative configuration loader before switching.
+cli=/usr/local/libexec/skidbladnir
+client=/etc/jarvis/agent-client.json
+sudo test -f "$cli" && sudo test ! -L "$cli"
+[[ "$(sudo stat -c '%U:%G:%a' "$cli")" == root:root:755 ]]
+candidate="$(sudo mktemp /etc/jarvis/.agent-client.XXXXXX)"
+cleanup_candidate() { sudo rm -f -- "$candidate"; cleanup; }
+trap cleanup_candidate EXIT HUP INT TERM
+sudo install -m 0600 -o jarvis -g jarvis "$remote/client.json" "$candidate"
+# Partial inventory is valid config evidence, not a gateway-health pass.
+probe="$(sudo systemd-run --quiet --wait --pipe --collect \
+  --property=User=jarvis --property=Group=jarvis \
+  --property=ProtectHome=true --property=ProtectSystem=strict \
+  --property=PrivateTmp=true --property=PrivateDevices=true \
+  --property=NoNewPrivileges=true \
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
+  --property=RuntimeMaxSec=25 \
+  "$cli" --config "$candidate" list --json 2>/dev/null)" || :
+printf '%s' "$probe" | python3 -c '
+import json,sys
+value=json.load(sys.stdin)
+assert value["ok"] is True
+peers=value["result"]["peers"]
+assert len(peers)==3 and {peer["label"] for peer in peers}=={"macbook","devbox","arch"}
+' || {
+  printf 'candidate agent configuration did not validate; installed file unchanged\n' >&2
+  exit 1
+}
+if ! { sudo test -f "$client" && sudo test ! -L "$client" &&
+    [[ "$(sudo stat -c '%U:%G:%a' "$client")" == jarvis:jarvis:600 ]] &&
+    sudo cmp -s "$candidate" "$client"; }; then
+  # Replacement requires a prepared pause and a clean stop.
+  [[ "$(sudo systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+  [[ "$(sudo systemctl show --property=Result --value jarvis.service)" == success ]]
+  [[ "$(sudo systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+  sudo python3 - /var/lib/jarvis/runtime/paused.json <<'PY'
+import json,pathlib,sys
+value=json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert value=={"paused": True,"schema_version":"jarvis-paused.v1"}
+assert value["paused"] is True
+PY
+  sudo mv -fT -- "$candidate" "$client"
+fi
+printf 'agent client configuration installed or unchanged; service remains stopped or unchanged\n'
+REMOTE

@@ -142,9 +142,7 @@ class CapturingReadDispatcher:
             inventory = AgentListResult.model_validate(result.get("value"))
             if inventory.partial:
                 self._evidence.record_agent_inventory_incompleteness(
-                    unavailable_machines=sum(
-                        item.error is not None for item in inventory.machines
-                    )
+                    unavailable_machines=sum(not item.ok for item in inventory.peers)
                 )
         self._observations.append((tool_id, ordinal, result))
 

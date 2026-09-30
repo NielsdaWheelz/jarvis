@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+ssh "$target" bash -s <<'REMOTE'
+set -euo pipefail
+cli=/usr/local/libexec/skidbladnir
+client=/etc/jarvis/agent-client.json
+for file in "$cli" "$client"; do
+  sudo test -f "$file" && sudo test ! -L "$file"
+done
+[[ "$(sudo stat -c '%U:%G:%a' "$cli")" == root:root:755 ]]
+[[ "$(sudo stat -c '%U:%G:%a' "$client")" == jarvis:jarvis:600 ]]
+sudo test "$(sudo systemctl show --property=ProtectHome --value jarvis.service)" = yes
+# Read-only probes copy the restrictions governing client file access and TLS.
+as_jarvis=(sudo systemd-run --quiet --wait --pipe --collect
+  --property=User=jarvis --property=Group=jarvis
+  --property=ProtectHome=true --property=ProtectSystem=strict
+  --property=PrivateTmp=true --property=PrivateDevices=true
+  --property=NoNewPrivileges=true
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
+  --property=RuntimeMaxSec=25
+  "$cli" --config "$client")
+for machine in devbox macbook arch; do
+  "${as_jarvis[@]}" list --machine "$machine" --json 2>/dev/null | \
+    python3 -c '
+import json,sys
+value=json.load(sys.stdin)
+assert value["ok"] is True
+inventory=value["result"]
+assert inventory["partial"] is False and len(inventory["peers"])==1
+assert inventory["peers"][0]["ok"] is True
+'
+  printf 'agent gateway read passed: %s\n' "$machine"
+done
+printf 'jarvis agent client boundary passed; cognition health is checked separately.\n'
+REMOTE

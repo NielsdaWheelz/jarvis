@@ -7,10 +7,11 @@ from typing import Literal, cast
 from llm_tools import ToolId
 
 from jarvis.agent_tools import (
+    AgentCloseInput,
     AgentKeysInput,
-    AgentRefInput,
     AgentSendInput,
     AgentStartInput,
+    AgentStopInput,
     AgentWriteTarget,
 )
 from jarvis.schedule_tools import (
@@ -54,9 +55,9 @@ def classify_write(
         ("agent.start", AgentStartInput),
         ("agent.send", AgentSendInput),
         ("agent.keys", AgentKeysInput),
-        ("agent.interrupt", AgentRefInput),
-        ("agent.stop", AgentRefInput),
-        ("agent.kill", AgentRefInput),
+        ("agent.text", AgentSendInput),
+        ("agent.stop", AgentStopInput),
+        ("agent.close", AgentCloseInput),
     }:
         return "automatic"
     if name in {"gmail.create_draft", "gmail.update_draft", "schedule.wake"}:
@@ -121,41 +122,48 @@ def write_effect_descriptor(
         )
     if name in {
         "agent.send",
+        "agent.text",
         "agent.keys",
-        "agent.interrupt",
         "agent.stop",
-        "agent.kill",
-    } and isinstance(value, AgentSendInput | AgentKeysInput | AgentRefInput):
+        "agent.close",
+    } and isinstance(
+        value, AgentSendInput | AgentKeysInput | AgentStopInput | AgentCloseInput
+    ):
         if target is None:
             raise ValueError("addressed agent write requires its original target")
+        targets = [
+            EffectTarget(kind="machine", value=target.machine),
+            EffectTarget(kind="ref", value=target.ref),
+        ]
+        if target.name is not None:
+            targets.append(EffectTarget(kind="terminal_name", value=target.name))
+        if target.pane is not None:
+            targets.append(EffectTarget(kind="pane", value=target.pane))
+        if target.conversation is not None:
+            targets.append(
+                EffectTarget(
+                    kind="conversation_id", value=target.conversation.conversationId
+                )
+            )
+            targets.append(
+                EffectTarget(kind="profile", value=target.conversation.profileKey)
+            )
+        if target.turn is not None:
+            targets.append(EffectTarget(kind="turn_id", value=target.turn.id))
+        if isinstance(value, AgentStopInput):
+            targets.append(EffectTarget(kind="mode", value=value.mode))
+        if isinstance(value, AgentKeysInput):
+            targets.append(EffectTarget(kind="keys", value=",".join(value.keys)))
         return WriteEffectDescriptor(
             operation=cast(
-                Literal["send", "keys", "interrupt", "stop", "kill"],
+                Literal["send", "text", "keys", "stop", "close"],
                 name.removeprefix("agent."),
             ),
-            targets=(
-                EffectTarget(kind="machine", value=target.machine),
-                *(
-                    ()
-                    if target.name is None
-                    else (EffectTarget(kind="terminal_name", value=target.name),)
-                ),
-                *(
-                    ()
-                    if target.pane is None
-                    else (EffectTarget(kind="pane", value=target.pane),)
-                ),
-            ),
-            omitted_freeform=(
-                (OmittedFreeform.from_text("worker_input", value.text),)
-                if isinstance(value, AgentSendInput)
-                else ()
-            ),
-            closure_scope=(
-                "native_linked_workspace_group_may_close"
-                if name in {"agent.stop", "agent.kill"}
-                else None
-            ),
+            targets=tuple(targets),
+            omitted_freeform=(OmittedFreeform.from_text("worker_input", value.text),)
+            if isinstance(value, AgentSendInput)
+            else (),
+            closure_scope=value.scope if isinstance(value, AgentCloseInput) else None,
         )
     if name == "gmail.create_draft" and isinstance(value, GmailCreateDraftInput):
         return _gmail_descriptor("create", value.content)

@@ -306,8 +306,8 @@ async def _compose_main(
         provider=provider_configuration,
     )
     agents = AgentController(
-        ssh_config=settings.herdr_ssh_config_path,
-        machines=dict(settings.herdr_machines),
+        cli_path=settings.agent_cli_path,
+        client_config_path=settings.agent_client_config_path,
         actions=actions,
     )
     composition = build_tool_composition(
@@ -674,6 +674,22 @@ async def check_activation(
                             )
                         ).scalars()
                     )
+                # A catalog cut cannot strand an old resolution or its delivery.
+                # Existing messages stay canonical; this check only reports IDs.
+                unreported = await actions.unreported_terminal(
+                    source_conversation_id=str(settings.discord.channel_id), limit=100
+                )
+                async with database.connect() as connection:
+                    undrained = (
+                        await connection.execute(
+                            text(
+                                "select id, role from message where "
+                                "(role = 'assistant' and source_message_id is null) or "
+                                "(source = 'action' and processed_at is null) "
+                                "order by created_at, id"
+                            )
+                        )
+                    ).all()
                 verdicts: list[tuple[UUID, str, str, str]] = []
                 for action_id, status, tool_name in unfinished:
                     verdict = (
@@ -682,6 +698,19 @@ async def check_activation(
                         else await _pending_action_verdict(actions, plan, action_id)
                     )
                     verdicts.append((action_id, status, tool_name, verdict))
+                verdicts.extend(
+                    (
+                        value.id,
+                        value.status,
+                        str(value.tool_name),
+                        "undrained_resolution",
+                    )
+                    for value in unreported
+                )
+                verdicts.extend(
+                    (identifier, role, "message", "undrained_delivery_or_resolution")
+                    for identifier, role in undrained
+                )
                 return tuple(verdicts), stale_turns
             finally:
                 await agent_runtime.close()

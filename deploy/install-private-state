@@ -5,6 +5,7 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
 source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
+source_agent_client="${JARVIS_SOURCE_AGENT_CLIENT_CONFIG:?supply the provisioned private skid client configuration}"
 
 for path in "$source_environment" "$source_google"; do
   [[ "$path" = /* && -f "$path" && ! -L "$path" ]] || {
@@ -12,6 +13,10 @@ for path in "$source_environment" "$source_google"; do
     exit 1
   }
 done
+
+# Worker state has its own install path; full private-state install composes it.
+JARVIS_SOURCE_AGENT_CLIENT_CONFIG="$source_agent_client" \
+  "$repo_dir/deploy/install-agent-client"
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/jarvis-private-state.XXXXXX")"
 cleanup() {
@@ -69,8 +74,8 @@ JARVIS_OWNER_TIMEZONE=America/Los_Angeles
 JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_MODEL=gpt-5.6-terra
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json
-JARVIS_HERDR_SSH_CONFIG_PATH=/etc/jarvis-herdr/ssh_config
-JARVIS_HERDR_MACHINES=devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal
+JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
+JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
@@ -110,6 +115,5 @@ sudo install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
 sudo install -m 0600 -o jarvis -g jarvis \
   "$remote/google-oauth-state.json" \
   /var/lib/jarvis/connectors/google-oauth-state.json
-sudo -u jarvis test -r /etc/codex-shared/profiles.json
-printf 'Installed Jarvis application and connector credentials; Codex remains host-owned.\n'
+printf 'installed jarvis private state; agent client configuration validated.\n'
 REMOTE

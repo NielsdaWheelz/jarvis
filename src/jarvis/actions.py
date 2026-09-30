@@ -31,17 +31,15 @@ from sqlalchemy import RowMapping, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.agent_history import (
-    HISTORICAL_AGENT_IMPLEMENTATION_REVISIONS,
-    historical_agent_evidence_type,
-)
 from jarvis.agent_tools import (
     AGENT_IMPLEMENTATION_REVISION,
     AGENT_WRITE_IDS,
     AgentActionEvidence,
+    AgentError,
     validate_agent_evidence,
+    validate_agent_failure,
+    validate_agent_success,
 )
-from jarvis.codex_history import HISTORICAL_CODEX_WRITE_IDS, CodexActionEvidence
 from jarvis.db import action, message
 from jarvis.messages import (
     MAX_DISCORD_MESSAGE_CHARACTERS,
@@ -2438,10 +2436,9 @@ def _validate_new_action(
     ToolId(str(tool_name))
     if contract.tool_effect is not ToolEffect.Write:
         raise ValueError("actions require the Write effect")
-    if (
-        tool_name in AGENT_WRITE_IDS
-        or (historical and tool_name in HISTORICAL_CODEX_WRITE_IDS)
-    ) != (contract.replay_policy is ReplayPolicy.BilledOnce):
+    if not historical and (tool_name in AGENT_WRITE_IDS) != (
+        contract.replay_policy is ReplayPolicy.BilledOnce
+    ):
         raise ValueError("write action replay policy differs from its tool family")
     if raw_input_digest(ParsedJson(arguments)) != contract.input_digest:
         raise ValueError("execution contract has a different input digest")
@@ -2509,6 +2506,20 @@ def _validate_stored_action(stored: StoredAction) -> None:
         raise ValueError("decided approval action is missing its decision time")
     if stored.status in {"succeeded", "failed", "uncertain"} and stored.result is None:
         raise ValueError("resolved action is missing its result")
+    if retired_worker_action(stored):
+        return
+    if (stored.tool_name in AGENT_WRITE_IDS) != (
+        stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce
+    ):
+        raise ValueError("write action replay policy differs from its tool family")
+    if str(stored.tool_name).startswith("agent."):
+        if (
+            stored.tool_name not in AGENT_WRITE_IDS
+            or stored.execution_contract.implementation_revision
+            != AGENT_IMPLEMENTATION_REVISION
+            or stored.execution_contract.replay_policy is not ReplayPolicy.BilledOnce
+        ):
+            raise ValueError("current worker contract is invalid")
     if stored.result is not None:
         if _is_schedule_create(stored) and set(stored.result) == {
             "creation_receipt",
@@ -2521,18 +2532,24 @@ def _validate_stored_action(stored: StoredAction) -> None:
             result = _tool_result(stored.result)
             if (stored.status == "succeeded") != (result["type"] == "Success"):
                 raise ValueError("stored action status disagrees with its result")
+            if stored.tool_name in AGENT_WRITE_IDS:
+                verb = str(stored.tool_name).removeprefix("agent.")
+                if stored.status == "succeeded":
+                    validate_agent_success(
+                        verb, stored.arguments, result["value"], require_confirmed=True
+                    )
+                elif isinstance(result["error"], dict):
+                    error = cast(dict[str, object], result["error"])
+                    if error.get("type") == "AgentFailure":
+                        validate_agent_failure(verb, error)
         elif stored.result.get("type") == "gmail_update_reconciliation_v1":
             _gmail_update_basis(stored.result)
         elif stored.result.get("type") == "action_recovery_v1":
             _recovery_state(stored.result)
         elif stored.result.get("type") in {
-            "agent_control_v1",
-            "agent_control_v2",
-            "agent_control_v3",
+            "agent_control_v4",
         }:
             _agent_evidence(stored, stored.result)
-        elif stored.result.get("type") == "codex_control_v1":
-            CodexActionEvidence.model_validate(stored.result)
 
 
 def _action_identity(
@@ -2556,6 +2573,8 @@ def _action_identity(
 
 
 def _replay_result(stored: StoredAction) -> ToolResult | None:
+    if retired_worker_action(stored):
+        raise ActionPersistenceDefect("archived worker actions cannot replay")
     if (
         _is_schedule_create(stored)
         and stored.result is not None
@@ -2622,19 +2641,12 @@ def _uncertainty_result(
     stored: StoredAction, result: dict[str, object]
 ) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
-    codex = canonical.get("type") == "codex_uncertainty_v1"
     keys = {"type", "evidence_code", "recorded_at"}
     if canonical.get("type") == "agent_uncertainty_v1":
         keys.add("control")
         _agent_evidence(stored, canonical.get("control"))
-    if codex:
-        keys.add("control")
-        canonical["control"] = CodexActionEvidence.model_validate(
-            canonical.get("control")
-        ).model_dump(mode="json")
     if set(canonical) != keys or canonical.get("type") not in {
         "action_uncertainty_v1",
-        "codex_uncertainty_v1",
         "agent_uncertainty_v1",
     }:
         raise ValueError("action uncertainty result is invalid")
@@ -2659,14 +2671,7 @@ def agent_uncertainty_result(stored: StoredAction) -> dict[str, object]:
     if stored.status == "uncertain" and stored.result is not None:
         return _uncertainty_result(stored, stored.result)
     if stored.result is None:
-        empty = (
-            AgentActionEvidence()
-            if agent_receipt_is_live(stored)
-            else historical_agent_evidence_type(
-                stored.execution_contract.implementation_revision
-            )()
-        )
-        control: dict[str, object] = empty.model_dump(mode="json")
+        control: dict[str, object] = AgentActionEvidence().model_dump(mode="json")
     else:
         _agent_evidence(stored, stored.result)
         control = stored.result
@@ -2678,29 +2683,40 @@ def agent_uncertainty_result(stored: StoredAction) -> dict[str, object]:
     }
 
 
-def agent_receipt_is_live(stored: StoredAction) -> bool:
-    """Select an agent row's receipt generation by its recorded implementation."""
-
-    # recovery before this cut wrapped in-flight codex rows as agent_control_v1
-    if stored.tool_name in HISTORICAL_CODEX_WRITE_IDS:
-        return False
-    if stored.tool_name not in AGENT_WRITE_IDS:
-        raise ActionPersistenceDefect("action is not an agent write")
-    revision = stored.execution_contract.implementation_revision
-    if revision == AGENT_IMPLEMENTATION_REVISION:
+def retired_worker_action(stored: StoredAction) -> bool:
+    """Retired worker records are opaque; current malformed rows stay defects."""
+    tool = str(stored.tool_name)
+    if tool.startswith("codex."):
         return True
-    if revision in HISTORICAL_AGENT_IMPLEMENTATION_REVISIONS:
-        return False
-    raise ActionPersistenceDefect("agent action has an unknown implementation")
+    return tool.startswith(
+        "agent."
+    ) and stored.execution_contract.implementation_revision in {
+        "jarvis-agent-control-v1",
+        "jarvis-agent-control-v2",
+        "jarvis-agent-control-v3",
+        "jarvis-agent-control-v4",
+        "jarvis-agent-control-v5",
+    }
+
+
+def archived_worker_action(stored: StoredAction) -> bool:
+    return retired_worker_action(stored) and stored.status in {
+        "succeeded",
+        "failed",
+        "uncertain",
+        "cancelled",
+    }
 
 
 def _agent_evidence(stored: StoredAction, value: object) -> None:
-    if agent_receipt_is_live(stored):
-        validate_agent_evidence(str(stored.tool_name).removeprefix("agent."), value)
-    else:
-        historical_agent_evidence_type(
-            stored.execution_contract.implementation_revision
-        ).model_validate(value)
+    if retired_worker_action(stored):
+        raise ActionPersistenceDefect(
+            "retired worker action must drain before activation"
+        )
+    operation = str(stored.tool_name).removeprefix("agent.")
+    evidence = validate_agent_evidence(operation, value)
+    if evidence.observed is not None and not isinstance(evidence.observed, AgentError):
+        validate_agent_success(operation, stored.arguments, evidence.observed)
 
 
 def _gmail_update_basis(value: dict[str, object]) -> dict[str, object]:
@@ -2935,7 +2951,8 @@ __all__ = [
     "ResolutionInsert",
     "StoredAction",
     "TerminalActionStatus",
-    "agent_receipt_is_live",
     "agent_uncertainty_result",
+    "archived_worker_action",
     "finish_schedule_conclusion",
+    "retired_worker_action",
 ]

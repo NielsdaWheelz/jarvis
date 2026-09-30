@@ -70,6 +70,10 @@ check="$(sudo systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
   --property=User=jarvis \
   --property=Group=jarvis \
   --property=SupplementaryGroups=codex-clients \
+  --property=ProtectHome=true --property=ProtectSystem=strict \
+  --property=PrivateTmp=true --property=PrivateDevices=true \
+  --property=NoNewPrivileges=true \
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
   --property="WorkingDirectory=$release" \
   --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
   --property=EnvironmentFile=/etc/jarvis/jarvis.env \

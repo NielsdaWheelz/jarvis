@@ -876,47 +876,41 @@ host-confidentiality boundary.
 ## peer agent control
 
 main uses nine owner-directed tools: `agent.list`, `agent.info`, `agent.start`,
-`agent.read`, `agent.send`, `agent.keys`, `agent.interrupt`, `agent.stop`, and
-`agent.kill`. [adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md) owns
-the transport and codec; adr 0044's provider/authority boundaries remain.
+`agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, and
+`agent.close`. [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md)
+owns the current contract; adr 0044's provider/authority boundaries remain.
 
-herdr owns terminals, agents and readiness on each host. jarvis reaches it through
-one ssh call per herdr command to that host's forced-command gate, which admits
-only the adr's allowlist and runs no shell. `agent_control.py` is the whole codec:
-it builds argv, runs the bounded ssh child, decodes herdr's api envelope (or the
-gate's refusal, or herdr's error), and projects panes and agents into the closed
-models of `agent_tools.py`. machines and their owner homes are settings; profiles
-are part of the tool contract.
+`agent_control.py` invokes one fixed skid cli with a private peer configuration,
+bounded pipes and explicit argv. skid owns opaque refs, gateway routing,
+provider methods and live target validation. jarvis projects consumed results
+into `agent_tools.py`; it neither decodes refs nor repeats the provider codec.
+the installed cli is root-owned, separate from the development user's home.
 
-jarvis encodes its own opaque refs from herdr's ids: machine and `terminal_id`,
-plus the agent's herdr name for an agent ref. a pane id is only a location: herdr
-changes it when a pane moves and reissues it after a restart, and clears a name
-when its agent exits, but never repeats a `terminal_id`. so every addressed call
-re-reads its target just before acting, requires the same name and
-`terminal_id`, and writes to the name or to the pane that holds that terminal now;
-a changed target is not-sent and never substituted. an agent restarted by hand
-under the same name in the same terminal is indistinguishable and passes. the
-gate sees the machine and agent name straight from an agent ref, or, for kill,
-the pane holding the terminal and any hosted agent's name from one scan, plus the
-stop/kill `closure_scope` disclosure. start creates its own workspace with the
-profile's account home and starts the agent only in that new pane.
+terminal authority addresses an exact tmux/process lifetime. conversation
+authority addresses the captured provider conversation and, for native stop,
+its captured turn. `info` explicitly selects either target. native write previews
+inspect the original conversation even after terminal reassociation or deletion;
+a terminal name can ground that preview only when it still tracks the same
+conversation. a fresh observation never replaces a pending action's ref. native
+unavailability refuses native input; explicit terminal input remains a separate
+capability. compound close reports native halt and exact terminal closure
+separately.
 
-reads retain the existing durable recorder; writes remain billed-once with one
-executor entry. herdr's error reply settles failed and sent; a check, gate or
-local refusal settles failed and not-sent; a lost reply after the mutating
-command started settles uncertain. start's created terminal and stop's sent
-interrupt are staged as `agent_control_v3` evidence the moment herdr confirms
-them, so a later failure, lost reply, deadline or crash cannot lose them. stop and kill close the original pane and
-may close linked workspaces; closure may be refused; neither confirms a
-descendant halt. partial fleet inventory is turn evidence that composes with
-calendar incompleteness and survives restoration.
+reads retain the durable recorder; writes remain billed-once with one executor
+entry and no retry. preflight or spawn refusal is not-sent. after possible
+dispatch, lost or malformed replies settle uncertain. valid receipts preserve
+partial creation, unknown write outcomes and partial fleet inventory. native
+acceptance and terminal dispatch do not establish task completion. subprocess
+stdout is capped at 1 mib for inventory and 64 kib otherwise; stderr goes
+directly to the null device. a valid owned stdout receipt survives early stdin
+closure or delayed process exit. existing tool budgets cover preflight calls.
 
-all nine tools share existing run budgets with 256 kib control envelopes and a
-1 mib inventory. worker output supplies no new authority. there is no task
-schema, worker table, scheduler, transcript copy, reference cache, connection
-pool or additional preparation subsystem. historical receipts, including the
-skid cli generation's, decode through `agent_history.py`; old execution grammar
-is removed.
+finalized old worker actions are opaque archives before current tool lookup or
+receipt decoding. common immutable record invariants still apply; raw arguments
+and results remain stored. current malformed receipts are defects. old unfinished
+actions block activation. no historical worker reader, execution adapter, worker
+table, scheduler, transcript copy or reference cache remains. worker control is
+independent of jarvis's shared cognitive app-server contract.
 
 ## Scheduling
 

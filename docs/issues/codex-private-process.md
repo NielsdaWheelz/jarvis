@@ -1,25 +1,21 @@
-# own codex process
+# restore shared codex cognition
 
-problem: jarvis's cognition reaches codex only through the devbox's shared app
-servers (`codex-shared@*`, run as `niels`), attached by `provider-runtime`
-through `CODEX_APP_SERVER_SOCKET`. adr 0041 chose sharing so the `codex.*`
-tools could steer worker threads on the owner's personal server; adrs 0044,
-0048 and 0049 moved worker control to skid and then herdr, so jarvis is now the servers' only
-client and the sharing serves nothing else.
+problem: the deployed jarvis release still requires `/etc/codex-shared/profiles.json`
+and shared sockets. dev-server removed their former broker independently of the
+worker cutover. startup fails before discord ingress.
 
-impact: dev-server keeps a cross-user service, its socket-permission
-machinery and a codex pin (dev-server `docs/issues/codex-daemon-socket.md`)
-for one client. codex 0.156 already broke that transport; each codex release
-can break it again.
+impact: jarvis remains disabled, stopped and durably paused. cognition activation
+and full containment are pending; the skid worker client and herdr retirement
+proceed independently.
 
-direction: jarvis runs its own `codex app-server` child, as `jarvis`, over
-stdio, with its own `CODEX_HOME` logged in once by device auth. that home is
-jarvis's credential; it never reads the owner's account homes. needs a
-private-process codex transport in `provider-runtime` (removed by adr 0041),
-jarvis settings and `verify-containment` rewritten for the new boundary, an adr
-superseding 0041's transport decision, and isolated qualification of a paid
-decision and the live catalog.
+evidence: 2026-09-29 deployed release `39d9c9c` failed in `CodexHostConfig.load`
+with FileNotFoundError. no pending actions, unfinished decisions or old resolution
+processing/delivery remained. the owner explicitly permits downtime.
 
-resolved when: installed jarvis serves and passes `check-activation` with the
-devbox's `codex-shared@*` services absent, and dev-server has deleted them and
-the codex pin.
+direction: the owner requires the same existing stock codex app-server process.
+a private process/account is rejected. repair its provider transport and containment
+under a separate accepted contract; do not restore retired broker machinery or
+change cognition in the worker-control pr.
+
+resolved when: jarvis completes normal cognition and full containment through
+that shared process, passes activation checks, and the owner resumes it.

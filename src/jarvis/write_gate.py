@@ -97,6 +97,11 @@ class EffectTarget(BaseModel):
         "terminal_name",
         "machine",
         "pane",
+        "ref",
+        "conversation_id",
+        "turn_id",
+        "mode",
+        "keys",
     ]
     value: str = Field(min_length=1, max_length=4_096)
 
@@ -159,12 +164,10 @@ class WriteEffectDescriptor(BaseModel):
         "cancel",
         "send",
         "start",
-        "submit",
-        "steer",
+        "text",
+        "close",
         "keys",
         "stop",
-        "interrupt",
-        "kill",
     ]
     targets: Annotated[tuple[EffectTarget, ...], Field(max_length=8)] = ()
     audience: Annotated[tuple[EffectAudience, ...], Field(max_length=150)] = ()
@@ -178,7 +181,7 @@ class WriteEffectDescriptor(BaseModel):
     use_default_reminders: bool | None = None
     has_expected_etag: bool | None = None
     has_reply_target: bool | None = None
-    closure_scope: Literal["native_linked_workspace_group_may_close"] | None = None
+    closure_scope: Literal["conversation_and_terminal", "terminal_only"] | None = None
     omitted_freeform: Annotated[tuple[OmittedFreeform, ...], Field(max_length=8)] = ()
 
     @field_validator("execute_after")

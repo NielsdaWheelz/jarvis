@@ -12,12 +12,15 @@ These instructions govern all work in this repository.
 - adr 0046 governs the owner-approved testing reset. all previous test and
   qualification execution gates are suspended pending the subsequent redesign;
   runtime safeguards and product requirements remain binding.
-- adr 0044 governs the accepted agent-control upgrade and supersedes only the
-  prior worker routing/catalog/launcher restrictions; cognition rules remain.
-  adr 0048 aligns the consumer with skid's herdr cli and supersedes only the
-  affected portions of adrs 0044/0045. adr 0049 replaces that cli with herdr
-  driven through each host's ssh forced-command gate and supersedes the
-  transport, codec, refs and preflight of adrs 0044/0045/0048.
+- [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
+  worker control through the installed skid CLI and private three-peer client
+  config. it supersedes the worker transport, roster, refs and receipt codecs of
+  adrs 0044/0045/0048/0049; cognition remains on the same existing Codex
+  appserver/daemon and its deployment repair is separate.
+- preserve captured conversation refs and stop mode or closure scope through
+  admission and execution. require current owner input before target lookups.
+  worker writes are billed once, with one lifetime executor entry. finalized
+  retired worker rows remain opaque; unfinished retired rows block activation.
 - If code and specification disagree, stop and surface the discrepancy.
 - If a specification silence would change user-visible behavior, authority,
   irreversible data, or external compatibility, stop and surface it. Ordinary

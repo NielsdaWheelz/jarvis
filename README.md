@@ -73,6 +73,10 @@ not establish current behavioral verification. the next pr begins the
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
+- Worker control: the installed skid CLI with a private macbook/devbox/arch
+  client config; [ADR 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md)
+  defines the current worker boundary. cognition remains on the existing Codex
+  appserver/daemon; its deployment repair is separate.
 
 ## Development and verification
 

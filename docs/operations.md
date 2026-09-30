@@ -56,8 +56,8 @@ deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
 That host convergence must also report one active operational `codex.runtime`
-identity, three healthy profile sockets, jarvis's herdr gate directory
-`/etc/jarvis-herdr`, and the mode-02750 empty cognition parent. A differing active identity is an
+identity, three healthy profile sockets, jarvis's private skid client file
+`/etc/jarvis/agent-client.json`, and the mode-02750 empty cognition parent. A differing active identity is an
 operator drain/restart action, never an ordinary-apply restart. Before the hard
 cut, stop Jarvis, drain every non-terminal Codex control action and old private
 provider session, then activate the shared services without killing manual tmux
@@ -124,8 +124,7 @@ systemd one-shot that injects the root-only environment after changing to the
 
 for an existing deployment, complete the
 [admission journal cutover](#admission-journal-cutover) before activation. the
-herdr catalog switch followed the [herdr cutover](#herdr-cutover-pr-4) runbook; the
-herdr gate switch follows the [herdr gate cutover](#herdr-gate-cutover-pr-5).
+worker catalog switch follows the [skid-only cutover](#skid-only-worker-cutover).
 
 ```sh
 deploy/install-release
@@ -200,15 +199,13 @@ the service identity, verifies the active systemd `/proc` and core-dump
 controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
-control; no provider connection is opened before the control succeeds. The
-service then receives the non-secret cognition profile/socket view and its herdr
-gate key and ssh configuration; it receives no Codex credential or
-development-user account-home access. the script also checks
-`/etc/jarvis-herdr` (directory root:jarvis 0750, `id_ed25519` jarvis 0600,
-`ssh_config` and `known_hosts` root:jarvis 0640) and, as jarvis, that each of
-devbox, macbook and arch answers `agent list` through its gate and refuses
-`status --json` with exactly `herdr-gate: command refused`; an unreachable host
-fails it.
+control; no provider connection is opened before the control succeeds. the
+service then receives the non-secret cognition profile/socket view and the
+private skid client file. it receives no provider account-home access.
+`deploy/verify-containment` checks the root cli and mode-0600 jarvis-owned client
+and reads all three peers under the real identity and relevant service restrictions;
+an unreachable host fails it. full gateway bearers replace ssh command allowlists,
+an accepted cost rather than a new credential-scope boundary.
 
 Do not activate an older release across an incompatible migration. A
 same-schema rollback may select an already installed release through
@@ -319,444 +316,62 @@ systemd.
 
 ## herdr cutover (pr 4)
 
-this switch activates the herdr-aligned catalog of
-[adr 0048](decisions/0048-align-with-the-herdr-fleet-cli.md). the changed catalog
-rotates the shared plan and the gate fingerprint participates in every write
-binding, so every nonterminal action is incompatible, not only agent actions. no
-old grammar or target compatibility mode remains. run the steps in order. a
-failed step leaves jarvis on the old release or stopped for repair; nothing
-retries.
-
-step 1. while the old release runs, take a read-only inventory. `serve` holds the
-deployment lock, so this one-shot takes no lock and prints counts only:
-
-```sh
-sudo systemd-run --quiet --wait --pipe --collect \
-  --unit=jarvis-cutover-inventory \
-  --property=Type=oneshot \
-  --property=User=jarvis \
-  --property=Group=jarvis \
-  --property=WorkingDirectory=/opt/jarvis/current \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  /opt/jarvis/current/.venv/bin/python - <<'PY'
-import os
-
-from sqlalchemy import create_engine, text
-
-from jarvis.db import normalize_database_url
-from jarvis.process_security import deny_same_identity_process_inspection
-
-PENDING = "status in ('queued', 'awaiting_approval', 'executing')"
-QUERIES = (
-    ("actions", f"select status, count(*) from action where {PENDING} group by 1"),
-    (
-        "action kinds",
-        "select tool_name || ':' || status, count(*) from action "
-        f"where {PENDING} group by 1",
-    ),
-    (
-        "input",
-        "select case when processing_parked_at is null then 'waking' "
-        "else 'parked' end, count(*) from message "
-        "where role in ('owner', 'host') and processed_at is null group by 1",
-    ),
-    (
-        "decisions",
-        "select case when d.terminal is null then 'open' "
-        "else 'completed_unsettled' end, count(*) from model_decision d "
-        "left join message m on m.id = d.first_input_id "
-        "where d.terminal is null "
-        "or (d.first_input_id is not null and m.processed_at is null) group by 1",
-    ),
-    (
-        "reads",
-        "select state, count(*) from read_position "
-        "where state <> 'completed' group by 1",
-    ),
-)
-
-deny_same_identity_process_inspection()
-engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
-try:
-    with engine.connect() as connection:
-        for label, query in QUERIES:
-            rows = sorted(connection.execute(text(query)).all())
-            print(label, " ".join(f"{key}={count}" for key, count in rows) or "none")
-finally:
-    engine.dispose()
-PY
-```
-
-`actions` and `action kinds` exhaust the status query, including mail and
-calendar approvals and receipt-backed `schedule.wake` reminders that startup
-recovery selectors omit. nonzero counts hold activation. finish or reconcile
-each action, or obtain the owner's explicit denial or cancellation through the
-existing operations, then rerun the inventory. the plan rotation makes every
-such row incompatible under the target release's check, so activation proceeds
-only at zero. never change action rows by sql, and never cancel an `executing`
-action whose external effect is uncertain. preserve lineage and history: never
-restamp contracts, reset attempts or silently lose reminders.
-
-tell the owner, per item, what was cancelled, that it performed no external
-effect, and that nothing replaces it; a new approval or reminder needs a fresh
-owner request. for example: "The reminder set for 2026-09-30 was cancelled for
-the upgrade and will not fire. Nothing replaces it; ask again to set a new
-one."
-
-unknown dispatch may have taken effect. it is never retried: inspect current
-state with list or info, then decide any new action deliberately; this action
-will not be repeated automatically.
-
-`input` counts unprocessed owner and host rows: `waking` rows await a turn,
-`parked` rows stay parked until an operator releases them. `decisions` counts
-paid model decisions with no terminal (`open`) and completed decisions whose
-first input never settled (`completed_unsettled`). `reads` counts read
-positions not `completed`. these need not reach zero: let the old release
-finish the turn, or the owner's `stop` settles it with a stopped conclusion.
-what remains keeps its fail-closed recovery and is never replayed under the
-new plan; a main run whose stored observations include an old-shape
-`agent.list` success fails closed, so finish or cancel such runs first.
-attributing a remaining row to a turn is manual owner-guided inspection of
-`message.created_at`, `processing_attempts` and `processing_parked_at`,
-`model_decision.scope_key`, `ordinal` and `completed_at`, and
-`read_position.state` and `updated_at`; never print text, request, terminal,
-result, contract or trace columns.
-
-step 2. close phone and interactive fleet callers. the owner sends `pause`. verify
-the durable pause, then stop jarvis cooperatively and confirm how it stopped:
-
-```sh
-sudo cat /var/lib/jarvis/runtime/paused.json
-sudo systemctl stop jarvis.service
-sudo systemctl show --property=ActiveState,Result,MainPID jarvis.service
-```
-
-`paused` must be true, and the service must show `ActiveState=inactive`,
-`Result=success` and `MainPID=0`. the stop sends SIGINT, and the host joins its
-worker before exiting, so a clean stop is the evidence that no turn is still
-running. step 6 checks every unfinished action again in this stopped state with
-the target release's `check-activation`, which for this cutover passes only at
-zero. attribute any remaining `open` decision with the manual
-owner-guided inspection from step 1. a killed, crashed or timed-out stop
-(`failed`, or another `Result`) ends the procedure: inspect it, and do not
-replace the unit, cli or release. only after that inspection may
-`sudo systemctl reset-failed jarvis.service` clear it; `deploy/activate-release`
-refuses until then. run no dream, rebuild or other operator process until step 8.
-
-step 3. if not already done, run the [admission journal cutover](#admission-journal-cutover);
-the target requires it. its `systemctl stop` is now a no-op.
-
-step 4. from a clean checkout of the full target commit, install the inactive
-release. it no longer writes the global unit:
-
-```sh
-deploy/install-release
-```
-
-step 5. from the same pinned dev-server checkout, apply devbox
-(`./devbox apply`), then arch and macbook (`./workstation apply` on each).
-verify each host before moving to the next. devbox apply replaces
-`/usr/local/libexec/skidbladnir`, so jarvis MUST already be stopped. then check
-fleet and cli identity. from the macbook's skid checkout,
-`SKIDBLADNIR_DEV_SERVER_CHECKOUT=<that dev-server checkout> scripts/fleet verify`
-must pass for macbook, devbox and arch. every peer must run the pinned skid
-release that carries truthful stop partials (skid pr 4); an earlier peer
-reports a rejected close as `not_attempted`, which this release's stop copy
-reads as "no close was sent". on devbox,
-`sudo /usr/local/libexec/skidbladnir version` must print the pinned tag and
-source commit, `sudo stat -c '%a %U' /etc/jarvis/agent-client.json` must print
-`600 jarvis`, and the file keeps its three peers.
-
-step 6. just before activating, record the database clock for the rollback
-check. it prints one timestamp:
-
-```sh
-sudo systemd-run --quiet --wait --pipe --collect \
-  --unit=jarvis-activation-clock \
-  --property=Type=oneshot \
-  --property=User=jarvis \
-  --property=Group=jarvis \
-  --property=WorkingDirectory=/opt/jarvis/current \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  /opt/jarvis/current/.venv/bin/python - <<'PY'
-import os
-
-from sqlalchemy import create_engine, text
-
-from jarvis.db import normalize_database_url
-from jarvis.process_security import deny_same_identity_process_inspection
-
-deny_same_identity_process_inspection()
-engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
-try:
-    with engine.connect() as connection:
-        print(connection.scalar(text("select now()")).isoformat())
-finally:
-    engine.dispose()
-PY
-```
-
-then activate the target. activation runs the target release's `jarvis
-check-activation` in the stopped state under the deployment lock, before
-migration, prints its per-action verdicts and summary, releases the lock, and
-refuses with `activation check did not pass; leave service stopped` unless every
-row is compatible. the plan rotation makes every pending row incompatible, so
-for this cutover it passes only at zero. like `serve`, the check reads the live
-codex catalog, so the codex app-server must be running:
-
-```sh
-deploy/activate-release FULL_TARGET_COMMIT
-```
-
-the service starts paused. startup recovery runs before ingress, so a paused
-start is not a read-only audit. an active service is not live qualification;
-the owner sends `resume` only after `deploy/verify-containment` passes.
-
-step 7. run `deploy/verify-containment`.
-
-step 8. the owner sends `resume`. the live codex and claude journey belongs to
-isolated qualification before skid publication
-([pr 4 qualification](qualification/2026-09-23-herdr-pr4.md)); nothing in this
-procedure qualifies it, and production's first turn is observed, not qualified.
-
-### rollback
-
-rollback is the same command with the previous commit, only to a release that
-carries `check-activation`; older releases are refused, not skipped. this
-cutover's predecessor (production `f4e2ce6129c0add09ddb50355a8997a1c589d3d1`)
-predates the check, so rollback to it is unavailable through
-`activate-release`: jarvis stays stopped and repair goes forward. a later rollback target runs after the
-owner pauses and the service stops cleanly as in step 2; a failed stop needs the
-same inspection and explicit `reset-failed`. it installs that release's own
-unit. the previous skid cli returns only through the previous dev-server apply,
-also with jarvis stopped. before this release has written durable work, a
-qualified same-schema previous release may return with its matching cli and
-unit. count that work, including updates to rows that predate activation;
-replace `ACTIVATED_AT` with the timestamp step 6 printed:
-
-```sh
-sudo systemd-run --quiet --wait --pipe --collect \
-  --unit=jarvis-rollback-inventory \
-  --property=Type=oneshot \
-  --property=User=jarvis \
-  --property=Group=jarvis \
-  --property=WorkingDirectory=/opt/jarvis/current \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  /opt/jarvis/current/.venv/bin/python - ACTIVATED_AT <<'PY'
-import os
-import sys
-from datetime import datetime
-
-from sqlalchemy import create_engine, text
-
-from jarvis.db import normalize_database_url
-from jarvis.process_security import deny_same_identity_process_inspection
-
-CHANGED = (
-    (
-        "action",
-        "created_at >= :since or decided_at >= :since or completed_at >= :since",
-    ),
-    ("model_decision", "created_at >= :since or completed_at >= :since"),
-    ("read_position", "created_at >= :since or updated_at >= :since"),
-    ("message", "processed_at >= :since"),
-)
-
-deny_same_identity_process_inspection()
-since = datetime.fromisoformat(sys.argv[1])
-engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
-try:
-    with engine.connect() as connection:
-        for table, changed in CHANGED:
-            count = connection.scalar(
-                text(f"select count(*) from {table} where {changed}"),
-                {"since": since},
-            )
-            print(f"{table}={count}")
-finally:
-    engine.dispose()
-PY
-```
-
-any nonzero count is new durable work. then activate only a release qualified to
-read its `agent_control_v2` receipts, positions and decisions; otherwise keep
-jarvis stopped and repair forward. the rollback target must also be qualified
-against the current admission journal
-([adr 0047](decisions/0047-require-current-admission-journals.md)), or jarvis
-stays stopped. never rewind the database, delete or rewrite rows, or reset
-budgets.
-
-### what activation does not prove
-
-- activation proves one selected release, unit and `current` agree and the
-  service stayed running for ten seconds without restart. it is not a model
-  turn, fleet control or containment.
-- `activation check: compatible=N incompatible=0 in_flight=0` covers actions
-  only, and only when it ran. unsettled input, decisions and reads stay
-  fail-closed and are not inspected by the gate. a codex catalog or environment
-  change before `serve` starts can still let startup recovery cancel a row the
-  check called compatible.
-- a passing `scripts/fleet verify` shows versions and reachability, not that
-  jarvis can control a worker; the live journey is still `NOT_RUN`.
+historical; superseded by [the skid-only cutover](#skid-only-worker-cutover).
+adr 0048 and its recorded qualification retain the historical decision.
 
 ## herdr gate cutover (pr 5)
 
-this switch activates the herdr gate catalog of
-[adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md): jarvis stops
-calling the skid cli and drives each host's herdr through its ssh forced-command
-gate. the catalog, gate descriptor and both role revisions change, so the plan
-rotates and every nonterminal action is incompatible, not only agent actions,
-and so is every unfinished turn. dev-server's pr 5 step 1 runs inside the stopped
-window, because its first devbox apply drains the shared codex servers. it is
-forward only: once step 5 rewrites the environment the old release no longer
-starts, and the new one cannot use the skid cli. a failed step leaves jarvis on
-the old release or stopped for forward repair; nothing retries.
+historical; superseded by [the skid-only cutover](#skid-only-worker-cutover).
+adr 0049 retains historical evidence; its ssh gate must not be installed again.
 
-step 1. while the old release runs, take the read-only inventory of the
-[pr 4 step 1](#herdr-cutover-pr-4) one-shot unchanged, and finish, reconcile or
-obtain the owner's explicit denial or cancellation of every counted action under
-the same rules and owner notices. actions must reach zero. never change rows by
-sql.
+## skid-only worker cutover
 
-step 2. the owner sends `pause`, which also settles any turn in flight with a
-stopped conclusion. verify the durable pause, stop jarvis cooperatively and
-confirm a clean stop exactly as in [pr 4 step 2](#herdr-cutover-pr-4): `paused`
-true, then `ActiveState=inactive`, `Result=success`, `MainPID=0`. any other stop
-ends the procedure for inspection; only then may an explicit `reset-failed` clear
-it. run no dream, rebuild or other operator process until step 8.
+[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) changes the entire
+main catalog/plan. stage source and private inputs before activation. no private
+cognition server is authorized; repair of the missing existing shared app server
+is a separate follow-up. jarvis may remain down while worker source and herdr
+retirement proceed. activation, normal cognition and actual service probes remain
+`NOT_RUN` until their boundaries can be exercised.
 
-step 3. count stale turns in the stopped state, the same rule the target's
-`check-activation` enforces in step 6. a clean pause leaves none; a turn cut off
-by a crash can. it prints one number:
+1. use the existing owner pause control. old code must settle or explicitly
+   reconcile every nonterminal action, finish or park unfinished turns, materialize
+   required action resolutions, and drain their processing and delivery. discard
+   permission applies only to herdr workers, never unrelated actions or approvals.
+2. cooperatively stop jarvis. require systemd ActiveState=inactive, Result=success,
+   MainPID=0 and the prepared runtime paused.json with paused=true. a failed or
+   killed stop needs operator inspection; activation never stops the service.
+3. stage the admitted devbox skid artifact through dev-server; its root cli and
+   gateway share artifact/pin. changing either cli bytes or client configuration
+   requires the pause and clean stop before switching; identical apply is inert.
+4. supply the existing human-provisioned, three-peer private file explicitly:
 
-```sh
-sudo systemd-run --quiet --wait --pipe --collect \
-  --unit=jarvis-cutover-turns \
-  --property=Type=oneshot \
-  --property=User=jarvis \
-  --property=Group=jarvis \
-  --property=WorkingDirectory=/opt/jarvis/current \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-  /opt/jarvis/current/.venv/bin/python - <<'PY'
-import os
+   ```sh
+   JARVIS_SOURCE_AGENT_CLIENT_CONFIG=/absolute/private/client.json deploy/install-agent-client
+   ```
 
-from sqlalchemy import create_engine, text
+   the worker installer copies a mode-0600 candidate under /etc/jarvis and validates it
+   through the installed skid cli under the service's relevant restrictions.
+   partial inventory proves config admission only. invalid config leaves the
+   installed file unchanged. changing bytes atomically replaces the client only
+   after the prepared pause/clean-stop checks; no bearer minting or peer table.
+   `deploy/install-private-state` composes this step when all application and
+   connector private state also needs installation. `deploy/verify-agent-client`
+   qualifies all three peers as the service identity while jarvis is stopped;
+   it does not require cognition to be running.
+5. `deploy/activate-release COMMIT` runs read-only check-activation under the
+   deployment lock. incompatible/in-flight actions, stale turns, unmaterialized
+   action resolutions, pending resolution processing or delivery refuse activation.
+   finalized old worker rows remain raw opaque archives; no codec or replay exists.
+6. before an explicitly requested resume, run `deploy/verify-containment`. it
+   checks regular-file owners/modes, ProtectHome and each production gateway via
+   read-only skid list as jarvis under the restrictions governing file access and
+   tls. an unavailable host fails; absent cognition remains a separate prerequisite
+   for starting jarvis. no service/fleet pass follows from source or an artifact pin.
 
-from jarvis.db import normalize_database_url
-from jarvis.process_security import deny_same_identity_process_inspection
-
-deny_same_identity_process_inspection()
-engine = create_engine(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
-try:
-    with engine.connect() as connection:
-        print(
-            "stale_turns",
-            connection.scalar(
-                text(
-                    "select count(distinct d.first_input_id) from model_decision d "
-                    "join message m on m.id = d.first_input_id "
-                    "where d.thread_id = :thread and m.processed_at is null "
-                    "and m.processing_parked_at is null"
-                ),
-                {"thread": str(int(os.environ["JARVIS_DISCORD_CHANNEL_ID"]))},
-            ),
-        )
-finally:
-    engine.dispose()
-PY
-```
-
-every recorded decision is the old release's, so every one counted is stale. a
-nonzero count needs the old release once more: `sudo systemctl start
-jarvis.service` (it starts paused), the owner sends `resume` so it finishes the
-turn, then `pause`, and step 2 repeats. parked inputs are excluded; they stay the
-operator's. inputs of any other thread are never claimed and are not counted.
-
-step 4. apply dev-server's pr 5 step 1 from its checkout at the merged commit,
-with jarvis stopped:
-
-```sh
-./devbox apply --restart-codex
-```
-
-it generates `/etc/jarvis-herdr/id_ed25519` and prints `ACTION jarvis.gate` with
-the public key line. write that line, ending with a newline, as dev-server's
-`assets/herdr/jarvis-gate.pub`, commit it to dev-server's main and push (no pr
-needed), then apply again so every owner account authorizes it:
-
-```sh
-printf '%s\n' 'ssh-ed25519 AAAA... jarvis-herdr@devbox' >assets/herdr/jarvis-gate.pub
-git commit assets/herdr/jarvis-gate.pub -m 'commit the jarvis gate key'
-git push origin main
-./devbox apply
-./workstation apply   # on the macbook; on arch once it is reachable
-```
-
-prove the gate as jarvis, for each host that was applied:
-
-```sh
-sudo -u jarvis ssh -F /etc/jarvis-herdr/ssh_config devbox agent list
-sudo -u jarvis ssh -F /etc/jarvis-herdr/ssh_config devbox status --json
-```
-
-`agent list` prints one `agent_list` envelope and `status --json` fails with
-`herdr-gate: command refused`; repeat for `macbook` (and `arch`). a host key, key
-or gate failure is a dev-server repair; do not continue. skid is unchanged.
-
-step 5. from a clean checkout of the full target commit, install the new settings
-and the inactive release:
-
-```sh
-deploy/install-private-state
-deploy/install-release
-```
-
-the environment now carries `JARVIS_HERDR_SSH_CONFIG_PATH` and
-`JARVIS_HERDR_MACHINES` instead of the skid cli paths, so the old release no
-longer starts. dev-server keeps `/usr/local/libexec/skidbladnir` and
-`/etc/jarvis/agent-client.json` until its pr 5 step 4; nothing reads them.
-
-step 6. activate. `deploy/activate-release` runs the target release's `jarvis
-check-activation` in the stopped state under the deployment lock, before
-migration, and refuses with `activation check did not pass; leave service
-stopped` unless every action is compatible and `stale_turns=0`; for this cutover
-that means zero pending actions and zero unfinished turns. the check reads the
-live codex catalog, so the codex app-server must be running:
-
-```sh
-deploy/activate-release FULL_TARGET_COMMIT
-```
-
-a refusal for stale turns after step 5 is repaired by reinstalling the previous
-commit's settings with its `deploy/install-private-state`, then step 3's repair,
-then step 5 again. the service starts paused, and startup recovery runs before
-ingress.
-
-step 7. run `deploy/verify-containment`. besides the existing boundary it checks
-`/etc/jarvis-herdr`'s modes and, as jarvis in a transient unit that copies the
-service's user, group, filesystem protections, `NoNewPrivileges` and
-`RestrictAddressFamilies` (the properties that decide what ssh reads and
-reaches, not the rest of its hardening), that jarvis reaches every listed gate
-for `agent list`, is refused `status --json`, and has no forwarding (`ssh -W` and
-`-R` are refused). while arch is unreachable, run
-it as `JARVIS_GATE_MACHINES='devbox macbook' deploy/verify-containment` and keep
-arch open in [herdr gate activation](issues/herdr-gate-activation.md). a failure
-leaves jarvis paused for forward repair.
-
-step 8. the owner sends `resume`. the first owner-directed agent turn is observed,
-not qualified; the isolated qualification of this codec is recorded in adr 0049.
-
-### what the gate cutover does not prove
-
-- activation proves the selected release, unit and `current` agree and the service
-  stayed up for ten seconds. `activation check` covers actions and stale turns
-  only.
-- `verify-containment` proves reachability and refusal through each gate, not that
-  a codex or claude agent starts, answers or stops on the real hosts; that live
-  journey is `NOT_RUN`.
-- herdr's readiness is trusted as is: codex's sign-in and trust screens read idle
-  and ready, so a send can land on a menu. read before send.
+rollback retains private code/config/artifact inputs while stopped. after herdr
+worker discard, rollback cannot restore their running state. repair compatible
+skid/jarvis state or leave jarvis down; never replay unknown effects or resurrect
+the ssh adapter. credentials, terminal content and provider history stay private.
 
 ## Approval operation
 
@@ -839,33 +454,25 @@ mapping must name the running shared services and exact mode-02750 cognition
 parent. never copy Codex authentication into the checkout or process environment,
 and never start a private app server for jarvis.
 
-peer agent control drives each host's herdr through its ssh forced-command gate
-([adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md)). dev-server owns
-jarvis's side on devbox, `/etc/jarvis-herdr/` (jarvis's key, generated on devbox
-and never copied off; `ssh_config` naming `devbox`, `macbook` and `arch`;
-committed `known_hosts`), and each owner account's gate and
-`restrict,command=` line. provider credentials stay on their hosts; jarvis's
-process never reads them. there is no fleet hub, bearer or credential daemon.
+peer agent control uses `/usr/local/libexec/skidbladnir` (regular root:root 0755)
+and `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by
+`JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_CLIENT_CONFIG_PATH`. all three existing
+peers come from human fleet provisioning. no development-home symlink,
+JARVIS_HERDR setting, jarvis ref codec or provider-home table remains.
 
-the service reads `JARVIS_HERDR_SSH_CONFIG_PATH=/etc/jarvis-herdr/ssh_config` and
-`JARVIS_HERDR_MACHINES=devbox=/home/niels,macbook=/Users/nnandal,arch=/home/nnandal`,
-the label and owner home of each host; the profiles' account homes are relative to
-that home. every call is `/usr/bin/ssh -F <ssh_config> <label> <herdr argv>`.
-an unreachable host makes list partial and fails any call addressed to it
-before it writes.
+use agent.list/info/start/read/send/text/keys/stop/close with explicit target,
+source, mode and scope. conversation info preserves captured target separately
+from native observation and optional observedRef. terminal loss/reassociation
+never renews conversation authority. a name grounds native input only when the
+terminal's observed conversation matches the captured one. native accepted
+means admitted, completion unconfirmed; terminal written means dispatched.
+close may report terminal closed with conversation stop unconfirmed. unknown
+writes enter once and never replay. read scope/truncation and partial inventory
+remain material limitations. old finalized worker rows display only recorded
+status and unavailable receipt details; their raw records remain unchanged.
 
-jarvis uses list/info to resolve owner requests naming a worker. every addressed
-call re-reads its target (`agent get` for an agent ref, one machine scan for a
-terminal ref) and requires the same name and `terminal_id` just before it acts.
-the gate sees machine and agent name (for kill, the current pane and any hosted
-agent's name) and the stop/kill closure-scope disclosure. a changed target prevents mutation; a
-successor is never substituted. unknown writes are never repeated; the owner
-notice says to inspect current state. nine worker tools share the existing
-19-call run allowance with 256 kib control envelopes and a 1 mib inventory; this
-release changes neither admission journals nor kernel budgets.
-
-the herdr gate catalog is activated only through the
-[herdr gate cutover](#herdr-gate-cutover-pr-5) runbook.
+activate only through [the skid-only cutover](#skid-only-worker-cutover). this
+worker change adds no scheduler, history store, provider client or cognition lane.
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

@@ -12,6 +12,13 @@ These instructions govern all work in this repository.
 - adr 0046 governs the owner-approved testing reset. all previous test and
   qualification execution gates are suspended pending the subsequent redesign;
   runtime safeguards and product requirements remain binding.
+- adr 0051 and `docs/universal-memory.md` govern the accepted universal-memory
+  implementation target. when that slice is implemented, its eight tables,
+  source completion, lineage and stopped logical erasure supersede the six-table,
+  `remembered_at`, per-row-fallback and permanent-memory rules below. its
+  temporary integration/live red-green-refactor checks are deleted after recorded
+  acceptance; this scoped exception does not restore old suites or close the
+  general testing redesign.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   worker control through the installed skid CLI and private three-peer client
   config. it supersedes the worker transport, roster, refs and receipt codecs of

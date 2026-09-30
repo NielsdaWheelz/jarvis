@@ -58,6 +58,10 @@ read_position
 When documents disagree, `SPEC.md` wins. Changing a frozen decision requires an
 ADR that also updates every affected normative document in the same change.
 
+the [v2 roadmap and design handoff](docs/v2-roadmap.md) records the approved next
+product direction, owner corrections, proposed slices, and unresolved design
+choices. it does not replace the current v1 specification.
+
 ## Status
 
 the owner-approved [testing reset](docs/decisions/0046-reset-testing.md) removes

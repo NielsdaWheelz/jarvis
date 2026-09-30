@@ -2,6 +2,11 @@
 
 This document expands [SPEC.md](../SPEC.md). `SPEC.md` wins if they disagree.
 
+the accepted [universal-memory target](universal-memory.md) extends this baseline
+with stateless host collectors, a private capture api and pull-only mcp reads
+inside the existing central process. its ownership, schema and capability changes
+are not yet implemented.
+
 ## System shape
 
 ```text

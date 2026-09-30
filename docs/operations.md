@@ -621,6 +621,11 @@ rows as part of that repair.
 
 ## Data durability and logs
 
+the accepted [universal-memory target](universal-memory.md) adds stopped exclusion
+and logical erasure procedures and a cutover-only database snapshot when
+implemented. off-machine backup and native automatic-memory changes remain
+deferred to v2; this section is the v1 baseline.
+
 V1 has no backup, restore command, Restic repository, R2 credential, backup
 database role, or backup timer. There is no `jarvis-restic-password`; do not
 invent or provision one. Loss or unrecoverable corruption of the devbox, its

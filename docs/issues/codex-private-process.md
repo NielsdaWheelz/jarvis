@@ -19,3 +19,10 @@ change cognition in the worker-control pr.
 
 resolved when: jarvis completes normal cognition and full containment through
 that shared process, passes activation checks, and the owner resumes it.
+
+universal-memory dependency: archive codecs read native history without using
+worker-control servers. jarvis cognition persists in the devbox codex-personal
+home, so that capture lane stays unadmitted until internal-session exclusion is
+qualified. this does not authorize replacing the shared cognition process or
+removing the owner's fleet servers. see the
+[native capture issue](universal-memory-capture.md).

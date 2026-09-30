@@ -14,6 +14,13 @@ dated reports remain evidence only for their recorded revisions and environments
 Every result appears in a dated acceptance report. Any owner-approved waiver is
 named explicitly; no criterion disappears or is weakened silently.
 
+[adr 0051](decisions/0051-universal-memory.md) makes a scoped exception for
+[universal-memory acceptance](universal-memory.md#11-acceptance-and-temporary-verification):
+temporary integration/live red-green-refactor checks, then deletion after recorded
+acceptance. when implemented, that contract's acceptance supersedes A1.4's six
+tables, A5.4's two stores, A5.6–A5.8's `remembered_at` rememberer and A7.1's
+six-table wording below.
+
 ## A1. Repository and deployment
 
 - [ ] **A1.1** The existing Hetzner `dev-server` runs Jarvis from an immutable

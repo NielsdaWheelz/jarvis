@@ -6,6 +6,27 @@ Date: **2026-09-02**
 
 Audience: product, engineering, design, operations, and future coding agents
 
+accepted extension (2026-09-28): [adr 0051](docs/decisions/0051-universal-memory.md)
+adopts [universal memory](docs/universal-memory.md) as an implementation target,
+not shipped behavior. when implemented, that contract governs the source archive
+captured from admitted lanes, source completion replacing `message.remembered_at`,
+memory lineage, the private capture api and pull-only mcp reads, and stopped
+exclusion and logical erasure, with temporary feature-specific verification. it
+supersedes, for this slice only: 6.1's four-column memory schema and "no
+forgetting"; 6.2's and 9.1's `remembered_at`; 6.3's two recall stores; 6.4's
+rememberer trigger and sweep; 7.2's disclosure scope (admitted source prose is
+embedded); 7.3's memory tool results (a `source_record` store); 8's single
+host-native service and absent listener (host collectors, one private tailnet
+listener); 9's six tables, conversation-table exclusion, owner-connection-only
+reads and rememberer decision scope; 11's listener rule; and 13's "exactly six
+application tables" and "no v1 redaction". action authority, the tool catalog,
+codex containment and serial cognition remain unchanged. off-machine backup,
+disabling native automatic memory and historical import remain v2 work.
+review corrections (2026-09-29): native activation uses immutable conversation
+boundaries, not event clocks; extraction completes through the kernel with
+flattened lineage; stopped erasure durably invalidates the saved main session
+before database purge. the linked contract specifies these requirements.
+
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
 testing reset (2026-09-17): [adr 0046](docs/decisions/0046-reset-testing.md)

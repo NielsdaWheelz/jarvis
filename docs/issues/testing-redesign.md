@@ -15,3 +15,8 @@ resolved when the subsequent redesign defines and delivers the agreed verificati
 scope, records results against that scope, and replaces the temporary policy in
 spec, acceptance, and repository instructions. begin the design in the next pr;
 this issue does not prescribe a framework, test count, or restoration of old tests.
+
+2026-09-28: [adr 0051](../decisions/0051-universal-memory.md) authorizes temporary
+integration/live red-green-refactor checks for universal memory only, followed by
+deletion after recorded acceptance. that feature exception does not resolve this
+general redesign issue.

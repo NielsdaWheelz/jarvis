@@ -7,15 +7,27 @@ plan; their removed test procedures are not current gates or runnable commands.
 runtime contracts remain binding. the next pr begins the
 [testing redesign](issues/testing-redesign.md).
 
-next accepted upgrade: [herdr gate](decisions/0049-drive-herdr-through-an-ssh-gate.md)
-replaces the skid cli consumer of adrs 0044/0045/0048: jarvis drives herdr on each
-host through its ssh forced-command gate. its isolated proof is recorded in the
-adr; production activation under the herdr gate cutover runbook and the live
-codex/claude journey on the real hosts remain `NOT_RUN`. historical slice
-evidence below does not establish this capability.
+current worker-control upgrade: [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md)
+supersedes the herdr gate and earlier worker contracts with current skid.
+source implementation and worker-client qualification on all three production
+gateways are recorded; cognition and main-service activation remain `NOT_RUN`.
+[shared cognition repair](issues/codex-private-process.md) remains separate.
+historical slice evidence below does not establish current service activation.
 
 Each slice is a small vertical increment. The plan names intended sequence, not a
 workflow system or calendar schedule.
+
+for the next product version, see the [v2 roadmap and design handoff](v2-roadmap.md).
+it records the owner's approved direction and the choices still needing a slice
+contract; the v1 gates below retain their current meaning.
+
+[universal memory](universal-memory.md) is the accepted scoped implementation
+target under [adr 0051](decisions/0051-universal-memory.md). its work packages,
+dependency order, hard cutover and temporary red-green-refactor acceptance govern
+that feature; implementation and live acceptance are not run. its prerequisite,
+[claude transcript retention](issues/claude-transcript-retention.md), lands first
+in dev-server. backup, native-memory disablement and historical import remain v2
+work.
 
 ## Slice 0: audit and qualification
 

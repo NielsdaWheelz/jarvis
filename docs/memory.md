@@ -2,6 +2,10 @@
 
 This document expands [SPEC section 6](../SPEC.md#6-memory).
 
+the accepted [universal-memory extension](universal-memory.md) governs its source
+archive, lineage, per-episode extraction and logical erasure target; the baseline
+below describes the existing v1 implementation, not those unshipped paths.
+
 ## Mental model
 
 ```text

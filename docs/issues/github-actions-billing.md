@@ -17,7 +17,7 @@ the annotation reports the same billing restriction. clean-checkout local
 2026-09-30: [pr 44's verify job](https://github.com/NielsdaWheelz/jarvis/actions/runs/36767535267/job/110065360286)
 also has no logs and reports the same billing/spending restriction. the push run
 failed to start as well. local verification passed every preceding step but
-failed its final [dependency audit](urllib3-security-update.md); no complete
+failed its final dependency audit on `urllib3==2.7.0`; no complete
 verification pass is claimed for this change.
 
 resolved when the account restriction is corrected and the exact-head hosted

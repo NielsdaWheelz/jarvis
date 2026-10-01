@@ -90,8 +90,9 @@ migrate historical envelopes. validation, reservation, settlement and conservati
 orphan recovery are unchanged. the stopped deployment must complete the
 [journal cutover](issues/admission-journal-cutover.md) before activation.
 
-[hosted verification](issues/github-actions-billing.md) is separately blocked by
-the github account billing restriction.
+hosted verification resumed successfully on 2026-10-01 after the earlier billing
+restriction; [the urllib3 upgrade run](https://github.com/NielsdaWheelz/jarvis/actions/runs/36797257323)
+passed the complete static/build/audit workflow.
 
 the database owner reports disconnection during queries and commit as ownership
 loss. memory workers, dispatch, and approval handling preserve that defect;

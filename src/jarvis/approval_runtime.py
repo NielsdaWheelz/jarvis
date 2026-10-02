@@ -78,10 +78,7 @@ class ApprovalAwareDiscordDelivery:
                 persisted_message_id=persisted_message_id,
                 content=content,
             )
-        inactive = stored.status == "cancelled" and stored.result == {
-            "type": "action_cancelled_v1",
-            "reason_code": "incompatible_execution_contract",
-        }
+        inactive = stored.status == "cancelled"
         if inactive:
             presentation = render_inactive_approval(
                 stored.id,
@@ -93,7 +90,7 @@ class ApprovalAwareDiscordDelivery:
             if stored.status != "awaiting_approval":
                 raise RuntimeError("pending approval delivery is not awaiting approval")
             binding = require_current_action_binding(stored, self._plan)
-            value = binding.spec.input_type.model_validate(stored.arguments)
+            value = binding.spec.input_type.model_validate(stored.arguments).arguments
             if isinstance(value, GmailSendDraftInput) and not (
                 await gmail_send_basis_is_current(self._actions, value)
             ):
@@ -171,7 +168,7 @@ class ApprovalActionHandler:
             if stored is None or stored.id != interaction.action_id:
                 return None
             binding = require_current_action_binding(stored, self._plan)
-            value = binding.spec.input_type.model_validate(stored.arguments)
+            value = binding.spec.input_type.model_validate(stored.arguments).arguments
             if isinstance(value, GmailSendDraftInput) and not (
                 await gmail_send_basis_is_current(self._actions, value)
             ):
@@ -213,7 +210,9 @@ class ApprovalActionHandler:
         if cancellation.cancelled:
             return False
         binding = require_current_action_binding(claimed.action, self._plan)
-        value = binding.spec.input_type.model_validate(claimed.action.arguments)
+        value = binding.spec.input_type.model_validate(
+            claimed.action.arguments
+        ).arguments
         if isinstance(value, GmailSendDraftInput) and not (
             await gmail_send_basis_is_current(self._actions, value)
         ):

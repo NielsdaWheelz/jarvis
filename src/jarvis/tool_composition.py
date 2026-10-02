@@ -21,6 +21,7 @@ from llm_tools import (
     web_family,
 )
 
+from jarvis.action_requests import bind_action_requests
 from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
@@ -160,7 +161,9 @@ def _bind_write_policy(
                 policy_inputs=inputs,
             )
         )
-    return ToolFamily(family.namespace, family.declarations, tuple(bindings))
+    return bind_action_requests(
+        ToolFamily(family.namespace, family.declarations, tuple(bindings))
+    )
 
 
 __all__ = ["ToolComposition", "build_tool_composition"]

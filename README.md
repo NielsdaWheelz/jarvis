@@ -12,6 +12,11 @@ and Approve/Deny execution. Slice 7 owns production deployment, recovery
 qualification, and the seven-day owner acceptance period. Backup and restore
 are deliberately deferred beyond v1.
 
+the native main cutover in [adr 0063](docs/decisions/0063-native-agent-supervision.md)
+replaces the bounded main loop and file-backed control. it preserves isolated
+memory roles and existing connectors. see the [integration handoff](docs/native-agent-integration.md)
+for the stopped migration, current qualification and dependency-pin status.
+
 accepted target, not yet shipped: [universal memory](docs/universal-memory.md)
 is the single current implementation contract; [adr 0062](docs/decisions/0062-simplify-memory-policy-and-retrieval.md)
 records its latest simplification. shared keyword/semantic search uses deterministic

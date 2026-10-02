@@ -158,9 +158,12 @@ remains uncertain. current exception names and missing acceptance events do not
 prove absence. introducing new submission evidence requires coordinated
 provider/kernel adr and spec changes, not a consumer exception workaround.
 
-preserve nexus's approved remote-shell lane and jarvis's planned contained
-callbacks; share lifecycle contracts without forcing the same tool bridge.
-nexus adoption can follow o4 and does not depend on jarvis product o5–o9.
+the accepted shared native spec now replaces both application tool bridges with
+the same frozen native declarations and callback execution contract. nexus's
+remote-shell route is deleted at its native cutover. domain connectors and
+authority remain application-owned. nexus adoption does not depend on jarvis
+product o6–o9. [adr 0063](decisions/0063-native-agent-supervision.md) and the
+[integration handoff](native-agent-integration.md) govern jarvis's current cutover.
 its queue, metadata schema, publication and short deadline stay nexus-owned.
 old uncertain admissions retain their existing recovery obligations.
 
@@ -168,21 +171,21 @@ old uncertain admissions retain their existing recovery obligations.
 
 cut main to the new pins with an adr/spec change and session-compatibility rotation.
 initially preserve current event authority. persist each accepted invocation before
-dispatch and its result before the native reply, using `model_decision`,
-`read_position` and `action`. native call ids correlate replies; durable host ids
-own effects. reuse the same reads, writes, approvals and reconciliation.
+dispatch and its result before the native reply, using the three native journal
+tables plus existing `read_position` and `action`. `model_decision` remains only
+for genuine isolated inference. native call ids correlate replies; durable host
+ids own effects. reuse the same reads, writes, approvals and reconciliation.
 
-replace main's eighteen-turn/nineteen-call loop with one native execution window
-of up to six hours, including compatible transport deadlines. finish earlier when
-done. expiry stops new dispatch, interrupts and reconciles admitted effects;
-never put a blunt timeout around a write. return pending approval and release the
-turn; its later ordinary action-resolution event resumes reasoning without
-re-proposing the effect. callback reply/interrupt ordering belongs in this slice.
+replace main's eighteen-turn/nineteen-call loop with native execution until
+completion, a genuine blocker, required input or owner stop. no arbitrary elapsed
+cutoff or cumulative usage quota. operation and transport deadlines remain.
+pending approval returns a durable receipt while independent reasoning continues;
+later action-resolution input resumes the original request without another effect.
+callback reply/interrupt ordering belongs in this slice.
 
 o5 records a truthful interrupted conclusion without inventing a continuation
-registry; o9 adds follow-through. root admission accounts for native turns and
-usage; callbacks are not new provider turns and independent skid workers remain
-outside jarvis accounting. preserve per-tool byte/deadline/effect-attempt bounds.
+registry; o9 adds follow-through. current owner permits replace capacity
+reservations. preserve per-tool byte/deadline/effect-attempt bounds.
 
 exit: several tools in one native turn, live steering/stop, pending approval that
 releases the turn, safe crash/reconnect and distinct timeout versus explicit stop.

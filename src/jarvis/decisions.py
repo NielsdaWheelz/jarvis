@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 
-from llm_agent_kernel import Checkpoint, InputId, ThreadId
+from llm_agent_kernel import InputId
 from llm_agent_kernel.decisions import (
     DecisionScope,
     DurableIsolatedDecisions,
@@ -15,27 +15,27 @@ from llm_agent_kernel.decisions import (
     ModelDecisionCompleted,
     ModelDecisionDefect,
     ModelDecisionJournal,
+    ModelDecisionNotSubmitted,
     ModelDecisionRecord,
     ModelDecisionRequest,
-    ModelDecisionScope,
 )
 from llm_tools import canonical_json_bytes
 from provider_runtime.agent_runtime import (
-    AgentFailure,
-    AgentQuotaExhausted,
+    AgentNotSubmitted,
+    AgentRuntimeDefect,
     AgentTerminal,
-    freeze_json_value,
-    ref_from_json,
-    ref_to_json,
-    thaw_json_value,
+    attempt_from_json,
+    attempt_to_json,
+    submission_from_json,
+    submission_to_json,
+    terminal_from_json,
+    terminal_to_json,
 )
-from provider_runtime.types import Absent, Present, TokenUsage
-from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
-from sqlalchemy import RowMapping, delete, insert, select, update
+from pydantic import BaseModel, ConfigDict, ValidationError
+from sqlalchemy import RowMapping, insert, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.db import message, model_decision
+from jarvis.db import model_decision
 from jarvis.ownership import Database
 
 
@@ -46,180 +46,55 @@ class _Document(BaseModel):
 
 
 class _Request(_Document):
-    schema_version: Literal["jarvis-model-decision.v1"]
-    thread_id: str | None
-    first_input_id: str | None
-    operation_id: str | None
+    schema_version: Literal["jarvis-model-decision.v2"]
+    operation_id: str
     ordinal: int
     definition_fingerprint: str
     plan_revision: str
     input_ids: tuple[str, ...]
-    through_checkpoint: str | None
     as_of: datetime
     model_step_ordinal_before: int
     protocol_repairs: int
     canonical_content: tuple[str, ...]
     submitted_content: tuple[str, ...]
+    provider_attempt: dict[str, str]
 
     @classmethod
     def from_request(cls, request: ModelDecisionRequest) -> _Request:
-        scope = request.scope
         return cls(
-            schema_version="jarvis-model-decision.v1",
-            thread_id=str(scope.thread_id)
-            if isinstance(scope, ModelDecisionScope)
-            else None,
-            first_input_id=str(scope.first_input_id)
-            if isinstance(scope, ModelDecisionScope)
-            else None,
-            operation_id=scope.operation_id
-            if isinstance(scope, IsolatedDecisionScope)
-            else None,
+            schema_version="jarvis-model-decision.v2",
+            operation_id=request.scope.operation_id,
             ordinal=request.ordinal,
             definition_fingerprint=request.definition_fingerprint,
             plan_revision=request.plan_revision,
             input_ids=tuple(map(str, request.input_ids)),
-            through_checkpoint=None
-            if request.through_checkpoint is None
-            else str(request.through_checkpoint),
             as_of=request.as_of,
             model_step_ordinal_before=request.model_step_ordinal_before,
             protocol_repairs=request.protocol_repairs,
             canonical_content=request.canonical_content,
             submitted_content=request.submitted_content,
+            provider_attempt=attempt_to_json(request.provider_attempt),
         )
 
     def to_request(self) -> ModelDecisionRequest:
-        if self.operation_id is not None:
-            if self.thread_id is not None or self.first_input_id is not None:
-                raise ModelDecisionDefect("isolated decision has thread authority")
-            scope: DecisionScope = IsolatedDecisionScope(self.operation_id)
-        else:
-            if self.thread_id is None or self.first_input_id is None:
-                raise ModelDecisionDefect("thread decision has no original scope")
-            scope = ModelDecisionScope(
-                ThreadId(self.thread_id), InputId(self.first_input_id)
-            )
         return ModelDecisionRequest(
-            scope=scope,
+            scope=IsolatedDecisionScope(self.operation_id),
             ordinal=self.ordinal,
             definition_fingerprint=self.definition_fingerprint,
             plan_revision=self.plan_revision,
             input_ids=tuple(map(InputId, self.input_ids)),
-            through_checkpoint=None
-            if self.through_checkpoint is None
-            else Checkpoint(self.through_checkpoint),
+            through_checkpoint=None,
             as_of=self.as_of,
             model_step_ordinal_before=self.model_step_ordinal_before,
             protocol_repairs=self.protocol_repairs,
             canonical_content=self.canonical_content,
             submitted_content=self.submitted_content,
-        )
-
-
-class _Usage(_Document):
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    reasoning_tokens: int | None
-    cache_read_input_tokens: int | None
-    cache_write_input_tokens: int | None
-
-
-class _Terminal(_Document):
-    status: Literal["succeeded", "failed", "cancelled"]
-    failure: (
-        Literal[
-            "quota_exhausted",
-            "backend_failed",
-            "turn_timeout",
-            "output_limit_exceeded",
-            "approval_unanswered",
-            "output_schema_violation",
-        ]
-        | None
-    )
-    final_text: str
-    session_ref: dict[str, JsonValue]
-    structured_output: JsonValue
-    usage: _Usage | None
-    diagnostics: tuple[str, ...]
-
-    @classmethod
-    def from_terminal(cls, terminal: AgentTerminal) -> _Terminal:
-        usage = terminal.usage.value if isinstance(terminal.usage, Present) else None
-        return cls.model_validate(
-            {
-                "status": terminal.status,
-                "failure": "quota_exhausted"
-                if isinstance(terminal.failure, AgentQuotaExhausted)
-                else terminal.failure.cause
-                if isinstance(terminal.failure, AgentFailure)
-                else None,
-                "final_text": terminal.final_text,
-                "session_ref": thaw_json_value(ref_to_json(terminal.session_ref)),
-                "structured_output": thaw_json_value(terminal.structured_output),
-                "usage": None
-                if usage is None
-                else {
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "total_tokens": usage.total_tokens,
-                    "reasoning_tokens": usage.reasoning_tokens.value
-                    if isinstance(usage.reasoning_tokens, Present)
-                    else None,
-                    "cache_read_input_tokens": usage.cache_read_input_tokens.value
-                    if isinstance(usage.cache_read_input_tokens, Present)
-                    else None,
-                    "cache_write_input_tokens": usage.cache_write_input_tokens.value
-                    if isinstance(usage.cache_write_input_tokens, Present)
-                    else None,
-                },
-                "diagnostics": terminal.diagnostics,
-            }
-        )
-
-    def to_terminal(self) -> AgentTerminal:
-        usage = self.usage
-        return AgentTerminal(
-            status=self.status,
-            failure=AgentQuotaExhausted()
-            if self.failure == "quota_exhausted"
-            else AgentFailure(self.failure)
-            if self.failure is not None
-            else None,
-            final_text=self.final_text,
-            session_ref=ref_from_json(self.session_ref),
-            structured_output=freeze_json_value(self.structured_output),
-            usage=Absent()
-            if usage is None
-            else Present(
-                TokenUsage(
-                    usage.input_tokens,
-                    usage.output_tokens,
-                    usage.total_tokens,
-                    Absent()
-                    if usage.reasoning_tokens is None
-                    else Present(usage.reasoning_tokens),
-                    Absent()
-                    if usage.cache_read_input_tokens is None
-                    else Present(usage.cache_read_input_tokens),
-                    Absent()
-                    if usage.cache_write_input_tokens is None
-                    else Present(usage.cache_write_input_tokens),
-                )
-            ),
-            diagnostics=self.diagnostics,
+            provider_attempt=attempt_from_json(self.provider_attempt),
         )
 
 
 def _scope_key(scope: DecisionScope) -> str:
-    value = (
-        {"thread_id": str(scope.thread_id), "first_input_id": str(scope.first_input_id)}
-        if isinstance(scope, ModelDecisionScope)
-        else {"operation_id": scope.operation_id}
-    )
-    return canonical_json_bytes(value).decode()
+    return canonical_json_bytes({"operation_id": scope.operation_id}).decode()
 
 
 def _record(row: RowMapping) -> ModelDecisionRecord:
@@ -233,15 +108,22 @@ def _record(row: RowMapping) -> ModelDecisionRecord:
             or _scope_key(request.scope) != row["scope_key"]
         ):
             raise ModelDecisionDefect("stored paid decision identity disagrees")
+        if row["submission"] is not None:
+            evidence = submission_from_json(row["submission"])
+            if row["terminal"] is not None or not isinstance(
+                evidence, AgentNotSubmitted
+            ):
+                raise ModelDecisionDefect(
+                    "stored non-submission conflicts with native truth"
+                )
+            return ModelDecisionNotSubmitted(request, evidence)
         if row["terminal"] is None:
             return ModelDecisionArmed(request)
         return ModelDecisionCompleted(
             request,
-            _Terminal.model_validate_json(
-                canonical_json_bytes(row["terminal"])
-            ).to_terminal(),
+            terminal_from_json(row["terminal"]),
         )
-    except (ValidationError, TypeError, ValueError) as error:
+    except (AgentRuntimeDefect, ValidationError, TypeError, ValueError) as error:
         raise ModelDecisionDefect("stored paid decision is invalid") from error
 
 
@@ -291,7 +173,7 @@ class PostgresModelDecisionJournal:
         if row is None:
             return None
         record = _record(row)
-        if isinstance(record, ModelDecisionCompleted):
+        if isinstance(record, ModelDecisionCompleted | ModelDecisionNotSubmitted):
             if self._evidence is None:
                 if row["host_evidence"] is not None:
                     raise ModelDecisionDefect(
@@ -303,12 +185,20 @@ class PostgresModelDecisionJournal:
 
     async def arm(self, request: ModelDecisionRequest) -> None:
         document = _Request.from_request(request)
+        host_evidence = (
+            None if self._evidence is None else self._evidence.snapshot_model_evidence()
+        )
+        canonical_json_bytes(host_evidence)
         try:
             async with self._engine.begin() as connection:
                 previous = (
                     (
                         await connection.execute(
-                            select(model_decision.c.ordinal, model_decision.c.terminal)
+                            select(
+                                model_decision.c.ordinal,
+                                model_decision.c.terminal,
+                                model_decision.c.submission,
+                            )
                             .where(
                                 model_decision.c.scope_key == _scope_key(request.scope)
                             )
@@ -322,7 +212,9 @@ class PostgresModelDecisionJournal:
                 )
                 expected_ordinal = 1 if previous is None else previous["ordinal"] + 1
                 if request.ordinal != expected_ordinal or (
-                    previous is not None and previous["terminal"] is None
+                    previous is not None
+                    and previous["terminal"] is None
+                    and previous["submission"] is None
                 ):
                     raise ModelDecisionDefect(
                         "paid decision ordinal is not the next completed continuation"
@@ -331,11 +223,10 @@ class PostgresModelDecisionJournal:
                     insert(model_decision).values(
                         decision_id=request.decision_id,
                         scope_key=_scope_key(request.scope),
-                        thread_id=document.thread_id,
-                        first_input_id=document.first_input_id,
                         ordinal=request.ordinal,
                         request_fingerprint=request.request_fingerprint,
                         request=document.model_dump(mode="json"),
+                        host_evidence=host_evidence,
                     )
                 )
         except IntegrityError as error:
@@ -346,6 +237,7 @@ class PostgresModelDecisionJournal:
     async def complete(
         self, request: ModelDecisionRequest, terminal: AgentTerminal
     ) -> ModelDecisionCompleted:
+        completed = ModelDecisionCompleted(request, terminal)
         async with self._engine.begin() as connection:
             changed = await connection.scalar(
                 update(model_decision)
@@ -353,12 +245,10 @@ class PostgresModelDecisionJournal:
                     model_decision.c.decision_id == request.decision_id,
                     model_decision.c.request_fingerprint == request.request_fingerprint,
                     model_decision.c.terminal.is_(None),
+                    model_decision.c.submission.is_(None),
                 )
                 .values(
-                    terminal=_Terminal.from_terminal(terminal).model_dump(mode="json"),
-                    host_evidence=None
-                    if self._evidence is None
-                    else self._evidence.snapshot_model_evidence(),
+                    terminal=terminal_to_json(terminal),
                     completed_at=datetime.now(UTC),
                 )
                 .returning(model_decision.c.decision_id)
@@ -367,46 +257,25 @@ class PostgresModelDecisionJournal:
                 raise ModelDecisionDefect(
                     "paid decision completion is absent, changed, or already final"
                 )
-        return ModelDecisionCompleted(request, terminal)
+        return completed
 
-    async def release_undispatched(self, request: ModelDecisionRequest) -> None:
+    async def not_submitted(
+        self, request: ModelDecisionRequest, evidence: AgentNotSubmitted
+    ) -> None:
+        ModelDecisionNotSubmitted(request, evidence)
         async with self._engine.begin() as connection:
-            removed = await connection.scalar(
-                delete(model_decision)
+            changed = await connection.scalar(
+                update(model_decision)
                 .where(
                     model_decision.c.decision_id == request.decision_id,
                     model_decision.c.request_fingerprint == request.request_fingerprint,
                     model_decision.c.terminal.is_(None),
+                    model_decision.c.submission.is_(None),
                 )
+                .values(submission=submission_to_json(evidence))
                 .returning(model_decision.c.decision_id)
             )
-            if removed is None:
+            if changed is None:
                 raise ModelDecisionDefect(
-                    "undispatched paid decision is absent, changed, or final"
+                    "non-submission proof is absent, changed, or final"
                 )
-
-
-async def pending_thread_decision(
-    connection: AsyncConnection, thread_id: str
-) -> ModelDecisionRequest | None:
-    latest = (
-        select(model_decision)
-        .where(model_decision.c.thread_id == thread_id)
-        .distinct(model_decision.c.scope_key)
-        .order_by(model_decision.c.scope_key, model_decision.c.ordinal.desc())
-        .subquery()
-    )
-    row = (
-        (
-            await connection.execute(
-                select(latest)
-                .join(message, message.c.id == latest.c.first_input_id)
-                .where(message.c.processed_at.is_(None))
-                .order_by(message.c.created_at, message.c.id)
-                .limit(1)
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    return None if row is None else _record(row).request

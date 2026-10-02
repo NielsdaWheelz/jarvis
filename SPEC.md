@@ -6,6 +6,19 @@ Date: **2026-09-02**
 
 Audience: product, engineering, design, operations, and future coding agents
 
+accepted native-agent cutover (2026-10-02):
+[adr 0063](docs/decisions/0063-native-agent-supervision.md) adopts the shared
+kernel native contract and its n4 application requirements. it supersedes the
+affected baseline rules below: main uses native host-tool callbacks and public
+progress, explicit per-input dispositions and three native journal tables;
+stop/pause is canonical message control and cancels unentered approvals;
+healthy sessions may be reused in-process, but owner/connection loss fences old
+callbacks and cold-restarts reasoning. existing action/read uncertainty remains
+a reconciliation barrier. cumulative native quotas and rolling paid-capacity
+reservations are removed; operation limits, current owner authority, containment,
+isolated cognitive roles and memory behavior remain. no memory or delegation
+upgrade is included. all new behavior requires its target integration proof.
+
 accepted universal-memory target (2026-10-01): the consolidated
 [implementation contract](docs/universal-memory.md) defines the current target,
 **not shipped behavior**. [adr 0062](docs/decisions/0062-simplify-memory-policy-and-retrieval.md)

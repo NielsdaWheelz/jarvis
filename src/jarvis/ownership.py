@@ -32,6 +32,13 @@ class Database(Protocol):
     def connect(self) -> AbstractAsyncContextManager[AsyncConnection]: ...
 
 
+async def lock_conversation(connection: AsyncConnection, conversation_id: str) -> None:
+    await connection.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
+        {"scope": "jarvis-native:" + conversation_id},
+    )
+
+
 class _OwnedDatabase:
     def __init__(self, connection: AsyncConnection) -> None:
         self._connection = connection

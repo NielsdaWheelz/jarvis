@@ -9,6 +9,7 @@ from urllib.parse import unquote, unquote_plus
 from llm_agent_kernel import (
     CancellationToken,
     DispatchCompleted,
+    NativeDispatchLineage,
     ToolDispatchDefect,
     ToolDispatchLineage,
     ToolDispatchPort,
@@ -53,6 +54,15 @@ class ReadDispatchPort(ToolDispatchPort, Protocol):
 
 
 class ReadRecorder(PositionRecorder, Protocol):
+    async def recover_native_read(
+        self,
+        *,
+        lineage: NativeDispatchLineage,
+        binding: ToolBinding[Any, Any, Any],
+        plan: FrozenToolPlan,
+        arguments: dict[str, Any],
+    ) -> DispatchCompleted | None: ...
+
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
     ) -> None: ...
@@ -110,6 +120,12 @@ class ReadToolDispatcher:
             return DispatchCompleted(dict(_INVALID_INPUT))
         position = lineage.position
         try:
+            if isinstance(lineage, NativeDispatchLineage):
+                recorded = await self._recorder.recover_native_read(
+                    lineage=lineage, binding=binding, plan=plan, arguments=value
+                )
+                if recorded is not None:
+                    return recorded
             await self.recover_budget(lineage=lineage, budgets=budgets)
             result = await ToolExecutor.execute(
                 binding,

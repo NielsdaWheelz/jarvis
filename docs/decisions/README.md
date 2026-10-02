@@ -70,6 +70,7 @@ contracts remain binding; dated evidence remains historical.
 | [0060](0060-remove-memory-forgetting.md) | remove forgetting from the one-user prototype | accepted implementation target; no conversation exclusion/erasure, policy, tombstones or dedicated checks; append-only sources/notes, repair and derived rebuild remain |
 | [0061](0061-simplify-memory-recovery-and-capture.md) | disposable memory computation and atomic event capture | accepted implementation target; replaces background replay and partial-event transfer; main/effect recovery unchanged; implementation/live acceptance `NOT_RUN` |
 | [0062](0062-simplify-memory-policy-and-retrieval.md) | global memory policy, automatic activation, rank fusion and agent discretion | accepted implementation target; learned reranking deferred, no mandatory agent procedure or mcp status; implementation/live acceptance `NOT_RUN` |
+| [0063](0063-native-agent-supervision.md) | native main, canonical requests and durable callback evidence | accepted; replaces main step loop, capacity reservations and file pause state; native qualification recorded in the [integration handoff](../native-agent-integration.md) |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

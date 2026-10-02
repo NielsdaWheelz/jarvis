@@ -453,6 +453,7 @@ class PostgresNativeJournal:
                 raise NativeDefect("callback result reference has no recorded result")
             dispatch = DispatchCompleted(
                 cast(ToolResult, result),
+                value["wire_text"],
                 HostRef(value["host_ref"])
                 if value.get("host_ref") is not None
                 else None,
@@ -464,6 +465,7 @@ class PostgresNativeJournal:
         elif value.get("kind") == "host":
             dispatch = DispatchCompleted(
                 value["rejection"],
+                value["wire_text"],
                 HostRef(value["host_ref"]) if value["host_ref"] else None,
             )
         else:

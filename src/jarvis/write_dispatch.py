@@ -72,6 +72,7 @@ from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
 from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_dispatch import ReadDispatchPort, contains_secret
 from jarvis.schedule_tools import ScheduleCreateRequest, ScheduleWakeInput
+from jarvis.tool_results import completed_tool_result
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     GoogleWriteConnector,
@@ -239,7 +240,7 @@ class WriteToolDispatcher:
                 and selected.result is not None
                 and "creation_receipt" in selected.result
             ):
-                return DispatchCompleted(
+                return completed_tool_result(
                     cast(ToolResult, selected.result["creation_receipt"]),
                     HostRef(str(selected.id)),
                 )
@@ -252,7 +253,7 @@ class WriteToolDispatcher:
                 selected.status in {"succeeded", "failed"}
                 and selected.result is not None
             ):
-                return DispatchCompleted(selected.result, HostRef(str(selected.id)))
+                return completed_tool_result(selected.result, HostRef(str(selected.id)))
             if selected.status == "uncertain":
                 return DispatchSuspended(HostRef(str(selected.id)), WaitingFor.system)
             return _host_rejected("action_was_cancelled", HostRef(str(selected.id)))
@@ -293,18 +294,18 @@ class WriteToolDispatcher:
         if not gate.allowed:
             return _write_check_failure(tool_id, "policy_denied")
         if contains_secret(arguments, self._host_secrets):
-            return DispatchCompleted(dict(_INVALID_INPUT))
+            return completed_tool_result(dict(_INVALID_INPUT))
         if isinstance(
             payload, GmailSendDraftInput
         ) and not await gmail_send_basis_is_current(self._actions, payload):
-            return DispatchCompleted(dict(_UNAVAILABLE))
+            return completed_tool_result(dict(_UNAVAILABLE))
         live_event = None
         if isinstance(payload, CalendarUpdateEventInput | CalendarDeleteEventInput):
             observed = await self._google_write.calendar_current_snapshot(
                 payload.expected.calendar_id, payload.expected.event_id
             )
             if observed.outcome != "found":
-                return DispatchCompleted(dict(_UNAVAILABLE))
+                return completed_tool_result(dict(_UNAVAILABLE))
             live_event = observed.value
         authority = classify_write(
             tool_id,
@@ -313,7 +314,7 @@ class WriteToolDispatcher:
             live_calendar_event=live_event,
         )
         if authority == "rejected":
-            return DispatchCompleted(dict(_UNAVAILABLE))
+            return completed_tool_result(dict(_UNAVAILABLE))
         if cancellation.cancelled:
             raise asyncio.CancelledError
         action_id = uuid4()
@@ -343,7 +344,7 @@ class WriteToolDispatcher:
             try:
                 presentation = render_approval(action_id, tool_id, payload)
             except ApprovalRenderError:
-                return DispatchCompleted(dict(_UNAVAILABLE))
+                return completed_tool_result(dict(_UNAVAILABLE))
             await self._actions.insert_awaiting_approval(
                 tool_name=tool_id,
                 arguments=arguments,
@@ -415,7 +416,7 @@ class WriteToolDispatcher:
                             reports=((action_id, action_resolution_text(stored)),),
                             source_conversation_id=self._source_conversation_id,
                         )
-                return DispatchCompleted(result, HostRef(str(action_id)))
+                return completed_tool_result(result, HostRef(str(action_id)))
 
         task = asyncio.create_task(execute(), name=f"jarvis-action:{action_id}")
         self._effects.add(task)
@@ -440,7 +441,7 @@ class WriteToolDispatcher:
 
 def _host_rejected(code: str, reference: HostRef | None = None) -> DispatchCompleted:
     # Host authority failures are not executor observations and occupy no position.
-    return DispatchCompleted(
+    return completed_tool_result(
         {"type": "Failure", "error": {"type": "HostRejected", "code": code}}, reference
     )
 
@@ -870,8 +871,8 @@ def _write_check_failure(
     code: Literal["policy_denied", "write_check_unavailable"],
 ) -> DispatchCompleted:
     if tool_id not in AGENT_WRITE_IDS:
-        return DispatchCompleted(dict(_UNAVAILABLE))
-    return DispatchCompleted(
+        return completed_tool_result(dict(_UNAVAILABLE))
+    return completed_tool_result(
         {
             "type": "Failure",
             "error": AgentError(code=code, dispatch="not_sent").model_dump(mode="json"),

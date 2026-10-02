@@ -41,6 +41,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
+from jarvis.tool_results import completed_tool_result
 
 
 class PostgresReadRecorder:
@@ -162,7 +163,7 @@ class PostgresReadRecorder:
                 if row is None or row["state"] == "prepared":
                     continue
                 if invocation["frozen_contract"] != contract:
-                    return DispatchCompleted(
+                    return completed_tool_result(
                         {
                             "type": "Failure",
                             "error": {
@@ -173,9 +174,9 @@ class PostgresReadRecorder:
                         HostRef(position),
                     )
                 if row["state"] == "completed":
-                    return DispatchCompleted(row["result"], HostRef(position))
+                    return completed_tool_result(row["result"], HostRef(position))
                 if binding.replay_policy is ReplayPolicy.BilledOnce:
-                    return DispatchCompleted(
+                    return completed_tool_result(
                         {
                             "type": "Failure",
                             "error": {

@@ -5,16 +5,18 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
     AgentRole,
     CancellationToken,
     Checkpoint,
+    DispatchCompleted,
     InputId,
     NativeDefinition,
     NativeDispatchLineage,
     NativeInvocationProposal,
+    NativeReply,
     NativeRequest,
     ProviderConfiguration,
 )
@@ -53,7 +55,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 
 from jarvis.admission import JarvisOwner
-from jarvis.db import create_engine, read_position
+from jarvis.db import create_engine, native_invocation, read_position
 from jarvis.messages import MessageStore
 from jarvis.native_journal import PostgresNativeJournal
 from jarvis.ownership import DeploymentOwnershipDefect, deployment_ownership
@@ -208,6 +210,28 @@ async def main():
                 lineage=first_lineage,
             )
             assert calls == 1
+            model_text = "authoritative cited projection [7]"
+            receipt = NativeReply(
+                model_text, True, DispatchCompleted(original.result, model_text)
+            )
+            await journal.record_reply(first_lineage.invocation_id, receipt)
+            async with database.connect() as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            select(native_invocation).where(
+                                native_invocation.c.id
+                                == UUID(first_lineage.invocation_id)
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                reopened = await journal._reply(connection, row)
+                assert reopened == receipt
+                assert isinstance(reopened.result, DispatchCompleted)
+                assert reopened.result.model_text == model_text
             await journal.fence(request.attempt_id, "lost connection")
             appended = await store.insert_waking(
                 role="owner",

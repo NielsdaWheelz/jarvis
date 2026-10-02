@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib
 import json
 import os
 import shlex
 import tempfile
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +20,6 @@ from uuid import UUID, uuid4
 
 import httpx
 from llm_agent_kernel import CancellationToken, CodexProvider
-from llm_tools import CapabilityProfile, Native, ProfileId, ToolGrant, ToolId, ToolPlan
 from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -108,10 +107,17 @@ async def main():
         runtime, cwd_parent=Path(os.environ["JARVIS_PROOF_CWD_PARENT"])
     )
     kernel = KernelRuntime(runtime, provider)
+
+    def unused_private_http(request):
+        raise AssertionError("this public fixture cannot call private connector HTTP")
+
     try:
         async with (
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
+            httpx.AsyncClient(
+                transport=httpx.MockTransport(unused_private_http), trust_env=False
+            ) as private_http,
         ):
             actions = ActionStore(database)
             store = MessageStore(database)
@@ -123,26 +129,14 @@ async def main():
                 actions=actions,
                 memory_repository=memories,
                 embedder=OpenAIEmbedder(
-                    settings.embedding_openai_api_key, http_client=http
+                    settings.embedding_openai_api_key, http_client=private_http
                 ),
-                google_oauth_http=http,
-                google_api_http=http,
-                maps_http=http,
+                google_oauth_http=private_http,
+                google_api_http=private_http,
+                maps_http=private_http,
                 brave_http=http,
             )
-            full_plan = definitions.plans["main"]
-            profile = CapabilityProfile(
-                ProfileId("slice6_main"),
-                tuple(
-                    ToolGrant(ToolId(tool), full_plan.grant(ToolId(tool)).limits)
-                    for tool in ("web.search", "web.read")
-                ),
-                full_plan.profile.run_limits,
-            ).freeze(composition.catalog)
-            plan = ToolPlan(profile.id, Native()).freeze(composition.catalog, profile)
-            definitions = replace(
-                definitions, plans={**definitions.plans, "main": plan}
-            )
+            plan = definitions.plans["main"]
 
             def journal_factory(evidence):
                 return PostgresModelDecisionJournal(database, evidence=evidence)
@@ -500,7 +494,16 @@ async def main():
                 else "actual_jarvis_native_controls"
                 if controls
                 else "actual_jarvis_main_public_research",
-                "source_overlay": True,
+                "dependency_sources": {
+                    name: importlib.import_module(name).__file__
+                    for name in ("llm_agent_kernel", "llm_tools", "provider_runtime")
+                },
+                "source_overlay": any(
+                    "site-packages" not in str(importlib.import_module(name).__file__)
+                    for name in ("llm_agent_kernel", "llm_tools", "provider_runtime")
+                ),
+                "declared_tools": [str(grant.id) for grant in plan.profile.grants],
+                "plan_revision": plan.plan_revision,
                 "selected_model": definitions.main.provider.model_key,
                 "selected_reasoning": definitions.main.provider.reasoning,
                 "controlled_boundaries": [

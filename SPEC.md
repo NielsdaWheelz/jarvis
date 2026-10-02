@@ -6,26 +6,76 @@ Date: **2026-09-02**
 
 Audience: product, engineering, design, operations, and future coding agents
 
-accepted extension (2026-09-28): [adr 0051](docs/decisions/0051-universal-memory.md)
-adopts [universal memory](docs/universal-memory.md) as an implementation target,
-not shipped behavior. when implemented, that contract governs the source archive
-captured from admitted lanes, source completion replacing `message.remembered_at`,
-memory lineage, the private capture api and pull-only mcp reads, and stopped
-exclusion and logical erasure, with temporary feature-specific verification. it
-supersedes, for this slice only: 6.1's four-column memory schema and "no
-forgetting"; 6.2's and 9.1's `remembered_at`; 6.3's two recall stores; 6.4's
-rememberer trigger and sweep; 7.2's disclosure scope (admitted source prose is
-embedded); 7.3's memory tool results (a `source_record` store); 8's single
-host-native service and absent listener (host collectors, one private tailnet
-listener); 9's six tables, conversation-table exclusion, owner-connection-only
-reads and rememberer decision scope; 11's listener rule; and 13's "exactly six
-application tables" and "no v1 redaction". action authority, the tool catalog,
-codex containment and serial cognition remain unchanged. off-machine backup,
-disabling native automatic memory and historical import remain v2 work.
-review corrections (2026-09-29): native activation uses immutable conversation
-boundaries, not event clocks; extraction completes through the kernel with
-flattened lineage; stopped erasure durably invalidates the saved main session
-before database purge. the linked contract specifies these requirements.
+accepted universal-memory target (2026-10-01): the consolidated
+[implementation contract](docs/universal-memory.md) defines the current target,
+**not shipped behavior**. [adr 0062](docs/decisions/0062-simplify-memory-policy-and-retrieval.md)
+records its latest simplification; adrs 0051 and 0053–0061 retain earlier rationale.
+implement this contract directly rather than reconstructing an override chain.
+the [single roadmap and implementation plan](docs/implementation-plan.md) owns
+delivery order and cross-system dependencies; broader v2 direction there does not
+silently supersede this specification. where affected, the memory contract
+supersedes baseline sections 4–9, 11 and 13 as follows:
+
+- one undivided corpus; independently declared lane admission and connection.
+  three added tables (`memory_lane`, `source_conversation`, `source_record`),
+  nine total, with internal conversation identities and direct note provenance.
+  one stateless collector per host, native histories as the local recovery source,
+  one private listener inside jarvis and a bounded read-only database pool.
+- automatic online activation after complete per-conversation baselining; immutable
+  boundaries and complete-event uploads with atomic archive/checkpoint commits.
+  native codecs validate consumed fields and ignore unrelated additive metadata;
+  identities/digests exclude that ignored metadata too. unexpected rewrites or
+  oversized events park capture for repair. no multipart upload or automatic historical reread.
+- source-only, tool-free rememberer; native conversations batch by size/age into
+  independent nonoverlapping episodes. atomic notes/bookmark replaces
+  `message.remembered_at`, immediate extraction and per-row fallback.
+- daily dreaming begins with bounded pending-note batches; summary mutations and
+  clearing `memory_log.dream_pending` commit together, including empty success.
+  rememberer and dreamer use transient kernel decisions; dreamer reads use
+  run-local receipts. interrupted background computation may repeat and be charged
+  again under normal admission. no frozen background scopes or paid-call recovery
+  barrier. main/gate durable decisions, external effects and global capacity
+  accounting are unchanged; never erase an unexpired admission charge.
+- shared keyword/semantic candidates, identity deduplication and deterministic
+  reciprocal-rank fusion through bounded search/open. callers choose when to search; remove the recaller,
+  automatic pre-input recall and only its capacity reservations. main's full and
+  scheduled read-only plans can search/open; dreamer reads only notes/summaries.
+  main's paid-read recorder and uncertainty barriers remain. required-stage
+  failures are typed errors, not fallback ranking. no learned reranker or mcp
+  status tool. search permits one external embedding attempt; the same client and
+  inference gate serve queries/indexing/rebuild. one search rate limit covers all
+  actual callers, while stored receipt replay costs no new service execution.
+- agent definitions specify context, tools, goals and quality; agents choose
+  their method. remove mandatory first searches, minimum call counts and scripted
+  research/delegation procedures, including the dreamer completion gate. zero-call
+  seed-only or empty success is valid. host protocol, authority, current-owner
+  grounding, approvals, valid lineage and commit requirements remain binding.
+- policy values and service ownership are global: declare shared constants once,
+  reuse existing primitives and construct one set of settings/clients/pools at
+  composition. no per-profile tuning or capacity allowances. provenance,
+  permissions, progress and invocation receipts remain correctly scoped; each
+  run receives fresh execution state from the common policy. existing durable
+  admission remains the owner of cognitive capacity.
+- external `memory_save_note` and main's internal `memory.save_note(text)` use
+  one canonical append. external saves require admit+connect and optional
+  caller-reported conversation association; main saves require jarvis admission
+  and host-owned identity. neither needs native activation or proven source range.
+  internal save alone is exempt from 5.1/5.4/7.4's gate/action rules: `Write +
+  ReDispatchable`, zero external attempts, existing model-decision position as
+  invocation/effect id, narrow `read_position` recovery. recover committed saves
+  before deadline checks; retry only proven absence with the original identity.
+  no scheduled/background save grant or native cognition mcp access.
+- all sources remain evidence, never authority. memory tool calls/results that
+  could echo stored prose become content-free archive references. no forgetting,
+  conversation exclusion, tombstones or erasure path. revocation stops new
+  admission, not storage, recall or processing of existing material.
+- one local pre-migration snapshot; historical imports/provenance reconstruction,
+  off-machine backup and disabling native automatic memories remain deferred.
+  preserve existing messages/notes/summaries. future work context is read-only
+  dreamer input, not summary evidence; main owns work changes.
+- retain only small capture/retry and memory-completion regression groups after
+  focused verification. this scoped adr 0046 exception restores no old suite and
+  leaves the general testing redesign open.
 
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
@@ -38,6 +88,10 @@ containment, authority, and recovery requirements remain binding. static and
 build checks are the current verification surface; they do not establish
 behavioral or live acceptance. the subsequent pr begins the
 [testing redesign](docs/issues/testing-redesign.md).
+
+retired delivery checklists, qualification reports and the completed cleanup log
+live in git history. deleting those copies changes no runtime requirement or
+acceptance result; current contracts, operations and unresolved issues remain.
 
 Integration baseline (2026-09-09): retain ADR 0040's six-table durability,
 owner-bound transactions, authenticated catalog selection, and CPython floor.
@@ -703,9 +757,8 @@ memory_summary
 ```
 
 Raw memories are permanent under normal v1 operation. V1 provides no redaction,
-forgetting, or destructive consolidation mechanism. Administrative erasure is a
-deferred design that must account for every copy, including messages, actions,
-provider state, backups, Discord, and external systems.
+forgetting, or destructive consolidation mechanism. adr 0060 retains that rule
+for the universal-memory prototype; forgetting is not a planned v2 feature.
 
 Summaries, embeddings, full-text indexes, and vector indexes are derived and
 rebuildable. The system adds no memory type, category, importance, confidence,
@@ -1155,6 +1208,15 @@ and rebuild time and incurs API cost. This is an accepted v1 trade-off.
 
 V1 exposes exactly the following canonical model tools:
 
+when the universal-memory target ships, adr 0056 additionally grants main's full
+plan `memory.save_note(text)` under its [exact contract](docs/universal-memory.md#jarvis-main-note-tool).
+adr 0058 additionally grants `memory.search` and `memory.open` to main's full and
+scheduled-wake read-only plans; all three stores use the shared retrieval path.
+adrs 0059/0062 remove the recaller and hard-cut search/open to the shared
+bounded contract with deterministic rank fusion. the dreamer can access only notes/summaries; the rememberer has
+no tools. search is a tool pipeline, never a nested agent.
+the baseline catalog below otherwise retains its meaning.
+
 | Tools | Granted role | Authority |
 |---|---|---|
 | `gmail.search`, `gmail.read_thread` | Main | Read; automatic |
@@ -1260,6 +1322,8 @@ envelope. An
 owner-input or action-resolution main run receives the full Main plan. A
 scheduled-wake run uses the same continuing definition but receives only the
 catalogued Gmail, Calendar, Maps, and public-Web reads.
+the accepted adr 0058 target also includes memory search/open in both main plans;
+it adds no write to the scheduled-wake plan.
 Recall, remember, and dream one-shot plans contain exactly `memory.search` and
 `memory.open`; AutomaticWriteGate has an empty plan. Every plan is frozen for its
 run and may never exceed its envelope.
@@ -1290,7 +1354,8 @@ a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
 policy inputs.
 
-The main agent receives recalled memory but no memory tool. Internal cognitive
+the baseline main agent receives recalled memory but no memory tool; the accepted
+target adds `memory.save_note`, `memory.search` and `memory.open` as described above. internal cognitive
 roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
 No role receives `tool.search`, `tool.read`, a local-filesystem tool, a Gmail
 organization tool, or a model-callable Discord tool.

@@ -12,13 +12,37 @@ These instructions govern all work in this repository.
 - adr 0046 governs the owner-approved testing reset. all previous test and
   qualification execution gates are suspended pending the subsequent redesign;
   runtime safeguards and product requirements remain binding.
-- adr 0051 and `docs/universal-memory.md` govern the accepted universal-memory
-  implementation target. when that slice is implemented, its eight tables,
-  source completion, lineage and stopped logical erasure supersede the six-table,
-  `remembered_at`, per-row-fallback and permanent-memory rules below. its
-  temporary integration/live red-green-refactor checks are deleted after recorded
-  acceptance; this scoped exception does not restore old suites or close the
-  general testing redesign.
+- [universal memory](docs/universal-memory.md) is the consolidated accepted
+  target, adopted by SPEC and most recently simplified by
+  [adr 0062](docs/decisions/0062-simplify-memory-policy-and-retrieval.md).
+  it supersedes affected baseline rules below when implemented: nine tables,
+  automatic activation and whole-event capture, source-only size/age extraction with no overlap, direct
+  lineage, pending-note dreaming, shared rank-fused search and no recaller or
+  forgetting. historical import/provenance remain deferred.
+- preserve atomic archive/checkpoint, notes/bookmark and summaries/pending commits.
+  rememberer/dreamer use disposable kernel inference and dreamer run-local read
+  receipts: interrupted paid computation may repeat under new admission. no
+  durable background replay scopes. main/gate journals, external effect recovery,
+  main paid-read barriers and shared capacity accounting remain unchanged.
+- agents choose their procedure from context, tools, goals and quality constraints.
+  no mandatory first tool/search, minimum call count or scripted research sequence;
+  dreamer seed-only/empty completion is valid. host authority, grants, protocol,
+  lineage and atomic completion are still enforced.
+- make shared policy global: one definition per constant, one settings/client/pool
+  composition, shared limits across callers and no per-profile tuning/allowances.
+  reuse existing primitives and remove duplicate implementations. preserve scoped
+  provenance/permissions/progress and fresh per-run execution state; do not replace
+  these facts with mutable global turn state. operator status stays in the cli.
+- external `memory_save_note` requires lane admission and connection. optional
+  conversation identity is caller-reported; never require discovery. main's
+  internal `memory.save_note(text)` uses the same append under jarvis admission,
+  its existing model-decision position as invocation/effect identity, and the
+  narrow local-write `read_position` recovery. this exact write bypasses the
+  gate/action rules; no scheduled/background grant or native cognition mcp.
+  archive memory-tool prose as content-free references to prevent feedback.
+- retain two small regression groups: capture/retry and memory completion. no
+  standing per-feature review machinery or restoration of the retired suite;
+  the wider testing redesign remains open. no runtime change is implied by docs.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   worker control through the installed skid CLI and private three-peer client
   config. it supersedes the worker transport, roster, refs and receipt codecs of
@@ -33,7 +57,10 @@ These instructions govern all work in this repository.
   irreversible data, or external compatibility, stop and surface it. Ordinary
   implementation detail should use the smallest conventional choice and tests.
 - A slice that has not shipped is expected incompleteness, not a discrepancy.
-  `docs/implementation-plan.md` defines the intended order.
+  `docs/implementation-plan.md` is the single active roadmap and delivery plan.
+  detailed feature contracts own behavior; do not recreate a separate work order.
+  retired plans, cleanup logs and qualification reports live in git history,
+  not a duplicate archive tree or new execution gates.
 
 ## V1 constraints
 
@@ -298,7 +325,8 @@ These instructions govern all work in this repository.
   receive a repeated clock.
 - during the testing reset, run `scripts/verify` for static and build checks and
   report behavioral verification as not run. do not restore old tests or add a
-  replacement harness before the separately requested testing redesign.
+  replacement harness before the separately requested testing redesign. adr 0053's
+  small universal-memory regression groups are the scoped exception, once implemented.
 - Library dependency and model upgrades remain explicit; their former replay
   qualification gate is suspended under adr 0046. Native
   Codex tracks latest stable through the host installer under ADR 0042; protocol

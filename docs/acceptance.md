@@ -9,17 +9,26 @@ four-of-five quality scoring requirements.
 the criteria below retain the intended product behavior. descriptions of removed
 test procedures are historical requirements to reconsider in the redesign, not
 commands or gates available today. no static/build result proves these behaviors.
-dated reports remain evidence only for their recorded revisions and environments.
+dated reports in git remain evidence only for their recorded revisions and environments.
 
 Every result appears in a dated acceptance report. Any owner-approved waiver is
 named explicitly; no criterion disappears or is weakened silently.
 
-[adr 0051](decisions/0051-universal-memory.md) makes a scoped exception for
-[universal-memory acceptance](universal-memory.md#11-acceptance-and-temporary-verification):
-temporary integration/live red-green-refactor checks, then deletion after recorded
-acceptance. when implemented, that contract's acceptance supersedes A1.4's six
-tables, A5.4's two stores, A5.6–A5.8's `remembered_at` rememberer and A7.1's
-six-table wording below.
+the accepted, unimplemented [universal-memory contract](universal-memory.md)
+owns its [focused acceptance](universal-memory.md#11-acceptance-and-verification),
+as simplified by [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md).
+retain two small regression groups: capture/retry and memory completion. verify
+atomic complete-event capture, bounded retries, atomic memory progress and
+direct-note idempotency; interrupted background inference may repeat paid work.
+main's recorder, paid-search uncertainty barriers and effect recovery retain their
+checks. no frozen background-batch replay tests or recurring fleet matrix are
+required. focused checks also cover automatic atomic activation, native-field
+validation, deterministic fusion, the shared search gate and valid seed-only
+dreaming. targeted review and live provider checks supplement these regressions;
+there is no learned-reranker selection or mandated search choreography.
+the target supersedes A1.4's six tables, A5.4/A5.5's recall role and retrieval,
+A5.6–A5.8's rememberer/dreamer rules and A7.1's six-table wording below. these
+baseline criteria do not override the current target or establish that it ships.
 
 ## A1. Repository and deployment
 

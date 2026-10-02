@@ -2,10 +2,23 @@
 
 This document expands [SPEC.md](../SPEC.md). `SPEC.md` wins if they disagree.
 
-the accepted [universal-memory target](universal-memory.md) extends this baseline
-with stateless host collectors, a private capture api and pull-only mcp reads
-inside the existing central process. its ownership, schema and capability changes
-are not yet implemented.
+accepted target, not yet implemented: [universal memory](universal-memory.md) is
+the single current implementation contract; [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md)
+records the latest simplification. admitted collectors activate native lanes
+online from complete inventories and submit complete events for atomic capture.
+one shared search implementation fuses keyword and semantic ranks deterministically;
+agents choose when to search. disposable background inference may repeat paid work,
+but notes/bookmarks and summaries/pending flags commit atomically. main's durable
+recovery remains. the diagrams and flows below describe the v1 baseline, including
+the recaller removed by the target.
+
+shared policy values have one checked-in owner and one implementation, including
+the search/embedding client and search gate across main, dreamer and mcp callers.
+lane provenance, admission, connection and progress remain scoped; executor budgets
+and mutable turn state remain per run. agent prompts state goals, available context
+and evidence requirements, leaving useful steps to the agent. host protocol,
+permissions and effect preconditions still bind every step. native readers validate
+mapped fields and ignore unrelated additions; model and api schemas stay closed.
 
 ## System shape
 

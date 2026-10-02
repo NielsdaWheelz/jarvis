@@ -1,619 +1,511 @@
-# V1 implementation plan
-
-the owner-approved [testing reset](decisions/0046-reset-testing.md) removes all
-existing tests, evaluation data, and qualification runners. the slice descriptions
-and dated evidence below record the original implementation and verification
-plan; their removed test procedures are not current gates or runnable commands.
-runtime contracts remain binding. the next pr begins the
-[testing redesign](issues/testing-redesign.md).
-
-current worker-control upgrade: [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md)
-supersedes the herdr gate and earlier worker contracts with current skid.
-source implementation and worker-client qualification on all three production
-gateways are recorded; cognition and main-service activation remain `NOT_RUN`.
-[shared cognition repair](issues/codex-private-process.md) remains separate.
-historical slice evidence below does not establish current service activation.
-
-Each slice is a small vertical increment. The plan names intended sequence, not a
-workflow system or calendar schedule.
-
-for the next product version, see the [v2 roadmap and design handoff](v2-roadmap.md).
-it records the owner's approved direction and the choices still needing a slice
-contract; the v1 gates below retain their current meaning.
-
-[universal memory](universal-memory.md) is the accepted scoped implementation
-target under [adr 0051](decisions/0051-universal-memory.md). its work packages,
-dependency order, hard cutover and temporary red-green-refactor acceptance govern
-that feature; implementation and live acceptance are not run. its prerequisite,
-[claude transcript retention](issues/claude-transcript-retention.md), lands first
-in dev-server. backup, native-memory disablement and historical import remain v2
-work.
-
-## Slice 0: audit and qualification
-
-Status: complete and owner-approved on 2026-09-03. The dated
-[qualification report](qualification/2026-09-02-slice-0.md) is the durable
-record of observed results, accepted trade-offs, and deferred owning-slice
-gates.
-
-Deliver:
-
-- Delegated summaries of the existing Discord, Gmail, Calendar, and Maps
-  integration surfaces without importing unrelated Ariel design.
-- The exact canonical tool manifest, schemas, typed observations, and live
-  automatic/approval classification from SPEC section 7.3.
-- The configured Discord guild/owner/channel IDs, observed effective authority,
-  required four operational permissions, prohibited management authority,
-  minimal Gateway intents, and bounded history-catch-up behavior.
-- Live Discord confirmation that `enforce_nonce` returns the existing message
-  for the same recent bot nonce, plus an honest record of whether history and
-  exact-message reads expose that optional nonce.
-- Qualification of `discord.py` 2.7.1 for Gateway/interactions and direct
-  `httpx` Discord REST v10 Create Message for enforced nonces, with no private
-  client-library API.
-- One owning process for each reused credential and an explicit Ariel/Jarvis
-  handoff or local-interface plan.
-- Credential discovery from Ariel's local operator configuration first; if a
-  required credential is absent, a delegated read-only inventory of the
-  user-owned development-server repository. Secret values never enter agent
-  summaries, model context, the qualification report, or ordinary logs; any
-  delegated transfer is a non-echoing copy directly into mode-0600
-  service-manager credential files.
-- Pinned git dependencies for `llm-agent-kernel`, `provider-runtime`, and
-  `llm-tools` that do not touch the user's local worktrees.
-- The active implemented public kernel pin
-  `2c428b3b0802f0c294dff300115779e299f0340d`, with exact
-  `provider-runtime` and `llm-tools` dependency pins and deterministic suite
-  recorded in the qualification evidence. The signed Slice 0 report preserves
-  the earlier qualified revision; ADR 0027 records the compatible Slice 2
-  Web deadline and extraction corrections, invocation-local provider usage,
-  and superseding pins. The exact invocation-local usage-fix pair preserves the
-  existing session-compatibility revision under its upstream-certified atomic
-  exception. ADR 0035 records the later provider transport and kernel base
-  instruction containment pair; it preserves that application revision while
-  the fingerprinted kernel instruction cold-bootstraps all roles. Because
-  Jarvis intentionally commits the AutomaticWriteGate definition fingerprint
-  into Write binding policy, the containment release also rotates affected
-  main catalogs, profiles, plans, and HostTables without changing tool
-  contracts or implementations.
-- The completed `llm-tools` upgrade exposing qualified public pure
-  argument validation, frozen-plan/catalog consistency and full tightening,
-  exact `HostTable` publication, and async durable executor/recorder seams; pin
-  the qualified revision before any Jarvis runtime implementation.
-  Qualification includes adversarial cross-catalog
-  effect/schema/handler-implementation/replay-policy/revision substitution and
-  proves implementation identity appears in the frozen grant and HostTable.
-- Qualification of the kernel's exact `AgentRuntime` request/lifecycle,
-  context, session-reference, input-checkpoint, polling, dispatch, admission,
-  cancellation, and optional observability ports plus its multi-run conformance
-  suite. Confirm it owns no database schema, connector, product authority, or
-  duplicate provider/tool implementation.
-- The intended compatibility-revision, plan-aware budget, admission overshoot,
-  provider-native context-sizing, and durable checkpoint-park mappings, with
-  their production proofs assigned to the slices that build them.
-- Qualify an isolated structured one-shot with a genuinely empty `HostTable`
-  plan for AutomaticWriteGate; do not add a dummy capability to satisfy a
-  library limitation.
-- Record the exact expected-provider-failure matrix, including which failures
-  permit the one safe cold bootstrap and which do not.
-- Prove that the public `llm-tools` recorder surface can represent the intended
-  Jarvis action and schedule-creation receipt mapping; the production adapter
-  conformance fixture gates Slice 5.
-- Select and record a finite lifetime executor-entry ceiling and complete
-  automatic reconciliation procedure for every v1 write tool; no unbounded
-  default is permitted.
-- Live `llm-tools` Brave-search and safe-public-Web-read canaries, including
-  private-destination, unsafe-redirect, and credential-egress rejection.
-- Linux qualification of the shared Codex App Server containment request,
-  `JsonSchemaAgentOutput`, open/stream/close and resume behavior, and fail-stop
-  on native tool-use or permission-request events. Prove production consumes
-  `stream_turn` and never calls the event-discarding `run_turn` projection.
-- A restricted embedding API key plus a live negative generative-call test.
-- One replacement Google offline consent using exactly the minimal scope set in
-  SPEC section 8, followed by encrypted import under Jarvis-owned associated
-  data; do not carry forward legacy Drive or redundant Gmail/Calendar scopes.
-- Live Gmail checks for draft-send and reconciliation behavior on new and reply
-  threads.
-- The verified owner-only Calendar ID set plus a live client-generated event-ID,
-  duplicate-response, and get-by-ID check.
-- A dated, sanitized qualification report carrying the owner's explicit
-  sign-off after review of the observed results.
-
-Exit: every required external surface and credential has a known owner,
-interface, and test strategy, every live check passes, and the owner signs off
-the resulting report. Authorization to run this slice is not advance acceptance
-of unknown findings. No Slice 1 implementation starts before this exit.
-
-## Slice 1: conversation skeleton
-
-Status: complete and qualified on 2026-09-03. The dated
-[qualification report](qualification/2026-09-03-slice-1.md) records the exact
-revisions, deterministic gates, paid Codex probes, live Discord results, and
-accepted trade-offs.
-
-Deliver:
-
-- Python project, lockfile, PostgreSQL, and migrations.
-- Pinned `llm-agent-kernel` integration with Jarvis-owned product-context,
-  session-reference, input-checkpoint, and terminal-finalization adapters.
-- Conversational main output contract plus closed structured output contracts
-  for isolated recaller, rememberer, and dreamer one-shot runs.
-- Provider-terminal fixtures using the kernel-owned closed nullable wire
-  envelope, including JSON-string `call_tool.arguments`; Jarvis must not decode
-  or validate that wire independently.
-- `message` table, owner/source identity, durable `processing_attempts`, and
-  nullable `processing_parked_at`.
-- Existing Discord ingress/egress restricted to one configured channel, with no
-  model-callable Discord tools.
-- Inbound deduplication.
-- Bounded owner-message catch-up after downtime.
-- Persist-before-send assistant messages using null `source_message_id` as the
-  delivery watermark.
-- Deterministic 20-character Discord nonce derivation, `enforce_nonce=true` on
-  every create and retry, and a small finite delivery retry/backoff policy that
-  accepts the documented rare delayed conversational duplicate.
-- Narrow typed Discord REST v10 Create Message binding over `httpx`; retain
-  `discord.py` for Gateway/interactions.
-- `processed_at` turn completion and interrupted-turn recovery.
-- Prompt typing state, stop/pause/resume, and no streaming.
-- Jarvis product-context selection feeding provider-neutral kernel continuation
-  and bootstrap projections rendered with `llm-tools` typed prompt sections.
-- Subscription-backed main Codex definition in `continuing` mode with `say` and
-  `finish`, one atomically persisted session reference and agent-definition
-  fingerprint, compatible resume through `provider-runtime`, and cold bootstrap
-  after a fingerprint change or session loss; successful stores advance the
-  expected generation and a stale compare-and-set stops before dispatch or
-  settlement.
-- Checked-in canonical session-compatibility manifest and required
-  `session_compatibility_revision` on every continuing and isolated definition.
-  Pin or application-contract changes rotate it; schema v3 has no predecessor
-  exception. Dynamic input and subset
-  plans do not rotate it. ADR 0028 records the exact qualified local-account
-  model set separately; the selected model already participates in the
-  definition fingerprint.
-- One plan-aware `ToolBudgetFactoryPort` implementation creating fresh exact
-  budgets after plan validation for every plan selectable in Slice 1.
-- Exact Slice 1 `llm_tools.RunLimits`, finite route-qualified one-turn token
-  overshoot for rolling admission, and static system/developer/schema bounds.
-  Main reuses its compatible thread without generation expiry; native Codex
-  owns retained-history compaction under ADR 0043.
-- Exclusive non-empty claim over messages, host-selected full or scheduled-wake
-  read-only plan, ordered watermark, mid-loop compatible-input polling, stop
-  preemption, and atomic conclusion/`processed_at` settlement. Incompatible work
-  remains unclaimed; cleanup never arms a successor.
-- Shared run/checkpoint/conclusion trace on every consumed waking row and
-  immutable kernel dispatch lineage available to later action slices.
-- Host-authored poison-input conclusions, durable reclaim ceiling, and a
-  content-free atomically replaced rolling-admission journal that reserves
-  finite maximum root/serial-child provider turns, reported tokens, no-progress
-  attempts, and one root concurrency slot before provider I/O. Clean exit
-  settles/refunds; startup releases an orphaned slot without refunding its
-  rolling turn/token charge.
-- Checkpoint `park` implemented as one PostgreSQL transaction that stamps the
-  claimed unprocessed batch, records a bounded reason code, and opens the single
-  cognitive circuit. Claims exclude parked rows; a documented operator repair
-  clears them without resetting attempts.
-- Admission preflight deferral that leaves input and `processing_attempts`
-  untouched, automatically rescans at reset/startup, emits one deterministic
-  assistant notice for owner/action-resolution delays of at least 60 seconds,
-  and silently defers background memory work. After preflight, claim increments
-  the attempt atomically; a later inconsistent capacity result raises
-  `AdmissionStateDefect` and parks rather than coupling the checkpoint and
-  admission adapters.
-- A fake stateless adapter test proving bootstrap context contains no provider-private
-  types and carries the current owner message exactly once.
-- Kernel conformance fixtures for session loss, invalid protocol, cancellation,
-  a crash between session-reference advancement and canonical settlement, a
-  compatible input arriving mid-loop, ordinary input arriving during final
-  settlement, stop preemption, poison input, crash reclaim, rolling admission,
-  plan-budget mismatch and parking, compatibility rotation, provider-native
-  context sizing, cooperative-time overshoot, and exhausted bounds.
-- The three paid Codex consumer probes against the exact pinned kernel and
-  provider-runtime revisions on every exact qualified model, with sanitized
-  results in the qualification ledger. At least one currently supported
-  ChatGPT-local-account route must pass; the qualified model count is not
-  permanently fixed.
-- Deployment ownership lock and an in-process execution mutex serializing
-  provider turns and host-tool dispatches.
-
-Exit: natural conversation in one channel survives compatible session resume
-and deliberate session loss, lost Discord acknowledgement and delayed-restart
-fixtures each leave exactly one visible response, an interrupted effect-free
-turn is safely replayed, and input racing with idle is never stranded.
-
-## Slice 2: read tools
-
-Status: complete and qualified on 2026-09-04. The strengthened original nine-read
-compound-linkage gate and final verifier passed. The dated
-[qualification report](qualification/2026-09-04-slice-2.md) records the exact
-dependencies, frozen identities, deterministic verification, sanitized live
-provider evidence, and accepted trade-offs. ADR 0038 later hard-cuts the active
-Main terminal and `calendar.list_events` contracts; that amendment belongs to
-Slice 7 and does not rewrite the historical Slice 2 evidence.
-
-Deliver:
-
-- Jarvis-owned application declarations/bindings, product policy, and frozen
-  role plans composed through `llm-tools`; the library retains schema,
-  validation, prompt-section, budget, and execution ownership.
-- Exact read-plan `RunLimits` and plan-aware factory conformance before any read
-  plan becomes selectable.
-- No Discord declarations in the model tool catalog; conversation delivery stays
-  in the adapter.
-- Kernel-owned strict step schema, complete semantic and pure-argument
-  validation before mutation, exactly one serial call with no model-authored ID
-  or prose, bounded corrective feedback, and—after ADR 0038—an active Main
-  terminal only through validated `finish.result`.
-- `gmail.search` and `gmail.read_thread` bindings.
-- `calendar.list_calendars` v1, `calendar.list_events` v6, and
-  `calendar.get_event` v2 bindings after ADR 0037 superseded the original
-  primary-only v3 list. List exposes no calendar ID and aggregates the bounded
-  live reader-or-better CalendarList host-side. Normal observed
-  ends are a required direct timed/all-day/unspecified tagged union. Google's
-  true flag discards its compatibility end and returns the payload-free
-  unspecified variant, while false or missing requires a parsed end. The
-  current bounded paginator, compact overview, and typed coverage contract are
-  specified by ADR 0038; its focused live gate proves complete coverage of at
-  least 1,000 events across all 35 current calendars. Full details remain an
-  explicit `calendar.get_event` read by exact returned IDs.
-- `maps.search_places`, `maps.get_place`, and `maps.directions` bindings.
-- Pinned `llm-tools` `web.search` and `web.read` bindings under Jarvis-owned
-  credentials, information-flow policy, and budgets.
-- One bounded completed observation or durable suspension per call; the Jarvis
-  dispatch adapter retains product authority and supplies original validated
-  call evidence on later resolution.
-- Confined Codex drift tests.
-- Exact configuration rejection of retired or unqualified local-account model
-  IDs before ingress, admission, provider I/O, or tool I/O, plus paid consumer
-  qualification of every model in the current compatibility manifest. At least
-  one currently supported route must pass.
-
-Exit: Jarvis answers a natural compound question using Gmail, Calendar, Maps,
-public-Web search, and a fetched public page without exposing credentials to
-Codex or granting the Codex child native network access. The final exact-code
-evidence includes valid Calendar unspecified-end observations, recomposed
-frozen identities, and a cold-bootstrapped Main session under role contract v3.
-
-## Slice 3: raw memory and recall
-
-Status: complete and qualified on 2026-09-05. The dated
-[qualification report](qualification/2026-09-05-slice-3.md) records the exact
-deterministic and product evidence, the corrected historical provider-schema
-blocker, the unchanged frozen evaluator's final 17/17 result, and all accepted
-trade-offs.
-
-Deliver:
-
-- Exact `memory_log` schema and append-only database enforcement.
-- Host-owned rememberer commit with every consumed owner row's `remembered_at`
-  in the same transaction.
-- Full-text search and nullable OpenAI embeddings.
-- Memory search/open tools for the recaller and rememberer only in Slice 3;
-  never for the main agent.
-- Fresh `SessionMode.isolated` kernel recaller before every owner input and fresh
-  isolated rememberer after every eligible completed turn; both use one-shot
-  execution, touch no input-checkpoint or saved-session port, and return closed
-  structured `finish.result` payloads.
-- Exactly one kernel-dispatched deterministic `memory.search` typed observation
-  starts each owner-input recall before the recaller adaptively searches or opens
-  memory.
-- Exact recaller and rememberer `RunLimits` plus plan-aware factory conformance
-  before those plans become selectable.
-- Stable external-reference convention.
-- At least fifteen owner-authored or explicitly owner-approved redacted,
-  synthetic-safe recall evaluation cases.
-- Bounded retry sweep for completed unremembered `role = owner` turns only.
-- Settled-run/conclusion trace grouping for one rememberer invocation per input
-  group, with a safe per-row fallback when grouping metadata is absent.
-
-Exit: a durable preference and linked external matter are recalled in a fresh
-provider session, and memory persistence creates no action row or duplicate text.
-
-## Slice 4: dreaming and summaries
-
-Status: complete and qualified on 2026-09-05. The dated
-[qualification report](qualification/2026-09-05-slice-4.md) records exact
-deterministic, paid, rebuild, and product evidence plus every accepted trade-off.
-
-Deliver:
-
-- Exact `memory_summary` schema with raw lineage.
-- Fresh `SessionMode.isolated` kernel dreamer one-shot search/open profile with a
-  closed structured `finish.result` mutation batch.
-- Exact dreamer `RunLimits` and plan-aware factory conformance before its plan
-  becomes selectable.
-- Structured final summary-mutation batch and host-owned transaction.
-- Simple idle/system timer with one dreamer at a time.
-- Full derived-memory rebuild command.
-- Contradiction, unsupported-summary, lineage, and pre/post rebuild tests.
-
-Exit: wiping every summary and embedding and rebuilding from raw memory preserves
-or improves the recall evaluation result.
-
-## Slice 5: automatic writes and proactivity
-
-Deliver:
-
-- Exact minimal `action` schema, including immutable `execution_contract` and
-  executor-entry `attempts`, unversioned tool names, seven statuses, and
-  terminal-for-execution `uncertain` semantics.
-- Restricted, empty-plan AutomaticWriteGate as an isolated kernel one-shot for
-  every validated write proposal before action creation, with adversarial
-  memory/connector/Web injection fixtures and direct-owner-request usability
-  fixtures.
-- `gmail.create_draft` and `gmail.update_draft` bindings.
-- `calendar.create_event`, `calendar.update_event`, and
-  `calendar.delete_event` bindings.
-- Action-derived Calendar create IDs plus get-and-compare reconciliation for
-  create/update/delete ambiguity.
-- Automatic/approval classification owned by host code.
-- Owner-requested `schedule.wake` with closed create/cancel variants, exact
-  due-time and restart behavior; no generic quiet hours, connector polling, or
-  autonomous inbox/calendar monitor.
-- Immutable schedule `creation_receipt` plus separate `wake_outcome`; recorder
-  replay remains the creation receipt at every later lifecycle state. Schedule
-  cancellation is its own gated action and a receipt-less queued wake never
-  fires.
-- Idempotent due-wake host messages rendered from immutable stored instructions,
-  plus visible model/fallback delivery and atomic scheduled-action completion.
-- Bounded external timeouts and startup reconciliation of `executing` actions;
-  `uncertain` only after the complete tool-specific automatic procedure is
-  exhausted, without leases or blind retry. The attempt count records each
-  executor entry and never authorizes another; the immutable execution contract
-  supplies a finite lifetime ceiling, after which no requeue is possible.
-- `action.id` mapping to both `llm-tools` `InvocationPosition` and `EffectId`,
-  with the per-row contract binding tool/policy/plan revisions, effect/replay
-  declarations, canonical input digest, finite attempt ceiling, claim/checkpoint,
-  model-step ordinal, ordered admitted-input IDs, and gate-supporting owner IDs.
-- Production action-backed recorder conformance, schedule-creation receipt
-  replay, automatic-write suspension evidence, and exact automatic-write plan
-  budgets before any write plan becomes selectable.
-- Interrupted turns that already created an action close exactly the stored
-  admitted input prefix without model replay.
-- Base idempotent host-authored action-resolution messages for outcomes that
-  cannot return to a live originating loop, keyed by action ID plus resolved
-  state, with startup repair, visible deterministic fallback, and checkpoint
-  processing through the existing `message` table.
-
-Exit: Jarvis performs a draft, personal calendar change, and scheduled proactive
-message in the configured channel without unnecessary approval or workflow
-framework.
-
-## Slice 6: Approve and Deny
-
-Deliver:
-
-- Approval suspension/resolution conformance and exact approval-bearing plan
-  budgets before those plans become selectable.
-- Gmail send as draft-send by stored `draftId`, with the exact stable MIME
-  `X-Jarvis-Effect-ID` derived from the draft-creation action ID preserved
-  through updates and stored in the immutable send snapshot.
-- Gmail pre-send re-fetch and exact snapshot comparison, followed on ambiguity
-  by three fixed observations of the known draft and known thread. Each thread
-  read uses minimal metadata followed by at most one hundred individual raw
-  message reads, with no mailbox search or ordering assumption. Excluding only
-  the current live draft message ID, one unique observed exact
-  effect-header/content match proves success after every selected bounded
-  message is processed, even if the thread has a later unprocessed tail; no
-  Gmail label is required. Duplicate, conflicting, malformed, or partially
-  processed evidence cannot.
-- Approval execution for shared/unknown-calendar and attendee-bearing Calendar
-  create/update/delete, while verified owner-only no-attendee work remains
-  automatic.
-- Closed host preview renderers for Gmail send and approval-required Calendar
-  writes, with no model preview field or action preview column. Every supported
-  approval uses one bounded deterministic UTF-8 JSON attachment containing every
-  validated stored argument, including complete long bodies and all Calendar
-  writable values.
-- Host-owned component messages containing only Approve and Deny, with opaque
-  IDs binding the action and internal approval-message row.
-- Exact owner/guild/channel/Discord-message/action/internal-message/stale-state
-  validation, followed by an atomic decision and immediate interaction-response
-  edit that disables both components before slow work.
-- `approval_message_id`, atomic claim, duplicate-click protection, and
-  durable main-turn suspension that retains no blocked worker or provider
-  session while the owner decides.
-- Startup repair of missing approval delivery and missing action-resolution
-  input, plus recovery of an approved action interrupted before executor entry;
-  recovered execution first disables the known Discord components.
-- Bounded Gmail reconciliation before evidence-proven repeat or terminal
-  uncertainty: `0`/`2`/`8` second observation backoffs, at most 102 provider
-  reads per observation, sixteen MiB, and thirty seconds. Repeat requires three
-  complete observations proving an unchanged draft and a complete thread with
-  no matching non-draft message; the original mutation timeout decides nothing
-  by itself.
-- Free-form approval rejection and terminal uncertainty reporting.
-- Approval-specific action-resolution and fallback fixtures using the Slice 5
-  existing-table mechanism.
-
-Exit: Deny sends nothing; Approve sends the exact rendered email once; a shared
-calendar change is also rendered exactly; an ambiguous result is reconciled or
-reported without blind retry.
-
-Slice 7 deployment, seven-day owner acceptance, and final
-production sign-off remain outside this slice.
-
-## Slice 7: production acceptance
-
-Status: deployed and all pre-observation gates passed on 2026-09-08. The
-[production deployment report](qualification/2026-09-08-production-deployment.md)
-is the durable evidence. The required seven-day owner acceptance period is in
-progress and cannot complete before 2026-09-15.
-
-Deliver:
-
-- Host-native systemd deployment on the existing Hetzner `dev-server` under a
-  dedicated `jarvis` account, with immutable releases under `/opt/jarvis`,
-  durable state under `/var/lib/jarvis`, root-owned configuration under
-  `/etc/jarvis`, and no public listener.
-- A documented ownership boundary: the `dev-server` repository converges UTC,
-  system packages, PostgreSQL/pgvector availability, the service account, and
-  base directories; Jarvis owns releases, credentials, database roles,
-  migrations and service lifecycle. Nexus production remains
-  untouched.
-- Host configuration that attaches Jarvis only to the declared shared Codex
-  services and never starts a private Codex runtime.
-- Explicit verification that no v1 backup role, credential, timer, or restore
-  command exists, with the owner-accepted total-loss trade-off recorded.
-- Pre-deployment housekeeping with exact targets, active CI/container checks,
-  disk-headroom acceptance, UTC convergence, recorded PostgreSQL/pgvector
-  versions, and a recorded pending-kernel reboot deferred to an owner-selected
-  maintenance window without interrupting current tmux/Codex work.
-- systemd restart/resource controls and verification that development/rootless
-  Docker lifecycle operations do not own or restart Jarvis.
-- Agent-definition-compatible Codex session resume through `provider-runtime`
-  plus recovery after deleting every provider session reference.
-- ADR 0038's hard-cut Main terminal: reuse kernel `StructuredOutput`, render one
-  typed `answered | partial | needs_input | failed | silent` result host-side,
-  retain typing as the only synchronous progress indicator, and remove the
-  production conversational-`say` path and compatibility aliases.
-- ADR 0038's Calendar v6 hard cut: remove model-selected result size and the
-  boolean truncation result, page deterministically inside the connector, return
-  typed coverage and at most 1,500 compact whole events/524,288 encoded bytes,
-  keep full details behind `calendar.get_event`, and promote incomplete answers
-  to visible partial content without scheduling phantom work.
-- Restart/crash qualification for poison attempts, no automatic rearm, rolling
-  admission settlement, corrupt-journal fail-closed behavior, and explicit
-  operator reset while the service is stopped.
-- Complete acceptance run.
-- One 80/20 proof per changed boundary: schema, Google connector, kernel/Jarvis
-  composition, Discord delivery, live Calendar, and one paid end-to-end prompt.
-  Carry forward unchanged dependency and unrelated connector qualifications.
-- Seven-day owner acceptance period.
-- Dated acceptance report.
-
-Exit: every non-waived mandatory criterion in `docs/acceptance.md` passes and the
-owner signs off. The seven-day period starts only after the exact production
-release is enabled and every preceding Slice 7 gate passes.
-
-## Slice 8: shared Codex control
-
-historical delivery plan: the worker-control requirements below are superseded by
-[adr 0044](decisions/0044-control-tmux-agents-through-skid.md),
-[adr 0045](decisions/0045-use-the-ordinary-fleet-cli.md),
-[adr 0048](decisions/0048-align-with-the-herdr-fleet-cli.md) and
-[adr 0049](decisions/0049-drive-herdr-through-an-ssh-gate.md). their cognition and
-durable-recovery requirements remain binding.
-
-Status: implemented on the isolated feature branch on 2026-09-09; live
-acceptance is `NOT_RUN`.
-
-Deliver:
-
-- Hard-cut managed Codex from private child App Servers to the three declared
-  host-owned Unix-socket services without API/account/process fallback.
-- Add exactly five owner-directed Main tools and no scheduled/internal grants,
-  worker table, transcript copy, workflow graph, or completion callback.
-- Use strict profiles/full native handles, native Submit start-or-steer, exact
-  Steer, bounded observed Interrupt, and content-free list/read projections.
-- Start by create, control-unsubscribe, exact ordinary-tmux create/observation,
-  then Submit. Stock TUI attachment is asynchronous and never upgraded through
-  process state, sleeps, or terminal parsing.
-- Preserve native worker approvals for the TUI; Jarvis answers none. Preserve
-  contained cognition through the narrow empty group-traversable cwd posture.
-- Store each mutation once through the existing action table as BilledOnce;
-  preserve Partial/Unknown prefixes and never redispatch after ambiguity.
-- Prove the protocol, Jarvis action, host, and separately approved real-stack
-  boundaries once each. `NOT_RUN` live/device evidence is never a pass.
-
-Exit: the exact Personal/Work/Work2 journey in ADR 0041 and acceptance A4.16 is
-green without changing Skidbladnir or adding durable lifecycle state.
-
-## Deferred slices
-
-### Discord workspace expansion
-
-- Add a second channel or thread only after single-channel use demonstrates a
-  concrete routing or noise problem.
-- Design channel/session mapping from observed continuation semantics.
-- Grant and expose only the additional Discord operations the chosen behavior
-  requires.
-
-### API-backed cognitive provider
-
-- Reuse Jarvis product context selection, the canonical message store, and the
-  kernel bootstrap/context ports.
-- Add a `provider-runtime` adapter rather than a second context-selection or
-  agent-loop path.
-- Decide credentials, continuation, compaction, cost, and fallback policy in a
-  dedicated ADR before implementation.
-
-### General task-scoped delegation
-
-- Add only after owner-directed top-level Codex control demonstrates a need for
-  model-generated child graphs beyond fixed main/recaller/rememberer/dreamer roles.
-- Require a task ID and parent ID, explicit role and objective, strictly narrowed
-  capability plan, child budgets and deadline, structured terminal result,
-  observe/join/cancel, and cancellation propagation.
-- Do not use persistent same-authority peer agents or treat the fixed memory
-  roles as a delegation system.
-- Add no v1 tool, table, or column in anticipation.
-
-### Program agents / CodeAct
-
-- Evaluate direct serial `call_tool` against a model-generated program surface only
-  after compound tasks show excessive model round trips.
-- Measure completion quality, calls, tokens, latency, invalid programs, recovery,
-  duplicate-effect behavior, and approval behavior before selecting Lua,
-  JavaScript, Python, or another constrained runtime.
-- Keep any interpreter/sandbox in a separate optional library; do not make it a
-  transitive requirement of `llm-agent-kernel` or Jarvis.
-- Require every effect to cross `llm-tools`; do not suspend a program while
-  waiting for Discord approval.
-
-### OnePassword
-
-- Retrieve selected items using the owner's preferred OnePassword interface.
-- Never copy vault contents into memory in bulk.
-- Add writes only after read behavior proves useful.
-
-### Nexus
-
-- Search and open resources through a stable authenticated interface.
-- Preserve Nexus resource URIs in raw memory.
-- Consider additive notes/highlights after read use is proven.
-
-### Skidbladnir
-
-- Provider-aware stop or other source/API integration remains deferred.
-- Ordinary worker terminals are already visible through Skid's herdr runtime.
-- Never infer a permanent terminal/thread ownership mapping.
-
-### Android
-
-- Build only when Discord usage demonstrates a need for biometrics, widgets,
-  capture, share targets, device context, or a more private interface.
-- Prefer native Kotlin and Jetpack Compose.
-
-### Administrative memory erasure
-
-- Design only if requested.
-- Cover messages, raw memory, summaries, action payloads, traces, provider state,
-  backups, Discord, and live source systems.
-- Do not promise erasure by tombstoning only one table.
-
-### Broader tools and autonomous monitoring
-
-- Add Gmail labels, archive, trash, attachment download, or other mailbox
-  organization only after actual use identifies a specific burden.
-- Add local-filesystem access only with an observed use case and an explicit
-  confined root and operation set; never start from generic file authority.
-- Add inbox/calendar monitoring, connector polling, notification policy, or
-  quiet hours only after requested wakes prove insufficient and observed noise
-  defines the policy.
-
-## Changes requiring an ADR
-
-- An additional application table beyond ADR 0040's six-table roster.
-- A semantic memory field or explicit personal-domain model.
-- A workflow framework or general agent platform beyond `llm-agent-kernel`.
-- Task-scoped delegation, persistent peer agents, or a model-generated program
-  runtime.
-- A graph or separate vector/search service.
-- Slash commands or a general control surface.
-- More than one Jarvis Discord channel, Discord threads or direct messages, or
-  model-callable Discord management.
-- A cognitive provider other than subscription-backed Codex.
-- Direct model credentials, MCP execution authority, or generic shell access.
-- Destructive raw-memory consolidation or administrative erasure.
-- Android or an application service beyond the frozen v1 catalog.
+# jarvis: roadmap and implementation plan
+
+updated 2026-10-01. this is the ONE active roadmap and delivery plan, combining
+universal memory and the approved v2 direction. implementation/activation of
+these targets is not established by this document. no code or deployment changes
+are authorized merely by documenting their order.
+
+[SPEC.md](../SPEC.md) remains normative. the
+[universal-memory contract](universal-memory.md) supplies its accepted schemas,
+apis, bounds and acceptance; other v2 slices still need their owning adr/spec
+changes before implementation. [operations](operations.md) owns deployment and
+repair. [adrs](decisions/README.md) preserve rationale; retired delivery checklists,
+qualification reports and completed cleanup logs live in git history.
+
+## destination and rules
+
+one visible jarvis remembers context, keeps useful working records and carries
+ordinary work forward across personal, scientific, creative and practical life.
+one undivided memory serves all admitted/connected machines and profiles. the
+owner should not have to repeat context or repeatedly initiate obvious follow-up.
+
+- agents receive context, tools, goals and quality constraints; they choose their
+  method. delegation and retrieval guidance are prompt defaults, not mandatory
+  tool sequences, a routing engine or a prescribed agent organization.
+- policy is global: shared constants/configuration have one owner; callers reuse
+  clients, pools, admission, search, append functions and validators. preserve
+  subject-specific provenance/permissions/progress and fresh invocation state.
+- provider-runtime owns native transport; the kernel supervises cognition;
+  llm-tools owns tool contracts/execution; jarvis owns product context, authority,
+  persistence, events and continuation. dev-server owns fleet configuration;
+  skid owns worker launch/control. reuse their existing public primitives.
+- one main, one deployment lock and ordinary scheduling. no workflow framework,
+  descendant graph, worker-consumption accounting, duplicate state ledger,
+  speculative service, generic shell bridge or compatibility fallback.
+- durable effects, canonical commits, truthful outcomes and reliable stop remain
+  host responsibilities. new background memory computation is disposable.
+- hard-cut replaced paths, preserve canonical data, and state costs in the owning
+  contract. distinguish source merged, dependency pinned, fleet installed, live
+  behavior verified and owner-resumed service.
+
+## current position and immediate work
+
+v1 has six application tables. accepted universal memory adds three; the later
+work slice adds one. derive migration dependencies from the actual predecessor;
+do not hard-code a stale total into independently developed slices.
+
+adr 0052 is the current skid worker boundary. its recorded source/client work does
+not establish current cognition activation. the latest
+[shared-cognition issue](issues/codex-private-process.md) records jarvis disabled,
+stopped and durably paused on 2026-09-29. confirm live state before deployment;
+use the owner's same stock app-server, not a private replacement or retired broker.
+
+| immediate item | owner / what it blocks |
+| --- | --- |
+| [claude retention](issues/claude-transcript-retention.md) | dev-server; preserve native recovery history before memory capture activation; verify every configured home |
+| [shared cognition](issues/codex-private-process.md) | provider-runtime/dev-server/jarvis; jarvis live activation, including full memory acceptance; does not block independent codec/storage development |
+| [nexus dispatch contract](issues/nexus-generation-dispatch-contract.md) | shared provider/kernel o3–o4; distinguish proven non-submission, accepted terminal and unresolved submission; nexus consumer adoption is independent of jarvis product o5–o9 |
+| [embedding attempts](issues/embedding-retry-accounting.md) | jarvis shared embedding client; one actual attempt must match reported search usage |
+| [skid cli mismatch](issues/skid-terminal-flags.md) | jarvis adapter; preserve captured refs/mode while removing obsolete read/stop flags; can land before new delegation |
+| [adr numbering](issues/adr-number-collision.md) | docs integration; preserve both independent 0053 records and renumber references when merging with current main |
+| [verification scope](issues/testing-redesign.md) | separately requested testing redesign; memory retains its narrow exception, orchestration cannot borrow it |
+
+these are separate small repairs/decisions, not a new prerequisite mega-pr.
+check their issue records for evidence and resolution criteria; do not infer
+completion from a plan, a date or an unmerged local file.
+
+existing operator follow-ups also remain recorded: [admission journal cutover](issues/admission-journal-cutover.md),
+[connector environment cutover](issues/connector-keyring-cutover.md),
+[hosted ci billing](issues/github-actions-billing.md) and
+[old qualification resources](issues/qualification-residue.md). confirm current
+state before closing them; removing their old reports does not resolve them.
+
+## delivery map
+
+preserve the approved priority on orchestration. start fleet launch and native
+callback work independently; design work-history semantics alongside them.
+memory codecs/storage can proceed in parallel where files/contracts do not
+conflict. memory completion is not a prerequisite for delegation, and native
+callbacks are not a prerequisite for native transcript capture.
+
+ids below identify work units, not github pr numbers or a fixed pr count. the
+existing orchestration prs 1–9 map to o1–o9. owners may split a unit at a real
+public boundary; do not add speculative plumbing to make work parallel.
+
+| unit | owner / useful result | depends on |
+| --- | --- | --- |
+| o1 | skid: raw launch options, defaults and initial prompt | current skid contract |
+| o2 | dev-server: publish/pin/install that launch release on the fleet | o1 |
+| o3 | provider-runtime: contained native host-tool callbacks and live control | installed-provider proof |
+| o4 | kernel: native-turn supervision using existing dispatch/execution | o3; public llm-tools seam only if needed |
+| o5 | jarvis: durable native main and safe six-hour interruption | o4; shared cognition repaired before live activation |
+| o6 | jarvis: one main capability set for all supported event origins | o5; separate authority adr/spec cutover |
+| o7 | jarvis: one work table with history/current view and durable stop | work-state decision; independent of o3–o6 implementation |
+| o8 | jarvis: richer start and nonblocking `agent.wait` | o2, o6 and cli repair; NOT o7 |
+| o9 | jarvis: continuation and prompt-led coordination | o5–o8 |
+| m1 | provider-runtime: native archive codecs, identity and echo suppression | capture contract; retention before activation |
+| m2 | jarvis: source schema, automatic baseline, atomic capture/collector | m1 public contract; provider proof before live capture |
+| m3 | jarvis/llm-tools: source-only extraction and pending-note dreaming | m2; production transient read recorder |
+| m4 | jarvis: shared search/open/save and private mcp | m2; shared embedding policy; sdk contract |
+| m5 | jarvis/dev-server: one memory cutover and fleet activation | m1–m4, retention, lane declarations and shared cognition |
+
+native-loop and authority changes remain separate releases: proving transport
+and effect recovery first costs an intermediate release but makes failures
+attributable. memory's review units converge on its one stopped schema/legacy
+cutover; they do not authorize partial fleet claims or an old/new runtime fallback.
+
+## orchestration delivery
+
+### o1–o2: fleet launch
+
+extend skid start with machine/profile, provider-compatible raw model/effort,
+cwd and optional freeform initial prompt. profile determines provider/account;
+provider convenience selection must resolve a compatible profile. keep one launch
+configuration declaration, including compatible profile defaults; explicit start
+values override those defaults, otherwise retain provider-home defaults. jarvis
+supplies its configured machine/profile when omitted. unsupported pairs fail;
+no capability tiers, hidden model substitution or shell interpolation.
+
+skid owns readiness and initial prompt submission. preserve the created terminal
+ref if submission fails or is unknown; never relaunch after ambiguous creation.
+creation, submitted prompt and completed work are distinct facts. retain ordinary
+start without a prompt. dev-server pins the immutable release/configuration and
+verifies the intended artifact on each peer without replacing jarvis cognition.
+
+exit: literal prompts survive quotes/newlines; defaults/overrides work; partial
+launch remains inspectable without replay; fleet-installed identity is recorded.
+
+### o3–o4: native transport and supervision
+
+provider-runtime exposes declared tools, correlated callback requests/results,
+thread/turn/call identity, final output, usage, steering and interrupt during a
+stream. the codex adapter lowers them to native declarations and `item/tool/call`;
+it imports no jarvis authority or llm-tools policy. the kernel publishes the
+frozen catalog, validates callbacks, dispatches serially through its existing
+host port and validates the final structured outcome. codex owns the inner loop.
+
+reuse llm-tools schemas, validation/execution and recorder interfaces; add a public
+projection seam there only if missing. accepted-invocation/checkpoint ports must
+work before a native final answer. the input/control port stays live even when
+no callback arrives: steer compatible input, durably queue other input, observe
+owner stop promptly. an admitted write reaches settlement/reconciliation before
+interruption releases the lane. retain separate isolated one-shot memory roles.
+
+exit: multiple callbacks within one native turn; exact declared tools only;
+undeclared shell/file/web/network and permission paths remain unavailable;
+interrupt/disconnect/resume preserve call/result identity and catalog; invalid
+calls cannot execute. experimental transport needs installed-provider evidence,
+not a shell/http bridge or private-process fallback. see
+[native callbacks](issues/native-tool-callbacks.md).
+
+nexus supplies a second consumer for this shared work; its
+[dispatch contract](issues/nexus-generation-dispatch-contract.md) is part of
+o3–o4. validate incompatible requests before native submission, retain bounded
+original diagnostics, and preserve valid native terminal evidence before product
+acceptance. prove authoritative non-submission, accepted failure and successful
+strict-json research with actual tools; possible submission without a terminal
+remains uncertain. current exception names and missing acceptance events do not
+prove absence. introducing new submission evidence requires coordinated
+provider/kernel adr and spec changes, not a consumer exception workaround.
+
+preserve nexus's approved remote-shell lane and jarvis's planned contained
+callbacks; share lifecycle contracts without forcing the same tool bridge.
+nexus adoption can follow o4 and does not depend on jarvis product o5–o9.
+its queue, metadata schema, publication and short deadline stay nexus-owned.
+old uncertain admissions retain their existing recovery obligations.
+
+### o5: native main
+
+cut main to the new pins with an adr/spec change and session-compatibility rotation.
+initially preserve current event authority. persist each accepted invocation before
+dispatch and its result before the native reply, using `model_decision`,
+`read_position` and `action`. native call ids correlate replies; durable host ids
+own effects. reuse the same reads, writes, approvals and reconciliation.
+
+replace main's eighteen-turn/nineteen-call loop with one native execution window
+of up to six hours, including compatible transport deadlines. finish earlier when
+done. expiry stops new dispatch, interrupts and reconciles admitted effects;
+never put a blunt timeout around a write. return pending approval and release the
+turn; its later ordinary action-resolution event resumes reasoning without
+re-proposing the effect. callback reply/interrupt ordering belongs in this slice.
+
+o5 records a truthful interrupted conclusion without inventing a continuation
+registry; o9 adds follow-through. root admission accounts for native turns and
+usage; callbacks are not new provider turns and independent skid workers remain
+outside jarvis accounting. preserve per-tool byte/deadline/effect-attempt bounds.
+
+exit: several tools in one native turn, live steering/stop, pending approval that
+releases the turn, safe crash/reconnect and distinct timeout versus explicit stop.
+no second main. live activation also requires shared cognition repair and explicit
+owner resumption; this plan does not resume a stopped service.
+
+### o6: one main for every event
+
+owner messages, action results and scheduled wakes receive the same main tools
+and approval rules. background origin alone is not read-only and need not invent
+fresh owner input or obtain a new standing instruction. jarvis may initiate
+ordinary work and schedules, or do nothing. consequential effects still await
+exact-action approval; do not add another permission conversation before preparing
+that approval. source identity stays honest and cannot elevate permissions.
+
+replace current-owner-only write grounding, the read-only wake plan and affected
+action lineage together in the authority adr. preserve immutable arguments,
+classification, reconciliation and stop. define the common entry path for worker
+results, email and internal suggestions; migrate supported sources now. new
+source adapters/cursors belong to later source slices, not a second event engine.
+
+specify visibility: ambient events may be silent; requested reminders, action
+outcomes, failures and approval requests need an explicit notification contract.
+compatible input steers the live native turn; incompatible input queues durably;
+stop uses the control path. equal authority does not itself implement email ingress.
+
+exit: equivalent owner/wake/action events get equal capabilities; automatic writes
+need no fabricated owner text; consequential writes retain approval; incoming text
+cannot change authority; unrelated input remains serviceable during a long run.
+
+### o7: one work table and four attention states
+
+one table covers tasks, projects, commitments and things to track; descriptive
+project detail may live in a linked markdown note. jarvis automatically decides
+whether an event warrants work and manages it without approval.
+
+| active state | meaning |
+| --- | --- |
+| doing now | actually being worked on; reasonably clear completion estimate |
+| blocked | named owner and specific blocker; daily review until actionable |
+| next up | at most three priorities; invest definition/design here, without inventing work to fill empty slots |
+| backlog | lightweight capture; do not pre-plan everything |
+
+start from title, attention state, content and possibly due date plus necessary
+identity/bookkeeping. owners, blockers, estimates and links stay prose unless a
+required operation needs a field. due date and next review time differ.
+
+**unresolved:** the owner requested both automatic crud and “append-only for now.”
+settle stable identity, retained history/current view, completion/cancellation/
+archive/deletion and durable continuation-enabled/stopped semantics before schema
+implementation. append-only revisions in one table are a candidate, not a decision.
+see [work-state semantics](issues/work-state-semantics.md).
+
+reuse an item for the same work. keep its top-level coordinator ref, brief,
+estimate and results there; no row for every specialist. work owns whether a job
+may continue; actions own wait registration/outcome; the scheduler owns timed-wake
+eligibility. a prose link alone cannot enforce stopped state after restart.
+
+exit: the chosen history survives update/finish; active views obey the four
+states; stopped work remains stopped after restart. ordinary read/list supplies
+the later dreamer snapshot; daily new-note batching does not depend on o7.
+
+### o8: richer start and asynchronous wait
+
+extend existing `agent.start`; add register/cancel on `agent.wait` in the same
+family. retain `agent.send` and ordinary observation/stop/close. freeform prompts
+and worker output; no task packet, output schema or mandatory work id.
+
+reuse schedule-style `action` durability: an immutable registration receipt returns
+`watching` immediately; an out-of-mutex host watcher calls skid wait/read on the
+captured target and persists a later outcome plus ONE source-deduplicated ordinary
+action-resolution message. restart resumes observations and repairs delivery,
+never resends the worker prompt. a changed target is an outcome, not permission
+to follow its replacement. work linkage is optional context, not a second ledger.
+
+specify overall timeout and bounded observation retries; the currently inspected
+skid wait caps a call at one hour. chunk timeouts continue host observation without
+scheduled model polling. accept fast completion before registration against the
+available native observation boundary. terminal idle can be stale: report terminal
+evidence honestly, never successful completion of a newly sent request. preserve
+raw prose and action/ref/status metadata. cancel stops observation, not the worker.
+
+repair obsolete `--terminal` read/stop flags without losing requested mode or
+captured ref; `--history` is native-only. see [cli repair](issues/skid-terminal-flags.md)
+and [wait contract work](issues/agent-wait.md).
+
+exit: register, serve another owner message, receive one later result; repeat
+across restart. distinguish fast completion, stale idle, timeout, target change,
+interruption and unavailable evidence. no mutex held while waiting.
+
+### o9: continuation and coordination
+
+after six-hour interruption and effect reconciliation, eligible unfinished work
+gets another run from canonical context and captured refs. explicit stop first
+disables continuation durably, then interrupts. queued events and startup respect
+that state; only explicit resumption rearms stopped work. native session loss
+cannot erase work or authorize replaying an effect. use the existing scheduler
+and o7 work state, not a continuation service.
+
+prompt default: owner → jarvis → coordinator → specialists. substantial work
+normally gets one coordinator; a simple job can use one worker. research,
+inspection and explanation qualify alongside coding. prefer `gpt-6-astra` with
+`xhigh` for coordination and `gpt-6-sol` with `xhigh` for individual work. these
+are declared prompt defaults, not capability classes or mandatory choices.
+jarvis/coordinator choose model, freeform brief, fanout and verification. the owner
+can inspect/interact directly through skid; jarvis remains available.
+
+submission is not completion; a native turn ending is not proof of task success.
+no hierarchy-depth policy, descendant registry, child budgets, worker accounting
+or subtree cancellation is introduced. exit: observed results integrate into
+normal main turns; unfinished work continues safely; explicitly stopped work
+stays stopped across restart and pending approval never repeats an effect.
+
+## memory delivery
+
+one corpus contains source evidence, append-only notes and derived summaries.
+all connected agents can search/open; admitted connected agents and jarvis main
+can save notes directly. no recaller or context push. personal/work labels never
+partition recall. source-only extraction batches separate conversations by size
+or age; dreaming begins with pending notes and MAY search. both use disposable
+inference and atomic progress. use the detailed
+[contract](universal-memory.md), not duplicated schema/API prose here.
+
+| unit | implementation boundary / done when |
+| --- | --- |
+| m1 | provider-runtime `agent_runtime/archive.py` and codecs: complete listing/heads, read-only complete events, stable capture-relevant identity/digest, internal marking and memory-tool echo suppression; validate consumed fields while tolerating unrelated metadata; prove installed-provider mappings |
+| m2 | jarvis `memory_sources.py`, collector/api, schema/migration: atomic automatic activation and event/checkpoint commits, stateless host collectors, parked errors and operator status; retry/crash preserves boundaries and stored evidence |
+| m3 | `memory.py`, workers, rebuild and embeddings: one append, direct source lineage, bounded nonoverlapping extraction and pending-note summary settlement; public production llm-tools transient read recorder; zero-search/empty completion, bounded fresh retries and no background replay journal |
+| m4 | retrieval, tool adapters and composition: one keyword/vector rank-fusion pipeline, global policy/client/pool/gates, one-attempt embedding, shared search/open/save, main save identity/recovery, private mcp and admission; resolve the pinned mcp-sdk constraint, not a reranker-selection phase |
+| m5 | messages/checkpoints/service/migration + dev-server: drain old memory work, preserve existing rows, cut old remembered_at/recaller paths, install private endpoint/collectors/profile config and activate admitted lanes online; no historical import or dual reader |
+
+m2–m4 can be developed against frozen public contracts; live capture requires m1
+proof. revise one shared policy/primitive at its owner, not copies in each unit.
+retain complete parent and child archives and tool payloads: those feature cuts
+were considered but NOT approved. keep source/identity suppression before capture
+and one undivided corpus with independent admission/connection permissions.
+
+m5 uses one local pre-migration dump/runtime copy and the existing stopped cutover.
+its exact restore limits and admission-charge drain are in the memory contract.
+no backup platform, native-memory disablement or automatic history import. full
+acceptance includes all declared hosts/profiles; disabled/unqualified lanes are
+reported, not passed off as universal coverage.
+
+### memory and native-main integration
+
+these tracks share invocation identity, source publication, library pins and
+composition, not a new agent layer. coordinate shared-file changes and serialize
+their release cutovers; do not maintain two implementations to support arbitrary
+merge order.
+
+- o4/o5 preserve a host-owned accepted-invocation position BEFORE every callback
+  dispatch and a recorded result BEFORE replying. this supplies internal note
+  idempotency and search recovery. raw native call ids are not durable effect ids.
+- source publication must reconstruct consumed/produced messages and source tool
+  observations from durable host evidence under either deployed execution model.
+  retrieved memory/save bodies remain content-free references; cognition remains
+  excluded at native capture. update that ONE adapter during the native cutover.
+- memory retains current write authority, including main's full-plan canonical-note
+  exception: action-resolution turns can save without owner grounding. scheduled
+  turns remain read-only. o6 extends capabilities to scheduled/new origins outside
+  that full plan; amend affected grants there, never silently in m4.
+- native main changes only main's loop. rememberer/dreamer retain their isolated
+  transient path; callbacks do not require restoring background inference journals.
+- nine tables is memory against the six-table baseline; o7 contributes the one
+  work table. sequence actual migrations and revalidate admission/session revisions
+  against the deployed predecessor, preserving canonical rows and unexpired charges.
+
+## subsequent product slices
+
+these are approved direction, with the listed design still due. none is a
+prerequisite for delegation or initial universal memory. accept a focused contract
+when its implementation begins; do not turn every open question into present code.
+
+### private notes repository and rolodex
+
+jarvis owns a private github markdown repository with automatic read/create/edit/
+move/organize/delete, including self-initiated work. git records revisions; no
+notes approval. support project briefs, procedures, research, drafts and one
+natural-language document per person; no people table.
+
+specify confined access, search/listing, stable cross-links, move/delete behavior,
+revision/history and git sync. memories/work/documents can link each other without
+duplicating current task state. editable notes confer no authority; no generic
+filesystem access, general document platform or implied drive/docs integration.
+
+### complete and continuable searches
+
+support further pages and continued scans across runs, especially gmail, notes
+and work. specify collection/time scope, changing-source behavior, cursor/progress
+ownership and truthful omissions. larger hit limits do not establish completion;
+never promise snapshots a connector lacks. duplicate delivery/continuation cannot
+duplicate task capture or effects. reuse ordinary search/read and durable context.
+
+### event sources, suggestions and recurring work
+
+build actual email ingress, polls, timers and internal suggestions on o6's common
+event path. neither equal capabilities nor a prompt implements a source adapter.
+rememberer/dreamer may originate useful thoughts, but main decides whether to act,
+record work, schedule, seek exact approval or ignore them. route independent
+background suggestions through durable main messages; if an actual host invocation
+already exists, its ordinary result may carry them. this introduces no callable
+rememberer/dreamer tool or competing coordinator.
+
+specify sources/cursors and deduplication; recurrence, timezone, overdue/downtime
+behavior; daily blocked-item review; finite recurring spend under global admission;
+notification versus silence; cancellation and pending-approval relationships;
+stop/pause/resume across new triggers and running work; and prevention of loops
+from unchanged polls, repeated suggestions or jarvis's own outputs. work, action
+and scheduler each retain one canonical responsibility. no lesser background agent.
+
+### dreamer work context
+
+after m3 and o7, add a bounded dated projection of doing now, blocked and next up
+through ordinary work reads, fixed for one invocation with explicit omissions.
+a retry can read current state. work is attention context, not summary evidence;
+summary lineage still ends at notes. main alone changes work and rechecks its
+current state before acting on a suggestion. no work tool grant or task planning
+inside memory roles. work changes do not trigger dreaming; daily blocked review
+is a separate main duty. preserve personal, scientific and creative coverage.
+
+### attachments and original storage
+
+accept discord/gmail images and documents, initially including receipt photos,
+pdfs, text and common document formats. enumerate exact formats/limits, visual
+versus text reading, durable capture/access, retention and failure behavior.
+retain addressable originals in private cloudflare storage; r2 is the candidate,
+not a provisioned service. preserve page/source references. expiring transport
+links are not durable originals or backup of jarvis state. link binaries from
+notes/memory rather than putting them into the markdown repository.
+
+jarvis uses ordinary tools to interpret, summarize, save, capture work or prepare
+a reply. conventions should avoid repeated instructions; ask when intended handling
+or source detail is unclear. audio and harder attachments remain v3+.
+
+### budget integration
+
+when specifying this slice, **spawn the owner-requested subagent** to inspect the
+current budget repository/api/ingestion surfaces. do not reuse the stale claim that
+it only supports load/save, or expose private finance data/credentials. this is a
+specific investigation requirement, not a mandatory runtime agent procedure.
+
+the budget app owns records, arithmetic and reconciliation. define supported
+reads/writes, duplicate handling, source-linked receipts, ambiguity/correction and
+replay. journey: upload → retain original → extract → record expense once through
+its actual api → linked confirmation. expense bookkeeping does not authorize a
+payment; consequential financial actions keep the defined approval boundary.
+no competing ledger in notes or memory.
+
+### deferred from universal memory
+
+separately specify historical imports (pre-activation lanes, legacy codex homes,
+old canonical jarvis messages and old-note lineage), including deduplication,
+provenance, extraction cost and order; off-machine backup; and disabling or
+reconciling native automatic memories. retained native history preserves an import
+opportunity, not proof of capture. preserve existing messages/notes in the meantime.
+
+forgetting/exclusion is outside the prototype and is not promised v2 work.
+automatic external context injection was rejected, not deferred; future push
+would require a new authority design. learned reranking may be reconsidered only
+from measured retrieval failures; keep one current ranking path.
+
+other earlier ideas remain uncommitted/outside this delivery: extra discord
+channels, api-backed cognition, model-generated program execution, selected
+onepassword access, jarvis-to-nexus product integration, android and generic
+computer use. nexus's shared provider/kernel contract work remains in o3–o4.
+revisit other ideas only for an observed need with their own contract. notes do
+not imply a google-drive integration.
+
+## decisions and verification
+
+remaining decisions have owners; do not reopen settled broad autonomy, automatic
+notes, cloudflare originals, nonblocking waits, freeform delegation or explicit-stop
+precedence merely because their implementation is incomplete.
+
+| before implementing | decision / evidence owner |
+| --- | --- |
+| o3–o5 | installed native callback containment, outstanding-call/reply/interrupt behavior and shared-cognition connection |
+| o6 | replacement authority/lineage and notification rules for equal-capability turns |
+| o7 | append-only versus crud, current view, terminal/deletion semantics, continuation/stop representation |
+| o8 | exact register/cancel inputs, observation boundary, overall timeout and partial evidence |
+| o9 / new event sources | recurring eligibility/spend, notification, cancellation/approval coupling, stopped work and self-trigger suppression |
+| m1–m5 | actual provider mappings/internal markers, declared lane controllers/sharing, mcp sdk compatibility, shared embedding retry repair |
+| notes / attachments / budget | stable references/sync; formats/storage/retention; fresh budget api audit and ingestion contract |
+
+[adr 0046](decisions/0046-reset-testing.md) remains in force. run `scripts/verify`
+for static/build checks; do not claim behavioral acceptance from it. memory's
+scoped exception permits only its small capture/retry and memory-completion checks
+plus focused synthetic live boundary evidence. orchestration must obtain its own
+authorized verification scope through the testing redesign or an explicit scoped
+contract; it cannot borrow memory's exception. other repos follow their own rules.
+no old suite, replacement framework or recurring fleet qualification is added here.
+
+integrated acceptance journeys, when their owning verification is authorized:
+
+- one client's new conversation/direct note becomes searchable from another host;
+  capture/extraction/dreaming interruptions do not lose or duplicate committed work.
+- jarvis delegates substantial research through skid, stays responsive, receives
+  one asynchronous observation after restart and distinguishes evidence from success.
+- a native run reaches six hours: reconcile then continue eligible work; explicit
+  stop survives restart and prevents continuation or repeated effects.
+- an email or memory-role suggestion may create useful work without forged owner
+  input; irrelevant input creates no make-work; consequential communication still
+  waits for exact approval.
+- project review reflects real active work/estimates, named blockers with daily
+  review, at most three next priorities and completed work outside the active view.
+- a receipt survives as an addressable original and becomes one source-linked
+  expense through the budget app, including repeated delivery and correction.
+
+promote slices through their own adr/spec changes, exact pins and removal of old
+paths. inspect shared-library impact. qualify transport, then effect durability,
+then authority, then restart/stop behavior. preserve existing user work. stop
+admission and reconcile outstanding effects before incompatible pins/migrations;
+code rollback never reverses external effects or new canonical data. use the
+operations runbook and the memory contract's exact cutover rules.
+
+## recorded integration evidence
+
+these are earlier observations, not current release assertions. refresh them in
+the owning slice: codapt2 was inspected at
+`38452c8d6b14ac6ea0d180f4450350946a092fcd` (fetched main
+`c0e79fb566d8fc0be8a0e562750f09355254eac3`); its native turn, six-hour interruption
+and stop precedence informed o3–o5. do not copy its shell/workspace-http bridge.
+skid source was `564d32fe1743d9ba5d8478d6ef2095633b1dd240`, installed client
+v0.10.7 / `240141b`; source and installed bytes differed. inspect `../skid-v1`,
+not the stale `skidbladnir` checkout. current live facts belong in issue/qualification
+records, not duplicated status claims throughout the roadmap.

@@ -16,7 +16,14 @@ scope, records results against that scope, and replaces the temporary policy in
 spec, acceptance, and repository instructions. begin the design in the next pr;
 this issue does not prescribe a framework, test count, or restoration of old tests.
 
-2026-09-28: [adr 0051](../decisions/0051-universal-memory.md) authorizes temporary
-integration/live red-green-refactor checks for universal memory only, followed by
-deletion after recorded acceptance. that feature exception does not resolve this
-general redesign issue.
+current scoped exception: the [universal-memory contract](../universal-memory.md),
+as simplified by [adr 0062](../decisions/0062-simplify-memory-policy-and-retrieval.md),
+retains two small regression groups: capture/retry and memory completion.
+verify atomic capture and memory progress, bounded background retries, direct-note
+idempotency and the unchanged main recovery boundaries. background memory jobs
+need no frozen-batch replay or unknown-paid-call tests; interrupted inference may
+repeat paid work. targeted review and focused live checks replace per-feature
+ceremony; remove exploratory helpers. these checks remain unimplemented and are
+not a general replacement suite. focused checks for automatic activation, native
+mapped-field validation, deterministic fusion, the shared search gate and seed-only
+dreaming need no new harness or model-selection exercise. this issue stays open.

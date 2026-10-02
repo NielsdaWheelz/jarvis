@@ -12,6 +12,15 @@ and Approve/Deny execution. Slice 7 owns production deployment, recovery
 qualification, and the seven-day owner acceptance period. Backup and restore
 are deliberately deferred beyond v1.
 
+accepted target, not yet shipped: [universal memory](docs/universal-memory.md)
+is the single current implementation contract; [adr 0062](docs/decisions/0062-simplify-memory-policy-and-retrieval.md)
+records its latest simplification. shared keyword/semantic search uses deterministic
+rank fusion; agents choose their retrieval steps. admitted native lanes activate
+automatically after a complete inventory. capture and memory completion are atomic,
+while interrupted background inference may repeat paid work. main's durable
+recovery and direct-note idempotency remain.
+the descriptions below record the existing v1 baseline, not the unshipped target.
+
 ## V1 in one paragraph
 
 Jarvis converses naturally in Discord, recalls relevant memories before every
@@ -51,21 +60,23 @@ read_position
    plus the physical schema and rebuild contract.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
-5. [Implementation plan](docs/implementation-plan.md) — ordered, independently
-   acceptable slices.
+5. [Roadmap and implementation plan](docs/implementation-plan.md) — the single
+   active handoff for memory, orchestration and subsequent product slices.
 6. [Decision records](docs/decisions/) — why the current design exists.
 
 When documents disagree, `SPEC.md` wins. Changing a frozen decision requires an
 ADR that also updates every affected normative document in the same change.
 
-the [v2 roadmap and design handoff](docs/v2-roadmap.md) records the approved next
-product direction, owner corrections, proposed slices, and unresolved design
-choices. it does not replace the current v1 specification.
+the [integrated roadmap and plan](docs/implementation-plan.md) brings approved
+product direction, delivery dependencies, open decisions and acceptance together.
+it distinguishes the accepted memory contract from v2 slices still needing their
+own specification. retired v1 plans, qualification reports and the completed cleanup
+log live in git history; current contracts and operations remain in the working tree.
 
 ## Status
 
 the owner-approved [testing reset](docs/decisions/0046-reset-testing.md) removes
-the old suite and qualification machinery. historical slice reports below do
+the old suite and qualification machinery. historical reports in git do
 not establish current behavioral verification. the next pr begins the
 [testing redesign](docs/issues/testing-redesign.md).
 

@@ -4,7 +4,21 @@ problem: the [universal memory contract](../universal-memory.md) needs
 provider-runtime archive codecs that enumerate and read every configured native
 home without resuming, give stable never-reused event identities, mark jarvis's
 own cognition sessions before they persist, and recognize jarvis memory-tool
-results. none of this exists yet.
+results. `memory_save_note` call arguments and results/errors must also become content-free
+references, even after failed saves or missing receipts; otherwise retrieved or
+submitted prose can re-enter extraction as new evidence. none of this exists yet.
+
+the current [capture contract](../universal-memory.md#3-native-capture), simplified
+by [adr 0062](../decisions/0062-simplify-memory-policy-and-retrieval.md), accepts
+complete normalized events atomically; the central service then stores 8,000-byte
+chunks. oversized events park capture until repaired, without truncation or skip.
+changed history, conflicting identity or a lost activation boundary also parks
+and reports the conversation; there is no automatic checkpoint reset or replay.
+an admitted collector activates the lane online after a complete inventory, with
+receipt and per-conversation baselines in one transaction. no temporary inventory
+file, manual activation or jarvis stop is required; an incomplete inventory may
+need a quiet native lane. validate mapped native fields strictly and ignore
+unrelated additive fields; this does not relax closed model or api schemas.
 
 impact: no native lane can activate until its archive capabilities are qualified
 on the installed provider. this is not a native-version allowlist.
@@ -30,11 +44,13 @@ evidence (2026-09-28):
 - provider-runtime hard-codes its client name, so `originator` does not identify
   jarvis threads.
 
-resolved when: package a's schema-strict codecs pass the contract's coverage,
-complete activation inventory, inclusive reread, identity, rewrite, branch, gap,
-internal-marking, memory-tool and child-result
-recognition journeys against the installed provider versions on every lane that
-is to be admitted, including closed and archived conversations; a dated report
-records exact revisions, provider versions and results. no raw-transcript parsing
-outside provider-runtime, screen capture, resumed-thread read or legacy-reader
-fallback.
+resolved when: codecs validate every mapped native field and demonstrate complete
+activation inventory and read-only coverage, stable event identity, internal
+marking, memory-tool echo suppression (including failed saves) and child-result
+recognition on installed providers, including closed and archived conversations.
+focused capture/retry checks prove automatic activation and complete-event
+atomicity. harmless additive fields are ignored; oversized, changed or conflicting
+history parks without advancing the checkpoint. confirm each admitted lane's
+mapping and record the observed versions and results; do not build a recurring
+fleet qualification matrix. no raw-transcript parsing outside provider-runtime,
+screen capture, resumed-thread read or legacy-reader fallback.

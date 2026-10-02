@@ -12,6 +12,28 @@ plan, and scheduled-wake turns retain the original ten external reads without
 Codex control. Run Jarvis as a
 dedicated unprivileged OS user in UTC.
 
+accepted target, not yet implemented: [universal memory](universal-memory.md) is
+the single current implementation contract; [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md)
+records its latest simplification. use that contract for capture, background
+memory recovery and cutover. the operations below otherwise describe the v1
+baseline; main's effect recovery and paid-search barriers remain unchanged.
+
+the target keeps one sharing declaration referenced by lanes and generates their
+bearers, which remain stable until explicit rotation. complete events commit
+atomically; oversized or conflicting history parks capture for repair, never
+automatic truncation or checkpoint reset. background rememberer/dreamer runs may
+repeat paid inference after interruption, within bounded retries and global
+admission. their notes/bookmarks and summaries/pending flags commit atomically.
+these rules do not weaken direct-note idempotency or main's durable recorder.
+
+an admitted collector activates its native lane online only after obtaining a
+complete inventory; receipt and conversation baselines commit atomically. there
+is no activation file, manual activation command or jarvis stop. an incomplete
+inventory may require a quiet native lane before retry. operator cli diagnostics
+remain; the shared mcp has no status tool. search uses one shared client and gate
+for all callers, with common policy values owned once in checked-in code and no
+per-lane tuning or reranker provider/configuration.
+
 ## Approved production target
 
 Slice 7 deployed the exact accepted release as a host-native systemd service
@@ -28,10 +50,11 @@ database roles and migrations, the systemd unit, and recovery.
 Nexus production state is out of scope even though both systems are owned by the
 same user.
 
-The dated [production deployment report](qualification/2026-09-08-production-deployment.md)
-records the completed exact-target housekeeping, UTC convergence, installed
-PostgreSQL/pgvector qualification, containment correction, and activation. The
-seven-day owner acceptance period remains in progress. The pending host reboot is explicitly deferred:
+the [2026-09-08 deployment report in git history](https://github.com/NielsdaWheelz/jarvis/blob/42f1fa21c3d2f687a3f3fafc9366fea41023e0cb/docs/qualification/2026-09-08-production-deployment.md)
+records that release's housekeeping, host qualification and activation, not current
+readiness. the [shared-cognition issue](issues/codex-private-process.md) records
+the later stopped state; no completed seven-day owner acceptance is established.
+The pending host reboot is explicitly deferred:
 Jarvis does not require it, and a reboot would terminate the owner's current
 tmux sessions and live Codex processes. V1 deliberately has no backup or restore
 path and accepts possible total loss of local Jarvis state.
@@ -440,7 +463,7 @@ no database and runs no behavioral tests.
 [adr 0046](decisions/0046-reset-testing.md) removes the test suites, fixtures,
 evaluation corpus, and qualification harnesses. their execution gates are
 suspended pending the [testing redesign](issues/testing-redesign.md). dated
-qualification reports remain historical evidence for their recorded revisions;
+qualification reports in git remain evidence for their recorded revisions;
 static and build success does not establish current behavioral qualification.
 
 ## shared runtime and fleet control
@@ -483,6 +506,14 @@ that exposed that retirement is preserved in ADR 0028; do not retry it as a
 supported route or switch Jarvis to API-key authentication.
 
 ## memory maintenance
+
+the [current dreamer contract](universal-memory.md#daily-dreaming) selects pending
+notes, not a date window. manual dreaming performs one bounded batch and reports
+the backlog; no pending notes skips provider i/o. stopped rebuild atomically wipes
+summaries and rearms notes before one bounded pass. disposable inference leaves
+no journal or unknown-paid-call barrier to clear. later daily sweeps drain the
+remainder. the command descriptions below record the v1 baseline and retain their
+stopped-service rule.
 
 Run one manual dream only while the service is stopped. It takes the deployment
 lock, skips provider I/O when raw memory is empty, and prints counts only:
@@ -621,10 +652,13 @@ rows as part of that repair.
 
 ## Data durability and logs
 
-the accepted [universal-memory target](universal-memory.md) adds stopped exclusion
-and logical erasure procedures and a cutover-only database snapshot when
-implemented. off-machine backup and native automatic-memory changes remain
-deferred to v2; this section is the v1 baseline.
+the [target cutover](universal-memory.md#9-migration-and-hard-cutover) takes one
+local pre-migration `pg_dump` with the necessary runtime/configuration copy. this
+is a cutover recovery artifact, not ongoing or off-machine backup. follow the
+current contract's restore limits; do not treat code rollback as data rollback.
+activation stays in postgres. sources and notes stay append-only; revocation
+stops new capture/direct saves without removing already admitted material.
+this section otherwise records the v1 baseline.
 
 V1 has no backup, restore command, Restic repository, R2 credential, backup
 database role, or backup timer. There is no `jarvis-restic-password`; do not

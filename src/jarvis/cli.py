@@ -196,8 +196,8 @@ def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
 
 
-def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
-    """Create the private provider-state directory; host truth is in Postgres."""
+async def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
+    """Prepare private provider state and a canonical fresh deployment pause."""
 
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     directory = settings.runtime_state_directory
@@ -208,6 +208,18 @@ def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
             directory.mkdir(mode=0o700)
         except OSError as exc:
             raise StartupDefect("runtime state directory could not be created") from exc
+    require_native_files(directory)
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await require_native_data(
+                database, conversation_id=str(settings.discord.channel_id)
+            )
+            await MessageStore(database).initialize_paused(
+                str(settings.discord.channel_id)
+            )
+    finally:
+        await engine.dispose()
 
 
 async def recover_startup_actions(
@@ -636,11 +648,29 @@ async def stopped_native_cutover(settings: Settings, host: CodexHostConfig) -> i
         await engine.dispose()
 
 
+async def _require_paused(database: Database, settings: Settings) -> None:
+    require_native_files(settings.runtime_state_directory)
+    scope = str(settings.discord.channel_id)
+    await require_native_data(database, conversation_id=scope)
+    if not await MessageStore(database).paused(scope):
+        raise StartupDefect("activation requires a canonical deployment pause")
+
+
+async def check_paused(settings: Settings) -> None:
+    """Check stopped canonical pause without opening a provider or connector."""
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await _require_paused(database, settings)
+    finally:
+        await engine.dispose()
+
+
 async def check_activation(
     settings: Settings,
     host: CodexHostConfig,
 ) -> tuple[tuple[UUID, str, str, str], ...]:
-    """Classify unfinished actions and undrained delivery; read-only."""
+    """Classify unfinished execution authority; read-only."""
 
     deny_same_identity_process_inspection()
     engine = create_engine(settings.database_url.get_secret_value())
@@ -649,6 +679,7 @@ async def check_activation(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
+            await _require_paused(database, settings)
             actions = ActionStore(database)
             agent_runtime = build_agent_runtime(
                 provider_state_root=settings.runtime_state_directory,
@@ -679,46 +710,24 @@ async def check_activation(
                                 "select id, status, tool_name from action "
                                 "where status = any(:statuses) order by created_at, id"
                             ),
-                            {"statuses": ["queued", "awaiting_approval", "executing"]},
-                        )
-                    ).all()
-                # A catalog cut cannot strand an old resolution or its delivery.
-                # Existing messages stay canonical; this check only reports IDs.
-                unreported = await actions.unreported_terminal(
-                    source_conversation_id=str(settings.discord.channel_id), limit=100
-                )
-                async with database.connect() as connection:
-                    undrained = (
-                        await connection.execute(
-                            text(
-                                "select id, role from message where "
-                                "(role = 'assistant' and source_message_id is null) or "
-                                "(source = 'action' and processed_at is null) "
-                                "order by created_at, id"
-                            )
+                            {
+                                "statuses": [
+                                    "queued",
+                                    "awaiting_approval",
+                                    "executing",
+                                    "uncertain",
+                                ]
+                            },
                         )
                     ).all()
                 verdicts: list[tuple[UUID, str, str, str]] = []
                 for action_id, status, tool_name in unfinished:
                     verdict = (
                         "in_flight"
-                        if status == "executing"
+                        if status in {"executing", "uncertain"}
                         else await _pending_action_verdict(actions, plan, action_id)
                     )
                     verdicts.append((action_id, status, tool_name, verdict))
-                verdicts.extend(
-                    (
-                        value.id,
-                        value.status,
-                        str(value.tool_name),
-                        "undrained_resolution",
-                    )
-                    for value in unreported
-                )
-                verdicts.extend(
-                    (identifier, role, "message", "undrained_delivery_or_resolution")
-                    for identifier, role in undrained
-                )
                 return tuple(verdicts)
             finally:
                 await agent_runtime.close()
@@ -831,6 +840,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the Jarvis Discord service")
     commands.add_parser("initialize-state", help="initialize private host state")
+    commands.add_parser("check-paused", help="check the stopped canonical pause")
     commands.add_parser(
         "check-activation",
         help="check unfinished actions against this release while stopped",
@@ -861,7 +871,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "serve":
             asyncio.run(serve(settings, host))
         elif arguments.command == "initialize-state":
-            initialize_state(settings, host)
+            asyncio.run(initialize_state(settings, host))
+        elif arguments.command == "check-paused":
+            asyncio.run(check_paused(settings))
+            print("canonical deployment pause confirmed")
         elif arguments.command == "cutover-native":
             count = asyncio.run(stopped_native_cutover(settings, host))
             print(f"native cutover completed: converted_actions={count}")
@@ -919,6 +932,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 __all__ = [
     "StartupDefect",
     "check_activation",
+    "check_paused",
     "dream_once",
     "initialize_state",
     "main",

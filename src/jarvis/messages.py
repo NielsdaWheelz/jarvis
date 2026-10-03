@@ -112,6 +112,37 @@ class MessageStore:
     def __init__(self, engine: Database) -> None:
         self._engine = engine
 
+    async def initialize_paused(self, source_conversation_id: str) -> None:
+        """Prepare one empty conversation's canonical pause without delivery."""
+        _nonempty(source_conversation_id, "source conversation id")
+        async with self._engine.begin() as connection:
+            await lock_conversation(connection, source_conversation_id)
+            existing = await connection.scalar(
+                select(message.c.id)
+                .where(message.c.source_conversation_id == source_conversation_id)
+                .limit(1)
+            )
+            if existing is not None:
+                raise PersistenceDefect("conversation state is already initialized")
+            timestamp, identifier = datetime.now(UTC), uuid4()
+            sequence = await connection.scalar(control_sequence.next_value())
+            await connection.execute(
+                postgresql_insert(message).values(
+                    id=identifier,
+                    role="owner",
+                    text="pause",
+                    source="initialize_state",
+                    source_conversation_id=source_conversation_id,
+                    source_message_id=str(identifier),
+                    created_at=timestamp,
+                    processed_at=timestamp,
+                    request_state="completed",
+                    control_kind="pause",
+                    control_sequence=sequence,
+                    control_targets=[],
+                )
+            )
+
     async def insert_waking(
         self,
         *,

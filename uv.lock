@@ -507,10 +507,10 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.1" },
     { name = "discord-py", specifier = "==2.7.1" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=b91a9e41269ec721ed0d7403f2baaec30cb6764e" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=9d57e8945be5b26397c5a3942612f81a190f8db4" },
     { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=2adb9790fc7a54de5342effaca9391c2f3d24ff9" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=98913f35ab4c9bef2af85d90fd6e4bed747bd64c" },
+    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=e1498d8382f192ae664ae9790b682a8e8a8b0d38" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.43" },
@@ -565,7 +565,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=b91a9e41269ec721ed0d7403f2baaec30cb6764e#b91a9e41269ec721ed0d7403f2baaec30cb6764e" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=9d57e8945be5b26397c5a3942612f81a190f8db4#9d57e8945be5b26397c5a3942612f81a190f8db4" }
 dependencies = [
     { name = "llm-tools" },
     { name = "provider-runtime" },
@@ -861,7 +861,7 @@ wheels = [
 [[package]]
 name = "provider-runtime"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=98913f35ab4c9bef2af85d90fd6e4bed747bd64c#98913f35ab4c9bef2af85d90fd6e4bed747bd64c" }
+source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=e1498d8382f192ae664ae9790b682a8e8a8b0d38#e1498d8382f192ae664ae9790b682a8e8a8b0d38" }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },

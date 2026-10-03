@@ -16,7 +16,8 @@ wait each delivered request. topic changes preserve unfinished work.
 add native_attempt, native_invocation and native_input_delivery, message request/
 control fields and action supersedes_action_id. original proposals, request bytes,
 native evidence and callback receipts remain immutable. native terminal recovery
-requires original sealed provider evidence, never parent product state.
+requires original sealed provider evidence and frozen output schema/input lineage,
+never parent product state or reconstruction of a current callback plan.
 
 external write schemas contain request_ref, existing_action_ref and the original
 typed arguments. action.arguments stores that entire exact input; authority and
@@ -38,3 +39,10 @@ costs: reasoning may repeat after connection loss; serial dispatch limits throug
 native journal commits add latency; conservative write reuse may require new owner
 intent. new acceptance probes are removed only after integrated final-tree proof,
 leaving less automated regression coverage by the owner's explicit choice.
+
+contained host amendment: the owner selected a separate personal endpoint under
+kernel adr 0011. stock 0.160.0, provider-owned complete restricted startup
+catalogue and public version/config preflight replace latest-stable native
+admission for this endpoint only. systemd owns the additional host and private
+socket mount namespace; no worker credential copy or unrelated server change.
+the fixed catalogue costs automatic model discovery and requires explicit updates.

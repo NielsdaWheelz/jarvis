@@ -1,9 +1,9 @@
 {
-  "application_session_contract_revision": "jarvis-skid-captured-target-v1",
+  "application_session_contract_revision": "jarvis-contained-native-v1",
   "dependencies": {
-    "llm-agent-kernel": "8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342",
-    "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "69d41d38a3d290e7ae3bde9b57556dda41e1b2f1"
+    "llm-agent-kernel": "b91a9e41269ec721ed0d7403f2baaec30cb6764e",
+    "llm-tools": "2adb9790fc7a54de5342effaca9391c2f3d24ff9",
+    "provider-runtime": "98913f35ab4c9bef2af85d90fd6e4bed747bd64c"
   },
   "qualified_models": [
     "gpt-5.6-terra"
@@ -11,7 +11,7 @@
   "role_contract_revisions": {
     "automatic_write_gate": "jarvis-write-gate-skid-v1",
     "dreamer": "jarvis-dreamer-slice-4-v6",
-    "main": "jarvis-main-skid-v1",
+    "main": "jarvis-main-native-v1",
     "recaller": "jarvis-recaller-slice-4-v17",
     "rememberer": "jarvis-rememberer-slice-3-v1"
   },

@@ -564,7 +564,7 @@ invent or provision one. Loss or unrecoverable corruption of the devbox, its
 disk, or the Jarvis database can permanently lose conversation, memory, action,
 and runtime state. This is an explicit one-user-prototype trade-off. Add backup
 as a later slice when retained production state justifies its operational and
-qualification cost; doing so does not require changing the six application
+qualification cost; doing so does not require changing the nine application
 tables.
 
 Ordinary logs contain event types, bounded IDs, counts, and reason codes

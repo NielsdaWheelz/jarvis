@@ -56,9 +56,9 @@ from jarvis.terminal import JarvisTerminal
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342",
-    "llm-tools": "9e6d155f3b64f03495911435b7cae8b8d131f9a2",
-    "provider-runtime": "69d41d38a3d290e7ae3bde9b57556dda41e1b2f1",
+    "llm-agent-kernel": "b91a9e41269ec721ed0d7403f2baaec30cb6764e",
+    "llm-tools": "2adb9790fc7a54de5342effaca9391c2f3d24ff9",
+    "provider-runtime": "98913f35ab4c9bef2af85d90fd6e4bed747bd64c",
 }
 QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)
 
@@ -201,7 +201,10 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "Maps route warning in the answer. Give brief progress when useful evidence "
     "arrives, "
     "your direction changes, or you need the owner. Progress reports observations, "
-    "never approval, completion, or a promise of uncommitted work. A new topic reaches "
+    "never approval, completion, or a promise of uncommitted work. Public commentary "
+    "is brief plain prose for the owner. The final JSON response envelope, "
+    "input_outcomes and action-reference bookkeeping belong only in your final "
+    "response; never put that protocol in a progress update. A new topic reaches "
     "you immediately; answer or reprioritize it while retaining unfinished requests. "
     "Use each canonical owner input_id as request_ref for Writes. existing_action_ref "
     "is null for new intent; reuse an exact recorded action reference during recovery. "

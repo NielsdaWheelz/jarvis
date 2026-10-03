@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import importlib
+import importlib.metadata
 import json
 import os
 import shlex
+import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +22,8 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import httpx
-from llm_agent_kernel import CancellationToken, CodexProvider
+from llm_agent_kernel import CancellationToken, CodexProvider, NativeDispatchLineage
+from llm_tools import ToolId
 from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -31,12 +35,14 @@ from jarvis.config import DiscordSettings
 from jarvis.db import (
     create_engine,
     message,
+    model_decision,
     native_attempt,
     native_input_delivery,
     native_invocation,
     read_position,
 )
 from jarvis.decisions import PostgresModelDecisionJournal
+from jarvis.definitions import EXPECTED_GIT_PINS
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import KernelRuntime
@@ -49,12 +55,106 @@ from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.settings import Settings
 from jarvis.write_dispatch import WriteToolDispatcher
-from jarvis.write_gate import AutomaticWriteGate
+from jarvis.write_gate import (
+    AutomaticWriteGate,
+    EffectAudience,
+    EffectTarget,
+    GateOwnerInput,
+    WriteEffectDescriptor,
+)
+
+
+def artifact_manifest():
+    root = Path(__file__).resolve().parents[2]
+    packages = {}
+    for module_name, distribution_name in (
+        ("jarvis", "jarvis"),
+        ("llm_agent_kernel", "llm-agent-kernel"),
+        ("llm_tools", "llm-tools"),
+        ("provider_runtime", "provider-runtime"),
+    ):
+        distribution = importlib.metadata.distribution(distribution_name)
+        origin = importlib.import_module(module_name).__file__
+        direct_url = json.loads(distribution.read_text("direct_url.json") or "{}")
+        assert "site-packages" in str(origin), "live proof requires installed code"
+        assert not direct_url.get("dir_info", {}).get("editable", False)
+        if distribution_name in EXPECTED_GIT_PINS:
+            assert (
+                direct_url["vcs_info"]["commit_id"]
+                == EXPECTED_GIT_PINS[distribution_name]
+            )
+        packages[distribution_name] = {
+            "origin": origin,
+            "version": distribution.version,
+            "direct_url": direct_url,
+            "installed_files_sha256": {
+                str(path): hashlib.sha256(
+                    distribution.locate_file(path).read_bytes()
+                ).hexdigest()
+                for path in distribution.files or ()
+                if path.suffix != ".pyc" and "__pycache__" not in path.parts
+            },
+        }
+    source = root / "src"
+    source_files = {
+        str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted((source / "jarvis").rglob("*"))
+        if path.is_file() and path.suffix in {".py", ".json"}
+    }
+    consumer = importlib.metadata.distribution("jarvis")
+    assert all(
+        hashlib.sha256(
+            consumer.locate_file(Path(path).relative_to("src")).read_bytes()
+        ).hexdigest()
+        == digest
+        for path, digest in source_files.items()
+    ), "installed consumer must match the reviewed source bytes"
+    return {
+        "consumer_head": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip(),
+        "consumer_dirty_paths": subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=root, text=True
+        ).splitlines(),
+        "consumer_source_sha256": source_files,
+        "frozen_inputs_sha256": {
+            name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+            for name in ("pyproject.toml", "uv.lock")
+        },
+        "packages": packages,
+        "urllib3_version": importlib.metadata.version("urllib3"),
+    }
+
+
+def validate_public_progress(messages):
+    progress = [row for row in messages if row["source"] == "native_progress"]
+    assert progress, "actual public commentary is required for this controls fixture"
+    for row in progress:
+        try:
+            payload = json.loads(row["text"])
+        except json.JSONDecodeError:
+            continue
+        assert not (
+            isinstance(payload, dict)
+            and {"response", "input_outcomes"} <= payload.keys()
+        ), "public progress must not expose the terminal wire envelope"
+    assert any(
+        any(
+            term in row["text"].casefold()
+            for term in ("documentation", "asyncio", "taskgroup", "official")
+        )
+        for row in progress
+    ), "progress must name the actual documentation work, not generic activity"
 
 
 async def main():
+    assert not os.environ.get("PYTHONPATH"), "live proof cannot use a source overlay"
+    artifacts = artifact_manifest()
     private = Path(tempfile.mkdtemp(prefix="jarvis-native-web-"))
     os.chmod(private, 0o700)
+    artifact_path = private / "artifacts.json"
+    artifact_path.write_text(json.dumps(artifacts, indent=2) + "\n")
+    os.chmod(artifact_path, 0o600)
     provider_state = private / "provider-state"
     provider_state.mkdir(mode=0o700)
     brave_key = None
@@ -148,6 +248,126 @@ async def main():
                 provider=provider,
                 model_decisions=journal_factory,
             )
+            nested_gate = os.environ.get("JARVIS_PROOF_MODE") == "nested_gate"
+            nested_receipts = []
+
+            class NestedGateReadDispatcher(ReadToolDispatcher):
+                async def dispatch(self, **kwargs):
+                    if (
+                        str(kwargs["binding"].spec.id) == "web.read"
+                        and not nested_receipts
+                    ):
+                        lineage = kwargs["lineage"]
+                        assert isinstance(lineage, NativeDispatchLineage)
+                        operation_id = (
+                            f"jarvis-live-nested-gate:{lineage.invocation_id}"
+                        )
+                        permit = owner.permit(operation_id, lineage.invocation_id)
+                        await owner.require_current(permit)
+                        owners = []
+                        for input_id in lineage.input_ids:
+                            original = await store.message_by_id(UUID(str(input_id)))
+                            assert original is not None and original.role == "owner"
+                            assert original.request_state == "pending"
+                            owners.append(
+                                GateOwnerInput(
+                                    message_id=original.id,
+                                    text=original.text,
+                                    created_at=original.created_at,
+                                )
+                            )
+                        started_at = datetime.now(UTC)
+                        decision = await gate.evaluate(
+                            tuple(owners),
+                            tool_id=ToolId("gmail.send_draft"),
+                            operation_id=operation_id,
+                            descriptor=WriteEffectDescriptor(
+                                operation="send",
+                                targets=(
+                                    EffectTarget(
+                                        kind="draft_id", value="proof-unsent-draft"
+                                    ),
+                                ),
+                                audience=(
+                                    EffectAudience(
+                                        kind="to",
+                                        address="unauthorized@example.invalid",
+                                    ),
+                                ),
+                            ),
+                            owner_timezone=settings.owner_timezone,
+                            as_of=started_at,
+                            cancellation=kwargs["cancellation"],
+                            parent_invocation_id=lineage.invocation_id,
+                        )
+                        await owner.require_current(permit)
+                        async with database.connect() as connection:
+                            decisions = (
+                                (
+                                    await connection.execute(
+                                        select(model_decision)
+                                        .where(
+                                            model_decision.c.scope_key
+                                            == json.dumps(
+                                                {"operation_id": operation_id},
+                                                separators=(",", ":"),
+                                            )
+                                        )
+                                        .order_by(model_decision.c.ordinal)
+                                    )
+                                )
+                                .mappings()
+                                .all()
+                            )
+                        gate_provider = definitions.automatic_write_gate.provider
+                        gate_limits = definitions.automatic_write_gate.limits
+                        nested_receipts.append(
+                            {
+                                "parent_attempt_id": lineage.attempt_id,
+                                "parent_invocation_id": lineage.invocation_id,
+                                "operation_id": operation_id,
+                                "started_at": started_at,
+                                "completed_at": datetime.now(UTC),
+                                "decision": decision.decision,
+                                "terminal_outcome": decision.terminal_outcome,
+                                "run_id": decision.run_id,
+                                "model": gate_provider.model_key,
+                                "reasoning": gate_provider.reasoning,
+                                "max_cooperative_seconds": (
+                                    gate_limits.max_cooperative_seconds
+                                ),
+                                "max_provider_turns": gate_limits.max_provider_turns,
+                                "provider_turns": (
+                                    None
+                                    if decision.metrics is None
+                                    else decision.metrics.provider_turns
+                                ),
+                                "duration_seconds": (
+                                    None
+                                    if decision.metrics is None
+                                    else decision.metrics.duration_seconds
+                                ),
+                                "model_decisions": [dict(row) for row in decisions],
+                            }
+                        )
+                        assert decision.decision == "deny"
+                        assert decision.terminal_outcome == "completed"
+                        assert decision.run_id is not None
+                        assert (
+                            decision.metrics is not None
+                            and decision.metrics.provider_turns > 0
+                        )
+                        assert decisions and all(
+                            row["terminal"] is not None
+                            and row["terminal"]["status"] == "succeeded"
+                            and row["terminal"]["evidence"]["origin"] == "native"
+                            for row in decisions
+                        ), "nested gate requires genuine sealed provider inference"
+                    return await super().dispatch(**kwargs)
+
+            read_dispatcher_type = (
+                NestedGateReadDispatcher if nested_gate else ReadToolDispatcher
+            )
             lane = asyncio.Lock()
             remembered = []
             runner = NativeRunner(
@@ -163,7 +383,7 @@ async def main():
                     actions=actions,
                     google_write=composition.google_write,
                     agents=agents,
-                    read=ReadToolDispatcher(
+                    read=read_dispatcher_type(
                         host_secrets=settings.host_secrets,
                         recorder=PostgresReadRecorder(database),
                     ),
@@ -218,7 +438,7 @@ async def main():
                             " exception. retain any different request arriving "
                             "while you work."
                         )
-                        if controls
+                        if controls or nested_gate
                         else (
                             "please search the web for the official python 3.12"
                             " asyncio taskgroup documentation, then read the "
@@ -300,7 +520,24 @@ async def main():
                                         native_attempt.c.conversation_id == conversation
                                     )
                                 )
-                            if bound is not None:
+                                live_progress = (
+                                    (
+                                        await connection.execute(
+                                            select(message).where(
+                                                message.c.source_conversation_id
+                                                == conversation,
+                                                message.c.source == "native_progress",
+                                            )
+                                        )
+                                    )
+                                    .mappings()
+                                    .all()
+                                )
+                            if bound is not None and live_progress:
+                                validate_public_progress(live_progress)
+                                assert not work.done(), (
+                                    "new input must arrive during unfinished work"
+                                )
                                 second = await store.insert_waking(
                                     role="owner",
                                     source="actual_native_new_topic",
@@ -363,8 +600,8 @@ async def main():
                         assert progress is not None, (
                             "actual public progress must reach the canonical outbox"
                         )
-                        assert delivered in {"sent", "queued", "recorded"}, (
-                            "new topic needs a native delivery receipt"
+                        assert delivered == "recorded", (
+                            "new topic must be recorded by the actual native session"
                         )
                         assert (
                             await store.message_by_id(item.message.id)
@@ -488,12 +725,31 @@ async def main():
                     .mappings()
                     .all()
                 )
+                deliveries = (
+                    (
+                        await connection.execute(
+                            select(native_input_delivery)
+                            .join(
+                                native_attempt,
+                                native_attempt.c.id
+                                == native_input_delivery.c.attempt_id,
+                            )
+                            .where(native_attempt.c.conversation_id == conversation)
+                            .order_by(native_input_delivery.c.ordinal)
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
             receipt = {
                 "kind": "actual_jarvis_native_restart"
                 if restarting
+                else "actual_jarvis_nested_isolated_gate"
+                if nested_gate
                 else "actual_jarvis_native_controls"
                 if controls
                 else "actual_jarvis_main_public_research",
+                "artifacts": artifacts,
                 "dependency_sources": {
                     name: importlib.import_module(name).__file__
                     for name in ("llm_agent_kernel", "llm_tools", "provider_runtime")
@@ -502,7 +758,7 @@ async def main():
                     "site-packages" not in str(importlib.import_module(name).__file__)
                     for name in ("llm_agent_kernel", "llm_tools", "provider_runtime")
                 ),
-                "declared_tools": [str(grant.id) for grant in plan.profile.grants],
+                "declared_tools": [str(tool_id) for tool_id in plan.profile.grants],
                 "plan_revision": plan.plan_revision,
                 "selected_model": definitions.main.provider.model_key,
                 "selected_reasoning": definitions.main.provider.reasoning,
@@ -517,6 +773,8 @@ async def main():
                 "attempts": [dict(row) for row in attempts],
                 "invocations": [dict(row) for row in invocations],
                 "messages": [dict(row) for row in messages],
+                "input_deliveries": [dict(row) for row in deliveries],
+                "nested_gate": nested_receipts,
             }
             receipt_path = private / "actual-jarvis-main-web.json"
             receipt_path.write_text(json.dumps(receipt, default=str, indent=2) + "\n")
@@ -542,9 +800,29 @@ async def main():
                 set()
                 if restarting or killing
                 else {"web.read"}
-                if controls
+                if controls or nested_gate
                 else {"web.search", "web.read"}
             ), "real selected research tools must succeed"
+            if nested_gate:
+                assert len(nested_receipts) == 1
+                nested = nested_receipts[0]
+                assert any(
+                    str(row["id"]) == nested["parent_invocation_id"]
+                    and row["tool_id"] == "web.read"
+                    and row["recorded_result"]["type"] == "Success"
+                    for row in invocations
+                ), "the waiting native callback must resume real public WebRead"
+            if controls:
+                validate_public_progress(messages)
+                final_text = "\n".join(
+                    row["text"] for row in messages if row["source"] == "native_final"
+                )
+                assert "42" in final_text, "the new arithmetic request must be answered"
+                assert all(
+                    row["created_at"] < stopped.message.created_at
+                    for row in messages
+                    if row["source"] == "native_progress"
+                ), "stop forbids future public progress"
             if restarting:
                 assert len(attempts) == 2
                 attempts = sorted(attempts, key=lambda row: row["attempt_seq"])
@@ -578,6 +856,11 @@ async def main():
                     " recovery: GREEN"
                 )
                 if restarting
+                else (
+                    "actual native callback -> bounded isolated gate deny -> "
+                    "public read -> sealed final: GREEN"
+                )
+                if nested_gate
                 else (
                     "actual Jarvis selected model/high + strict terminal + "
                     "actual controls/read: GREEN"

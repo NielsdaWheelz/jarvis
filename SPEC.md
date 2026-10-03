@@ -1582,10 +1582,10 @@ bridge in v1.
 V1 dependency lock:
 
 - `llm-agent-kernel`:
-  `8f6f15e39a99ed25f1a9cf8a1a50f5c4a76b6342`
+  `b91a9e41269ec721ed0d7403f2baaec30cb6764e`
 - `llm-calling` / `provider-runtime`:
-  `69d41d38a3d290e7ae3bde9b57556dda41e1b2f1`
-- `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
+  `98913f35ab4c9bef2af85d90fd6e4bed747bd64c`
+- `llm-tools`: `2adb9790fc7a54de5342effaca9391c2f3d24ff9`
 
 the separate contained cognition host requires stock 0.160.0 and the
 provider-owned restricted complete catalogue at HOST STARTUP. `provider-runtime`

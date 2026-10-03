@@ -40,15 +40,17 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 ## current position and immediate work
 
-v1 has six application tables. accepted universal memory adds three; the later
-work slice adds one. derive migration dependencies from the actual predecessor;
+the native cutover has nine application tables: the original six plus three
+native journal tables. accepted universal memory adds three; the later work
+slice adds one. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
 adr 0052 is the current skid worker boundary. its recorded source/client work does
 not establish current cognition activation. the latest
-[shared-cognition issue](issues/codex-private-process.md) records jarvis disabled,
-stopped and durably paused on 2026-09-29. confirm live state before deployment;
-use the owner's same stock app-server, not a private replacement or retired broker.
+[cognition activation issue](issues/codex-private-process.md) records jarvis
+disabled, stopped and durably paused on 2026-09-29. confirm live state before
+deployment. adr 0063 selects a separate contained stock endpoint using the
+existing host-owned personal account; unrelated coding servers stay intact.
 
 | immediate item | owner / what it blocks |
 | --- | --- |
@@ -88,7 +90,7 @@ public boundary; do not add speculative plumbing to make work parallel.
 | o2 | dev-server: publish/pin/install that launch release on the fleet | o1 |
 | o3 | provider-runtime: contained native host-tool callbacks and live control | installed-provider proof |
 | o4 | kernel: native-turn supervision using existing dispatch/execution | o3; public llm-tools seam only if needed |
-| o5 | jarvis: durable native main and safe six-hour interruption | o4; shared cognition repaired before live activation |
+| o5 | jarvis: durable native main and owner-controlled interruption | o4; shared cognition repaired before live activation |
 | o6 | jarvis: one main capability set for all supported event origins | o5; separate authority adr/spec cutover |
 | o7 | jarvis: one work table with history/current view and durable stop | work-state decision; independent of o3–o6 implementation |
 | o8 | jarvis: richer start and nonblocking `agent.wait` | o2, o6 and cli repair; NOT o7 |
@@ -278,7 +280,7 @@ interruption and unavailable evidence. no mutex held while waiting.
 
 ### o9: continuation and coordination
 
-after six-hour interruption and effect reconciliation, eligible unfinished work
+after connection loss and effect reconciliation, eligible unfinished work
 gets another run from canonical context and captured refs. explicit stop first
 disables continuation durably, then interrupts. queued events and startup respect
 that state; only explicit resumption rearms stopped work. native session loss
@@ -349,9 +351,9 @@ merge order.
   that full plan; amend affected grants there, never silently in m4.
 - native main changes only main's loop. rememberer/dreamer retain their isolated
   transient path; callbacks do not require restoring background inference journals.
-- nine tables is memory against the six-table baseline; o7 contributes the one
-  work table. sequence actual migrations and revalidate admission/session revisions
-  against the deployed predecessor, preserving canonical rows and unexpired charges.
+- universal memory reaches twelve tables after the native nine; o7 contributes
+  the one work table. sequence actual migrations and revalidate owner permits and
+  definition revisions against the deployed predecessor, preserving canonical rows.
 
 ## subsequent product slices
 
@@ -484,7 +486,7 @@ integrated acceptance journeys, when their owning verification is authorized:
   capture/extraction/dreaming interruptions do not lose or duplicate committed work.
 - jarvis delegates substantial research through skid, stays responsive, receives
   one asynchronous observation after restart and distinguishes evidence from success.
-- a native run reaches six hours: reconcile then continue eligible work; explicit
+- a native connection is lost: fence callbacks, reconcile effects and recover eligible work; explicit
   stop survives restart and prevents continuation or repeated effects.
 - an email or memory-role suggestion may create useful work without forged owner
   input; irrelevant input creates no make-work; consequential communication still

@@ -343,7 +343,7 @@ class PostgresNativeJournal:
             "native_turn_id": native_turn.native_turn_id,
         }
         async with self.database.begin() as connection:
-            row = await _locked_attempt(connection, self.owner, attempt_id)
+            row = await _locked_attempt(connection, self.owner, attempt_id, live=False)
             if row["native_binding"] is not None and row["native_binding"] != binding:
                 raise NativeDefect("native turn binding changed")
             await connection.execute(
@@ -623,8 +623,29 @@ class PostgresNativeJournal:
 
     async def record_delivery(self, delivery: NativeDelivery) -> None:
         evidence = None if delivery.evidence is None else _evidence(delivery.evidence)
+        if (delivery.state == "prepared") != (evidence is None):
+            raise NativeDefect("native delivery state requires its original evidence")
         async with self.database.begin() as connection:
-            await _locked_attempt(connection, self.owner, delivery.attempt_id)
+            row = await _locked_attempt(
+                connection,
+                self.owner,
+                delivery.attempt_id,
+                live=delivery.state == "prepared",
+            )
+            if evidence is not None and (
+                evidence.get("turn") not in (None, row["native_binding"])
+                or (
+                    "input_id" in evidence
+                    and evidence["input_id"] != delivery.delivery_id
+                )
+                or (
+                    "attempt" in evidence
+                    and evidence["attempt"] != row["request"]["provider_attempt"]
+                )
+            ):
+                raise NativeDefect(
+                    "native delivery evidence changed its original identity"
+                )
             for input_id in delivery.input_ids:
                 old = (
                     (
@@ -642,6 +663,10 @@ class PostgresNativeJournal:
                     .one_or_none()
                 )
                 if old is None:
+                    if delivery.state != "prepared":
+                        raise NativeDefect(
+                            "native delivery lacks an original prepared input"
+                        )
                     ordinal = (
                         await connection.scalar(
                             select(func.max(native_input_delivery.c.ordinal)).where(
@@ -786,17 +811,25 @@ class PostgresNativeJournal:
             )
 
     async def record(self, attempt_id: str, progress: AgentMessage) -> None:
-        if progress.phase != "commentary":
-            raise NativeDefect("public progress requires native commentary")
-        try:
-            value = JarvisNativeMessage.model_validate_json(progress.text)
-        except ValidationError as exc:
-            raise NativeDefect("public progress violates its message contract") from exc
-        if not isinstance(value.response, Progress):
-            raise NativeDefect("native commentary requires a progress response")
         identifier = uuid5(UUID(attempt_id), progress.message_id)
         async with self.database.begin() as connection:
-            row = await _locked_attempt(connection, self.owner, attempt_id)
+            row = await _locked_attempt(connection, self.owner, attempt_id, live=False)
+            if (
+                row["fenced_at"] is not None
+                or row["product_outcome"] is not None
+                or row["owner_epoch"] != str(self.owner.token)
+            ):
+                return
+            if progress.phase != "commentary":
+                raise NativeDefect("public progress requires native commentary")
+            try:
+                value = JarvisNativeMessage.model_validate_json(progress.text)
+            except ValidationError as exc:
+                raise NativeDefect(
+                    "public progress violates its message contract"
+                ) from exc
+            if not isinstance(value.response, Progress):
+                raise NativeDefect("native commentary requires a progress response")
             values = {
                 "id": identifier,
                 "role": "assistant",

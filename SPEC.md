@@ -1,8 +1,8 @@
 # Jarvis v1 specification
 
-Status: **Frozen baseline**
+status: **native runtime; frozen domain baseline**
 
-Date: **2026-09-02**
+date: **2026-10-02**
 
 Audience: product, engineering, design, operations, and future coding agents
 
@@ -31,7 +31,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
 
 - one undivided corpus; independently declared lane admission and connection.
   three added tables (`memory_lane`, `source_conversation`, `source_record`),
-  nine total, with internal conversation identities and direct note provenance.
+  twelve total after the native cutover, with internal conversation identities
+  and direct note provenance.
   one stateless collector per host, native histories as the local recovery source,
   one private listener inside jarvis and a bounded read-only database pool.
 - automatic online activation after complete per-conversation baselining; immutable
@@ -47,11 +48,12 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   rememberer and dreamer use transient kernel decisions; dreamer reads use
   run-local receipts. interrupted background computation may repeat and be charged
   again under normal admission. no frozen background scopes or paid-call recovery
-  barrier. main/gate durable decisions, external effects and global capacity
-  accounting are unchanged; never erase an unexpired admission charge.
+  barrier. main/gate durable evidence and external effect recovery remain;
+  current-owner permits replace paid-capacity accounting. canonical commit
+  fencing still rejects late results.
 - shared keyword/semantic candidates, identity deduplication and deterministic
   reciprocal-rank fusion through bounded search/open. callers choose when to search; remove the recaller,
-  automatic pre-input recall and only its capacity reservations. main's full and
+  automatic pre-input recall and its isolated inference work. main's full and
   scheduled read-only plans can search/open; dreamer reads only notes/summaries.
   main's paid-read recorder and uncertainty barriers remain. required-stage
   failures are typed errors, not fallback ranking. no learned reranker or mcp
@@ -67,14 +69,14 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   reuse existing primitives and construct one set of settings/clients/pools at
   composition. no per-profile tuning or capacity allowances. provenance,
   permissions, progress and invocation receipts remain correctly scoped; each
-  run receives fresh execution state from the common policy. existing durable
-  admission remains the owner of cognitive capacity.
+  run receives fresh execution state from the common policy. current-owner
+  permits remain the cognitive admission boundary.
 - external `memory_save_note` and main's internal `memory.save_note(text)` use
   one canonical append. external saves require admit+connect and optional
   caller-reported conversation association; main saves require jarvis admission
   and host-owned identity. neither needs native activation or proven source range.
   internal save alone is exempt from 5.1/5.4/7.4's gate/action rules: `Write +
-  ReDispatchable`, zero external attempts, existing model-decision position as
+  ReDispatchable`, zero external attempts, existing native invocation position as
   invocation/effect id, narrow `read_position` recovery. recover committed saves
   before deadline checks; retry only proven absence with the original identity.
   no scheduled/background save grant or native cognition mcp access.
@@ -102,34 +104,22 @@ build checks are the current verification surface; they do not establish
 behavioral or live acceptance. the subsequent pr begins the
 [testing redesign](docs/issues/testing-redesign.md).
 
+the owner separately authorized the native cutover's temporary red/green/live
+proofs under adr 0063. its shared N001–N020 acceptance and current evidence are
+linked from [docs/acceptance.md](docs/acceptance.md#native-cutover-acceptance).
+this exception restores no standing retired suite and claims no production
+deployment or universal-memory acceptance.
+
 retired delivery checklists, qualification reports and the completed cleanup log
 live in git history. deleting those copies changes no runtime requirement or
 acceptance result; current contracts, operations and unresolved issues remain.
 
-Integration baseline (2026-09-09): retain ADR 0040's six-table durability,
-owner-bound transactions, authenticated catalog selection, and CPython floor.
-[ADR 0041](docs/decisions/0041-control-shared-codex-workers.md) adds shared Codex
-control without another table or provider lane. Catalog discovery and cognition
-use the same explicitly configured shared runtime. Schema-v3 session identity
-hard-cuts predecessor compatibility exceptions; canonical records remain intact.
-[ADR 0042](docs/decisions/0042-track-latest-stable-codex.md) replaces native
-Codex pinning with latest-stable installation; library dependencies remain locked.
-[ADR 0043](docs/decisions/0043-retain-main-thread-through-native-compaction.md)
-removes host age-based session rotation: compatible Main threads persist through
-native automatic compaction; generation remains a compare-and-set token.
-[adr 0044](docs/decisions/0044-control-tmux-agents-through-skid.md) replaces
-worker controls with the common skid cli. its explicit worker deltas supersede
-conflicting historical codex-only/launcher restrictions below; cognition is unchanged.
-[adr 0045](docs/decisions/0045-use-the-ordinary-fleet-cli.md) replaces the worker
-cli grammar and targets with ordinary argv and opaque references, and adds info/kill.
-[adr 0048](docs/decisions/0048-align-with-the-herdr-fleet-cli.md) aligns the consumer
-with skid's herdr runtime: separate terminal/agent refs, explicit readiness and
-dispatch, exact original-target preflight, closed partial prefixes and 256 kib envelopes.
-[adr 0049](docs/decisions/0049-drive-herdr-through-an-ssh-gate.md) replaces the skid
-cli with herdr itself, driven through each host's ssh forced-command gate, with
-jarvis-owned refs checked against herdr before every addressed call.
-[adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) supersedes
-those worker contracts with current skid and opaque archives; cognition is unchanged.
+integration contracts: [adr 0040](docs/decisions/0040-shared-kernel-durable-decisions.md)
+retains isolated inference and read receipts; [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md)
+owns current skid worker control. [adr 0063](docs/decisions/0063-native-agent-supervision.md)
+replaces main's step loop, saved-session CAS, paid-capacity arithmetic and shared
+cognition host with the native contract below. earlier adrs retain historical
+rationale; they do not reinstate retired execution paths.
 
 ## 1. Product definition
 
@@ -279,24 +269,33 @@ as memory, Gmail, Calendar, and Maps when needed to answer or act. This is a
 product-use rule in addition to the host's fixed capability and authority
 boundaries.
 
-Main has no model-visible conversational `say` terminal. It uses the kernel's
-existing structured-output path and returns exactly one closed terminal result:
-`answered`, `partial`, `needs_input`, `failed`, or `silent`. The host renders
-that result deterministically. No terminal variant means work is still in
-progress. A terminal response MUST NOT imply future work unless a durable action
-has already been committed and the kernel suspended on that reference. Discord
-typing is the only synchronous progress indication.
+main uses declared native callbacks and public commentary. useful progress and
+partial findings commit to the canonical outbox before delivery; they do not
+settle owner requests. typing remains an additional activity signal. main has no
+`say`/`call_tool`/`finish` step decoder.
 
-The closed `JarvisTerminal` root contains one `response` discriminated by
-`type`: `answered` has non-empty `text`; `partial` has non-empty `text`, a
+the closed `JarvisTerminal` root contains `response` and `input_outcomes`.
+`response.type` is `answered`, `partial`, `needs_input`, `failed`, `silent`, or
+`waiting`. the host renders it deterministically. `answered` has non-empty
+`text`; `partial` has non-empty `text`, a
 non-empty at-most-500-character `limitation`, and a nullable non-empty
 at-most-500-character `question`; `needs_input` has at-most-1000-character
 `context` and one non-empty at-most-500-character `question`; `failed` has one
 non-empty `explanation`; and `silent` has only
-`reason = owner_needs_no_response`. Text and explanation retain the existing
+`reason = owner_needs_no_response`; `waiting` has non-empty `text`. text and
+explanation retain the existing
 Discord response limit. The host renders complete answers unchanged and owns
 the fixed labels for every other visible branch, checking the final rendered
-Discord bound before persistence.
+Discord bound before persistence. model text is never silently cropped to fit.
+
+final dispositions name delivered inputs as `complete`, `continue`, or `waiting`;
+omitted requests keep their state. only `complete` closes a request. `waiting`
+names an actual
+`approval`, `external_reconciliation`, `owner_input`, or `configuration` blocker;
+the first two require exact action references belonging to that request.
+the host validates these references against current canonical state. topic
+changes and partial answers retain unfinished work. host events and action
+resolutions provide evidence, never fresh owner intent.
 
 An incomplete typed collection observation cannot be rendered as `answered` or
 `silent`. Jarvis conservatively renders it as a visible partial result with a
@@ -312,10 +311,10 @@ eligible for remembering.
 
 Discord is a client and delivery surface, not the canonical conversation store.
 Every owner message and every Jarvis response MUST be persisted in `message`.
-The main Codex session is normally continued and resumed, but it remains
-disposable and reconstructable through the kernel context ports from centralized
-messages plus recalled memory.
-Losing it MUST cause a cold context bootstrap, not conversation or memory loss.
+main may reuse a compatible healthy native session within one process. after
+connection, process or owner loss, old callbacks are fenced and reasoning starts
+in a fresh session from canonical requests, messages, recalled memory and
+original tool receipts. native history is disposable.
 
 Inbound owner messages are stored with `processed_at = NULL` before processing
 and deduplicated by their source identity. On startup, the adapter MAY use
@@ -323,15 +322,14 @@ Discord history after the latest stored source message ID for bounded catch-up.
 A terminal action also creates the idempotent host-authored waking row specified
 in section 5.4. Owner and host rows share the same checkpoint mechanism; only
 owner-authored Discord text is eligible for stop/pause/resume interception.
-The claim adapter selects one bounded, non-empty batch and its frozen plan:
+the native input adapter selects one bounded, non-empty batch and its frozen plan:
 owner rows and `source = action` resolution rows receive the full Main plan,
 while a `source = schedule_wake` row receives the read-only proactive plan.
 Owner work has priority. Incompatible rows remain unclaimed for a later run;
 the kernel has no run-class abstraction and never infers authority from text.
-A turn reaches a durable conclusion when it produces a persisted assistant
-response, finishes silently, or persists
-an approval proposal. The host sets `processed_at` in the same transaction as
-that conclusion. The same transaction writes the settled run ID,
+the original native terminal commits before application decoding. validated
+input dispositions and any response commit atomically; an approval proposal
+alone never completes its owner request. the transaction writes the settled run ID,
 through-checkpoint, nullable conclusion-message ID, and conclusion kind/outcome
 into bounded `trace` on every waking row consumed by the checkpoint. This is
 diagnostic grouping metadata; immutable action lineage, not trace, governs
@@ -372,25 +370,17 @@ mode does not grant effect authority. Approval-bearing actions and external tool
 effects retain their independent action-level barriers, so repeated presentation
 cannot repeat an action.
 
-On startup, an owner row with `processed_at = NULL`,
-`processing_parked_at = NULL`, and no action whose immutable execution-contract
-lineage contains that row MAY be reclaimed only while its durable
-`processing_attempts` remains within the configured ceiling and rolling
-admission permits more work. A parked row is operator-only and never reclaimed
-automatically. If any action records the row among its admitted
-input IDs, the host MUST reconcile or resume that action and MUST NOT replay the
-model turn automatically. It closes exactly the execution contract's admitted
-input rows through its stored checkpoint and persists a host-authored
-interruption notice. When several actions name overlapping prefixes from one
-run, recovery handles every action and closes the union once through the
-greatest compatible stored checkpoint. `origin_message_id` remains the stable
-root pointer but is not sufficient recovery lineage. An exhausted or poison input receives a
-deterministic host-authored stopped conclusion and is consumed; cleanup never
-silently creates a fresh-budget successor.
+on startup, fence old attempts before accepting callbacks. recover original
+sealed terminals locally before current model/catalog/tool construction; later
+stop/resume prevents stale product settlement. absent a seal, automatically
+restart reasoning for pending requests under the current owner. this may repeat
+model computation, never an unknown action or billed-once read. original
+accepted actions and complete receipts remain authoritative even outside the
+recent-observation window. `origin_message_id` is a stable root pointer, not
+sufficient recovery authority. parked input remains operator-only.
 
-The host promptly shows a typing indicator before model work. V1 does not stream
-partial structured model output into Discord; the host delivers only a complete,
-validated, rendered Main terminal.
+public commentary and final output use distinct persisted messages. malformed
+structured terminal output cannot be replaced with valid-looking final prose.
 
 ### 4.4 Proactivity and stop control
 
@@ -427,14 +417,15 @@ Dreaming may run silently on an idle/system timer. It is derived-memory
 maintenance, not a user-facing proactive turn.
 
 At ingress, host code matches an owner message whose trimmed content is exactly
-`stop` or `pause`, case-insensitively, persists a paused flag, and immediately
-signals the active kernel cancellation token. At its next safe boundary, the
-host settles the interrupted input and control row with a deterministic stopped
-conclusion so neither replays. Cancellation cannot undo an external effect that
-already committed; such an action proceeds through reconciliation. While paused,
-Jarvis performs no tools, actions, proactive turns, or dreaming. `resume` clears
-the flag and is processed entirely by the host. These controls never involve the
-model.
+`stop` or `pause`, case-insensitively, commits canonical control, targets the
+current unfinished requests, fences old callback authority and cancels queued
+work and unentered approvals in the same conversation/action lock order used by
+consent and effect entry. it signals cancellation and persists the stopped
+notice without a model call. entered effects still settle or reconcile truthfully.
+while paused, no new reasoning, tools, actions, proactive turns or dreaming start;
+ingress, delivery and entered-effect recovery remain available. `resume` restores
+eligible requests through canonical control. cancelled approval identities never
+execute later; resumed work requires fresh consent. no file-backed pause exists.
 
 ## 5. Authority and approvals
 
@@ -478,7 +469,7 @@ decision = allow | deny
 supporting_owner_message_ids = ordered list of current owner input IDs
 ```
 
-It runs only after the main step, frozen binding, and arguments validate, and
+it runs only after the native callback, frozen binding, and arguments validate, and
 before any `action` insert. It receives only:
 
 - The ordered text and IDs of owner-authored inputs admitted through the current
@@ -538,7 +529,7 @@ The model emits tool arguments, never the preview the owner approves.
 
 For each approval-bearing tool, host code MUST own a deterministic renderer that
 reads the validated stored arguments. There is no preview field in the model
-step and no preview column in `action`.
+callback input and no preview column in `action`.
 
 For email, the host-rendered material shows every To, Cc, and Bcc address, the
 subject, and the complete body. Long content MAY be split across host-owned
@@ -903,291 +894,103 @@ relevance and history.
 
 ### 7.1 Agent kernel and cognitive provider
 
-All cognitive roles run through the pinned Python 3.12 `llm-agent-kernel`
-library. The kernel uses subscription-backed Codex through the local
-`provider-runtime` `AgentRuntime` lane and consumes frozen `llm-tools` plans for
-application capabilities. It MUST NOT duplicate either dependency.
+responsibilities:
 
-Responsibilities are fixed:
+- `provider-runtime` owns native protocol, prepared turns, submission evidence,
+  native binding/control, declared callbacks, strict output lowering, terminal
+  provenance and usage. it attaches to the host-owned socket; the host owns the
+  process and original personal account credentials.
+- `llm-tools` owns prompt sections, declarations/bindings, frozen plans,
+  consistency/tightening proofs, implementation revisions, pure validation,
+  `HostTable`, execution, budgets, positions, recording, replay and portable tools.
+- `llm-agent-kernel` owns immutable definitions/fingerprints, native supervision,
+  serial dispatch, input/control ordering, isolated one-shot grammar and reusable
+  conformance. it owns no application store, process, credentials or effect policy.
+- jarvis owns canonical requests/context, current-owner permits, persistence,
+  connectors, plan selection, consent/actions, reconciliation, scheduling and
+  visible delivery.
 
-- `provider-runtime` owns Codex local-account authentication, shared Unix-socket
-  WebSocket attachment to host-owned Codex App Servers behind the stable
-  `AgentRuntime` open/stream/close interface, server-request denial,
-  `PermissionPolicy`, native
-  options, structured-output lowering, closed-world event normalization and
-  usage, quota exhaustion, and opaque session references. Production consumes
-  `stream_turn`; it never uses the terminal-only `run_turn` convenience
-  projection because that hides authority events.
-- `llm-tools` owns typed prompt sections, declarations, bindings, frozen
-  profiles and plans, plan/catalog consistency and tightening proofs,
-  owner-controlled binding implementation revisions, pure schema validation,
-  `HostTable`, `ToolEffect`, `ReplayPolicy`, tool execution budgets, invocation
-  positions, recorder semantics, execution, and portable tools.
-- `llm-agent-kernel` owns immutable definitions and containment fingerprints,
-  exact-plan/catalog tightening enforcement before rendering or I/O, the exact
-  model-step protocol, semantic whole-step validation, bounded serial thread
-  and isolated one-shot loops, mid-loop input polling, run admission
-  enforcement, cancellation, session and checkpoint choreography, typed
-  outcomes, and reusable conformance tests.
-- Jarvis owns product context selection, implementations of the persistence
-  and admission ports, canonical messages and memories, Discord, connectors,
-  catalog composition, plan selection, information-flow and authority policy,
-  approval/action/effect identity and reconciliation, scheduling, credentials,
-  and visible delivery.
+main is a `NativeDefinition` with declared host callbacks and a closed
+`JarvisTerminal`. recaller, rememberer, dreamer and AutomaticWriteGate use fresh
+isolated `AgentDefinition`/`run_one_shot` invocations. their first three maximum
+envelopes contain only memory reads; the gate's is empty. isolated plans contain
+no `ToolEffect.Write`. these fixed roles create no persistent peer graph;
+owner-directed skid controls remain external tools under adr 0052.
 
-An agent definition is immutable configuration for a cognitive role. A role is
-its behavioral purpose. An application thread is a host-owned durable
-workstream; v1 has one, the configured Discord channel. A run is one host
-invocation. A drain is an exclusive work epoch within a thread run. A one-shot
-run is a fresh isolated invocation over explicit host input with no application
-checkpoint or saved session reference. A model step is one provider response. A
-provider session is an opaque, disposable optimization. These terms do not imply
-a persistent peer model. the nine agent controls are owner-directed skid
-terminal and conversation operations outside the cognitive decoder; they
-add no peer graph, completion callback, scheduler, transcript store, or worker
-ownership state. The main definition is
-`continuing` with a closed structured terminal contract and the exact main
-catalog as its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
-`isolated` one-shot definitions with closed structured output contracts. The
-first three have memory-read envelopes; AutomaticWriteGate has an empty tool
-envelope. Jarvis supplies one frozen plan per run; it may narrow but never expand
-the definition envelope. Before any plan rendering or I/O, the qualified public
-proof MUST establish that the plan is internally consistent with the exact
-catalog view being published and tightens the definition envelope in full; a
-comparison of profiles alone is insufficient. Kernel construction rejects any
-one-shot plan containing `ToolEffect.Write`. `Pure` and `Read` remain distinct
-effects with independent replay policies.
+each invocation selects one frozen plan proven internally consistent with its
+exact published catalog and to tighten the role's maximum envelope before
+rendering or I/O. a profile comparison alone is insufficient. the budget factory
+constructs fresh state whose limits equal that plan exactly; state is never shared
+across runs. `Pure`/`Read` effects and replay policies remain distinct.
 
-Every binding has a non-empty internal `implementation_revision`. Jarvis-owned
-bindings use `jarvis-<canonical-tool-id>-v1` initially; portable bindings use
-the revision supplied by `llm-tools`. A handler or transitive
-behavior-affecting dependency change MUST bump every affected implementation
-revision unless revisioned `policy_inputs` already represent the change. This
-is a hidden plan/recovery fingerprint, not public tool-name versioning. Frozen
-profiles, plans, HostTable publication, and action execution contracts carry
-it.
+each binding has a non-empty owner-controlled `implementation_revision`, carried
+by plans, publication and recovery contracts. changes to its handler or transitive
+execution behavior bump that revision unless revisioned policy inputs already
+capture the change. public tool names do not acquire version suffixes.
 
-- Authentication uses the personal local-account credential.
-- No generative API-key fallback or silent provider fallback exists.
-- The checked-in compatibility manifest records the exact qualified
-  ChatGPT-local-account model IDs. The current set is exactly
-  `gpt-5.6-terra`; `gpt-5.4` is retired on this authentication path and MUST be
-  rejected during configuration, before ingress, admission, provider I/O, or
-  tool I/O. V1 requires at least one exact model that is currently supported by
-  the provider to pass the paid local-account qualification. The size of this
-  set is not a permanent product invariant; adding, replacing, or removing a
-  route requires current live evidence and an explicit compatibility-manifest
-  update.
-- Kernel revision, model IDs, reasoning levels, prompts, host/runtime revisions,
-  output contract, `PermissionPolicy`, cwd scope, MCP configuration, and native
-  options are pinned per deployment and covered by the definition fingerprint.
-- Every definition supplies a non-empty `session_compatibility_revision`
-  derived from a checked-in canonical manifest containing its role ID, an
-  owner-bumped Jarvis session-contract revision, and the exact
-  `llm-agent-kernel`, `provider-runtime`, and `llm-tools` pins. The manifest
-  excludes secrets, input, host time, and per-run subset plans. Normally every
-  pin participates exactly in the revision. Schema v3 has no predecessor
-  normalization or compatibility exception: this hard cut rotates every
-  affected definition and cold-bootstraps its next cognition session.
-- Qualified-model membership does not participate in
-  `session_compatibility_revision`. The exact selected model already
-  participates in the immutable agent-definition fingerprint, so a model
-  change cold-bootstraps without manually rotating the application session
-  contract. Removing the retired, unselected `gpt-5.4` route therefore does not
-  invalidate an otherwise compatible `gpt-5.6-terra` session.
-- Library, model and application upgrades pass recorded replay and containment
-  tests before activation. Native Codex follows ADR 0042's latest-stable policy;
-  version admission is not a containment or compatibility proof.
-- Quota exhaustion produces a fixed host-authored notice and no provider change.
+cognition uses the original personal local-account credential through the
+separate contained host. the compatibility manifest admits exactly
+`gpt-5.6-terra`; main uses reasoning `high`. retired `gpt-5.4`, model aliases,
+generative API-key substitution and silent provider fallback are rejected before
+I/O. changing the admitted set requires an explicit manifest update and genuine
+selected-model qualification against the immutable installed artifacts.
 
-The configured Discord channel maps to one continuing main Codex session. The
-kernel coordinates provider lifecycle through an opaque `SessionRefPort`; its
-Jarvis adapter persists the `AgentSessionRef` and immutable agent-definition
-fingerprint in private, atomically replaced runtime state outside PostgreSQL.
-The fingerprint covers every session-scoped semantic and containment value,
-including the values listed above and the owner-controlled compatibility
-revision. Changing the manifest's application contract, selected role contract,
-or a dependency pin rotates the revision; schema v3 has no predecessor exception.
-Changing only `qualified_models` does not rotate the revision because the
-selected model is already fingerprinted. Credential secret bytes, current input,
-host time, and per-run subset plans do not rotate the session.
-`provider-runtime` performs the actual start, continue, resume, and discard. An
-ordinary restart or compatible deployment attempts resume. A fingerprint
-mismatch, invalid reference, or resume failure starts a fresh session. The
-adapter scopes references by application thread and fingerprint and uses a
-generation compare-and-set so a stale run cannot overwrite a newer reference.
-Every successful store returns the next expected generation. A stale store
-stops before tool dispatch or canonical settlement and fails the run; Jarvis
-does not continue on provider state it failed to save.
-Generation MUST NOT expire a healthy reference or stand in for context usage.
-Jarvis does not rotate a thread because of request count, age, or estimated
-context growth. Codex owns native context sizing and automatic compaction;
-compaction preserves the thread identity. Static prompt/schema bounds, per-run
-limits, rolling admission, and containment remain independent requirements.
-Native compaction does not guarantee the next large input fits before submission:
-a context-window failure follows the existing bounded failure/reconstruction
-path without automatic replay of an unknown decision or effect.
-After a crash leaves canonical input unprocessed, Jarvis discards any
-speculatively advanced reference before replay unless alignment can be proved;
-cold bootstrap is always the safe fallback. For a valid terminal model step,
-the reference advances before the canonical conclusion/checkpoint transaction,
-so a crash cannot commit history while leaving the next continuation behind it.
-Discarding, replacing, or rotating a local reference does not assert deletion
-of provider-retained native history; provider account retention remains a
-separate third-party property.
+the manifest's application/role revisions and exact library pins participate in
+session compatibility. the selected model/reasoning, role/output, kernel-owned
+base instruction and complete provider containment policy participate in the
+definition fingerprint. secret bytes, clock and current inputs do not. schema-v3
+session compatibility has no predecessor exceptions; schema-4 host mapping is a
+separate operational contract.
 
-Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
-isolated sessions. They MUST NOT share the main session or one another's
-history. Main alone receives the stable owner profile and conversational voice.
-Internal roles retain narrow task-specific instructions and MUST NOT inherit
-either.
+main may reuse a healthy compatible native lease within its current process.
+there is no saved-session file, resume-on-restart or session-reference CAS.
+connection, process or owner loss permanently fences old callback authority.
+recover an original sealed terminal locally before constructing current
+definitions/catalog/tools. otherwise restart reasoning in a fresh native thread
+from canonical unfinished requests and original receipts. accepted actions and
+unknown billed-once reads retain their recovery barriers. repeated computation
+is permitted; invented non-submission or repeated unknown effects are not.
 
-Jarvis owns product context selection and supplies canonical application data to
-the kernel `ContextSourcePort`: Main's stable owner profile, stable instructions,
-bounded completed message
-history, current admitted inputs and source timestamps, recalled memories with
-IDs and timestamps when the owner-input recaller ran, granted capability
-descriptions, the owner IANA timezone, and one host-generated `as_of` instant. The kernel
-coordinates continuation and bootstrap assembly from these inputs. Rendering
-uses `llm-tools` typed prompt sections; XML-like structure is presentation and
-provenance, never a security boundary. Provider SDK message types appear only at
-the provider-adapter boundary.
+native bindings, submitted requests, input deliveries, invocation contracts and
+terminal seals are durable evidence. replacing a session neither deletes that
+evidence nor asserts deletion of third-party native history. native compaction
+and cache behavior remain provider optimizations, never canonical state or
+guaranteed cost properties.
 
-For a healthy main session, the continuation projection sends newly admitted input,
-current capabilities, `as_of`, and fresh recall only for owner input; stable
-session context, including the owner timezone, and native history carry prior
-turns. For a fresh Codex session, the bootstrap projection also includes stable
-instructions and bounded canonical history. The same bootstrap projection MUST
-remain usable by a future stateless or API-backed provider without replacing
-product context selection. V1 implements no such second provider. The current
-batch is sent only on its first provider call after admission; later
-tool/protocol continuations send new observations or corrections without
-repeating it. A replacement cold bootstrap includes unresolved input exactly
-once in the replacement session.
+jarvis supplies canonical product context: stable instructions and owner profile,
+bounded completed history, unfinished requests and original action/read receipts,
+current input timestamps, recalled memories, the frozen capabilities, owner IANA
+timezone and host `as_of`. typed `llm-tools` sections express provenance; they are
+not an authority boundary. each current input is supplied once within its native
+delivery; queued steering acceptance is distinct from a recorded native item.
+ambiguous delivery fences the old turn before fresh reconstruction. a new topic
+arrives promptly while retaining older unfinished requests. host action resolutions
+supply facts and never grant fresh owner intent. scheduled wakes use a separate
+read-only plan; they are not appended to an interactive turn.
 
-Every newly admitted owner input appears exactly once and is excluded from
-completed history. Source messages retain `created_at`. A cognitive session
-receives the owner timezone once when it opens. Each newly admitted input batch
-or background job receives one authoritative `as_of`; a batch appended mid-loop
-gets its own. Tool-only continuations and embedding calls receive no repeated
-clock. Stable prompt material precedes dynamic time in a rendered provider
-request.
+main terminal sealing precedes output decoding and product settlement. final
+dispositions name delivered requests; omissions retain their state. the
+transaction writes canonical
+request state, response and bounded trace together; a stale stop/resume cannot
+publish an old completion. public commentary commits its own outbox row without
+completing requests. original sealed output can recover locally after an encoder
+failure with zero provider calls.
 
-Native session history, compaction, and cache behavior are optimizations, not
-canonical state or guaranteed cost properties. Canonical messages plus recall
-MUST always be sufficient to start again.
+owner admission requires the live dedicated deployment-lock connection,
+canonical request state and an immutable current permit. a gate's permit also
+names its current parent native invocation. losing ownership stops admission;
+it cannot reconnect or borrow another owner's token. no rolling journal,
+cumulative main model/tool quota or arbitrary main elapsed cutoff remains.
+isolated roles retain their actual finite operation bounds. finite tool deadlines,
+message/frame/queue limits, serial effect entry and explicit owner stop remain.
+usage is observational, including missing usage; it never grants authority.
 
-AutomaticWriteGate does not receive this general product-context projection. It
-receives only the restricted owner-input/effect projection in section 5.1. This
-restriction applies on cold and healthy main sessions alike.
-
-For the main application thread, Jarvis implements the kernel
-`InputCheckpointPort` using existing message state and single-process
-coordination. A claim contains one non-empty bounded input batch, its opaque
-watermark, stable claim ID, ordered stable input message IDs, the host-selected
-frozen plan, and the oldest logical input's durable `processing_attempts` value.
-Owner and action-resolution work takes priority and receives the full Main plan.
-A scheduled wake is claimed separately with the read-only proactive plan.
-Incompatible work remains unclaimed.
-
-Before every provider turn, before tool dispatch, after tool completion, and
-before settlement, Jarvis lets the kernel poll the canonical message store.
-New compatible owner input is appended in order and sent to the healthy session
-exactly once. Stop/pause input preempts. A scheduled wake is never appended to
-an interactive run, and interactive work arriving during a scheduled wake may
-preempt it. An ordinary follow-up that arrives after the final poll does not
-discard the valid answer already produced: Jarvis commits that answer and
-processes the follow-up in the next run.
-
-A terminal conclusion and `processed_at` watermark commit atomically and
-idempotently. The same transaction gives every consumed waking row the same run
-ID, through-checkpoint, nullable conclusion-message ID, and conclusion
-kind/outcome in bounded `trace`. If settlement reports later input, Jarvis
-signals a later run only after commit. Startup and recovery scan the same
-canonical null-`processed_at` rows, so correctness does not depend on an atomic
-transaction spanning PostgreSQL and an in-process wake signal. Cleanup `release`
-never arms a successor by itself.
-
-A kernel `park` for a configuration defect is different from cleanup release.
-The checkpoint transaction sets `processing_parked_at` on every claimed,
-unprocessed row, records only a bounded reason code in `trace`, and ends claim
-ownership. Claim and startup/recovery scans exclude parked rows. Because v1 has
-one application thread, any parked row opens the cognitive circuit for all new
-cognitive work; delivery and operator repair remain available. Only an operator
-who has corrected the defect clears the timestamp. Mandatory reconciliation of
-an already-started external effect also remains available. The PostgreSQL row
-is the single canonical circuit state, avoiding a transaction across the database and
-the private runtime journal. Release is a local host maintenance operation, not
-a Discord or model tool. It runs with the service stopped or while holding the
-deployment ownership lock, names explicit message IDs, and does not reset
-attempt history.
-
-Protocol exhaustion, kernel-budget exhaustion, subscription quota exhaustion,
-owner stop, and repeated provider failure persist a deterministic host-authored
-stopped conclusion and consume the claimed input. A process interruption may
-leave it unconsumed; the next successful claim increments
-`processing_attempts`, and exceeding the configured ceiling stops it before
-provider I/O. The increment occurs atomically when a claim is acquired after
-the capacity preflight; it conservatively counts a crash or configuration
-failure after claim. Configuration defects park the input and pause cognitive
-work for operator correction rather than entering a retry loop.
-
-After Jarvis selects and the kernel validates the claimed frozen plan, Jarvis's
-`ToolBudgetFactoryPort` constructs one fresh `BudgetState` from that plan. Its
-limits MUST exactly equal `plan.profile.run_limits`; it MUST NOT reuse state,
-select policy, or inspect input. A mismatch parks a thread claim or rejects an
-isolated one-shot before rendering, admission, provider I/O, or tool I/O. Every
-selectable full Main, read-only proactive, memory-read, and empty gate plan is
-qualified. All budget mutation remains on the dependency's async durable path.
-
-Before claiming/incrementing an input, Jarvis preflights rolling admission under
-its single-process execution mutex. The checkpoint claim transaction then
-increments `processing_attempts`; no later cross-port callback or transaction is
-required. Before provider I/O the kernel's admission port durably reserves one
-root work slot plus the finite maximum provider turns and configured reported
-token allowance for that work and its possible serial child one-shots. Recaller
-and any AutomaticWriteGate calls in a foreground turn receive child admission
-tokens against that reservation; the parent is paused and cannot perform
-provider or tool I/O while a child runs. Rememberer and dreamer jobs obtain their
-own root reservations.
-
-The atomically replaced private journal records bounded reservation IDs, run
-IDs, windows, counters, timestamps, reserved/actual capacity, and
-`active | settled | interrupted` state—never prompts or user payloads. A clean
-exit settles actual usage and refunds unused turn/token capacity in `finally`.
-Process death conservatively leaves the full reservation charged. On startup,
-while holding the exclusive deployment lock, Jarvis marks orphaned active
-reservations interrupted and releases their live concurrency slot, but retains
-their turn/token charge until the rolling window expires. Missing or corrupt
-state fails closed until explicit operator reset. Finite window and capacity
-values, including allowances for each admitted child role, are mandatory
-configuration. The six-hour production ceiling contains exactly two complete
-worst-case foreground envelopes plus one Rememberer allowance: one full
-foreground reservation can coexist with up to one foreground envelope of prior
-settled actual use. Individual run limits and the one-live-root rule are
-unchanged. The subscription AgentRuntime lane has no normalized priceable
-`CallMeta`; Jarvis does not invent a dollar estimate.
-
-Preflight capacity denial performs no provider I/O and does not claim or
-increment an input. Under the same execution mutex, the later kernel admission
-reservation MUST NOT return a capacity denial after that successful preflight;
-the adapter raises `AdmissionStateDefect` for an inconsistent journal so the
-kernel parks the claim rather than returning ordinary deferral.
-Owner/action-resolution work remains unprocessed and is eligible at the
-journal's reset instant through one ordinary process timer plus the startup
-scan. If the delay is at least 60 seconds, Jarvis inserts at most one
-host-rendered assistant notice for `(oldest_input_message_id, reset_at)`, using a
-deterministic application UUID as `message.id`; shorter delays are silent.
-Background rememberer and dreamer work always defers silently. Poison-attempt
-exhaustion is not deferred: it consumes the input with the existing visible
-stopped conclusion.
-
-Jarvis's checkpoint finalization maps the conversation conclusion and
-`processed_at` to the existing atomic transaction. Read observations and
-protocol correction stay turn-local; write outcomes are durable through
-`action` and the `llm-tools` recorder mapping. The optional kernel event sink is
-best-effort private observability, not a canonical event store, and sink failure
-is nonfatal.
+configuration defects retain original evidence and require repair. native
+submission uncertainty never authorizes replay of the old submission. reasoning
+recovery occurs only after fencing its old tool authority. effect reconciliation
+and entered-effect settlement remain available while paused. AutomaticWriteGate
+receives only the restricted current-owner/effect projection in section 5.1,
+never general main history or observations.
 
 ### 7.2 Embeddings
 
@@ -1387,18 +1190,16 @@ unsafe redirects, unsupported media, and oversized responses. Web observations
 are untrusted evidence, never instructions or authority. Unmistakable credential
 material is rejected from Web arguments rather than sent. V1 does not implement
 authenticated browsing, browser automation, or JavaScript rendering.
-The pinned reader binding implementation is `llm-tools-web-read-v2`. Its
+The pinned reader binding implementation is `llm-tools-web-read-v3`. Its
 model-visible `extraction` identifier is `plain-text-v2` for literal plain text
 and `html-visible-text-v2` for visible HTML/XHTML text. These projections decode
 character references exactly once; plain text is never treated as markup.
 
 The production Brave binding uses the pinned `llm-tools`
-`operation_deadline_seconds=12.0` policy. Each selectable Slice 2 frozen plan
-tightens `web.search` to one external attempt and retains `BilledOnce`; its
-aggregate limits are ten calls, 222 external attempts, 73,768 input bytes,
-786,432 output bytes, one in-flight model-tool call, and 205 seconds. The
-maximum role definition permits 223 attempts and 1,638,400 output bytes.
-Jarvis adds no second deadline wrapper.
+`operation_deadline_seconds=12.0` policy. the current main and scheduled-read
+plans retain one external search attempt and `BilledOnce`, with one serial
+callback. cumulative call/attempt/byte/elapsed limits are null. each operation
+retains its finite declared bounds; jarvis adds no second deadline wrapper.
 
 The eight Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
 addition to their tool-specific failures. Provider JSON is rejected before
@@ -1495,14 +1296,10 @@ application session revision; the v6 binding rotates the definition fingerprint
 and cold-bootstraps without a second manual compatibility bump. Unaffected
 isolated roles do not change. Event
 aggregation permits at most 202 external attempts and retains the 60-second
-executor fence; discovery permits two attempts and 15 seconds. The read and
-scheduled-read aggregate output ceiling is 786,432 bytes, leaving 262,144 bytes
-for follow-up detail reads after one maximum list result. Slice 5 and active Main
-selected output ceilings are 1,249,280 and 1,708,032 bytes. The Slice 2
-new-context ceiling is 706,144 bytes; active Main retains its sufficient
-600,000-byte ceiling.
-Provider-turn, model-call, and write-gate ceilings do not change, so the rolling
-admission journal requires no migration.
+executor fence; discovery permits two attempts and 15 seconds. main and
+scheduled reads have no aggregate response/context quota. these finite
+per-operation bounds still apply to each call; recorded results are replayed
+without another executor charge.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire
@@ -1614,199 +1411,124 @@ Reads need no action row. Effectful tool calls create an `action` before
 execution and use its ID as their durable effect identity. Canonical message and
 memory transactions are host bookkeeping and do not pass through `llm-tools`.
 
-### 7.4 Model step protocol and bounded drain
+### 7.4 Native main and isolated steps
 
-The kernel accepts exactly one strict logical discriminated step per model
-response:
+main uses the shared `run_native` contract:
 
-```text
-say
-  Discord-ready text
+1. validate exact capabilities, model/reasoning, strict output and frozen plan;
+   prepare without provider submission.
+2. commit the exact original request/provider attempt before native entry.
+3. submit once and bind its native identity before dispatch.
+4. for each declared callback, validate pure input, commit immutable invocation,
+   enter the existing read recorder or write gate/action boundary, then commit
+   the original `ToolResult` and exact model reply before wire delivery.
+5. commit original native terminal/seal, failure and usage before application
+   validation; validate input dispositions and publish through current fences.
 
-call_tool
-  canonical granted tool ID
-  arguments
+the reader and control path stay live while callbacks execute serially.
+callback transport IDs correlate replies; they are not effect authority.
+a duplicate keeps its original input lineage, validated arguments and reply.
+changed identity/arguments fail closed. a known invalid input retains raw
+evidence and receives a typed rejection without executor entry; two identical
+invalid proposals under distinct call IDs stop no-progress. an undeclared tool
+or native authority event fences the attempt.
 
-finish
-  optional internal reason
-  result required only by a closed structured output contract
-```
+external writes publish the exact `ActionRequest` envelope:
+`request_ref`, nullable `existing_action_ref`, and original typed `arguments`.
+the action ledger stores that entire envelope; consent/classification render the
+operation payload. only a canonical delivered owner request can authorize a new
+effect. restarted old requests may reuse accepted actions; a new callback ID
+does not authorize a duplicate write. pending approval yields a durable receipt
+and independent reasoning continues. its eventual resolution is a host fact.
 
-Unknown fields are rejected. `provider-runtime` enforces the declared JSON
-schema and the kernel independently revalidates the complete semantic step,
-output contract, exact frozen-plan binding, and pure `llm-tools` arguments before
-visible output, position occupation, recorder mutation, budget reservation, or
-dispatch. Protocol-invalid output performs no effect and becomes bounded
-corrective context. Exhaustion persists a host-authored stopped conclusion and
-cannot obtain a new correction budget through automatic rearming.
+an authoritative provider non-submission proof settles locally. timeout,
+exception, missing native ID, local stop or absent usage do not prove
+non-submission. native evidence, local control outcome and product acceptance
+remain separate. cleanup cannot replace an original safe failure or valid seal.
 
-The Codex provider wire is a kernel-owned transport projection, not a second
-logical protocol. It is one closed root object with four required fields:
-`type`, `say`, `call_tool`, and `finish`. `type` selects exactly one non-null
-closed payload; every other payload is null. Optional logical values such as
-`finish.reason` are required-but-nullable on the wire. For `call_tool`, the wire
-`arguments` field is a string containing one strict JSON object. The kernel
-rejects duplicate keys, non-JSON constants, non-object roots, malformed branch
-selection, and invalid logical/tool arguments before dispatch. Jarvis MUST NOT
-decode, manufacture, or bypass this envelope.
+isolated roles retain the actual strict `call_tool | finish` step protocol.
+`call_tool` proposes one canonical granted tool and closed arguments with no
+prose, model-authored effect ID or approval field. `finish.result` matches that
+role's closed output schema; `say` is unavailable. the kernel owns the Codex
+wire envelope and JSON-string argument decoder; jarvis does not copy it.
+unsupported output schemas fail before provider I/O. whole-step and pure input
+validation precede output, recording, budgets and dispatch.
 
-A `StructuredOutput` compiles its result schema into the provider-supported
-closed subset when the immutable definition is built, before provider I/O.
-Unsupported contracts fail with `UnsupportedStructuredOutputError`. Arbitrary
-result mappings are unsupported; variable-key results use arrays of closed
-key/value records. Provider-wire compilation never replaces the independent
-Pydantic logical-result validation.
-
-`call_tool` contains no user-facing text, model-authored call/effect ID,
-preview, authority label, approval instruction, or delivery instruction. It
-proposes exactly one serial call. The host creates or resolves a durable
-`action` before any `Write` executor entry only after AutomaticWriteGate allows
-the validated proposal. It uses `action.id` as both the `llm-tools`
-`InvocationPosition` and `EffectId`. Gate denial becomes a typed policy
-observation with no action or dispatch. The executor returns a bounded completed
-`ToolResult`, which becomes input to the next model turn, or Jarvis durably
-accepts the work and returns a suspension waiting for the owner or system
-reconciliation. Only after a completed observation may Main make a separate
-truthful structured terminal.
-
-The Main definition forbids `say` and requires `finish.result` to match the
-closed `JarvisTerminal` schema from section 4.2. Jarvis consumes the kernel's
-existing `StructuredConclusion`, applies the run-local incomplete-observation
-policy, and host-renders the result before canonical settlement. Each internal
-structured definition likewise forbids `say` and requires `finish.result` to
-match its own closed schema. Internal `Pure`/`Read` calls may use attempt-scoped
-positions and non-durable recording; consequently a `Read + BilledOnce`
-operation may be billed again after a crash. V1 accepts that bounded cost
-instead of a generic durable observation store.
-
-The main model never classifies authority. Jarvis policy selects the plan,
-requires current-owner grounding, and maps an allowed write into its product
-action lifecycle. A suspension settles the proposing input and releases the
-provider session lease. A later host-authored message
-starts a new input batch containing the action ID, tool name, original validated
-arguments, resolution state, and safe evidence. Terminal `uncertain` remains a
-Jarvis action result after tool-specific reconciliation, not a kernel retry
-signal.
-
-`KernelLimits` own provider turns, protocol repairs, cooperative elapsed time at
-safe boundaries, normalized provider usage, and cumulative bytes of
-kernel-rendered model-visible material newly submitted in the current
-invocation. `max_cooperative_seconds` supplies a hard remaining deadline to a
-provider turn but is not an end-to-end latency guarantee: host ports, dispatch,
-settlement, parking, and cleanup may finish later, after which the next safe
-boundary prevents further work. Jarvis MUST NOT put a blunt outer timeout around
-a `Write`. `max_new_context_bytes` excludes provider system/developer material,
-output-schema transport overhead, retained native history, and provider
-compaction; Jarvis bounds static material separately and qualifies native-owned
-context/compaction behavior rather than estimating retained history from CAS
-generation or billing usage. The
-kernel-owned contained-agent base instruction counts inside Jarvis's independent
-system-material ceiling and its exact identity is qualified. The frozen
-`llm_tools.RunLimits` alone own tool calls, attempts, input/output bytes,
-concurrency, and tool deadlines, with `max_in_flight = 1`. Jarvis and the kernel
-MUST NOT double-charge these budgets. V1 has no parallel dispatch,
-multi-call step, or model-authored progress narration; Discord typing state is
-the progress indicator. The kernel retains its general `say` branch for other
-consumers, but the Jarvis Main definition makes that branch unavailable. Jarvis
-adds no second model protocol.
-
-The grammar has no approval preview. Host rendering is specified in section 5.3.
+isolated `KernelLimits` retain their finite turn/repair/time/context bounds;
+`llm_tools.RunLimits` alone own executor accounting. main's cumulative call,
+attempt, input/output-byte and elapsed values are null with
+`max_in_flight = 1`; per-tool `ToolLimits` remain finite. neither layer
+double-charges a replay. no outer timeout falsely interrupts an entered write.
+commentary and final structured output have separate bounded rendering and
+persistence contracts.
 
 ### 7.5 Codex containment
 
-Codex receives no connector, Brave, or embedding credentials, generic shell,
-writable project checkout, MCP server, or direct execution-authority tool
-channel.
+main and isolated cognition attach to the separate personal stock
+`0.160.0` app-server. the provider materializes its complete versioned
+restricted model catalogue at HOST STARTUP: direct declared callbacks, inherited
+clock/native user-input selectors removed, original vendor models retained.
+public initialize version and config/read startup-origin checks qualify that
+exact host before thread creation. per-thread catalogue overrides cannot supply
+this boundary. unsupported versions fail closed; updates require explicit
+qualification rather than latest-stable admission.
 
-Jarvis uses only `provider_runtime.agent_runtime.AgentRuntime` with
-`JsonSchemaAgentOutput`. Its pinned provider owns a protocol-bound WebSocket
-connection to the profile's host-owned Unix-socket App Server; `transport="sdk"`
-is the closed agent-transport discriminator, not a claim that a Python SDK owns
-request handling. Every cognition session uses an empty absolute cwd
-beneath the dedicated non-secret host parent. That asserted-empty directory is
-mode `0750`, granting the shared-runtime group only read/traverse so the
-development-UID server can enter it; no Jarvis application state is shared. Cognition retains
-read-only filesystem policy, no additional directories, disabled network,
-approval mode `deny`, no MCP servers,
-`CodexNativeOptions(builtin_tools="disabled")`, and disabled native Web search.
-The Codex `allowed_tools=("*",)` sentinel required by the compatibility API is present
-only for runtime compatibility; it grants no Jarvis authority.
+each cognition cwd is private, empty, read-only, non-secret and mode `0750`
+beneath the jarvis-owned mode-`02750` cognition parent. the client group permits
+only traversal/read of these directories and connection to the socket. native
+shell/files/Web/network, MCP, subagents and unsolicited approvals are disabled.
+host callbacks execute only the frozen application bindings. no connector,
+Brave, embedding, Discord, database or Google credential reaches native
+cognition or its account home.
 
-The kernel prepends its immutable 682-byte contained-structured-agent
-instruction to every new, resumed, reconstructed, threaded, isolated, and
-initial-Read request. Application instructions remain separate and cannot
-remove it. The exact instruction identity is
-`llm-agent-kernel-contained-structured-agent-v1:sha256:1817c90f24bf9149f20f94b69f825d9be0b78df8bb46b1d24ed2691cf71b80e7`.
-Prompt obedience is defense in depth; typed provider events and host policy own
-authority.
+the kernel owns each role's exact base instruction and fingerprints its immutable
+identity. application instructions follow it and never widen authority.
+main consumes prepared-turn events; isolated roles consume `stream_turn`
+directly. the event-discarding `run_turn` projection is forbidden. declared
+callback/terminal/commentary events remain distinct from native authority.
+permission/native-tool activity, unknown active items or malformed identities
+fail-stop and invalidate the session. raw vendor tool evidence cannot be hidden
+as inert CodeMode activity. a malformed output payload cannot be replaced with
+valid-looking final text.
 
-The provider adapter MUST drive and inspect the public `stream_turn` event
-stream. It MUST NOT call `AgentRuntime.run_turn` in production: that convenience
-method projects only the terminal and discards the intermediate events needed
-to enforce this boundary.
+systemd owns `jarvis-codex-contained.service`, its original host-only account
+home and private mount namespace. it binds its own
+`/run/jarvis-contained` source to stock's physical
+`/tmp/codex-daemon-HOSTUID` inside that namespace. startup keeps the source
+`0700`; after public qualification, publication uses source `0710`, physical
+socket `0660` and relative `app-server.sock` alias. the fixed rendezvous is
+`unix:///run/jarvis-contained/app-server.sock`. cleanup removes only the owned
+alias and restores private permissions; stock owns stale physical-socket rebind.
+no shared coding daemon, RPC relay, copied credential or app/kernel process
+supervisor is involved.
 
-The provider recognizes only its audited inert notification/item whitelist.
-Command, file, MCP, dynamic/custom, collaboration/sub-agent, Web, image,
-generation, sleep, hook, and defensive function-output activity becomes
-`AgentToolUse`. Permission, user-input, and MCP-elicitation requests are denied
-and become `AgentPermissionRequest`. An unknown request receives JSON-RPC
-`-32601`; any unknown item, notification, lifecycle transition, malformed or
-mismatched identity, or terminal following authority activity is a fatal
-`ProtocolDefect`. Generic `AgentNative` fallback is forbidden.
-
-An `AgentToolUse`, `AgentPermissionRequest`, or `ProtocolDefect` fails the confined turn,
-taints and discards the session, returns no terminal to the Jarvis loop, and
-permits no host dispatch or model-authored conclusion. Native passthrough events
-are limited to the audited bounded/redacted inert set. Streaming `AgentText` is
-never delivered or executable; only the provider-selected completed
-`final_answer` and then the kernel-validated structured step from a fully
-inspected clean stream can become a Jarvis response. A stopped provider turn
-produces a truthful host-authored visible failure and never accepts a model
-terminal.
-
-Native Code Mode is contained and detected, not claimed impossible before its
-first observable event. Disabled features, no-network/read-only sandbox, empty
-shared-runtime-traversable cwd, closed event classifier, and fail-stop session
-invalidation remain mandatory. Native Codex versions are diagnostic, not an
-admission gate; accepting a newer version does not qualify its containment.
-Protocol drift deliberately breaks availability until audited.
-
-The Linux deployment runs Jarvis as the dedicated unprivileged `jarvis` account
-and the three shared Codex services as the development account. Root-managed
-environment files remain mode 0600 and systemd injects their values only into
-the Jarvis host. Before opening any provider connection, Jarvis marks itself
-non-dumpable. A dedicated local group grants only App Server socket access and
-traversal of empty cognition directories; it grants no Jarvis home, database,
-connector, or environment-file access. Shared-server containment is not a
-general host-confidentiality boundary.
+the root-owned schema-4 `/etc/jarvis/codex-host.json` mapping contains exactly
+the personal endpoint and explicit host/app/group/cwd identities. mapping
+changes require stopped jarvis and same-release host operations before
+activation. read-only release verification checks the loaded immutable
+`ExecStart`, exact provider version and startup policy. application environment
+files remain root-owned mode `0600`; jarvis marks itself non-dumpable before
+provider attachment. host-qualified mechanics are not an installed production
+service receipt.
 
 ### 7.6 Concurrency
 
-Exactly one Jarvis service instance owns a deployment. A PostgreSQL advisory lock
-at startup prevents overlap.
+one jarvis service owns a deployment through its dedicated PostgreSQL advisory
+lock. one dispatch lane serializes callbacks and approved actions. the native
+reader, ingress, consent and outbox tasks remain responsive while a callback or
+write gate awaits completion.
 
-Within that one process, an ordinary in-process execution mutex permits at most
-one active Jarvis cognition turn or Jarvis host-tool dispatch at a time, and the kernel
-input-checkpoint port grants at most one exclusive root work epoch for the main
-application thread. AutomaticWriteGate is a serial child: the main run is paused
-before effect dispatch while the isolated gate one-shot runs synchronously under
-the same root ownership; the parent performs no provider or tool I/O and no two
-provider calls overlap. Foreground owner work takes precedence over
-rememberer and dreamer work. Kernel cancellation stops background cognitive work
-at a defined boundary; recomputation occurs only on a later explicitly admitted
-schedule, never by unconditional cleanup rearming.
+AutomaticWriteGate runs a fresh isolated one-shot within its parent callback,
+using the same current owner and explicit parent invocation permit. main cannot
+enter another effect while that dispatch is active; native observation/control
+continues. foreground work takes precedence over rememberer/dreamer work.
+background cancellation preserves canonical source/progress and does not
+automatically rearm paid inference.
 
-accepted codex and claude agents execute independently on their selected hosts
-after dispatch. their terminal output never enters the serial cognition
-decoder, consumes its provider lease, or grants new Jarvis authority.
-the start action terminates at a submitted launch, not readiness; Jarvis neither
-waits durably for worker completion nor schedules a successor from it.
-
-No second PostgreSQL conversation lock is required while the global ownership
-lock holds. The root admission reservation owns one concurrency slot; a gate
-child shares it only because its parent is paused and its maximum usage was
-reserved. Normal cleanup settles/refunds in `finally`; startup releases an
-orphaned slot without refunding its still-live rolling turn/token charge.
+accepted codex/claude worker sessions run independently on their selected hosts
+after the existing skid tool dispatch. their terminal output grants no new jarvis
+authority and consumes no main callback lease. this cutover adds no worker graph,
+completion scheduler or application process supervisor.
 
 ## 8. Technology choices
 
@@ -1826,8 +1548,8 @@ orphaned slot without refunding its still-live rolling turn/token charge.
 - Backup and restore: deliberately deferred beyond v1. Loss of the devbox,
   database, or disk can permanently lose Jarvis state; adding backup later does
   not require an application-schema change.
-- verification during the adr 0046 reset: static and package-build checks only;
-  the replacement behavioral testing approach is deferred to the next pr.
+- verification: static/package checks plus the explicitly authorized native
+  integration/live proof; the wider adr 0046 testing redesign remains separate.
 - Deployment: one host-native systemd service on the existing Hetzner
   `dev-server`, plus a dedicated database and least-privilege roles in its
   native loopback-only PostgreSQL 16. Jarvis opens no public listener. It MUST
@@ -1865,21 +1587,20 @@ V1 dependency lock:
   `69d41d38a3d290e7ae3bde9b57556dda41e1b2f1`
 - `llm-tools`: `9e6d155f3b64f03495911435b7cae8b8d131f9a2`
 
-The existing host installer tracks the latest stable `@openai/codex` for all
-three services and stock TUI clients. It resolves one candidate during explicit
-apply; our launchers add no update lookup or download. Jarvis and the kernel carry no Python
-Codex SDK or bundled executable; `provider-runtime` declares its WebSocket
-client directly. No native version equality gate exists. Actual protocol and
-authority validation stays strict; upstream breakage and operator repair are
-accepted under ADR 0042. Version-only apply does not restart healthy servers;
-planned restart is explicit and may interrupt turns. Normal crash recovery may
-load the newly installed binary. CLI/server parity is not assumed.
+the separate contained cognition host requires stock 0.160.0 and the
+provider-owned restricted complete catalogue at HOST STARTUP. `provider-runtime`
+checks public initialize version and config origin before creating a thread.
+unsupported native versions fail closed before submission. catalogue/binary
+updates require explicit qualification. this endpoint supersedes adr 0042's
+latest-stable rule without changing unrelated coding services. the application
+owns its host unit; neither kernel nor worker owns native credentials/processes.
 
-the root-owned codex host mapping retains the operational account endpoints and
-empty cognition parent needed by cognition. worker routing comes only from the
+the root-owned schema-4 codex host mapping contains only the contained personal
+endpoint and explicit host/app/group/cwd identities. worker routing comes only
+from the
 explicit skid settings, `JARVIS_AGENT_CLI_PATH` and
-`JARVIS_AGENT_CLIENT_CONFIG_PATH` (adr 0052). deployment owns this mapping and removes
-launcher-only fields with their final callers under adr 0044.
+`JARVIS_AGENT_CLIENT_CONFIG_PATH` (adr 0052). deployment owns this mapping;
+worker launcher fields do not belong to it.
 
 The checked-in compatibility manifest schema v3 records
 `qualified_models = ["gpt-5.6-terra"]`. Startup accepts only those exact model
@@ -1906,8 +1627,9 @@ Stable prompt material precedes dynamic time.
 The physical deployment uses a dedicated `jarvis` Unix account,
 `/opt/jarvis/releases/<git-commit>` with an atomic `/opt/jarvis/current`
 symlink, durable state under `/var/lib/jarvis`, and root-owned configuration
-mode 0600 under `/etc/jarvis`. The release MUST attach only to the host-declared,
-shared Codex services rather than start or bundle a private runtime. The
+mode 0600 under `/etc/jarvis`. the application attaches only to the separately
+contained host and never starts or bundles a native runtime. systemd owns its
+additional host unit from the same immutable release. the
 `dev-server` repository owns shared host prerequisites and base directories;
 this repository owns releases, configuration, credentials, database roles and
 migrations, and the systemd unit. Co-location grants no access
@@ -1924,7 +1646,9 @@ controls.
 
 ## 9. Persistence
 
-Jarvis owns exactly six application tables (ADR 0040).
+jarvis owns nine application tables: the six records from adr 0040 and three
+native journals from adr 0063. the separately accepted universal-memory target
+adds three more; it is not part of this cutover.
 
 ```text
 message
@@ -1939,6 +1663,11 @@ message
   processing_attempts
   processing_parked_at
   remembered_at
+  request_state
+  wait_reason
+  control_kind
+  control_sequence
+  control_targets
   trace
 
 memory_log
@@ -1968,6 +1697,7 @@ action
   decided_at
   completed_at
   result
+  supersedes_action_id
 
 model_decision
   decision_id
@@ -1978,6 +1708,7 @@ model_decision
   request_fingerprint
   request
   terminal
+  submission
   host_evidence
   created_at
   completed_at
@@ -1991,50 +1722,95 @@ read_position
   settlement
   created_at
   updated_at
+
+native_attempt
+  id
+  conversation_id
+  attempt_seq
+  owner_epoch
+  request_fingerprint
+  request
+  native_binding
+  submission_evidence
+  local_outcome
+  terminal
+  product_outcome
+  created_at
+  armed_at
+  fenced_at
+  terminal_at
+
+native_invocation
+  id
+  attempt_id
+  ordinal
+  native_call_id
+  request_message_id
+  tool_id
+  proposal_digest
+  proposal
+  frozen_contract
+  validation
+  validation_error
+  read_position
+  action_id
+  reply_receipt
+  reply_recorded_at
+
+native_input_delivery
+  attempt_id
+  message_id
+  ordinal
+  delivery_id
+  mode
+  state
+  provider_evidence
+  created_at
+  updated_at
 ```
 
-These are the exact v1 application columns. Database-generated search columns
-and Alembic's migration bookkeeping are physical infrastructure, not application
-state. Changing this roster, adding an application table, or adding a semantic
-memory field requires an ADR.
+these are the current application columns. generated search columns, the control
+sequence and Alembic bookkeeping are physical infrastructure. a new application
+table or semantic memory field requires an accepted ADR.
 
 ### Durable inference and Read recovery
 
-[ADR 0040](docs/decisions/0040-shared-kernel-durable-decisions.md) owns the
-shared-kernel cutover. Authenticate one exact Codex model catalog selection at
-startup and freeze its model key, reasoning key, catalog revision, and row
-fingerprint in every definition. Dependency and selection changes rotate native
-session identity.
+`model_decision` records recoverable isolated inference: its exact original
+request/provider attempt, submission facts, original terminal and bounded host
+validation evidence. recall is keyed by owner message identity, rememberer by its
+settled owner group, gate by its parent native invocation, and dreamer by the
+canonical raw/summary snapshot. unknown original submission blocks redispatch.
+diagnostics may explicitly select transient inference; they establish no restart
+proof. the later universal-memory target separately makes its background
+inference disposable.
 
-Before provider entry, commit the exact original request under a stable decision
-ID. Commit its normalized terminal and bounded host validation evidence together
-before tools, memory mutation, action acceptance, or message publication. An armed
-record without a terminal is unknown and cannot authorize automatic redispatch.
-Restore original claim input IDs, checkpoint, and clock before retry counting or
-poison handling. A completed record replays its original terminal; current
-provider/definition/plan mismatches fail closed. Native sessions remain disposable.
+`native_attempt` preserves original prepared request, output schema/input lineage,
+provider attempt, native binding and independent submission/local/native/product
+facts. scope sequence is allocated under the conversation lock; only one
+unfenced unresolved attempt may own that scope. local stop and missing IDs never
+become seals. recovery checks the original attempt and authoritative native seal
+and decodes against its frozen output contract before current definitions/tools.
+an encoder failure repeats local work with original terminal/usage retained.
 
-Recoverable isolated roles also use durable decisions. Recall is keyed by original
-owner message identity; rememberer by its ordered settled owner group; write gate
-by the original Main model decision. Dreaming admits new work from the canonical
-raw/summary identity snapshot. Identical snapshots reuse the original job and
-clock; changed memory admits a new job. Existing action recovery has priority over
-any model replay and retains its exact original effect authority.
+`native_invocation` preserves exact callback identity, original proposal and
+lineage, frozen contract, validation and original read/action reference. known
+invalid arguments remain raw evidence with their rejected reply. completed
+duplicates replay the original reply; changed arguments or authority fail closed.
+native call IDs never replace the host's stable invocation/effect identity.
 
-All recoverable Read dispatches use `read_position` through the existing llm-tools
-PositionRecorder protocol. Exact completed results replay; dispatched or uncertain
-positions never reexecute automatically. This covers Maps, Brave search, and
-embedding-backed memory search billing. Restore accepted reservations/settlements
-in original initial-read/model order before admitting another tool. Rejected
-reservations are uncharged. Calls, attempts, and bytes remain bounded across the
-logical scope; elapsed time remains the monotonic active invocation bound and
-does not charge process downtime. The Write action ledger remains separate.
+`native_input_delivery` distinguishes prepared, sent, queued, recorded and
+rejected delivery. queued RPC acceptance never proves native recording or request
+completion. ambiguous delivery fences its old turn before fresh reasoning.
 
-The deployment advisory-lock connection executes short, serialized transactions
-for all owned stores, including inference, reads, actions, memory, and publication.
-A released, closed, or invalidated owner connection cannot reconnect or admit work.
-Diagnostic probes may explicitly use transient inference and in-memory recorders;
-they never establish restart qualification.
+`read_position` uses the existing llm-tools recorder. original complete results
+replay; unknown billed-once dispatch cannot execute again. restored reservations/
+settlements preserve original per-operation accounting; main has no aggregate
+quota. action recovery retains its existing original effect authority.
+
+all stores use the dedicated deployment-lock connection for short serialized
+transactions. lost ownership cannot reconnect or admit work. no transaction
+spans provider, tool or delivery I/O. native truth commits before product
+validation; current request/source/consent fences govern publication separately.
 
 ### 9.1 Message
 
@@ -2050,19 +1826,20 @@ they never establish restart qualification.
 - Host action-resolution messages are inserted idempotently from terminal
   `action` state with `processed_at = NULL` and are never delivered to Discord as
   if the owner authored them.
-- `processed_at` is set on a waking owner or host row only when its response,
-  silent finish, or approval proposal is durably recorded.
-- `processing_attempts` atomically increments when the checkpoint port acquires
-  a claim after successful rolling-capacity preflight and before plan-budget or
-  provider work. It deliberately counts a crash or configuration defect after
-  claim. It is not a retry instruction; it is the durable poison-input ceiling
-  across crashes and process restarts.
+- `request_state` is `pending | waiting | completed | stopped` on ordinary owner
+  requests; `wait_reason` exists only for waiting. validated final dispositions
+  and canonical controls mutate them under the conversation lock. an omitted
+  disposition retains state. a pending approval alone never completes a request.
+- `processed_at` records completed/stopped owner requests or handled host facts,
+  atomically with their canonical response/control/disposition.
+- `processing_attempts` retains historical non-negative values; native main
+  admits through current-owner permits, not this retired claim counter.
 - `processing_parked_at` is nullable `timestamptz` and canonical
-  operator-quarantine control. The kernel
-  checkpoint `park` transaction stamps it on the claimed unprocessed batch;
-  ordinary claims and recovery scans exclude parked rows, and any parked row
-  opens the v1 cognitive circuit until explicit operator repair clears it.
+  operator-quarantine control. ordinary input scans exclude parked rows until
+  explicit operator repair clears them.
   `trace` may record a bounded reason code but is never queried as control state.
+- `control_kind`, monotonic `control_sequence` and exact `control_targets` record
+  owner stop/pause/resume. pause truth lives in these canonical rows, not a file.
 - Assistant messages are inserted before delivery. A null `source_message_id` is
   the outbound retry watermark; a successful adapter delivery or history
   reconciliation fills it with the source platform's ID. The Discord nonce is
@@ -2100,8 +1877,10 @@ approval, execution, reconciliation, and receipts.
   does not require version suffixes.
 - `tool_name`, `arguments`, `execution_contract`, and `origin_message_id` are
   immutable after insert.
-- `arguments` is the sole source of the model-proposed and user-visible effect
-  payload used for approval rendering and execution. `id` is the only additional
+- `arguments` preserves the complete original `ActionRequest` envelope. its inner
+  `arguments` is the sole operation payload for approval and execution.
+  `request_ref` names its canonical owner request; `existing_action_ref` permits
+  exact accepted-action reuse. `id` is the only additional
   input to a deterministic provider effect identity such as the Calendar event
   ID; it cannot change the approved payload.
 - `execution_contract` is non-null closed host-authored JSONB containing the
@@ -2110,14 +1889,16 @@ approval, execution, reconciliation, and receipts.
   `input_digest`, finite `max_attempts`, `claim_id`, canonical
   `through_checkpoint`, `model_step_ordinal`, ordered `input_message_ids`, and
   `write_gate_supporting_owner_message_ids`. It is not a model field or general
-  version registry. Host code verifies it before every approval rendering,
+  version registry. on the native path, `claim_id` is the native attempt and
+  `model_step_ordinal` is its callback ordinal; these retained column spellings
+  do not create a main-step decoder. host code verifies it before every approval
+  rendering,
   executor entry, replay, or reconciliation.
 - Within that contract, `policy_revision` covers the deterministic authority
   policy and the AutomaticWriteGate definition fingerprint, including its
   prompt, model configuration, and output contract.
-- `origin_message_id` is the first waking message in the original claim and
-  remains a convenient stable root pointer. Recovery uses the execution
-  contract's complete admitted-input lineage, not that one pointer alone.
+- `origin_message_id` is the exact delivered owner request named by `request_ref`.
+  recovery also validates the complete original admitted-input/native lineage.
 - `attempts` is a non-negative integer that starts at zero and increments
   atomically immediately before each actual effectful binding executor entry,
   only while below the immutable finite `max_attempts`. Reconciliation reads do
@@ -2137,40 +1918,31 @@ approval, execution, reconciliation, and receipts.
   reason, or uncertainty evidence without secrets. A create-schedule result
   preserves an immutable `creation_receipt` while its separate `wake_outcome`
   moves from null to the later terminal wake result.
+- `supersedes_action_id` links a fresh-consent successor to its cancelled original;
+  the original arguments, contract and receipts remain immutable. stopping
+  cancels unentered work, never an entered effect's settlement obligation.
 
 Queued or approval-bearing rows whose `tool_name` is unsupported or whose stored
 arguments or execution contract no longer validate fail closed as `cancelled`
-and are reported. An existing name MUST remain backward-compatible while a
-non-terminal action uses it. Before an incompatible schema or semantic change,
-the deployment owner resolves or cancels those actions. A future incompatible
-implementation MAY earn a distinct versioned successor name; v1 stores no
-general version registry. The per-row execution contract exists to make one
-occupied effect position replay-safe, not to dispatch multiple implementation
-versions.
+and are reported. before an incompatible cutover, the original release reconciles
+entered/unknown effects; unentered work is cancelled and requires fresh consent.
+after cutover there is one current decoder/executor, with no legacy fallback or
+compatibility path. historical terminal rows retain their original bytes and
+receipts. the per-row contract makes one occupied effect replay-safe; it is not
+a registry for dispatching multiple implementation versions.
 
 The action ledger must not become a duplicate message or memory store.
 
 ### 9.3 Other state
 
-Existing connector credentials, cursors, and adapter state remain in their
-current owned stores. Owner/guild/channel identity and the paused flag live in
-deployment or host configuration. The main `AgentSessionRef` and immutable
-agent-definition fingerprint live in private runtime state outside PostgreSQL
-through the kernel `SessionRefPort`. Provider session state is non-canonical and
-rebuildable. A second atomically replaced
-private runtime journal stores the bounded rolling admission window for all
-cognitive work. It contains reservation/run IDs, windows, counters, timestamps,
-reserved/actual capacity, and state only—no prompts or user content. Clean exits
-settle and refund unused capacity. Startup under the deployment lock marks
-orphaned reservations interrupted, releases their concurrency slots, and
-retains their conservative turn/token charge until window expiry. Missing or
-corrupt state fails closed until an explicit operator reset. Alembic may own its
-migration table.
-
-the runtime accepts only the current admission-journal configuration. before
-activating a release on an older journal, the stopped deployment must normalize
-it through the pinned prior release without dropping unexpired reservations or
-their charges; see [adr 0047](docs/decisions/0047-require-current-admission-journals.md).
+existing connector credentials, cursors and adapter state remain in their
+owned stores. canonical pause is a postgres control message. native request,
+attempt, invocation and input-delivery facts use the existing database and owner
+lock; provider sessions/history are disposable. no local pause/session/admission
+journal survives cutover. the original sealed terminal includes its frozen output
+schema and input lineage, so local product settlement does not reconstruct a
+current plan or repeat a model call. current request/owner fences still govern
+publication. alembic owns its migration table.
 
 The qualified mode-0600 Google handoff stores each OAuth token as
 `aesgcm.v1.<base64url(nonce || AES-GCM ciphertext)>`, with a 12-byte nonce. Its
@@ -2183,7 +1955,7 @@ respectively to the full associated data
 value of exactly 32 bytes is the key, and every other decoded length is reduced
 with SHA-256. A refresh atomically replaces state in this same format.
 
-V1 has no backup or restore path. The main provider session reference,
+V1 has no backup or restore path. the live main provider lease,
 provider-native state, embeddings, summaries, and indexes are noncanonical or
 derived, and memory rebuild remains available while the local raw log survives.
 If backup is added later, its exact canonical state, credential exclusions, and
@@ -2206,9 +1978,8 @@ Slice 0 records for each reused connector and the Web family:
 - The smallest Jarvis-owned `llm-tools` declaration and binding for each
   application tool integration, plus the exact composed `llm-tools` Web
   bindings.
-- The pinned `llm-agent-kernel` port/conformance contract and the Jarvis-owned
-  product-context, session-reference, input-checkpoint, admission, dispatch, and
-  event adapters.
+- the pinned native/isolated kernel contracts and jarvis-owned canonical context,
+  current-owner admission, journal/input, dispatch and publication adapters.
 - The intended plan-aware tool-budget, compatibility-revision, admission,
   context-sizing, checkpoint-park, and operator-release mappings, with each
   production proof assigned to the implementation slice that owns it.
@@ -2285,23 +2056,24 @@ product-domain code.
   recoverable across that reboot.
 - Jarvis uses live tools for current external state and distinguishes that state
   from recalled memory.
-- Discord typing is the only synchronous progress signal. A persisted Main
-  terminal is final unless it names an already committed suspended action;
+- public commentary and useful partial answers persist before delivery without
+  settling unfinished requests. validated final dispositions govern completion;
   collection completeness comes from typed host evidence, never model prose.
 - External success comes from a provider receipt or reconciliation evidence,
   never a model assertion.
 - Failed and uncertain actions are reported honestly.
 - Ordinary logs exclude credentials, private message bodies, raw email bodies,
   and complete memory text.
-- Provider work is admitted through the durable rolling journal; corrupt state
-  fails closed, orphaned concurrency is released without refunding reserved
-  rolling capacity, and poison inputs cannot renew their budget across restarts.
+- provider work requires the current owner permit and canonical authority.
+  ownership loss fences old callbacks; missing usage grants no authority.
+  original terminal/action/read evidence survives restart and remains authoritative.
 
 ## 12. Definition of done
 
-adr 0046 suspends the old verification machinery and execution gates. the
-criteria below retain the intended product behavior; static/build success during
-the reset is not evidence that v1 acceptance is complete.
+adr 0046 suspends the old verification machinery. native acceptance uses the
+explicit adr 0063 integration/live exception and shared N001–N020 evidence;
+whole-product deployment/domain/owner acceptance below remains separate.
+static/build success alone establishes neither.
 
 V1 is complete when every mandatory criterion in
 [docs/acceptance.md](docs/acceptance.md) passes on the intended Linux deployment
@@ -2309,8 +2081,8 @@ using the real personal integrations and subscription-backed Codex account.
 
 Acceptance includes:
 
-- Natural single-channel Discord conversation, compatible-session resume, and
-  lost-session context reconstruction.
+- natural single-channel Discord conversation, compatible in-process reuse and
+  fresh-session reasoning recovery after owner/connection/process loss.
 - Live Gmail, Calendar, and Maps use.
 - Live public-Web search and page reading.
 - Memory formation, fresh-session recall, dreaming, and complete rebuild.
@@ -2325,10 +2097,11 @@ Acceptance includes:
 Frozen decisions:
 
 - One visible Jarvis and natural Discord interaction.
-- One host-rendered typed Main terminal with no production `say` or in-progress
-  variant; incomplete typed evidence is visibly partial.
+- native public progress plus one host-rendered typed terminal with explicit
+  per-input dispositions; incomplete typed evidence is visibly partial.
 - One configured Discord channel with no v1 server-organization tools.
-- Exactly six application tables, including original paid decisions and Read positions.
+- exactly nine application tables, including isolated decisions, read positions
+  and the three native journals; universal memory separately adds three.
 - Central conversation history with a persistent Discord outbox, recent-window
   enforced-nonce deduplication, and explicitly bounded delayed ambiguity.
 - Product-selected canonical context through the provider-neutral kernel ports;

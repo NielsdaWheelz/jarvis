@@ -1,5 +1,23 @@
 # adr 0051: one universal memory corpus
 
+[adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes manual activation, native-field strictness, status-tool and client-quota rules.
+see the [current contract](../universal-memory.md) for implementation.
+
+[adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
+capture transport/repair and background inference recovery. the
+[current contract](../universal-memory.md) consolidates the implementation target.
+
+[adr 0061](0061-remove-memory-forgetting.md) removes the conversation exclusion,
+erasure and tombstone requirements below; archive/notes remain append-only.
+
+amended before implementation by [adr 0054](0054-simplify-universal-memory.md)
+on 2026-09-30. its simpler activation, extraction, migration, retrieval and
+verification decisions supersede the affected choices recorded below; the linked
+implementation contract is current.
+
+[adr 0056](0056-save-agent-notes-over-mcp.md) additionally permits direct external
+note submission with optional conversation attribution; retrieval stays pull-only.
+
 - status: accepted implementation target, 2026-09-28; implementation and live
   acceptance `NOT_RUN`. numbered 0051 because the reverted jarvis commit `bada736`
   and skid's `herdr-mobile-separation.md` already use "adr 0050" for a withdrawn

@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+commit="${1:-}"
+source_mapping="${JARVIS_SOURCE_CODEX_HOST_CONFIG:?supply the provisioned non-secret personal host mapping}"
+if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
+  printf 'usage: deploy/install-contained-host FULL_GIT_COMMIT\n' >&2
+  exit 64
+fi
+[[ "$source_mapping" = /* && -f "$source_mapping" && ! -L "$source_mapping" ]] || {
+  printf 'missing or unsafe contained host mapping source\n' >&2
+  exit 1
+}
+remote="$(ssh "$target" mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
+case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
+scp -q "$source_mapping" "$target:$remote/codex-host.json"
+ssh "$target" bash -s -- "$commit" "$remote" <<'REMOTE'
+set -euo pipefail
+commit="$1"
+remote="$2"
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
+cleanup() { rm -rf -- "$remote"; }
+trap cleanup EXIT HUP INT TERM
+release="/opt/jarvis/releases/$commit"
+sudo test -f "$release/RELEASE.json"
+[[ -f "$remote/codex-host.json" && ! -L "$remote/codex-host.json" ]]
+
+# host and mapping changes require a cleanly stopped application. existing native
+# attempts are recovered by the application after its next activation.
+[[ "$(sudo systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+[[ "$(sudo systemctl show --property=Result --value jarvis.service)" == success ]]
+[[ "$(sudo systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+candidate="$(sudo mktemp /etc/jarvis/.codex-host.XXXXXX)"
+cleanup_candidate() { sudo rm -f -- "$candidate"; cleanup; }
+trap cleanup_candidate EXIT HUP INT TERM
+sudo install -m 0644 -o root -g root "$remote/codex-host.json" "$candidate"
+mapfile -t layout < <(sudo "$release/.venv/bin/python" - \
+  "$candidate" "$release" "$remote/jarvis-codex-contained.service" <<'PY'
+import json
+import pwd
+import re
+import stat
+import sys
+from pathlib import Path
+
+from jarvis.codex_config import CodexHostConfig
+
+config = CodexHostConfig.load(Path(sys.argv[1]))
+if (
+    config.jarvis_user != "jarvis"
+    or config.client_group != "codex-clients"
+    or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", config.development_user)
+    or config.endpoints["personal"] != Path("/run/jarvis-contained/app-server.sock")
+    or config.cognition_cwd_parent != "/run/jarvis-codex-cognition"
+):
+    raise SystemExit("contained host mapping has an incompatible deployment layout")
+host_uid = pwd.getpwnam(config.development_user).pw_uid
+if host_uid == 0 or host_uid == pwd.getpwnam(config.jarvis_user).pw_uid:
+    raise SystemExit("contained host and application require distinct non-root identities")
+account = Path(config.profiles["personal"].account_home)
+metadata = account.stat()
+if (
+    not stat.S_ISDIR(metadata.st_mode)
+    or metadata.st_uid != host_uid
+    or stat.S_IMODE(metadata.st_mode) != 0o700
+    or not (account / "auth.json").is_file()
+):
+    raise SystemExit("original personal account must be private and host-owned")
+release = Path(sys.argv[2])
+unit = (release / "deploy/jarvis-codex-contained.service").read_text()
+for key, value in {
+    "@HOST_USER@": config.development_user,
+    "@HOST_UID@": str(host_uid),
+    "@RELEASE@": str(release),
+    "@ACCOUNT_HOME@": json.dumps(str(account).replace("%", "%%"), ensure_ascii=False),
+}.items():
+    unit = unit.replace(key, value)
+Path(sys.argv[3]).write_text(unit)
+print(config.development_user)
+print(account)
+PY
+)
+[[ "${#layout[@]}" == 2 ]]
+host_user="${layout[0]}"
+account_home="${layout[1]}"
+sudo -u "$host_user" test -r "$account_home/auth.json"
+if sudo -u jarvis test -r "$account_home/auth.json"; then
+  printf 'application can read the native host account; installation refused\n' >&2
+  exit 1
+fi
+sudo systemd-analyze verify "$remote/jarvis-codex-contained.service"
+if sudo systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
+  sudo systemctl stop jarvis-codex-contained.service
+fi
+sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained
+sudo install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
+printf 'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -\n' | \
+  sudo tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
+sudo mv -fT -- "$candidate" /etc/jarvis/codex-host.json
+sudo install -m 0644 -o root -g root \
+  "$remote/jarvis-codex-contained.service" /etc/systemd/system/jarvis-codex-contained.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now jarvis-codex-contained.service
+sudo systemctl is-active --quiet jarvis-codex-contained.service
+sudo systemd-run --quiet --wait --pipe --collect \
+  --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
+  --property=SupplementaryGroups=codex-clients \
+  --property=ProtectHome=true --property=ProtectSystem=strict \
+  --property=PrivateTmp=true --property=PrivateDevices=true \
+  --property=NoNewPrivileges=true \
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
+  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null
+printf 'contained personal host installed for %s; jarvis remains stopped\n' "$commit"
+REMOTE

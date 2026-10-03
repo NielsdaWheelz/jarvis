@@ -1,0 +1,52 @@
+[Unit]
+Description=Jarvis contained personal Codex host
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=@HOST_USER@
+Group=codex-clients
+WorkingDirectory=/
+Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
+ExecStart=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host start
+ExecStartPost=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host publish
+ExecStopPost=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host cleanup
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=20
+TimeoutStopSec=10
+KillMode=control-group
+UMask=0077
+RuntimeDirectory=jarvis-contained
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
+BindPaths=/run/jarvis-contained:/tmp/codex-daemon-@HOST_UID@
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=ptraceable
+ProcSubset=pid
+ReadWritePaths=/run/jarvis-contained @ACCOUNT_HOME@
+NoNewPrivileges=true
+AmbientCapabilities=
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+TasksMax=256
+LimitCORE=0
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

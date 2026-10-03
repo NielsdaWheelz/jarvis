@@ -39,13 +39,24 @@ sudo test "$(sudo systemctl show --property=ProtectProc --value jarvis.service)"
   ptraceable
 sudo test "$(sudo systemctl show --property=ProcSubset --value jarvis.service)" = pid
 sudo test "$(sudo systemctl show --property=LimitCORE --value jarvis.service)" = 0
-sudo -u jarvis test -r /etc/codex-shared/profiles.json
-for socket in /run/codex-shared-personal/app-server.sock \
-  /run/codex-shared-work/app-server.sock /run/codex-shared-work2/app-server.sock; do
-  sudo -u jarvis test -S "$socket"
-  sudo -u jarvis test -w "$socket"
-done
+mapping=/etc/jarvis/codex-host.json
+sudo test -f "$mapping" && sudo test ! -L "$mapping"
+[[ "$(sudo stat -c '%U:%G:%a' "$mapping")" == root:root:644 ]]
+sudo systemctl is-active --quiet jarvis-codex-contained.service
+release="$(sudo readlink -f /opt/jarvis/current)"
+[[ "$release" =~ ^/opt/jarvis/releases/[0-9a-f]{40}$ ]]
+# qualify the public native startup contract through the same uid, group and
+# namespace restrictions as the application. no model turn is submitted.
+sudo systemd-run --quiet --wait --pipe --collect \
+  --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
+  --property=SupplementaryGroups=codex-clients \
+  --property=ProtectHome=true --property=ProtectSystem=strict \
+  --property=PrivateTmp=true --property=PrivateDevices=true \
+  --property=NoNewPrivileges=true \
+  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
+  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null
 
-printf 'jarvis connector-secret and process-inspection boundary passed.\n'
+printf 'jarvis connector-secret, process-inspection and contained-host boundary passed.\n'
 REMOTE
 "$(dirname "${BASH_SOURCE[0]}")/verify-agent-client"

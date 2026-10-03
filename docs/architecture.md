@@ -224,10 +224,13 @@ bundle of raw memories and summaries, or an explicit empty bundle.
 
 ### Main agent
 
-main uses `NativeDefinition`, serial declared host callbacks, public commentary
-and closed `JarvisTerminal` per-request complete/continue/waiting dispositions.
-the kernel validates declarations and pure inputs before durable dispatch.
-progress reports evidence; it cannot settle requests or grant action authority.
+main uses `NativeDefinition`, serial declared host callbacks and strict
+`JarvisNativeMessage` wire output. commentary validates as `Progress(type, text)`
+with empty `input_outcomes`; only its bounded prose becomes canonical public
+text. final output uses final-only `JarvisTerminal` complete/continue/waiting
+dispositions. [spec section 4.2](../SPEC.md#42-conversation-is-natural) owns this
+phase contract. the kernel validates declarations and pure inputs before durable
+dispatch. progress cannot settle requests or grant action authority.
 
 main alone receives the owner-approved voice/profile. their revisions participate
 in its fingerprint. it owns no credentials, policy or effect identity. owner input
@@ -394,8 +397,13 @@ in-flight/frame/message bounds and provider/control timeouts remain. llm-tools
 owns tool budgets and settlement exactly once. usage never grants authority.
 
 isolated roles retain `run_one_shot` and its strict serial step protocol. this is
-an actual separate role, not a fallback main path. public commentary uses bounded
-message/outbox rendering; only validated terminal dispositions settle requests.
+an actual separate role, not a fallback main path.
+
+main commentary validates the whole strict wire message and persists its prose
+plus an exact raw-message digest;
+only validated final dispositions settle requests. recovery decodes the original
+sealed terminal against its frozen output schema before final-only validation,
+without current definitions or another provider call.
 
 ## Action lifecycle
 
@@ -601,8 +609,13 @@ subagents and permission grants; its cwd is empty, read-only and non-secret.
 per-thread catalogue settings cannot supply the host ceiling.
 
 main consumes native turn events and declared callbacks through the shared
-supervisor. commentary becomes durable public progress; the validated terminal
-alone carries final request dispositions. isolated roles use `stream_turn` and
+supervisor. stock strict output applies to both message phases, so the wire schema
+includes one explicit progress case. phase validation rejects raw prose and
+final-shaped commentary; no fallback or terminal-envelope extraction exists.
+the shared native base v3 permits the application's commentary format and
+automatically rotates definition fingerprints through its revision/digest.
+only canonical progress prose reaches delivery; the validated final terminal
+alone carries request dispositions. isolated roles use `stream_turn` and
 accept only their strict completed output. every native authority event,
 permission request, unknown active item or identity defect fail-stops the turn.
 raw tool visibility prevents a hidden vendor CodeMode wrapper from passing as

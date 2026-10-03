@@ -19,6 +19,21 @@ native evidence and callback receipts remain immutable. native terminal recovery
 requires original sealed provider evidence and frozen output schema/input lineage,
 never parent product state or reconstruction of a current callback plan.
 
+phase-aware output amendment: stock codex applies its strict output schema to
+commentary as well as final messages. main declares `JarvisNativeMessage`, adding
+one explicit `Progress` response (`type = progress`, bounded prose `text`) with
+empty `input_outcomes`. the host validates the whole raw commentary message,
+records its digest and persists only canonical prose. final settlement retains
+final-only `JarvisTerminal`; a final progress response fails locally while its
+native seal/usage remain intact. no fallback or terminal-envelope extraction.
+recovery first decodes against the original frozen output schema, including an
+earlier final-only schema, then applies final-only product validation. the shared
+native base v3 permits application wire formatting and rotates fingerprints
+automatically through its revision/digest. the cost is one additional wire case
+and phase validation, preserving the same public prose and final product shape.
+source is implemented; installed phase-aware live content/control qualification
+is **PENDING**. earlier receipts remain historical; no deployment is claimed.
+
 external write schemas contain request_ref, existing_action_ref and the original
 typed arguments. action.arguments stores that entire exact input; authority and
 approval render the inner payload. resumed old requests may only reuse accepted

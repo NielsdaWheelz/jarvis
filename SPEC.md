@@ -110,6 +110,10 @@ linked from [docs/acceptance.md](docs/acceptance.md#native-cutover-acceptance).
 this exception restores no standing retired suite and claims no production
 deployment or universal-memory acceptance.
 
+phase-aware native message source is implemented; installed live content/control
+qualification is **PENDING**. earlier final-only-wire receipts do not qualify the
+new wire contract in section 4.2 or establish deployment.
+
 retired delivery checklists, qualification reports and the completed cleanup log
 live in git history. deleting those copies changes no runtime requirement or
 acceptance result; current contracts, operations and unresolved issues remain.
@@ -274,7 +278,19 @@ partial findings commit to the canonical outbox before delivery; they do not
 settle owner requests. typing remains an additional activity signal. main has no
 `say`/`call_tool`/`finish` step decoder.
 
-the closed `JarvisTerminal` root contains `response` and `input_outcomes`.
+stock codex applies its strict output schema to commentary and final output.
+main therefore declares the closed `JarvisNativeMessage` wire root with
+`response` and `input_outcomes`. commentary MUST use
+`response = {"type": "progress", "text": "..."}` and `input_outcomes = []`.
+`Progress.text` is non-empty plain prose, at most 2,000 UTF-8 bytes. the host
+validates the whole raw message and its commentary phase before persisting only
+that text to the canonical outbox. trace retains the exact raw message digest;
+reusing a native message identity with changed wire bytes fails. final-shaped
+commentary, raw prose and malformed JSON are rejected; there is no fallback or
+terminal-envelope extraction. progress cannot settle inputs or grant authority.
+
+final output MUST satisfy the closed final-only `JarvisTerminal` root, which also
+contains `response` and `input_outcomes` and excludes `Progress`.
 `response.type` is `answered`, `partial`, `needs_input`, `failed`, `silent`, or
 `waiting`. the host renders it deterministically. `answered` has non-empty
 `text`; `partial` has non-empty `text`, a
@@ -379,8 +395,10 @@ accepted actions and complete receipts remain authoritative even outside the
 recent-observation window. `origin_message_id` is a stable root pointer, not
 sufficient recovery authority. parked input remains operator-only.
 
-public commentary and final output use distinct persisted messages. malformed
-structured terminal output cannot be replaced with valid-looking final prose.
+public commentary and final output use distinct persisted messages under the
+phase contract in section 4.2. malformed structured output cannot be replaced
+with valid-looking prose. a sealed final `Progress` is a local product failure;
+its original native terminal and usage remain evidence.
 
 ### 4.4 Proactivity and stop control
 
@@ -910,8 +928,9 @@ responsibilities:
   connectors, plan selection, consent/actions, reconciliation, scheduling and
   visible delivery.
 
-main is a `NativeDefinition` with declared host callbacks and a closed
-`JarvisTerminal`. recaller, rememberer, dreamer and AutomaticWriteGate use fresh
+main is a `NativeDefinition` with declared host callbacks and the strict
+`JarvisNativeMessage` wire contract; final settlement uses `JarvisTerminal`
+(section 4.2). recaller, rememberer, dreamer and AutomaticWriteGate use fresh
 isolated `AgentDefinition`/`run_one_shot` invocations. their first three maximum
 envelopes contain only memory reads; the gate's is empty. isolated plans contain
 no `ToolEffect.Write`. these fixed roles create no persistent peer graph;
@@ -941,6 +960,11 @@ base instruction and complete provider containment policy participate in the
 definition fingerprint. secret bytes, clock and current inputs do not. schema-v3
 session compatibility has no predecessor exceptions; schema-4 host mapping is a
 separate operational contract.
+
+the shared `llm-agent-kernel-native-agent-v3` base instruction permits prose in
+the application's required commentary format and reserves input dispositions
+for final output. its revision and digest automatically rotate the definition
+fingerprint; jarvis neither copies its text nor supplies a manual base revision.
 
 main may reuse a healthy compatible native lease within its current process.
 there is no saved-session file, resume-on-restart or session-reference CAS.
@@ -1791,6 +1815,9 @@ unfenced unresolved attempt may own that scope. local stop and missing IDs never
 become seals. recovery checks the original attempt and authoritative native seal
 and decodes against its frozen output contract before current definitions/tools.
 an encoder failure repeats local work with original terminal/usage retained.
+decode uses the original captured output schema, then final-only
+`JarvisTerminal` validation. it never substitutes the current wire schema; a
+sealed attempt with the earlier final-only schema remains locally recoverable.
 
 `native_invocation` preserves exact callback identity, original proposal and
 lineage, frozen contract, validation and original read/action reference. known

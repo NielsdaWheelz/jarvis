@@ -110,9 +110,12 @@ linked from [docs/acceptance.md](docs/acceptance.md#native-cutover-acceptance).
 this exception restores no standing retired suite and claims no production
 deployment or universal-memory acceptance.
 
-phase-aware native message source is implemented; installed live content/control
-qualification is **PENDING**. earlier final-only-wire receipts do not qualify the
-new wire contract in section 4.2 or establish deployment.
+local frozen, noneditable installed native qualification is **PASS**: actual
+content/progress/input/stop, nested isolated gate and fresh-thread process
+recovery, plus controlled postgres action/crash boundaries. source/installed
+bytes match; exact artifacts and receipts belong to the shared evidence linked
+above. deployed systemd activation and physical google/discord integration remain
+**NOT_RUN**. earlier source-overlay receipts remain historical.
 
 retired delivery checklists, qualification reports and the completed cleanup log
 live in git history. deleting those copies changes no runtime requirement or
@@ -282,12 +285,15 @@ stock codex applies its strict output schema to commentary and final output.
 main therefore declares the closed `JarvisNativeMessage` wire root with
 `response` and `input_outcomes`. commentary MUST use
 `response = {"type": "progress", "text": "..."}` and `input_outcomes = []`.
-`Progress.text` is non-empty plain prose, at most 2,000 UTF-8 bytes. the host
-validates the whole raw message and its commentary phase before persisting only
+`Progress.text` is non-empty plain prose, at most 2,000 UTF-8 bytes. under the
+conversation/attempt lock, the host ignores commentary from a fenced, settled
+or replaced-owner attempt before validation or publication. for a live attempt,
+it validates the whole raw message and its commentary phase before persisting only
 that text to the canonical outbox. trace retains the exact raw message digest;
 reusing a native message identity with changed wire bytes fails. final-shaped
-commentary, raw prose and malformed JSON are rejected; there is no fallback or
-terminal-envelope extraction. progress cannot settle inputs or grant authority.
+commentary, raw prose and malformed JSON on a live attempt are rejected; there is
+no fallback or terminal-envelope extraction. progress cannot settle inputs or
+grant authority.
 
 final output MUST satisfy the closed final-only `JarvisTerminal` root, which also
 contains `response` and `input_outcomes` and excludes `Progress`.
@@ -1812,7 +1818,9 @@ inference disposable.
 provider attempt, native binding and independent submission/local/native/product
 facts. scope sequence is allocated under the conversation lock; only one
 unfenced unresolved attempt may own that scope. local stop and missing IDs never
-become seals. recovery checks the original attempt and authoritative native seal
+become seals. original native binding may commit after fencing and cannot change;
+recording that fact grants no dispatch or product authority.
+recovery checks the original attempt and authoritative native seal
 and decodes against its frozen output contract before current definitions/tools.
 an encoder failure repeats local work with original terminal/usage retained.
 decode uses the original captured output schema, then final-only
@@ -1827,7 +1835,11 @@ native call IDs never replace the host's stable invocation/effect identity.
 
 `native_input_delivery` distinguishes prepared, sent, queued, recorded and
 rejected delivery. queued RPC acceptance never proves native recording or request
-completion. ambiguous delivery fences its old turn before fresh reasoning.
+completion. preparing input requires a live attempt. later observations require
+an existing prepared input and matching original turn, delivery and attempt
+evidence; they may commit after fencing without admitting a new input. final
+recorded/rejected evidence remains immutable and grants no dispatch or settlement
+authority. ambiguous delivery fences its old turn before fresh reasoning.
 
 `read_position` uses the existing llm-tools recorder. original complete results
 replay; unknown billed-once dispatch cannot execute again. restored reservations/

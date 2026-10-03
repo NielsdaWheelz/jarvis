@@ -1,8 +1,9 @@
 # native agent integration
 
-status: candidate implementation; source qualification passed. final installed
-immutable pins and release qualification remain owned by the shared integration
-owner. this is not a deployment receipt. branch: `feature/native-agent-supervision`.
+status: local frozen noneditable installed native qualification PASS. exact pins
+and receipts remain owned by the shared integration owner. deployed systemd
+activation and physical google/discord integration NOT_RUN; this is not a
+deployment receipt. branch: `feature/native-agent-supervision`.
 
 authority: [adr 0063](decisions/0063-native-agent-supervision.md), shared kernel
 native spec section 18 and n4. the pending universal-memory/delegation roadmap
@@ -66,21 +67,16 @@ does not alter this cutover.
 
 ## qualification
 
-temporary probes in `tests/native_acceptance/` remain until final integrated
-installed proof; remove them only at the integration owner's explicit release.
+the [shared acceptance evidence](acceptance.md#native-cutover-acceptance) owns
+exact artifact/receipt identities. current installed bytes match source. actual
+contained research, phase-aware prose/new-input/stop, delayed original input facts
+after fencing, original/edition and unavailable-source content, nested isolated
+gate and fresh-thread process recovery pass. controlled real-postgres proofs
+separately qualify action, migration and crash boundaries. earlier source-overlay
+receipts remain historical; no controlled peer substitutes for actual research.
+the owner authorized temporary-probe deletion after integrated green; shared
+kernel conformance remains.
 
-| target | evidence |
-| --- | --- |
-| n016 | real postgres stop before approval/entry and entry before stop; fresh consent on resume retains entered effect identity; live service outbox/new-topic/approval while controlled reasoning waits; entered controlled calendar handler settles once after stop; detached approval failure reaches its service owner |
-| n017 | actual worker `SIGKILL`, actual task postgres backend termination, new owner local sealed-terminal replay with no provider methods, unknown billed-read refusal before handler reentry; raw-output and stop/resume settlement races; actual shared-native worker kill/restart completes the original request in a new native thread |
-| n018 | real stopped migration retains old arguments/revisions/digests, creates fresh consent, imports pause and removes files; unknown legacy reads/entered effects refuse conversion and activation; repeated callback after steering preserves original lineage; current whole-source strict types and lint |
-| n019 | actual stock app-server `0.160.0`, configured personal `gpt-5.6-terra/high`, successful real brave search plus official-page read, strict final and owner completion; separate actual public progress/new-topic native recorded receipt/both requests completed/accepted-native stop |
-
-live source receipts are private task files (mode `0600`), named
-`actual-jarvis-main-web.json` under `jarvis-native-web-*` task directories.
-research receipt: suffix `bw7l5l_o`; progress/input/stop receipt: `ptmf56w2`.
-native process restart receipt: `m2yitmqm`, a tool-free irrationality proof;
-this separately proves resumed reasoning, not research-tool execution.
 controlled boundaries in those probes: saved empty recall, rememberer enqueue,
 unused private connectors and discord outbox inspection. they do not qualify
 memory models, google mutations, worker commands or physical discord delivery.

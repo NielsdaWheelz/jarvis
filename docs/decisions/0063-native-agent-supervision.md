@@ -1,6 +1,7 @@
 # adr 0063: native agent supervision
 
-status: accepted, 2026-10-02; implementation qualification in progress.
+status: accepted, 2026-10-02; local installed native qualification PASS.
+deployed systemd activation and physical google/discord integration NOT_RUN.
 
 adopt llm-agent-kernel SPEC section 18 and its native-agent-spec/plan n4.
 the shared contract owns provider/kernel/tools semantics; jarvis owns canonical
@@ -22,8 +23,9 @@ never parent product state or reconstruction of a current callback plan.
 phase-aware output amendment: stock codex applies its strict output schema to
 commentary as well as final messages. main declares `JarvisNativeMessage`, adding
 one explicit `Progress` response (`type = progress`, bounded prose `text`) with
-empty `input_outcomes`. the host validates the whole raw commentary message,
-records its digest and persists only canonical prose. final settlement retains
+empty `input_outcomes`. under the conversation/attempt lock, stale commentary is
+an atomic no-op; live commentary validates the whole raw message, records its
+digest and persists only canonical prose. final settlement retains
 final-only `JarvisTerminal`; a final progress response fails locally while its
 native seal/usage remain intact. no fallback or terminal-envelope extraction.
 recovery first decodes against the original frozen output schema, including an
@@ -31,8 +33,10 @@ earlier final-only schema, then applies final-only product validation. the share
 native base v3 permits application wire formatting and rotates fingerprints
 automatically through its revision/digest. the cost is one additional wire case
 and phase validation, preserving the same public prose and final product shape.
-source is implemented; installed phase-aware live content/control qualification
-is **PENDING**. earlier receipts remain historical; no deployment is claimed.
+frozen noneditable installed content/control, nested gate and fresh-thread
+recovery pass with matching source bytes; controlled postgres action/crash
+boundaries also pass. exact receipts remain with the shared integration owner;
+earlier source-overlay receipts remain historical. no deployment is claimed.
 
 external write schemas contain request_ref, existing_action_ref and the original
 typed arguments. action.arguments stores that entire exact input; authority and
@@ -44,6 +48,9 @@ stop, approval and actual dispatch use the same conversation/input/action lock
 order. stop cancels unentered approvals, fences native authority and retains
 entered-effect settlement. resume requires a fresh successor approval. controls
 replace the file-backed pause writer. cold recovery preserves action/read barriers.
+original native binding and existing prepared-delivery observations survive
+fencing with their immutable identities/evidence. new delivery preparation stays
+live-only. recording facts grants no input, dispatch or settlement authority.
 
 delete run_thread integration, its step grammar and capacity arithmetic. retain
 actual isolated roles, existing connectors, memory, scheduling and action recovery.

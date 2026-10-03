@@ -399,10 +399,14 @@ owns tool budgets and settlement exactly once. usage never grants authority.
 isolated roles retain `run_one_shot` and its strict serial step protocol. this is
 an actual separate role, not a fallback main path.
 
-main commentary validates the whole strict wire message and persists its prose
-plus an exact raw-message digest;
-only validated final dispositions settle requests. recovery decodes the original
-sealed terminal against its frozen output schema before final-only validation,
+main commentary checks current authority under the conversation/attempt lock:
+stale commentary is an atomic no-op; live commentary validates the whole strict
+wire message and persists prose plus its exact raw-message digest. only validated
+final dispositions settle requests. original binding and observations of already
+prepared deliveries may commit after fencing; new preparation still requires
+live authority. these facts renew neither dispatch nor product authority.
+recovery decodes the original sealed terminal against its frozen output schema
+before final-only validation,
 without current definitions or another provider call.
 
 ## Action lifecycle
@@ -610,8 +614,9 @@ per-thread catalogue settings cannot supply the host ceiling.
 
 main consumes native turn events and declared callbacks through the shared
 supervisor. stock strict output applies to both message phases, so the wire schema
-includes one explicit progress case. phase validation rejects raw prose and
-final-shaped commentary; no fallback or terminal-envelope extraction exists.
+includes one explicit progress case. live phase validation rejects raw prose and
+final-shaped commentary; stale commentary publishes nothing. no fallback or
+terminal-envelope extraction exists.
 the shared native base v3 permits the application's commentary format and
 automatically rotates definition fingerprints through its revision/digest.
 only canonical progress prose reaches delivery; the validated final terminal

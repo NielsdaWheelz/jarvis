@@ -36,17 +36,6 @@ if [[ "$active_state" != inactive || "$result" != success || "$main_pid" != 0 ]]
   refuse "jarvis.service did not stop cleanly: ActiveState=$active_state Result=$result MainPID=$main_pid"
 fi
 
-# The stopped target migrates before its native tables can be read. Cutover
-# validates and converts only proven unentered authority; unknown work refuses.
-migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
-sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
-  --property=Type=oneshot \
-  --property=User=jarvis \
-  --property=Group=jarvis \
-  --property="WorkingDirectory=$release" \
-  --property=EnvironmentFile=/etc/jarvis/migration.env \
-  "$release/.venv/bin/alembic" -c alembic.ini upgrade head
-
 runtime_properties=(
   --property=Type=oneshot --property=User=jarvis --property=Group=jarvis
   --property=SupplementaryGroups=codex-clients
@@ -59,6 +48,26 @@ runtime_properties=(
   --property=EnvironmentFile=/etc/jarvis/database-runtime.env
   --property=EnvironmentFile=/etc/jarvis/jarvis.env
 )
+sudo systemctl is-active --quiet jarvis-codex-contained.service ||
+  refuse "the separate contained Codex host is not active; leave service stopped"
+host_check_unit="jarvis-host-check-${commit:0:12}-$RANDOM"
+sudo systemd-run --quiet --wait --pipe --collect --unit="$host_check_unit" \
+  "${runtime_properties[@]}" \
+  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null ||
+  refuse "the selected release's contained host did not qualify; leave service stopped"
+
+# The stopped target migrates before its native tables can be read. Cutover
+# validates and converts only proven unentered authority; unknown work refuses.
+migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
+sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
+  --property=Type=oneshot \
+  --property=User=jarvis \
+  --property=Group=jarvis \
+  --property="WorkingDirectory=$release" \
+  --property=EnvironmentFile=/etc/jarvis/migration.env \
+  "$release/.venv/bin/alembic" -c alembic.ini upgrade head
+
 cutover_unit="jarvis-cutover-${commit:0:12}-$RANDOM"
 sudo systemd-run --quiet --wait --pipe --collect --unit="$cutover_unit" \
   "${runtime_properties[@]}" "$release/.venv/bin/jarvis" cutover-native </dev/null ||

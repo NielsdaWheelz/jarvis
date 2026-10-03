@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -39,11 +40,12 @@ from provider_runtime.agent_runtime import (
     freeze_json_value,
     terminal_to_json,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from jarvis.actions import ActionStore
 from jarvis.admission import JarvisOwner
 from jarvis.db import create_engine, message, native_attempt
+from jarvis.memory import MemoryStore
 from jarvis.messages import MessageStore
 from jarvis.native_journal import PostgresNativeJournal
 from jarvis.native_runtime import NativeRunner
@@ -105,7 +107,7 @@ async def main():
                 actions=ActionStore(database),
             )
 
-            async def arm(text):
+            async def arm(text, extra_ids=()):
                 item = await store.insert_waking(
                     role="owner",
                     text=text,
@@ -119,7 +121,10 @@ async def main():
                     attempt_id,
                     owner.permit("jarvis-native:" + attempt_id),
                     "thread",
-                    (InputId(str(item.message.id)),),
+                    (
+                        InputId(str(item.message.id)),
+                        *(InputId(str(identifier)) for identifier in extra_ids),
+                    ),
                     PromptSections(()),
                     PromptSections(()),
                     plan,
@@ -156,11 +161,12 @@ async def main():
                     },
                     "input_outcomes": [
                         {
-                            "input_id": str(item.message.id),
+                            "input_id": str(identifier),
                             "disposition": "complete",
                             "wait_reason": None,
                             "action_refs": [],
                         }
+                        for identifier in request.input_ids
                     ],
                 }
                 terminal = AgentTerminal(
@@ -337,9 +343,138 @@ async def main():
                     )
                     == "pending"
                 )
+            fifth, request, journal, terminal = await arm(
+                "settle original inference after containment and tools rotate"
+            )
+            await journal.record_outcome(request.attempt_id, terminal)
+            rotated_maximum = CapabilityProfile(
+                ProfileId("rotated-proof"),
+                (),
+                RunLimits(None, None, None, None, 1, None),
+            ).freeze(catalog)
+            rotated_plan = ToolPlan(rotated_maximum.id, Native()).freeze(
+                catalog, rotated_maximum
+            )
+            rotated_definition = replace(
+                definition,
+                maximum_profile=rotated_maximum,
+                compatibility_revision="rotated-containment-and-handler",
+                output=JsonSchemaAgentOutput(
+                    "new-schema",
+                    {
+                        "type": "object",
+                        "properties": {"new_field": {"type": "string"}},
+                        "required": ["new_field"],
+                        "additionalProperties": False,
+                    },
+                ),
+            )
+            runner.definitions = SimpleNamespace(
+                main=rotated_definition, plans={"main": rotated_plan}
+            )
+            await runner.recover()
+            async with database.connect() as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            select(native_attempt).where(
+                                native_attempt.c.id == UUID(request.attempt_id)
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                assert row["terminal"] == terminal_to_json(terminal)
+                assert row["product_outcome"]["status"] == "committed", row
+                assert (
+                    await connection.scalar(
+                        select(message.c.request_state).where(message.c.id == fifth)
+                    )
+                    == "completed"
+                )
+                try:
+                    PostgresNativeJournal(
+                        database,
+                        definition=rotated_definition,
+                        plan=rotated_plan,
+                        owner=fresh,
+                    ).restore_request(row)
+                except RuntimeError:
+                    pass
+                else:
+                    raise AssertionError("active plan compatibility was weakened")
+
+            class NoCurrentDefinition:
+                def __getattr__(self, name):
+                    raise AssertionError("local sealed settlement rebuilt " + name)
+
+            runner.definitions = NoCurrentDefinition()
+            runner.kernel = NoCurrentDefinition()
+            sixth, request, journal, terminal = await arm(
+                "settle without current provider or catalogue"
+            )
+            await journal.record_outcome(request.attempt_id, terminal)
+            await runner.recover()
+            assert sixth in remembered
+            seventh, request, journal, terminal = await arm(
+                "old accepted records lacking a schema must refuse local success"
+            )
+            await journal.record_outcome(request.attempt_id, terminal)
+            async with database.begin() as connection:
+                document = dict(
+                    await connection.scalar(
+                        select(native_attempt.c.request).where(
+                            native_attempt.c.id == UUID(request.attempt_id)
+                        )
+                    )
+                )
+                document.pop("output", None)
+                await connection.execute(
+                    update(native_attempt)
+                    .where(native_attempt.c.id == UUID(request.attempt_id))
+                    .values(request=document)
+                )
+            await runner.recover()
+            async with database.connect() as connection:
+                outcome = await connection.scalar(
+                    select(native_attempt.c.product_outcome).where(
+                        native_attempt.c.id == UUID(request.attempt_id)
+                    )
+                )
+                assert outcome["status"] == "failed", outcome
+                assert (
+                    await connection.scalar(
+                        select(message.c.request_state).where(message.c.id == seventh)
+                    )
+                    == "waiting"
+                )
+            assert seventh not in remembered
+            extra = await store.insert_waking(
+                role="owner",
+                text="complete this independent appended request too",
+                source="proof",
+                source_conversation_id=conversation,
+                source_message_id=str(uuid4()),
+                created_at=datetime.now(UTC),
+            )
+            eighth, request, journal, terminal = await arm(
+                "complete independent owner requests in one turn",
+                (extra.message.id,),
+            )
+            await journal.record_outcome(request.attempt_id, terminal)
+            await runner.recover()
+            for identifier in (eighth, extra.message.id):
+                group = await MemoryStore(database).prepare_rememberer_group(
+                    owner_message_ids=(identifier,)
+                )
+                assert not group.per_row_fallback and group.settlement is not None
+                assert group.settlement.through_checkpoint == str(identifier)
+                assert identifier in remembered
             print(
                 "sealed local terminal replay, invalid-raw preservation, "
-                "stop/resume settlement race: GREEN"
+                "stop/resume settlement race, rotation/provider traps and "
+                "missing-schema refusal: GREEN"
             )
     finally:
         await engine.dispose()

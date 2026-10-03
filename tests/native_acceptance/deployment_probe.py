@@ -47,6 +47,8 @@ async def main():
         assert wire["arguments"][0] == "controlled-peer"
         body = wire["body"]
         assert "paused.json" not in body and "admission.json" not in body
+        assert "systemctl is-active --quiet jarvis-codex-contained.service" in body
+        assert body.index('"$release/deploy/codex-host" verify') < body.index("alembic")
         assert body.index("alembic") < body.index("cutover-native")
         assert body.index("cutover-native") < body.index("check-activation")
         assert body.index("check-activation") < body.index("systemctl enable --now")

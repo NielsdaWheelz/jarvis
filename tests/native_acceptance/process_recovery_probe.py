@@ -333,7 +333,7 @@ async def parent():
                                 text(
                                     "select pg_terminate_backend(:pid) from"
                                     " pg_stat_activity where pid=:pid and "
-                                    "datname='jarvis_native'"
+                                    "datname=current_database()"
                                 ),
                                 {"pid": state["backend_pid"]},
                             )

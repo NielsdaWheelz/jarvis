@@ -38,7 +38,6 @@ from llm_tools import (
 from provider_runtime.agent_runtime import (
     AgentMessage,
     AgentNotSubmitted,
-    AgentTerminal,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
     decode_agent_output,
@@ -67,7 +66,11 @@ from jarvis.kernel import KernelRuntime
 from jarvis.memory_retrieval import MemoryRepository
 from jarvis.memory_workers import RemembererWorker
 from jarvis.messages import MessageStore, StoredMessage, render_host_fallback
-from jarvis.native_journal import PostgresNativeJournal
+from jarvis.native_journal import (
+    PostgresNativeJournal,
+    commit_product,
+    recover_sealed_turn,
+)
 from jarvis.ownership import DeploymentOwnershipDefect, lock_conversation
 from jarvis.read_tools import CalendarListEventsSuccess
 from jarvis.settings import Settings
@@ -256,73 +259,12 @@ class NativeRunner:
         self.notify_delivery()
 
     async def recover(self) -> None:
-        """Fence old callback owners, then drain sealed terminals locally."""
-        async with self.owner.database.begin() as connection:
-            await lock_conversation(connection, self.owner.scope_id)
-            rows = (
-                (
-                    await connection.execute(
-                        select(native_attempt)
-                        .where(
-                            native_attempt.c.conversation_id == self.owner.scope_id,
-                            native_attempt.c.product_outcome.is_(None),
-                        )
-                        .order_by(native_attempt.c.attempt_seq)
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            for row in rows:
-                await connection.execute(
-                    update(native_attempt)
-                    .where(native_attempt.c.id == row["id"])
-                    .values(
-                        fenced_at=func.coalesce(native_attempt.c.fenced_at, func.now())
-                    )
-                )
-        for row in rows:
-            if row["terminal"] is None:
-                continue
-            plan = next(
-                (
-                    value
-                    for value in self.definitions.plans.values()
-                    if value.plan_revision == row["request"]["plan_revision"]
-                ),
-                None,
-            )
-            if plan is None:
-                await self._mark_stale(row["id"], "contract_changed")
-                continue
-            journal = PostgresNativeJournal(
-                self.owner.database,
-                definition=self.definitions.main,
-                plan=plan,
-                owner=self.owner,
-            )
-            try:
-                recovery = await journal.recover(str(row["id"]))
-                assert recovery is not None
-                await self._settle(
-                    journal, recovery.request, recovery.terminal, recovering=True
-                )
-            except NativeDefect:
-                await self._mark_stale(row["id"], "request_or_contract_changed")
-
-    async def _mark_stale(self, attempt_id: UUID, reason: str) -> None:
-        async with self.owner.database.begin() as connection:
-            await lock_conversation(connection, self.owner.scope_id)
-            await connection.execute(
-                update(native_attempt)
-                .where(
-                    native_attempt.c.id == attempt_id,
-                    native_attempt.c.terminal.is_not(None),
-                    native_attempt.c.product_outcome.is_(None),
-                )
-                .values(product_outcome={"status": "stale", "reason": reason})
-            )
+        completed = await recover_native_products(self.owner)
+        if completed:
+            context = await native_receipt_context(self.owner)
+            for identifier in completed:
+                self.rememberer.enqueue((identifier,), context)
+        self.notify_delivery()
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome:
         self._dispatchers = [item for item in self._dispatchers if item.check_effects()]
@@ -388,7 +330,7 @@ class NativeRunner:
         source = await context.bootstrap(
             inputs, max(item.created_at for item in pending)
         )
-        receipts = await self._receipt_context()
+        receipts = await native_receipt_context(self.owner)
         projected = PromptSections(
             (
                 *source.sections,
@@ -458,15 +400,30 @@ class NativeRunner:
                 cancellation=cancellation,
             )
             if isinstance(terminal, AgentNotSubmitted):
-                await self._failure(
-                    journal, request, "the native turn was not submitted"
+                await _fail_native_product(
+                    self.owner,
+                    request.attempt_id,
+                    request.input_ids,
+                    "the native turn was not submitted",
                 )
                 return NativeRunOutcome("blocked")
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 if isinstance(terminal.evidence, NativeTerminalEvidence):
-                    await self._mark_stale(UUID(attempt_id), "owner_stopped")
+                    await _mark_stale(self.owner, UUID(attempt_id), "owner_stopped")
                 return NativeRunOutcome("stopped")
-            await self._settle(journal, request, terminal)
+            if isinstance(terminal.evidence, NativeTerminalEvidence):
+                completed = await _settle_native_product(self.owner, request.attempt_id)
+                if completed:
+                    context = await native_receipt_context(self.owner)
+                    for identifier in completed:
+                        self.rememberer.enqueue((identifier,), context)
+            else:
+                await _fail_native_product(
+                    self.owner,
+                    request.attempt_id,
+                    request.input_ids,
+                    "the native provider did not complete this turn",
+                )
             return NativeRunOutcome("progressed")
         except DeploymentOwnershipDefect:
             raise
@@ -477,7 +434,12 @@ class NativeRunner:
         except NativeDefect as error:
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
-            await self._failure(journal, request, "native protocol requires repair")
+            await _fail_native_product(
+                self.owner,
+                request.attempt_id,
+                request.input_ids,
+                "native protocol requires repair",
+            )
             LOGGER.warning(
                 "native turn blocked: attempt=%s exception=%s",
                 attempt_id,
@@ -487,323 +449,6 @@ class NativeRunner:
         finally:
             self._journal = None
             self.notify_delivery()
-
-    async def _settle(
-        self,
-        journal: PostgresNativeJournal,
-        request: NativeRequest,
-        terminal: AgentTerminal,
-        *,
-        recovering: bool = False,
-    ) -> None:
-        try:
-            if terminal.status != "succeeded":
-                await self._failure(
-                    journal,
-                    request,
-                    "the native provider did not complete this turn",
-                    recovering=recovering,
-                )
-                return
-            value = decode_agent_output(self.definitions.main.output, terminal)
-            final = JarvisTerminal.model_validate(thaw_json_value(value))
-            evidence = await self._turn_evidence(UUID(request.attempt_id))
-            completed = await journal.commit_product(
-                request, final, evidence, recovering=recovering
-            )
-        except (TypeError, ValueError, OutputSchemaMismatch):
-            await self._failure(
-                journal,
-                request,
-                "the final response did not meet its content contract",
-                recovering=recovering,
-            )
-            return
-        if completed:
-            self.rememberer.enqueue(completed, await self._receipt_context())
-        self.notify_delivery()
-
-    async def _failure(
-        self,
-        journal: PostgresNativeJournal,
-        request: NativeRequest,
-        reason: str,
-        *,
-        recovering: bool = False,
-    ) -> None:
-        del recovering
-        await self.owner.require_current(
-            self.owner.permit("jarvis-product:" + request.attempt_id)
-        )
-        timestamp = datetime.now(UTC)
-        conclusion_id = uuid5(UUID(request.attempt_id), "product-failure")
-        async with self.owner.database.begin() as connection:
-            await lock_conversation(connection, self.owner.scope_id)
-            ids = tuple(
-                (
-                    await connection.execute(
-                        select(native_input_delivery.c.message_id).where(
-                            native_input_delivery.c.attempt_id
-                            == UUID(request.attempt_id)
-                        )
-                    )
-                ).scalars()
-            ) or tuple(map(UUID, request.input_ids))
-            rows = (
-                (
-                    await connection.execute(
-                        select(message)
-                        .where(message.c.id.in_(ids))
-                        .order_by(message.c.id)
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            attempt = (
-                (
-                    await connection.execute(
-                        select(native_attempt)
-                        .where(native_attempt.c.id == UUID(request.attempt_id))
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if attempt is not None and attempt["product_outcome"] is not None:
-                return
-            if attempt is not None:
-                journal.restore_request(attempt)
-            controlled = (
-                None
-                if attempt is None
-                else await connection.scalar(
-                    select(message.c.id)
-                    .where(
-                        message.c.source_conversation_id == self.owner.scope_id,
-                        message.c.control_sequence
-                        > attempt["request"]["control_sequence"],
-                        message.c.control_targets.overlap(list(ids)),
-                    )
-                    .limit(1)
-                )
-            )
-            if controlled is not None or any(
-                item["request_state"] == "stopped" for item in rows
-            ):
-                if attempt is not None and attempt["terminal"] is not None:
-                    await connection.execute(
-                        update(native_attempt)
-                        .where(native_attempt.c.id == attempt["id"])
-                        .values(
-                            product_outcome={
-                                "status": "stale",
-                                "reason": "owner_stopped",
-                            }
-                        )
-                    )
-                return
-            content = (
-                f"i couldn't finish this turn: {reason}. "
-                "unfinished requests and recorded actions are retained."
-            )
-            hosts = tuple(item for item in rows if item["role"] == "host")
-            if hosts:
-                content = render_host_fallback(
-                    source=hosts[0]["source"],
-                    text=hosts[0]["text"],
-                    maximum_characters=2000,
-                    suffix=content,
-                )
-            await connection.execute(
-                insert(message)
-                .values(
-                    id=conclusion_id,
-                    role="assistant",
-                    text=content,
-                    source="native_failure",
-                    source_conversation_id=self.owner.scope_id,
-                    processed_at=timestamp,
-                    trace={"native_attempt_id": request.attempt_id},
-                )
-                .on_conflict_do_nothing(index_elements=(message.c.id,))
-            )
-            for item in rows:
-                if item["role"] == "owner" and item["request_state"] in {
-                    "pending",
-                    "waiting",
-                }:
-                    await connection.execute(
-                        update(message)
-                        .where(message.c.id == item["id"])
-                        .values(
-                            request_state="waiting",
-                            wait_reason="configuration",
-                            processed_at=None,
-                        )
-                    )
-                elif item["role"] == "host" and item["processed_at"] is None:
-                    await connection.execute(
-                        update(message)
-                        .where(message.c.id == item["id"])
-                        .values(
-                            processed_at=timestamp,
-                            trace={
-                                **item["trace"],
-                                "conclusion_message_id": str(conclusion_id),
-                            },
-                        )
-                    )
-                    if item["source"] == "schedule_wake":
-                        await finish_schedule_conclusion(
-                            connection,
-                            action_id=UUID(item["source_message_id"]),
-                            conclusion_message_id=conclusion_id,
-                            recorded_at=timestamp,
-                        )
-            if attempt is not None:
-                changes = {"fenced_at": attempt["fenced_at"] or timestamp}
-                if attempt["terminal"] is not None:
-                    changes["product_outcome"] = {
-                        "status": "failed",
-                        "response_id": str(conclusion_id),
-                        "reason": reason,
-                    }
-                await connection.execute(
-                    update(native_attempt)
-                    .where(native_attempt.c.id == attempt["id"])
-                    .values(**changes)
-                )
-        self.notify_delivery()
-
-    async def _receipt_context(self) -> PromptSections:
-        async with self.owner.database.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(native_invocation)
-                        .join(
-                            native_attempt,
-                            native_attempt.c.id == native_invocation.c.attempt_id,
-                        )
-                        .where(
-                            native_attempt.c.conversation_id == self.owner.scope_id,
-                        )
-                        .order_by(
-                            native_attempt.c.attempt_seq.desc(),
-                            native_invocation.c.ordinal.desc(),
-                        )
-                        .limit(100)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            records: list[dict[str, object]] = []
-            accepted_actions = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .join(message, message.c.id == action.c.origin_message_id)
-                        .where(
-                            message.c.source_conversation_id == self.owner.scope_id,
-                            message.c.request_state.in_(("pending", "waiting")),
-                        )
-                        .order_by(action.c.created_at, action.c.id)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            for row in accepted_actions:
-                records.append(
-                    {
-                        "kind": "accepted_action",
-                        "action_ref": str(row["id"]),
-                        "request_ref": str(row["origin_message_id"]),
-                        "tool_id": row["tool_name"],
-                        "arguments": row["arguments"],
-                        "execution_contract": row["execution_contract"],
-                        "status": row["status"],
-                        "attempts": row["attempts"],
-                        "recorded_result": row["result"],
-                        "supersedes_action_ref": (
-                            str(row["supersedes_action_id"])
-                            if row["supersedes_action_id"] is not None
-                            else None
-                        ),
-                    }
-                )
-            for row in reversed(rows):
-                result = None
-                if row["read_position"] is not None:
-                    result = await connection.scalar(
-                        select(read_position.c.result).where(
-                            read_position.c.position == row["read_position"]
-                        )
-                    )
-                elif row["action_id"] is not None:
-                    result = await connection.scalar(
-                        select(action.c.result).where(action.c.id == row["action_id"])
-                    )
-                records.append(
-                    {
-                        "kind": "native_invocation",
-                        "invocation_id": str(row["id"]),
-                        "tool_id": row["tool_id"],
-                        "proposal": row["proposal"],
-                        "reply": row["reply_receipt"],
-                        "recorded_result": result,
-                    }
-                )
-        return PromptSections(
-            (
-                PromptSection(
-                    PromptSectionKind("recorded_tool_observations"),
-                    (),
-                    PromptJson(records),
-                ),
-            )
-        )
-
-    async def _turn_evidence(self, attempt_id: UUID) -> TurnEvidence:
-        evidence = TurnEvidence()
-        async with self.owner.database.connect() as connection:
-            rows = (
-                await connection.execute(
-                    select(native_invocation.c.tool_id, read_position.c.result)
-                    .join(
-                        read_position,
-                        read_position.c.position == native_invocation.c.read_position,
-                    )
-                    .where(native_invocation.c.attempt_id == attempt_id)
-                    .order_by(native_invocation.c.ordinal)
-                )
-            ).all()
-        for row in rows:
-            if row.result is None or row.result.get("type") != "Success":
-                continue
-            if row.tool_id == "calendar.list_events":
-                coverage = CalendarListEventsSuccess.model_validate(
-                    row.result["value"]
-                ).coverage
-                evidence.record_calendar_incompleteness(
-                    reasons=coverage.reasons,
-                    calendars_discovered=coverage.calendars_discovered,
-                    calendars_completed=coverage.calendars_completed,
-                    matched_events=coverage.matched_events,
-                )
-            elif row.tool_id == "agent.list":
-                inventory = AgentListResult.model_validate(row.result["value"])
-                if inventory.partial:
-                    evidence.record_agent_inventory_incompleteness(
-                        unavailable_machines=sum(
-                            not peer.ok for peer in inventory.peers
-                        )
-                    )
-        return evidence
 
     async def refresh_stopped_approvals(self) -> None:
         async with self.owner.database.connect() as connection:
@@ -859,4 +504,381 @@ class NativeRunner:
             await self.kernel.provider.discard(self._session)
 
 
-__all__ = ["NativeInputs", "NativeRunOutcome", "NativeRunner"]
+async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
+    """Fence old callback owners, then drain sealed terminals locally."""
+    async with owner.database.begin() as connection:
+        await lock_conversation(connection, owner.scope_id)
+        rows = (
+            (
+                await connection.execute(
+                    select(native_attempt)
+                    .where(
+                        native_attempt.c.conversation_id == owner.scope_id,
+                        native_attempt.c.product_outcome.is_(None),
+                    )
+                    .order_by(native_attempt.c.attempt_seq)
+                    .with_for_update()
+                )
+            )
+            .mappings()
+            .all()
+        )
+        for row in rows:
+            await connection.execute(
+                update(native_attempt)
+                .where(native_attempt.c.id == row["id"])
+                .values(fenced_at=func.coalesce(native_attempt.c.fenced_at, func.now()))
+            )
+    completed: list[UUID] = []
+    for row in rows:
+        if row["terminal"] is None:
+            continue
+        try:
+            completed.extend(
+                await _settle_native_product(owner, str(row["id"]), recovering=True)
+            )
+        except NativeDefect:
+            await _mark_stale(owner, row["id"], "request_authority_changed")
+
+    return tuple(completed)
+
+
+async def _mark_stale(owner: JarvisOwner, attempt_id: UUID, reason: str) -> None:
+    async with owner.database.begin() as connection:
+        await lock_conversation(connection, owner.scope_id)
+        await connection.execute(
+            update(native_attempt)
+            .where(
+                native_attempt.c.id == attempt_id,
+                native_attempt.c.terminal.is_not(None),
+                native_attempt.c.product_outcome.is_(None),
+            )
+            .values(product_outcome={"status": "stale", "reason": reason})
+        )
+
+
+async def _settle_native_product(
+    owner: JarvisOwner,
+    attempt_id: str,
+    *,
+    recovering: bool = False,
+) -> tuple[UUID, ...]:
+    turn = await recover_sealed_turn(owner.database, owner, attempt_id)
+    if turn is None:
+        raise NativeDefect("product settlement lacks a sealed native terminal")
+    try:
+        if turn.terminal.status != "succeeded":
+            await _fail_native_product(
+                owner,
+                turn.attempt_id,
+                turn.input_ids,
+                "the native provider did not complete this turn",
+            )
+            return ()
+        if turn.output is None:
+            raise ValueError("original output schema is absent")
+        value = decode_agent_output(turn.output, turn.terminal)
+        final = JarvisTerminal.model_validate(thaw_json_value(value))
+        evidence = await _turn_evidence(owner, UUID(turn.attempt_id))
+        completed = await commit_product(
+            owner.database,
+            owner,
+            turn,
+            final,
+            evidence,
+            recovering=recovering,
+        )
+    except (TypeError, ValueError, OutputSchemaMismatch):
+        await _fail_native_product(
+            owner,
+            turn.attempt_id,
+            turn.input_ids,
+            "the final response did not meet its content contract",
+        )
+        return ()
+    return completed
+
+
+async def _fail_native_product(
+    owner: JarvisOwner,
+    attempt_id: str,
+    input_ids: tuple[InputId, ...],
+    reason: str,
+) -> None:
+    await owner.require_current(owner.permit("jarvis-product:" + attempt_id))
+    timestamp = datetime.now(UTC)
+    conclusion_id = uuid5(UUID(attempt_id), "product-failure")
+    async with owner.database.begin() as connection:
+        await lock_conversation(connection, owner.scope_id)
+        ids = tuple(
+            (
+                await connection.execute(
+                    select(native_input_delivery.c.message_id).where(
+                        native_input_delivery.c.attempt_id == UUID(attempt_id)
+                    )
+                )
+            ).scalars()
+        ) or tuple(map(UUID, input_ids))
+        rows = (
+            (
+                await connection.execute(
+                    select(message)
+                    .where(message.c.id.in_(ids))
+                    .order_by(message.c.id)
+                    .with_for_update()
+                )
+            )
+            .mappings()
+            .all()
+        )
+        attempt = (
+            (
+                await connection.execute(
+                    select(native_attempt)
+                    .where(native_attempt.c.id == UUID(attempt_id))
+                    .with_for_update()
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if attempt is not None and attempt["product_outcome"] is not None:
+            return
+        if attempt is not None:
+            if attempt["conversation_id"] != owner.scope_id:
+                raise NativeDefect("product failure is outside this conversation")
+        controlled = (
+            None
+            if attempt is None
+            else await connection.scalar(
+                select(message.c.id)
+                .where(
+                    message.c.source_conversation_id == owner.scope_id,
+                    message.c.control_sequence > attempt["request"]["control_sequence"],
+                    message.c.control_targets.overlap(list(ids)),
+                )
+                .limit(1)
+            )
+        )
+        if controlled is not None or any(
+            item["request_state"] == "stopped" for item in rows
+        ):
+            if attempt is not None and attempt["terminal"] is not None:
+                await connection.execute(
+                    update(native_attempt)
+                    .where(native_attempt.c.id == attempt["id"])
+                    .values(
+                        product_outcome={
+                            "status": "stale",
+                            "reason": "owner_stopped",
+                        }
+                    )
+                )
+            return
+        content = (
+            f"i couldn't finish this turn: {reason}. "
+            "unfinished requests and recorded actions are retained."
+        )
+        hosts = tuple(item for item in rows if item["role"] == "host")
+        if hosts:
+            content = render_host_fallback(
+                source=hosts[0]["source"],
+                text=hosts[0]["text"],
+                maximum_characters=2000,
+                suffix=content,
+            )
+        await connection.execute(
+            insert(message)
+            .values(
+                id=conclusion_id,
+                role="assistant",
+                text=content,
+                source="native_failure",
+                source_conversation_id=owner.scope_id,
+                processed_at=timestamp,
+                trace={"native_attempt_id": attempt_id},
+            )
+            .on_conflict_do_nothing(index_elements=(message.c.id,))
+        )
+        for item in rows:
+            if item["role"] == "owner" and item["request_state"] in {
+                "pending",
+                "waiting",
+            }:
+                await connection.execute(
+                    update(message)
+                    .where(message.c.id == item["id"])
+                    .values(
+                        request_state="waiting",
+                        wait_reason="configuration",
+                        processed_at=None,
+                    )
+                )
+            elif item["role"] == "host" and item["processed_at"] is None:
+                await connection.execute(
+                    update(message)
+                    .where(message.c.id == item["id"])
+                    .values(
+                        processed_at=timestamp,
+                        trace={
+                            **item["trace"],
+                            "conclusion_message_id": str(conclusion_id),
+                        },
+                    )
+                )
+                if item["source"] == "schedule_wake":
+                    await finish_schedule_conclusion(
+                        connection,
+                        action_id=UUID(item["source_message_id"]),
+                        conclusion_message_id=conclusion_id,
+                        recorded_at=timestamp,
+                    )
+        if attempt is not None:
+            changes = {"fenced_at": attempt["fenced_at"] or timestamp}
+            if attempt["terminal"] is not None:
+                changes["product_outcome"] = {
+                    "status": "failed",
+                    "response_id": str(conclusion_id),
+                    "reason": reason,
+                }
+            await connection.execute(
+                update(native_attempt)
+                .where(native_attempt.c.id == attempt["id"])
+                .values(**changes)
+            )
+
+
+async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
+    async with owner.database.connect() as connection:
+        rows = (
+            (
+                await connection.execute(
+                    select(native_invocation)
+                    .join(
+                        native_attempt,
+                        native_attempt.c.id == native_invocation.c.attempt_id,
+                    )
+                    .where(
+                        native_attempt.c.conversation_id == owner.scope_id,
+                    )
+                    .order_by(
+                        native_attempt.c.attempt_seq.desc(),
+                        native_invocation.c.ordinal.desc(),
+                    )
+                    .limit(100)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        records: list[dict[str, object]] = []
+        accepted_actions = (
+            (
+                await connection.execute(
+                    select(action)
+                    .join(message, message.c.id == action.c.origin_message_id)
+                    .where(
+                        message.c.source_conversation_id == owner.scope_id,
+                        message.c.request_state.in_(("pending", "waiting")),
+                    )
+                    .order_by(action.c.created_at, action.c.id)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        for row in accepted_actions:
+            records.append(
+                {
+                    "kind": "accepted_action",
+                    "action_ref": str(row["id"]),
+                    "request_ref": str(row["origin_message_id"]),
+                    "tool_id": row["tool_name"],
+                    "arguments": row["arguments"],
+                    "execution_contract": row["execution_contract"],
+                    "status": row["status"],
+                    "attempts": row["attempts"],
+                    "recorded_result": row["result"],
+                    "supersedes_action_ref": (
+                        str(row["supersedes_action_id"])
+                        if row["supersedes_action_id"] is not None
+                        else None
+                    ),
+                }
+            )
+        for row in reversed(rows):
+            result = None
+            if row["read_position"] is not None:
+                result = await connection.scalar(
+                    select(read_position.c.result).where(
+                        read_position.c.position == row["read_position"]
+                    )
+                )
+            elif row["action_id"] is not None:
+                result = await connection.scalar(
+                    select(action.c.result).where(action.c.id == row["action_id"])
+                )
+            records.append(
+                {
+                    "kind": "native_invocation",
+                    "invocation_id": str(row["id"]),
+                    "tool_id": row["tool_id"],
+                    "proposal": row["proposal"],
+                    "reply": row["reply_receipt"],
+                    "recorded_result": result,
+                }
+            )
+    return PromptSections(
+        (
+            PromptSection(
+                PromptSectionKind("recorded_tool_observations"),
+                (),
+                PromptJson(records),
+            ),
+        )
+    )
+
+
+async def _turn_evidence(owner: JarvisOwner, attempt_id: UUID) -> TurnEvidence:
+    evidence = TurnEvidence()
+    async with owner.database.connect() as connection:
+        rows = (
+            await connection.execute(
+                select(native_invocation.c.tool_id, read_position.c.result)
+                .join(
+                    read_position,
+                    read_position.c.position == native_invocation.c.read_position,
+                )
+                .where(native_invocation.c.attempt_id == attempt_id)
+                .order_by(native_invocation.c.ordinal)
+            )
+        ).all()
+    for row in rows:
+        if row.result is None or row.result.get("type") != "Success":
+            continue
+        if row.tool_id == "calendar.list_events":
+            coverage = CalendarListEventsSuccess.model_validate(
+                row.result["value"]
+            ).coverage
+            evidence.record_calendar_incompleteness(
+                reasons=coverage.reasons,
+                calendars_discovered=coverage.calendars_discovered,
+                calendars_completed=coverage.calendars_completed,
+                matched_events=coverage.matched_events,
+            )
+        elif row.tool_id == "agent.list":
+            inventory = AgentListResult.model_validate(row.result["value"])
+            if inventory.partial:
+                evidence.record_agent_inventory_incompleteness(
+                    unavailable_machines=sum(not peer.ok for peer in inventory.peers)
+                )
+    return evidence
+
+
+__all__ = [
+    "NativeInputs",
+    "NativeRunOutcome",
+    "NativeRunner",
+    "native_receipt_context",
+    "recover_native_products",
+]

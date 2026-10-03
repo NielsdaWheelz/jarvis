@@ -59,7 +59,11 @@ from jarvis.native_cutover import (
     require_native_data,
     require_native_files,
 )
-from jarvis.native_runtime import NativeRunner
+from jarvis.native_runtime import (
+    NativeRunner,
+    native_receipt_context,
+    recover_native_products,
+)
 from jarvis.ownership import (
     Database,
     DeploymentAlreadyOwned,
@@ -351,6 +355,7 @@ async def _serve(
                 store = MessageStore(database)
                 owner = JarvisOwner(database, str(settings.discord.channel_id))
                 await require_native_data(database, conversation_id=owner.scope_id)
+                recovered_inputs = await recover_native_products(owner)
                 paused = PausedState(store, owner.scope_id)
                 dispatch_lane = asyncio.Lock()
                 async with AsyncExitStack() as clients:
@@ -427,6 +432,10 @@ async def _serve(
                         embedder=embedder,
                         maximum_messages_per_group=settings.maximum_batch_size,
                     )
+                    if recovered_inputs:
+                        context = await native_receipt_context(owner)
+                        for identifier in recovered_inputs:
+                            rememberer.enqueue((identifier,), context)
                     dreamer = DreamerWorker(
                         definition=definitions.dreamer,
                         plan=definitions.plans["dreamer"],

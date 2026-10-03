@@ -63,6 +63,16 @@ class MemoryPersistenceDefect(RuntimeError):
     """Canonical memory or rememberer-target state is inconsistent."""
 
 
+_CONVERSATION_OUTCOMES = (
+    "answered",
+    "partial",
+    "needs_input",
+    "failed",
+    "host_fallback",
+    "waiting",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryIdentity:
     table_kind: MemoryTableKind
@@ -504,13 +514,7 @@ class MemoryStore:
                                             "outcome": outcome,
                                         }
                                     )
-                                    for outcome in (
-                                        "answered",
-                                        "partial",
-                                        "needs_input",
-                                        "failed",
-                                        "host_fallback",
-                                    )
+                                    for outcome in _CONVERSATION_OUTCOMES
                                 ),
                                 message.c.trace["settlement"].contains(
                                     {
@@ -865,8 +869,7 @@ def _settlement_identity(trace: dict[str, object]) -> SettlementIdentity | None:
 def _eligible_settlement(identity: SettlementIdentity) -> bool:
     return (
         identity.conclusion_kind == "conversation"
-        and identity.outcome
-        in {"answered", "partial", "needs_input", "failed", "host_fallback"}
+        and identity.outcome in _CONVERSATION_OUTCOMES
     ) or (identity.conclusion_kind, identity.outcome) in {
         ("silent", "silent"),
         ("suspension", "user"),

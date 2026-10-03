@@ -368,12 +368,16 @@ adr 0049 retains historical evidence; its ssh gate must not be installed again.
 
 ## skid-only worker cutover
 
-[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) changes the entire
-main catalog/plan. stage source and private inputs before activation. no private
+[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) owns the installed
+baseline; [adr 0064](decisions/0064-simple-worker-orchestration.md) defines the next
+paired worker cutover. audit defects are corrected; the paired spec records local
+source/provider/postgres qualification. stage source and private inputs before
+activation. no private
 cognition server is authorized; repair of the missing existing shared app server
 is a separate follow-up. jarvis may remain down while worker source and herdr
-retirement proceed. activation, normal cognition and actual service probes remain
-`NOT_RUN` until their boundaries can be exercised.
+retirement proceed. production activation and service probes remain `NOT_RUN`
+until their boundaries can be exercised. isolated local native cognition is
+qualified; it does not prove the stopped production deployment repaired.
 
 1. use the existing owner pause control. old code must settle or explicitly
    reconcile every nonterminal action, finish or park unfinished turns, materialize
@@ -417,6 +421,14 @@ rollback retains private code/config/artifact inputs while stopped. after herdr
 worker discard, rollback cannot restore their running state. repair compatible
 skid/jarvis state or leave jarvis down; never replay unknown effects or resurrect
 the ssh adapter. credentials, terminal content and provider history stay private.
+
+for v7, paired code/config/artifact rollback before new receipts follows ordinary
+stopped checks. selected-only retention under adr 0053 requires rebuilding any
+discarded jarvis release from its exact commit. after new canonical receipts,
+older readers are unqualified: pause and retain
+records for forward repair. whole-state restore must account for new data and
+external effects; code rollback alone is not data rollback. never add a legacy
+reader or erase new actions merely to make rollback start.
 
 ## Approval operation
 
@@ -510,19 +522,36 @@ and `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by
 peers come from human fleet provisioning. no development-home symlink,
 JARVIS_HERDR setting, jarvis ref codec or provider-home table remains.
 
-use agent.list/info/start/read/send/text/keys/stop/close with explicit target,
-source, mode and scope. conversation info preserves captured target separately
-from native observation and optional observedRef. terminal loss/reassociation
-never renews conversation authority. a name grounds native input only when the
-terminal's observed conversation matches the captured one. native accepted
-means admitted, completion unconfirmed; terminal written means dispatched.
-close may report terminal closed with conversation stop unconfirmed. unknown
-writes enter once and never replay. read scope/truncation and partial inventory
-remain material limitations. old finalized worker rows display only recorded
-status and unavailable receipt details; their raw records remain unchanged.
+the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
+wait/cancel_wait. addressed inputs use short `{machine,handle}`; t-handles select
+terminal mechanisms, c-handles explicit native capabilities. the host captures
+original refs before gate/action admission and retains them through delay/restart.
+native capture preserves the original target separately from observation and
+optional observedRef. matching optional name/profile facts provide consent context;
+terminal loss/reassociation never renews native authority.
+
+terminal send is guarded input for both providers; native claude input remains
+unavailable. start options use explicit overrides then native defaults, with
+literal optional stdin. creation/input and interruption/closure facts remain
+independent, including nonzero partial results. native accepted means admitted,
+terminal written means dispatched; neither proves completion. unknown writes
+enter once and never replay; conclusive owned receipts settle without re-entry.
+
+wait registration returns watching immediately; a separate durable outcome/event
+observes the original ref outside main's mutex. cancellation stops observation,
+not execution. a matched state and later bounded text are separate evidence.
+unmixed wait-only observations may stay internal. after the original owner turn
+closes, worker events confer reading/integration/notification only; new writes or
+wait registration need new current owner authority. broader follow-through is
+separate. partial inventory, unavailable/truncated text and lost receipts remain
+material limits. old finalized worker rows retain only recorded status and opaque
+receipt details; their raw records remain unchanged.
 
 activate only through [the skid-only cutover](#skid-only-worker-cutover). this
-worker change adds no scheduler, history store, provider client or cognition lane.
+worker change reuses the existing action scheduler and adds no history store,
+provider client or cognition lane. the active plan and paired spec distinguish
+passed local acceptance from remaining installed-fleet/production qualification;
+the latter must pass before claiming this target release activated.
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

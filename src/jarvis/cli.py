@@ -309,6 +309,7 @@ async def _compose_main(
         cli_path=settings.agent_cli_path,
         client_config_path=settings.agent_client_config_path,
         actions=actions,
+        source_conversation_id=str(settings.discord.channel_id),
     )
     composition = build_tool_composition(
         settings=settings,
@@ -480,11 +481,7 @@ async def _serve(
                                     settings.verified_owner_only_calendar_ids
                                 ),
                                 host_secrets=settings.host_secrets,
-                                schedule_changed=lambda: (
-                                    wake_timer.notify_changed()
-                                    if wake_timer is not None
-                                    else None
-                                ),
+                                schedule_changed=schedule_changed,
                             )
                         ),
                         memory_repository=memory_repository,
@@ -500,16 +497,18 @@ async def _serve(
                         discord=discord_delivery,
                     )
                     wake_timer: ProcessLocalWakeTimer | None = None
+
+                    def schedule_changed() -> None:
+                        agents.notify_wait_changed()
+                        if wake_timer is not None:
+                            wake_timer.notify_changed()
+
                     action_recovery = ActionRecovery(
                         actions=actions,
                         google_write=composition.google_write,
                         plan=definitions.plans["main"],
                         source_conversation_id=str(settings.discord.channel_id),
-                        schedule_changed=lambda: (
-                            wake_timer.notify_changed()
-                            if wake_timer is not None
-                            else None
-                        ),
+                        schedule_changed=schedule_changed,
                         approval_disabler=ApprovalRecoveryDisabler(
                             actions=actions,
                             discord=discord_delivery,
@@ -531,6 +530,7 @@ async def _serve(
                         scheduled_wakes=actions,
                         action_plan=definitions.plans["main"],
                         action_recovery=action_recovery,
+                        agent_waits=agents,
                         approval_handler=approval_handler,
                     )
                     wake_timer = ProcessLocalWakeTimer(

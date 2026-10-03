@@ -77,6 +77,21 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   focused verification. this scoped adr 0046 exception restores no old suite and
   leaves the general testing redesign open.
 
+accepted worker-orchestration scope (2026-10-02):
+[adr 0064](docs/decisions/0064-simple-worker-orchestration.md) supersedes affected
+worker contracts of adr 0052. both providers use ordinary bounded conversation;
+jarvis chooses reuse, steering and observation. short model targets, private
+immutable capture, optional launch input/options and action-backed nonblocking
+wait/cancel are the approved scope. source implementation does not establish
+installation or activation. the owner authorized implementation with temporary
+integration/live checks and adversarial review. the audit defects are corrected;
+current-source darwin providers, native cognitive consent and real postgres
+crash/recovery boundaries pass. both providers pass linux live control; eleven
+service/cli/postgres checks and actual cognitive wait integration pass;
+production cutover remains separate. after the
+original owner turn closes, worker observations permit reads, integration and
+notification only; new worker writes/waits need new current owner authority.
+
 The terms MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
 testing reset (2026-09-17): [adr 0046](docs/decisions/0046-reset-testing.md)
@@ -117,6 +132,8 @@ cli with herdr itself, driven through each host's ssh forced-command gate, with
 jarvis-owned refs checked against herdr before every addressed call.
 [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) supersedes
 those worker contracts with current skid and opaque archives; cognition is unchanged.
+[adr 0064](docs/decisions/0064-simple-worker-orchestration.md) updates this boundary
+for concise targets/results, launch evidence and durable ordinary observation.
 
 ## 1. Product definition
 
@@ -280,7 +297,8 @@ non-empty at-most-500-character `limitation`, and a nullable non-empty
 at-most-500-character `question`; `needs_input` has at-most-1000-character
 `context` and one non-empty at-most-500-character `question`; `failed` has one
 non-empty `explanation`; and `silent` has only
-`reason = owner_needs_no_response`. Text and explanation retain the existing
+`reason = owner_needs_no_response`; an internal worker-wait observation may
+justify that reason when no owner notice is useful. Text and explanation retain the existing
 Discord response limit. The host renders complete answers unchanged and owns
 the fixed labels for every other visible branch, checking the final rendered
 Discord bound before persistence.
@@ -442,10 +460,11 @@ Jarvis acts without approval for:
   calendar.
 - Creating or cancelling a `schedule.wake`.
 - owner-directed `agent.start`, `agent.send`, `agent.text`, `agent.keys`,
-  `agent.stop` and `agent.close`, grounded by `AutomaticWriteGate`; explicit
+  `agent.stop`, `agent.close`, `agent.wait` and `agent.cancel_wait`, grounded by
+  `AutomaticWriteGate`; explicit
   terminal input may answer worker permission dialogs under existing host-user
-  authority. stop mode and close scope distinguish captured native work from
-  exact terminal input and closure.
+  authority. short target kind distinguishes native conversation control from exact terminal
+  controls; close distinguishes interruption from terminal closure.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -679,15 +698,19 @@ as opaque host reference, canonical tool name, original validated arguments,
 resolved action state, and safe result/evidence. This is sufficient to continue
 after provider-session loss without replaying the original write.
 
-An action-resolution input must produce a visible owner notice. If Main returns
+an action-resolution input must produce a visible owner notice, except a batch
+containing only `agent_wait_event_v1` observations and no owner input. main may
+integrate that intermediate evidence silently; mixed owner input, other action
+resolutions and scheduled wakes keep the visible/fallback rule. If Main returns
 `silent` or fails before a renderable terminal, Jarvis's terminal-finalization
 adapter persists a deterministic host-authored assistant fallback rendered from
 the action ID, tool, resolved state, and safe normalized result, then processes
 the host row. For `uncertain`, that fallback includes the safe reconciliation
 evidence and the required request for owner inspection. The same rule applies to
 a scheduled-wake input, whose fallback includes the stored reminder instruction.
-Thus silence remains valid for ordinary owner turns, but never silently consumes
-an asynchronous result or requested reminder.
+silence remains valid for ordinary owner turns and the narrowly defined internal
+worker-wait batch. requested reminders and other asynchronous action results
+retain visible delivery.
 
 ### 5.5 Gmail send
 
@@ -929,10 +952,10 @@ invocation. A drain is an exclusive work epoch within a thread run. A one-shot
 run is a fresh isolated invocation over explicit host input with no application
 checkpoint or saved session reference. A model step is one provider response. A
 provider session is an opaque, disposable optimization. These terms do not imply
-a persistent peer model. the nine agent controls are owner-directed skid
-terminal and conversation operations outside the cognitive decoder; they
-add no peer graph, completion callback, scheduler, transcript store, or worker
-ownership state. The main definition is
+a persistent peer model. worker controls are owner-directed skid terminal and conversation operations
+outside the cognitive decoder. durable observation reuses action and ordinary
+scheduling; it adds no peer graph, completion callback, transcript store or
+worker ownership state. The main definition is
 `continuing` with a closed structured terminal contract and the exact main
 catalog as its maximum envelope. Recaller, rememberer, dreamer, and AutomaticWriteGate are
 `isolated` one-shot definitions with closed structured output contracts. The
@@ -1228,81 +1251,151 @@ the baseline catalog below otherwise retains its meaning.
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
 | `agent.list`, `agent.info`, `agent.read` | Main | peer agent read; automatic |
-| `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close` | Main | peer agent control; automatic only when grounded in current owner input |
+| `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close`, `agent.wait`, `agent.cancel_wait` | Main | peer agent control; automatic only when grounded in current owner input |
 | `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
 
-worker control follows [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md).
-all inputs are closed; refs are opaque strings of 1–4096 characters. machines
-are `macbook|devbox|arch`; profiles are `personal|work|work2|claude-work`.
-start retains the existing name grammar and optional cwd bound.
+worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md).
+all model inputs and outputs are closed. machines are `macbook|devbox|arch`;
+profiles are `personal|work|work2|claude-work`. addressed inputs contain
+`target:{machine,handle}`: `t-` or `c-` plus 16 lowercase hexadecimal characters.
+names are labels. no opaque ref or raw provider/process identity is model-facing.
 
-| tool | required mode and additional input | fixed skid command |
+| tool | input | fixed skid command |
 | --- | --- | --- |
-| agent.list | optional machine | list [--machine …] |
-| agent.info | ref, target: terminal or conversation | info --ref or inspect --ref |
-| agent.start | machine, profile, name, cwd? | start name --machine … --profile … [--cwd …] |
-| agent.read | ref, source: latest/history/terminal, maxBytes default 16384, maximum 32768 | read --ref [--history or --terminal] --max-bytes … |
-| agent.send | ref, text | send --ref --input peer --stdin |
-| agent.text | ref, text | text --ref --stdin |
-| agent.keys | ref, 1–16 keys | keys --ref key… |
-| agent.stop | ref, mode: native or terminal | stop --ref [--terminal] |
-| agent.close | ref, scope: conversation_and_terminal or terminal_only | close --ref [--terminal-only] |
+| agent.list | machine?, group?, unassigned?; group/unassigned exclusive | list [--machine …] [--group … or --unassigned] |
+| agent.info | target | info t-HANDLE or inspect c-HANDLE --machine … |
+| agent.start | machine, profile, name?, cwd?, group?, model?, effort?, prompt? | start [name] --machine … --profile … [--cwd/group/model/effort …] [--stdin] |
+| agent.read | target, source latest/history default latest, maxBytes default 16384/max 32768; history native-only | read HANDLE --machine … [--history] --max-bytes … |
+| agent.send | target, text | send --ref CAPTURED [--input peer for native only] --stdin |
+| agent.text | terminal target, text | text --ref CAPTURED --stdin |
+| agent.keys | terminal target, 1–16 keys | keys --ref CAPTURED key… |
+| agent.stop | target; kind selects terminal/native | stop --ref CAPTURED |
+| agent.close | terminal target, terminal_only default false | close --ref CAPTURED [--terminal-only] |
+| agent.wait | target, observable state default idle, timeout_seconds default 300/1–86400, maxBytes default 16384/max 32768 | durable local registration; watcher uses wait --ref CAPTURED --state … --timeout CHUNK |
+| agent.cancel_wait | action_id | durable local cancellation; no worker mutation |
 
-all commands include fixed `--config` and `--json`, argv without a shell, minimal
-`PATH=/usr/bin:/bin` environment, and text through stdin. text is nonempty,
-at most 32768 utf-8 bytes and contains no nul. keys are exactly enter, escape,
-ctrl-c, up, down, left, right, tab, backspace, page-up and page-down. start sends
-no initial prompt and promises no readiness. no user native input, queue,
-interrupt or kill alias remains; native unavailability never selects terminal input.
+all cli commands use fixed `--config` and `--json`, argv without a shell, minimal
+`PATH=/usr/bin:/bin`, and literal text through stdin. text/prompt is nonempty,
+at most 32768 utf-8 bytes and contains no nul. keys are enter, escape, ctrl-c,
+up, down, left, right, tab, backspace, page-up and page-down. optional name uses
+skid's 1–64 ascii letter/digit/underscore/hyphen grammar, beginning letter/digit.
+model/effort values are nonempty, at most 256 utf-8 bytes, without whitespace or
+controls; they are provider values, never arbitrary configuration/argv. omission
+preserves native account defaults. initial input may fail after creation; no
+trust/permission dialog is answered automatically.
 
-skid owns opaque refs, target lifetime validation, native methods and result
-semantics. jarvis consumes their current closed shapes at `agent_tools.py`.
-`info target=conversation` uses the cli's captured-target inspection projection:
-`{label,machine,target:{ref,conversation,turn?},inspection:{ok,result|error},observedRef?}`.
-its target preserves the original ref even when inner inspection fails; outer
-admission failure has no target. a successful observation must match its captured
-conversation. `observedRef` exists only on success and is never substituted into
-an existing action. terminal reassociation or deletion does not invalidate a
-captured conversation; terminal operations require their exact original lifetime.
+raw text admission does not guarantee fit in skid's 65536-byte serialized body.
+locally predictable initial-input overflow must reject before creation; exact
+captured-body overflow retains created/not_sent with target. never truncate input.
 
-before preparatory lookups, every worker write requires current owner input.
-native operations inspect their captured target successfully. optional terminal
-info grounds the owner's worker name only if its conversation equals the captured
-one; a missing/reassociated terminal cannot deny explicit conversation authority.
-terminal operations inspect their original terminal. compound close describes
-both original targets; an unavailable native halt may still permit explicitly
-authorized exact terminal closure. only normalized identity facts enter the gate,
-never worker prose. execute the original arguments once; gateway validation owns
-races after preflight. do not renew refs or retry through a replacement action.
+before preparatory capture, every worker write requires current owner input.
+skid resolves `info`/`inspect` to one target before gate/action admission. private
+immutable `execution_contract.agent_target` contains the original opaque ref,
+short target and normalized identity. canonical model arguments are validated,
+default-completed `model_dump(mode="json")`, then stored/hashed unchanged; capture
+is separate. all later execution and recovery use original `--ref`.
+there is no independent registry or
+consumer ref codec. read/info resolve afresh. a short terminal handle can follow
+a current pane, while captured effects/waits retain the original pane/session.
+native codex stop retains the captured turn and refuses a successor; native claude
+interactive stop is unavailable and its existing background helper captures its
+job at dispatch, not jarvis admission. delayed claude job pinning is outside this
+slice. wait/read/send address the conversation.
+new observed refs never renew an existing effect. native unavailability never
+selects terminal delivery. only short/readable normalized facts enter the gate,
+never worker prose.
 
-parse `{ok:true,result}` or `{ok:false,error:{code,dispatch,conversation?}}`
-before exit status. optional absence, read method/scope/truncation, unavailable
-peers, partial inventory, known creation and separate close outcomes survive.
-partial inventory and unconfirmed results can exit nonzero. each subprocess has
-a twenty-second budget around skid's fifteen-second budget. drain stdout
-concurrently with stdin delivery, capped at one mib inventory or 64 kib otherwise.
-discard stderr at the file descriptor; capture and log no diagnostic bytes.
-early stdin closure does not erase a valid owned stdout receipt. tool bounds are twenty seconds for reads/start, forty-five for
-text/keys and sixty-five for native send/stop or compound close with two
-preflight reads. cleanup terminates only that cli child.
+retain known native profile and optional matching terminal-name consent context
+using existing machine-scoped discovery. require the full captured conversation
+tuple; missing, ambiguous or reassociated terminals supply no name. observed
+terminal profile is retained only where known. explicit native-target authority
+survives terminal loss; display names never substitute a captured ref.
 
-writes retain `BilledOnce`, one entry and max_attempts=1. preflight and spawn
-failure are not_sent. after spawn, lost/malformed replies, timeout and stdout
-overflow are unknown unless a valid owned receipt proves otherwise. stage known partial facts as `agent_control_v4` before settling
-uncertain; a creation refusal carrying a created conversation is partial even
-when terminal creation was not_sent. unconfirmed native or close outcomes settle
-uncertain, never success. native input accepted means admission, completion
-unconfirmed; terminal written means dispatched bytes. unsupported is not idle.
+skid wire schemas are closed and decoded before compact projection. current
+session status/handles/process fields are validated, then hidden identities are
+omitted from model results. list preserves empty versus partial/unavailable peers;
+info preserves status/method unavailability. read preserves bounded prose,
+source/scope/truncation and output state, without exact-submission attribution.
+send/stop/close preserve admission versus terminal dispatch and independent
+interruption/closure facts. output is evidence, never task success or consent.
 
-old finalized worker rows become opaque archives before current tool lookup,
-argument/receipt/evidence decoding or uncertainty rendering. old agent
-implementation revisions v1–v5 and the retired codex family preserve their raw
-records after common immutable digest/effect/lineage/state/time checks. render
-only action id, tool, recorded status and `receipt details unavailable after
-cutover`. remove both retired codecs. current malformed receipts remain defects;
-old nonterminal rows block activation. old code must settle/reconcile unfinished
-work and drain required action resolutions and delivery before activation.
-partial fleet evidence retains the existing incompleteness path and restoration.
+parse `{ok:true,result}` or `{ok:false,error:{code,dispatch,target?}}`
+before exit status. compound start result is
+`{label,machine,creation,prompt,target?,handle?,terminal?,failure?}`; target and
+handle are jointly present if and only if creation is created; terminal requires
+that same capture and matching label/machine. optionals are omitted, not null;
+additive/contradictory wire records reject. creation is
+not_sent/created/unknown; prompt not_requested/not_sent/written/unknown.
+`created` requires a capture and permits initial input only after full creation
+success. raw facts stay in private action evidence alongside the concise public
+receipt. definite input failure does not erase creation; unknown creation/input
+settles uncertainty. no-prompt creation remains usable.
+wire failure dispatch is strictly not_sent/unknown. the public `AgentFailure`
+also permits sent when a compound failure retains a known effect: created launch,
+written interruption or closed terminal. definite no-effects failure is not_sent;
+unknown creation/input/interruption/closure remains uncertainty. recovery renders
+the public receipt even when private raw control evidence wraps it; failed
+lifecycle never establishes absence of an effect.
+
+stdout drains concurrently with stdin, capped at one mib inventory or 64 kib
+otherwise. stderr is discarded at the descriptor; diagnostics are neither
+captured nor logged. early stdin closure does not erase an owned receipt.
+each child has 20 seconds around skid's 15-second clock; ordinary reads/start have
+20-second tool fences, addressed controls/registration 45 seconds. cleanup stops
+only that cli child. a valid partial/nonzero result is retained.
+
+external worker mutations remain `BilledOnce`, one executor entry and
+max_attempts=1. spawn/preflight failure is not_sent; post-spawn timeout, overflow,
+malformed/lost replies or unknown dispatch are terminal uncertain unless an owned
+receipt proves otherwise. stage known partial evidence as `agent_control_v5`;
+never automatically resend, relaunch or resolve a successor. native acceptance
+proves admission; terminal written proves dispatched bytes; neither completion.
+
+recovery classifies conclusive staged evidence through the same ordinary outcome
+rules: success or definite partial/refusal settles without executor entry.
+missing/unknown evidence remains uncertain and publishes a safe event/fallback,
+including when no observation exists. native accepted-send evidence remains
+unstaged, so a crash before generic settlement remains uncertain. no recovery
+classification adds executor entry or external effects.
+
+local wait/cancel use `ReDispatchable`, two bounded lifetime executor entries and
+zero external mutation attempts. registration commits immutable
+`result.registration_receipt` and immediately returns watching while action
+stays queued. replay returns that receipt independently of later lifecycle.
+`wait_outcome` is null until matched/timeout/target_changed/unavailable/cancelled;
+a terminal outcome and one source-deduplicated ordinary action event commit
+atomically. cancellation commits its own receipt with the original outcome/event,
+leaving worker execution unchanged. first committed outcome wins. a later read
+is independent of the matched sample and retains failure/truncation.
+
+watchers run outside main's mutex, chunk skid waits at 15 seconds under 20-second
+child fences and retain the same ref/deadline across restart. intermediate chunk
+timeouts continue observation without model polling or writes. overall timeout or
+cancellation does not stop the worker or automatically rearm a wait. pause and
+cognitive quarantine suspend observation while the stored deadline continues;
+shutdown cancels only read children and joins database work before ownership
+closes. stranded original inputs are closed without replay even if the event
+committed before the original turn settled. no new write authority is granted by
+an observation; o6/o9 remain separate.
+
+after the original owner turn closes, such observations permit reads/integration/
+notification only. further worker input or fresh wait registration requires new
+current owner authority. agent choice does not widen the gate's authority.
+
+finalized retired worker implementation revisions v1–v6 remain opaque after
+common immutable digest/effect/lineage/state/time checks. old nonterminal rows
+block activation. drain effects, interrupted turns, required messages and delivery
+under the old release before coordinated cli/catalog cutover. no legacy receipt
+reader, schema migration or new worker table is added. partial fleet evidence
+retains the existing incompleteness/fallback path.
+
+hard cutover qualifies rollback separately: before new receipts, paired
+code/config/artifact rollback follows ordinary stopped checks. selected-only
+retention under adr 0053 requires rebuilding any discarded jarvis release from
+its exact commit. after v7 writes canonical receipts,
+older readers are unqualified; pause, preserve data and forward-repair. whole-state
+restoration must account for new records and external effects. code rollback alone
+is not data rollback; no legacy reader is added to mask that limitation.
 
 The Slice 2 Jarvis-owned read result unions are exactly:
 
@@ -1786,8 +1879,9 @@ schedule, never by unconditional cleanup rearming.
 accepted codex and claude agents execute independently on their selected hosts
 after dispatch. their terminal output never enters the serial cognition
 decoder, consumes its provider lease, or grants new Jarvis authority.
-the start action terminates at a submitted launch, not readiness; Jarvis neither
-waits durably for worker completion nor schedules a successor from it.
+start terminates with independent creation/input facts. read-only durable
+watchers may observe captured state outside the main mutex; they never execute
+cognition, resend worker work or schedule an automatic successor.
 
 No second PostgreSQL conversation lock is required while the global ownership
 lock holds. The root admission reservation owns one concurrency slot; a gate
@@ -2105,7 +2199,8 @@ approval, execution, reconciliation, and receipts.
   `policy_revision`, `plan_revision`, `ToolEffect`, `ReplayPolicy`, canonical
   `input_digest`, finite `max_attempts`, `claim_id`, canonical
   `through_checkpoint`, `model_step_ordinal`, ordered `input_message_ids`, and
-  `write_gate_supporting_owner_message_ids`. It is not a model field or general
+  `write_gate_supporting_owner_message_ids`, and optional private immutable
+  `agent_target` capture for addressed worker operations. it is not a model field or general
   version registry. Host code verifies it before every approval rendering,
   executor entry, replay, or reconciliation.
 - Within that contract, `policy_revision` covers the deterministic authority
@@ -2121,7 +2216,8 @@ approval, execution, reconciliation, and receipts.
 - Host code resolves the current declaration and validates stored arguments and
   execution contract again before approval rendering and execution.
 - `execute_after` is nullable; null means immediately eligible, while a timestamp
-  supports `schedule.wake` without another table.
+  supports `schedule.wake` without another table; registered worker waits retain
+  their exact deadline in the immutable registration receipt.
 - `approval_message_id` is nullable and unique when present. It points to the
   host-owned approval `message` and is required while status is
   `awaiting_approval`.
@@ -2132,7 +2228,10 @@ approval, execution, reconciliation, and receipts.
 - `result` stores a typed provider receipt, failure evidence, cancellation
   reason, or uncertainty evidence without secrets. A create-schedule result
   preserves an immutable `creation_receipt` while its separate `wake_outcome`
-  moves from null to the later terminal wake result.
+  moves from null to the later terminal wake result. worker waits preserve
+  `registration_receipt` independently of `wait_outcome`; public tool replay
+  never substitutes the later observation. partial worker launch evidence may
+  accompany a public tool receipt privately, with refs excluded from model context.
 
 Queued or approval-bearing rows whose `tool_name` is unsupported or whose stored
 arguments or execution contract no longer validate fail closed as `cancelled`

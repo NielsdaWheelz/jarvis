@@ -55,6 +55,7 @@ from llm_tools import (
 from provider_runtime.agent_runtime import thaw_json_value
 
 from jarvis.messages import (
+    ACTION_MODEL_CONTEXT_SEPARATOR,
     CircuitOpen,
     ControlSettlement,
     ExhaustedMessage,
@@ -367,7 +368,15 @@ class PostgresInputCheckpoint:
             kind, outcome, conclusion_text = _conclusion(
                 conclusion, self._turn_evidence
             )
-            if active.host_inputs and (
+            has_owner_input = len(active.message_ids) > len(active.host_inputs)
+            required_host_notice = bool(active.host_inputs) and (
+                has_owner_input
+                or any(
+                    not _optional_wait_notice(row.source, row.text)
+                    for row in active.host_inputs
+                )
+            )
+            if required_host_notice and (
                 kind != "conversation" or conclusion_text is None
             ):
                 conclusion_text = render_host_fallback(
@@ -645,3 +654,19 @@ def _conclusion(
 
 
 __all__ = ["PostgresInputCheckpoint"]
+
+
+def _optional_wait_notice(source: str, text: str) -> bool:
+    if source != "action" or ACTION_MODEL_CONTEXT_SEPARATOR not in text:
+        return False
+    try:
+        context = json.loads(text.split(ACTION_MODEL_CONTEXT_SEPARATOR, 1)[1])
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(context, dict):
+        return False
+    value = cast(dict[str, object], context)
+    return (
+        value.get("type") == "agent_wait_event_v1"
+        and value.get("tool_name") == "agent.wait"
+    )

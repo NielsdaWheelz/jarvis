@@ -1,6 +1,6 @@
 # jarvis: roadmap and implementation plan
 
-updated 2026-10-01. this is the ONE active roadmap and delivery plan, combining
+updated 2026-10-02. this is the ONE active roadmap and delivery plan, combining
 universal memory and the approved v2 direction. implementation/activation of
 these targets is not established by this document. no code or deployment changes
 are authorized merely by documenting their order.
@@ -44,7 +44,13 @@ v1 has six application tables. accepted universal memory adds three; the later
 work slice adds one. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
-adr 0052 is the current skid worker boundary. its recorded source/client work does
+[adr 0064](decisions/0064-simple-worker-orchestration.md) is the owner-approved
+worker launch/ergonomics/observation scope. its local source changes supersede
+adr 0052 at coordinated cutover; installed behavior remains adr 0052 until then.
+the owner authorized complete implementation and temporary integration/live
+qualification. the audit defects are corrected; the paired spec records current
+source/provider/postgres evidence and remaining installed cutover dependencies.
+recorded source/client work does
 not establish current cognition activation. the latest
 [shared-cognition issue](issues/codex-private-process.md) records jarvis disabled,
 stopped and durably paused on 2026-09-29. confirm live state before deployment;
@@ -89,7 +95,7 @@ public boundary; do not add speculative plumbing to make work parallel.
 | o5 | jarvis: durable native main and safe six-hour interruption | o4; shared cognition repaired before live activation |
 | o6 | jarvis: one main capability set for all supported event origins | o5; separate authority adr/spec cutover |
 | o7 | jarvis: one work table with history/current view and durable stop | work-state decision; independent of o3–o6 implementation |
-| o8 | jarvis: richer start and nonblocking `agent.wait` | o2, o6 and cli repair; NOT o7 |
+| o8 | jarvis: richer start, concise targets and nonblocking `agent.wait` | o2 and cli repair for activation; o6 only for broader continuation authority; NOT o7 |
 | o9 | jarvis: continuation and prompt-led coordination | o5–o8 |
 | m1 | provider-runtime: native archive codecs, identity and echo suppression | capture contract; retention before activation |
 | m2 | jarvis: source schema, automatic baseline, atomic capture/collector | m1 public contract; provider proof before live capture |
@@ -109,9 +115,9 @@ cutover; they do not authorize partial fleet claims or an old/new runtime fallba
 extend skid start with machine/profile, provider-compatible raw model/effort,
 cwd and optional freeform initial prompt. profile determines provider/account;
 provider convenience selection must resolve a compatible profile. keep one launch
-configuration declaration, including compatible profile defaults; explicit start
-values override those defaults, otherwise retain provider-home defaults. jarvis
-supplies its configured machine/profile when omitted. unsupported pairs fail;
+configuration declaration; explicit model/effort fields override native account
+defaults and omitted fields preserve them. no extra skid profile-default layer.
+jarvis chooses the machine/profile. unsupported pairs fail;
 no capability tiers, hidden model substitution or shell interpolation.
 
 skid owns readiness and initial prompt submission. preserve the created terminal
@@ -245,31 +251,73 @@ the later dreamer snapshot; daily new-note batching does not depend on o7.
 
 ### o8: richer start and asynchronous wait
 
-extend existing `agent.start`; add register/cancel on `agent.wait` in the same
-family. retain `agent.send` and ordinary observation/stop/close. freeform prompts
-and worker output; no task packet, output schema or mandatory work id.
+[adr 0064](decisions/0064-simple-worker-orchestration.md) owns this accepted
+scope; source is implemented and unactivated. list/info/start and all controls
+use short `{machine,handle}` model targets/results. strict skid wire decoding is
+separate; original refs stay in private immutable action capture. there is no
+alias registry or ref codec. machine/group filters, partial/unavailable inventory,
+read limits and dispatch uncertainty remain visible.
 
-reuse schedule-style `action` durability: an immutable registration receipt returns
-`watching` immediately; an out-of-mutex host watcher calls skid wait/read on the
-captured target and persists a later outcome plus ONE source-deduplicated ordinary
-action-resolution message. restart resumes observations and repairs delivery,
-never resends the worker prompt. a changed target is an outcome, not permission
-to follow its replacement. work linkage is optional context, not a second ledger.
+start accepts optional name/cwd/group/model/effort and literal stdin prompt.
+native defaults fill omitted fields. creation/input/failure facts remain separate,
+including partial results on nonzero exit; captured refs survive in private
+action evidence. send uses guarded terminal input for both providers; c-handles
+explicitly select native conversation methods. close reports terminal
+interruption and closure independently. current flags and session rows replace
+obsolete codecs under one coordinated hard cut.
 
-specify overall timeout and bounded observation retries; the currently inspected
-skid wait caps a call at one hour. chunk timeouts continue host observation without
-scheduled model polling. accept fast completion before registration against the
-available native observation boundary. terminal idle can be stale: report terminal
-evidence honestly, never successful completion of a newly sent request. preserve
-raw prose and action/ref/status metadata. cancel stops observation, not the worker.
+`agent.wait` durably returns an immutable watching receipt immediately, then
+observes the original ref outside main's mutex. exact deadline, requested state
+and bounded output live in the existing action; later `wait_outcome` does not
+replace the registration receipt. the host uses 15-second chunks under a
+20-second child fence. overall finite timeout defaults to 300 seconds, maximum
+86400. timeouts continue only until the stored deadline; no model polling or
+worker input replay. `agent.cancel_wait` settles observation, not worker work.
+outcome/event and cancellation receipts commit atomically. startup closes
+stranded original input, resumes observations and source-deduplicates events.
 
-repair obsolete `--terminal` read/stop flags without losing requested mode or
-captured ref; `--history` is native-only. see [cli repair](issues/skid-terminal-flags.md)
-and [wait contract work](issues/agent-wait.md).
+ordinary bounded conversation is sufficient for both providers. fast completion
+may already be idle; stale idle or intervening text proves no exact submitted
+request result. jarvis decides reuse, steering, waiting, fanout and when the
+owner needs a useful outcome, blocker or question. only an unmixed worker-wait
+event batch may settle silently; other action/scheduled/owner visibility remains.
+no reply tool, worker ledger, one-open-job rule or task schema is added.
 
-exit: register, serve another owner message, receive one later result; repeat
-across restart. distinguish fast completion, stale idle, timeout, target change,
-interruption and unavailable evidence. no mutex held while waiting.
+this source work retains current-owner write authority. broader autonomous
+follow-through/event authority belongs to o6/o9, not a hidden change here. no new
+work table, six-hour main or work-stop lifecycle is implemented by o8.
+once the original owner turn closes, worker observations permit reads,
+integration and notification only. further input or fresh wait registration needs
+new current owner authority; this is the owner's explicit scope choice.
+
+source verification covers strict schema/projections, argv/stdin, private capture
+and bounded observation. 39 real postgres/process-crash cases prove staged-receipt
+recovery, original watching replay, atomic outcome/event commits and cancellation
+ordering; the baseline fails 19 of the original 27. four actual native cognitive
+consent cases pass. isolated darwin stock providers pass launch/readiness/input,
+effective codex selection, retained-draft refusal, changed-pane control and lost
+acknowledgements. both providers pass linux live control; eleven service/cli/
+postgres checks and actual cognitive wait integration pass. installed paired
+fleet, external Discord delivery and activation remain `NOT_RUN`;
+[cli cutover](issues/skid-terminal-flags.md) and [wait acceptance](issues/agent-wait.md)
+retain those dependencies. urllib3 2.7.0 advisories are resolved by the targeted
+2.8.0 lock update, already inherited from published main.
+
+the audit corrected optional uncertainty reporting, conclusive-receipt recovery,
+native consent context, strict launch capture and positive submillisecond wait
+durations. paired skid fixes encoded prompt admission and closed route/reason
+contracts. no new lifecycle, compatibility path or task protocol was required.
+
+the [paired spec's implementation/acceptance section](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md#implementation-sequence-and-acceptance)
+assigns every source file one writer and defines content criteria plus six actual
+integration/live journeys. temporary red checks reproduced the defects, fixes
+passed green and independent review, and checks are deleted after qualification.
+the owner explicitly authorized current-turn integration/live execution; phone
+and production deployment remain outside this source change.
+
+exit: installed coordinated launch/cli contract; register, serve another owner
+message, receive one deduplicated later observation; repeat across actual restart.
+retain timeout, target-change, unavailable/truncated text and cancellation facts.
 
 ### o9: continuation and coordination
 
@@ -460,7 +508,7 @@ precedence merely because their implementation is incomplete.
 | o3–o5 | installed native callback containment, outstanding-call/reply/interrupt behavior and shared-cognition connection |
 | o6 | replacement authority/lineage and notification rules for equal-capability turns |
 | o7 | append-only versus crud, current view, terminal/deletion semantics, continuation/stop representation |
-| o8 | exact register/cancel inputs, observation boundary, overall timeout and partial evidence |
+| o8 | implemented [adr 0064](decisions/0064-simple-worker-orchestration.md); source/providers/postgres crash/service/cognitive wait checks pass; paired installed cutover and external delivery remain |
 | o9 / new event sources | recurring eligibility/spend, notification, cancellation/approval coupling, stopped work and self-trigger suppression |
 | m1–m5 | actual provider mappings/internal markers, declared lane controllers/sharing, mcp sdk compatibility, shared embedding retry repair |
 | notes / attachments / budget | stable references/sync; formats/storage/retention; fresh budget api audit and ingestion contract |

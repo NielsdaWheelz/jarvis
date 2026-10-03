@@ -46,12 +46,16 @@ These instructions govern all work in this repository.
   standing per-feature review machinery or restoration of the retired suite;
   the wider testing redesign remains open. no runtime change is implied by docs.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
-  worker control through the installed skid CLI and private three-peer client
-  config. it supersedes the worker transport, roster, refs and receipt codecs of
+  installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
+  owns the implemented next target contract and current qualification record.
+  the owner explicitly authorized source implementation and temporary
+  integration/live checks; installed cutover remains separate. both use
+  the skid cli and private three-peer config. adr 0052 supersedes the worker
+  transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049; cognition remains on the same existing Codex
   appserver/daemon and its deployment repair is separate.
-- preserve captured conversation refs and stop mode or closure scope through
-  admission and execution. require current owner input before target lookups.
+- preserve captured target kind/ref and independent interruption/closure facts
+  through admission and execution. require current owner input before target lookups.
   worker writes are billed once, with one lifetime executor entry. finalized
   retired worker rows remain opaque; unfinished retired rows block activation.
 - If code and specification disagree, stop and surface the discrepancy.
@@ -278,7 +282,9 @@ These instructions govern all work in this repository.
   evidence and becomes terminal uncertainty.
 - Host action-resolution and scheduled-wake inputs must produce a visible
   structured terminal or deterministic host-rendered assistant fallback; never
-  process them silently. Due-wake input is rendered from immutable stored
+  process them silently, except adr 0064's unmixed wait-observation batch with no
+  owner input. worker observations grant no new write authority; after the original
+  owner turn closes they permit reads/integration/notification only. Due-wake input is rendered from immutable stored
   arguments.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
 - Only an owner-requested due `schedule.wake` action starts a user-facing

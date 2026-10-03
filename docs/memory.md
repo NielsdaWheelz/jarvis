@@ -2,9 +2,20 @@
 
 This document expands [SPEC section 6](../SPEC.md#6-memory).
 
-the accepted [universal-memory extension](universal-memory.md) governs its source
-archive, lineage, per-episode extraction and logical erasure target; the baseline
-below describes the existing v1 implementation, not those unshipped paths.
+accepted target, not yet implemented: [universal memory](universal-memory.md) is
+the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
+records its latest simplification. complete events commit atomically before
+extraction. rememberer and dreamer use disposable inference with bounded retries
+under existing global admission; interrupted work may repeat model charges.
+notes and bookmarks, and summaries and pending flags, still commit atomically,
+including valid no-output completion. main's recorder/search uncertainty barriers
+and direct-note idempotency remain. the rest of this document records the v1
+baseline; its recall and background-recovery rules do not override the target.
+the target uses one deterministic keyword/semantic rank fusion implementation,
+without a learned reranker. the search gate covers all callers; its common policy
+values live in one checked-in owner. dreamer chooses whether and how to search;
+seed-only synthesis and empty completion are valid within its grants and lineage
+rules. role prompts specify outcomes rather than mandatory tool sequences.
 
 ## Mental model
 
@@ -199,6 +210,10 @@ still finds the memory.
 
 ## Recaller
 
+baseline only: the current target removes this role and automatic pre-input retrieval.
+the [shared retrieval contract](universal-memory.md#shared-search-and-open)
+supersedes the following search, result and failure rules. main searches as needed.
+
 The recaller runs in a fresh isolated Codex session before every owner-authored
 human input. It receives the owner timezone and the foreground turn's one
 host-generated `as_of` value. It has two primitives:
@@ -235,6 +250,14 @@ outward action may rely on the memory.
 An empty bundle is a correct result.
 
 ## Dreamer
+
+target override: the [daily dreamer contract](universal-memory.md#daily-dreaming)
+starts from pending new notes and may search older notes/summaries. pending flags
+survive downtime and clear atomically with valid summary changes, including empty
+success. inference and retry batches are transient, without durable frozen-batch
+replay or unknown-paid-call barriers for this background job. retries remain
+bounded and admitted. no first search or search at all is required; seed-only and
+empty results are valid. the remaining section records the v1 baseline.
 
 The dreamer runs in a fresh isolated Codex session periodically or manually when
 no owner work is waiting. Its root invocation receives one job `as_of` value. It

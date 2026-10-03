@@ -179,5 +179,5 @@ native name/profile grounding and launch capture validation. paired skid fixes
 encoded prompt admission, creation-only route members and readiness vocabulary.
 positive submillisecond waits now preserve datetime precision. a suspected archive
 defect was withdrawn against the actual historical format; no compatibility
-wrapper was added. the [paired acceptance record](../../../skidbladnir/docs/jarvis-orchestration.md#implementation-sequence-and-acceptance)
+wrapper was added. the [paired acceptance record](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md#implementation-sequence-and-acceptance)
 owns detailed source/live boundary status and temporary test retirement.

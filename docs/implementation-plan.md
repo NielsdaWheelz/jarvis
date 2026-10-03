@@ -308,7 +308,7 @@ native consent context, strict launch capture and positive submillisecond wait
 durations. paired skid fixes encoded prompt admission and closed route/reason
 contracts. no new lifecycle, compatibility path or task protocol was required.
 
-the [paired spec's implementation/acceptance section](../../skidbladnir/docs/jarvis-orchestration.md#implementation-sequence-and-acceptance)
+the [paired spec's implementation/acceptance section](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md#implementation-sequence-and-acceptance)
 assigns every source file one writer and defines content criteria plus six actual
 integration/live journeys. temporary red checks reproduced the defects, fixes
 passed green and independent review, and checks are deleted after qualification.

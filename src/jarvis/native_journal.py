@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID, uuid4, uuid5
 
@@ -53,6 +54,7 @@ from provider_runtime.agent_runtime import (
     terminal_to_json,
     thaw_json_value,
 )
+from pydantic import ValidationError
 from sqlalchemy import RowMapping, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -68,7 +70,13 @@ from jarvis.db import (
 )
 from jarvis.memory import SettlementIdentity
 from jarvis.ownership import Database, lock_conversation
-from jarvis.terminal import JarvisTerminal, TurnEvidence, render_terminal
+from jarvis.terminal import (
+    JarvisNativeMessage,
+    JarvisTerminal,
+    Progress,
+    TurnEvidence,
+    render_terminal,
+)
 
 
 def _sections_json(sections: PromptSections) -> list[dict[str, object]]:
@@ -778,21 +786,21 @@ class PostgresNativeJournal:
             )
 
     async def record(self, attempt_id: str, progress: AgentMessage) -> None:
-        if (
-            progress.phase != "commentary"
-            or not progress.text
-            or len(progress.text) > 2_000
-        ):
-            raise NativeDefect(
-                "public progress is outside the Discord content contract"
-            )
+        if progress.phase != "commentary":
+            raise NativeDefect("public progress requires native commentary")
+        try:
+            value = JarvisNativeMessage.model_validate_json(progress.text)
+        except ValidationError as exc:
+            raise NativeDefect("public progress violates its message contract") from exc
+        if not isinstance(value.response, Progress):
+            raise NativeDefect("native commentary requires a progress response")
         identifier = uuid5(UUID(attempt_id), progress.message_id)
         async with self.database.begin() as connection:
             row = await _locked_attempt(connection, self.owner, attempt_id)
             values = {
                 "id": identifier,
                 "role": "assistant",
-                "text": progress.text,
+                "text": value.response.text,
                 "source": "native_progress",
                 "source_conversation_id": row["conversation_id"],
                 "source_message_id": None,
@@ -800,6 +808,9 @@ class PostgresNativeJournal:
                 "trace": {
                     "native_attempt_id": attempt_id,
                     "native_item_id": progress.message_id,
+                    "native_message_sha256": sha256(
+                        progress.text.encode("utf-8")
+                    ).hexdigest(),
                 },
             }
             existing = (
@@ -814,7 +825,7 @@ class PostgresNativeJournal:
             if existing is None:
                 await connection.execute(insert(message).values(**values))
             elif (
-                existing["text"] != progress.text
+                existing["text"] != value.response.text
                 or existing["trace"] != values["trace"]
             ):
                 raise NativeDefect("public progress identity changed")

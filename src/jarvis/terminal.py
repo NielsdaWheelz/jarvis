@@ -1,9 +1,9 @@
-"""Closed Main terminal contract and deterministic host rendering."""
+"""Closed Main message contracts and deterministic final rendering."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -108,6 +108,15 @@ class Waiting(_StrictModel):
     _valid_text = field_validator("text")(_utf8)
 
 
+class Progress(_StrictModel):
+    """Useful commentary; it grants no completion or action authority."""
+
+    type: Literal["progress"]
+    text: Annotated[str, Field(min_length=1, max_length=2_000)]
+
+    _valid_text = field_validator("text")(_utf8)
+
+
 class InputOutcome(_StrictModel):
     input_id: Annotated[
         str,
@@ -145,17 +154,32 @@ class InputOutcome(_StrictModel):
         return self
 
 
-class JarvisTerminal(_StrictModel):
-    """One validated, terminal Main response."""
-
-    response: Answered | Partial | NeedsInput | Failed | Silent | Waiting
+class _InputDispositions(_StrictModel):
     input_outcomes: list[InputOutcome]
 
     @model_validator(mode="after")
-    def unique_inputs(self) -> JarvisTerminal:
+    def unique_inputs(self) -> Self:
         ids = [item.input_id for item in self.input_outcomes]
         if len(ids) != len(set(ids)):
             raise ValueError("input dispositions must be unique")
+        return self
+
+
+class JarvisTerminal(_InputDispositions):
+    """One validated, terminal Main response."""
+
+    response: Answered | Partial | NeedsInput | Failed | Silent | Waiting
+
+
+class JarvisNativeMessage(_InputDispositions):
+    """The native schema applies to both commentary and final responses."""
+
+    response: Progress | Answered | Partial | NeedsInput | Failed | Silent | Waiting
+
+    @model_validator(mode="after")
+    def progress_has_no_dispositions(self) -> Self:
+        if isinstance(self.response, Progress) and self.input_outcomes:
+            raise ValueError("progress cannot settle or change input dispositions")
         return self
 
 
@@ -338,7 +362,9 @@ def _fleet_limitation(evidence: TurnEvidence) -> str:
 
 __all__ = [
     "CalendarCoverageReason",
+    "JarvisNativeMessage",
     "JarvisTerminal",
+    "Progress",
     "RenderedTerminal",
     "TurnEvidence",
     "render_terminal",

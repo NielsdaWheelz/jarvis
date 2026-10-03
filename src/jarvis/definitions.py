@@ -52,7 +52,7 @@ from provider_runtime.agent_runtime import JsonSchemaAgentOutput
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
 
 from jarvis.agent_tools import AGENT_READ_IDS, AGENT_WRITE_IDS
-from jarvis.terminal import JarvisTerminal
+from jarvis.terminal import JarvisNativeMessage
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
@@ -201,10 +201,11 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "Maps route warning in the answer. Give brief progress when useful evidence "
     "arrives, "
     "your direction changes, or you need the owner. Progress reports observations, "
-    "never approval, completion, or a promise of uncommitted work. Public commentary "
-    "is brief plain prose for the owner. The final JSON response envelope, "
-    "input_outcomes and action-reference bookkeeping belong only in your final "
-    "response; never put that protocol in a progress update. A new topic reaches "
+    "never approval, completion, or a promise of uncommitted work. In native "
+    "commentary return response.type=progress with brief plain prose in response.text "
+    "and an empty input_outcomes list. The host publishes only that text. Reserve "
+    "final response types, input dispositions and action-reference bookkeeping for "
+    "the final response. Never put that protocol in public prose. A new topic reaches "
     "you immediately; answer or reprioritize it while retaining unfinished requests. "
     "Use each canonical owner input_id as request_ref for Writes. existing_action_ref "
     "is null for new intent; reuse an exact recorded action reference during recovery. "
@@ -807,7 +808,7 @@ def build_definitions(
             ),
         ),
         output=JsonSchemaAgentOutput(
-            name="jarvis_terminal", schema=JarvisTerminal.model_json_schema()
+            name="jarvis_native_message", schema=JarvisNativeMessage.model_json_schema()
         ),
         maximum_profile=maximum,
         compatibility_revision=session_compatibility_revision(
@@ -823,7 +824,7 @@ def build_definitions(
     if (
         system_bytes > native_limits.max_system_bytes
         or developer_bytes > native_limits.max_developer_bytes
-        or len(canonical_json_bytes(JarvisTerminal.model_json_schema()))
+        or len(canonical_json_bytes(JarvisNativeMessage.model_json_schema()))
         > native_limits.max_output_schema_bytes
     ):
         raise ValueError(

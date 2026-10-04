@@ -125,13 +125,17 @@ linked from [docs/acceptance.md](docs/acceptance.md#native-cutover-acceptance).
 this exception restores no standing retired suite and claims no production
 deployment or universal-memory acceptance.
 
-pre-merge `796fb8` frozen, noneditable installed native qualification is **PASS**: actual
-content/progress/input/stop, nested isolated gate and fresh-thread process
-recovery, plus controlled postgres action/crash boundaries. source/installed
-bytes matched that artifact; exact receipts belong to the shared evidence linked
-above. the composed worker-v7/native runtime needs a fresh installed repeat; it
-is **NOT_RUN** until recorded. deployed systemd activation and physical google/discord integration remain
-**NOT_RUN**. earlier source-overlay receipts remain historical.
+frozen, noneditable `8f91c3b` worker-v7/native composition qualification is **PASS**:
+actual personal `gpt-5.6-terra`/high, official web read, prose progress, native
+steering, both requests completed and a sealed cancelled turn after explicit
+stop. controlled postgres proofs separately cover wait/product/observer/stop and
+native callback reply/replay for waits, worker controls and schedules; controlled
+release proofs cover pruning and the shared install lock. source/installed bytes
+matched that artifact; exact receipts belong to the shared evidence linked above.
+pre-merge `796fb8` content, nested gate, fresh-thread recovery and controlled
+action/crash receipts remain historical evidence for that artifact. deployed
+systemd activation and physical google/discord integration remain **NOT_RUN**.
+earlier source-overlay receipts remain historical.
 
 retired delivery checklists, qualification reports and the completed cleanup log
 live in git history. deleting those copies changes no runtime requirement or
@@ -1513,6 +1517,11 @@ receipt as completion of the original tool effect and replays it for the
 occupied position regardless of the later action status. Due execution changes
 only lifecycle status and `wake_outcome`; it never overwrites
 `creation_receipt`.
+
+`arguments_digest` comes from the original admitted action's frozen execution
+contract, including the complete `ActionRequest`; the binding never reconstructs
+that identity from its operation payload. its revisioned policy records this
+digest source.
 
 Cancellation is a separate gated `schedule.wake` cancel action with its own ID,
 position, attempt ceiling, and closed

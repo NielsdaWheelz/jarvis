@@ -1,9 +1,10 @@
 # native agent integration
 
-status: pre-merge `796fb8` frozen noneditable installed native qualification PASS.
-worker-v7/native composition has focused real-postgres proof; its fresh installed
-native repeat is NOT_RUN. exact pins
-and receipts remain owned by the shared integration owner. deployed systemd
+status: `8f91c3b` frozen noneditable worker-v7/native composition qualification PASS.
+actual personal model/high, web read, prose progress, steering, completion and
+sealed stop pass; real-postgres callback/wait and controlled release proofs pass
+separately. exact pins and receipts remain owned by the shared integration owner.
+pre-merge `796fb8` broader receipts remain historical. deployed systemd
 activation and physical google/discord integration NOT_RUN; this is not a
 deployment receipt. branch: `feature/native-agent-supervision`.
 
@@ -32,6 +33,9 @@ does not alter this cutover.
 - callbacks use existing `ToolExecutor`/recorder/budget primitives. cumulative
   main quotas are null; serial in-flight and finite operation bounds remain.
   repeated callbacks keep original invocation, original input lineage and reply.
+  the action owner supplies one validated original-result projection for wait,
+  schedule and private worker-control envelopes; reply recording and replay
+  read it in the existing journal transaction.
 - every write publishes `ActionRequest[original input]`: required `request_ref`,
   nullable `existing_action_ref`, exact `arguments`. the action ledger stores the
   complete envelope; classification/consent render its operation payload. only
@@ -70,14 +74,15 @@ does not alter this cutover.
 ## qualification
 
 the [shared acceptance evidence](acceptance.md#native-cutover-acceptance) owns
-exact artifact/receipt identities. current installed bytes match source. actual
-contained research, phase-aware prose/new-input/stop, delayed original input facts
-after fencing, original/edition and unavailable-source content, nested isolated
-gate and fresh-thread process recovery pass. controlled real-postgres proofs
-separately qualify action, migration and crash boundaries. earlier source-overlay
-receipts remain historical; no controlled peer substitutes for actual research.
-the owner authorized temporary-probe deletion after integrated green; shared
-kernel conformance remains.
+exact artifact/receipt identities. `8f91c3b` installed bytes match source. its
+actual official web read, phase-aware prose, native new input, both completions
+and sealed stop pass. controlled real-postgres proofs separately qualify v7 wait
+registration/product/observer/stop and initial/duplicate/existing-action native
+callback results for waits, controls and schedules. controlled release proofs
+cover loaded-host pruning and the shared host-install lock. earlier `796fb8`
+content, delayed-fact, nested gate, recovery, migration and action/crash receipts
+remain historical; no controlled peer substitutes for actual research. temporary
+probes were deleted after integrated green; shared kernel conformance remains.
 
 controlled boundaries in those probes: saved empty recall, rememberer enqueue,
 unused private connectors and discord outbox inspection. they do not qualify

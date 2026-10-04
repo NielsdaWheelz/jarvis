@@ -9,7 +9,7 @@ four-of-five quality scoring requirements.
 the criteria below retain the intended product behavior. descriptions of removed
 test procedures are historical requirements to reconsider in the redesign, not
 commands or gates available today. no static/build result proves these behaviors. native cutover proof is the
-explicit adr 0063 exception described below.
+explicit adr 0065 exception described below.
 dated reports in git remain evidence only for their recorded revisions and environments.
 
 Every result appears in a dated acceptance report. Any owner-approved waiver is
@@ -35,8 +35,8 @@ baseline criteria do not override the current target or establish that it ships.
 
 [adr 0065](decisions/0065-native-agent-supervision.md) replaces retired main
 step/session/CAS/capacity tests with shared
-[N001–N020](https://github.com/NielsdaWheelz/llm-agent-kernel/blob/feature/native-agent-supervision/docs/native-agent-spec.md#9-delivery-and-acceptance).
-the [shared evidence](https://github.com/NielsdaWheelz/llm-agent-kernel/blob/feature/native-agent-supervision/docs/native-agent-evidence.md)
+[N001–N020](https://github.com/NielsdaWheelz/llm-agent-kernel/blob/9d57e8945be5b26397c5a3942612f81a190f8db4/docs/native-agent-spec.md#9-delivery-and-acceptance).
+the [shared evidence](https://github.com/NielsdaWheelz/llm-agent-kernel/blob/main/docs/native-agent-evidence.md)
 and [jarvis integration handoff](native-agent-integration.md) distinguish exact
 installed artifacts, genuine native/model/tool proof, controlled fault fixtures,
 local host topology and unrun deployment/domain behavior. follow their recorded
@@ -64,7 +64,7 @@ existing shared conformance remains. this restores no retired standing suite.
       columns in SPEC section 9. the separately accepted memory target adds three.
 - [ ] **A1.5** `scripts/verify` runs the frozen-environment, formatting, lint, type,
       documentation-link, dependency-audit and package build/install checks.
-      native integration/live acceptance follows the explicit adr 0063 exception;
+      native integration/live acceptance follows the explicit adr 0065 exception;
       the wider testing redesign remains separate.
 - [ ] **A1.6** Secrets are absent from the repository, fixtures, PostgreSQL, model
       context, and ordinary logs.

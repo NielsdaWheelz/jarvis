@@ -1,6 +1,9 @@
 # adr 0065: native agent supervision
 
-status: accepted, 2026-10-02; pre-merge `796fb8` installed native qualification PASS; composed repeat NOT_RUN.
+status: accepted, 2026-10-02; `8f91c3b` installed worker-v7/native composition PASS
+for actual model/high, web read, prose/steering/completion/sealed stop and the
+separate controlled postgres callback/wait and release proofs. broader pre-merge
+`796fb8` receipts remain historical.
 deployed systemd activation and physical google/discord integration NOT_RUN.
 
 adopt llm-agent-kernel SPEC section 18 and its native-agent-spec/plan n4.

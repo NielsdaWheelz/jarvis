@@ -396,6 +396,12 @@ immutable reply -> provider delivery. dispatch is serial; reader/control remain
 live. unknown tools, changed identities, lost ownership and protocol defects fence
 the attempt. pending approval yields a durable wait receipt.
 
+the action owner projects each validated stored action to its original tool
+result. the recorder, callback journal and `existing_action_ref` dispatch reuse
+that projection; journal reads stay inside their current transaction. wait and
+schedule lifecycle outcomes and private worker-control evidence remain separate
+from the immutable callback result.
+
 main has no cumulative call/token/byte or elapsed cutoff. finite operation limits,
 in-flight/frame/message bounds and provider/control timeouts remain. llm-tools
 owns tool budgets and settlement exactly once. usage never grants authority.

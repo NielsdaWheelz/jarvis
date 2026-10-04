@@ -21,7 +21,6 @@ from llm_agent_kernel import (
     RunId,
     RunMetrics,
     SessionMode,
-    StructuredOutput,
     run_one_shot,
 )
 from llm_tools import (
@@ -35,7 +34,7 @@ from llm_tools import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
+from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import AutomaticWriteGateResult
 from jarvis.kernel import EmptyToolDispatcher
@@ -227,7 +226,7 @@ class AutomaticWriteGate:
         *,
         definition: AgentDefinition,
         plan: FrozenToolPlan,
-        admission: RootTrackingAdmissionPort,
+        owner: JarvisOwner,
         provider: ProviderSessionPort,
         model_decisions: ModelJournalFactory,
     ) -> None:
@@ -235,8 +234,7 @@ class AutomaticWriteGate:
         if definition.session_mode is not SessionMode.isolated:
             raise ValueError("AutomaticWriteGate must use isolated sessions")
         if (
-            not isinstance(definition.output_contract, StructuredOutput)
-            or definition.output_contract.name != "jarvis_automatic_write_gate"
+            definition.output_contract.name != "jarvis_automatic_write_gate"
             or definition.output_contract.result_type is not AutomaticWriteGateResult
         ):
             raise ValueError("AutomaticWriteGate output contract is invalid")
@@ -250,7 +248,7 @@ class AutomaticWriteGate:
             raise ValueError("AutomaticWriteGate plan does not tighten its envelope")
         self._definition = definition
         self._plan = plan
-        self._admission = admission
+        self._owner = owner
         self._provider = provider
         self._model_decisions = model_decisions
 
@@ -264,6 +262,7 @@ class AutomaticWriteGate:
         owner_timezone: str | None,
         as_of: datetime,
         cancellation: CancellationToken,
+        parent_invocation_id: str,
     ) -> WriteGateDecision:
         if len(owner_inputs) > 100:
             raise ValueError("write gate accepts at most 100 owner inputs")
@@ -327,7 +326,8 @@ class AutomaticWriteGate:
                     ),
                 )
             ),
-            admission=self._admission,
+            owner=self._owner,
+            permit=self._owner.permit(operation_id, parent_invocation_id),
             provider=self._provider,
             dispatcher=EmptyToolDispatcher(),
             budget_factory=ExactToolBudgetFactory(),
@@ -336,7 +336,6 @@ class AutomaticWriteGate:
                 if relative_time
                 else None
             ),
-            parent_admission=await self._admission.active_root(),
             cancellation=cancellation,
         )
         if not isinstance(outcome, OneShotCompleted):

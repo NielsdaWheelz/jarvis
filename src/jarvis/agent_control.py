@@ -16,9 +16,7 @@ from llm_tools import (
     ExecutionContext,
     FrozenToolPlan,
     HandlerSuccess,
-    ParsedJson,
     ToolId,
-    raw_input_digest,
 )
 from pydantic import BaseModel
 
@@ -658,6 +656,8 @@ class AgentController:
         self, value: AgentWaitInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentWaitReceipt]:
         await self._target(value, context)
+        stored = await self._actions.get(self._effect_id(context))
+        assert stored is not None
         now = datetime.now(UTC)
         return HandlerSuccess(
             AgentWaitReceipt(
@@ -666,9 +666,7 @@ class AgentController:
                 state=value.state,
                 deadline=now + timedelta(seconds=value.timeout_seconds),
                 recorded_at=now,
-                arguments_digest=raw_input_digest(
-                    ParsedJson(value.model_dump(mode="json"))
-                ),
+                arguments_digest=stored.execution_contract.input_digest,
             ),
             actual_attempts=0,
         )
@@ -699,7 +697,7 @@ class AgentController:
         from jarvis.actions import agent_wait_state
 
         state = agent_wait_state(stored)
-        request = AgentWaitInput.model_validate(stored.arguments)
+        request = AgentWaitInput.model_validate(stored.payload)
         captured = stored.execution_contract.agent_target
         if captured is None:
             raise RuntimeError("wait lacks immutable target")

@@ -9,6 +9,7 @@ from urllib.parse import unquote, unquote_plus
 from llm_agent_kernel import (
     CancellationToken,
     DispatchCompleted,
+    NativeDispatchLineage,
     ToolDispatchDefect,
     ToolDispatchLineage,
     ToolDispatchPort,
@@ -30,6 +31,7 @@ from llm_tools import (
 from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
+from jarvis.tool_results import completed_tool_result
 
 _SECRET_PATTERN = re.compile(
     r"(?:"
@@ -53,6 +55,15 @@ class ReadDispatchPort(ToolDispatchPort, Protocol):
 
 
 class ReadRecorder(PositionRecorder, Protocol):
+    async def recover_native_read(
+        self,
+        *,
+        lineage: NativeDispatchLineage,
+        binding: ToolBinding[Any, Any, Any],
+        plan: FrozenToolPlan,
+        arguments: dict[str, Any],
+    ) -> DispatchCompleted | None: ...
+
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
     ) -> None: ...
@@ -107,9 +118,15 @@ class ReadToolDispatcher:
         if str(tool_id).startswith("web.") and contains_secret(
             value, self._host_secrets
         ):
-            return DispatchCompleted(dict(_INVALID_INPUT))
+            return completed_tool_result(dict(_INVALID_INPUT))
         position = lineage.position
         try:
+            if isinstance(lineage, NativeDispatchLineage):
+                recorded = await self._recorder.recover_native_read(
+                    lineage=lineage, binding=binding, plan=plan, arguments=value
+                )
+                if recorded is not None:
+                    return recorded
             await self.recover_budget(lineage=lineage, budgets=budgets)
             result = await ToolExecutor.execute(
                 binding,
@@ -132,7 +149,7 @@ class ReadToolDispatcher:
             raise
         except Exception as exc:
             raise ToolDispatchDefect("automatic read dispatch failed") from exc
-        return DispatchCompleted(result)
+        return completed_tool_result(result)
 
 
 def contains_secret(value: object, host_secrets: tuple[str, ...]) -> bool:

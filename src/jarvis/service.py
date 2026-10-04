@@ -7,21 +7,14 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Literal, Protocol, cast
+from datetime import datetime
+from typing import Literal, Protocol
 from uuid import UUID
 
 import discord
-from llm_agent_kernel import (
-    CancellationToken,
-    ThreadDeferred,
-    ThreadNoWork,
-    ThreadStopKind,
-    ThreadStopped,
-)
+from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 
-from jarvis import memory_workers
 from jarvis.actions import ClaimedSchedule, ScheduleStateChanged
 from jarvis.agent_control import AgentController
 from jarvis.approval_runtime import ApprovalActionHandler
@@ -33,11 +26,11 @@ from jarvis.discord import (
     DiscordApprovalInteraction,
     DiscordOwnerMessage,
 )
-from jarvis.messages import InboundInsert, PendingControl, StoredMessage
+from jarvis.messages import InboundInsert, StoredMessage
+from jarvis.native_runtime import NativeRunOutcome
 from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
-from jarvis.thread_runtime import PreflightDeferred, ServiceRunOutcome
 
 LOGGER = logging.getLogger(__name__)
 
@@ -103,18 +96,18 @@ async def flush_pending_deliveries(
     return DeliveryFlushResult(len(pending), delivered, None)
 
 
-class ThreadRunner(Protocol):
-    async def run(self, cancellation: CancellationToken) -> ServiceRunOutcome: ...
+class NativeRunnerPort(Protocol):
+    notify_delivery: Callable[[], None]
+    notify_work: Callable[[], None]
 
-    async def settle_control(self, message_id: UUID, control: Control) -> bool: ...
-
-    async def discard_recovered_session_reference(self) -> None: ...
+    async def run(self, cancellation: CancellationToken) -> NativeRunOutcome: ...
+    async def recover(self) -> None: ...
+    async def refresh_stopped_approvals(self) -> None: ...
+    async def close(self) -> None: ...
 
 
 class BackgroundWorkerPort(Protocol):
-    async def run_one(
-        self, cancellation: CancellationToken
-    ) -> bool | memory_workers.BackgroundDeferred: ...
+    async def run_one(self, cancellation: CancellationToken) -> bool: ...
 
     def request_interrupt(self, cancellation: CancellationToken) -> None: ...
 
@@ -127,21 +120,7 @@ class DiscordCursorPort(Protocol):
     ) -> str | None: ...
 
 
-class PendingControlPort(Protocol):
-    async def pending_controls(
-        self,
-        *,
-        source_conversation_id: str,
-        limit: int,
-    ) -> tuple[PendingControl, ...]: ...
-
-
-class IngressStore(
-    PendingDeliveryStore,
-    DiscordCursorPort,
-    PendingControlPort,
-    Protocol,
-):
+class IngressStore(PendingDeliveryStore, DiscordCursorPort, Protocol):
     async def insert_waking(
         self,
         *,
@@ -152,17 +131,10 @@ class IngressStore(
         source_message_id: str,
         created_at: datetime,
         message_id: UUID | None = None,
+        control_kind: Literal["stop", "pause", "resume"] | None = None,
     ) -> InboundInsert: ...
 
     async def circuit_is_open(self) -> bool: ...
-
-    async def settle_recovered_control(
-        self,
-        *,
-        message_id: UUID,
-        source_conversation_id: str,
-        control: Literal["stop", "pause"],
-    ) -> object: ...
 
 
 class GatewayPort(Protocol):
@@ -195,7 +167,7 @@ class JarvisService:
         store: IngressStore,
         paused: PausedState,
         delivery: CreateMessagePort,
-        runner: ThreadRunner,
+        runner: NativeRunnerPort,
         background: BackgroundWorkerPort,
         dreamer: BackgroundWorkerPort,
         scheduled_wakes: ScheduledWakeStore,
@@ -203,6 +175,8 @@ class JarvisService:
         action_recovery: ActionRecoveryPort,
         agent_waits: AgentController,
         approval_handler: ApprovalActionHandler,
+        dispatch_lane: asyncio.Lock,
+        disable_stopped_approvals: Callable[[], Awaitable[None]],
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -224,12 +198,18 @@ class JarvisService:
         self._dream_sleep = dream_sleep
         self._work = asyncio.Event()
         self._shutdown = asyncio.Event()
-        self._execution_mutex = asyncio.Lock()
+        self._dispatch_lane = dispatch_lane
+        self._disable_stopped_approvals = disable_stopped_approvals
+        self._delivery_work = asyncio.Event()
+        self._delivery_lock = asyncio.Lock()
+        self._delivery_task: asyncio.Task[None] | None = None
+        self._approval_tasks: set[asyncio.Task[bool]] = set()
+        self._runner.notify_delivery = self.request_delivery
+        self._runner.notify_work = self.request_work
         self._active_lock = asyncio.Lock()
         self._active_cancellation: CancellationToken | None = None
         self._active_background: BackgroundWorkerPort | None = None
         self._background_cancellation: CancellationToken | None = None
-        self._reset_task: asyncio.Task[None] | None = None
         self._dream_timer_task: asyncio.Task[None] | None = None
         self._wake_timer: ProcessLocalWakeTimer | None = None
         self._wake_timer_task: asyncio.Task[None] | None = None
@@ -266,6 +246,9 @@ class JarvisService:
                 source_conversation_id=incoming.source_conversation_id,
                 source_message_id=incoming.source_message_id,
                 created_at=incoming.created_at,
+                control_kind=incoming.control.value
+                if incoming.control is not None
+                else None,
             )
             if not inserted.inserted:
                 return
@@ -276,14 +259,16 @@ class JarvisService:
             if background is not None and background_worker is not None:
                 background_worker.request_interrupt(background)
             if incoming.control in {Control.STOP, Control.PAUSE}:
-                await self._paused.set_paused(True)
                 if active is not None:
                     active.cancel()
             elif incoming.control is Control.RESUME:
-                await self._paused.set_paused(False)
+                await self._runner.refresh_stopped_approvals()
 
+        self.request_delivery()
         self._agent_waits.notify_wait_changed()
         self._work.set()
+        if incoming.control in {Control.STOP, Control.PAUSE}:
+            await self._disable_stopped_approvals()
 
     async def receive_approval_interaction(
         self,
@@ -300,25 +285,30 @@ class JarvisService:
         )
         if claimed is None:
             return
-        async with self._execution_mutex:
-            cancellation = CancellationToken()
-            async with self._active_lock:
-                self._active_cancellation = cancellation
-                if self._shutdown.is_set() or await self._paused.is_paused():
-                    cancellation.cancel()
-            if cancellation.cancelled:
-                async with self._active_lock:
-                    if self._active_cancellation is cancellation:
-                        self._active_cancellation = None
-                self._work.set()
-                return
-            try:
-                await self._approval_handler.complete(claimed, cancellation)
-            finally:
-                async with self._active_lock:
-                    if self._active_cancellation is cancellation:
-                        self._active_cancellation = None
-            self._work.set()
+
+        async def execute() -> bool:
+            async with self._dispatch_lane:
+                try:
+                    return await self._approval_handler.complete(
+                        claimed, CancellationToken()
+                    )
+                finally:
+                    self.request_delivery()
+                    self.request_work()
+
+        task = asyncio.create_task(
+            execute(), name=f"jarvis-approval:{claimed.action.id}"
+        )
+        self._approval_tasks.add(task)
+
+        def completed(owned: asyncio.Task[bool]) -> None:
+            if owned.cancelled() or owned.exception() is not None:
+                self.request_shutdown()
+            else:
+                self._approval_tasks.discard(owned)
+
+        task.add_done_callback(completed)
+        await asyncio.shield(task)
 
     async def gateway_ready(self) -> CatchUpResult:
         """Boundedly catch up from the canonical Discord watermark."""
@@ -332,6 +322,10 @@ class JarvisService:
         return result
 
     async def flush_delivery(self) -> DeliveryFlushResult:
+        async with self._delivery_lock:
+            return await self._flush_delivery()
+
+    async def _flush_delivery(self) -> DeliveryFlushResult:
         selected = 0
         delivered = 0
         while not self._shutdown.is_set():
@@ -365,6 +359,12 @@ class JarvisService:
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
+        await self._runner.recover()
+        self._delivery_task = asyncio.create_task(
+            self._deliver(), name="jarvis-delivery"
+        )
+        self._delivery_task.add_done_callback(lambda _task: self._work.set())
+        self.request_delivery()
         self._dream_timer_task = asyncio.create_task(
             self._dream_timer(),
             name="jarvis-dream-timer",
@@ -393,6 +393,9 @@ class JarvisService:
                 self._work.clear()
                 if self._shutdown.is_set():
                     return
+                if self._delivery_task.done():
+                    self._delivery_task.result()
+                    raise RuntimeError("the Discord delivery task stopped unexpectedly")
                 if self._wake_timer_task is not None and self._wake_timer_task.done():
                     self._wake_timer_task.result()
                     raise RuntimeError("the scheduled-wake timer stopped unexpectedly")
@@ -402,11 +405,13 @@ class JarvisService:
                 await self._drain()
         finally:
             self._agent_wait_cancellation.cancel()
-            tasks = [self._agent_wait_task, self._dream_timer_task]
-            if self._reset_task is not None:
-                self._reset_task.cancel()
-                tasks.append(self._reset_task)
+            self._delivery_task.cancel()
             self._dream_timer_task.cancel()
+            tasks = [
+                self._agent_wait_task,
+                self._delivery_task,
+                self._dream_timer_task,
+            ]
             if self._wake_cancellation is not None:
                 self._wake_cancellation.cancel()
             if self._wake_timer_task is not None:
@@ -414,13 +419,20 @@ class JarvisService:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             self._agent_wait_task = None
             self._agent_wait_cancellation = None
-            self._reset_task = None
+            self._delivery_task = None
             self._dream_timer_task = None
             self._wake_timer_task = None
             self._wake_cancellation = None
+            approval_outcomes = await asyncio.gather(
+                *self._approval_tasks, return_exceptions=True
+            )
+            await self._runner.close()
             for result in results:
                 if isinstance(result, Exception):
                     raise result
+            for outcome in approval_outcomes:
+                if isinstance(outcome, BaseException):
+                    raise outcome
 
     def request_work(self) -> None:
         self._work.set()
@@ -435,8 +447,6 @@ class JarvisService:
             and self._active_background is not None
         ):
             self._active_background.request_interrupt(self._background_cancellation)
-        if self._reset_task is not None:
-            self._reset_task.cancel()
         if self._dream_timer_task is not None:
             self._dream_timer_task.cancel()
         if self._wake_cancellation is not None:
@@ -444,131 +454,69 @@ class JarvisService:
         if self._agent_wait_cancellation is not None:
             self._agent_wait_cancellation.cancel()
 
-    async def _drain(self) -> None:
-        async with self._execution_mutex:
-            if self._shutdown.is_set():
-                return
-            await self.flush_delivery()
-            while not self._shutdown.is_set():
-                controls = await self._store.pending_controls(
-                    source_conversation_id=str(self._settings.discord.channel_id),
-                    limit=1,
-                )
-                if self._shutdown.is_set():
-                    return
-                if controls:
-                    pending = controls[0]
-                    control = Control(pending.control)
-                    if control is Control.RESUME:
-                        await self._paused.set_paused(False)
-                        if not await self._runner.settle_control(
-                            pending.message_id,
-                            control,
-                        ):
-                            return
-                        await self.flush_delivery()
-                        continue
-                    await self._paused.set_paused(True)
-                    if pending.requires_recovery_run:
-                        await self._runner.discard_recovered_session_reference()
-                        await self._store.settle_recovered_control(
-                            message_id=pending.message_id,
-                            source_conversation_id=str(
-                                self._settings.discord.channel_id
-                            ),
-                            control=cast(
-                                Literal["stop", "pause"],
-                                pending.control,
-                            ),
-                        )
-                    else:
-                        if not await self._runner.settle_control(
-                            pending.message_id,
-                            control,
-                        ):
-                            return
-                    await self.flush_delivery()
-                    continue
-                inactive = (
-                    await self._paused.is_paused()
-                    or await self._store.circuit_is_open()
-                )
-                if self._shutdown.is_set():
-                    return
-                recovered_actions = await self._recover_actions(
-                    allow_queued_execution=not inactive
-                )
-                if inactive or self._shutdown.is_set():
-                    return
-                if recovered_actions:
-                    continue
-                claimed = await self._scheduled_wakes.claim_next_due_schedule(
-                    plan=self._action_plan,
-                    source_conversation_id=str(self._settings.discord.channel_id),
-                )
-                if claimed is not None:
-                    if self._wake_timer is not None:
-                        self._wake_timer.notify_changed()
-                    if isinstance(claimed, ScheduleStateChanged):
-                        await self._recover_actions(allow_queued_execution=False)
-                    continue
-                cancellation = CancellationToken()
-                async with self._active_lock:
-                    if self._shutdown.is_set():
-                        return
-                    self._active_cancellation = cancellation
-                try:
-                    async with self._require_gateway().typing():
-                        outcome = await self._runner.run(cancellation)
-                finally:
-                    async with self._active_lock:
-                        self._active_cancellation = None
-                await self.flush_delivery()
+    def request_delivery(self) -> None:
+        self._delivery_work.set()
 
-                if isinstance(outcome, PreflightDeferred):
-                    self._schedule_reset(outcome.until)
+    async def _deliver(self) -> None:
+        while not self._shutdown.is_set():
+            await self._delivery_work.wait()
+            self._delivery_work.clear()
+            result = await self.flush_delivery()
+            if result.failure is not None and not self._shutdown.is_set():
+                await self._sleep(2.0)
+                self._delivery_work.set()
+
+    async def _drain(self) -> None:
+        while not self._shutdown.is_set():
+            inactive = (
+                await self._paused.is_paused() or await self._store.circuit_is_open()
+            )
+            recovered = await self._recover_actions(allow_queued_execution=not inactive)
+            if inactive:
+                return
+            if recovered:
+                continue
+            claimed = await self._scheduled_wakes.claim_next_due_schedule(
+                plan=self._action_plan,
+                source_conversation_id=str(self._settings.discord.channel_id),
+            )
+            if claimed is not None:
+                if self._wake_timer is not None:
+                    self._wake_timer.notify_changed()
+                continue
+            cancellation = CancellationToken()
+            async with self._active_lock:
+                if self._shutdown.is_set():
                     return
-                LOGGER.info(
-                    "Kernel run completed: type=%s turns=%d consumed=%s",
-                    outcome.type,
-                    outcome.metrics.provider_turns,
-                    outcome.metrics.input_consumed,
-                )
-                if isinstance(outcome, ThreadDeferred):
-                    self._schedule_reset(outcome.until)
-                    return
-                if isinstance(outcome, ThreadNoWork):
-                    background = await self._run_background_once(self._background)
-                    if isinstance(background, memory_workers.BackgroundDeferred):
-                        self._schedule_reset(background.until)
-                        return
-                    if background:
-                        continue
-                    if self._work.is_set() or not self._dream_due:
-                        return
-                    dream = await self._run_background_once(self._dreamer)
-                    if isinstance(dream, memory_workers.BackgroundDeferred):
-                        self._schedule_reset(dream.until)
-                        return
-                    self._dream_due = False
-                    if dream:
-                        continue
-                    return
-                if (
-                    isinstance(outcome, ThreadStopped)
-                    and outcome.type is ThreadStopKind.preempted
-                ):
-                    continue
-                if (
-                    isinstance(outcome, ThreadStopped)
-                    and not outcome.metrics.input_consumed
-                ):
-                    return
+                self._active_cancellation = cancellation
+            try:
+                async with self._require_gateway().typing():
+                    outcome = await self._runner.run(cancellation)
+            finally:
+                async with self._active_lock:
+                    self._active_cancellation = None
+            self.request_delivery()
+            LOGGER.info("native main completed: status=%s", outcome.status)
+            if outcome.status in {"blocked", "stopped"}:
+                return
+            if outcome.status != "no_work":
+                continue
+            if await self._run_background_once(self._background):
+                continue
+            if self._work.is_set() or not self._dream_due:
+                return
+            dream = await self._run_background_once(self._dreamer)
+            self._dream_due = False
+            if not dream:
+                return
 
     async def _recover_actions(self, *, allow_queued_execution: bool) -> int:
-        recovered_actions = await self._action_recovery.recover(
-            allow_queued_execution=allow_queued_execution
-        )
+        if self._dispatch_lane.locked():
+            return 0
+        async with self._dispatch_lane:
+            recovered_actions = await self._action_recovery.recover(
+                allow_queued_execution=allow_queued_execution
+            )
         if recovered_actions:
             LOGGER.warning(
                 "Recovered interrupted actions: count=%d",
@@ -580,7 +528,7 @@ class JarvisService:
     async def _run_background_once(
         self,
         worker: BackgroundWorkerPort,
-    ) -> bool | memory_workers.BackgroundDeferred:
+    ) -> bool:
         if self._work.is_set() or self._shutdown.is_set():
             return False
         cancellation = CancellationToken()
@@ -605,19 +553,6 @@ class JarvisService:
             self._dream_due = True
             self._work.set()
 
-    def _schedule_reset(self, reset_at: datetime) -> None:
-        if self._shutdown.is_set():
-            return
-        delay = max(0.0, (reset_at.astimezone(UTC) - datetime.now(UTC)).total_seconds())
-
-        async def signal() -> None:
-            await self._sleep(delay)
-            self._work.set()
-
-        if self._reset_task is not None:
-            self._reset_task.cancel()
-        self._reset_task = asyncio.create_task(signal(), name="jarvis-admission-reset")
-
     def _require_gateway(self) -> GatewayPort:
         if self._gateway is None:
             raise RuntimeError("the Discord Gateway is not bound")
@@ -629,7 +564,6 @@ __all__ = [
     "DeliveryFlushResult",
     "DiscordCursorPort",
     "JarvisService",
-    "PendingControlPort",
     "ScheduledWakeStore",
     "flush_pending_deliveries",
 ]

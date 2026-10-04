@@ -33,6 +33,7 @@ from jarvis.memory_retrieval import MemoryIdentity
 from jarvis.memory_tools import MEMORY_TOOL_IDS, MemoryRowIdentity
 from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_dispatch import ReadRecorder
+from jarvis.tool_results import completed_tool_result
 
 
 class _NoTelemetry:
@@ -172,7 +173,7 @@ class MemoryToolDispatcher:
                         UUID(cast(str, item["id"])),
                     )
                 )
-        return DispatchCompleted(result)
+        return completed_tool_result(result)
 
 
 __all__ = ["MemoryDispatchEvidence", "MemoryToolDispatcher"]

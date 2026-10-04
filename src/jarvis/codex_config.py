@@ -1,4 +1,4 @@
-"""The shared non-secret Codex host mapping needed by cognition only."""
+"""The contained non-secret Codex host mapping needed by cognition only."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 CODEX_MAX_MESSAGE_BYTES = 65536
-type CodexProfile = Literal["personal", "work", "work2"]
+type CodexProfile = Literal["personal"]
 
 
 def canonical_absolute_path(value: str) -> str:
@@ -39,7 +39,7 @@ class _Profile(_Closed):
 class CodexHostConfig(_Closed):
     """Read-only non-secret host mapping; never credential or worker state."""
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     development_user: str
     jarvis_user: str
     client_group: str
@@ -67,8 +67,10 @@ class CodexHostConfig(_Closed):
         if len(encoded) > CODEX_MAX_MESSAGE_BYTES:
             raise ValueError("Codex host mapping is oversized")
         result = cls.model_validate(_decode(encoded))
-        if set(result.profiles) != {"personal", "work", "work2"}:
-            raise ValueError("Codex host mapping must declare all three profiles")
+        if set(result.profiles) != {"personal"}:
+            raise ValueError(
+                "Codex host mapping must declare its contained personal profile"
+            )
         paths = [
             result.binary,
             result.cognition_cwd_parent,
@@ -79,8 +81,6 @@ class CodexHostConfig(_Closed):
             paths.extend((row.account_home, row.endpoint[7:]))
         if any(not _absolute(value) for value in paths):
             raise ValueError("Codex host mapping has a noncanonical path")
-        if len(set(result.endpoints.values())) != 3:
-            raise ValueError("Codex profiles must use distinct endpoints")
         return result
 
 

@@ -6,14 +6,9 @@ from pathlib import Path
 from typing import Any, Never
 
 from llm_agent_kernel import (
-    AgentDefinition,
     CancellationToken,
     CodexProvider,
     ProviderConfiguration,
-    SessionCoordinator,
-    StaleSessionRef,
-    StaleSessionReference,
-    ThreadId,
     ToolDispatchDefect,
     ToolDispatchLineage,
 )
@@ -28,7 +23,6 @@ from jarvis.definitions import (
     QUALIFIED_CODEX_MODELS,
     verify_runtime_dependencies,
 )
-from jarvis.session import AtomicSessionRefPort
 
 
 async def resolve_provider_configuration(
@@ -77,41 +71,12 @@ class EmptyToolDispatcher:
 class KernelRuntime:
     runtime: AgentRuntime
     provider: CodexProvider
-    sessions: SessionCoordinator
-    references: AtomicSessionRefPort
 
     async def close(self) -> None:
         try:
             await self.provider.shutdown()
         finally:
             await self.runtime.close()
-
-    async def discard_recovered_session_reference(
-        self,
-        thread_id: ThreadId,
-        definition: AgentDefinition,
-    ) -> None:
-        stored = await self.references.load(
-            thread_id,
-            definition.fingerprint,
-        )
-        if stored is None:
-            return
-        try:
-            discarded = await self.references.discard(
-                thread_id,
-                definition.fingerprint,
-                stored.generation,
-            )
-        except BaseException:
-            await self.provider.discard_reference(definition.fingerprint, stored.ref)
-            raise
-        if isinstance(discarded, StaleSessionRef):
-            await self.provider.discard_reference(definition.fingerprint, stored.ref)
-            raise StaleSessionReference(
-                "session reference changed during recovered-control discard"
-            )
-        await self.provider.discard_reference(definition.fingerprint, stored.ref)
 
 
 def build_agent_runtime(
@@ -133,21 +98,13 @@ def build_kernel_runtime(
     *,
     runtime: AgentRuntime,
     shared_cwd_parent: Path,
-    session_ref_path: Path,
 ) -> KernelRuntime:
     provider = CodexProvider(
         runtime,
         cwd_parent=shared_cwd_parent,
         share_cwd_with_group=True,
-        cache_continuing=False,
     )
-    references = AtomicSessionRefPort(session_ref_path)
-    return KernelRuntime(
-        runtime,
-        provider,
-        SessionCoordinator(provider, references),
-        references,
-    )
+    return KernelRuntime(runtime, provider)
 
 
 __all__ = [

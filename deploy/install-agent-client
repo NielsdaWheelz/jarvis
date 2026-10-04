@@ -52,12 +52,16 @@ if ! { sudo test -f "$client" && sudo test ! -L "$client" &&
   [[ "$(sudo systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
   [[ "$(sudo systemctl show --property=Result --value jarvis.service)" == success ]]
   [[ "$(sudo systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
-  sudo python3 - /var/lib/jarvis/runtime/paused.json <<'PY'
-import json,pathlib,sys
-value=json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert value=={"paused": True,"schema_version":"jarvis-paused.v1"}
-assert value["paused"] is True
-PY
+  sudo systemd-run --quiet --wait --pipe --collect \
+    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
+    --property=ProtectHome=true --property=ProtectSystem=strict \
+    --property=PrivateTmp=true --property=PrivateDevices=true \
+    --property=NoNewPrivileges=true \
+    "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
+    --property=WorkingDirectory=/opt/jarvis/current \
+    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+    /opt/jarvis/current/.venv/bin/jarvis check-paused </dev/null
   sudo mv -fT -- "$candidate" "$client"
 fi
 printf 'agent client configuration installed or unchanged; service remains stopped or unchanged\n'

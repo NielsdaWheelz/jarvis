@@ -12,7 +12,6 @@ from typing import Protocol, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from llm_agent_kernel import (
-    AdmissionToken,
     AgentDefinition,
     CancellationToken,
     HostInput,
@@ -33,7 +32,7 @@ from llm_tools import (
     PromptText,
 )
 
-from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
+from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.context import MemoryReadDispatcherPort
 from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import DreamResult, RememberResult
@@ -49,11 +48,6 @@ from jarvis.messages import MessageStore
 from jarvis.ownership import DeploymentOwnershipDefect
 
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class BackgroundDeferred:
-    until: datetime
 
 
 class EmbeddingPort(Protocol):
@@ -74,7 +68,7 @@ class RemembererWorker:
         *,
         definition: AgentDefinition,
         plan: FrozenToolPlan,
-        admission: RootTrackingAdmissionPort,
+        owner: JarvisOwner,
         provider: ProviderSessionPort,
         model_decisions: ModelJournalFactory,
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
@@ -90,7 +84,7 @@ class RemembererWorker:
             raise ValueError("rememberer group bound must be a positive integer")
         self._definition = definition
         self._plan = plan
-        self._admission = admission
+        self._owner = owner
         self._provider = provider
         self._model_decisions = model_decisions
         self._dispatcher_factory = dispatcher_factory
@@ -121,9 +115,7 @@ class RemembererWorker:
         else:
             cancellation.cancel()
 
-    async def run_one(
-        self, cancellation: CancellationToken
-    ) -> bool | BackgroundDeferred:
+    async def run_one(self, cancellation: CancellationToken) -> bool:
         if cancellation.cancelled:
             return False
         immediate = self._immediate[0] if self._immediate else None
@@ -152,14 +144,6 @@ class RemembererWorker:
                 self._immediate.pop(0)
                 return False
             material_context = immediate.material_context
-        limits = self._definition.limits
-        reset_at = await self._admission.preflight_background(
-            maximum_turns=limits.max_provider_turns,
-            maximum_input_tokens=limits.max_provider_input_tokens,
-            maximum_output_tokens=limits.max_provider_output_tokens,
-        )
-        if reset_at is not None:
-            return BackgroundDeferred(reset_at)
         completed = await self._remember(group, material_context, cancellation)
         if completed and immediate is not None:
             self._immediate.pop(0)
@@ -210,7 +194,8 @@ class RemembererWorker:
                 decisions=decisions,
                 plan=self._plan,
                 source_sections=source,
-                admission=self._admission,
+                owner=self._owner,
+                permit=self._owner.permit(operation_id),
                 provider=self._provider,
                 dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
@@ -420,7 +405,7 @@ class DreamerRunCompleted:
     metrics: RunMetrics
 
 
-type DreamerRunOutcome = DreamerRunCompleted | BackgroundDeferred | None
+type DreamerRunOutcome = DreamerRunCompleted | None
 
 
 class DreamerWorker:
@@ -431,7 +416,7 @@ class DreamerWorker:
         *,
         definition: AgentDefinition,
         plan: FrozenToolPlan,
-        admission: RootTrackingAdmissionPort,
+        owner: JarvisOwner,
         provider: ProviderSessionPort,
         model_decisions: ModelJournalFactory,
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
@@ -439,7 +424,7 @@ class DreamerWorker:
     ) -> None:
         self._definition = definition
         self._plan = plan
-        self._admission = admission
+        self._owner = owner
         self._provider = provider
         self._model_decisions = model_decisions
         self._dispatcher_factory = dispatcher_factory
@@ -456,13 +441,11 @@ class DreamerWorker:
     async def run_one(
         self,
         cancellation: CancellationToken,
-    ) -> bool | BackgroundDeferred:
+    ) -> bool:
         outcome = await self.run_at(
             as_of=datetime.now(UTC),
             cancellation=cancellation,
         )
-        if isinstance(outcome, BackgroundDeferred):
-            return outcome
         return isinstance(outcome, DreamerRunCompleted)
 
     async def run_at(
@@ -470,19 +453,9 @@ class DreamerWorker:
         *,
         as_of: datetime,
         cancellation: CancellationToken,
-        parent_admission: AdmissionToken | None = None,
     ) -> DreamerRunOutcome:
         if cancellation.cancelled or await self._memory.raw_memory_count() == 0:
             return None
-        limits = self._definition.limits
-        if parent_admission is None:
-            reset_at = await self._admission.preflight_background(
-                maximum_turns=limits.max_provider_turns,
-                maximum_input_tokens=limits.max_provider_input_tokens,
-                maximum_output_tokens=limits.max_provider_output_tokens,
-            )
-            if reset_at is not None:
-                return BackgroundDeferred(reset_at)
         run_id = RunId(str(uuid4()))
         operation_id = "jarvis-dream:" + await self._memory.snapshot_revision()
         dispatcher = self._dispatcher_factory()
@@ -511,11 +484,11 @@ class DreamerWorker:
                 as_of=as_of,
                 plan=self._plan,
                 source_sections=PromptSections(()),
-                admission=self._admission,
+                owner=self._owner,
+                permit=self._owner.permit(operation_id),
                 provider=self._provider,
                 dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
-                parent_admission=parent_admission,
                 cancellation=cancellation,
             )
         except DeploymentOwnershipDefect:

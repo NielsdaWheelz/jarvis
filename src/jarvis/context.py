@@ -10,17 +10,15 @@ from uuid import UUID, uuid4
 from llm_agent_kernel import (
     AgentDefinition,
     CancellationToken,
-    Checkpoint,
     ContextSourceDefect,
     HostInput,
     InitialReadCall,
-    InputClaim,
     InputId,
     OneShotCompleted,
+    OneShotStopKind,
     ProviderSessionPort,
     RunId,
     ThreadId,
-    ThreadStopKind,
     ToolDispatchPort,
     run_one_shot,
 )
@@ -36,7 +34,7 @@ from llm_tools import (
     render_prompt,
 )
 
-from jarvis.admission import ExactToolBudgetFactory, RootTrackingAdmissionPort
+from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.decisions import ModelJournalFactory, isolated_decisions
 from jarvis.definitions import RecallResult
 from jarvis.memory import MemoryIdentity
@@ -73,11 +71,11 @@ class CanonicalHistoryPort(Protocol):
     ) -> tuple[CanonicalMessage, ...]: ...
 
 
-class BatchClockPort(Protocol):
-    async def as_of_for_inputs(self, inputs: tuple[HostInput, ...]) -> datetime: ...
-
-
 class RecallTracePort(Protocol):
+    async def recall_selection(
+        self, message_id: UUID
+    ) -> tuple[MemoryIdentity, ...] | None: ...
+
     async def record_recall(
         self,
         *,
@@ -108,7 +106,7 @@ class IsolatedRecaller:
         *,
         definition: AgentDefinition,
         plan: FrozenToolPlan,
-        admission: RootTrackingAdmissionPort,
+        owner: JarvisOwner,
         provider: ProviderSessionPort,
         dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
         memory_repository: MemoryRepository,
@@ -117,7 +115,7 @@ class IsolatedRecaller:
     ) -> None:
         self._definition = definition
         self._plan = plan
-        self._admission = admission
+        self._owner = owner
         self._provider = provider
         self._dispatcher_factory = dispatcher_factory
         self._memory_repository = memory_repository
@@ -136,10 +134,15 @@ class IsolatedRecaller:
             message_id = UUID(str(owner_input.input_id))
         except ValueError as error:
             raise ContextSourceDefect("owner input ID is not a UUID") from error
+        saved = await self._trace.recall_selection(message_id)
+        if saved is not None:
+            memories = (await self._memory_repository.open(saved)).rows
+            return _memory_sections(memories)
         dispatcher = self._dispatcher_factory()
         run_id = RunId(str(uuid4()))
+        operation_id = f"jarvis-recall:{message_id}"
         decisions, as_of = await isolated_decisions(
-            self._model_decisions, dispatcher, f"jarvis-recall:{message_id}", as_of
+            self._model_decisions, dispatcher, operation_id, as_of
         )
         outcome = await run_one_shot(
             decisions=decisions,
@@ -149,7 +152,8 @@ class IsolatedRecaller:
             as_of=as_of,
             plan=self._plan,
             source_sections=recent_context,
-            admission=self._admission,
+            owner=self._owner,
+            permit=self._owner.permit(operation_id),
             provider=self._provider,
             dispatcher=dispatcher,
             budget_factory=ExactToolBudgetFactory(),
@@ -161,7 +165,6 @@ class IsolatedRecaller:
                     semantic_limit=10,
                 ).model_dump(mode="json"),
             ),
-            parent_admission=await self._admission.active_root(),
             cancellation=cancellation,
         )
         candidates = _normalized_identities(
@@ -224,13 +227,13 @@ class IsolatedRecaller:
         )
         if (
             not isinstance(outcome, OneShotCompleted)
-            and outcome.type is ThreadStopKind.configuration_error
+            and outcome.type is OneShotStopKind.configuration_error
         ):
             raise ContextSourceDefect("isolated recaller configuration defect")
         return _memory_sections(memories)
 
 
-class JarvisContextSource:
+class NativeContext:
     def __init__(
         self,
         thread_id: ThreadId,
@@ -238,7 +241,6 @@ class JarvisContextSource:
         *,
         recaller: IsolatedRecaller,
         cancellation: CancellationToken,
-        batch_clock: BatchClockPort,
         history_limit: int = 100,
         history_max_bytes: int = 65_536,
     ) -> None:
@@ -252,40 +254,26 @@ class JarvisContextSource:
         self._history_max_bytes = history_max_bytes
         self._recaller = recaller
         self._cancellation = cancellation
-        self._batch_clock = batch_clock
         self._recall_cache: dict[InputId, PromptSections] = {}
 
     async def bootstrap(
-        self, definition: AgentDefinition, claim: InputClaim
+        self, inputs: tuple[HostInput, ...], as_of: datetime
     ) -> PromptSections:
-        del definition
-        excluded = tuple(item.input_id for item in claim.inputs)
+        excluded = tuple(item.input_id for item in inputs)
         messages = await self._completed_history(excluded)
-        history_sections = self._history_sections(messages)
+        history = self._history_sections(messages)
         recall = await self._recall_sections(
-            claim.inputs,
-            as_of=claim.as_of,
-            recent_context=history_sections,
+            inputs, as_of=as_of, recent_context=history
         )
-        return PromptSections((*history_sections.sections, *recall.sections))
+        return PromptSections((*history.sections, *recall.sections))
 
-    async def continuation(
-        self,
-        definition: AgentDefinition,
-        claim: InputClaim,
-        inputs: tuple[HostInput, ...],
-        through_checkpoint: Checkpoint,
-    ) -> PromptSections:
-        del definition, through_checkpoint
-        if not inputs or not any(_is_owner_input(item) for item in inputs):
-            return PromptSections(())
-        excluded = tuple(
-            dict.fromkeys(item.input_id for item in (*claim.inputs, *inputs))
+    async def additional(self, inputs: tuple[HostInput, ...]) -> PromptSections:
+        history = self._history_sections(
+            await self._completed_history(tuple(item.input_id for item in inputs))
         )
-        history = self._history_sections(await self._completed_history(excluded))
         return await self._recall_sections(
             inputs,
-            as_of=await self._batch_clock.as_of_for_inputs(inputs),
+            as_of=max(item.source_timestamp for item in inputs),
             recent_context=history,
         )
 
@@ -474,11 +462,10 @@ def _normalized_identities(
 
 
 __all__ = [
-    "BatchClockPort",
     "CanonicalHistoryPort",
     "CanonicalMessage",
     "IsolatedRecaller",
-    "JarvisContextSource",
     "MemoryReadDispatcherPort",
+    "NativeContext",
     "RecallTracePort",
 ]

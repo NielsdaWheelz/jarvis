@@ -123,18 +123,6 @@ class Settings(BaseModel):
         return value
 
     @property
-    def paused_state_path(self) -> Path:
-        return self.runtime_state_directory / "paused.json"
-
-    @property
-    def admission_journal_path(self) -> Path:
-        return self.runtime_state_directory / "admission.json"
-
-    @property
-    def session_reference_path(self) -> Path:
-        return self.runtime_state_directory / "session-ref.json"
-
-    @property
     def codex_host_config(self) -> CodexHostConfig:
         return CodexHostConfig.load(self.codex_host_config_path)
 

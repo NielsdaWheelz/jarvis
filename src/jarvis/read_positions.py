@@ -4,30 +4,44 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
+from uuid import UUID
 
 from llm_agent_kernel import (
+    DispatchCompleted,
+    HostRef,
     InitialReadDispatchLineage,
+    NativeDispatchLineage,
     RunId,
     ToolDispatchLineage,
 )
 from llm_tools import (
     BudgetState,
+    FrozenToolPlan,
     InvocationPosition,
     PositionState,
     RecoveryRequired,
     ReplayPolicy,
     Reservation,
     Settlement,
+    ToolBinding,
     ToolId,
     ToolResult,
     canonical_json_bytes,
+    validate_tool_input,
 )
 from sqlalchemy import RowMapping, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from jarvis.db import model_decision, read_position
-from jarvis.ownership import Database
+from jarvis.db import (
+    message,
+    model_decision,
+    native_attempt,
+    native_invocation,
+    read_position,
+)
+from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
+from jarvis.tool_results import completed_tool_result
 
 
 class PostgresReadRecorder:
@@ -39,13 +53,150 @@ class PostgresReadRecorder:
     def durable(self) -> bool:
         return True
 
+    async def recover_native_read(
+        self,
+        *,
+        lineage: NativeDispatchLineage,
+        binding: ToolBinding[Any, Any, Any],
+        plan: FrozenToolPlan,
+        arguments: dict[str, Any],
+    ) -> DispatchCompleted | None:
+        """Reuse original paid-read truth while its request remains unfinished."""
+        contract = {
+            "plan_revision": plan.plan_revision,
+            "tool_contract_revision": binding.spec.tool_contract_revision,
+            "implementation_revision": binding.implementation_revision,
+            "policy_revision": binding.policy_revision,
+            "effect": binding.spec.effect.value,
+        }
+        async with self._database.begin() as connection:
+            await lock_conversation(connection, lineage.permit.scope_id)
+            current = (
+                (
+                    await connection.execute(
+                        select(native_invocation).where(
+                            native_invocation.c.id == UUID(lineage.invocation_id)
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if (
+                current["frozen_contract"] != contract
+                or current["attempt_id"] != UUID(lineage.attempt_id)
+                or current["tool_id"] != str(binding.spec.id)
+                or tuple(current["proposal"]["input_ids"])
+                != tuple(map(str, lineage.input_ids))
+            ):
+                raise ValueError(
+                    "read dispatch contract changed after callback acceptance"
+                )
+            current_input = validate_tool_input(
+                binding, current["proposal"]["arguments"]
+            )
+            if canonical_json_bytes(
+                current_input.model_dump(mode="json")
+            ) != canonical_json_bytes(arguments):
+                raise ValueError("read arguments changed after callback acceptance")
+            unfinished = set(
+                (
+                    await connection.execute(
+                        select(message.c.id).where(
+                            message.c.source_conversation_id == lineage.permit.scope_id,
+                            message.c.id.in_(tuple(map(UUID, lineage.input_ids))),
+                            message.c.role == "owner",
+                            message.c.request_state.in_(("pending", "waiting")),
+                        )
+                    )
+                ).scalars()
+            )
+            if not unfinished:
+                return None
+            rows = (
+                (
+                    await connection.execute(
+                        select(native_invocation)
+                        .join(
+                            native_attempt,
+                            native_attempt.c.id == native_invocation.c.attempt_id,
+                        )
+                        .where(
+                            native_attempt.c.conversation_id == lineage.permit.scope_id,
+                            native_invocation.c.attempt_id != UUID(lineage.attempt_id),
+                            native_invocation.c.tool_id == str(binding.spec.id),
+                            native_invocation.c.validation == "accepted",
+                        )
+                        .order_by(
+                            native_attempt.c.attempt_seq, native_invocation.c.ordinal
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            for invocation in rows:
+                prior_arguments = invocation["proposal"]["arguments"]
+                if invocation["frozen_contract"] == contract:
+                    prior_input = validate_tool_input(binding, prior_arguments)
+                    prior_arguments = prior_input.model_dump(mode="json")
+                if canonical_json_bytes(prior_arguments) != canonical_json_bytes(
+                    arguments
+                ) or not unfinished.intersection(
+                    map(UUID, invocation["proposal"]["input_ids"])
+                ):
+                    continue
+                position = invocation["read_position"] or "native-invocation:" + str(
+                    invocation["id"]
+                )
+                row = (
+                    (
+                        await connection.execute(
+                            select(read_position)
+                            .where(read_position.c.position == position)
+                            .with_for_update()
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None or row["state"] == "prepared":
+                    continue
+                if invocation["frozen_contract"] != contract:
+                    return completed_tool_result(
+                        {
+                            "type": "Failure",
+                            "error": {
+                                "type": "HostRejected",
+                                "code": "paid_read_contract_changed",
+                            },
+                        },
+                        HostRef(position),
+                    )
+                if row["state"] == "completed":
+                    return completed_tool_result(row["result"], HostRef(position))
+                if binding.replay_policy is ReplayPolicy.BilledOnce:
+                    return completed_tool_result(
+                        {
+                            "type": "Failure",
+                            "error": {
+                                "type": "HostRejected",
+                                "code": "paid_read_outcome_unknown",
+                            },
+                        },
+                        HostRef(position),
+                    )
+        return None
+
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
     ) -> None:
         """Rebuild original scope charges through the existing budget primitive."""
         async with self._database.connect() as connection:
             positions = [str(lineage.position)]
-            if not isinstance(lineage, InitialReadDispatchLineage):
+            if not isinstance(
+                lineage, InitialReadDispatchLineage | NativeDispatchLineage
+            ):
                 scope_key = await connection.scalar(
                     select(model_decision.c.scope_key).where(
                         model_decision.c.decision_id == lineage.model_decision_id
@@ -188,6 +339,42 @@ class PostgresReadRecorder:
         self, *, position: InvocationPosition, replay_policy: ReplayPolicy
     ) -> PositionState:
         async with self._database.begin() as connection:
+            if str(position).startswith("native-invocation:"):
+                invocation_id = UUID(str(position).removeprefix("native-invocation:"))
+                attempt = (
+                    (
+                        await connection.execute(
+                            select(native_attempt)
+                            .join(
+                                native_invocation,
+                                native_invocation.c.attempt_id == native_attempt.c.id,
+                            )
+                            .where(native_invocation.c.id == invocation_id)
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                await lock_conversation(connection, attempt["conversation_id"])
+                current = (
+                    (
+                        await connection.execute(
+                            select(native_attempt)
+                            .where(native_attempt.c.id == attempt["id"])
+                            .with_for_update()
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                if (
+                    current["fenced_at"] is not None
+                    or current["terminal"] is not None
+                    or current["product_outcome"] is not None
+                ):
+                    raise DeploymentOwnershipDefect(
+                        "native read authority is no longer live"
+                    )
             row = (
                 (
                     await connection.execute(

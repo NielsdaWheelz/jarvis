@@ -12,7 +12,6 @@ from llm_tools import (
     DeclaredToolFailure,
     ExecutionContext,
     HandlerSuccess,
-    ParsedJson,
     PolicyEpoch,
     PromptDocument,
     ReplayPolicy,
@@ -22,7 +21,6 @@ from llm_tools import (
     ToolId,
     ToolLimits,
     ToolSpec,
-    raw_input_digest,
 )
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
@@ -112,6 +110,8 @@ class ScheduleTarget(BaseModel):
 class ScheduleTargetReader(Protocol):
     async def schedule_target(self, action_id: UUID) -> ScheduleTarget: ...
 
+    async def schedule_arguments_digest(self, action_id: UUID) -> str: ...
+
 
 SCHEDULE_WAKE_SPEC = ToolSpec[
     ScheduleWakeInput, ScheduleWakeSuccess, ScheduleWakeError
@@ -157,9 +157,7 @@ def schedule_family(
                 receipt=ScheduleCreated(
                     action_id=action_id,
                     execute_after=request.execute_after,
-                    arguments_digest=raw_input_digest(
-                        ParsedJson(value.model_dump(mode="json"))
-                    ),
+                    arguments_digest=await targets.schedule_arguments_digest(action_id),
                     recorded_at=recorded_at,
                 )
             )
@@ -190,6 +188,7 @@ def schedule_family(
             "authority": "automatic-write-gated",
             "clock": "host-utc",
             "durability": "action-creation-receipt-v1",
+            "arguments_digest": "frozen-action-request",
         },
     )
     return ToolFamily("schedule", (SCHEDULE_WAKE_SPEC,), (binding,))

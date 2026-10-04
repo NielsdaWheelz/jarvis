@@ -13,9 +13,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, text
 
-from jarvis.admission import RollingAdmissionLimits
 from jarvis.db import memory_log, memory_summary
-from jarvis.definitions import DREAMER_KERNEL_LIMITS
 from jarvis.embeddings import MAX_EMBEDDING_BATCH_SIZE
 from jarvis.memory import (
     DerivedMemoryWipe,
@@ -223,25 +221,6 @@ class PostgresRebuildStore:
         )
 
 
-def corpus_rebuild_admission_limits() -> RollingAdmissionLimits:
-    """Reserve one stopped production rebuild and its one Dreamer child."""
-    serial_turns = DREAMER_KERNEL_LIMITS.max_provider_turns
-    serial_input = (
-        DREAMER_KERNEL_LIMITS.max_provider_input_tokens + _INPUT_TOKEN_OVERSHOOT
-    )
-    serial_output = (
-        DREAMER_KERNEL_LIMITS.max_provider_output_tokens + _OUTPUT_TOKEN_OVERSHOOT
-    )
-    return RollingAdmissionLimits(
-        max_turns=1 + serial_turns,
-        max_input_tokens=1 + _INPUT_TOKEN_OVERSHOOT + serial_input,
-        max_output_tokens=1 + _OUTPUT_TOKEN_OVERSHOOT + serial_output,
-        serial_child_turns=serial_turns,
-        serial_child_input_tokens=serial_input,
-        serial_child_output_tokens=serial_output,
-    )
-
-
 async def rebuild_memory_corpus(
     *,
     store: _RebuildStore,
@@ -374,6 +353,5 @@ __all__ = [
     "DreamMutationProgress",
     "PostgresRebuildStore",
     "RawMemorySnapshot",
-    "corpus_rebuild_admission_limits",
     "rebuild_memory_corpus",
 ]

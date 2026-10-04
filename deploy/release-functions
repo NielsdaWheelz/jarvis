@@ -2,6 +2,7 @@
 # caller holds /opt/jarvis/.deploy.lock as root.
 prune_releases() {
   local candidate="${1:-}" selected='' release main_pid
+  local host_state host_pid host_control_pid host_executable host_release
   if [[ -n "$candidate" && ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
     printf 'invalid staged release commit\n' >&2
     return 1
@@ -22,6 +23,31 @@ prune_releases() {
   elif [[ -e /opt/jarvis/current || -z "$candidate" ]]; then
     printf 'current release is missing or is not a symlink\n' >&2
     return 1
+  fi
+
+  host_state="$(systemctl show --property=ActiveState --value jarvis-codex-contained.service)" || return 1
+  host_pid="$(systemctl show --property=MainPID --value jarvis-codex-contained.service)" || return 1
+  host_control_pid="$(systemctl show --property=ControlPID --value jarvis-codex-contained.service)" || return 1
+  if [[ "$host_state" != inactive || "$host_pid" != 0 || "$host_control_pid" != 0 ]]; then
+    host_executable="$(busctl --system --json=short get-property \
+      org.freedesktop.systemd1 \
+      /org/freedesktop/systemd1/unit/jarvis_2dcodex_2dcontained_2eservice \
+      org.freedesktop.systemd1.Service ExecStart | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+if value["type"] != "a(sasbttttuii)" or len(value["data"]) != 1:
+    raise SystemExit("contained host has an unsupported loaded ExecStart")
+print(value["data"][0][0])
+')" || return 1
+    if [[ ! "$host_executable" =~ ^/opt/jarvis/releases/[0-9a-f]{40}/\.venv/bin/python$ ]]; then
+      printf 'contained host does not select an installed release; refusing cleanup\n' >&2
+      return 1
+    fi
+    host_release="${host_executable%/.venv/bin/python}"
+    if [[ "$host_release" != "$selected" && "${host_release##*/}" != "$candidate" ]]; then
+      printf 'contained host still selects an unretained release; refusing cleanup\n' >&2
+      return 1
+    fi
   fi
 
   for release in /opt/jarvis/releases/*; do

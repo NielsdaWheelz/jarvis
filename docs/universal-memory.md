@@ -31,8 +31,9 @@ recall.
   service, agent framework, queue or workflow engine. search merges keyword and
   semantic ranks deterministically; learned reranking is deferred.
 - preserve commits; permit bounded recomputation. rememberer/dreamer inference
-  and dreamer reads are disposable. main's durable decisions, effect recovery,
-  direct-save idempotency and shared capacity accounting remain intact.
+  and dreamer reads are disposable. main's durable native evidence, effect
+  recovery and direct-save idempotency remain intact. current-owner permits
+  govern cognition; there is no paid-capacity accounting.
 
 capture owner, assistant and peer text, tool calls/results, attachment references
 and available text, and context items of main/child conversations. exclude all
@@ -84,14 +85,14 @@ construct one settings object, embedding client/http pool, memory repository/rea
 pool and search service in the existing composition root, and pass those same
 instances to main, dreamer, mcp and background work. clients receive generated
 configuration from the common declaration. use the existing deployment lock,
-serial cognition lane, rolling admission and execution-budget factory. shared
+serial dispatch lane, current-owner permits and execution-budget factory. shared
 resources have deployment-wide owners and limits; no separate allowance per
 agent or profile. do not build a second scheduler, quota framework or registry.
 
 provenance, lane permissions, conversation progress and invocation receipts remain
 facts about their subjects. each run still receives its own fresh `BudgetState`
 from the shared policy and frozen plan. different capability grants narrow that
-policy; they do not create independent deployment capacity. mutable conversations,
+policy; they do not create independent admission allowances. mutable conversations,
 transactions and run state must not become import-time singletons.
 
 agents receive context, tools, a goal and quality constraints, then choose their
@@ -347,7 +348,8 @@ a timestamp. capture neither waits for extraction nor for a conversation to end.
 
 ## 4. schema and invariants
 
-add three application tables, nine against the six-table v1 baseline. ids are
+add three application tables, twelve after the current nine-table native cutover.
+ids are
 application uuids; times are `timestamptz`; every string and json variant has a closed bound.
 generated search columns are physical infrastructure (SPEC section 9).
 
@@ -510,7 +512,8 @@ earlier heavy-turn sample in adr 0051 motivates batching, not a forecast.
 
 the age limit guarantees eligibility, not completion: a quiet native conversation
 normally becomes eligible two hours to two hours twenty minutes after receipt,
-then waits for foreground/admission capacity. raw archive search is already
+then waits for foreground work and the serial lane under current-owner admission.
+raw archive search is already
 available. independent episodes can lose context needed to interpret later
 references; omit unsupported inference rather than invent that context.
 
@@ -559,14 +562,14 @@ foreground preemption that returns normally refunds this local start under the
 worker mutex and expected-bookmark check. crash, unknown cancellation or failure
 keeps it; a crash between increment and dispatch can conservatively consume one
 start. no separate in-flight job record. local retry/preemption repair never
-edits admission; preserve ordinary settlement and orphan-charge rules.
+edits admission; preserve current-owner fencing and per-operation settlement.
 
 on cancellation, abandon the local result and close the isolated session before
 releasing the serial lane; a late result must never commit. restart always uses
 a new session and current contract. unknown paid work may be charged again, and
-an uncommitted answer may differ. existing rolling admission retains used or
-unknown charges and admits any replacement normally; clean exits still settle
-unused reservations through the existing policy.
+an uncommitted answer may differ. each replacement requires a new current-owner
+permit and its fresh bounded isolated invocation. usage remains observational;
+there is no rolling charge or unused-capacity refund.
 
 `retry-extraction SOURCE|--all` clears the error/counter, never a completed
 bookmark. prompt/renderer/limit changes happen while stopped; no frozen background
@@ -575,7 +578,7 @@ request survives to reconcile. do not reprocess already completed ranges.
 ### daily dreaming
 
 keep the approximate 24-hour timer, first full interval after startup, foreground
-precedence and rolling admission. a due sweep snapshots pending note ids in memory
+precedence and current-owner admission. a due sweep snapshots pending note ids in memory
 and drains oldest first by `(created_at, id)`, in serial batches of at most 100
 WHOLE notes and 64 kib rendered seed input including headers. reuse the renderer
 and role budgets; never truncate a seed. an individually oversized note is a
@@ -615,8 +618,9 @@ seed work. the same serial worker owns synthesis; derived rebuild is stopped.
 failure/preemption abandons the local result, preserves flags and ends the sweep;
 close the session before releasing its lane. a later daily tick or restart's first
 full interval selects remaining work afresh. paid inference and reads can repeat,
-within new admission and normal budgets; retain used/unknown charges under the
-existing settlement rules. no immediate retry
+under a new current-owner permit and fresh bounded operation budgets. usage is
+observational; no rolling charge survives or grants replacement authority. no
+immediate retry
 loop or unknown-call reconciliation for these disposable runs. a lost commit
 receipt is resolved by the durable flags; no saved terminal is reapplied.
 
@@ -743,8 +747,9 @@ before counting; admission refusal returns `rate_limited` before provider I/O.
 accepted searches count even if they fail. replaying an already recorded main
 result does not enter the service or consume another allowance. use one small
 in-process counter/deque; no per-bearer map, durable rate journal or queue service.
-restart resets this short-window throttle; existing durable cognition charges
-are unaffected. a busy caller can consume the shared allowance for everyone.
+restart resets this short-window throttle; original paid-read receipts and
+unknown-outcome barriers are unaffected. a busy caller can consume the shared
+allowance for everyone.
 
 all embedding work, including query embeddings, indexing and rebuild, uses the
 same embedder/http client and one shared inference semaphore at that boundary.
@@ -851,7 +856,7 @@ disposable provider thread or discord channel as an archive conversation id.
 
 derive the submission uuid as
 `uuid5(NAMESPACE_URL, "urn:jarvis:main-memory-save-note:" + str(lineage.position))`.
-`lineage.position` is the existing durable `model-decision:<id>` position, not a
+`lineage.position` is the existing durable `native-invocation:<id>` position, not a
 new run id, clock or model-supplied key. the common append function then derives
 the note id under the same rule as mcp. retries preserve exact text and identity.
 
@@ -988,12 +993,14 @@ the migration:
 
 remove `message.remembered_at`, its grant/reads/writes, the old rememberer sweep
 and per-row fallback, the immediate queue and after-commit material callback.
-post-cutover, publish each newly settled jarvis group inside `MessageStore.settle`
-with key `settlement:{run_id}:{through_checkpoint}`: consumed and produced
+post-cutover, publish each newly settled jarvis group in the existing native
+product/disposition transaction with key `settlement:{run_id}:{through_checkpoint}`:
+consumed and produced
 messages, source material observations, and recalled ids as `memory_reference`.
 publication honors lane admission and replaces internal note calls/results with
-content-free `memory_reference` records. restore source material from `model_decision`
-host evidence during replay. messages that never settle publish when their
+content-free `memory_reference` records. restore source material from original
+native journals/receipts and isolated `model_decision` evidence during recovery.
+messages that never settle publish when their
 disposition commits. old canonical messages remain in `message`, outside archive
 search; old notes and summaries remain searchable with unknown source provenance.
 both historical import and provenance work are v2.
@@ -1011,11 +1018,11 @@ writer and obsolete claim-time recall recovery. retain canonical history
 reconstruction and the dreamer's isolated dispatch; remove obsolete recaller
 tracking and now-unused search-count evidence/checks, preserving actual tool
 receipts and needed provenance. retire old recall scopes only after known completion/reconciliation.
-remove recaller child-turn/token reservations, retaining write-gate capacity.
-under stopped intake, wait for old roots to resolve and their rolling charges
-to expire, then write an empty admission journal under the new limits. never
-erase unexpired charges or add an old-journal compatibility branch. this hard
-cut can require waiting out one admission window.
+remove the recaller's definition/plan and isolated inference path, retaining the
+write gate's current-owner/parent-invocation permit. native admission has no
+rolling journal or child-turn/token reservations to migrate. preserve existing
+main/action/read evidence and unresolved recovery barriers; add no retired
+admission compatibility path.
 
 bump remaining rememberer, dreamer and main contracts, shared memory bindings,
 and session compatibility. the rememberer's tool plan is empty; main receives
@@ -1032,8 +1039,8 @@ and embeddings; daily dreaming defines the pending-flag reset.
 | memory | `memory.py`, `memory_workers.py`, `memory_retrieval.py`, `rebuild.py`, `embeddings.py`: one note append, transient jobs, completion, rank fusion and shared embedding admission |
 | shared policy | `memory_contracts.py`, existing `settings.py`/`definitions.py`: global constants/shared schemas, one deployment configuration and derived role plans |
 | tool adapters | `memory_tools.py`, `memory_dispatch.py`, `read_dispatch.py`, `read_positions.py`, `write_dispatch.py`: shared schemas/grants, main save recovery; production transient read recorder belongs to llm-tools |
-| integration | `db.py`/migration, `messages.py`/`checkpoints.py`, `service.py`, `definitions.py`, `settings.py`, `cli.py`, `tool_composition.py`: source publication, role wiring and endpoints |
-| cutover cleanup | `thread_runtime.py`, `context.py`, `actions.py`, `decisions.py`, `admission.py`, session compatibility: remove only legacy memory/recaller paths, preserve main/effect recovery |
+| integration | `db.py`/migration, `messages.py`/`native_journal.py`, `service.py`, `definitions.py`, `settings.py`, `cli.py`, `tool_composition.py`: source publication, role wiring and endpoints |
+| cutover cleanup | `native_runtime.py`, `context.py`, `actions.py`, `decisions.py`, `admission.py`, session compatibility: remove only legacy memory/recaller paths, preserve main/effect recovery |
 | deployment | dev-server units, tailnet handler, generated credentials/profile configuration; jarvis dependency pins and deployment files |
 
 reuse existing validators, serializers, SQL transactions, role results, bounded
@@ -1064,7 +1071,7 @@ of unrelated sessions. record revision, commands, results and gaps once;
 | dreaming | pending survives downtime; oldest-first whole-note bounds; combined context fits; zero-search completion allowed, optional searches use notes/summaries-only grants; atomic summary/flag transaction including empty success; abandoned runs can recompute after admission; late results cannot commit; failure ends sweep; rebuild preserves notes and rearms work |
 | echo / content | search/open/save tool bodies/results become content-free references, including malformed saves; no internal cognition capture; attribution, uncertainty and absent antecedents follow section 7 |
 | retrieval | same keyword/semantic/fusion pipeline for all callers; candidate/ranking checks separate; bounded results and complete paged open; typed failure, no fallback; main keeps paid-read barriers, disposable dreamer retries only as a new run; shared search rate counts all callers and actual executions, replay costs no new slot; one embedding client/semaphore and no hidden retries; status is operator-only; no recaller |
-| cutover / repair | old work drained; expired old admission charges precede changed limits; one restorable local snapshot; existing ids/text preserved, no backfill; old paths removed; retries preserve archive and completed progress |
+| cutover / repair | old work drained under current-owner fences; one restorable local snapshot; existing ids/text preserved, no backfill; old paths removed; retries preserve archive and completed progress |
 
 retain two small regression groups after acceptance: capture/retry and memory
 completion (extraction, direct saves, dreaming, retrieval and rebuild). keep

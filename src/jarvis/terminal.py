@@ -1,11 +1,11 @@
-"""Closed Main terminal contract and deterministic host rendering."""
+"""Closed Main message contracts and deterministic final rendering."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 type CalendarCoverageReason = Literal[
     "calendar_limit",
@@ -21,6 +21,7 @@ type TerminalOutcome = Literal[
     "needs_input",
     "failed",
     "silent",
+    "waiting",
 ]
 type ConclusionKind = Literal["conversation", "silent"]
 
@@ -100,13 +101,86 @@ class Silent(_StrictModel):
     reason: Literal["owner_needs_no_response"]
 
 
-class JarvisTerminal(_StrictModel):
+class Waiting(_StrictModel):
+    type: Literal["waiting"]
+    text: Annotated[str, Field(min_length=1, max_length=2_000)]
+
+    _valid_text = field_validator("text")(_utf8)
+
+
+class Progress(_StrictModel):
+    """Useful commentary; it grants no completion or action authority."""
+
+    type: Literal["progress"]
+    text: Annotated[str, Field(min_length=1, max_length=2_000)]
+
+    _valid_text = field_validator("text")(_utf8)
+
+
+class InputOutcome(_StrictModel):
+    input_id: Annotated[
+        str,
+        Field(
+            pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        ),
+    ]
+    disposition: Literal["complete", "continue", "waiting"]
+    wait_reason: (
+        Literal["approval", "external_reconciliation", "owner_input", "configuration"]
+        | None
+    )
+    action_refs: list[
+        Annotated[
+            str,
+            Field(
+                pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            ),
+        ]
+    ]
+
+    @model_validator(mode="after")
+    def valid_blocker(self) -> InputOutcome:
+        if len(self.action_refs) != len(set(self.action_refs)):
+            raise ValueError("action references must be unique")
+        if self.disposition != "waiting":
+            if self.wait_reason is not None or self.action_refs:
+                raise ValueError("nonwaiting disposition has no blocker")
+        elif self.wait_reason is None:
+            raise ValueError("waiting disposition requires a blocker")
+        elif bool(self.action_refs) != (
+            self.wait_reason in {"approval", "external_reconciliation"}
+        ):
+            raise ValueError("action references disagree with the blocker")
+        return self
+
+
+class _InputDispositions(_StrictModel):
+    input_outcomes: list[InputOutcome]
+
+    @model_validator(mode="after")
+    def unique_inputs(self) -> Self:
+        ids = [item.input_id for item in self.input_outcomes]
+        if len(ids) != len(set(ids)):
+            raise ValueError("input dispositions must be unique")
+        return self
+
+
+class JarvisTerminal(_InputDispositions):
     """One validated, terminal Main response."""
 
-    response: Annotated[
-        Answered | Partial | NeedsInput | Failed | Silent,
-        Field(discriminator="type"),
-    ]
+    response: Answered | Partial | NeedsInput | Failed | Silent | Waiting
+
+
+class JarvisNativeMessage(_InputDispositions):
+    """The native schema applies to both commentary and final responses."""
+
+    response: Progress | Answered | Partial | NeedsInput | Failed | Silent | Waiting
+
+    @model_validator(mode="after")
+    def progress_has_no_dispositions(self) -> Self:
+        if isinstance(self.response, Progress) and self.input_outcomes:
+            raise ValueError("progress cannot settle or change input dispositions")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +299,8 @@ def render_terminal(
 
     if response.type == "answered":
         return RenderedTerminal("answered", "conversation", response.text)
+    if response.type == "waiting":
+        return RenderedTerminal("waiting", "conversation", response.text)
     if response.type == "partial":
         content = f"Partial result — {response.limitation}\n\n{response.text}"
         if response.question is not None:
@@ -286,7 +362,9 @@ def _fleet_limitation(evidence: TurnEvidence) -> str:
 
 __all__ = [
     "CalendarCoverageReason",
+    "JarvisNativeMessage",
     "JarvisTerminal",
+    "Progress",
     "RenderedTerminal",
     "TurnEvidence",
     "render_terminal",

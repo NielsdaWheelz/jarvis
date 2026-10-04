@@ -1,7 +1,7 @@
 # Production operations
 
 Jarvis is one CPython 3.12.13-or-later process within the 3.12 series,
-one PostgreSQL database, and one
+one PostgreSQL database, a separate contained native host, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
 is the exact v1 catalog in SPEC 7.3. The selected Main plan contains thirteen
 external/native reads and thirteen writes. Gmail send and shared, unknown-calendar, or
@@ -78,24 +78,23 @@ shared host boundary from the `dev-server` repository. An apply may report a
 deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
-That host convergence must also report one active operational `codex.runtime`
-identity, three healthy profile sockets, jarvis's private skid client file
-`/etc/jarvis/agent-client.json`, and the mode-02750 empty cognition parent. A differing active identity is an
-operator drain/restart action, never an ordinary-apply restart. Before the hard
-cut, stop Jarvis, drain every non-terminal Codex control action and old private
-provider session, then activate the shared services without killing manual tmux
-sessions or deleting native history.
+the host must provision the jarvis account, `codex-clients` group, the private
+skid client and the empty mode-02750 cognition parent. main and isolated cognition
+use a separate contained personal endpoint; the existing coding server is unchanged.
+install that host from the same immutable application release with
+`deploy/install-contained-host`. supply the explicit non-secret schema-4 mapping
+through `JARVIS_SOURCE_CODEX_HOST_CONFIG`; it names the development account, its
+existing personal account home, exact stock binary, client group and cognition
+parent. the installed mapping is `/etc/jarvis/codex-host.json`.
 
-Native Codex tracks latest stable during explicit host install/update (ADR 0042).
-the closed host mapping must be schema 3, retaining cognition fields and dropping
-`tmux`, `launcher_socket`, and profile `work_roots`; deploy it with this consumer.
-version-only apply leaves
-healthy servers running; normal crash recovery may load the newer binary.
-Record the installed CLI and each running server
-separately when qualifying; a config value is not observed runtime evidence.
-Planned shared-service restart requires an explicit operator decision and may
-interrupt turns. Upstream incompatibility fails closed until repaired; there is
-no version allowlist, automatic restart, or private fallback.
+the contained endpoint requires stock 0.160.0 and the provider-owned complete
+restricted model catalogue at HOST STARTUP. unsupported versions and missing
+startup policy fail before thread creation. per-thread overrides do not provide
+containment. catalogue updates require explicit qualification; this supersedes
+adr 0042's latest-stable rule for this endpoint only. the native host unit owns
+its private mount namespace and publishes only its relative socket alias at
+`/run/jarvis-contained/app-server.sock`. the worker receives no native credentials.
+no change to the shared coding daemon, rpc relay or copied account is involved.
 
 From a clean, committed Jarvis checkout, provision the dedicated database and
 transfer only the already-qualified private application state:
@@ -119,7 +118,7 @@ production settings, and installs root-owned mode-0600
 connector state and the stable installation identity without printing their
 values. Override its `JARVIS_SOURCE_*` paths only to name an equivalent private
 source. Codex authentication and native history remain exclusively in the
-three development-user account homes; never copy either into Jarvis state.
+authoritative personal development-user account home; never copy either into Jarvis state.
 
 remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.
@@ -145,9 +144,9 @@ activating it, then, with the service stopped and owner-paused, migrate in a
 systemd one-shot that injects the root-only environment after changing to the
 `jarvis` identity, select the release and start it:
 
-for an existing deployment, complete the
-[admission journal cutover](#admission-journal-cutover) before activation. the
-worker catalog switch follows the [skid-only cutover](#skid-only-worker-cutover).
+for an existing deployment, prepare a clean stop and the
+[native cutover](#native-cutover). install the contained host before activation;
+the worker catalog switch follows the [skid-only cutover](#skid-only-worker-cutover).
 
 ```sh
 deploy/install-release
@@ -166,68 +165,39 @@ repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
 builder caches. It refuses tracked changes.
 
-release retention is selected-only under
-[adr 0053](decisions/0053-retain-only-the-selected-release.md). before installation,
-older inactive releases are removed, keeping `/opt/jarvis/current` and at most
-the requested candidate. failed construction removes the new candidate.
-installation, activation and pruning hold `/opt/jarvis/.deploy.lock`, so cleanup
-cannot race another deployment command. after activation's startup checks pass,
-every other installed release is removed. no rollback or recovery copy is kept.
+release/contained-host installation, activation and pruning share
+`/opt/jarvis/.deploy.lock`. retain only the
+selected release and one temporary installation candidate; rebuild any discarded
+release from its exact commit. pruning checks both the running jarvis process and
+the contained host's loaded `ExecStart`. if that host still selects another
+release, cleanup refuses before deleting files. cleanly stop or install the host
+for the retained release before retrying; no extra rollback release is retained.
 
-to discard an abandoned candidate without activating anything, run
-`deploy/prune-releases` from the maintained checkout. it preserves the selected
-release even when the service is stopped, and refuses a missing or invalid
-`current` or a running service whose working directory differs from it.
+`activate-release FULL_GIT_COMMIT` never stops jarvis. it requires an installed
+release, regular root-owned environment files and a cleanly stopped service
+(`ActiveState=inactive`, `Result=success`, `MainPID=0`). it migrates the stopped
+database, runs the target's `cutover-native`, then read-only `check-activation`
+under the existing deployment lock. missing legacy files are correct after this
+cut; the scripts do not require or recreate them.
+before migration, activation requires the contained unit active and the selected
+release's read-only host qualifier to pass, including exact loaded release,
+stock version and startup catalogue. host installation remains a separate
+explicit stopped-application operation.
 
-`activate-release FULL_GIT_COMMIT` never stops Jarvis. It refuses, each with its
-own line, unless the release is installed, the three environment files exist and
-are not symlinks, `jarvis.service` shows `ActiveState=inactive`,
-`Result=success` and `MainPID=0`, `paused.json` reads exactly `{"paused": true,
-"schema_version": "jarvis-paused.v1"}`, and `admission.json` exists. It never
-initializes state. It then runs the target release's `jarvis check-activation`
-in a one-shot unit with `database-runtime.env`, `jarvis.env` and the
-`codex-clients` group, under the deployment lock and before migration. The check
-composes the target release's main plan exactly as `serve` does, from the live
-Codex model catalog, so a stopped Codex app-server blocks activation. It writes
-nothing. It classifies every `queued`, `awaiting_approval` and `executing`
-action and prints one content-free line per row, `action <id> <status> <tool>
-<verdict>`, one `turn <input id> incompatible` line per stale turn, then
-`activation check: compatible=N incompatible=N in_flight=N stale_turns=N`. a
-stale turn is an unprocessed, unparked input of jarvis's thread (the configured
-channel) whose recorded main decisions carry another definition fingerprint or a
-plan other than the target's main and scheduled-wake plans; other threads are
-never claimed and never counted: the kernel resumes a turn only under its recorded
-authority, so the target would park that input as a configuration error and
-open the cognitive circuit.
-An `executing` row is `in_flight`, whether entered, a claimed reminder, or
-approved but not entered. Any other row is `compatible` only when the target
-release loads it, its stored execution contract matches the target plan, a
-pending approval still renders, and a Gmail send still has its Jarvis draft
-basis; otherwise it is `incompatible` with `does_not_load`, `binding`, `render`
-or `gmail_basis`. Any `in_flight` or `incompatible` row, any stale turn, a deployment lock held
-by another process (`another jarvis process owns the deployment`), or a failed
-check refuses with `activation check did not pass; leave service stopped`.
-There is no override, cancellation, restamping or replay: compatible rows stay
-untouched for startup recovery, which revalidates them. A verdict holds only
-while the Codex catalog row and the environment stay unchanged; if either
-changes before `serve` starts, startup recovery's own validation runs and may
-cancel. A release that predates `check-activation` fails the one-shot and is
-refused, not skipped. A release that changes the `action` schema activates only
-with no unfinished actions, because the check runs before migration and every
-row then fails to load and the check fails. Other decisions and read positions
-are not inspected. It then
-migrates as `jarvis_migrator`, installs the
-selected release's own `deploy/jarvis.service` and reloads systemd, atomically
-changes `/opt/jarvis/current` and starts the service, which starts paused. A killed, crashed or timed-out stop is refused with
-`jarvis.service did not stop cleanly`; inspect it, then run `sudo systemctl
-reset-failed jarvis.service` explicitly before activating. A PostgreSQL advisory
-lock makes a second process fail rather than overlap.
+cutover validates original entered work before converting proven unentered
+legacy authority. pending approvals receive fresh consent; queued writes re-enter
+the current gate. unknown effects or paid reads refuse cutover. canonical pause
+lives in postgres. `check-activation` rejects incompatible unfinished authority,
+entered uncertainty and stale active contracts; deliverable historical resolutions
+and known terminal facts remain readable by paused startup. it does not require
+an empty outbox. the target then installs its unit, selects the immutable release
+and starts paused. ingress and outbox recovery precede an explicit owner resume.
 
-a fresh deployment is a separate manual procedure outside `activate-release`:
-after migration, run `jarvis initialize-state` once in the same systemd one-shot
-shape with `database-runtime.env` and `jarvis.env`, then install the unit, select
-the release and start it by hand. initialized state is unpaused, which
-`activate-release` rejects by design.
+for a fresh database, migrate and run `jarvis initialize-state` once under the
+runtime identity/environment. this creates canonical paused state, with no
+provider call or action. repeated initialization refuses rather than resetting
+existing requests. activation uses the same pause check. never edit database
+request rows or synthesize an empty execution journal to bypass a failed check.
 
 `verify-containment` runs after activation without printing secret values. It
 proves the three environment files are root-owned mode 0600 and unreadable by
@@ -257,104 +227,27 @@ action ledger contains no `queued`, `awaiting_approval`, or `executing` row made
 under the predecessor identity. A terminal historical action remains evidence
 and is never rewritten.
 
+## native cutover
+
+pause the existing owner task, reconcile entered effects and paid reads, and stop
+the service cleanly. preserve a local pre-cutover database/state copy. install the
+qualified target and separate contained host, then activate as above. an entered
+unknown action cannot be made safe by stopping its reasoning or deleting its
+record. main's original requests, action receipts and historical observations
+remain canonical throughout cutover.
+
+migration 0005 creates the native request/attempt/invocation tables. the stopped
+`cutover-native` command imports the old deployment pause, cancels only proven
+unentered legacy authority and removes the replaced local session/pause/admission
+files. no new acceptance evidence is invented for old records. a partial or
+unresolved legacy state refuses and stays stopped.
+
 ## admission journal cutover
 
-startup and manual dreaming accept only the current admission configuration
-under [adr 0047](decisions/0047-require-current-admission-journals.md). before
-activating this cut, validate or normalize the stopped deployment's journal
-through release `51f62c86322a66224d1576395b5795ae823c1f75`.
-
-if absent, run `deploy/install-release 51f62c86322a66224d1576395b5795ae823c1f75`
-from the clean maintained checkout. its current deployment commands enforce
-retention and do not overwrite the service unit during installation. never run a
-historical installer, activate the transitional release, or run its service or
-dream command.
-
-this is a temporary migration candidate. rebuild it when absent and discard it
-after preparation under the selected-only retention policy.
-
-run the following on the deployment host through an operator allowed to use
-sudo. it reads only the configured database url, runtime directory and batch
-size; keep those settings unchanged through target activation. the existing
-normalizer preserves identities and expiry, enlarges predecessor reservations
-conservatively, and leaves settled actual usage intact. orphan recovery releases
-only live slots; ordinary rolling-window expiry still applies. no provider or
-connector is constructed.
-
-```sh
-prior_release=/opt/jarvis/releases/51f62c86322a66224d1576395b5795ae823c1f75
-sudo test -f "$prior_release/RELEASE.json" &&
-sudo systemctl stop jarvis.service &&
-sudo flock /opt/jarvis/.deploy.lock systemd-run --quiet --wait --pipe --collect \
-  --unit=jarvis-admission-cutover \
-  --property=Type=oneshot \
-  --property=User=jarvis \
-  --property=Group=jarvis \
-  --property="WorkingDirectory=$prior_release" \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-  "$prior_release/.venv/bin/python" - <<'PY'
-import asyncio
-import os
-from pathlib import Path
-
-from jarvis.admission import (
-    RollingAdmissionPort,
-    current_admission_limits,
-    pre_agent_control_slice6_admission_limits,
-    pre_all_calendar_slice6_admission_limits,
-    slice5_admission_limits,
-)
-from jarvis.db import create_engine
-from jarvis.ownership import deployment_ownership
-from jarvis.process_security import deny_same_identity_process_inspection
-
-
-async def prepare():
-    deny_same_identity_process_inspection()
-    directory = Path(os.environ["JARVIS_RUNTIME_STATE_DIRECTORY"])
-    batch = int(os.environ.get("JARVIS_MAXIMUM_BATCH_SIZE", "20"))
-    if not directory.is_absolute() or not 1 <= batch <= 100:
-        raise ValueError("invalid admission configuration")
-    path = directory / "admission.json"
-    limits = current_admission_limits(batch)
-    engine = create_engine(os.environ["JARVIS_DATABASE_URL"])
-    try:
-        async with deployment_ownership(engine):
-            RollingAdmissionPort.migrate_limits(
-                path,
-                previous=(
-                    pre_agent_control_slice6_admission_limits(batch),
-                    pre_all_calendar_slice6_admission_limits(batch),
-                    slice5_admission_limits(batch),
-                ),
-                current=limits,
-            )
-            await RollingAdmissionPort(path, limits).recover_orphans()
-    finally:
-        await engine.dispose()
-
-
-try:
-    asyncio.run(prepare())
-except Exception:
-    raise SystemExit("admission preparation failed; leave service stopped") from None
-print("admission journal current; orphan slots released without refund")
-PY
-```
-
-continue with target activation only after success. an unknown, missing or corrupt
-journal leaves the service stopped for investigation. do not reset, delete or
-replace it with an empty journal to bypass this prerequisite. repository checks
-and synthetic fixtures do not establish that the private deployment journal is
-ready; the outstanding deployment work is tracked in
-[admission journal cutover](issues/admission-journal-cutover.md).
-
-after successful preparation, discard the temporary normalizer with
-`deploy/prune-releases` from the maintained checkout, then install the target
-release normally. the selected release and private journal remain intact.
-`deploy/activate-release` installs the selected release's unit and reloads
-systemd.
+historical: adr 0047's rolling-capacity journal and transitional normalizer are
+retired by the native cutover. do not install the normalizer or recreate
+`admission.json`. native admission uses current ownership, not cumulative usage
+reservations. isolated roles retain their actual operation limits.
 
 ## herdr cutover (pr 4)
 
@@ -368,23 +261,17 @@ adr 0049 retains historical evidence; its ssh gate must not be installed again.
 
 ## skid-only worker cutover
 
-[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) owns the installed
-baseline; [adr 0064](decisions/0064-simple-worker-orchestration.md) defines the next
-paired worker cutover. audit defects are corrected; the paired spec records local
-source/provider/postgres qualification. stage source and private inputs before
-activation. no private
-cognition server is authorized; repair of the missing existing shared app server
-is a separate follow-up. jarvis may remain down while worker source and herdr
-retirement proceed. production activation and service probes remain `NOT_RUN`
-until their boundaries can be exercised. isolated local native cognition is
-qualified; it does not prove the stopped production deployment repaired.
+[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) changes the entire
+main catalog/plan. stage source and private inputs before activation. the accepted native cutover adds the separate contained cognition endpoint.
+worker source and herdr retirement do not qualify that endpoint or production
+activation. actual deployment remains separately authorized and verified.
 
 1. use the existing owner pause control. old code must settle or explicitly
    reconcile every nonterminal action, finish or park unfinished turns, materialize
    required action resolutions, and drain their processing and delivery. discard
    permission applies only to herdr workers, never unrelated actions or approvals.
 2. cooperatively stop jarvis. require systemd ActiveState=inactive, Result=success,
-   MainPID=0 and the prepared runtime paused.json with paused=true. a failed or
+   MainPID=0 and canonical postgres pause. a failed or
    killed stop needs operator inspection; activation never stops the service.
 3. stage the admitted devbox skid artifact through dev-server; its root cli and
    gateway share artifact/pin. changing either cli bytes or client configuration
@@ -407,10 +294,11 @@ qualified; it does not prove the stopped production deployment repaired.
    connector private state also needs installation. `deploy/verify-agent-client`
    qualifies all three peers as the service identity while jarvis is stopped;
    it does not require cognition to be running.
-5. `deploy/activate-release COMMIT` runs read-only check-activation under the
-   deployment lock. incompatible/in-flight actions, stale turns, unmaterialized
-   action resolutions, pending resolution processing or delivery refuse activation.
-   finalized old worker rows remain raw opaque archives; no codec or replay exists.
+5. `deploy/activate-release COMMIT` migrates, runs stopped native cutover and
+   checks compatibility under the deployment lock. incompatible active authority
+   and entered uncertainty refuse. known historical terminal resolutions and new
+   native approvals remain deliverable by paused startup. finalized old worker
+   rows remain opaque archives; no legacy decoder or replay exists.
 6. before an explicitly requested resume, run `deploy/verify-containment`. it
    checks regular-file owners/modes, ProtectHome and each production gateway via
    read-only skid list as jarvis under the restrictions governing file access and
@@ -502,19 +390,25 @@ suspended pending the [testing redesign](issues/testing-redesign.md). dated
 qualification reports in git remain evidence for their recorded revisions;
 static and build success does not establish current behavioral qualification.
 
+the owner separately authorized temporary native integration/live proofs under
+adr 0065. use the [current native acceptance](acceptance.md#native-cutover-acceptance)
+and its exact installed evidence; delete those feature probes after final green.
+this exception restores no retired suite or unrun production acceptance.
+
 ## shared runtime and fleet control
 
-Main retains its compatible native thread across owner requests and process
-restarts; Codex owns automatic compaction (ADR 0043). Jarvis does not expire
-references by generation or estimate retained history from billing counters.
-Per-request and rolling budgets still apply. An oversized continuation can fail
-at the native context boundary; existing failure/reconstruction handling does
-not authorize replay of an unknown paid decision or effect.
+main retains a compatible live native thread until it ends, is stopped or loses
+its connection/owner. connection loss fences old callbacks, then restarts reasoning
+from canonical requests and durable results in a fresh thread. recorded effects
+remain authoritative; unresolved action/read outcomes retain their barriers.
+provider history is disposable. a sealed original terminal is settled locally
+before current model/plan reconstruction, with current request/publication fences.
 
-set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/codex-shared/profiles.json`; that root-owned
-mapping must name the running shared services and exact mode-02750 cognition
-parent. never copy Codex authentication into the checkout or process environment,
-and never start a private app server for jarvis.
+set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json`. the schema-4
+root-owned mapping names only the contained personal endpoint and the mode-02750
+cognition parent. no native authentication belongs in jarvis state or environment.
+main has no arbitrary elapsed cutoff or cumulative model/tool quota. per-operation
+bounds, finite callback queues and owner stop still apply.
 
 peer agent control uses `/usr/local/libexec/skidbladnir` (regular root:root 0755)
 and `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by
@@ -627,25 +521,20 @@ terminal `uncertain` and produces the ordinary idempotent action-resolution mess
 value. Operators must inspect Gmail before choosing to make a later, distinct
 owner-requested action; recovery never requeues the original create.
 
-Startup then performs bounded Discord catch-up, retries persisted assistant rows
-whose `source_message_id` is null, releases orphaned admission concurrency
-without refunding its rolling charge, and scans unprocessed, unparked waking
-rows. A compatible main-session reference is resumed. A missing, incompatible,
-or invalid provider session cold-bootstraps from canonical message history.
+startup fences old native callback owners and settles original sealed terminals
+locally before new cognition. it then performs bounded Discord catch-up, retries
+persisted outbox rows with null `source_message_id`, and scans canonical pending,
+unparked requests and host facts. reasoning uses a fresh native session from
+canonical context and original action/read receipts; unknown entered work cannot
+redispatch. there is no saved main-session reference or rolling charge.
 After foreground work yields, the background worker boundedly retries completed,
 unremembered owner groups and null embeddings. It groups normal rows by their
 shared settlement identity and falls back to one owner row only when old or
-damaged trace cannot establish a group. Background admission delay is silent;
-the service schedules the next capacity reset rather than requiring new owner
-traffic. Host action-resolution and scheduled-wake rows are never memory-work
-targets.
-
-Production rolling admission holds two complete worst-case foreground
-envelopes plus one Rememberer allowance in each six-hour window. This lets one
-full reservation coexist with up to one foreground envelope of already-settled
-actual use. only the current journal configuration is accepted. an older journal
-requires the stopped [admission journal cutover](#admission-journal-cutover).
-preserve charged capacity rather than guessing or deleting its evidence.
+damaged trace cannot establish a group. background work waits for the serial
+lane and requires its current-owner permit; no capacity-reset timer exists.
+host action-resolution and scheduled-wake rows are never memory-work targets.
+isolated roles retain finite invocation/tool bounds; main has no cumulative
+model/tool quota or arbitrary elapsed cutoff.
 
 An undelivered approval outbox row remains pending with null
 `source_message_id`; startup rerenders it from the action and reuses the same
@@ -682,8 +571,9 @@ host. `resume` clears the durable pause. Ordinary process termination cannot
 undo an external effect; Jarvis reconciles effectful action rows before any
 repeat.
 
-The production service is now always-on. Final v1 sign-off remains separate
-until the owner completes the seven-day personal acceptance criteria.
+the historical deployment report records that release's always-on service.
+native host installation/activation and the seven-day owner acceptance require
+their own actual receipts; source or local topology proof establishes neither.
 
 If a configuration defect parks input, first stop the service and correct the
 defect. Then clear only the reviewed UUIDs while the command owns the deployment
@@ -696,12 +586,10 @@ jarvis release-parked MESSAGE_ID [MESSAGE_ID ...]
 This does not reset `processing_attempts` and does not arm hidden successor
 work. Never edit `trace` to control scheduling.
 
-If the admission journal is missing or corrupt,
-Jarvis fails closed. With the service stopped, preserve the bad journal for
-diagnosis, verify that no cognitive process owns the deployment, and explicitly
-replace only `admission.json` with a freshly initialized journal using the same
-checked-in limits. Do not delete the session reference, pause state, or database
-rows as part of that repair.
+if canonical request/attempt state is corrupt, stop admission and inspect its
+original records. preserve receipts and unresolved barriers. never reset a paid
+attempt, action or request to make it look undispatched. there is no rolling
+admission file to repair.
 
 ## Data durability and logs
 
@@ -719,7 +607,7 @@ invent or provision one. Loss or unrecoverable corruption of the devbox, its
 disk, or the Jarvis database can permanently lose conversation, memory, action,
 and runtime state. This is an explicit one-user-prototype trade-off. Add backup
 as a later slice when retained production state justifies its operational and
-qualification cost; doing so does not require changing the six application
+qualification cost; doing so does not require changing the nine application
 tables.
 
 Ordinary logs contain event types, bounded IDs, counts, and reason codes

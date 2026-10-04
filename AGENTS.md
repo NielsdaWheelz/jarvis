@@ -9,6 +9,12 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
+  native main, request/control journals, owner-permit admission and separate
+  contained stock endpoint. it supersedes affected step/session/rolling-capacity
+  rules below; isolated role contracts remain. its temporary integration/live
+  checks are the scoped testing exception. adr 0064's worker tools use the same
+  native dispatch lane and immutable action capture; no retired thread loop.
 - adr 0053 retains only the selected deployment release and one temporary
   installation candidate. do not keep rollback or migration releases indefinitely.
 - adr 0046 governs the owner-approved testing reset. all previous test and

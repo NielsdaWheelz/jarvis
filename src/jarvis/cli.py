@@ -13,29 +13,16 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
-from llm_agent_kernel import (
-    AdmissionGranted,
-    AdmissionRequest,
-    AdmissionToken,
-    AdmissionUsage,
-    CancellationToken,
-    ProviderUsage,
-    RunId,
-    ThreadId,
-)
+from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 from provider_runtime.agent_runtime import AgentRuntime
 from sqlalchemy import text
 
 from jarvis.actions import ActionPersistenceDefect, ActionStore
-from jarvis.admission import (
-    RollingAdmissionPort,
-    RootTrackingAdmissionPort,
-    current_admission_limits,
-)
+from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.approval import ApprovalRenderError, render_approval
 from jarvis.approval_runtime import (
@@ -65,13 +52,18 @@ from jarvis.memory import MemoryStore
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_retrieval import PostgresMemoryRepository
 from jarvis.memory_tools import compose_memory_catalog
-from jarvis.memory_workers import (
-    BackgroundDeferred,
-    DreamerRunCompleted,
-    DreamerWorker,
-    RemembererWorker,
-)
+from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, RemembererWorker
 from jarvis.messages import MessageStore
+from jarvis.native_cutover import (
+    cutover_native,
+    require_native_data,
+    require_native_files,
+)
+from jarvis.native_runtime import (
+    NativeRunner,
+    native_receipt_context,
+    recover_native_products,
+)
 from jarvis.ownership import (
     Database,
     DeploymentAlreadyOwned,
@@ -85,13 +77,11 @@ from jarvis.rebuild import (
     DerivedMemoryCorpusRebuild,
     DreamMutationProgress,
     PostgresRebuildStore,
-    corpus_rebuild_admission_limits,
     rebuild_memory_corpus,
 )
 from jarvis.service import JarvisService
 from jarvis.settings import Settings
 from jarvis.state import PausedState
-from jarvis.thread_runtime import JarvisThreadRunner
 from jarvis.tool_composition import ToolComposition, build_tool_composition
 from jarvis.write_dispatch import (
     ActionRecovery,
@@ -123,7 +113,7 @@ async def _isolated_memory_runtime(
     settings: Settings,
     host: CodexHostConfig,
     engine: Database,
-    admission: RootTrackingAdmissionPort,
+    owner: JarvisOwner,
 ) -> AsyncIterator[_IsolatedMemoryRuntime]:
     async with httpx.AsyncClient(
         trust_env=False,
@@ -153,7 +143,6 @@ async def _isolated_memory_runtime(
             kernel = build_kernel_runtime(
                 runtime=agent_runtime,
                 shared_cwd_parent=Path(host.cognition_cwd_parent),
-                session_ref_path=settings.session_reference_path,
             )
         except BaseException:
             await agent_runtime.close()
@@ -163,7 +152,7 @@ async def _isolated_memory_runtime(
                 dreamer=DreamerWorker(
                     definition=definition,
                     plan=plan,
-                    admission=admission,
+                    owner=owner,
                     provider=kernel.provider,
                     model_decisions=lambda evidence: PostgresModelDecisionJournal(
                         engine, evidence=evidence
@@ -211,8 +200,8 @@ def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
 
 
-def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
-    """Create the private, content-free durable host state exactly once."""
+async def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
+    """Prepare private provider state and a canonical fresh deployment pause."""
 
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     directory = settings.runtime_state_directory
@@ -223,13 +212,18 @@ def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
             directory.mkdir(mode=0o700)
         except OSError as exc:
             raise StartupDefect("runtime state directory could not be created") from exc
-    if settings.paused_state_path.exists() or settings.admission_journal_path.exists():
-        raise StartupDefect("private host state is already initialized")
-    PausedState.initialize(settings.paused_state_path)
-    RollingAdmissionPort.initialize(
-        settings.admission_journal_path,
-        current_admission_limits(settings.maximum_batch_size),
-    )
+    require_native_files(directory)
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await require_native_data(
+                database, conversation_id=str(settings.discord.channel_id)
+            )
+            await MessageStore(database).initialize_paused(
+                str(settings.discord.channel_id)
+            )
+    finally:
+        await engine.dispose()
 
 
 async def recover_startup_actions(
@@ -352,24 +346,19 @@ async def _serve(
 
     deny_same_identity_process_inspection()
     _validate_runtime_layout(settings, host)
+    require_native_files(settings.runtime_state_directory)
     engine = create_engine(settings.database_url.get_secret_value())
     agent_runtime = None
     kernel_runtime = None
     try:
         async with deployment_ownership(engine) as database:
             try:
-                admission_store = RollingAdmissionPort(
-                    settings.admission_journal_path,
-                    current_admission_limits(settings.maximum_batch_size),
-                )
-                recovered = await admission_store.recover_orphans()
-                if recovered:
-                    LOGGER.warning(
-                        "Recovered interrupted admission slots: count=%d",
-                        len(recovered),
-                    )
-                paused = PausedState(settings.paused_state_path)
-                await paused.is_paused()
+                store = MessageStore(database)
+                owner = JarvisOwner(database, str(settings.discord.channel_id))
+                await require_native_data(database, conversation_id=owner.scope_id)
+                recovered_inputs = await recover_native_products(owner)
+                paused = PausedState(store, owner.scope_id)
+                dispatch_lane = asyncio.Lock()
                 async with AsyncExitStack() as clients:
                     google_oauth_http = await clients.enter_async_context(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
@@ -414,9 +403,7 @@ async def _serve(
                     kernel_runtime = build_kernel_runtime(
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
-                        session_ref_path=settings.session_reference_path,
                     )
-                    admission = RootTrackingAdmissionPort(admission_store)
 
                     def model_decisions(
                         evidence: ModelEvidence | None,
@@ -426,19 +413,18 @@ async def _serve(
                     def memory_dispatcher() -> MemoryToolDispatcher:
                         return MemoryToolDispatcher(PostgresReadRecorder(database))
 
-                    store = MessageStore(database)
                     history = PostgresCanonicalHistory(database)
                     gate = AutomaticWriteGate(
                         definition=definitions.automatic_write_gate,
                         plan=definitions.plans["automatic_write_gate"],
-                        admission=admission,
+                        owner=owner,
                         provider=kernel_runtime.provider,
                         model_decisions=model_decisions,
                     )
                     rememberer = RemembererWorker(
                         definition=definitions.rememberer,
                         plan=definitions.plans["rememberer"],
-                        admission=admission,
+                        owner=owner,
                         provider=kernel_runtime.provider,
                         model_decisions=model_decisions,
                         dispatcher_factory=memory_dispatcher,
@@ -447,26 +433,32 @@ async def _serve(
                         embedder=embedder,
                         maximum_messages_per_group=settings.maximum_batch_size,
                     )
+                    if recovered_inputs:
+                        context = await native_receipt_context(owner)
+                        for identifier in recovered_inputs:
+                            rememberer.enqueue((identifier,), context)
                     dreamer = DreamerWorker(
                         definition=definitions.dreamer,
                         plan=definitions.plans["dreamer"],
-                        admission=admission,
+                        owner=owner,
                         provider=kernel_runtime.provider,
                         model_decisions=model_decisions,
                         dispatcher_factory=memory_dispatcher,
                         memory=memory,
                     )
-                    runner = JarvisThreadRunner(
+                    runner = NativeRunner(
                         settings=settings,
                         store=store,
-                        admission=admission,
+                        owner=owner,
                         kernel_runtime=kernel_runtime,
                         model_decisions=model_decisions,
                         definitions=definitions,
                         history=history,
+                        actions=actions,
                         dispatcher_factory=lambda checkpoint: (
                             WriteToolDispatcher(
                                 checkpoint=checkpoint,
+                                dispatch_lane=dispatch_lane,
                                 gate=gate,
                                 actions=actions,
                                 google_write=composition.google_write,
@@ -519,6 +511,34 @@ async def _serve(
                         plan=definitions.plans["main"],
                         source_conversation_id=str(settings.discord.channel_id),
                     )
+                    approval_disabler = ApprovalRecoveryDisabler(
+                        actions=actions,
+                        discord=discord_delivery,
+                    )
+
+                    async def disable_stopped_approvals() -> None:
+                        async with database.connect() as connection:
+                            ids = tuple(
+                                (
+                                    await connection.execute(
+                                        text(
+                                            "select a.id from action a join message m "
+                                            "on m.id = a.approval_message_id "
+                                            "where a.status = 'cancelled' "
+                                            "and a.result->>'reason_code' "
+                                            "= 'owner_stopped' "
+                                            "and m.source_conversation_id = :scope "
+                                            "and m.source_message_id is not null"
+                                        ),
+                                        {"scope": owner.scope_id},
+                                    )
+                                ).scalars()
+                            )
+                        for identifier in ids:
+                            stored = await actions.get(identifier)
+                            assert stored is not None
+                            await approval_disabler(stored)
+
                     service = JarvisService(
                         settings=settings,
                         store=store,
@@ -532,6 +552,8 @@ async def _serve(
                         action_recovery=action_recovery,
                         agent_waits=agents,
                         approval_handler=approval_handler,
+                        dispatch_lane=dispatch_lane,
+                        disable_stopped_approvals=disable_stopped_approvals,
                     )
                     wake_timer = ProcessLocalWakeTimer(
                         store=actions,
@@ -596,12 +618,68 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
         await engine.dispose()
 
 
+async def stopped_native_cutover(settings: Settings, host: CodexHostConfig) -> int:
+    """Convert the stopped deployment before native activation."""
+    _validate_runtime_layout(settings, host)
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            async with httpx.AsyncClient(
+                trust_env=False, follow_redirects=False
+            ) as http:
+                runtime = build_agent_runtime(
+                    provider_state_root=settings.runtime_state_directory,
+                    codex_endpoints=host.endpoints,
+                )
+                try:
+                    _, definitions, _ = await _compose_main(
+                        settings=settings,
+                        agent_runtime=runtime,
+                        actions=ActionStore(database),
+                        memory_repository=PostgresMemoryRepository(database),
+                        embedder=OpenAIEmbedder(
+                            settings.embedding_openai_api_key, http_client=http
+                        ),
+                        google_oauth_http=http,
+                        google_api_http=http,
+                        maps_http=http,
+                        brave_http=http,
+                    )
+                    return await cutover_native(
+                        database,
+                        directory=settings.runtime_state_directory,
+                        conversation_id=str(settings.discord.channel_id),
+                        plan=definitions.plans["main"],
+                    )
+                finally:
+                    await runtime.close()
+    finally:
+        await engine.dispose()
+
+
+async def _require_paused(database: Database, settings: Settings) -> None:
+    require_native_files(settings.runtime_state_directory)
+    scope = str(settings.discord.channel_id)
+    await require_native_data(database, conversation_id=scope)
+    if not await MessageStore(database).paused(scope):
+        raise StartupDefect("activation requires a canonical deployment pause")
+
+
+async def check_paused(settings: Settings) -> None:
+    """Check stopped canonical pause without opening a provider or connector."""
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await _require_paused(database, settings)
+    finally:
+        await engine.dispose()
+
+
 async def check_activation(
     settings: Settings,
     host: CodexHostConfig,
-) -> tuple[tuple[tuple[UUID, str, str, str], ...], tuple[UUID, ...]]:
-    """Classify each unfinished action against this release's plan and find the
-    turns it could not resume; read-only."""
+) -> tuple[tuple[UUID, str, str, str], ...]:
+    """Classify unfinished execution authority; read-only."""
 
     deny_same_identity_process_inspection()
     engine = create_engine(settings.database_url.get_secret_value())
@@ -610,6 +688,7 @@ async def check_activation(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
+            await _require_paused(database, settings)
             actions = ActionStore(database)
             agent_runtime = build_agent_runtime(
                 provider_state_root=settings.runtime_state_directory,
@@ -640,78 +719,25 @@ async def check_activation(
                                 "select id, status, tool_name from action "
                                 "where status = any(:statuses) order by created_at, id"
                             ),
-                            {"statuses": ["queued", "awaiting_approval", "executing"]},
-                        )
-                    ).all()
-                    # the kernel resumes a turn of jarvis's thread only under its
-                    # recorded definition and plan; any other parks the input and
-                    # opens the circuit. other threads are never claimed here.
-                    stale_turns = tuple(
-                        (
-                            await connection.execute(
-                                text(
-                                    "select distinct d.first_input_id "
-                                    "from model_decision d "
-                                    "join message m on m.id = d.first_input_id "
-                                    "where d.thread_id = :thread "
-                                    "and m.processed_at is null "
-                                    "and m.processing_parked_at is null "
-                                    "and (d.request->>'definition_fingerprint' "
-                                    "<> :definition "
-                                    "or d.request->>'plan_revision' <> all(:plans)) "
-                                    "order by 1"
-                                ),
-                                {
-                                    "thread": str(settings.discord.channel_id),
-                                    "definition": definitions.main.fingerprint,
-                                    "plans": [
-                                        plan.plan_revision,
-                                        definitions.plans[
-                                            "scheduled_wake"
-                                        ].plan_revision,
-                                    ],
-                                },
-                            )
-                        ).scalars()
-                    )
-                # A catalog cut cannot strand an old resolution or its delivery.
-                # Existing messages stay canonical; this check only reports IDs.
-                unreported = await actions.unreported_terminal(
-                    source_conversation_id=str(settings.discord.channel_id), limit=100
-                )
-                async with database.connect() as connection:
-                    undrained = (
-                        await connection.execute(
-                            text(
-                                "select id, role from message where "
-                                "(role = 'assistant' and source_message_id is null) or "
-                                "(source = 'action' and processed_at is null) "
-                                "order by created_at, id"
-                            )
+                            {
+                                "statuses": [
+                                    "queued",
+                                    "awaiting_approval",
+                                    "executing",
+                                    "uncertain",
+                                ]
+                            },
                         )
                     ).all()
                 verdicts: list[tuple[UUID, str, str, str]] = []
                 for action_id, status, tool_name in unfinished:
                     verdict = (
                         "in_flight"
-                        if status == "executing"
+                        if status in {"executing", "uncertain"}
                         else await _pending_action_verdict(actions, plan, action_id)
                     )
                     verdicts.append((action_id, status, tool_name, verdict))
-                verdicts.extend(
-                    (
-                        value.id,
-                        value.status,
-                        str(value.tool_name),
-                        "undrained_resolution",
-                    )
-                    for value in unreported
-                )
-                verdicts.extend(
-                    (identifier, role, "message", "undrained_delivery_or_resolution")
-                    for identifier, role in undrained
-                )
-                return tuple(verdicts), stale_turns
+                return tuple(verdicts)
             finally:
                 await agent_runtime.close()
     finally:
@@ -735,7 +761,7 @@ async def _pending_action_verdict(
         binding = require_current_action_binding(stored, plan)
     except RuntimeError:
         return "incompatible binding"
-    value = binding.spec.input_type.model_validate(stored.arguments)
+    value = binding.spec.input_type.model_validate(stored.arguments).arguments
     if stored.status == "awaiting_approval":
         try:
             render_approval(stored.id, stored.tool_name, value)
@@ -762,25 +788,16 @@ async def dream_once(
         async with deployment_ownership(engine) as database:
             if await MemoryStore(database).raw_memory_count() == 0:
                 return None
-            limits = current_admission_limits(settings.maximum_batch_size)
-            admission_store = RollingAdmissionPort(
-                settings.admission_journal_path,
-                limits,
-            )
-            await admission_store.recover_orphans()
-            admission = RootTrackingAdmissionPort(admission_store)
             async with _isolated_memory_runtime(
                 settings=settings,
                 host=host,
                 engine=database,
-                admission=admission,
+                owner=JarvisOwner(database, "jarvis-memory"),
             ) as runtime:
                 outcome = await runtime.dreamer.run_at(
                     as_of=datetime.now(UTC),
                     cancellation=CancellationToken(),
                 )
-            if isinstance(outcome, BackgroundDeferred):
-                raise RuntimeError("manual dream is deferred by rolling admission")
             if not isinstance(outcome, DreamerRunCompleted):
                 raise RuntimeError("manual dream did not complete")
             return outcome
@@ -794,50 +811,20 @@ async def rebuild_memory(
 ) -> DerivedMemoryCorpusRebuild:
     """Rebuild the deployment's derived memory while the service is stopped."""
     _validate_runtime_layout(settings, host)
-    limits = corpus_rebuild_admission_limits()
-    journal_path = settings.runtime_state_directory / "memory-rebuild-admission.json"
     engine = create_engine(settings.database_url.get_secret_value())
-    root: AdmissionToken | None = None
-    admission: RootTrackingAdmissionPort | None = None
-    operation_failed = False
     try:
         async with deployment_ownership(engine) as database:
-            if not journal_path.exists():
-                RollingAdmissionPort.initialize(journal_path, limits)
-            admission_store = RollingAdmissionPort(journal_path, limits)
-            recovered = await admission_store.recover_orphans()
-            if recovered:
-                LOGGER.warning(
-                    "Recovered interrupted rebuild admission slots: count=%d",
-                    len(recovered),
-                )
-            admission = RootTrackingAdmissionPort(admission_store)
-            reserved = await admission.reserve(
-                AdmissionRequest(
-                    RunId(str(uuid4())),
-                    ThreadId("jarvis-stopped-memory-rebuild"),
-                    1,
-                    1,
-                    1,
-                    1,
-                )
-            )
-            if not isinstance(reserved, AdmissionGranted):
-                raise RuntimeError("stopped rebuild admission is unavailable")
-            root = reserved.token
             async with _isolated_memory_runtime(
                 settings=settings,
                 host=host,
                 engine=database,
-                admission=admission,
+                owner=JarvisOwner(database, "jarvis-memory"),
             ) as runtime:
 
                 async def dream(as_of: datetime) -> DreamMutationProgress:
-                    assert root is not None
                     outcome = await runtime.dreamer.run_at(
                         as_of=as_of,
                         cancellation=CancellationToken(),
-                        parent_admission=root,
                     )
                     if not isinstance(outcome, DreamerRunCompleted):
                         raise RuntimeError("rebuild dreamer did not complete")
@@ -846,30 +833,14 @@ async def rebuild_memory(
                         len(outcome.removed_summary_ids),
                     )
 
-                result = await rebuild_memory_corpus(
+                return await rebuild_memory_corpus(
                     store=PostgresRebuildStore(database),
                     embedder=runtime.embedder,
                     dream_once=dream,
                     maximum_memory_rows=_MAXIMUM_REBUILD_MEMORY_ROWS,
                     as_of=datetime.now(UTC),
                 )
-        return result
-    except BaseException:
-        operation_failed = True
-        raise
     finally:
-        if root is not None and admission is not None:
-            try:
-                await admission.settle(
-                    root,
-                    AdmissionUsage(0, ProviderUsage(), 0.0),
-                )
-            except BaseException:
-                if not operation_failed:
-                    raise
-                LOGGER.warning(
-                    "Rebuild admission settlement also failed; recovery is required"
-                )
         await engine.dispose()
 
 
@@ -878,9 +849,13 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the Jarvis Discord service")
     commands.add_parser("initialize-state", help="initialize private host state")
+    commands.add_parser("check-paused", help="check the stopped canonical pause")
     commands.add_parser(
         "check-activation",
         help="check unfinished actions against this release while stopped",
+    )
+    commands.add_parser(
+        "cutover-native", help="convert stopped legacy state for native activation"
     )
     commands.add_parser("dream", help="run one isolated dream while stopped")
     commands.add_parser(
@@ -905,26 +880,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "serve":
             asyncio.run(serve(settings, host))
         elif arguments.command == "initialize-state":
-            initialize_state(settings, host)
+            asyncio.run(initialize_state(settings, host))
+        elif arguments.command == "check-paused":
+            asyncio.run(check_paused(settings))
+            print("canonical deployment pause confirmed")
+        elif arguments.command == "cutover-native":
+            count = asyncio.run(stopped_native_cutover(settings, host))
+            print(f"native cutover completed: converted_actions={count}")
         elif arguments.command == "check-activation":
             try:
-                verdicts, stale_turns = asyncio.run(check_activation(settings, host))
+                verdicts = asyncio.run(check_activation(settings, host))
             except DeploymentAlreadyOwned:
                 print("another jarvis process owns the deployment")
                 return 1
             for action_id, status, tool_name, verdict in verdicts:
                 print(f"action {action_id} {status} {tool_name} {verdict}")
-            for input_id in stale_turns:
-                print(f"turn {input_id} incompatible")
             compatible = sum(verdict == "compatible" for *_, verdict in verdicts)
             in_flight = sum(verdict == "in_flight" for *_, verdict in verdicts)
             incompatible = len(verdicts) - compatible - in_flight
             print(
                 f"activation check: compatible={compatible} "
-                f"incompatible={incompatible} in_flight={in_flight} "
-                f"stale_turns={len(stale_turns)}"
+                f"incompatible={incompatible} in_flight={in_flight}"
             )
-            if compatible != len(verdicts) or stale_turns:
+            if compatible != len(verdicts):
                 return 1
         elif arguments.command == "dream":
             result = asyncio.run(dream_once(settings, host))
@@ -963,10 +941,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 __all__ = [
     "StartupDefect",
     "check_activation",
+    "check_paused",
     "dream_once",
     "initialize_state",
     "main",
     "rebuild_memory",
     "release_parked",
     "serve",
+    "stopped_native_cutover",
 ]

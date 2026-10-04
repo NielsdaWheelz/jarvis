@@ -40,8 +40,9 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 ## current position and immediate work
 
-v1 has six application tables. accepted universal memory adds three; the later
-work slice adds one. derive migration dependencies from the actual predecessor;
+the native cutover has nine application tables: the original six plus three
+native journal tables. accepted universal memory adds three; the later work
+slice adds one. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
 [adr 0064](decisions/0064-simple-worker-orchestration.md) is the owner-approved
@@ -52,9 +53,10 @@ qualification. the audit defects are corrected; the paired spec records current
 source/provider/postgres evidence and remaining installed cutover dependencies.
 recorded source/client work does
 not establish current cognition activation. the latest
-[shared-cognition issue](issues/codex-private-process.md) records jarvis disabled,
-stopped and durably paused on 2026-09-29. confirm live state before deployment;
-use the owner's same stock app-server, not a private replacement or retired broker.
+[cognition activation issue](issues/codex-private-process.md) records jarvis
+disabled, stopped and durably paused on 2026-09-29. confirm live state before
+deployment. adr 0065 selects a separate contained stock endpoint using the
+existing host-owned personal account; unrelated coding servers stay intact.
 
 | immediate item | owner / what it blocks |
 | --- | --- |
@@ -92,7 +94,7 @@ public boundary; do not add speculative plumbing to make work parallel.
 | o2 | dev-server: publish/pin/install that launch release on the fleet | o1 |
 | o3 | provider-runtime: contained native host-tool callbacks and live control | installed-provider proof |
 | o4 | kernel: native-turn supervision using existing dispatch/execution | o3; public llm-tools seam only if needed |
-| o5 | jarvis: durable native main and safe six-hour interruption | o4; shared cognition repaired before live activation |
+| o5 | jarvis: durable native main and owner-controlled interruption | o4; shared cognition repaired before live activation |
 | o6 | jarvis: one main capability set for all supported event origins | o5; separate authority adr/spec cutover |
 | o7 | jarvis: one work table with history/current view and durable stop | work-state decision; independent of o3–o6 implementation |
 | o8 | jarvis: richer start, concise targets and nonblocking `agent.wait` | o2 and cli repair for activation; o6 only for broader continuation authority; NOT o7 |
@@ -162,9 +164,12 @@ remains uncertain. current exception names and missing acceptance events do not
 prove absence. introducing new submission evidence requires coordinated
 provider/kernel adr and spec changes, not a consumer exception workaround.
 
-preserve nexus's approved remote-shell lane and jarvis's planned contained
-callbacks; share lifecycle contracts without forcing the same tool bridge.
-nexus adoption can follow o4 and does not depend on jarvis product o5–o9.
+the accepted shared native spec now replaces both application tool bridges with
+the same frozen native declarations and callback execution contract. nexus's
+remote-shell route is deleted at its native cutover. domain connectors and
+authority remain application-owned. nexus adoption does not depend on jarvis
+product o6–o9. [adr 0065](decisions/0065-native-agent-supervision.md) and the
+[integration handoff](native-agent-integration.md) govern jarvis's current cutover.
 its queue, metadata schema, publication and short deadline stay nexus-owned.
 old uncertain admissions retain their existing recovery obligations.
 
@@ -172,21 +177,21 @@ old uncertain admissions retain their existing recovery obligations.
 
 cut main to the new pins with an adr/spec change and session-compatibility rotation.
 initially preserve current event authority. persist each accepted invocation before
-dispatch and its result before the native reply, using `model_decision`,
-`read_position` and `action`. native call ids correlate replies; durable host ids
-own effects. reuse the same reads, writes, approvals and reconciliation.
+dispatch and its result before the native reply, using the three native journal
+tables plus existing `read_position` and `action`. `model_decision` remains only
+for genuine isolated inference. native call ids correlate replies; durable host
+ids own effects. reuse the same reads, writes, approvals and reconciliation.
 
-replace main's eighteen-turn/nineteen-call loop with one native execution window
-of up to six hours, including compatible transport deadlines. finish earlier when
-done. expiry stops new dispatch, interrupts and reconciles admitted effects;
-never put a blunt timeout around a write. return pending approval and release the
-turn; its later ordinary action-resolution event resumes reasoning without
-re-proposing the effect. callback reply/interrupt ordering belongs in this slice.
+replace main's eighteen-turn/nineteen-call loop with native execution until
+completion, a genuine blocker, required input or owner stop. no arbitrary elapsed
+cutoff or cumulative usage quota. operation and transport deadlines remain.
+pending approval returns a durable receipt while independent reasoning continues;
+later action-resolution input resumes the original request without another effect.
+callback reply/interrupt ordering belongs in this slice.
 
 o5 records a truthful interrupted conclusion without inventing a continuation
-registry; o9 adds follow-through. root admission accounts for native turns and
-usage; callbacks are not new provider turns and independent skid workers remain
-outside jarvis accounting. preserve per-tool byte/deadline/effect-attempt bounds.
+registry; o9 adds follow-through. current owner permits replace capacity
+reservations. preserve per-tool byte/deadline/effect-attempt bounds.
 
 exit: several tools in one native turn, live steering/stop, pending approval that
 releases the turn, safe crash/reconnect and distinct timeout versus explicit stop.
@@ -321,7 +326,7 @@ retain timeout, target-change, unavailable/truncated text and cancellation facts
 
 ### o9: continuation and coordination
 
-after six-hour interruption and effect reconciliation, eligible unfinished work
+after connection loss and effect reconciliation, eligible unfinished work
 gets another run from canonical context and captured refs. explicit stop first
 disables continuation durably, then interrupts. queued events and startup respect
 that state; only explicit resumption rearms stopped work. native session loss
@@ -392,9 +397,9 @@ merge order.
   that full plan; amend affected grants there, never silently in m4.
 - native main changes only main's loop. rememberer/dreamer retain their isolated
   transient path; callbacks do not require restoring background inference journals.
-- nine tables is memory against the six-table baseline; o7 contributes the one
-  work table. sequence actual migrations and revalidate admission/session revisions
-  against the deployed predecessor, preserving canonical rows and unexpired charges.
+- universal memory reaches twelve tables after the native nine; o7 contributes
+  the one work table. sequence actual migrations and revalidate owner permits and
+  definition revisions against the deployed predecessor, preserving canonical rows.
 
 ## subsequent product slices
 
@@ -527,7 +532,7 @@ integrated acceptance journeys, when their owning verification is authorized:
   capture/extraction/dreaming interruptions do not lose or duplicate committed work.
 - jarvis delegates substantial research through skid, stays responsive, receives
   one asynchronous observation after restart and distinguishes evidence from success.
-- a native run reaches six hours: reconcile then continue eligible work; explicit
+- a native connection is lost: fence callbacks, reconcile effects and recover eligible work; explicit
   stop survives restart and prevents continuation or repeated effects.
 - an email or memory-role suggestion may create useful work without forged owner
   input; irrelevant input creates no make-work; consequential communication still

@@ -60,6 +60,7 @@ from sqlalchemy import RowMapping, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from jarvis.actions import recorded_action_result
 from jarvis.admission import JarvisOwner
 from jarvis.db import (
     action,
@@ -481,11 +482,7 @@ class PostgresNativeJournal:
             return None
         if value["type"] == "tool_result_ref":
             if row["action_id"] is not None:
-                result = await connection.scalar(
-                    select(action.c.result).where(action.c.id == row["action_id"])
-                )
-                if isinstance(result, dict) and "creation_receipt" in result:
-                    result = cast(dict[str, Any], result)["creation_receipt"]
+                result = await recorded_action_result(connection, row["action_id"])
             else:
                 result = await connection.scalar(
                     select(read_position.c.result).where(
@@ -581,11 +578,7 @@ class PostgresNativeJournal:
                     links["read_position"] = reference
                 else:
                     identifier = UUID(reference)
-                    recorded = await connection.scalar(
-                        select(action.c.result).where(action.c.id == identifier)
-                    )
-                    if isinstance(recorded, dict) and "creation_receipt" in recorded:
-                        recorded = cast(dict[str, Any], recorded)["creation_receipt"]
+                    recorded = await recorded_action_result(connection, identifier)
                     if recorded != result.result:
                         raise NativeDefect(
                             "replayed action differs from its original recorder result"

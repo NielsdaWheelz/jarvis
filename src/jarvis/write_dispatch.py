@@ -50,6 +50,7 @@ from jarvis.actions import (
     ActionStore,
     ExecutionContract,
     StoredAction,
+    action_replay_result,
     agent_wait_state,
     archived_worker_action,
     retired_worker_action,
@@ -238,26 +239,10 @@ class WriteToolDispatcher:
                 return _host_rejected("action_reference_contract_changed")
             if selected.status == "awaiting_approval":
                 return DispatchSuspended(HostRef(str(selected.id)), WaitingFor.user)
-            if (
-                selected.tool_name == ToolId("schedule.wake")
-                and selected.result is not None
-                and "creation_receipt" in selected.result
-            ):
-                return completed_tool_result(
-                    cast(ToolResult, selected.result["creation_receipt"]),
-                    HostRef(str(selected.id)),
-                )
-            if (
-                selected.status in {"queued", "executing", "uncertain"}
-                and selected.result is None
-            ):
-                return DispatchSuspended(HostRef(str(selected.id)), WaitingFor.system)
-            if (
-                selected.status in {"succeeded", "failed"}
-                and selected.result is not None
-            ):
-                return completed_tool_result(selected.result, HostRef(str(selected.id)))
-            if selected.status == "uncertain":
+            recorded = action_replay_result(selected)
+            if recorded is not None:
+                return completed_tool_result(recorded, HostRef(str(selected.id)))
+            if selected.status in {"queued", "executing", "uncertain"}:
                 return DispatchSuspended(HostRef(str(selected.id)), WaitingFor.system)
             return _host_rejected("action_was_cancelled", HostRef(str(selected.id)))
         if recovered:

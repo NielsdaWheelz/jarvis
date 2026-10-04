@@ -1016,6 +1016,12 @@ class ActionStore:
             status=stored.status,
         )
 
+    async def schedule_arguments_digest(self, action_id: UUID) -> str:
+        stored = await self.get(action_id)
+        if stored is None or stored.tool_name != ToolId("schedule.wake"):
+            raise ActionPersistenceDefect("schedule lacks its admitted action")
+        return stored.execution_contract.input_digest
+
     async def next_due_at(self) -> datetime | None:
         async with self.engine.connect() as connection:
             rows = (
@@ -1787,7 +1793,7 @@ class ActionPositionRecorder:
             input_digest=input_digest,
             replay_policy=replay_policy,
         )
-        replay = _replay_result(stored)
+        replay = action_replay_result(stored)
         if replay is not None:
             return PositionState(
                 replay,
@@ -1848,7 +1854,7 @@ class ActionPositionRecorder:
             self._require_contract(stored)
             if replay_policy is not stored.execution_contract.replay_policy:
                 raise ValueError("action replay policy changed")
-            replay = _replay_result(stored)
+            replay = action_replay_result(stored)
             if replay is not None:
                 return PositionState(
                     replay,
@@ -1963,7 +1969,7 @@ class ActionPositionRecorder:
             prior_external_attempts = _recovery_external_attempts(stored)
             if settlement.actual_attempts < prior_external_attempts:
                 raise ValueError("write settlement lost recovered attempt accounting")
-            replay = _replay_result(stored)
+            replay = action_replay_result(stored)
             if replay is not None:
                 if replay != canonical_result:
                     raise ValueError("terminal write result changed")
@@ -2794,7 +2800,20 @@ def _stored_tool_result(stored: StoredAction) -> ToolResult:
     return _tool_result(cast(dict[str, object], value))
 
 
-def _replay_result(stored: StoredAction) -> ToolResult | None:
+async def recorded_action_result(
+    connection: AsyncConnection, action_id: UUID
+) -> ToolResult | None:
+    """Project the original tool result within the caller's transaction."""
+    row = (
+        (await connection.execute(select(action).where(action.c.id == action_id)))
+        .mappings()
+        .one_or_none()
+    )
+    return None if row is None else action_replay_result(_stored_action(row))
+
+
+def action_replay_result(stored: StoredAction) -> ToolResult | None:
+    """Return the immutable callback result, independently of later host outcomes."""
     if retired_worker_action(stored):
         raise ActionPersistenceDefect("archived worker actions cannot replay")
     if (
@@ -3253,8 +3272,10 @@ __all__ = [
     "ResolutionInsert",
     "StoredAction",
     "TerminalActionStatus",
+    "action_replay_result",
     "agent_uncertainty_result",
     "archived_worker_action",
     "finish_schedule_conclusion",
+    "recorded_action_result",
     "retired_worker_action",
 ]

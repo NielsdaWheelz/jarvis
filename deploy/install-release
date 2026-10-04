@@ -4,6 +4,10 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 builder_user="${JARVIS_DEPLOY_BUILDER_USER:-niels}"
+if (($# > 1)) || [[ $# == 1 && ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'usage: deploy/install-release [FULL_GIT_COMMIT]\n' >&2
+  exit 64
+fi
 
 for command_name in git scp ssh; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -16,9 +20,9 @@ git -C "$repo_dir" diff-index --quiet HEAD -- || {
   printf 'tracked Jarvis files are dirty\n' >&2
   exit 1
 }
-commit="$(git -C "$repo_dir" rev-parse --verify 'HEAD^{commit}')"
-tree="$(git -C "$repo_dir" rev-parse --verify 'HEAD^{tree}')"
-lock_sha256="$(shasum -a 256 "$repo_dir/uv.lock" | awk '{print $1}')"
+commit="$(git -C "$repo_dir" rev-parse --verify "${1:-HEAD}^{commit}")"
+tree="$(git -C "$repo_dir" rev-parse --verify "$commit^{tree}")"
+lock_sha256="$(git -C "$repo_dir" show "$commit:uv.lock" | shasum -a 256 | awk '{print $1}')"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
 [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
 [[ "$lock_sha256" =~ ^[0-9a-f]{64}$ ]]
@@ -31,7 +35,7 @@ cleanup() {
   esac
 }
 trap cleanup EXIT HUP INT TERM
-git -C "$repo_dir" archive --format=tar --output="$archive" HEAD
+git -C "$repo_dir" archive --format=tar --output="$archive" "$commit"
 
 remote_archive="$(ssh "$target" mktemp /tmp/jarvis-release.XXXXXX.tar)"
 case "$remote_archive" in
@@ -43,8 +47,9 @@ case "$remote_archive" in
 esac
 scp -q "$archive" "$target:$remote_archive"
 
-ssh "$target" bash -s -- \
-  "$commit" "$tree" "$lock_sha256" "$builder_user" "$remote_archive" <<'REMOTE'
+{
+cat "$repo_dir/deploy/release-functions"
+cat <<'REMOTE'
 set -euo pipefail
 commit="$1"
 tree="$2"
@@ -65,6 +70,9 @@ cleanup_archive() {
   rm -f -- "$archive"
 }
 trap cleanup_archive EXIT HUP INT TERM
+
+# discard abandoned candidates before preparing this one; retain current.
+prune_releases "$commit"
 
 verify_release() {
   sudo -u jarvis "$release/.venv/bin/python" - "$release" <<'PY'
@@ -142,3 +150,5 @@ PY
 complete=1
 printf 'Installed inactive release: %s\n' "$commit"
 REMOTE
+} | ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- \
+  "$commit" "$tree" "$lock_sha256" "$builder_user" "$remote_archive"

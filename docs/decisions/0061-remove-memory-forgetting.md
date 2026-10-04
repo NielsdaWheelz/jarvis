@@ -1,6 +1,6 @@
-# adr 0060: remove memory forgetting from the prototype
+# adr 0061: remove memory forgetting from the prototype
 
-[adr 0061](0061-simplify-memory-recovery-and-capture.md) supersedes this record's
+[adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
 background paid-call recovery (append-only storage remains). the
 [current contract](../universal-memory.md) consolidates the implementation target.
 
@@ -8,7 +8,7 @@ background paid-call recovery (append-only storage remains). the
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner requested that forgetting be removed from the one-user
   prototype, including conversation exclusion and erasure.
-- supersedes the exclusion/erasure requirements in adrs 0051/0053/0055/0056/0057
+- supersedes the exclusion/erasure requirements in adrs 0051/0054/0056/0057/0058
   and their affected schema, maintenance and verification rules. retained checks
   now cover capture and memory processing/replay only.
 

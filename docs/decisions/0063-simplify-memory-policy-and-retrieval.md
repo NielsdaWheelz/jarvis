@@ -1,11 +1,11 @@
-# adr 0062: simplify memory policy and retrieval
+# adr 0063: simplify memory policy and retrieval
 
 - status: accepted implementation target, 2026-10-01; implementation and
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner approved six further simplifications, agent discretion
   instead of mandatory steps, and global policy/resource ownership with reuse.
 - supersedes affected activation, native parsing, ranking, dreamer procedure,
-  status-tool and per-client limits in adrs 0051/0053/0057/0058/0059/0061.
+  status-tool and per-client limits in adrs 0051/0054/0058/0059/0060/0062.
   main's durable effect/read recovery and host authority remain binding.
 - current implementer contract: [universal memory](../universal-memory.md).
 

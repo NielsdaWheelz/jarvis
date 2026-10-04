@@ -9,7 +9,7 @@ references, even after failed saves or missing receipts; otherwise retrieved or
 submitted prose can re-enter extraction as new evidence. none of this exists yet.
 
 the current [capture contract](../universal-memory.md#3-native-capture), simplified
-by [adr 0062](../decisions/0062-simplify-memory-policy-and-retrieval.md), accepts
+by [adr 0063](../decisions/0063-simplify-memory-policy-and-retrieval.md), accepts
 complete normalized events atomically; the central service then stores 8,000-byte
 chunks. oversized events park capture until repaired, without truncation or skip.
 changed history, conflicting identity or a lost activation boundary also parks

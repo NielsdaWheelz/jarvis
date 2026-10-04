@@ -15,7 +15,7 @@ fi
 remote="$(ssh "$target" mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
 case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
 scp -q "$source_mapping" "$target:$remote/codex-host.json"
-ssh "$target" bash -s -- "$commit" "$remote" <<'REMOTE'
+ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$remote" <<'REMOTE'
 set -euo pipefail
 commit="$1"
 remote="$2"

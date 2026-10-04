@@ -1,12 +1,12 @@
-# adr 0061: simplify memory recovery and capture
+# adr 0062: simplify memory recovery and capture
 
-[adr 0062](0062-simplify-memory-policy-and-retrieval.md) supersedes activation, additive native metadata, agent procedure and global resource policy.
+[adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes activation, additive native metadata, agent procedure and global resource policy.
 see the [current contract](../universal-memory.md) for implementation.
 
 - status: accepted implementation target, 2026-10-01; implementation and
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner approved the simplicity audit and requested doc changes.
-- amends adrs 0040/0051/0053–0060 only for background memory computation, capture
+- amends adrs 0040/0051/0054–0061 only for background memory computation, capture
   transport/repair, configuration representation and delivery ceremony. main's
   durable decisions, paid-read policy, note-save identity, external effects and
   shared admission remain binding.

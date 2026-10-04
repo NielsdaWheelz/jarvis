@@ -1,6 +1,6 @@
-# adr 0063: native agent supervision
+# adr 0065: native agent supervision
 
-status: accepted, 2026-10-02; local installed native qualification PASS.
+status: accepted, 2026-10-02; pre-merge `796fb8` installed native qualification PASS; composed repeat NOT_RUN.
 deployed systemd activation and physical google/discord integration NOT_RUN.
 
 adopt llm-agent-kernel SPEC section 18 and its native-agent-spec/plan n4.
@@ -54,6 +54,12 @@ live-only. recording facts grants no input, dispatch or settlement authority.
 
 delete run_thread integration, its step grammar and capacity arithmetic. retain
 actual isolated roles, existing connectors, memory, scheduling and action recovery.
+adr 0064's worker-v7 targets, captured refs, receipt recovery and durable wait
+watcher remain. native product settlement permits a registered observation to
+outlive its completed owner request. only an unmixed wait-event batch without
+owner input may settle silently; it records no invented response identity.
+mixed owner/ordinary action/scheduled input still requires visible notice. worker
+observations grant no new mutation or wait authority.
 startup blocks dispatched legacy effects requiring a removed decoder; reconcile
 them before hard cutover. no legacy executor, fallback or compatibility alias.
 
@@ -68,3 +74,7 @@ catalogue and public version/config preflight replace latest-stable native
 admission for this endpoint only. systemd owns the additional host and private
 socket mount namespace; no worker credential copy or unrelated server change.
 the fixed catalogue costs automatic model discovery and requires explicit updates.
+adr 0053's selected-release pruning reads the contained unit's loaded executable
+before deleting inactive releases. an unretained live host refuses cleanup;
+retention stays selected plus one candidate. this adds one bounded systemd fact
+check, not another service lifecycle or rollback store.

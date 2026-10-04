@@ -1,6 +1,6 @@
-# adr 0054: batch native memory by size or age
+# adr 0055: batch native memory by size or age
 
-[adr 0061](0061-simplify-memory-recovery-and-capture.md) supersedes this record's
+[adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
 durable extraction replay (size/age batching remains). the
 [current contract](../universal-memory.md) consolidates the implementation target.
 
@@ -9,8 +9,8 @@ durable extraction replay (size/age batching remains). the
 - authority: the owner approved conversation-specific size/age batching,
   independent episodes without overlap, continuous capture and an atomic
   per-conversation extraction bookmark, then requested the documentation update.
-- amends adr 0053's decision 4 and SPEC's universal-memory extension. all other
-  0051/0053 decisions, serial cognition, authority and verification scope remain.
+- amends adr 0054's decision 4 and SPEC's universal-memory extension. all other
+  0051/0054 decisions, serial cognition, authority and verification scope remain.
 
 ## reason
 

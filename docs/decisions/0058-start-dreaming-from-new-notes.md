@@ -1,16 +1,16 @@
-# adr 0057: start dreaming from new notes
+# adr 0058: start dreaming from new notes
 
-[adr 0062](0062-simplify-memory-policy-and-retrieval.md) supersedes the mandatory first search and procedural completion rules.
+[adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes the mandatory first search and procedural completion rules.
 see the [current contract](../universal-memory.md) for implementation.
 
-[adr 0061](0061-simplify-memory-recovery-and-capture.md) supersedes this record's
+[adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
 frozen background scopes, failure retirement and rebuild journals. the
 [current contract](../universal-memory.md) consolidates the implementation target.
 
-[adr 0059](0059-replace-recaller-with-reranked-search.md) replaces the first-search
+[adr 0060](0060-replace-recaller-with-reranked-search.md) replaces the first-search
 1/1 arguments with `limit=2` and shared bounded reranked results. pending-note
 selection and atomic completion below remain unchanged.
-[adr 0060](0060-remove-memory-forgetting.md) removes the erasure-specific rules
+[adr 0061](0061-remove-memory-forgetting.md) removes the erasure-specific rules
 and checks below; failure retirement and derived rebuild remain.
 
 - status: accepted implementation target, 2026-09-30; implementation and

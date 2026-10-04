@@ -1,10 +1,10 @@
-# adr 0058: let main search memory directly
+# adr 0059: let main search memory directly
 
-[adr 0062](0062-simplify-memory-policy-and-retrieval.md) supersedes ranking and common retrieval-policy requirements.
+[adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes ranking and common retrieval-policy requirements.
 see the [current contract](../universal-memory.md) for implementation.
 
 amended before implementation by
-[adr 0059](0059-replace-recaller-with-reranked-search.md): remove the automatic
+[adr 0060](0060-replace-recaller-with-reranked-search.md): remove the automatic
 recaller and add shared reranking. its retrieval and budget contract supersedes
 the affected choices below; direct main read access remains accepted.
 
@@ -12,7 +12,7 @@ the affected choices below; direct main read access remains accepted.
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner approved giving main the existing memory search/open
   tools during the universal-memory walkthrough.
-- amends SPEC 7.1/7.3, adr 0056's unchanged scheduled-read envelope, and the v2
+- amends SPEC 7.1/7.3, adr 0057's unchanged scheduled-read envelope, and the v2
   roadmap's proposed on-demand `memory.recall` agent wrapper.
 
 ## decision

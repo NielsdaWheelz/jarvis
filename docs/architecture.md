@@ -5,7 +5,7 @@ This document expands [SPEC.md](../SPEC.md). its accepted native cutover and
 the frozen baseline governs unchanged domain behavior.
 
 accepted target, not yet implemented: [universal memory](universal-memory.md) is
-the single current implementation contract; [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md)
+the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the latest simplification. admitted collectors activate native lanes
 online from complete inventories and submit complete events for atomic capture.
 one shared search implementation fuses keyword and semantic ranks deterministically;
@@ -49,7 +49,11 @@ existing memory roles and connectors retain their owners.
 V1 runs on the existing Hetzner `dev-server`, never on the Nexus production
 host. Jarvis is a host-native systemd service under a dedicated `jarvis` Unix
 account. Immutable releases live at `/opt/jarvis/releases/<git-commit>` and an
-atomic `/opt/jarvis/current` symlink selects one release. Runtime state lives in
+atomic `/opt/jarvis/current` symlink selects one release.
+`/opt/jarvis/releases` retains that selected release, with one temporary candidate
+during installation. successful activation removes every other installed release;
+rollback requires rebuilding its exact commit. deployment commands share one
+host file lock. Runtime state lives in
 `/var/lib/jarvis`; root-owned configuration and credentials live in
 `/etc/jarvis`. The application opens no public listener and is administered
 only over the host's existing tailnet boundary.
@@ -71,7 +75,7 @@ private SDK runtime or bundled Codex binary. systemd owns the additional host.
 
 this endpoint requires stock `0.160.0` and the provider-owned complete restricted
 catalogue at host startup. public version/config checks run before thread
-creation; catalogue updates require explicit qualification. adr 0063 supersedes
+creation; catalogue updates require explicit qualification. adr 0065 supersedes
 adr 0042's latest-stable rule here without changing unrelated coding services.
 the root-owned schema-4 `/etc/jarvis/codex-host.json` declares only its personal
 endpoint and explicit host/app/group/cwd identities.

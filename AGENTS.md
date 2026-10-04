@@ -9,12 +9,20 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
+  native main, request/control journals, owner-permit admission and separate
+  contained stock endpoint. it supersedes affected step/session/rolling-capacity
+  rules below; isolated role contracts remain. its temporary integration/live
+  checks are the scoped testing exception. adr 0064's worker tools use the same
+  native dispatch lane and immutable action capture; no retired thread loop.
+- adr 0053 retains only the selected deployment release and one temporary
+  installation candidate. do not keep rollback or migration releases indefinitely.
 - adr 0046 governs the owner-approved testing reset. all previous test and
   qualification execution gates are suspended pending the subsequent redesign;
   runtime safeguards and product requirements remain binding.
 - [universal memory](docs/universal-memory.md) is the consolidated accepted
   target, adopted by SPEC and most recently simplified by
-  [adr 0062](docs/decisions/0062-simplify-memory-policy-and-retrieval.md).
+  [adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md).
   it supersedes affected baseline rules below when implemented: nine tables,
   automatic activation and whole-event capture, source-only size/age extraction with no overlap, direct
   lineage, pending-note dreaming, shared rank-fused search and no recaller or
@@ -44,12 +52,16 @@ These instructions govern all work in this repository.
   standing per-feature review machinery or restoration of the retired suite;
   the wider testing redesign remains open. no runtime change is implied by docs.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
-  worker control through the installed skid CLI and private three-peer client
-  config. it supersedes the worker transport, roster, refs and receipt codecs of
+  installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
+  owns the implemented next target contract and current qualification record.
+  the owner explicitly authorized source implementation and temporary
+  integration/live checks; installed cutover remains separate. both use
+  the skid cli and private three-peer config. adr 0052 supersedes the worker
+  transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049; cognition remains on the same existing Codex
   appserver/daemon and its deployment repair is separate.
-- preserve captured conversation refs and stop mode or closure scope through
-  admission and execution. require current owner input before target lookups.
+- preserve captured target kind/ref and independent interruption/closure facts
+  through admission and execution. require current owner input before target lookups.
   worker writes are billed once, with one lifetime executor entry. finalized
   retired worker rows remain opaque; unfinished retired rows block activation.
 - If code and specification disagree, stop and surface the discrepancy.
@@ -276,7 +288,9 @@ These instructions govern all work in this repository.
   evidence and becomes terminal uncertainty.
 - Host action-resolution and scheduled-wake inputs must produce a visible
   structured terminal or deterministic host-rendered assistant fallback; never
-  process them silently. Due-wake input is rendered from immutable stored
+  process them silently, except adr 0064's unmixed wait-observation batch with no
+  owner input. worker observations grant no new write authority; after the original
+  owner turn closes they permit reads/integration/notification only. Due-wake input is rendered from immutable stored
   arguments.
 - Host-matched `stop`, `pause`, and `resume` controls do not involve the model.
 - Only an owner-requested due `schedule.wake` action starts a user-facing
@@ -325,7 +339,7 @@ These instructions govern all work in this repository.
   receive a repeated clock.
 - during the testing reset, run `scripts/verify` for static and build checks and
   report behavioral verification as not run. do not restore old tests or add a
-  replacement harness before the separately requested testing redesign. adr 0053's
+  replacement harness before the separately requested testing redesign. adr 0054's
   small universal-memory regression groups are the scoped exception, once implemented.
 - Library dependency and model upgrades remain explicit; their former replay
   qualification gate is suspended under adr 0046. Native

@@ -1,13 +1,13 @@
-# adr 0056: let jarvis main save notes
+# adr 0057: let jarvis main save notes
 
-[adr 0060](0060-remove-memory-forgetting.md) removes the forgetting obligations
+[adr 0061](0061-remove-memory-forgetting.md) removes the forgetting obligations
 and erasure-specific journal rules below; note-save recovery remains required.
 
 - status: accepted implementation target, 2026-09-30; implementation and
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner approved direct note saving for jarvis as well as every
   admitted, connected external agent.
-- amends adr 0055's unchanged-main-catalog choice and the affected gate, action
+- amends adr 0056's unchanged-main-catalog choice and the affected gate, action
   and read-position rules of SPEC 5–7 and 9. all other authority remains unchanged.
 
 ## decision
@@ -49,7 +49,7 @@ outside conversation erasure, as already accepted for optional attribution.
 central content guidance applies equally to both tool surfaces.
 
 implement within the existing universal-memory packages; add no migration beyond
-adr 0055's pending schema. update main's definition, binding and compatibility
+adr 0056's pending schema. update main's definition, binding and compatibility
 revisions at cutover. retain focused checks for grants, shared storage, admission,
 commit-before-receipt recovery and unchanged external-write authority in the
 existing regression groups. no code, runtime configuration or deployment changes

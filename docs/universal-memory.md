@@ -2,7 +2,7 @@
 
 2026-10-01. owner-approved implementation target, **not shipped**.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
-the amendment history. [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md)
+the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the latest simplification; earlier adrs retain the rationale.
 implementation and behavioral/live acceptance **not run**. delivery order and cross-system dependencies live in the
 [single roadmap and plan](implementation-plan.md).

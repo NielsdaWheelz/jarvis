@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -69,6 +70,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.memory import SettlementIdentity
+from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
 from jarvis.ownership import Database, lock_conversation
 from jarvis.terminal import (
     JarvisNativeMessage,
@@ -955,7 +957,15 @@ async def commit_product(
         statuses = {UUID(item.input_id): item for item in final.input_outcomes}
         if not set(statuses).issubset(delivered):
             raise NativeDefect("final dispositions name undelivered input")
-        if rendered.content is None and any(item["role"] == "host" for item in rows):
+        hosts = tuple(item for item in rows if item["role"] == "host")
+        requires_notice = bool(hosts) and (
+            any(item["role"] == "owner" for item in rows)
+            or any(
+                not _optional_wait_notice(item["source"], item["text"])
+                for item in hosts
+            )
+        )
+        if rendered.content is None and requires_notice:
             raise NativeDefect("host events require a visible response")
         for identifier, disposition in statuses.items():
             target = inputs.get(identifier)
@@ -983,9 +993,17 @@ async def commit_product(
                 if item["status"]
                 in {"queued", "awaiting_approval", "executing", "uncertain"}
                 and not (
-                    item["tool_name"] == "schedule.wake"
-                    and item["result"] is not None
-                    and "creation_receipt" in item["result"]
+                    item["result"] is not None
+                    and (
+                        (
+                            item["tool_name"] == "schedule.wake"
+                            and "creation_receipt" in item["result"]
+                        )
+                        or (
+                            item["tool_name"] == "agent.wait"
+                            and "registration_receipt" in item["result"]
+                        )
+                    )
                 )
             }
             refs = set(map(UUID, disposition.action_refs))
@@ -1055,7 +1073,9 @@ async def commit_product(
                         processed_at=datetime.now(UTC),
                         trace={
                             **target["trace"],
-                            "conclusion_message_id": str(conclusion_id),
+                            "conclusion_message_id": str(conclusion_id)
+                            if rendered.content is not None
+                            else None,
                         },
                     )
                 )
@@ -1082,7 +1102,9 @@ async def commit_product(
             .values(
                 product_outcome={
                     "status": "committed",
-                    "response_id": str(conclusion_id),
+                    "response_id": str(conclusion_id)
+                    if rendered.content is not None
+                    else None,
                     "input_outcomes": [
                         item.model_dump(mode="json") for item in final.input_outcomes
                     ],
@@ -1090,6 +1112,22 @@ async def commit_product(
             )
         )
     return tuple(completed)
+
+
+def _optional_wait_notice(source: str, text: str) -> bool:
+    if source != "action" or ACTION_MODEL_CONTEXT_SEPARATOR not in text:
+        return False
+    try:
+        context = json.loads(text.split(ACTION_MODEL_CONTEXT_SEPARATOR, 1)[1])
+    except ValueError:
+        return False
+    if not isinstance(context, dict):
+        return False
+    value = cast(dict[str, object], context)
+    return (
+        value.get("type") == "agent_wait_event_v1"
+        and value.get("tool_name") == "agent.wait"
+    )
 
 
 def _evidence(value: object) -> dict[str, object]:

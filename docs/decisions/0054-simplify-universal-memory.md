@@ -1,20 +1,20 @@
-# adr 0053: simplify universal memory before implementation
+# adr 0054: simplify universal memory before implementation
 
-[adr 0062](0062-simplify-memory-policy-and-retrieval.md) supersedes manual activation and related capture-policy rules.
+[adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes manual activation and related capture-policy rules.
 see the [current contract](../universal-memory.md) for implementation.
 
-[adr 0061](0061-simplify-memory-recovery-and-capture.md) supersedes this record's
+[adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
 background inference recovery and delivery ceremony. the
 [current contract](../universal-memory.md) consolidates the implementation target.
 
-[adr 0060](0060-remove-memory-forgetting.md) removes forgetting and its dedicated
+[adr 0061](0061-remove-memory-forgetting.md) removes forgetting and its dedicated
 regression group. retain only capture and memory-processing replay checks.
 
-decision 4 is amended by [adr 0054](0054-batch-native-memory-by-size-or-age.md):
+decision 4 is amended by [adr 0055](0055-batch-native-memory-by-size-or-age.md):
 the periodic sweep tests native per-conversation size/age eligibility; independent
 episodes have no overlap. other decisions apply except where subsequently amended.
 
-[adr 0055](0055-save-agent-notes-over-mcp.md) adds direct agent note submission
+[adr 0056](0056-save-agent-notes-over-mcp.md) adds direct agent note submission
 with optional conversation attribution; source-only background extraction remains.
 
 - status: accepted implementation target, 2026-09-30; implementation and

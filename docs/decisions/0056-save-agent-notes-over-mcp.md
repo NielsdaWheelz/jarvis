@@ -1,10 +1,10 @@
-# adr 0055: save agent-authored notes over mcp
+# adr 0056: save agent-authored notes over mcp
 
-[adr 0060](0060-remove-memory-forgetting.md) removes association-based
+[adr 0061](0061-remove-memory-forgetting.md) removes association-based
 exclusion/erasure restrictions and checks below. optional provenance and
 idempotent saves remain unchanged.
 
-amended by [adr 0056](0056-let-jarvis-main-save-notes.md): main also gets an internal
+amended by [adr 0057](0057-let-jarvis-main-save-notes.md): main also gets an internal
 note tool backed by the same append function. the original decision below records
 the external surface and its unchanged-main-catalog choice at that time.
 
@@ -13,8 +13,8 @@ the external surface and its unchanged-main-catalog choice at that time.
 - authority: the owner chose an explicit mcp note tool over reflections in
   user-facing replies, and made conversation attribution optional when readily
   available. no identity-discovery work is required.
-- amends adrs 0051/0053's external mcp surface, note provenance and erasure
-  contract. adr 0054's background batching remains. no new table, native tool
+- amends adrs 0051/0054's external mcp surface, note provenance and erasure
+  contract. adr 0055's background batching remains. no new table, native tool
   access for jarvis cognition, or change to main's internal catalog.
 
 ## decision

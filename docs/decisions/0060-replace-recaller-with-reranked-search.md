@@ -1,9 +1,9 @@
-# adr 0059: replace the recaller with shared reranked search
+# adr 0060: replace the recaller with shared reranked search
 
-[adr 0062](0062-simplify-memory-policy-and-retrieval.md) supersedes learned reranking, its extra attempt allowance and model-selection requirement.
+[adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes learned reranking, its extra attempt allowance and model-selection requirement.
 see the [current contract](../universal-memory.md) for implementation.
 
-[adr 0061](0061-simplify-memory-recovery-and-capture.md) supersedes this record's
+[adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
 background dreamer read recovery (main paid-read barriers remain). the
 [current contract](../universal-memory.md) consolidates the implementation target.
 
@@ -11,8 +11,8 @@ background dreamer read recovery (main paid-read barriers remain). the
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner approved removing the recaller and upgrading the shared
   search tool with keyword/semantic retrieval, deduplication and reranking.
-- supersedes adr 0058's retained automatic recaller and no-reranker choices,
-  adr 0057's first-search arguments, and the affected baseline recall, admission,
+- supersedes adr 0059's retained automatic recaller and no-reranker choices,
+  adr 0058's first-search arguments, and the affected baseline recall, admission,
   tool-budget and retrieval rules in SPEC 4/6/7/9. replaces the earlier partial
   search fallback with explicit failure of any required retrieval stage.
 
@@ -56,7 +56,7 @@ root selects one model/runtime using the small designer-owned query set and
 records quality, latency, cost and supported input bounds before implementation.
 if hosted, name its account/project in the existing processor declarations before
 any corpus disclosure. no second jarvis service, provider router or fallback.
-the former model-selection issue was retired by adr 0062, which defers this
+the former model-selection issue was retired by adr 0063, which defers this
 requirement. the text below records the earlier decision, not current work.
 
 ## implementation and acceptance

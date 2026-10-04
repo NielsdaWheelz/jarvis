@@ -3,7 +3,7 @@
 This document expands [SPEC section 6](../SPEC.md#6-memory).
 
 accepted target, not yet implemented: [universal memory](universal-memory.md) is
-the single current implementation contract; [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md)
+the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records its latest simplification. complete events commit atomically before
 extraction. rememberer and dreamer use disposable inference with bounded retries
 under existing global admission; interrupted work may repeat model charges.

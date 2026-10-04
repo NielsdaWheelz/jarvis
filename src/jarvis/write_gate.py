@@ -95,10 +95,12 @@ class EffectTarget(BaseModel):
         "cwd",
         "terminal_name",
         "machine",
-        "pane",
-        "ref",
-        "conversation_id",
-        "turn_id",
+        "handle",
+        "group",
+        "model",
+        "effort",
+        "state",
+        "timeout_seconds",
         "mode",
         "keys",
     ]
@@ -167,6 +169,7 @@ class WriteEffectDescriptor(BaseModel):
         "close",
         "keys",
         "stop",
+        "wait",
     ]
     targets: Annotated[tuple[EffectTarget, ...], Field(max_length=8)] = ()
     audience: Annotated[tuple[EffectAudience, ...], Field(max_length=150)] = ()
@@ -180,7 +183,7 @@ class WriteEffectDescriptor(BaseModel):
     use_default_reminders: bool | None = None
     has_expected_etag: bool | None = None
     has_reply_target: bool | None = None
-    closure_scope: Literal["conversation_and_terminal", "terminal_only"] | None = None
+    closure_scope: Literal["interrupt_and_terminal", "terminal_only"] | None = None
     omitted_freeform: Annotated[tuple[OmittedFreeform, ...], Field(max_length=8)] = ()
 
     @field_validator("execute_after")

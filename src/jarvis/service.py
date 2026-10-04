@@ -16,6 +16,7 @@ from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 
 from jarvis.actions import ClaimedSchedule, ScheduleStateChanged
+from jarvis.agent_control import AgentController
 from jarvis.approval_runtime import ApprovalActionHandler
 from jarvis.discord import (
     CatchUpResult,
@@ -172,6 +173,7 @@ class JarvisService:
         scheduled_wakes: ScheduledWakeStore,
         action_plan: FrozenToolPlan,
         action_recovery: ActionRecoveryPort,
+        agent_waits: AgentController,
         approval_handler: ApprovalActionHandler,
         dispatch_lane: asyncio.Lock,
         disable_stopped_approvals: Callable[[], Awaitable[None]],
@@ -189,6 +191,7 @@ class JarvisService:
         self._scheduled_wakes = scheduled_wakes
         self._action_plan = action_plan
         self._action_recovery = action_recovery
+        self._agent_waits = agent_waits
         self._approval_handler = approval_handler
         self._gateway = gateway
         self._sleep = sleep
@@ -211,6 +214,8 @@ class JarvisService:
         self._wake_timer: ProcessLocalWakeTimer | None = None
         self._wake_timer_task: asyncio.Task[None] | None = None
         self._wake_cancellation: CancellationToken | None = None
+        self._agent_wait_task: asyncio.Task[None] | None = None
+        self._agent_wait_cancellation: CancellationToken | None = None
         self._dream_due = False
 
     def bind_gateway(self, gateway: GatewayPort) -> None:
@@ -260,6 +265,7 @@ class JarvisService:
                 await self._runner.refresh_stopped_approvals()
 
         self.request_delivery()
+        self._agent_waits.notify_wait_changed()
         self._work.set()
         if incoming.control in {Control.STOP, Control.PAUSE}:
             await self._disable_stopped_approvals()
@@ -347,6 +353,9 @@ class JarvisService:
                 return DeliveryFlushResult(selected, delivered, None)
         return DeliveryFlushResult(selected, delivered, None)
 
+    async def _waits_inactive(self) -> bool:
+        return await self._paused.is_paused() or await self._store.circuit_is_open()
+
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
@@ -367,6 +376,17 @@ class JarvisService:
                 name="jarvis-scheduled-wake-timer",
             )
             self._wake_timer_task.add_done_callback(lambda _task: self._work.set())
+        self._agent_wait_cancellation = CancellationToken()
+        self._agent_wait_task = asyncio.create_task(
+            self._agent_waits.run_waits(
+                self._agent_wait_cancellation,
+                paused=self._waits_inactive,
+                plan=self._action_plan,
+                on_event=self.request_work,
+            ),
+            name="jarvis-agent-waits",
+        )
+        self._agent_wait_task.add_done_callback(lambda _task: self._work.set())
         try:
             while not self._shutdown.is_set():
                 await self._work.wait()
@@ -379,27 +399,37 @@ class JarvisService:
                 if self._wake_timer_task is not None and self._wake_timer_task.done():
                     self._wake_timer_task.result()
                     raise RuntimeError("the scheduled-wake timer stopped unexpectedly")
+                if self._agent_wait_task.done():
+                    self._agent_wait_task.result()
+                    raise RuntimeError("agent wait observer stopped unexpectedly")
                 await self._drain()
         finally:
+            self._agent_wait_cancellation.cancel()
             self._delivery_task.cancel()
-            await asyncio.gather(self._delivery_task, return_exceptions=True)
-            self._delivery_task = None
             self._dream_timer_task.cancel()
-            await asyncio.gather(
+            tasks = [
+                self._agent_wait_task,
+                self._delivery_task,
                 self._dream_timer_task,
-                return_exceptions=True,
-            )
-            self._dream_timer_task = None
+            ]
             if self._wake_cancellation is not None:
                 self._wake_cancellation.cancel()
             if self._wake_timer_task is not None:
-                await self._wake_timer_task
-                self._wake_timer_task = None
-                self._wake_cancellation = None
+                tasks.append(self._wake_timer_task)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            self._agent_wait_task = None
+            self._agent_wait_cancellation = None
+            self._delivery_task = None
+            self._dream_timer_task = None
+            self._wake_timer_task = None
+            self._wake_cancellation = None
             approval_outcomes = await asyncio.gather(
                 *self._approval_tasks, return_exceptions=True
             )
             await self._runner.close()
+            for result in results:
+                if isinstance(result, Exception):
+                    raise result
             for outcome in approval_outcomes:
                 if isinstance(outcome, BaseException):
                     raise outcome
@@ -421,6 +451,8 @@ class JarvisService:
             self._dream_timer_task.cancel()
         if self._wake_cancellation is not None:
             self._wake_cancellation.cancel()
+        if self._agent_wait_cancellation is not None:
+            self._agent_wait_cancellation.cancel()
 
     def request_delivery(self) -> None:
         self._delivery_work.set()

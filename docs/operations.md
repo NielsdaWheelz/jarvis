@@ -13,7 +13,7 @@ Codex control. Run Jarvis as a
 dedicated unprivileged OS user in UTC.
 
 accepted target, not yet implemented: [universal memory](universal-memory.md) is
-the single current implementation contract; [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md)
+the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records its latest simplification. use that contract for capture, background
 memory recovery and cutover. the operations below otherwise describe the v1
 baseline; main's effect recovery and paid-search barriers remain unchanged.
@@ -154,7 +154,7 @@ deploy/activate-release "$(git rev-parse HEAD)"
 deploy/verify-containment
 ```
 
-`install-release` archives only tracked `HEAD`, installs the exact
+`install-release [FULL_GIT_COMMIT]` archives the exact commit (default `HEAD`), installs the exact
 `.python-version` interpreter inside the release, and builds with `uv sync
 --frozen --no-dev --no-editable --link-mode copy`. After root-owning the tree,
 it verifies the release-contained interpreter, dependency identity and CLI as
@@ -165,12 +165,24 @@ repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
 builder caches. It refuses tracked changes.
 
+release/contained-host installation, activation and pruning share
+`/opt/jarvis/.deploy.lock`. retain only the
+selected release and one temporary installation candidate; rebuild any discarded
+release from its exact commit. pruning checks both the running jarvis process and
+the contained host's loaded `ExecStart`. if that host still selects another
+release, cleanup refuses before deleting files. cleanly stop or install the host
+for the retained release before retrying; no extra rollback release is retained.
+
 `activate-release FULL_GIT_COMMIT` never stops jarvis. it requires an installed
 release, regular root-owned environment files and a cleanly stopped service
 (`ActiveState=inactive`, `Result=success`, `MainPID=0`). it migrates the stopped
 database, runs the target's `cutover-native`, then read-only `check-activation`
 under the existing deployment lock. missing legacy files are correct after this
 cut; the scripts do not require or recreate them.
+before migration, activation requires the contained unit active and the selected
+release's read-only host qualifier to pass, including exact loaded release,
+stock version and startup catalogue. host installation remains a separate
+explicit stopped-application operation.
 
 cutover validates original entered work before converting proven unentered
 legacy authority. pending approvals receive fresh consent; queued writes re-enter
@@ -202,8 +214,9 @@ an unreachable host fails it. full gateway bearers replace ssh command allowlist
 an accepted cost rather than a new credential-scope boundary.
 
 Do not activate an older release across an incompatible migration. A
-same-schema rollback may select an already installed release through
-`deploy/activate-release <commit>` only after the service is stopped, and only
+same-schema rollback requires rebuilding with `deploy/install-release <commit>`
+from the clean maintained checkout, then `deploy/activate-release <commit>` only
+after the service is stopped, and only
 to a release that carries `check-activation`; older releases are refused, not
 skipped. That release's check then judges each unfinished action against its
 own plan.
@@ -297,6 +310,14 @@ worker discard, rollback cannot restore their running state. repair compatible
 skid/jarvis state or leave jarvis down; never replay unknown effects or resurrect
 the ssh adapter. credentials, terminal content and provider history stay private.
 
+for v7, paired code/config/artifact rollback before new receipts follows ordinary
+stopped checks. selected-only retention under adr 0053 requires rebuilding any
+discarded jarvis release from its exact commit. after new canonical receipts,
+older readers are unqualified: pause and retain
+records for forward repair. whole-state restore must account for new data and
+external effects; code rollback alone is not data rollback. never add a legacy
+reader or erase new actions merely to make rollback start.
+
 ## Approval operation
 
 Approval is available only while `jarvis serve` owns the deployment. A current
@@ -358,6 +379,11 @@ the command checks the frozen environment, formatting, lint, types, documentatio
 links, package build/install, and installed dependency vulnerabilities. it needs
 no database and runs no behavioral tests.
 
+hosted verification resumed on 2026-10-01 after the earlier billing restriction;
+[the urllib3 upgrade run](https://github.com/NielsdaWheelz/jarvis/actions/runs/36797257323)
+passed the complete static/build/audit workflow for that revision. this is
+historical evidence, not current behavioral or activation qualification.
+
 [adr 0046](decisions/0046-reset-testing.md) removes the test suites, fixtures,
 evaluation corpus, and qualification harnesses. their execution gates are
 suspended pending the [testing redesign](issues/testing-redesign.md). dated
@@ -365,7 +391,7 @@ qualification reports in git remain evidence for their recorded revisions;
 static and build success does not establish current behavioral qualification.
 
 the owner separately authorized temporary native integration/live proofs under
-adr 0063. use the [current native acceptance](acceptance.md#native-cutover-acceptance)
+adr 0065. use the [current native acceptance](acceptance.md#native-cutover-acceptance)
 and its exact installed evidence; delete those feature probes after final green.
 this exception restores no retired suite or unrun production acceptance.
 
@@ -390,19 +416,36 @@ and `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by
 peers come from human fleet provisioning. no development-home symlink,
 JARVIS_HERDR setting, jarvis ref codec or provider-home table remains.
 
-use agent.list/info/start/read/send/text/keys/stop/close with explicit target,
-source, mode and scope. conversation info preserves captured target separately
-from native observation and optional observedRef. terminal loss/reassociation
-never renews conversation authority. a name grounds native input only when the
-terminal's observed conversation matches the captured one. native accepted
-means admitted, completion unconfirmed; terminal written means dispatched.
-close may report terminal closed with conversation stop unconfirmed. unknown
-writes enter once and never replay. read scope/truncation and partial inventory
-remain material limitations. old finalized worker rows display only recorded
-status and unavailable receipt details; their raw records remain unchanged.
+the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
+wait/cancel_wait. addressed inputs use short `{machine,handle}`; t-handles select
+terminal mechanisms, c-handles explicit native capabilities. the host captures
+original refs before gate/action admission and retains them through delay/restart.
+native capture preserves the original target separately from observation and
+optional observedRef. matching optional name/profile facts provide consent context;
+terminal loss/reassociation never renews native authority.
+
+terminal send is guarded input for both providers; native claude input remains
+unavailable. start options use explicit overrides then native defaults, with
+literal optional stdin. creation/input and interruption/closure facts remain
+independent, including nonzero partial results. native accepted means admitted,
+terminal written means dispatched; neither proves completion. unknown writes
+enter once and never replay; conclusive owned receipts settle without re-entry.
+
+wait registration returns watching immediately; a separate durable outcome/event
+observes the original ref outside main's mutex. cancellation stops observation,
+not execution. a matched state and later bounded text are separate evidence.
+unmixed wait-only observations may stay internal. after the original owner turn
+closes, worker events confer reading/integration/notification only; new writes or
+wait registration need new current owner authority. broader follow-through is
+separate. partial inventory, unavailable/truncated text and lost receipts remain
+material limits. old finalized worker rows retain only recorded status and opaque
+receipt details; their raw records remain unchanged.
 
 activate only through [the skid-only cutover](#skid-only-worker-cutover). this
-worker change adds no scheduler, history store, provider client or cognition lane.
+worker change reuses the existing action scheduler and adds no history store,
+provider client or cognition lane. the active plan and paired spec distinguish
+passed local acceptance from remaining installed-fleet/production qualification;
+the latter must pass before claiming this target release activated.
 
 `gpt-5.4` is deliberately rejected during configuration because OpenAI retired
 it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe

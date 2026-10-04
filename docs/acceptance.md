@@ -17,7 +17,7 @@ named explicitly; no criterion disappears or is weakened silently.
 
 the accepted, unimplemented [universal-memory contract](universal-memory.md)
 owns its [focused acceptance](universal-memory.md#11-acceptance-and-verification),
-as simplified by [adr 0062](decisions/0062-simplify-memory-policy-and-retrieval.md).
+as simplified by [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md).
 retain two small regression groups: capture/retry and memory completion. verify
 atomic complete-event capture, bounded retries, atomic memory progress and
 direct-note idempotency; interrupted background inference may repeat paid work.
@@ -33,7 +33,7 @@ baseline criteria do not override the current target or establish that it ships.
 
 ## native cutover acceptance
 
-[adr 0063](decisions/0063-native-agent-supervision.md) replaces retired main
+[adr 0065](decisions/0065-native-agent-supervision.md) replaces retired main
 step/session/CAS/capacity tests with shared
 [N001–N020](https://github.com/NielsdaWheelz/llm-agent-kernel/blob/feature/native-agent-supervision/docs/native-agent-spec.md#9-delivery-and-acceptance).
 the [shared evidence](https://github.com/NielsdaWheelz/llm-agent-kernel/blob/feature/native-agent-supervision/docs/native-agent-evidence.md)

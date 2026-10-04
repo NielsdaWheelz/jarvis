@@ -1,11 +1,13 @@
 # native agent integration
 
-status: local frozen noneditable installed native qualification PASS. exact pins
+status: pre-merge `796fb8` frozen noneditable installed native qualification PASS.
+worker-v7/native composition has focused real-postgres proof; its fresh installed
+native repeat is NOT_RUN. exact pins
 and receipts remain owned by the shared integration owner. deployed systemd
 activation and physical google/discord integration NOT_RUN; this is not a
 deployment receipt. branch: `feature/native-agent-supervision`.
 
-authority: [adr 0063](decisions/0063-native-agent-supervision.md), shared kernel
+authority: [adr 0065](decisions/0065-native-agent-supervision.md), shared kernel
 native spec section 18 and n4. the pending universal-memory/delegation roadmap
 does not alter this cutover.
 

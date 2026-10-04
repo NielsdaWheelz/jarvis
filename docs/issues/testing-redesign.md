@@ -17,7 +17,7 @@ spec, acceptance, and repository instructions. begin the design in the next pr;
 this issue does not prescribe a framework, test count, or restoration of old tests.
 
 current scoped exception: the [universal-memory contract](../universal-memory.md),
-as simplified by [adr 0062](../decisions/0062-simplify-memory-policy-and-retrieval.md),
+as simplified by [adr 0063](../decisions/0063-simplify-memory-policy-and-retrieval.md),
 retains two small regression groups: capture/retry and memory completion.
 verify atomic capture and memory progress, bounded background retries, direct-note
 idempotency and the unchanged main recovery boundaries. background memory jobs

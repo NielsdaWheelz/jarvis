@@ -65,6 +65,12 @@ follows jarvis. codex, claude and nexus keep native sessions and access the shar
 corpus through the hosted mcp/api, without replacement of their context managers.
 existing connection/admission applies; this does not invent a nexus capture codec.
 
+owner clarification, 2026-10-09: nexus shared-memory access is chats only. its
+owner's chat operations may read memory and optionally save notes; metadata,
+dossier and other automated helpers receive no shared-memory tools. the account
+mapping and client implementation remain in the
+[nexus handoff](../issues/nexus-memory-client.md).
+
 ### d09/d10/d14/d17/d24: archive, tree and view core
 
 adopt these three representations: archive holds retained source records; the

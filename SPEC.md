@@ -34,8 +34,10 @@ top-level turn from the view and exact active requests/receipts. native codex,
 claude and nexus chats retain their own context management and access shared memory
 through mcp/api. the core memory contracts are settled; implementation and
 qualification remain. nexus memory access is limited to the owner's chats;
-automated helpers receive no shared-memory tools. account mapping and client
-bindings still need the [consumer handoff](docs/issues/nexus-memory-client.md).
+automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
+backend client and tagged note attribution, preserving sixteen capture lanes.
+client implementation and private provisioning remain in the
+[consumer handoff](docs/issues/nexus-memory-client.md).
 no runtime change or external client context replacement is implied.
 adrs 0051 and 0054–0062 retain earlier rationale.
 implement this contract directly rather than reconstructing an override chain.

@@ -187,6 +187,7 @@ identifies actual upstream dependencies; the roadmap owns delivery order.
 | concept / owner | contract |
 | --- | --- |
 | lane | declared native home identified by `(machine, account)`, never a path; fifteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work}) plus `(devbox, jarvis)` |
+| nexus client | one optional `nexus-owner` backend client for a configured viewer; distinct from capture lanes, chat-only reads/notes, no automatic capture |
 | conversation | native `(provider, native_id)` or jarvis's one ongoing configured-channel conversation; first reporting lane owns capture |
 | event / part | complete persisted native item, never a streaming delta / one central text chunk of at most 8,000 utf-8 bytes |
 | public leaf | one bounded source part or explicit note, with its canonical source reference; event identity survives splitting |
@@ -197,6 +198,16 @@ identifies actual upstream dependencies; the roadmap owns delivery order.
 | jarvis | admission, collectors/native publication, inference/embedding execution, scheduling, dreaming, mcp/http and operational integration; hosts the library |
 | kernel / llm-tools | bounded model protocol, transient or durable decisions as selected by host, tool execution/recorder contracts |
 | skid | no new responsibility in this slice |
+
+[adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles nexus's distinct
+owner-chat client and note attribution. the optional `nexus_client` declaration
+contains `client="nexus-owner"`, canonical `owner_user_id`, controller/sharing
+authorization, `admit`, `connect` and its own `bearer_sha256`. defaults deny; the
+sixteen capture lanes do not expand. `admit` permits nexus notes only. recipients
+may include `nexus-owner`; `processors.nexus_model_processors` is a bounded list
+of existing nexus processor-chain labels, empty by default and covered by the
+same declaration digest. nexus grants tools only for completely declared selected
+chains. credentials and the owner uuid are private deployment configuration.
 
 ### global policy and agent discretion
 
@@ -232,7 +243,8 @@ commit preconditions: those define valid effects, not how an agent reasons.
 one deployment declaration names the corpus's recipients and processors. each lane
 records its controller, authorization to share with that declaration, `admit` and
 `connect`. do not repeat a recipient matrix per lane. named processors include
-jarvis's openai embedding project and its codex account. this slice introduces
+jarvis's openai embedding project, its codex account and the declared nexus chat
+processor chains. this slice introduces
 no additional model processor for ranking.
 
 - default deny: unresolved or undeclared lanes stay disabled. `admit` permits
@@ -521,7 +533,9 @@ utf-8 json including metadata; **64 events and 16 mib actual encoded body per
 request**, including envelope and escaping. enforce the body limit before json
 decoding. measure normalized events after the explicitly permitted context/tool
 suppression; no other automatic crop is permitted. native reader limits remain
-separate. commit
+separate. postgres `text`/`jsonb` cannot retain nul (`U+0000`): reject a complete
+normalized event containing it in retained text or metadata as `unsupported`,
+without replacing it, splitting past it or advancing its checkpoint. commit
 valid preceding events, then report `event_too_large` without advancing past the
 oversized event. repair the codec or deliberately revise the bound before retry.
 the same body bound applies to sync, including activation; define it once.
@@ -640,14 +654,21 @@ checkpoint evidence. source `sequence` numbers order retained parts; they need n
 represent every accounted-for fork-native event. inherited omission saves storage,
 compression and attention; the ordinary read/upload still carries copied payloads.
 
-`agent_submission` is SQL null for preserved legacy notes. for submitted
-notes it is exactly `{machine, account, provider, submission_id,
-native_conversation_id}`: the host stamps the first three from the authenticated
-client lane or the declared internal jarvis lane; `submission_id` is a canonical
-uuid, caller-supplied for mcp and host-derived for main. `native_conversation_id`
-is null or a nonblank string of at most 256 utf-8 bytes. a supplied id is a caller-reported association,
-not archive evidence. use the existing closed lane/provider bounds. no open
-metadata bag, extra table, source row or conversation row is created by a save.
+`agent_submission` is SQL null for preserved legacy notes. submitted notes use
+one closed tagged variant from adr 0067:
+
+- native/jarvis: `{kind:"native", machine, account, provider, submission_id,
+  native_conversation_id}`; the host stamps native lane identity;
+- nexus: `{kind:"nexus", client:"nexus-owner", owner_user_id, submission_id,
+  native_conversation_id}`; the host stamps its configured authenticated client
+  and owner uuid. this is agent authorship, never proof the viewer wrote the note.
+
+tags are required; no untagged compatibility reader exists. `submission_id` is a
+canonical uuid, caller-supplied for mcp and host-derived for main. optional
+`native_conversation_id` is null or a nonblank string of at most 256 utf-8 bytes;
+it is a caller-reported association, not archive evidence. nexus uses its host-known
+chat uuid; native provider/machine/account provenance fields stay null for nexus
+notes. no open metadata bag, extra table, source row or conversation row is created.
 for a synthesis note, `agent_submission` is null and `synthesis` is exactly
 `{seed_start, seed_end, references}`. the host stamps the consumed half-open
 physical interval; this variant attributes the note to the dreamer, not the owner.
@@ -961,12 +982,14 @@ the library does not host http, authenticate lanes or import jarvis tool/role
 types. preserve atomic capture/checkpoint commits through one database transaction,
 not separate library and host commits. the library may remain postgres-specific.
 
-credentials: one capture bearer per host and one client bearer per connected lane,
+credentials: one capture bearer per host, one client bearer per connected native
+lane and one separately scoped nexus-owner backend bearer,
 installed through an environment variable referenced by that profile's mcp
 configuration. bearers are random 256-bit values with the prefix `jmem_`, which
 the secret matcher recognizes. the service stores sha-256
 hashes, compares in constant time and binds each bearer to its machine, and each
-client bearer to its lane. admitted lanes permit baseline listing/activation;
+client bearer to its native lane or distinct nexus client. admitted native lanes
+permit baseline listing/activation;
 ordinary sync/ingest additionally require the activation receipt. client reads
 require `connect`; client saves require `connect` and `admit`. an unknown or
 malformed bearer gets 401; a failed permission, wrong scope, or submitted machine
@@ -1135,9 +1158,11 @@ retrieval mode.
   owner's chat operations, including sends, reruns and regenerations. metadata,
   dossier and other automated helpers receive no shared-memory tools. enforce
   this through the existing operation-selected tool plans for both provider
-  functions and native callbacks. account mapping and credential provisioning
-  remain in the [consumer handoff](issues/nexus-memory-client.md); other nexus
-  accounts receive no access. this choice does not specify automatic capture of
+  functions and native callbacks. [adr 0067](decisions/0067-nexus-owner-chat-memory.md)
+  binds one configured viewer, a distinct backend client and fully declared
+  processor chains; handlers recheck principal authority. implementation and
+  private provisioning remain in the [consumer handoff](issues/nexus-memory-client.md);
+  other nexus accounts receive no access. this choice does not specify automatic capture of
   nexus application conversations.
 - main's full and scheduled-wake read-only plans include view/zoom/date/search/open over all
   three stores. its full plan also includes `memory.save_note`; scheduled turns
@@ -1178,8 +1203,8 @@ with its agent/submission attribution, not a fabricated archive row or source
 range. one whole note is one public leaf under the shared allocation policy.
 
 `memory_save_note` accepts one note and no extra fields. `text` must be nonblank,
-valid utf-8 and at most the existing 8,000-byte memory bound. reuse the shared
-memory validator and secret matcher, including `jmem_`; reject invalid or
+valid utf-8 without nul (`U+0000`) and at most the existing 8,000-byte memory bound.
+reuse the shared memory validator and secret matcher, including `jmem_`; reject invalid or
 recognizable-secret content with `invalid_input`, without echoing it. preserve
 accepted text exactly: no trimming, rewriting, model pass or automatic redaction.
 the host validates mechanics, not factual truth. the note remains agent-authored
@@ -1188,8 +1213,9 @@ even when its text attributes a statement to the owner.
 the caller chooses one `submission_id` uuid per intended note and reuses it with
 identical arguments after a timeout or lost receipt. derive `memory_log.id` with
 `uuid5(NAMESPACE_URL, "urn:jarvis:memory-save-note:" + canonical_json([machine,
-account, submission_id]))`, using canonical uuid spelling and the existing
-canonical json primitive. the fixed prefix, lane and key make identity independent
+account, submission_id]))` for native/jarvis notes, and the same fixed prefix with
+`canonical_json(["nexus-owner", owner_user_id, submission_id])` for nexus notes.
+use canonical uuid spelling and the existing canonical json primitive. the fixed prefix, lane and key make identity independent
 of credentials, transport request/session ids, time and process restarts.
 
 use the existing fenced writer and one transaction. check lane authorization
@@ -1204,9 +1230,11 @@ available then, and the existing embedding sweep supplies semantic search later.
 
 omit `native_conversation_id` or pass null when unavailable; normalize both to
 null. when supplied, record the native id exactly within the bound in section 4.
-apply the same secret matcher to this optional string and reject matches with
-`invalid_input`, without echo, before persistence or returning a retry receipt.
-infer provider from the lane. do not discover ids, query the provider, require a
+reject nul in this optional provenance string; apply the same secret matcher and
+reject matches with `invalid_input`, without echo, before persistence or returning
+a retry receipt.
+infer native provider from the lane; nexus attribution comes from its distinct
+client. do not discover ids, query the provider, require a
 captured conversation, create one, or fabricate a source range. ids are accepted
 as caller-reported associations. the receipt echoes
 only that optional association, never claims verified linkage. no later automatic
@@ -1225,7 +1253,7 @@ content-free save references without a second archive copy of note prose.
 
 `memory.save_note(text)` is the internal equivalent; its closed input contains
 only `text`. use the same validation, content policy, append function and receipt
-as mcp. the host supplies `(machine=devbox, account=jarvis, provider=jarvis)` and
+as mcp. the host supplies `(kind=native, machine=devbox, account=jarvis, provider=jarvis)` and
 `native_conversation_id=null`. require jarvis lane admission for a new append;
 `connect` and credentials belong only to the external transport. do not use the
 disposable provider thread or discord channel as an archive conversation id.

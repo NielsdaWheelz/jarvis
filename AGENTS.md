@@ -74,7 +74,8 @@ These instructions govern all work in this repository.
   capture. retain exposed attachment text plus references; durable originals
   remain in the attachment delivery. tools/basic inspection ship first; a
   dedicated browser/export is deferred. product/schema/integration contracts are
-  complete for the core; nexus account/tool integration still needs its
+  complete for the core; nexus access is chats only, excluding automated helpers.
+  nexus account/client integration still needs its
   [consumer handoff](docs/issues/nexus-memory-client.md). implementation and
   qualification remain. one serial tool-free
   compactor uses existing inference; no jobs table or extra daemon.

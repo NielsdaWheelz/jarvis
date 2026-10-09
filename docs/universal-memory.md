@@ -14,9 +14,9 @@ tree, with source dates retained separately. jarvis starts fresh top-level turns
 native codex/claude/nexus chats keep their own context management. tool-result
 archive text uses a permanent 30,000-character head/tail cap. the core memory
 contracts are settled here; package delivery, integration and qualification
-remain. nexus's intended client access still needs its bounded
-[consumer handoff](issues/nexus-memory-client.md), including account mapping and
-which application operations receive tools. earlier adrs retain the rationale.
+remain. nexus access is limited to the owner's chats; its bounded
+[consumer handoff](issues/nexus-memory-client.md) still needs account mapping and
+client bindings. earlier adrs retain the rationale.
 implementation and behavioral/live acceptance **not run**. delivery order and cross-system dependencies live in the
 [single roadmap and plan](implementation-plan.md).
 
@@ -1131,6 +1131,14 @@ retrieval mode.
 
 ### caller responsibilities and grants
 
+- nexus exposes shared memory reads and optional explicit saves only to the
+  owner's chat operations, including sends, reruns and regenerations. metadata,
+  dossier and other automated helpers receive no shared-memory tools. enforce
+  this through the existing operation-selected tool plans for both provider
+  functions and native callbacks. account mapping and credential provisioning
+  remain in the [consumer handoff](issues/nexus-memory-client.md); other nexus
+  accounts receive no access. this choice does not specify automatic capture of
+  nexus application conversations.
 - main's full and scheduled-wake read-only plans include view/zoom/date/search/open over all
   three stores. its full plan also includes `memory.save_note`; scheduled turns
   cannot save. main searches when past context would materially help, including
@@ -1570,7 +1578,7 @@ the design interview and library contract are complete. delivery still requires:
 - the memory package and composed migration, actual mcp/server pins and protocol
   qualification, and dev-server's declared lanes/collectors/private endpoint;
 - nexus-web's [memory client contract](issues/nexus-memory-client.md): account
-  mapping, operation grants and client bindings to this endpoint; configuring
+  mapping and client bindings enforcing the chats-only grant; configuring
   native developer profiles does not wire nexus's application agents;
 - rendered-context and cache-usage checks on the approved model/transport. the
   current qualified model remains `gpt-5.6-terra`; no cheap-model change is implied.

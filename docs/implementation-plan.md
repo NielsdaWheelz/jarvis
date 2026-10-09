@@ -96,7 +96,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | one main for every event (o6) | owner choices settled in [contract](one-main-events.md); spec/adr adoption and implementation due | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | mutable todos/physical deletion settled in [contract](work-records.md); adoption/implementation due | jarvis; one bookkeeping table |
 | delegated follow-through (o9) | owner settled agent judgment/semantic stop in [contract](delegated-follow-through.md); adoption/implementation due | jarvis; o6 plus installed worker control; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | detailed contract accepted; external repository handoffs and implementation due | jarvis, provider-runtime, llm-tools and dev-server; [memory delivery](#memory-delivery) |
+| universal memory (m1–m5) | core contract accepted; external repository handoffs and implementation due; nexus consumer scope remains to settle | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | confined markdown repository, links/history/sync spec due | jarvis; project briefs and prose people records, no people table |
 | complete and continuable searches | paging, scope/cursor ownership and truthful omissions spec due | jarvis; supported connector/note/work surfaces; portable changes only at their owner |
 | event sources, suggestions and recurring work | ingress, deduplication, recurrence, notifications and stop/cancel spec due | jarvis; o6, work records for blocked review, memory roles for their suggestions |
@@ -127,10 +127,11 @@ facts; writing this roadmap sends no assignment to another agent.
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
 | skid | publish the completed launch/control generation and its immutable artifact | existing [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md); implementation done, release handoff due |
-| dev-server | pin/install that skid generation; long claude retention; later memory collector units, private endpoint and generated profile configuration | existing fleet contract plus [memory ownership](universal-memory.md#2-ownership-and-admission); release/retention handoffs can precede memory deployment specification |
-| provider-runtime | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); accepted requirements, repository-owned api/mapping/qualification handoff due |
+| dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | existing fleet contract plus memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts; adopt the new managed configuration in dev-server's own spec before implementation |
+| llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); accepted requirements, repository-owned api/mapping/qualification handoff due |
 | memory library | standalone postgres archive/tree/view/search package, hosted by jarvis; public operations and atomic capture/checkpoint seam | [memory contract](universal-memory.md); schema/public contract complete; package implementation and pin due |
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); llm-tools owns recorder promotion; public kernel transient decisions already exist, no duplicate kernel work |
+| nexus-web | application client of the same hosted memory endpoint; account admission, allowed operation plans, tool bindings and credential/private connectivity integration | [nexus memory handoff](issues/nexus-memory-client.md); access is intended, but the consumer contract is incomplete; native profile configuration and dependency upgrades alone do not implement it |
 
 downstream jarvis code consumes the published public surfaces and qualified pins;
 the external agents do not own jarvis authority, work state or continuation.
@@ -138,6 +139,12 @@ the memory library owns its memory schema under the accepted deployment contract
 jarvis owns the composed migration and canonical request/effect schema.
 new shared-library work is requested only for an identified missing primitive.
 there is no further generic kernel/skid orchestration redesign in this roadmap.
+
+one mcp server lives inside jarvis. dev-server configures native codex/claude
+clients and installs the capture collectors; it does not implement another memory
+server. nexus's application agents require their own client bindings, distinct
+from developer agents working in the nexus repository. its access handoff does
+not implicitly add nexus application-conversation capture.
 
 ## orchestration delivery
 

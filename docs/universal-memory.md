@@ -12,10 +12,11 @@ memory library, hosted by jarvis, owns archive/tree/view and search/navigation.
 bounded source parts and notes are leaves in one shared arrival-ordered binary
 tree, with source dates retained separately. jarvis starts fresh top-level turns;
 native codex/claude/nexus chats keep their own context management. tool-result
-archive text uses a permanent 30,000-character head/tail cap. product and
-implementation contracts are settled here; package delivery, integration and
-qualification remain work, not further product decisions. earlier adrs retain
-the rationale.
+archive text uses a permanent 30,000-character head/tail cap. the core memory
+contracts are settled here; package delivery, integration and qualification
+remain. nexus's intended client access still needs its bounded
+[consumer handoff](issues/nexus-memory-client.md), including account mapping and
+which application operations receive tools. earlier adrs retain the rationale.
 implementation and behavioral/live acceptance **not run**. delivery order and cross-system dependencies live in the
 [single roadmap and plan](implementation-plan.md).
 
@@ -1568,6 +1569,9 @@ the design interview and library contract are complete. delivery still requires:
   pins; kernel transient model decisions and empty tool plans already exist;
 - the memory package and composed migration, actual mcp/server pins and protocol
   qualification, and dev-server's declared lanes/collectors/private endpoint;
+- nexus-web's [memory client contract](issues/nexus-memory-client.md): account
+  mapping, operation grants and client bindings to this endpoint; configuring
+  native developer profiles does not wire nexus's application agents;
 - rendered-context and cache-usage checks on the approved model/transport. the
   current qualified model remains `gpt-5.6-terra`; no cheap-model change is implied.
 

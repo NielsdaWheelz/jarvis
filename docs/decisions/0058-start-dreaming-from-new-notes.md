@@ -1,5 +1,12 @@
 # adr 0058: start dreaming from new notes
 
+[adr 0066](0066-optchat-memory-adoption.md) replaces this record's notes-only seed
+coverage with new admitted archive material and retained explicit notes.
+the consolidated contract now defines range-view seeds, one physical progress
+cursor and attributed note output. disposable execution and atomic completion
+remain binding. the text below records
+the earlier notes-only target, not the redesigned dreamer.
+
 [adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes the mandatory first search and procedural completion rules.
 see the [current contract](../universal-memory.md) for implementation.
 

@@ -10,9 +10,28 @@ records the latest simplification. admitted collectors activate native lanes
 online from complete inventories and submit complete events for atomic capture.
 one shared search implementation fuses keyword and semantic ranks deterministically;
 agents choose when to search. disposable background inference may repeat paid work,
-but notes/bookmarks and summaries/pending flags commit atomically. main's durable
+but synthesis-note appends and consumed-seed progress commit atomically. main's durable
 recovery remains. the memory roadmap remains unimplemented; native main retains the existing
 recaller until that separately authorized cutover.
+[adr 0066](decisions/0066-optchat-memory-adoption.md) adopts a standalone
+memory library hosted in jarvis. archive, binary tree and persisted bounded view
+are distinct representations; search remains available alongside navigation.
+source parts and notes are ordinary leaves in central arrival order, preserving
+original identity and dates. tool-result archive text uses a 30,000-character
+head/tail cap with explicit loss; supplied context remains reference-only.
+jarvis provides admission, capture adapters, inference, scheduling and mcp/http,
+then reconstructs each new top-level turn from the view and exact active state.
+native codex/claude/nexus chats keep their own context management. optional notes
+remain; first-delivery dreaming quietly appends attributed synthesis notes with
+supporting references into the same tree/search. earlier dreams may be retrieved
+but create no new seed work or main turns; corrections append.
+nightly idle runs use a new-material tree view plus older random context. email
+uses ordinary tool capture; attachments retain exposed text/references, with
+durable originals in the separate attachment feature. tools/basic inspection
+precede a dedicated browser. the completed contract defines six memory tables,
+one serial compactor, a single dream cursor and recoverable publication after
+canonical receipts commit. implementation/qualification remain. the rememberer
+and session descriptions below remain the existing runtime baseline.
 
 shared policy values have one checked-in owner and one implementation, including
 the search/embedding client and search gate across main, dreamer and mcp callers.
@@ -307,22 +326,20 @@ Discord is the conversation adapter and has no model-callable declarations.
 
 Capability plans are closed by role:
 
-- Main: the catalogued Gmail, Calendar, Maps, Web, and `schedule.wake` tools.
+- main: the catalogued Gmail, Calendar, Maps, Web, schedule and worker tools.
 - Recaller, rememberer, and dreamer: `memory.search` and `memory.open` only.
 - AutomaticWriteGate: no tools.
 
 There are no local-filesystem, Gmail organization, progressive-discovery, or
 Discord tools in a v1 capability plan.
 
-The implemented Slice 6 maximum catalog contains exactly the ten Gmail,
-Calendar, Maps, and public-Web reads; `memory.search` and `memory.open`; and all
-seven v1 writes. The selected Main plan contains the ten external reads plus
-`gmail.create_draft`, `gmail.update_draft`, `gmail.send_draft`, the three
-Calendar writes, and `schedule.wake`. The scheduled-wake plan contains only the
-ten external reads. Recaller, rememberer, and dreamer contain only the two
-memory reads, and AutomaticWriteGate has an empty plan. The approval-bearing
-Main plan is selectable only after its exact catalog, HostTable, tightening,
-budget, durable suspension, rendering, resolution, and recovery paths qualify.
+the current main plan contains thirteen external/worker reads and fifteen writes,
+including eight worker controls/observations. scheduled wakes retain the ten
+external reads without worker control. recaller, rememberer and dreamer retain
+the two memory reads; AutomaticWriteGate has an empty plan. SPEC owns the exact
+catalog and grants. native dispatch uses the same validated declarations,
+HostTable, tightening proof, fresh budget and original action/read recorders.
+universal memory separately changes the main/isolated memory grants when it ships.
 
 The host:
 
@@ -651,10 +668,11 @@ endpoint cannot alter the owner's existing coding server.
 
 ## peer agent control
 
-main uses nine owner-directed tools: `agent.list`, `agent.info`, `agent.start`,
-`agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, and
-`agent.close`. [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md)
-owns the current contract; adr 0044's provider/authority boundaries remain.
+main uses eleven worker tools: `agent.list`, `agent.info`, `agent.start`,
+`agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`,
+`agent.close`, `agent.wait` and `agent.cancel_wait`.
+[adr 0064](decisions/0064-simple-worker-orchestration.md) owns the implemented v7
+contract. its coordinated installed cutover remains separate.
 
 `agent_control.py` invokes one fixed skid cli with a private peer configuration,
 bounded pipes and explicit argv. skid owns opaque refs, gateway routing,
@@ -662,31 +680,38 @@ provider methods and live target validation. jarvis projects consumed results
 into `agent_tools.py`; it neither decodes refs nor repeats the provider codec.
 the installed cli is root-owned, separate from the development user's home.
 
-terminal authority addresses an exact tmux/process lifetime. conversation
-authority addresses the captured provider conversation and, for native stop,
-its captured turn. `info` explicitly selects either target. native write previews
-inspect the original conversation even after terminal reassociation or deletion;
-a terminal name can ground that preview only when it still tracks the same
-conversation. a fresh observation never replaces a pending action's ref. native
-unavailability refuses native input; explicit terminal input remains a separate
-capability. compound close reports native halt and exact terminal closure
-separately.
+model targets are short `{machine,handle}` selectors. before gate/action
+admission, jarvis privately captures the original opaque ref and target identity;
+delayed execution and observation use that immutable capture. t-handles select
+terminal lifetimes and guarded input for either provider; c-handles explicitly
+select native conversations. codex native stop retains its captured turn.
+unavailable native operations refuse without terminal fallback. a matching
+terminal name/profile can supply consent context, never renewed target authority.
+close independently reports terminal interruption and closure; neither asserts
+task success or cancellation of shared work.
 
-reads retain the durable recorder; writes remain billed-once with one executor
-entry and no retry. preflight or spawn refusal is not-sent. after possible
-dispatch, lost or malformed replies settle uncertain. valid receipts preserve
-partial creation, unknown write outcomes and partial fleet inventory. native
-acceptance and terminal dispatch do not establish task completion. subprocess
-stdout is capped at 1 mib for inventory and 64 kib otherwise; stderr goes
-directly to the null device. a valid owned stdout receipt survives early stdin
-closure or delayed process exit. existing tool budgets cover preflight calls.
+reads retain the durable recorder; worker mutations remain billed-once with one
+executor entry. current launch options preserve native defaults and literal
+stdin. creation, input and failure facts remain independent, including nonzero
+partial receipts. conclusive staged receipts settle on recovery without another
+executor entry; unresolved dispatch remains uncertain. native acceptance,
+terminal dispatch and idle/latest text do not establish task completion. bounded
+subprocess envelopes and per-operation limits cover capture and execution.
+
+`agent.wait` commits an immutable watching receipt and returns immediately.
+process-local observers use the original ref/deadline outside main's dispatch
+lane. outcome and one deduplicated host event commit atomically; startup resumes
+observation without replaying worker input. `agent.cancel_wait` stops observation,
+not worker work. only unmixed wait-event batches may settle silently. after the
+original owner request closes, events permit reads/integration/notification;
+new mutations or waits still require current owner input.
 
 finalized old worker actions are opaque archives before current tool lookup or
 receipt decoding. common immutable record invariants still apply; raw arguments
 and results remain stored. current malformed receipts are defects. old unfinished
 actions block activation. no historical worker reader, execution adapter, worker
-table, scheduler, transcript copy or reference cache remains. worker control is
-independent of jarvis's shared cognitive app-server contract.
+table, separate scheduler, transcript copy or reference cache remains. independent
+skid workers neither share nor replace jarvis's contained cognitive endpoint.
 
 ## Scheduling
 

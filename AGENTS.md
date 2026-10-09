@@ -23,16 +23,81 @@ These instructions govern all work in this repository.
 - [universal memory](docs/universal-memory.md) is the consolidated accepted
   target, adopted by SPEC and most recently simplified by
   [adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md).
-  it supersedes affected baseline rules below when implemented: nine tables,
-  automatic activation and whole-event capture, source-only size/age extraction with no overlap, direct
-  lineage, pending-note dreaming, shared rank-fused search and no recaller or
-  forgetting. historical import/provenance remain deferred.
-- preserve atomic archive/checkpoint, notes/bookmark and summaries/pending commits.
-  rememberer/dreamer use disposable kernel inference and dreamer run-local read
+  [adr 0066](docs/decisions/0066-optchat-memory-adoption.md) adds automatic
+  compressed orientation over all admitted history in fresh jarvis context and
+  replaces selective automatic note extraction with chronological compression,
+  and retains associative dreaming as a distinct function seeded automatically
+  by new admitted archive material and retained optional explicit notes.
+  dreaming is required in the first delivery. it quietly appends attributed
+  synthesis notes with supporting references into the shared tree/view/search;
+  previous syntheses can be retrieved but create no new seed work. corrections
+  append; no dream-triggered main turn or notification. legacy flat summaries
+  remain preserved; new output uses the shared note append. new authored notes
+  enter the automatic view with their canonical provenance.
+  each bounded dream also receives a small random sample of older conversational
+  originals/explicit notes as optional context, with no seed progress or extra
+  runs. keep shared retrieval ranking unchanged and dream notes outside automatic
+  sampling; deliberate retrieval remains available.
+  nightly idle dreaming uses a bounded new-material tree view since successfully
+  consumed progress, retaining missed days/late capture and excluding synthesis
+  leaves from new seeds. one `dream_through` cursor and nightly attempt marker
+  govern progress; closed bounds/references are in the consolidated contract.
+  a standalone non-jarvis library hosted in jarvis owns archive/tree/view,
+  compression and search/navigation. bounded source parts and notes are ordinary
+  leaves; event identity survives splitting. no private oversized-leaf reduction.
+  use aligned binary/free nodes, corrected inclusive-end priority, batched views
+  and persisted frontiers/shrink state. jarvis supplies admission, inference,
+  scheduling and mcp/http; archive/checkpoint commits stay atomic.
+  all admitted events/notes share one tree and view-allocation policy; original
+  conversation identities remain for attribution, search and reopening evidence.
+  immutable central arrival order determines positions; retain source dates
+  separately. receipt order alone decides neither chronology nor instruction precedence.
+  available admitted native worker/child histories and reports remain in the archive
+  and shared tree; reasoning and jarvis's internal cognition stay excluded.
+  fork copies are omitted only with native lineage and complete retained-original
+  coverage; uncertain/missing proof retains eligible copies within the fork's boundary.
+  central ingest proves direct source coverage; native reads stay unfiltered.
+  checkpoint id/digest advance atomically over inserted or verified omitted events,
+  even with zero new source rows. no transitive skip ledger or fabricated originals.
+  originals and broad fork parentage suffice; no per-occurrence omission map or
+  archive-only reconstruction guarantee for skipped inherited occurrences.
+  supplied instruction/environment/compaction/other context is reference-only in
+  archive/tree; preserve native reference metadata, never body prose or summaries.
+  identity/digest binds the native event before suppression; missing bodies remain explicit.
+  retain tool-result archive text under a permanent 30,000-character head/tail
+  cap with explicit omissions and source identity; canonical recovery receipts
+  stay intact. jarvis reconstructs each new top-level turn from a fixed admitted
+  view plus exact current requests/receipts; its active tool loop stays together.
+  codex/claude/nexus retain native chats and choose shared memory reads. use
+  bounded tool-free compaction, ready queues and dependency/retry progress.
+  email enters memory through actual tool observations, without wholesale inbox
+  capture. retain exposed attachment text plus references; durable originals
+  remain in the attachment delivery. tools/basic inspection ship first; a
+  dedicated browser/export is deferred. product/schema/integration contracts are
+  complete; implementation and qualification remain. one serial tool-free
+  compactor uses existing inference; no jobs table or extra daemon.
+  ordinary implementation details do not require another preference interview.
+  it supersedes affected baseline rules below when implemented: six memory tables
+  after the native nine, adding `memory_leaf`, `memory_node`, `memory_state` to
+  the three archive tables; automatic
+  activation and whole-event capture, chronological compression replacing the
+  rememberer, optional direct saves, archive/note-seeded dreaming,
+  shared rank-fused search and no recaller or
+  forgetting. canonical messages/receipts commit before recoverable archive
+  projection; immutable message/attempt eligibility bits exclude old or unadmitted
+  material. fresh top-level leases preserve entered-effect dispatchers. historical
+  import/provenance remain deferred.
+- for the accepted, unimplemented universal-memory target, preserve atomic
+  archive/checkpoint and synthesis-note/reference/tree-position/consumed-seed
+  completion commits. extraction bookmarks are
+  retired; compactor nodes/views persist while interrupted inference may repeat.
+  dreamer uses disposable kernel inference and run-local read
   receipts: interrupted paid computation may repeat under new admission. no
   durable background replay scopes. main/gate journals, external effect recovery,
-  main paid-read barriers and shared capacity accounting remain unchanged.
-- agents choose their procedure from context, tools, goals and quality constraints.
+  main paid-read barriers remain. current-owner permits govern cognition; there
+  is no rolling paid-capacity reservation or background replay ledger.
+- in that memory target, agents choose their procedure from context, tools,
+  goals and quality constraints.
   no mandatory first tool/search, minimum call count or scripted research sequence;
   dreamer seed-only/empty completion is valid. host authority, grants, protocol,
   lineage and atomic completion are still enforced.
@@ -41,15 +106,17 @@ These instructions govern all work in this repository.
   reuse existing primitives and remove duplicate implementations. preserve scoped
   provenance/permissions/progress and fresh per-run execution state; do not replace
   these facts with mutable global turn state. operator status stays in the cli.
-- external `memory_save_note` requires lane admission and connection. optional
-  conversation identity is caller-reported; never require discovery. main's
+- in that memory target, external `memory_save_note` requires lane admission and
+  connection. optional conversation identity is caller-reported; never require
+  discovery. main's
   internal `memory.save_note(text)` uses the same append under jarvis admission,
-  its existing model-decision position as invocation/effect identity, and the
+  its existing native-invocation position as invocation/effect identity, and the
   narrow local-write `read_position` recovery. this exact write bypasses the
   gate/action rules; no scheduled/background grant or native cognition mcp.
   archive memory-tool prose as content-free references to prevent feedback.
-- retain two small regression groups: capture/retry and memory completion. no
-  standing per-feature review machinery or restoration of the retired suite;
+- once that memory target is implemented, retain two small regression groups:
+  capture/retry and memory completion. no standing per-feature review machinery
+  or restoration of the retired suite;
   the wider testing redesign remains open. no runtime change is implied by docs.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
@@ -58,8 +125,8 @@ These instructions govern all work in this repository.
   integration/live checks; installed cutover remains separate. both use
   the skid cli and private three-peer config. adr 0052 supersedes the worker
   transport, roster, refs and receipt codecs of
-  adrs 0044/0045/0048/0049; cognition remains on the same existing Codex
-  appserver/daemon and its deployment repair is separate.
+  adrs 0044/0045/0048/0049. cognition uses adr 0065's separate contained stock
+  endpoint; its production activation is separate from worker fleet installation.
 - preserve captured target kind/ref and independent interruption/closure facts
   through admission and execution. require current owner input before target lookups.
   worker writes are billed once, with one lifetime executor entry. finalized
@@ -85,13 +152,15 @@ These instructions govern all work in this repository.
   scale infrastructure.
 - Do not add personal-domain tables or memory categories, confidence fields,
   salience scores, temporal validity, or source-authority taxonomies.
-- Jarvis owns exactly six application tables: `message`, `memory_log`,
-  `memory_summary`, `action`, `model_decision`, and `read_position` (ADR 0040).
-  Additional application tables require an accepted ADR.
-- The four additional irreducible durability fields are
-  `message.processing_attempts`, `message.processing_parked_at`,
-  `action.execution_contract`, and `action.attempts`. Do not expand them into a
-  generic workflow/version system.
+- Jarvis owns nine application tables: `message`, `memory_log`,
+  `memory_summary`, `action`, `model_decision`, `read_position`, `native_attempt`,
+  `native_invocation`, and `native_input_delivery` (adrs 0040/0065). universal
+  memory adds six when implemented; the future work table needs its own adr.
+  other application tables require an accepted adr.
+- Preserve SPEC section 9's exact request/control, invocation and action fields.
+  `processing_attempts` retains historical values; native main does not use it
+  as a claim counter. operator quarantine and finite action executor-entry
+  ceilings remain. do not add a generic workflow/version system.
 - Do not add slash commands, speculative components, Android, or deferred
   integrations in v1. Natural Discord conversation plus Approve and Deny is the
   interface.
@@ -112,27 +181,28 @@ These instructions govern all work in this repository.
 
 - `message` is canonical conversation history; Discord and provider sessions are
   delivery/runtime surfaces.
-- Normally continue and resume one main Codex session, but treat its reference,
-  history, compaction, and cache state as disposable. Jarvis must supply the
-  product context selected from canonical messages, plus recall for owner input,
-  through the `llm-agent-kernel` reconstruction ports.
-- Resume the main session only when its immutable agent-definition fingerprint
-  matches; the fingerprint is rebuildable runtime state, not a table column or
-  tool version. Supply the required owner-controlled
-  `session_compatibility_revision` from the checked-in role/application contract
-  revision and exact dependency pins.
+- Reuse main's healthy compatible native lease only within its current process.
+  connection, process or owner loss fences old callbacks. recover an original
+  sealed terminal locally, or restart reasoning in a fresh thread from canonical
+  unfinished requests and original receipts. no saved-session reference or CAS.
+  native history, compaction and caches remain disposable.
+- Match the complete immutable definition fingerprint before live reuse. derive
+  compatibility from checked-in role/application revisions and exact pins; the
+  kernel owns its base-instruction revision/digest. no manual duplicate adapter.
 - Recaller, rememberer, dreamer, and AutomaticWriteGate invocations use fresh
   isolated sessions.
-- The kernel owns the exact model-step grammar, validates the entire step and
-  pure arguments before dispatch, and permits exactly one serial call per step.
-  Active Main uses the kernel's structured-output path, so it has no `say`
-  terminal and returns one closed `finish.result` for host rendering.
-  `call_tool` carries no user-facing text or model-authored call/effect ID.
-  Internal one-shot roles use plans containing no `ToolEffect.Write` and closed
-  structured `finish.result` contracts.
-  The kernel also owns the Codex-compatible provider-wire envelope and strict
-  decoding of its JSON-string tool arguments; Jarvis consumes logical steps and
-  MUST NOT duplicate or bypass that wire adapter.
+- main uses the kernel's native callback supervisor. persist original accepted
+  invocation before dispatch and original result/model reply before delivery.
+  callback IDs correlate replies, never authorize effects. duplicate callbacks
+  preserve original lineage and receipts; changed proposals fail closed.
+- main validates phase-aware `JarvisNativeMessage`; progress persists prose
+  without settling requests, and final `JarvisTerminal` dispositions explicitly
+  complete, continue or wait delivered requests. seal native evidence before
+  product decoding; no prose fallback may replace malformed output.
+- Isolated one-shot roles retain the kernel's strict serial `call_tool | finish`
+  grammar, plans without `ToolEffect.Write`, and closed `finish.result` contracts.
+  the kernel owns their Codex wire envelope/JSON-string decoding. jarvis does not
+  duplicate provider or isolated-step adapters.
   Definitions hold maximum capability envelopes; each run gets a proven frozen
   tightening, with scheduled-wake runs narrowed to reads. Jarvis—not the
   kernel—selects priority, compatibility, batching, and the plan.
@@ -141,26 +211,20 @@ These instructions govern all work in this repository.
   duplicate those layers in Jarvis.
 - Persist and source-deduplicate owner input and required host-authored action
   resolutions before processing them.
-- Preflight rolling capacity under the execution mutex, then increment
-  `message.processing_attempts` atomically when the checkpoint port returns its
-  claim. It deliberately counts a crash or configuration failure after claim,
-  without hidden coupling to the later admission port. Deterministic poison
-  stops consume the row; cleanup never automatically rearms it.
-  Startup/recovery scans canonical null-`processed_at`,
-  null-`processing_parked_at` rows under the attempt ceiling and rolling
-  admission.
-- A configuration defect uses the checkpoint `park` operation to stamp
-  `message.processing_parked_at` and open the single cognitive circuit. Claims
-  exclude parked rows. Only operator correction explicitly clears the park;
-  never hide scheduling control solely in `trace`.
-- Poll compatible owner input before provider turns, dispatch, after tool
-  completion, and before settlement. Stop/pause preempts. An ordinary follow-up
-  racing after the final poll gets the already-valid answer first and its own run
-  next.
-- Set a waking message's `processed_at` only in the transaction that records its
-  durable turn conclusion. Put the same run/checkpoint/conclusion identity in
-  bounded `trace` on every consumed waking row. Never replay an interrupted
-  owner turn named by an action's admitted-input lineage.
+- Admission requires the dedicated deployment-lock connection, current canonical
+  request state and immutable owner permit. lost ownership cannot reconnect or
+  borrow another owner's permit. startup fences old attempts and recovers
+  pending requests while preserving original action/read barriers.
+- Input scans exclude operator-parked rows. only explicit operator correction
+  clears `processing_parked_at`; never hide scheduling control solely in `trace`.
+  configuration failures preserve evidence and require repair.
+- Keep input/control responsive during native reasoning and callback waits.
+  compatible input steers; incompatible input queues durably. new topics retain
+  unfinished requests. stop/pause fences dispatch before entered effects settle.
+- Commit owner completion/stopped state or handled host facts with their canonical
+  disposition/response/control and bounded settlement trace. an approval proposal
+  alone does not complete a request. fresh reasoning cannot replay an unknown
+  effect or billed-once read.
 - Persist an assistant response before delivery. A null `source_message_id` is
   the outbound retry watermark; fill it with the adapter's ID after a successful
   create response.
@@ -170,7 +234,8 @@ These instructions govern all work in this repository.
   ADR 0022, but cannot duplicate an action effect.
 - `remembered_at` distinguishes a completed rememberer run, including a valid
   decision to store nothing, from one that never completed. Remember once per
-  settled input group and advance every consumed owner row transactionally;
+  explicitly completed owner request/group and advance its owner rows
+  transactionally;
   fall back to per-row sweep only when grouping trace is unavailable.
 - Retry memory formation only for `role=owner`; host action-resolution and
   scheduled-wake rows never enter the rememberer sweep.
@@ -199,11 +264,13 @@ These instructions govern all work in this repository.
 
 - Models never receive connector, Brave, or embedding credentials or direct
   execution authority.
-- V1 uses the real `AgentRuntime` lane with the closed JSON-schema output,
-  private empty read-only cwd, disabled built-ins/Web/network/environment/MCP,
-  and approval deny. Production consumes `stream_turn`, never the
-  event-discarding `run_turn` projection. Any native tool-use or
-  permission-request event fails and discards the session.
+- Cognition uses the separately contained stock 0.160.0 endpoint and the
+  provider-owned restricted startup catalogue, with public host preflight,
+  private empty read-only cwd and approval deny. native shell/files/Web/network,
+  MCP, subagents and unsolicited approvals remain disabled. main consumes
+  prepared-turn events; isolated roles consume `stream_turn`, never the
+  event-discarding `run_turn`. undeclared native authority or permission events
+  fail-stop and discard the session; declared host callbacks remain permitted.
 - Before rendering or I/O, every frozen plan is proven internally consistent
   with its exact catalog view and to tighten its maximum envelope in full; a
   profile-only comparison is insufficient.
@@ -246,10 +313,11 @@ These instructions govern all work in this repository.
   plan, effect/replay declarations, and input digest. Revalidate both before
   approval rendering and execution; drain non-terminal actions before an
   incompatible tool change.
-- The execution contract also stores finite `max_attempts`, claim ID,
-  through-checkpoint, model-step ordinal, ordered admitted input IDs, and
-  write-gate supporting owner IDs. Recovery uses this lineage, never
-  `origin_message_id` alone.
+- the execution contract also stores finite `max_attempts`, `claim_id`,
+  `through_checkpoint`, `model_step_ordinal`, ordered admitted input ids and
+  write-gate supporting owner ids. on the native path, the retained `claim_id`
+  field contains the native attempt id and `model_step_ordinal` its callback
+  ordinal. recovery uses this lineage, never `origin_message_id` alone.
 - Action states are exactly `queued`, `awaiting_approval`, `executing`,
   `succeeded`, `failed`, `uncertain`, and `cancelled`.
 - The single deployment owner reconciles rows left `executing` after a timeout or
@@ -307,19 +375,20 @@ These instructions govern all work in this repository.
 
 - Prefer plain functions, explicit data flow, and database transactions.
 - Jarvis owns product context selection, its kernel port adapters, Discord,
-  memory, connectors, policy, approvals, actions, scheduling, and credentials.
-  Do not move product authority into `llm-agent-kernel`.
+  memory integration, connectors, policy, approvals, actions, scheduling and
+  credentials. the accepted memory target moves archive/tree/view/retrieval
+  mechanisms into the standalone memory library; jarvis hosts it and supplies
+  admitted inference. do not move product authority into the memory library or
+  `llm-agent-kernel`.
 - Use one deployment-level PostgreSQL advisory lock and ordinary in-process
   scheduling; do not invent redundant workflow coordination.
-- Require host rolling admission before provider I/O. Durably reserve maximum
-  root/serial-child turns and reported-token allowance plus one root slot. Clean
-  exits settle/refund; startup releases orphaned slots without refunding their
-  rolling capacity charge. Admission denial does not increment input attempts;
-  owner work is retried at reset with one notice for delays of at least 60
-  seconds, while background work defers silently. Fail closed on corrupt state.
-- Serialize active provider turns and host-tool dispatches. A nested write gate
-  runs only while the main run is paused and shares capacity already reserved by
-  the root; no provider calls overlap.
+- Require current-owner admission before provider I/O and effect entry. main's
+  cumulative tool/model quotas are absent; finite per-operation, transport and
+  buffer bounds remain. usage is observational, not authority. background memory
+  work retains foreground precedence and its actual isolated-role bounds.
+- Serialize actual callback/approved-action dispatch. a nested write gate uses
+  its parent invocation and the same current owner while main dispatch waits;
+  the native reader, ingress, consent and outbox remain live.
 - Construct one fresh `llm-tools.BudgetState` after the selected frozen plan is
   validated, through the kernel's plan-aware budget factory. Its limits must
   exactly equal `plan.profile.run_limits`; never preconstruct or share it.
@@ -341,8 +410,9 @@ These instructions govern all work in this repository.
   report behavioral verification as not run. do not restore old tests or add a
   replacement harness before the separately requested testing redesign. adr 0054's
   small universal-memory regression groups are the scoped exception, once implemented.
-- Library dependency and model upgrades remain explicit; their former replay
-  qualification gate is suspended under adr 0046. Native
-  Codex tracks latest stable through the host installer under ADR 0042; protocol
-  and authority checks remain strict, with no native version admission gate.
+- Library dependency and model upgrades remain explicit. the contained cognition
+  endpoint pins stock 0.160.0 and its provider-owned startup catalogue under
+  adr 0065; updates require explicit qualification. unrelated coding hosts retain
+  their own installation policy. old replay gates remain suspended under 0046;
+  current native protocol/authority contracts remain strict.
 - Avoid abstractions with one caller unless they enforce a stated boundary.

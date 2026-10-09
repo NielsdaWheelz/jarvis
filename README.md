@@ -5,12 +5,11 @@ configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and develops durable memory through a simple remember/retrieve/dream loop.
 
-This repository is specification-first. Slices 0 through 6 implement and
-qualify the bounded conversation skeleton, automatic reads and gated writes,
-permanent raw memory, isolated recall/remembering/dreaming, requested wakes,
-and Approve/Deny execution. Slice 7 owns production deployment, recovery
-qualification, and the seven-day owner acceptance period. Backup and restore
-are deliberately deferred beyond v1.
+this repository is specification-first. native cognition and worker orchestration
+are implemented and qualified; production cutover and owner acceptance remain
+separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
+product work, missing specs, external repository handoffs and operational tasks.
+backup and restore remain deferred.
 
 the native main cutover in [adr 0065](docs/decisions/0065-native-agent-supervision.md)
 replaces the bounded main loop and file-backed control. it preserves isolated
@@ -24,28 +23,47 @@ rank fusion; agents choose their retrieval steps. admitted native lanes activate
 automatically after a complete inventory. capture and memory completion are atomic,
 while interrupted background inference may repeat paid work. main's durable
 recovery and direct-note idempotency remain.
-the descriptions below record the existing v1 baseline, not the unshipped target.
+[adr 0066](docs/decisions/0066-optchat-memory-adoption.md) adopts a standalone
+memory library hosted in jarvis: archive, binary summary tree, persisted bounded
+views, and search/navigation. ordinary source-part/note leaves replace private
+large-event reduction; tool-result archive text keeps at most 30,000 characters
+from head/tail with explicit omissions. all admitted worker histories share the
+tree, with original identity/dates and linked report occurrences. context remains
+reference-only. jarvis reconstructs each new top-level turn from the view and
+exact current requests/receipts; native codex/claude/nexus chats retain their own
+context management and use shared memory through mcp/api. optional notes remain;
+first-delivery nightly dreaming starts from a new-material tree view and quietly
+appends attributed synthesis notes to the same tree, without creating new seeds
+or main turns. email uses ordinary tool capture; attachments retain exposed text
+and references. durable originals and a dedicated memory browser remain later
+work. product and implementation contracts are complete; delivery and
+qualification remain. the prototype uses one serial compactor and the existing
+postgres/process, with no separate memory service.
+the descriptions below record the current native runtime and existing memory,
+not the unshipped universal-memory target.
 
-## V1 in one paragraph
+## current product
 
-Jarvis converses naturally in Discord, recalls relevant memories before every
-human turn, uses connected tools, acts automatically for reads and ordinary
-reversible work, asks for a simple Approve or Deny decision before consequential
-communication to another person, and appends useful memories after interactions.
-Conversation history is centralized independently of Discord. Raw memories are
-permanent. Summaries, embeddings, and indexes are rebuildable. One main Codex
-session normally continues across turns and restarts, while a provider-neutral
-kernel reconstruction path can restore it from canonical messages and recalled
-memory.
-Jarvis is the first consumer of the independent `llm-agent-kernel` library:
-Jarvis chooses product context and policy, while the library supplies the
-contained Codex session lifecycle, strict one-call-at-a-time loop, mid-loop
-steering, and cross-run bounds around `provider-runtime` and `llm-tools`.
-Every model-proposed write is checked by a fresh, tool-less internal gate using
-only current owner text and a restricted effect descriptor before Jarvis creates
-an action or approval.
+jarvis converses naturally in discord, uses connected services, and asks for
+approve or deny before consequential external work. current memory still uses
+isolated recall, remembering and dreaming; raw notes are permanent and summaries,
+embeddings and indexes are rebuildable.
 
-Jarvis owns exactly six application tables:
+main uses native declared host callbacks through `llm-agent-kernel`,
+`provider-runtime` and `llm-tools`. public prose progress persists before delivery;
+final dispositions explicitly complete, continue or wait each owner request.
+independent work can continue while an action awaits approval. tools execute
+serially through existing validation, gate, action and read-recorder boundaries.
+new effects still require current owner intent; event-wide autonomy is future work.
+
+a healthy compatible session may continue within one process. connection or owner
+loss fences old callbacks and recovers original sealed results or fresh reasoning
+from canonical requests/receipts. no saved-session recovery, rolling paid-capacity
+reservation or arbitrary main cutoff remains. finite operation limits and effect
+uncertainty barriers remain. skid owns independent worker launch/control; jarvis
+owns durable observation and integration.
+
+jarvis owns nine application tables:
 
 ```text
 message
@@ -54,6 +72,9 @@ memory_summary
 action
 model_decision
 read_position
+native_attempt
+native_invocation
+native_input_delivery
 ```
 
 ## Authoritative documents
@@ -81,22 +102,24 @@ log live in git history; current contracts and operations remain in the working 
 ## Status
 
 the owner-approved [testing reset](docs/decisions/0046-reset-testing.md) removes
-the old suite and qualification machinery. historical reports in git do
-not establish current behavioral verification. the next pr begins the
-[testing redesign](docs/issues/testing-redesign.md).
+the old standing suite. native and worker changes completed explicitly authorized
+temporary integration/live qualification; the broader
+[testing redesign](docs/issues/testing-redesign.md) remains separate. historical
+receipts qualify only their named artifacts and boundaries.
 
-- Baseline date: 2026-09-07
-- Status: v1 specification frozen; Slices 0 through 6 complete and qualified;
-  Slice 7 production acceptance remains
+- status as of 2026-10-04: native main and worker-v7 composition merged in pr 49;
+  exact artifact qualification is recorded in the integration handoff; production
+  systemd activation and physical google/discord integration remain unrun
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
-- Worker control: the installed skid CLI with a private macbook/devbox/arch
-  client config; [ADR 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md)
-  defines the current worker boundary. cognition remains on the existing Codex
-  appserver/daemon; its deployment repair is separate.
+- worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
+  skid cli and private macbook/devbox/arch client configuration; coordinated
+  orchestration release/fleet installation remains separate
+- cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate
+  contained stock endpoint and the existing personal host account
 
 ## Development and verification
 
@@ -177,23 +200,23 @@ These are accepted knowingly, not overlooked.
 - Public search queries are disclosed to Brave, and public page reads disclose
   the requested URL and host IP to the destination. The tools send no connector
   credentials or cookies and do not provide authenticated or JavaScript browsing.
-- Slice 2 gives up Brave's second automatic search attempt and caps a selectable
-  Web-read observation at 64 KiB and aggregate tool output at 768 KiB. This keeps
-  billed-once search completion and native context within their hard boundaries,
-  but transient search failures and unusually large compound reads fail sooner.
+- web search permits one external attempt and selectable page reads retain
+  finite per-operation bounds. transient search failures and unusually large
+  individual reads can fail; main has no cumulative tool-output quota.
 - Calendar events with a provider-declared unspecified end expose a payload-free
   tagged domain variant rather than Google's compatibility end. This preserves
-  truth but requires consumers to handle the third observed-end variant; the
-  Main session cold-bootstraps once for the corrected get-event v2 contract.
+  truth but requires consumers to handle the third observed-end variant; plan/
+  session fingerprints prevent reuse with an incompatible get-event contract.
 - Calendar event listing uses host-owned bounded pagination and returns typed
   completeness rather than a model-selected limit or truncation guess. Its v6
   result returns at most 1,500 compact overview items in 512 KiB; full details
   require explicit `calendar.get_event` reads. It may use more Google requests
   and still reports unusually dense ranges as partial at the fixed
   page/event/byte/deadline bounds.
-- Production Main returns a typed structured terminal which Jarvis renders as an
-  answer, partial result, question, failure, or silence. Discord typing is the
-  only synchronous progress signal; there is no terminal in-progress promise.
+- main persists typed public progress as prose without completing owner requests.
+  final output separately renders an answer, partial result, question, failure
+  or silence, with explicit request dispositions. malformed structured output
+  fails locally while original native terminal evidence remains intact.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed. Rotating or discarding
@@ -211,36 +234,32 @@ These are accepted knowingly, not overlooked.
 - A valid answer is not discarded when an ordinary follow-up races with final
   settlement; the answer is delivered and the follow-up runs next. Stop/pause
   remains an immediate host preemption path.
-- V1 serializes model tool calls and has no model-authored progress narration.
-  This trades some read latency for a much smaller partial-effect and recovery
-  state machine; Discord typing state indicates activity.
-- Codex's strict structured-output subset requires a closed, all-required root
-  object, so the kernel transports the logical step through a nullable wire
-  envelope. Tool arguments cross that provider boundary as a strict JSON-object
-  string and are decoded and independently validated before dispatch. This adds
-  output tokens and prevents native per-tool argument-schema enforcement, while
-  retaining the authoritative host validation and closed logical protocol.
+- native callbacks and approved actions share one actual-dispatch lane. the
+  reader, ingress, consent and outbox remain responsive during reasoning or an
+  isolated gate. serial effects simplify recovery at the cost of throughput.
+- main publishes native tool declarations and phase-aware structured output.
+  genuine isolated roles retain the kernel's serial logical-step wire adapter;
+  jarvis duplicates neither provider lowering nor tool schemas.
 - Structured one-shot results must compile into the provider's supported closed
   schema subset. Arbitrary result mappings are rejected; variable-key data uses
   arrays of closed key/value records. This is less ergonomic but fails before
   provider I/O rather than during a paid run.
-- Four durability fields survive the simplification pass:
-  `message.processing_attempts` bounds poison recovery,
-  `message.processing_parked_at` makes operator quarantine durable, while
-  `action.execution_contract` and `action.attempts` make an occupied write
-  position replayable and auditable. They do not create a general workflow or
-  tool-version system.
-- Kernel time is cooperative at safe boundaries, not an end-to-end response
+- native request/control fields and three journals retain original submission,
+  invocation, input-delivery and terminal facts. legacy `processing_attempts`
+  values remain historical; operator quarantine and immutable action contracts/
+  finite executor-entry ceilings remain. there is no general workflow registry.
+- isolated kernel time is cooperative at safe boundaries, not an end-to-end response
   deadline, and its context-byte limit covers newly rendered material rather
   than all provider-native history and overhead. Jarvis separately monitors and
   qualifies those omitted surfaces instead of claiming a stronger bound.
-- Multi-message effects carry immutable claim/checkpoint/input/step lineage in
-  that existing execution-contract JSON. This is more metadata per action, but
-  avoids replaying the wrong subset of a turn after mid-loop steering.
-- Rolling admission reserves worst-case turn/token capacity before provider I/O
-  and retains that charge after a crash. Useful work can therefore be deferred
-  even when the process died before consuming the reservation; this is the cost
-  of a durable spend ceiling without a workflow database.
+- effects carry immutable attempt/checkpoint/input/callback lineage in the
+  existing execution-contract json. the retained `claim_id` field contains the
+  native attempt id and `model_step_ordinal` its callback ordinal. this avoids
+  replaying the wrong subset of a request after steering.
+- owner permits replace paid-capacity reservations. usage is observational and
+  there is no cumulative main spend ceiling. reasoning can repeat after loss;
+  original effect and billed-read barriers prevent that repetition from
+  authorizing an unknown external effect or paid read.
 - Every action has a finite lifetime executor-entry ceiling. A proven-absent
   effect can end failed when that capacity is exhausted rather than retrying
   forever.

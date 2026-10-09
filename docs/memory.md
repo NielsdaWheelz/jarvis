@@ -5,10 +5,9 @@ This document expands [SPEC section 6](../SPEC.md#6-memory).
 accepted target, not yet implemented: [universal memory](universal-memory.md) is
 the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records its latest simplification. complete events commit atomically before
-extraction. rememberer and dreamer use disposable inference with bounded retries
-under existing global admission; interrupted work may repeat model charges.
-notes and bookmarks, and summaries and pending flags, still commit atomically,
-including valid no-output completion. main's recorder/search uncertainty barriers
+compression. the retained dreamer uses disposable inference under existing global
+admission; interrupted work may repeat model charges. synthesis-note appends and
+consumed-seed progress commit atomically, including empty completion. main's recorder/search uncertainty barriers
 and direct-note idempotency remain. the rest of this document records the v1
 baseline; its recall and background-recovery rules do not override the target.
 the target uses one deterministic keyword/semantic rank fusion implementation,
@@ -16,6 +15,27 @@ without a learned reranker. the search gate covers all callers; its common polic
 values live in one checked-in owner. dreamer chooses whether and how to search;
 seed-only synthesis and empty completion are valid within its grants and lineage
 rules. role prompts specify outcomes rather than mandatory tool sequences.
+[adr 0066](decisions/0066-optchat-memory-adoption.md) replaces selective extraction
+with a standalone memory library hosted in jarvis: archive, binary summary tree,
+persisted bounded views and search/navigation. bounded source parts and notes are
+ordinary leaves, ordered by central arrival with original identities/source dates.
+long text needs no separate reduction tree. tool-result archive text uses a
+30,000-character head/tail cap; supplied context retains references only. loss is
+explicit, and exact execution/recovery receipts remain separate.
+
+jarvis reconstructs each new top-level turn from a fixed admitted view plus
+current input and exact active state. native codex/claude/nexus sessions remain
+native and choose shared memory reads. the core uses contextual no-tool
+compression, binary/free nodes, corrected merge priority, persisted batched views
+and explicit repair. optional notes remain; first-delivery dreaming quietly
+appends attributed synthesis notes to the shared tree. previous dreams can be
+retrieved but create no new seeds or main turns; corrections append. nightly
+idle runs use a new-material tree view plus older random context. email uses
+ordinary tool capture; attachment text/references are retained, with durable
+originals in the attachment feature and a dedicated browser deferred. product
+and implementation contracts are settled; delivery/qualification remain.
+the mental model and extraction sections below describe the existing v1 baseline,
+not the accepted future target.
 
 ## Mental model
 
@@ -148,19 +168,18 @@ contradictory recollections together.
 
 ### Invocation
 
-The rememberer runs once after a settled input group containing one or more
-owner messages that:
+the rememberer runs after an explicit completed owner-request disposition.
+native progress, omitted/continued requests and waiting approvals do not queue
+remembering or advance `remembered_at` on their own.
 
-- Settled through a validated `answered`, `partial`, `needs_input`, `failed`, or
-  `silent` terminal.
-- Created an action awaiting approval and a host-rendered approval message.
-
-It opens a fresh isolated Codex session and receives every consumed owner
-message in the group, the persisted conclusion, source timestamps, material
-tool/action observations, and the identities of memories recalled for that work
+it opens a fresh isolated Codex session and receives the completed canonical
+owner input, persisted conclusion/settlement identity, source timestamps,
+original native invocation/action receipt context and recalled memory identities
 so it may reopen them. Host action-resolution or scheduled-wake rows may appear
 as context but are never watermark targets. Its root invocation receives the
-owner timezone and one host-generated `as_of` value once.
+owner timezone and one host-generated `as_of` value once. the current native
+receipt projection replaces the retired main material window; universal memory
+will separately publish source evidence and use source-only extraction.
 
 ### Reasoning
 
@@ -252,9 +271,18 @@ An empty bundle is a correct result.
 ## Dreamer
 
 target override: the [daily dreamer contract](universal-memory.md#daily-dreaming)
-starts from pending new notes and may search older notes/summaries. pending flags
-survive downtime and clear atomically with valid summary changes, including empty
-success. inference and retry batches are transient, without durable frozen-batch
+starts from new admitted archive material and retained explicit notes.
+nightly idle runs receive a bounded tree view since successfully consumed progress,
+plus four older original-identity samples. the current contract defines bounds,
+`dream_through`, nightly-attempt bookkeeping and closed record/range references.
+the old notes-only
+selector, read restriction and
+flat-summary insertion/removal output path are retired. pending work survives
+downtime and settles atomically with attributed synthesis-note appends, references
+and tree positions, including empty success. corrections append; new syntheses
+enter the shared tree/search but create no new seed work or main turns. legacy
+flat summaries remain preserved/readable; rebuild does not delete authored dreams.
+inference and retry batches are transient, without durable frozen-batch
 replay or unknown-paid-call barriers for this background job. retries remain
 bounded and admitted. no first search or search at all is required; seed-only and
 empty results are valid. the remaining section records the v1 baseline.

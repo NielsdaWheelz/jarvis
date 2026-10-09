@@ -4,7 +4,7 @@ Jarvis is one CPython 3.12.13-or-later process within the 3.12 series,
 one PostgreSQL database, a separate contained native host, and one
 configured Discord guild channel. It has no HTTP listener. Its maximum catalog
 is the exact v1 catalog in SPEC 7.3. The selected Main plan contains thirteen
-external/native reads and thirteen writes. Gmail send and shared, unknown-calendar, or
+external/native reads and fifteen writes. Gmail send and shared, unknown-calendar, or
 attendee-bearing Calendar writes use the host-owned approval path; the six Slice
 5 writes retain their documented automatic cases. The isolated memory roles
 receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
@@ -21,9 +21,10 @@ baseline; main's effect recovery and paid-search barriers remain unchanged.
 the target keeps one sharing declaration referenced by lanes and generates their
 bearers, which remain stable until explicit rotation. complete events commit
 atomically; oversized or conflicting history parks capture for repair, never
-automatic truncation or checkpoint reset. background rememberer/dreamer runs may
-repeat paid inference after interruption, within bounded retries and global
-admission. their notes/bookmarks and summaries/pending flags commit atomically.
+further automatic truncation or checkpoint reset after the declared context/tool
+retention rules. compactor/dreamer work may repeat paid inference after interruption.
+completed nodes/frontiers persist; synthesis notes/leaves and consumed progress
+commit atomically. canonical effect receipts commit before memory projection.
 these rules do not weaken direct-note idempotency or main's durable recorder.
 
 an admitted collector activates its native lane online only after obtaining a
@@ -52,7 +53,7 @@ same user.
 
 the [2026-09-08 deployment report in git history](https://github.com/NielsdaWheelz/jarvis/blob/42f1fa21c3d2f687a3f3fafc9366fea41023e0cb/docs/qualification/2026-09-08-production-deployment.md)
 records that release's housekeeping, host qualification and activation, not current
-readiness. the [shared-cognition issue](issues/codex-private-process.md) records
+readiness. the [contained-cognition activation issue](issues/codex-private-process.md) records
 the later stopped state; no completed seven-day owner acceptance is established.
 The pending host reboot is explicitly deferred:
 Jarvis does not require it, and a reboot would terminate the owner's current
@@ -454,12 +455,14 @@ supported route or switch Jarvis to API-key authentication.
 
 ## memory maintenance
 
-the [current dreamer contract](universal-memory.md#daily-dreaming) selects pending
-notes, not a date window. manual dreaming performs one bounded batch and reports
-the backlog; no pending notes skips provider i/o. stopped rebuild atomically wipes
-summaries and rearms notes before one bounded pass. disposable inference leaves
-no journal or unknown-paid-call barrier to clear. later daily sweeps drain the
-remainder. the command descriptions below record the v1 baseline and retain their
+the accepted [dreamer contract](universal-memory.md#daily-dreaming) selects a
+new-material tree view since `dream_through`, plus older random context. nightly
+attempts and stopped manual runs process one bounded prefix; failures preserve
+seeds. stopped rebuild preserves original notes, legacy summaries and dream
+progress while repairing derived tree/index/vector state. it does not delete or
+regenerate authored syntheses. `retry-compression` clears only the parked-node
+diagnostic. no background replay journal is added. these changes are unimplemented;
+the command/timer details below record the current v1 baseline and retain its
 stopped-service rule.
 
 Run one manual dream only while the service is stopped. It takes the deployment

@@ -1,17 +1,23 @@
 # universal memory native capture
 
+status: still open after merged native callback qualification, 2026-10-04.
+provider-runtime's current session snapshots remain metadata-only and no archive
+codec/public capture surface is implemented. callback support does not supply it.
+
 problem: the [universal memory contract](../universal-memory.md) needs
 provider-runtime archive codecs that enumerate and read every configured native
 home without resuming, give stable never-reused event identities, mark jarvis's
 own cognition sessions before they persist, and recognize jarvis memory-tool
-results. `memory_save_note` call arguments and results/errors must also become content-free
+calls/results, including view/zoom/date and their record/range references.
+`memory_save_note` call arguments and results/errors must also become content-free
 references, even after failed saves or missing receipts; otherwise retrieved or
-submitted prose can re-enter extraction as new evidence. none of this exists yet.
+submitted prose can re-enter compressed history as new evidence. none of this exists yet.
 
 the current [capture contract](../universal-memory.md#3-native-capture), simplified
 by [adr 0063](../decisions/0063-simplify-memory-policy-and-retrieval.md), accepts
 complete normalized events atomically; the central service then stores 8,000-byte
-chunks. oversized events park capture until repaired, without truncation or skip.
+chunks. after declared context/tool suppression, oversized events park capture
+until repaired, without further truncation or skip.
 changed history, conflicting identity or a lost activation boundary also parks
 and reports the conversation; there is no automatic checkpoint reset or replay.
 an admitted collector activates the lane online after a complete inventory, with
@@ -20,11 +26,25 @@ file, manual activation or jarvis stop is required; an incomplete inventory may
 need a quiet native lane. validate mapped native fields strictly and ignore
 unrelated additive fields; this does not relax closed model or api schemas.
 
+[adr 0066](../decisions/0066-optchat-memory-adoption.md) retains available worker
+history and both child/parent report occurrences. fork reads emit all eligible
+events. central ingest omits a copied event only with direct native origin/digest
+proof and complete archived original parts; unknown coverage is captured normally.
+independent checkpoint id/digest must commit over an all-copy batch with no new
+source rows. native parentage alone cannot authorize omission or historical reread.
+supplied context is reference-only after native identity/digest binding: preserve
+native kind/name/reference and explicit body omission, never snippets or summaries.
+tool-result archive text uses the accepted 30,000-character head/tail cap with
+an explicit omission marker/count and native source reference; identity/digest
+binds content before suppression. normalized-event bounds follow the declared
+policy. canonical recovery receipts and model observation bounds remain separate.
+
 impact: no native lane can activate until its archive capabilities are qualified
 on the installed provider. this is not a native-version allowlist.
 the devbox codex-personal lane, which also hosts jarvis cognition, stays
-unadmitted until internal marking is qualified, or cognition moves to sessions
-that never persist (see [shared cognition](codex-private-process.md)).
+unadmitted until internal marking is qualified. the separate contained endpoint
+does not itself mark/exclude these sessions; see
+[contained cognition activation](codex-private-process.md).
 
 evidence (2026-09-28):
 
@@ -48,6 +68,10 @@ resolved when: codecs validate every mapped native field and demonstrate complet
 activation inventory and read-only coverage, stable event identity, internal
 marking, memory-tool echo suppression (including failed saves) and child-result
 recognition on installed providers, including closed and archived conversations.
+qualify native inherited-origin proof where available, with conservative full
+capture otherwise. capture/retry checks cover all-copy progress, incomplete/direct
+origin coverage, nested omitted parents, lost receipts and inclusive checkpoint
+verification; no transitive omission ledger.
 focused capture/retry checks prove automatic activation and complete-event
 atomicity. harmless additive fields are ignored; oversized, changed or conflicting
 history parks without advancing the checkpoint. confirm each admitted lane's

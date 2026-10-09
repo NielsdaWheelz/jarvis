@@ -1,6 +1,6 @@
 # nexus generation dispatch contract
 
-status: shared repair implemented on feature/native-agent-supervision; historical job disposition remains with nexus
+status: shared native repair implemented, qualified and merged; historical job disposition remains with nexus
 origin: 2026-10-01 owner-requested nexus integration review
 area: provider submission evidence and kernel settlement
 
@@ -16,7 +16,7 @@ none published metadata. exact identities are in nexus-web's
 `docs/tickets/model-cutover-dead-media-generations.md`. the original exception
 subtype was not retained, so the source mismatch is not a per-job exception proof.
 
-current nexus a494f743 instead pins provider 6a7093f and kernel 937434b and uses
+the later pre-cutover nexus snapshot a494f743 pinned provider 6a7093f and kernel 937434b and used
 the approved remote-shell route. `codex_generation_contract.py:471–477` still
 throws for `invalid_request`/`runtime_defect`; `llm_execution.py:564–579` retains
 uncertainty after an armed exception. current host diagnostics are improved;
@@ -29,7 +29,7 @@ non-submission separately from unresolved sends, and preserves native seals befo
 product validation. nexus and jarvis use the shared native callback supervisor;
 the replaced shell dispatch path and jarvis main capacity/six-hour policy are cut.
 
-installed personal luna/xhigh strict-json research returns useful results from
+qualified personal luna/xhigh strict-json research returns useful results from
 all four actual nexus tools. real-store sealed recovery and lost-response barriers
 pass. final immutable artifacts and current acceptance are recorded in the kernel
 `llm-agent-kernel/docs/integrations/nexus-metadata.md` handoff.

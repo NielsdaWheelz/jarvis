@@ -42,7 +42,7 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 ## current position
 
 the native cutover has nine application tables: the original six plus three
-native journal tables. accepted universal memory adds three; the later work
+native journal tables. accepted universal memory adds six; the later work
 slice adds one. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 

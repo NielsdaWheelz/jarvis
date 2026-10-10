@@ -2,19 +2,26 @@
 
 problem: the owner-approved [testing reset](../decisions/0046-reset-testing.md)
 removes all behavioral tests, fixtures, evaluation data, and qualification runners.
-the replacement is deliberately deferred to the next pr.
+the standing replacement remains separately scoped and unimplemented.
 
 impact: `scripts/verify` establishes static and package-build evidence only.
-behavior, migrations, recovery, containment, and model quality have no current
-automated verification. historical reports do not qualify subsequent changes.
+it provides no standing jarvis behavioral regression coverage. native and worker
+changes completed their authorized temporary integration/live proof, which
+qualifies the recorded artifacts rather than later changes or the whole product.
 
 evidence: the reset removes `tests/`, `eval/`, qualification scripts and helpers,
 pytest dependencies, dependency-suite reruns, and ci's disposable postgres service.
 
 resolved when the subsequent redesign defines and delivers the agreed verification
 scope, records results against that scope, and replaces the temporary policy in
-spec, acceptance, and repository instructions. begin the design in the next pr;
+spec, acceptance, and repository instructions. scope this design separately;
 this issue does not prescribe a framework, test count, or restoration of old tests.
+
+completed scoped exceptions: [adr 0064](../decisions/0064-simple-worker-orchestration.md)
+and [adr 0065](../decisions/0065-native-agent-supervision.md) authorized temporary
+worker/native checks, now removed after integrated qualification. existing shared
+kernel conformance remains with its owning repository. these exceptions neither
+restore the retired jarvis suite nor resolve the standing redesign.
 
 current scoped exception: the [universal-memory contract](../universal-memory.md),
 as simplified by [adr 0063](../decisions/0063-simplify-memory-policy-and-retrieval.md),
@@ -23,7 +30,8 @@ verify atomic capture and memory progress, bounded background retries, direct-no
 idempotency and the unchanged main recovery boundaries. background memory jobs
 need no frozen-batch replay or unknown-paid-call tests; interrupted inference may
 repeat paid work. targeted review and focused live checks replace per-feature
-ceremony; remove exploratory helpers. these checks remain unimplemented and are
-not a general replacement suite. focused checks for automatic activation, native
+ceremony; remove exploratory helpers. the memory library has the two postgres
+groups; jarvis retains its canonical capture/retry checks. these are not a general
+replacement suite. focused checks for automatic activation, native
 mapped-field validation, deterministic fusion, the shared search gate and seed-only
 dreaming need no new harness or model-selection exercise. this issue stays open.

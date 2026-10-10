@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from urllib.parse import unquote, unquote_plus
 
 from llm_agent_kernel import (
@@ -16,22 +16,30 @@ from llm_agent_kernel import (
 )
 from llm_tools import (
     BudgetState,
+    EffectId,
     ExecutionContext,
+    ExecutorConfigurationDefect,
     FrozenToolPlan,
     ParsedJson,
+    PositionConflictDefect,
     PositionRecorder,
     Principal,
+    RecoveryRequired,
+    ReplayPolicy,
     Scope,
     ToolBinding,
     ToolEffect,
     ToolExecutor,
     ToolResult,
 )
+from universal_memory.tools import MEMORY_READ_IDS, MEMORY_SAVE_NOTE_SPEC, SaveNoteInput
 
 from jarvis.agent_tools import AGENT_READ_IDS
-from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
-from jarvis.tool_results import completed_tool_result
+from jarvis.tool_results import NoTelemetry, completed_tool_result
+
+if TYPE_CHECKING:
+    from jarvis.memory_service import MemoryService
 
 _SECRET_PATTERN = re.compile(
     r"(?:"
@@ -41,6 +49,7 @@ _SECRET_PATTERN = re.compile(
     r"|\bBearer\s+[A-Za-z0-9._~+/=-]{16,}"
     r"|\b(?:sk|gh[opusr]|xox[baprs])[-_][A-Za-z0-9_-]{16,}"
     r"|\bAIza[A-Za-z0-9_-]{20,}"
+    r"|\bjmem_[A-Za-z0-9_-]{16,}"
     r"|\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b"
     r")",
     re.IGNORECASE,
@@ -49,12 +58,34 @@ _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput
 
 
 class ReadDispatchPort(ToolDispatchPort, Protocol):
+    async def save_note(
+        self,
+        *,
+        binding: ToolBinding[Any, Any, Any],
+        validated_input: object,
+        plan: FrozenToolPlan,
+        budgets: BudgetState,
+        cancellation: CancellationToken,
+        lineage: NativeDispatchLineage,
+    ) -> DispatchCompleted: ...
+
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
     ) -> None: ...
 
 
 class ReadRecorder(PositionRecorder, Protocol):
+    async def recover_note_save(
+        self,
+        *,
+        lineage: NativeDispatchLineage,
+        binding: ToolBinding[Any, Any, Any],
+        plan: FrozenToolPlan,
+        arguments: dict[str, Any],
+        budgets: BudgetState,
+        memory: MemoryService,
+    ) -> DispatchCompleted | None: ...
+
     async def recover_native_read(
         self,
         *,
@@ -69,19 +100,72 @@ class ReadRecorder(PositionRecorder, Protocol):
     ) -> None: ...
 
 
-class _NoTelemetry:
-    def event(self, name: str, attributes: dict[str, object]) -> None:
-        del name, attributes
-
-
 class ReadToolDispatcher:
     """Execute only the automatic Slice 2 reads through llm-tools."""
 
     def __init__(
-        self, *, host_secrets: tuple[str, ...], recorder: ReadRecorder
+        self,
+        *,
+        host_secrets: tuple[str, ...],
+        recorder: ReadRecorder,
+        memory: MemoryService,
+        cutoff: int,
     ) -> None:
         self._host_secrets = tuple(value for value in host_secrets if value)
         self._recorder = recorder
+        self._memory = memory
+        self._cutoff = cutoff
+
+    async def save_note(
+        self,
+        *,
+        binding: ToolBinding[Any, Any, Any],
+        validated_input: object,
+        plan: FrozenToolPlan,
+        budgets: BudgetState,
+        cancellation: CancellationToken,
+        lineage: NativeDispatchLineage,
+    ) -> DispatchCompleted:
+        if (
+            binding.spec.id != MEMORY_SAVE_NOTE_SPEC.id
+            or binding.spec.effect is not ToolEffect.Write
+            or binding.replay_policy is not ReplayPolicy.ReDispatchable
+            or not isinstance(validated_input, SaveNoteInput)
+            or plan.catalog_view.binding(binding.spec.id) is not binding
+        ):
+            raise ToolDispatchDefect(
+                "local save requires its exact native note contract"
+            )
+        arguments = validated_input.model_dump(mode="json")
+        recovered = await self._recorder.recover_note_save(
+            lineage=lineage,
+            binding=binding,
+            plan=plan,
+            arguments=arguments,
+            budgets=budgets,
+            memory=self._memory,
+        )
+        if recovered is not None:
+            return recovered
+        await self.recover_budget(lineage=lineage, budgets=budgets)
+        result = await ToolExecutor.execute(
+            binding,
+            ParsedJson(arguments),
+            ExecutionContext(
+                plan=plan,
+                grant=plan.grant(binding.spec.id),
+                catalog_view=plan.catalog_view,
+                position=lineage.position,
+                recorder=self._recorder,
+                effect_id=EffectId(str(lineage.position)),
+                budgets=budgets,
+                principal=Principal("jarvis-owner"),
+                scope=Scope(f"memory-through:{self._cutoff}"),
+                cancellation=cancellation,
+                telemetry=NoTelemetry(),
+            ),
+        )
+        return completed_tool_result(result)
 
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState
@@ -100,7 +184,7 @@ class ReadToolDispatcher:
     ) -> DispatchCompleted:
         tool_id = binding.spec.id
         if (
-            tool_id not in (*AUTOMATIC_READ_TOOL_IDS, *AGENT_READ_IDS)
+            tool_id not in (*AUTOMATIC_READ_TOOL_IDS, *AGENT_READ_IDS, *MEMORY_READ_IDS)
             or binding.spec.effect is not ToolEffect.Read
         ):
             raise ToolDispatchDefect(
@@ -140,14 +224,18 @@ class ReadToolDispatcher:
                     effect_id=None,
                     budgets=budgets,
                     principal=Principal("jarvis-owner"),
-                    scope=Scope("automatic-read"),
+                    scope=Scope(f"memory-through:{self._cutoff}")
+                    if tool_id in MEMORY_READ_IDS
+                    else Scope("automatic-read"),
                     cancellation=cancellation,
-                    telemetry=_NoTelemetry(),
+                    telemetry=NoTelemetry(),
                 ),
             )
-        except DeploymentOwnershipDefect:
-            raise
-        except Exception as exc:
+        except (
+            ExecutorConfigurationDefect,
+            PositionConflictDefect,
+            RecoveryRequired,
+        ) as exc:
             raise ToolDispatchDefect("automatic read dispatch failed") from exc
         return completed_tool_result(result)
 

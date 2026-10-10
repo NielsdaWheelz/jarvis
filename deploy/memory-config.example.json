@@ -1,0 +1,175 @@
+{
+  "recipients": [],
+  "processors": {
+    "openai_embedding_project": null,
+    "codex_account": null,
+    "nexus_model_processors": []
+  },
+  "lanes": [
+    {
+      "machine": "arch",
+      "account": "claude-personal",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "arch",
+      "account": "claude-work",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "arch",
+      "account": "codex-personal",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "arch",
+      "account": "codex-work",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "arch",
+      "account": "codex-work2",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "claude-personal",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "claude-work",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "codex-personal",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "codex-work",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "codex-work2",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "jarvis",
+      "provider": "jarvis",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "macbook",
+      "account": "claude-personal",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "macbook",
+      "account": "claude-work",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "macbook",
+      "account": "codex-personal",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "macbook",
+      "account": "codex-work",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "macbook",
+      "account": "codex-work2",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    }
+  ],
+  "capture_bearer_sha256": {},
+  "origins": [
+    "http://127.0.0.1:8768"
+  ],
+  "nexus_client": null
+}

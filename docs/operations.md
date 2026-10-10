@@ -1,38 +1,24 @@
-# Production operations
+# production operations
 
-Jarvis is one CPython 3.12.13-or-later process within the 3.12 series,
-one PostgreSQL database, a separate contained native host, and one
-configured Discord guild channel. It has no HTTP listener. Its maximum catalog
-is the exact v1 catalog in SPEC 7.3. The selected Main plan contains thirteen
-external/native reads and thirteen writes. Gmail send and shared, unknown-calendar, or
-attendee-bearing Calendar writes use the host-owned approval path; the six Slice
-5 writes retain their documented automatic cases. The isolated memory roles
-receive only `memory.search` and `memory.open`, AutomaticWriteGate has an empty
-plan, and scheduled-wake turns retain the original ten external reads without
-Codex control. Run Jarvis as a
-dedicated unprivileged OS user in UTC.
+jarvis is one cpython 3.12 process, one postgres database, a separate contained
+native host and one configured discord channel. it hosts the shared memory
+endpoint on loopback; dev-server owns private tailnet routing and native client
+configuration. [universal memory](universal-memory.md) owns the memory contract.
+source implementation and isolated qualification do not authorize production
+activation or fleet installation.
 
-accepted target, not yet implemented: [universal memory](universal-memory.md) is
-the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
-records its latest simplification. use that contract for capture, background
-memory recovery and cutover. the operations below otherwise describe the v1
-baseline; main's effect recovery and paid-search barriers remain unchanged.
+main, its scheduled read-only plan and the isolated dreamer receive the shared
+memory reads. main can optionally save a note. compactor and write gate have empty
+plans. canonical receipts commit before recoverable archive projection. archive
+checkpoints and memory completion are atomic; interrupted background inference
+may repeat. main's durable read/effect barriers remain.
 
-the target keeps one sharing declaration referenced by lanes and generates their
-bearers, which remain stable until explicit rotation. complete events commit
-atomically; oversized or conflicting history parks capture for repair, never
-automatic truncation or checkpoint reset. background rememberer/dreamer runs may
-repeat paid inference after interruption, within bounded retries and global
-admission. their notes/bookmarks and summaries/pending flags commit atomically.
-these rules do not weaken direct-note idempotency or main's durable recorder.
-
-an admitted collector activates its native lane online only after obtaining a
-complete inventory; receipt and conversation baselines commit atomically. there
-is no activation file, manual activation command or jarvis stop. an incomplete
-inventory may require a quiet native lane before retry. operator cli diagnostics
-remain; the shared mcp has no status tool. search uses one shared client and gate
-for all callers, with common policy values owned once in checked-in code and no
-per-lane tuning or reranker provider/configuration.
+one stopped-maintenance sharing declaration owns admission, recipients, named
+processors and bearer hashes. admission and connection are independent, omitted
+lanes deny, and bearer rotation is explicit. native lanes activate online after
+complete inventory; incomplete inventory retries without inventing a boundary.
+oversized/conflicting history parks without moving its checkpoint. operator
+status is cli-only. no ongoing backup or separate memory daemon is added.
 
 ## Approved production target
 
@@ -52,17 +38,16 @@ same user.
 
 the [2026-09-08 deployment report in git history](https://github.com/NielsdaWheelz/jarvis/blob/42f1fa21c3d2f687a3f3fafc9366fea41023e0cb/docs/qualification/2026-09-08-production-deployment.md)
 records that release's housekeeping, host qualification and activation, not current
-readiness. the [shared-cognition issue](issues/codex-private-process.md) records
+readiness. the [contained-cognition activation issue](issues/codex-private-process.md) records
 the later stopped state; no completed seven-day owner acceptance is established.
 The pending host reboot is explicitly deferred:
 Jarvis does not require it, and a reboot would terminate the owner's current
 tmux sessions and live Codex processes. V1 deliberately has no backup or restore
 path and accepts possible total loss of local Jarvis state.
 
-For every owner input, recall begins with exactly one kernel-dispatched
-deterministic `memory.search` call and its typed observation. The isolated
-recaller may then adaptively use `memory.search` and `memory.open`; operations
-must not replace the initial kernel dispatch with a host-side repository read.
+each fresh top-level main turn gets one fixed admitted view plus exact operative
+requests/receipts. active steering retains the running loop. callers choose their
+shared retrieval steps; there is no automatic recaller or rememberer.
 
 Jarvis names the requested-wake model tool and durable action
 `schedule.wake`. Operational queries must use that exact value for
@@ -126,6 +111,16 @@ keep `JARVIS_CONNECTOR_ENCRYPTION_SECRET` and
 `JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION` unchanged. no ciphertext migration is
 needed. track completion in the [environment cutover issue](issues/connector-keyring-cutover.md).
 
+the private installer validates `JARVIS_SOURCE_MEMORY_CONFIG` before copying it
+to `/etc/jarvis/memory.json` as jarvis-owned mode 0600. its default is the checked-in
+[deny-all example](../deploy/memory-config.example.json), not an implicit grant.
+set `JARVIS_MEMORY_CONFIG_PATH=/etc/jarvis/memory.json`,
+`JARVIS_MEMORY_HTTP_PORT=8768` and `JARVIS_MEMORY_NIGHTLY_TIME=03:00` in the private
+service environment. the nightly time is owner-local. remove
+`JARVIS_DREAM_INTERVAL_SECONDS`; its presence now rejects configuration.
+dev-server generates client/capture credentials and native profile files from its
+single private bundle. keep credentials out of repository files and command output.
+
 The qualified Google client, connector-encryption, Maps, Brave, Discord, and
 embedding settings remain host-owned and never enter model context or the Codex
 child environment. `JARVIS_EMBEDDING_OPENAI_API_KEY` is the qualified OpenAI
@@ -164,6 +159,15 @@ also requires that service-identity proof; an unusable release is rejected, not
 repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
 builder caches. It refuses tracked changes.
+
+the existing builder identity must have git read access to the private
+`NielsdaWheelz/universal-memory` repository before installation. the installer
+checks that access before pruning a candidate. ci supplies
+`UNIVERSAL_MEMORY_READ_TOKEN` through the process-scoped
+`scripts/with-memory-git` helper; local builds may use ordinary authenticated git.
+the helper stores no credential and scopes it to that repository. provisioning
+the builder access and ci secret is a separate
+[handoff](issues/private-memory-build-access.md) from source qualification.
 
 release/contained-host installation, activation and pruning share
 `/opt/jarvis/.deploy.lock`. retain only the
@@ -241,6 +245,35 @@ migration 0005 creates the native request/attempt/invocation tables. the stopped
 unentered legacy authority and removes the replaced local session/pause/admission
 files. no new acceptance evidence is invented for old records. a partial or
 unresolved legacy state refuses and stays stopped.
+
+## universal memory cutover
+
+migration `0006` requires a stopped, canonically paused native `0005` deployment
+with drained old remembering and resolved old memory cognition. activation runs
+the new stopped helper through the selected predecessor's exact frozen interpreter
+and libraries; the target runtime contains no old memory roles. parked work or
+unknown old submissions refuse migration and require repair under that predecessor.
+
+`deploy/activate-release` first drains through the predecessor runtime, then takes
+one private recovery artifact at `/var/lib/jarvis-memory-cutover/<target-commit>`.
+it contains a custom-format database dump, `/var/lib/jarvis`, `/etc/jarvis` and the
+predecessor release receipt. the helper requires the deployment lock, canonical
+pause and resolved drained work; it verifies the dump listing and preserves file
+ownership/modes. it refuses an existing or recursively copied artifact.
+
+migration preserves canonical message/note/summary ids, text, dates and legacy
+summary lineage, checking before/after counts and digests. legacy eligibility is
+false and provenance stays absent. six memory tables start empty; only a declared
+admitted jarvis lane activates. native collectors subsequently establish online
+baselines. no historical import or metadata reconstruction occurs.
+
+before the target's first start, recovery restores the database, runtime and
+configuration together and rebuilds/selects the predecessor's exact release.
+after first start, repair forward: restoring the old snapshot would erase new
+canonical data. delete the single artifact after acceptance. activation does not
+retain an extra rollback release. a fresh database must migrate and initialize
+paused state before release activation; activation itself accepts only schema
+`0005` or `0006`.
 
 ## admission journal cutover
 
@@ -452,50 +485,53 @@ it from ChatGPT-authenticated Codex on 2026-08-31. The negative final-code probe
 that exposed that retirement is preserved in ADR 0028; do not retry it as a
 supported route or switch Jarvis to API-key authentication.
 
-## memory maintenance
+## memory operations
 
-the [current dreamer contract](universal-memory.md#daily-dreaming) selects pending
-notes, not a date window. manual dreaming performs one bounded batch and reports
-the backlog; no pending notes skips provider i/o. stopped rebuild atomically wipes
-summaries and rearms notes before one bounded pass. disposable inference leaves
-no journal or unknown-paid-call barrier to clear. later daily sweeps drain the
-remainder. the command descriptions below record the v1 baseline and retain their
-stopped-service rule.
-
-Run one manual dream only while the service is stopped. It takes the deployment
-lock, skips provider I/O when raw memory is empty, and prints counts only:
+inspect the live service without taking its ownership lock:
 
 ```sh
+uv run jarvis memory status
+```
+
+status reports all declared/omitted lanes, activation/checkpoints/parks, canonical
+projection backlog, tree frontiers and dream progress. it prints counts and
+identities, never memory text. the shared mcp endpoint has no operator status tool.
+
+repair and retry only while the service is stopped, after correcting the cause:
+
+```sh
+uv run jarvis memory retry-capture SOURCE_CONVERSATION_UUID
+uv run jarvis memory retry-compression
+uv run jarvis rebuild-memory --node START+COUNT
+uv run jarvis rebuild-memory
 uv run jarvis dream
 ```
 
-The process-local timer defaults to 86,400 seconds and does not run immediately
-at startup. `JARVIS_DREAM_INTERVAL_SECONDS` may set a value of at least 60
-seconds; production should retain the 24-hour default. The timer can drift or
-miss intervals across downtime, and foreground owner work preempts Dreamer
-reasoning while an already-started summary transaction finishes atomically.
+capture retry clears only its diagnostic; it preserves the original activation
+boundary and checkpoint. compression retry clears only the parked construction.
+node rebuild invalidates affected ancestors and reconstructs persisted frontiers.
+full rebuild also reindexes all three searchable stores and clears/rebuilds
+vectors. it requires `JARVIS_MIGRATION_DATABASE_URL` for the same configured
+database: reindex needs object ownership, which the runtime role deliberately
+lacks. inject that environment privately, never through a command argument.
 
-Run the complete derived-memory rebuild only while the service is stopped:
+repair preserves originals, leaf positions, completed capture and dream progress.
+it does not regenerate authored syntheses, re-admit history or run a dream.
+failed embedding repair exits nonzero with derived work still pending. repair the
+cause and rerun; there is no private background replay journal to reset.
 
-```sh
-uv run jarvis rebuild-memory
-```
+nightly idle dreaming defaults to 03:00 in the owner timezone. one persisted
+attempt marker prevents repeated same-occurrence attempts, even after empty or
+failed work. each successful run consumes one fitting prefix since
+`dream_through`; late capture and missed days remain pending. foreground input
+interrupts reasoning while entered transactions finish atomically. one manual
+stopped command processes a bounded prefix and prints counts only. syntheses
+append quietly, never seed another dream or create a main turn/notification.
 
-The command takes the deployment lock, atomically deletes summaries and clears
-every vector, proves raw lexical recall, re-embeds raw rows, runs exactly one
-Dreamer pass, and embeds regenerated summaries. It never starts the service.
-Failure exits nonzero; inspect and retain its private journal, keep the service
-stopped, and rerun from immutable raw memory after correcting the cause.
-
-these structural/raw checks remain runtime safeguards. recall-quality scoring
-and its former release gate are suspended under adr 0046; a successful rebuild
-does not prove recall quality.
-
-Migrations own application objects and grant only the required DML to
-`jarvis_runtime`. That role cannot delete or truncate `memory_log`, cannot
-update its canonical columns, and can update only the derived `embedding`.
-The append-only trigger remains enabled as defense in depth against accidental
-owner-side mutation.
+migrations grant narrow original append/update privileges to `jarvis_runtime`.
+original text/identity/date and note provenance are immutable; only derived
+vectors and specified checkpoint/state fields may change. legacy flat summaries
+remain readable/searchable and receive no new writes.
 
 ## Restart and recovery
 
@@ -527,12 +563,12 @@ persisted outbox rows with null `source_message_id`, and scans canonical pending
 unparked requests and host facts. reasoning uses a fresh native session from
 canonical context and original action/read receipts; unknown entered work cannot
 redispatch. there is no saved main-session reference or rolling charge.
-After foreground work yields, the background worker boundedly retries completed,
-unremembered owner groups and null embeddings. It groups normal rows by their
-shared settlement identity and falls back to one owner row only when old or
-damaged trace cannot establish a group. background work waits for the serial
-lane and requires its current-owner permit; no capacity-reset timer exists.
-host action-resolution and scheduled-wake rows are never memory-work targets.
+after foreground work yields, the serial background worker completes ready
+chronological nodes, indexes eligible missing vectors and performs an admitted
+nightly dream. canonical publication retries eligible missing source events;
+eligibility is independent of settlement groups or host/owner role. background
+work waits for the serial lane and requires its current-owner permit; no
+capacity-reset timer exists.
 isolated roles retain finite invocation/tool bounds; main has no cumulative
 model/tool quota or arbitrary elapsed cutoff.
 
@@ -599,16 +635,13 @@ is a cutover recovery artifact, not ongoing or off-machine backup. follow the
 current contract's restore limits; do not treat code rollback as data rollback.
 activation stays in postgres. sources and notes stay append-only; revocation
 stops new capture/direct saves without removing already admitted material.
-this section otherwise records the v1 baseline.
-
 V1 has no backup, restore command, Restic repository, R2 credential, backup
 database role, or backup timer. There is no `jarvis-restic-password`; do not
 invent or provision one. Loss or unrecoverable corruption of the devbox, its
 disk, or the Jarvis database can permanently lose conversation, memory, action,
 and runtime state. This is an explicit one-user-prototype trade-off. Add backup
 as a later slice when retained production state justifies its operational and
-qualification cost; doing so does not require changing the nine application
-tables.
+qualification cost; doing so does not require another application table.
 
 Ordinary logs contain event types, bounded IDs, counts, and reason codes
 only—not messages, prompts, memory text, tool payloads, tokens, or credentials.
@@ -617,4 +650,6 @@ Raw memory is permanent and grows without a deletion path in v1. Embeddings and
 full-text indexes are derived and can be rebuilt while the local raw log exists.
 Embedding ingestion, rebuilds, and semantic search queries disclose their input
 text to the metered embedding processor. An embedding outage leaves new vectors
-null; lexical recall remains available and the bounded backfill retries later.
+null and the bounded indexing sweep retries later. query embedding failure makes
+shared search unavailable; it does not select a lexical-only fallback. original
+opening and tree navigation require no embedding call.

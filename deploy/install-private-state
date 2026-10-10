@@ -6,17 +6,14 @@ target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
 source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
 source_agent_client="${JARVIS_SOURCE_AGENT_CLIENT_CONFIG:?supply the provisioned private skid client configuration}"
+source_memory="${JARVIS_SOURCE_MEMORY_CONFIG:-$repo_dir/deploy/memory-config.example.json}"
 
-for path in "$source_environment" "$source_google"; do
+for path in "$source_environment" "$source_google" "$source_memory"; do
   [[ "$path" = /* && -f "$path" && ! -L "$path" ]] || {
     printf 'missing or unsafe private deployment source: %s\n' "$path" >&2
     exit 1
   }
 done
-
-# Worker state has its own install path; full private-state install composes it.
-JARVIS_SOURCE_AGENT_CLIENT_CONFIG="$source_agent_client" \
-  "$repo_dir/deploy/install-agent-client"
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/jarvis-private-state.XXXXXX")"
 cleanup() {
@@ -81,7 +78,9 @@ JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.jso
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
 JARVIS_EMBEDDING_MODEL=text-embedding-3-small
 JARVIS_EMBEDDING_DIMENSION=1536
-JARVIS_DREAM_INTERVAL_SECONDS=86400
+JARVIS_MEMORY_CONFIG_PATH=/etc/jarvis/memory.json
+JARVIS_MEMORY_HTTP_PORT=8768
+JARVIS_MEMORY_NIGHTLY_TIME=03:00
 JARVIS_MAXIMUM_BATCH_SIZE=20
 JARVIS_DELIVERY_BATCH_SIZE=20
 """
@@ -89,12 +88,35 @@ target.write_bytes(raw.rstrip(b"\n") + b"\n" + static.encode("utf-8"))
 target.chmod(0o600)
 PY
 
+uv run --project "$repo_dir" --frozen --no-dev python - \
+  "$source_memory" "$scratch/memory.json" <<'PY'
+import pathlib
+import shutil
+import sys
+
+from jarvis.config import ConfigurationError
+from jarvis.memory_config import MemoryConfig
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+try:
+    MemoryConfig.load(source)
+except ConfigurationError:
+    raise SystemExit("memory declaration is invalid") from None
+shutil.copyfile(source, target)
+target.chmod(0o600)
+PY
+
 cp -p "$source_google" "$scratch/google-oauth-state.json"
 chmod 0600 "$scratch/google-oauth-state.json"
 
+# Validate the application declaration before entering either remote install.
+JARVIS_SOURCE_AGENT_CLIENT_CONFIG="$source_agent_client" \
+  "$repo_dir/deploy/install-agent-client"
+
 remote="$(ssh "$target" mktemp -d /tmp/jarvis-private-state.XXXXXX)"
 case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
-scp -q "$scratch/jarvis.env" "$scratch/google-oauth-state.json" \
+scp -q "$scratch/jarvis.env" "$scratch/google-oauth-state.json" "$scratch/memory.json" \
   "$target:$remote/"
 
 ssh "$target" bash -s -- "$remote" <<'REMOTE'
@@ -106,12 +128,14 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-for file in jarvis.env google-oauth-state.json; do
+for file in jarvis.env google-oauth-state.json memory.json; do
   [[ -f "$remote/$file" && ! -L "$remote/$file" ]]
 done
 sudo install -d -m 0700 -o jarvis -g jarvis \
   /var/lib/jarvis/connectors
 sudo install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
+sudo install -m 0600 -o jarvis -g jarvis \
+  "$remote/memory.json" /etc/jarvis/memory.json
 sudo install -m 0600 -o jarvis -g jarvis \
   "$remote/google-oauth-state.json" \
   /var/lib/jarvis/connectors/google-oauth-state.json

@@ -1,8 +1,8 @@
 # Jarvis v1 specification
 
-status: **native runtime; frozen domain baseline**
+status: **native runtime and universal-memory source; frozen domain baseline**
 
-date: **2026-10-02**
+date: **2026-10-09**
 
 Audience: product, engineering, design, operations, and future coding agents
 
@@ -20,9 +20,28 @@ isolated cognitive roles and memory behavior remain. no memory or delegation
 upgrade is included. all new behavior requires its target integration proof.
 
 accepted universal-memory target (2026-10-01): the consolidated
-[implementation contract](docs/universal-memory.md) defines the current target,
-**not shipped behavior**. [adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md)
-records its latest simplification; adrs 0051 and 0054–0062 retain earlier rationale.
+[implementation contract](docs/universal-memory.md) defines the current source
+contract; installed activation remains separate.
+[adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md)
+records its simplification; [adr 0066](docs/decisions/0066-optchat-memory-adoption.md)
+adds owner-approved automatic orientation over all admitted history when fresh
+jarvis context is built and replaces automatic note extraction with chronological
+compression while retaining associative dreaming as a distinct function, seeded
+automatically by new archive material and retained optional explicit notes.
+a standalone non-jarvis library hosted inside jarvis owns archive/tree/view and
+search/navigation. source parts and notes are ordinary leaves in one binary tree;
+long text needs no private leaf-reduction mechanism. jarvis reconstructs each new
+top-level turn from the view and exact active requests/receipts. native codex,
+claude and nexus chats retain their own context management and access shared memory
+through mcp/api. the core memory source is implemented and isolated qualification
+passes; production activation remains separate. nexus memory access is limited to the owner's chats;
+automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
+backend client and tagged note attribution, preserving sixteen capture lanes.
+the qualified client source and remaining private provisioning are in the
+[consumer handoff](docs/issues/nexus-memory-client.md).
+source implementation does not imply installed activation or external client
+context replacement.
+adrs 0051 and 0054–0062 retain earlier rationale.
 implement this contract directly rather than reconstructing an override chain.
 the [single roadmap and implementation plan](docs/implementation-plan.md) owns
 delivery order and cross-system dependencies; broader v2 direction there does not
@@ -30,31 +49,157 @@ silently supersede this specification. where affected, the memory contract
 supersedes baseline sections 4–9, 11 and 13 as follows:
 
 - one undivided corpus; independently declared lane admission and connection.
-  three added tables (`memory_lane`, `source_conversation`, `source_record`),
-  twelve total after the native cutover, with internal conversation identities
-  and direct note provenance.
+  six added tables: `memory_lane`, `source_conversation`, `source_record`,
+  `memory_leaf`, `memory_node`, `memory_state`; fifteen after the native nine.
+  the leaf map holds canonical source/note references at contiguous positions;
+  the node table holds completed derived text; one singleton holds actual
+  frontiers/shrink flags, construction error and dream progress. allocate positions
+  transactionally, never with a gap-producing sequence. internal conversation
+  identities and direct submission provenance remain.
   one stateless collector per host, native histories as the local recovery source,
-  one private listener inside jarvis and a bounded read-only database pool.
+  one private listener inside jarvis and a bounded read-only database pool. the
+  library owns memory storage/algorithms; jarvis owns admission, capture adapters,
+  inference/embedding execution, scheduling, dreaming and transports. use the same
+  postgres database/transaction for archive append and checkpoint advancement;
+  no separate daemon or generalized storage-backend framework.
 - automatic online activation after complete per-conversation baselining; immutable
   boundaries and complete-event uploads with atomic archive/checkpoint commits.
   native codecs validate consumed fields and ignore unrelated additive metadata;
   identities/digests exclude that ignored metadata too. unexpected rewrites or
   oversized events park capture for repair. no multipart upload or automatic historical reread.
-- source-only, tool-free rememberer; native conversations batch by size/age into
-  independent nonoverlapping episodes. atomic notes/bookmark replaces
-  `message.remembered_at`, immediate extraction and per-row fallback.
-- daily dreaming begins with bounded pending-note batches; summary mutations and
-  clearing `memory_log.dream_pending` commit together, including empty success.
-  rememberer and dreamer use transient kernel decisions; dreamer reads use
+  retain available admitted native worker/child messages, tool calls/results and
+  reports in the archive and shared tree; do not switch to report-only memory.
+  existing admission/boundaries apply; reasoning and internal cognition remain excluded.
+  retain child finals and parent report/tool-result occurrences separately with
+  known native child linkage. repeated report claims are the same evidence, not
+  independent corroboration; no content-free replacement of duplicate reports.
+  omit inherited fork copies only with native inheritance proof and complete
+  retained originals. otherwise capture eligible copies within the fork's own
+  boundary; no text-similarity deduplication or unadmitted parent backfill.
+  provider-runtime supplies closed exact native origin/digest proof without
+  filtering reads; jarvis proves direct complete source coverage during ingest.
+  no transitive skip ledger. checkpoint id and independently retained native digest
+  advance atomically over inserted or verified omitted events; all-copy batches
+  can advance without source rows/leaves. retries and empty batches cannot select
+  another cursor; inclusive checkpoint validation remains.
+  retained originals plus broad parentage suffice; omitted fork occurrences have
+  no per-occurrence map and may not be reconstructed after native history loss.
+  supplied instructions/environment/native compaction and other recognized
+  context enter archive/tree as references only, with native kind/name/reference
+  and provenance, no body prose/snippets/summaries. native identity/digest binds
+  the complete event before suppression. former wording can be unrecoverable if
+  its source changes/disappears; references create no current authority.
+  tool-result archive text retains head/tail within 30,000 unicode characters,
+  including an explicit omission marker, with source reference and omitted count.
+  identity/digest binds native content before suppression. the normalized-event
+  bound applies after this policy; parser/transport bounds remain separate.
+  omitted middle text is unavailable centrally. canonical execution/recovery
+  receipts are unchanged; existing archive records are not pruned.
+  email enters memory through actual tool observations under those same capture
+  rules; no wholesale inbox archive, mailbox backfill or new polling is added.
+  attachment capture retains exposed text plus source references within normal
+  bounds; this alone neither copies binary originals nor adds text extraction.
+  durable originals/image access remain in the attachment feature. shared tools
+  and basic operator inspection ship first; a dedicated browser/export is deferred.
+- archive, tree and view are separate representations: retained originals;
+  derived binary summaries with source/child references; and a bounded ordered
+  selection covering an admitted prefix exactly once. chronological compression
+  replaces selective note extraction and its episodes/bookmarks/counters. one
+  shared tree contains all admitted source parts and notes, retaining conversation
+  identity/provenance. long text uses the existing bounded source parts as
+  ordinary leaves; complete-event capture still precedes compression. admission
+  rejects a whole event as `event_too_large` before persistence if any source part
+  cannot fit the common open/leaf-zoom result bound with actual encoding and host
+  framing. retain its valid preceding prefix and park at the rejected event;
+  never crop evidence to satisfy retrieval. parts of
+  each newly admitted original receive consecutive central positions in source
+  order; duplicates/retries add none. late captures append. source dates remain
+  separate; arrival order decides neither chronology nor instruction precedence.
+  use aligned two-child binary ranges and free nodes when their input fits.
+  views append between batches and coarsen from an upper to a lower threshold,
+  using inclusive-last-position age/span priority with oldest tie-breaking.
+  persist actual views, their completed prefix and unfinished shrink state.
+  explicit stopped repair invalidates affected ancestors/rebuilds frontiers;
+  originals, positions and dream progress remain immutable/preserved as applicable.
+  no durable jobs, node generations or background replay journal.
+- use bounded contextual, host-enforced tool-free compaction and ready-node
+  scheduling. a waiting turn freezes its admitted cutoff; its required
+  compression can run/retry without another owner message. dispatch needs both
+  completed summaries and a fitting request. the reference's 512-byte node target,
+  64,000–128,000-byte main view and 16,000–32,000-byte compactor view are initial
+  tuning defaults, with rendered framing counted and actual provider context
+  reserves enforced. hard node text is 2,048 bytes; at most five inference calls
+  per node attempt, with bounded retries/parking. use one serial compactor on the
+  qualified model/route and the existing isolated empty-tool plan. complete task
+  source is separate from its bounded completed context prefix, so a parent never
+  depends on itself to make its context fit. cache controls depend on the approved
+  transport; neither cross-model sharing nor a hit rate is guaranteed.
+- each new top-level jarvis turn starts from the view, current input and exact
+  requests/receipts. its running tool loop and compatible steering stay together;
+  a settled native conversational session is not reused for the next top-level
+  turn. acquire a fresh lease per `NativeRunner.run` and discard that lease at
+  completion; retain dispatchers for effects already entered. this supersedes
+  affected adr 0065 reuse rules, preserving owner authority, canonical control and
+  effect recovery. native clients keep their sessions and choose shared reads.
+  canonical message/receipt commits precede idempotent archive projection; memory
+  failure cannot erase effect evidence. add immutable `memory_admitted` bits to
+  `message` and `native_attempt`; invocations inherit attempt eligibility. legacy
+  rows are false. recover missing projections by stable message/call/reply ids,
+  not source timestamps or a new event journal. one ongoing jarvis conversation
+  replaces settlement groups. current input may also have a view summary; its
+  exact operative presentation uses the same canonical identity.
+- associative dreaming is required in the first memory delivery, as a distinct
+  jarvis-owned function for connections, contradictions and recurring themes
+  across history using the shared library. new admitted archive
+  material automatically seeds it, alongside explicit notes. its output appends
+  attributed synthesis notes in `memory_log`, with supporting source references,
+  and enters the same tree/view/search. corrections append. earlier synthesis
+  notes may inform later dreams but do not themselves create new seed work.
+  retire new writes to the separate flat synthesis store; preserve legacy rows
+  without inventing provenance or silently importing old history.
+  dreaming saves quietly; jarvis may surface findings in ordinary turns. it
+  creates no waking message, proactive turn or automatic notification.
+  each bounded dream also receives up to four uniformly sampled older
+  conversational originals/explicit notes, within 8,000 rendered bytes. sample
+  original identities within the admitted cutoff;
+  this is optional context, advances no seed progress and creates no extra runs.
+  earlier syntheses remain deliberately retrievable, outside automatic sampling.
+  keep keyword/semantic ranking unchanged; no new provider setting or sampling
+  journal is implied.
+  the main dreamer input is a bounded new-material tree view since the last
+  successfully consumed position, not a calendar-day cutoff. retain global
+  addresses and exclude synthesis leaves from new seed work; late captures and
+  missed days remain eligible. use the same tree, with no daily archive or
+  separate summary hierarchy. nightly idle work and bounded manual invocation
+  retain foreground precedence; exact clock time is host configuration.
+  a 64,000-byte seed view covers a declared eligible physical interval; split
+  mixed nodes and omit synthesis leaves, consuming only a fitting prefix.
+  `dream_through` is the sole seed cursor; `last_nightly_attempt_at` prevents
+  repeated same-night attempts, including empty/failed ones. default clock time
+  is 03:00 owner-local; manual dreaming remains bounded. output is 0–8 notes,
+  at most 8,000 bytes each/32,768 bytes total, with 1–16 record/range references
+  from the run's supplied/read evidence. note append, references, tree positions
+  and consumed-seed completion commit together, including empty success;
+  summary inference follows the commit. note flags alone cannot track archived
+  seed work. the dreamer receives no model-callable note-write grant.
+  dreamer uses transient kernel decisions; its reads use
   run-local receipts. interrupted background computation may repeat and be charged
   again under normal admission. no frozen background scopes or paid-call recovery
   barrier. main/gate durable evidence and external effect recovery remain;
   current-owner permits replace paid-capacity accounting. canonical commit
   fencing still rejects late results.
 - shared keyword/semantic candidates, identity deduplication and deterministic
-  reciprocal-rank fusion through bounded search/open. callers choose when to search; remove the recaller,
+  reciprocal-rank fusion through bounded search/open. fresh jarvis context also
+  receives a bounded compressed view covering retained history from all admitted
+  jarvis/native sources. search remains available alongside tree navigation and
+  paged source opening; capture/admission and current authority remain.
+  callers choose when to search; remove the recaller,
   automatic pre-input recall and its isolated inference work. main's full and
-  scheduled read-only plans can search/open; dreamer reads only notes/summaries.
+  scheduled read-only plans expose view/zoom/date/search/open. the dreamer gets
+  those reads over the frozen cutoff and preserved legacy stores, with no write
+  tool. model/tool/context bounds and run-local reference validation are defined
+  in the memory contract. external views use bounded frozen pages; an evicted or
+  restarted cursor returns `stale_view`. main injection needs no paging.
   main's paid-read recorder and uncertainty barriers remain. required-stage
   failures are typed errors, not fallback ranking. no learned reranker or mcp
   status tool. search permits one external embedding attempt; the same client and
@@ -72,7 +217,15 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   run receives fresh execution state from the common policy. current-owner
   permits remain the cognitive admission boundary.
 - external `memory_save_note` and main's internal `memory.save_note(text)` use
-  one canonical append. external saves require admit+connect and optional
+  one canonical append and remain optional. use them for useful authored
+  conclusions absent from captured conversation; normal capture/orientation/
+  dreaming require no save call. explicit notes enter the automatic historical
+  view as original inputs, competing for space and subject to compression.
+  notes retain agent/submission attribution and remain evidence, not authority.
+  tree lineage points to the canonical note; save calls stay references, without
+  fabricating archive provenance or creating a second original. a whole note is
+  one public leaf under the shared allocation policy.
+  external saves require admit+connect and optional
   caller-reported conversation association; main saves require jarvis admission
   and host-owned identity. neither needs native activation or proven source range.
   internal save alone is exempt from 5.1/5.4/7.4's gate/action rules: `Write +
@@ -116,7 +269,7 @@ tests, repeated acceptance trials, replay proofs, or live qualification are
 suspended as change/release gates. product behavior, runtime validation,
 containment, authority, and recovery requirements remain binding. static and
 build checks are the current verification surface; they do not establish
-behavioral or live acceptance. the subsequent pr begins the
+behavioral or live acceptance. separately scope the
 [testing redesign](docs/issues/testing-redesign.md).
 
 the owner separately authorized the native cutover's temporary red/green/live
@@ -154,9 +307,8 @@ Jarvis is a persistent personal assistant for one user. It exists to return the
 user's attention by remembering relevant context, using connected services, and
 performing ordinary work without requiring supervision.
 
-Jarvis is one visible assistant. Recaller, rememberer, dreamer,
-AutomaticWriteGate, and other model calls are internal cognitive roles, not
-user-facing personalities.
+jarvis is one visible assistant. compactor, dreamer, AutomaticWriteGate and other
+model calls are internal roles, not user-facing personalities.
 
 ## 2. Goals
 
@@ -346,17 +498,18 @@ evaluation-governed; Jarvis MUST NOT add a phrase matcher or second-model critic
 The run-local evidence value contains only typed incompleteness reasons and
 counts and is discarded at settlement/release. Visible terminal variants settle
 as `conclusion_kind = conversation` with their type as the trace outcome;
-`silent` settles as kind/outcome `silent`. Every settled owner variant remains
-eligible for remembering.
+`silent` settles as kind/outcome `silent`. archive eligibility follows immutable
+admission bits, independently of request settlement.
 
 ### 4.3 Central conversation history
 
 Discord is a client and delivery surface, not the canonical conversation store.
 Every owner message and every Jarvis response MUST be persisted in `message`.
-main may reuse a compatible healthy native session within one process. after
-connection, process or owner loss, old callbacks are fenced and reasoning starts
-in a fresh session from canonical requests, messages, recalled memory and
-original tool receipts. native history is disposable.
+main opens a fresh native session for each top-level turn from a fixed admitted
+memory view and exact current requests/receipts. its active steering/tool loop
+stays together. connection, process or owner loss fences old callbacks; fresh
+reasoning reconstructs canonical unfinished requests and original receipts while
+preserving entered effect dispatchers. native history is disposable.
 
 Inbound owner messages are stored with `processed_at = NULL` before processing
 and deduplicated by their source identity. On startup, the adapter MAY use
@@ -453,7 +606,7 @@ host protocol discriminator remains exactly `message.source = schedule_wake`.
 
 Inbound email, calendar changes, Maps data, and non-owner Discord activity do not
 directly start model turns. A proactive turn receives the scheduled-wake event
-and the catalogued read tools only; it does not invoke the owner-input recaller.
+and the catalogued read tools only, with the same fixed automatic memory view.
 It cannot perform writes or propose approval-bearing actions. Its only possible
 external output is a normal message to the owner in the configured channel.
 
@@ -788,156 +941,75 @@ against the live integration.
 
 ## 6. Memory
 
-### 6.1 Principle and schema
+the consolidated [memory contract](docs/universal-memory.md) owns the complete
+archive, tree, view, retrieval, note and dreaming contracts. it supersedes the
+former recaller, rememberer and flat-summary formation paths.
 
-Memory is natural-language memory plus learned retrieval, not an ontology.
+### 6.1 Originals and positions
 
-The canonical schema is exactly:
+retain admitted conversation evidence in the append-only archive and optional
+agent-authored notes in `memory_log`. preserve existing note ids/text/times and
+legacy `memory_summary` rows. new source parts and notes receive consecutive
+immutable central positions in one shared tree; source dates and conversation
+identity remain separate. eligibility, suppression and complete-event/checkpoint
+commits follow the consolidated contract. no historical import or backfill.
 
-```text
-memory_log
-  id
-  text
-  created_at
-  embedding
+normal operation never edits or deletes an original's identity, text, provenance
+or creation time. only derived embeddings may change. database privileges and
+triggers enforce that boundary. no forgetting, redaction, ontology, memory
+categories, confidence, salience or validity fields.
 
-memory_summary
-  id
-  text
-  source_memory_ids
-  created_at
-  embedding
-```
+### 6.2 Compression and orientation
 
-Raw memories are permanent under normal v1 operation. V1 provides no redaction,
-forgetting, or destructive consolidation mechanism. adr 0061 retains that rule
-for the universal-memory prototype; forgetting is not a planned v2 feature.
+the standalone library owns binary nodes and persisted fitting views. jarvis
+supplies bounded tool-free inference through one serial compactor. source parts
+are ordinary leaves; no private oversized-leaf reduction. completed nodes,
+frontiers and retry progress commit together; interrupted inference may repeat.
 
-Summaries, embeddings, full-text indexes, and vector indexes are derived and
-rebuildable. The system adds no memory type, category, importance, confidence,
-salience, source-authority, validity, conflict, project, person, or procedure
-field.
+fresh top-level main turns use a fixed admitted view plus exact current requests
+and operative receipts. active steering stays in the same tool loop. canonical
+conversation/effect commits precede recoverable archive projection; memory
+failure never replaces an original receipt or authorizes its replay.
 
-### 6.2 Raw memory
+### 6.3 Search and authored notes
 
-The rememberer produces zero or more concise, self-contained natural-language
-memories from one completed settled input group. Host code appends them to
-`memory_log` and sets `remembered_at` on every consumed owner message in that
-group in one transaction.
+main and external clients choose shared search/open/view/zoom/date when useful.
+one keyword/vector rank-fusion pipeline serves the three retained stores, with
+bounded complete opening and explicit omissions/provenance. no recaller, required
+first search, learned reranker or lexical-only failure fallback. shared bounds,
+clients, rate admission and the one embedding-attempt policy have one owner.
 
-Memory persistence is host-owned canonical bookkeeping, not an `llm-tools` tool
-effect. It creates no `action` row and does not duplicate memory text into the
-action ledger.
+optional explicit notes use the same atomic append as main's local note tool.
+main's original native invocation supplies its identity; exact committed-note
+recovery uses `read_position`, creates no action and never invents an absent
+startup append. external notes require both client connection and admission.
+corrections append. native and nexus producer identities follow the closed
+contract; caller-reported conversation association is not verified authorship.
 
-Normal operation never updates or deletes raw `id`, `text`, or `created_at`.
-Only the derived `embedding` may be filled, cleared, or rebuilt.
+### 6.4 Quiet dreaming
 
-Raw memory text may contain stable natural-language references:
+first delivery includes one bounded idle nightly dream over new eligible archive
+material and explicit notes, plus optional older-original context. prior syntheses
+remain deliberately retrievable but create no new seeds and enter no automatic
+sample. one physical cursor and nightly attempt marker retain missed/late material.
 
-```xml
-<refs>
-  <ref uri="gmail://account/message/id">Related email</ref>
-  <ref uri="gcal://account/event/id">Related event</ref>
-  <ref uri="maps://place/id">Related place</ref>
-  <ref uri="discord://server/channel/message">Original discussion</ref>
-</refs>
-```
+fresh isolated inference uses disposable decisions and run-local read receipts.
+validate the closed result and supporting references, then atomically append
+attributed synthesis notes/leaves and consume the original seed interval. empty
+success is valid. no background replay journal, waking message, main turn or
+notification. legacy flat summaries remain readable; new output uses shared notes.
 
-References do not create object tables or special relationship semantics. A
-correction is another natural-language memory; the recaller and dreamer resolve
-it through ordinary search and reasoning.
+### 6.5 Evidence and repair
 
-Host code rejects unmistakable credential material such as private-key blocks
-and known API-token prefixes before memory insertion. Broader entropy, payment
-number, and URL heuristics are deferred until measured because false positives
-would silently discard legitimate memories.
+memory is historical evidence, never current external truth, instructions,
+permission or consent. current Gmail, Calendar and Maps facts require live tools.
+canonical `message` rows remain the conversation and request authority.
 
-### 6.3 Recaller
-
-The recaller runs before every owner-authored human input. It is a bounded Codex
-role invoked through an isolated `llm-agent-kernel` one-shot run, with memory
-search and open tools only. Its closed structured output contract requires a
-`finish.result` memory bundle.
-
-Each owner-input recall begins with exactly one kernel-dispatched deterministic
-`memory.search` call under the frozen recaller plan. Its schema-validated typed
-result is the recaller's first observation. The recaller then adaptively searches
-or opens memory as needed; Jarvis does not bypass kernel dispatch for the initial
-read. The query is the trimmed canonical owner input when it fits both 2,048
-Unicode code points and 4,096 UTF-8 bytes. Otherwise Jarvis deterministically
-keeps UTF-8-safe head and tail portions separated by ` ... `, removing complete
-Unicode code points from the larger encoded portion until both bounds hold.
-
-It:
-
-1. Starts from the deterministic search's raw-memory and summary candidates,
-   produced through PostgreSQL full-text and vector similarity search.
-2. May issue multiple or reformulated searches after that initial observation.
-3. Deduplicates only identical `(table_kind, id)` candidates.
-4. Uses model judgment to select a compact relevant bundle.
-5. Preserves memory IDs, timestamps, and summary lineage.
-6. Opens raw sources behind a summary when detail or verification matters.
-7. Returns an empty bundle when nothing is relevant.
-
-A summary and one of its raw sources may both remain candidates. Host code does
-not assume that the summary preserves the detail that made the raw memory useful.
-
-### 6.4 Rememberer
-
-After every settled input group containing owner messages that reached any valid
-Main terminal or created an action awaiting approval, the rememberer receives
-all consumed owner messages, the persisted conclusion, material tool/action
-context, and relevant existing memories. It may search and open memory before
-returning zero or more new raw memory strings as a schema-validated
-`finish.result` from an isolated one-shot run. Host action-resolution and
-scheduled-wake rows may supply context but are not themselves memory-work
-targets.
-
-The rememberer should retain information likely to save future explanation:
-preferences, decisions, unresolved intentions, persistent circumstances,
-relationships, and useful lessons. It should omit chatter, secrets, full copies
-of live resources, unsupported inferences, and redundant paraphrases.
-
-If the rememberer fails, every target `remembered_at` remains null. A bounded
-sweep retries unremembered completed rows only when `role = owner`; host
-action-resolution and scheduled-wake inputs are never rememberer work. The
-normal sweep reconstructs a settled group from the shared run/conclusion trace
-and processes it once. If old or damaged trace cannot establish a group, it
-processes owner rows individually; memory search and model deduplication limit
-redundant append without pretending exact semantic deduplication. A successful
-run that chooses to write nothing still sets every target watermark.
-
-### 6.5 Summaries and dreaming
-
-`memory_summary` is a disposable interpretation of raw memory. Every summary
-contains a non-empty list of supporting raw IDs. A summary built from summaries
-flattens its lineage to raw IDs.
-
-The dreamer is a bounded Codex role invoked through `llm-agent-kernel`, with
-memory search/open operations. It
-returns a schema-validated `finish.result` batch of summary insertions and
-removals from an isolated one-shot run; host code applies the batch
-transactionally. Summary changes are canonical bookkeeping and create no action
-rows.
-
-The dreamer may find duplicates, contradictions, themes, stale summaries, useful
-connections, and likely future context. It cannot modify raw memory, use external
-tools, change instructions or permissions, edit code, or deploy itself.
-
-Wiping every summary and embedding and rebuilding from `memory_log` MUST restore
-a usable memory system. the fixed recall evaluation set and scorer are removed
-under adr 0046; quality verification awaits the testing redesign. the production
-rebuild retains its structural and raw-memory checks.
-
-### 6.6 Memory is evidence
-
-A memory is a prior model-made recollection. It is neither live external truth
-nor authority. Memory text never grants a permission, records operative consent,
-changes the approval boundary, or becomes a system instruction.
-
-Current questions about Gmail, Calendar, or Maps should use live tools. Current
-Jarvis conversation comes from canonical `message` rows. Memory supplies
-relevance and history.
+stopped repair rebuilds derived nodes/views/vectors/indexes while preserving
+originals, central positions, activation/checkpoint evidence, synthesis references
+and dream progress. it does not regenerate legacy flat summaries or rearm seeds.
+cutover drains old work and preserves one local pre-migration snapshot under the
+consolidated restore limits; it introduces no general backup platform.
 
 ## 7. Agent, model, and tool runtime
 
@@ -961,11 +1033,11 @@ responsibilities:
 
 main is a `NativeDefinition` with declared host callbacks and the strict
 `JarvisNativeMessage` wire contract; final settlement uses `JarvisTerminal`
-(section 4.2). recaller, rememberer, dreamer and AutomaticWriteGate use fresh
-isolated `AgentDefinition`/`run_one_shot` invocations. their first three maximum
-envelopes contain only memory reads; the gate's is empty. isolated plans contain
+(section 4.2). compactor, dreamer and AutomaticWriteGate use fresh isolated
+`AgentDefinition`/`run_one_shot` invocations. only the dreamer grants shared memory
+reads; compactor and gate plans are empty. isolated plans contain
 no `ToolEffect.Write`. these fixed roles create no persistent peer graph;
-owner-directed skid controls remain external tools under adr 0052.
+owner-directed skid controls remain external tools under adr 0064.
 
 each invocation selects one frozen plan proven internally consistent with its
 exact published catalog and to tighten the role's maximum envelope before
@@ -1013,8 +1085,8 @@ and cache behavior remain provider optimizations, never canonical state or
 guaranteed cost properties.
 
 jarvis supplies canonical product context: stable instructions and owner profile,
-bounded completed history, unfinished requests and original action/read receipts,
-current input timestamps, recalled memories, the frozen capabilities, owner IANA
+the fixed admitted memory view, unfinished requests and original action/read
+receipts, current input timestamps, the frozen capabilities, owner IANA
 timezone and host `as_of`. typed `llm-tools` sections express provenance; they are
 not an authority boundary. each current input is supplied once within its native
 delivery; queued steering acceptance is distinct from a recorded native item.
@@ -1066,11 +1138,11 @@ migration. To change models:
 3. Change the configured model and vector dimension through a migration if
    necessary.
 4. Re-embed the complete corpus.
-5. Run recall evaluation, then restart Jarvis.
+5. verify complete re-embedding and the shared retrieval contract, then restart jarvis.
 
 An interrupted rebuild leaves null vectors and keeps the service stopped; it
-cannot serve a mixed vector space. Lexical retrieval remains available during
-ordinary embedding outages.
+cannot serve a mixed vector space. query embedding failure returns typed
+`unavailable`; it never falls back to lexical-only retrieval.
 
 The complete memory corpus is disclosed to the embedding processor at ingestion
 and rebuild time and incurs API cost. This is an accepted v1 trade-off.
@@ -1079,14 +1151,12 @@ and rebuild time and incurs API cost. This is an accepted v1 trade-off.
 
 V1 exposes exactly the following canonical model tools:
 
-when the universal-memory target ships, adr 0057 additionally grants main's full
-plan `memory.save_note(text)` under its [exact contract](docs/universal-memory.md#jarvis-main-note-tool).
-adr 0059 additionally grants `memory.search` and `memory.open` to main's full and
-scheduled-wake read-only plans; all three stores use the shared retrieval path.
-adrs 0060/0063 remove the recaller and hard-cut search/open to the shared
-bounded contract with deterministic rank fusion. the dreamer can access only notes/summaries; the rememberer has
-no tools. search is a tool pipeline, never a nested agent.
-the baseline catalog below otherwise retains its meaning.
+the consolidated memory target grants five shared reads to main's full and
+scheduled-wake read-only plans and the dreamer. main's full plan additionally
+grants `memory.save_note(text)` under its
+[exact contract](docs/universal-memory.md#jarvis-main-note-tool). compactor and gate
+plans are empty. all three stores use the shared retrieval path. search is a tool
+pipeline, never a nested agent.
 
 | Tools | Granted role | Authority |
 |---|---|---|
@@ -1100,7 +1170,8 @@ the baseline catalog below otherwise retains its meaning.
 | `schedule.wake` | Main | Write; automatic |
 | `agent.list`, `agent.info`, `agent.read` | Main | peer agent read; automatic |
 | `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close`, `agent.wait`, `agent.cancel_wait` | Main | peer agent control; automatic only when grounded in current owner input |
-| `memory.search`, `memory.open` | Recaller, rememberer, dreamer | Read; automatic |
+| `memory.search`, `memory.open`, `memory.view`, `memory.zoom`, `memory.date` | main, dreamer | Read; automatic |
+| `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
 worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md).
 all model inputs and outputs are closed. machines are `macbook|devbox|arch`;
@@ -1263,14 +1334,11 @@ envelope. An
 owner-input or action-resolution main run receives the full Main plan. A
 scheduled-wake run uses the same continuing definition but receives only the
 catalogued Gmail, Calendar, Maps, and public-Web reads.
-the accepted adr 0059 target also includes memory search/open in both main plans;
-it adds no write to the scheduled-wake plan.
-Recall, remember, and dream one-shot plans contain exactly `memory.search` and
-`memory.open`; AutomaticWriteGate has an empty plan. Every plan is frozen for its
-run and may never exceed its envelope.
-Owner-input recall begins by having the kernel dispatch exactly one deterministic
-`memory.search` call under that recaller plan and provide its typed observation;
-the recaller may then adaptively call `memory.search` or `memory.open`.
+both main plans include the five shared memory reads; scheduled wakes cannot
+save notes. the dreamer grants those same five reads through its fixed cutoff.
+compactor and AutomaticWriteGate plans are empty. every plan is frozen for its
+run and may never exceed its envelope. agents choose their procedure; no required
+first tool or minimum call count.
 
 `calendar.list_events` takes only aware `time_min`, aware `time_max`, and an IANA
 `time_zone`. It exposes neither a provider calendar ID nor a model-selected
@@ -1295,8 +1363,7 @@ a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
 policy inputs.
 
-the baseline main agent receives recalled memory but no memory tool; the accepted
-target adds `memory.save_note`, `memory.search` and `memory.open` as described above. internal cognitive
+main receives the fixed admitted memory view and shared tools described above. internal cognitive
 roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
 No role receives `tool.search`, `tool.read`, a local-filesystem tool, a Gmail
 organization tool, or a model-callable Discord tool.
@@ -1651,7 +1718,8 @@ write gate awaits completion.
 AutomaticWriteGate runs a fresh isolated one-shot within its parent callback,
 using the same current owner and explicit parent invocation permit. main cannot
 enter another effect while that dispatch is active; native observation/control
-continues. foreground work takes precedence over rememberer/dreamer work.
+continues. foreground work takes precedence over compaction/dreaming; main
+preparation may run the compaction required by its fixed admitted cutoff.
 background cancellation preserves canonical source/progress and does not
 automatically rearm paid inference.
 
@@ -1785,9 +1853,9 @@ controls.
 
 ## 9. Persistence
 
-jarvis owns nine application tables: the six records from adr 0040 and three
-native journals from adr 0065. the separately accepted universal-memory target
-adds three more; it is not part of this cutover.
+jarvis owns fifteen application tables: the native nine and six standalone
+memory tables under the consolidated contract. the six archive/tree table
+columns are defined once in [the memory schema](docs/universal-memory.md#4-schema-and-invariants).
 
 ```text
 message
@@ -1801,7 +1869,7 @@ message
   processed_at
   processing_attempts
   processing_parked_at
-  remembered_at
+  memory_admitted
   request_state
   wait_reason
   control_kind
@@ -1814,6 +1882,8 @@ memory_log
   text
   created_at
   embedding
+  agent_submission
+  synthesis
 
 memory_summary
   id
@@ -1878,6 +1948,7 @@ native_attempt
   armed_at
   fenced_at
   terminal_at
+  memory_admitted
 
 native_invocation
   id
@@ -1916,12 +1987,11 @@ table or semantic memory field requires an accepted ADR.
 
 `model_decision` records recoverable isolated inference: its exact original
 request/provider attempt, submission facts, original terminal and bounded host
-validation evidence. recall is keyed by owner message identity, rememberer by its
-settled owner group, gate by its parent native invocation, and dreamer by the
-canonical raw/summary snapshot. unknown original submission blocks redispatch.
-diagnostics may explicitly select transient inference; they establish no restart
-proof. the later universal-memory target separately makes its background
-inference disposable.
+validation evidence. the write gate is keyed by its parent native invocation;
+unknown original submission blocks redispatch. compaction and dreaming use
+disposable inference and run-local read receipts, with no background journal.
+legacy cognition scopes must be drained before cutover, not silently replayed
+under changed contracts.
 
 `native_attempt` preserves original prepared request, output schema/input lineage,
 provider attempt, native binding and independent submission/local/native/product
@@ -1938,7 +2008,17 @@ sealed attempt with the earlier final-only schema remains locally recoverable.
 
 `native_invocation` preserves exact callback identity, original proposal and
 lineage, frozen contract, validation and original read/action reference. known
-invalid arguments remain raw evidence with their rejected reply. completed
+invalid arguments remain raw evidence with their rejected reply when that
+decoded evidence is representable in postgres jsonb. the owner-approved exception
+is a nul character in decoded callback arguments or keys: reject before sql with
+a content-free native defect, fence/discard that attempt, and leave its request
+pending. enter no tool, action, read position or note; do not sanitize the
+proposal, invent retained evidence or send an ordinary invalid-input reply.
+nexus applies the same fail-stop before its decoded model-turn evidence is
+persisted, leaving the chat incomplete and dispatching no tool. external mcp
+note input still returns `invalid_input` before any persistence. ordinary logs
+contain only controlled event/code/class and identity, never arguments, sql
+diagnostics or exception-chain text. completed
 duplicates replay the original reply; changed arguments or authority fail closed.
 native call IDs never replace the host's stable invocation/effect identity.
 
@@ -1992,10 +2072,9 @@ validation; current request/source/consent fences govern publication separately.
   the outbound retry watermark; a successful adapter delivery or history
   reconciliation fills it with the source platform's ID. The Discord nonce is
   deterministically derived from `message.id` and needs no column.
-- `remembered_at` records that its owner row participated in a completed
-  rememberer group, including a successful decision to write no memories.
-- `trace` is bounded JSON containing recall candidate IDs,
-  selected/created memory IDs, and compact run summaries: run ID, provider trace
+- `memory_admitted` is an immutable host-stamped publication eligibility bit;
+  legacy rows are false. native invocations inherit their attempt's bit.
+- `trace` is bounded JSON containing compact run summaries: run ID, provider trace
   IDs, provider turns, normalized token usage when reported, duration, and
   terminal outcome. Settlement writes the same run ID, through-checkpoint,
   nullable conclusion-message ID, and conclusion kind/outcome to every consumed
@@ -2113,12 +2192,11 @@ respectively to the full associated data
 value of exactly 32 bytes is the key, and every other decoded length is reduced
 with SHA-256. A refresh atomically replaces state in this same format.
 
-V1 has no backup or restore path. the live main provider lease,
-provider-native state, embeddings, summaries, and indexes are noncanonical or
-derived, and memory rebuild remains available while the local raw log survives.
-If backup is added later, its exact canonical state, credential exclusions, and
-cross-resource consistency contract require a new accepted ADR and restore
-test.
+v1 has no general backup platform. the memory cutover owns one stopped local
+dump/runtime copy and its explicit pre-start restore limits. originals and
+canonical request/effect facts remain authoritative; native sessions and derived
+nodes/views/vectors/indexes are disposable. a later general backup contract needs
+its own accepted adr and restore proof.
 
 ## 10. Existing integrations
 
@@ -2243,7 +2321,8 @@ Acceptance includes:
   fresh-session reasoning recovery after owner/connection/process loss.
 - Live Gmail, Calendar, and Maps use.
 - Live public-Web search and page reading.
-- Memory formation, fresh-session recall, dreaming, and complete rebuild.
+- admitted capture, chronological compression, fresh-turn orientation, optional
+  direct saves, quiet nightly dreaming and stopped derived rebuild.
 - Automatic personal calendar work.
 - Host-rendered approval and one approved email send protected by draft identity,
   reconciliation, and honest terminal uncertainty rather than a universal

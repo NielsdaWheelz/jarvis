@@ -1,19 +1,19 @@
 {
-  "application_session_contract_revision": "jarvis-contained-native-v1",
+  "application_session_contract_revision": "jarvis-universal-memory-v1",
   "dependencies": {
-    "llm-agent-kernel": "9d57e8945be5b26397c5a3942612f81a190f8db4",
-    "llm-tools": "2adb9790fc7a54de5342effaca9391c2f3d24ff9",
-    "provider-runtime": "e1498d8382f192ae664ae9790b682a8e8a8b0d38"
+    "llm-agent-kernel": "e1bec2731ec35aa8c07f2eb277d8993332a7490c",
+    "llm-tools": "73056dfb23733e68bd32b6765cc34880f69674bd",
+    "provider-runtime": "d9550d9c53af3d7b608250d9a0db131d78dccf64",
+    "universal-memory": "d824d33df9c136952f1d01f7c4a4ad389df42ef1"
   },
   "qualified_models": [
     "gpt-5.6-terra"
   ],
   "role_contract_revisions": {
     "automatic_write_gate": "jarvis-write-gate-skid-v1",
-    "dreamer": "jarvis-dreamer-slice-4-v6",
-    "main": "jarvis-main-native-v2",
-    "recaller": "jarvis-recaller-slice-4-v17",
-    "rememberer": "jarvis-rememberer-slice-3-v1"
+    "compactor": "jarvis-memory-compactor-v1",
+    "dreamer": "jarvis-memory-dreamer-v1",
+    "main": "jarvis-main-universal-memory-v2"
   },
   "schema_version": "jarvis-session-compatibility.v3"
 }

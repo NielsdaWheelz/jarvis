@@ -25,4 +25,4 @@ uv pip install --python "$install_environment/bin/python" "${wheels[0]}"
 "$install_environment/bin/python" -c "import jarvis"
 "$install_environment/bin/jarvis" --help >/dev/null
 uv run pip-audit --local
-echo "static and build checks passed; behavioral verification is suspended (adr 0046)"
+echo "static and build checks passed; scoped memory regressions run separately"

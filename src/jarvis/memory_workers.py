@@ -1,15 +1,13 @@
-"""Isolated memory workers and their transactional commit boundaries."""
+"""Serial chronological compression, indexing and quiet disposable dreaming."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Protocol, cast
-from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
+from datetime import UTC, datetime, time, timedelta
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from llm_agent_kernel import (
     AgentDefinition,
@@ -17,52 +15,47 @@ from llm_agent_kernel import (
     HostInput,
     InputId,
     OneShotCompleted,
+    OneShotStopKind,
     ProviderSessionPort,
     RunId,
-    RunMetrics,
+    TransientModelDecisions,
     run_one_shot,
 )
 from llm_tools import (
     FrozenToolPlan,
-    PromptAttribute,
-    PromptAttributeName,
+    PromptJson,
     PromptSection,
     PromptSectionKind,
     PromptSections,
     PromptText,
+    canonical_json_bytes,
+)
+from provider_runtime.agent_runtime import thaw_json_value
+from pydantic import ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+from universal_memory import DreamResult, MemoryError, render_dream_view
+from universal_memory.policy import (
+    COMPACTION_CALLS,
+    COMPACTION_FAILURES,
+    COMPACTION_RETRY_SECONDS,
+    NODE_HARD_BYTES,
+    NODE_TARGET_BYTES,
+    clip_utf8,
 )
 
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
-from jarvis.context import MemoryReadDispatcherPort
-from jarvis.decisions import ModelJournalFactory, isolated_decisions
-from jarvis.definitions import DreamResult, RememberResult
-from jarvis.memory import (
-    MemoryStore,
-    RemembererGroup,
-    RemembererRunSummary,
-    StoredMemory,
-    SummaryInsertionCandidate,
-    SummaryMutationBatch,
-)
-from jarvis.messages import MessageStore
-from jarvis.ownership import DeploymentOwnershipDefect
+from jarvis.db import message
+from jarvis.definitions import CompactionResult
+from jarvis.embeddings import MAX_EMBEDDING_BATCH_SIZE, EmbeddingBusy, EmbeddingFailure
+from jarvis.kernel import EmptyToolDispatcher
+from jarvis.memory_dispatch import MemoryToolDispatcher
+from jarvis.memory_service import MemoryService
 
 LOGGER = logging.getLogger(__name__)
 
 
-class EmbeddingPort(Protocol):
-    async def embed(self, inputs: tuple[str, ...]) -> tuple[tuple[float, ...], ...]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class _ImmediateRemembererWork:
-    owner_message_ids: tuple[UUID, ...]
-    material_context: PromptSections
-
-
-class RemembererWorker:
-    """Run one bounded isolated rememberer or embedding unit at a time."""
-
+class MemoryWorker:
     def __init__(
         self,
         *,
@@ -70,347 +63,206 @@ class RemembererWorker:
         plan: FrozenToolPlan,
         owner: JarvisOwner,
         provider: ProviderSessionPort,
-        model_decisions: ModelJournalFactory,
-        dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
-        memory: MemoryStore,
-        messages: MessageStore,
-        embedder: EmbeddingPort,
-        maximum_messages_per_group: int,
+        memory: MemoryService,
     ) -> None:
-        if (
-            type(maximum_messages_per_group) is not int
-            or maximum_messages_per_group <= 0
-        ):
-            raise ValueError("rememberer group bound must be a positive integer")
-        self._definition = definition
-        self._plan = plan
-        self._owner = owner
-        self._provider = provider
-        self._model_decisions = model_decisions
-        self._dispatcher_factory = dispatcher_factory
-        self._memory = memory
-        self._messages = messages
-        self._embedder = embedder
-        self._maximum_messages_per_group = maximum_messages_per_group
-        self._immediate: list[_ImmediateRemembererWork] = []
-        self._commit_in_progress = False
-        self._foreground_waiting = False
-
-    def enqueue(
-        self,
-        owner_message_ids: tuple[UUID, ...],
-        material_context: PromptSections,
-    ) -> None:
-        if not owner_message_ids or len(set(owner_message_ids)) != len(
-            owner_message_ids
-        ):
-            raise ValueError("rememberer owner IDs must be non-empty and unique")
-        self._immediate.append(
-            _ImmediateRemembererWork(owner_message_ids, material_context)
-        )
+        self.definition, self.plan = definition, plan
+        self.owner, self.provider, self.memory = owner, provider, memory
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
-        if self._commit_in_progress:
-            self._foreground_waiting = True
-        else:
-            cancellation.cancel()
+        cancellation.cancel()
 
-    async def run_one(self, cancellation: CancellationToken) -> bool:
-        if cancellation.cancelled:
-            return False
-        immediate = self._immediate[0] if self._immediate else None
-        if immediate is None:
-            groups = await self._memory.select_pending_rememberer_groups(
-                maximum_groups=1,
-                maximum_messages_per_group=self._maximum_messages_per_group,
-            )
-            if not groups:
-                rows = await self._memory.select_null_embedding_candidates(
-                    maximum_rows=32
-                )
-                if not rows or cancellation.cancelled:
-                    return False
-                return await self._embed_rows(rows, cancellation)
-            group = groups[0]
-            material_context = PromptSections(())
-        else:
+    async def ensure_ready(self, cutoff: int, cancellation: CancellationToken) -> None:
+        while not cancellation.cancelled:
             try:
-                group = await self._memory.prepare_rememberer_group(
-                    owner_message_ids=immediate.owner_message_ids,
-                )
-            except DeploymentOwnershipDefect:
-                raise
-            except Exception:
-                self._immediate.pop(0)
-                return False
-            material_context = immediate.material_context
-        completed = await self._remember(group, material_context, cancellation)
-        if completed and immediate is not None:
-            self._immediate.pop(0)
-        return completed
+                await self.memory.library.main_view(cutoff)
+                return
+            except MemoryError as error:
+                if error.code != "unavailable":
+                    raise
+            if not await self.compact_one(cancellation, cutoff=cutoff):
+                if not cancellation.cancelled:
+                    raise MemoryError("compaction_blocked")
+                return
 
-    async def _remember(
-        self,
-        group: RemembererGroup,
-        material_context: PromptSections,
-        cancellation: CancellationToken,
+    async def compact_one(
+        self, cancellation: CancellationToken, *, cutoff: int | None = None
     ) -> bool:
-        inputs = tuple(
-            HostInput(
-                InputId(str(target.id)),
-                PromptSections(
+        async with self.memory.database.begin() as connection:
+            task = await self.memory.library.next_compaction(connection, cutoff=cutoff)
+            control = await connection.scalar(
+                select(func.max(message.c.control_sequence)).where(
+                    message.c.source_conversation_id == self.owner.scope_id
+                )
+            )
+        if task is None or cancellation.cancelled:
+            return False
+        candidate = task.free_text
+        failure = "invalid_completion"
+        permit = self.owner.permit("jarvis-compaction:" + str(uuid4()))
+        as_of = datetime.now(UTC)
+        if candidate is None:
+            shortest: str | None = None
+            feedback: dict[str, object] = {}
+            failures = 0
+            for _ in range(COMPACTION_CALLS):
+                if cancellation.cancelled:
+                    return False
+                await self.owner.require_current(permit)
+                run_id = RunId(str(uuid4()))
+                source = PromptSections(
                     (
                         PromptSection(
-                            PromptSectionKind("settled_owner_input"),
-                            (
-                                PromptAttribute(
-                                    PromptAttributeName("source"), target.source
-                                ),
+                            PromptSectionKind("compaction_source"),
+                            (),
+                            PromptJson(
+                                {
+                                    "start": task.start,
+                                    "count": task.count,
+                                    "source": task.source,
+                                    "ruler": task.ruler,
+                                    "size_feedback": feedback,
+                                }
                             ),
-                            PromptText(target.text),
+                        ),
+                        PromptSection(
+                            PromptSectionKind("historical_memory_view"),
+                            (),
+                            PromptText(task.context),
                         ),
                     )
-                ),
-                target.created_at,
+                )
+                outcome = await run_one_shot(
+                    decisions=TransientModelDecisions(),
+                    run_id=run_id,
+                    definition=self.definition,
+                    inputs=(
+                        HostInput(InputId(str(run_id)), PromptSections(()), as_of),
+                    ),
+                    as_of=as_of,
+                    plan=self.plan,
+                    source_sections=source,
+                    owner=self.owner,
+                    permit=permit,
+                    provider=self.provider,
+                    dispatcher=EmptyToolDispatcher(),
+                    budget_factory=ExactToolBudgetFactory(),
+                    cancellation=cancellation,
+                )
+                if cancellation.cancelled:
+                    return False
+                if not isinstance(outcome, OneShotCompleted):
+                    if outcome.type is OneShotStopKind.cancelled:
+                        return False
+                    if outcome.type not in {
+                        OneShotStopKind.provider_error,
+                        OneShotStopKind.model_decision_uncertain,
+                    }:
+                        shortest = None
+                        failure = "invalid_completion"
+                        break
+                    failures += 1
+                    failure = "inference_failed"
+                    if failures >= COMPACTION_FAILURES:
+                        shortest = None
+                        break
+                    try:
+                        await asyncio.wait_for(
+                            cancellation.wait(), COMPACTION_RETRY_SECONDS
+                        )
+                        return False
+                    except TimeoutError:
+                        continue
+                try:
+                    value = CompactionResult.model_validate_json(
+                        canonical_json_bytes(thaw_json_value(outcome.result))
+                    ).text.strip()
+                except ValidationError:
+                    shortest = None
+                    failure = "invalid_completion"
+                    break
+                size = len(value.encode())
+                if shortest is None or size < len(shortest.encode()):
+                    shortest = value
+                if size <= NODE_TARGET_BYTES:
+                    break
+                feedback = {
+                    "measured_bytes": size,
+                    "candidate": value,
+                    "target_cut": clip_utf8(value, NODE_TARGET_BYTES),
+                }
+                failure = "candidate_too_large"
+            candidate = (
+                shortest
+                if shortest is not None and len(shortest.encode()) <= NODE_HARD_BYTES
+                else None
             )
-            for target in group.targets
-        )
-
-        source = await self._rememberer_source(group, material_context)
-        dispatcher = self._dispatcher_factory()
-        operation_id = "jarvis-remember:" + ":".join(
-            str(target.id) for target in group.targets
-        )
-        decisions, as_of = await isolated_decisions(
-            self._model_decisions, dispatcher, operation_id, datetime.now(UTC)
-        )
-        run_id = RunId(str(uuid4()))
-        try:
-            outcome = await run_one_shot(
-                run_id=run_id,
-                definition=self._definition,
-                inputs=inputs,
-                as_of=as_of,
-                decisions=decisions,
-                plan=self._plan,
-                source_sections=source,
-                owner=self._owner,
-                permit=self._owner.permit(operation_id),
-                provider=self._provider,
-                dispatcher=dispatcher,
-                budget_factory=ExactToolBudgetFactory(),
-                cancellation=cancellation,
+        await self.owner.require_current(permit)
+        async with self.memory.database.begin() as connection:
+            latest = await connection.scalar(
+                select(func.max(message.c.control_sequence)).where(
+                    message.c.source_conversation_id == self.owner.scope_id
+                )
             )
-        except DeploymentOwnershipDefect:
-            raise
-        except Exception:
-            await self._record_attempt(
-                group,
-                run_id,
-                "configuration_error",
-                None,
-            )
-            return False
-        if not isinstance(outcome, OneShotCompleted):
-            await self._record_attempt(
-                group,
-                run_id,
-                outcome.type.value,
-                outcome.metrics,
-            )
-            return False
-        if cancellation.cancelled:
-            await self._record_attempt(
-                group,
-                run_id,
-                "cancelled",
-                outcome.metrics,
-            )
-            return False
-        try:
-            result = RememberResult.model_validate(outcome.result)
-        except (TypeError, ValueError):
-            await self._record_attempt(
-                group,
-                run_id,
-                "invalid_result",
-                outcome.metrics,
-            )
-            return False
-        metrics = outcome.metrics
-        if cancellation.cancelled:
-            await self._record_attempt(
-                group,
-                run_id,
-                "cancelled",
-                metrics,
-            )
-            return False
-        self._commit_in_progress = True
-        self._foreground_waiting = False
-        commit = None
-        try:
-            commit = await self._memory.commit_rememberer_result(
-                group=group,
-                memory_texts=tuple(result.memories),
-                run=RemembererRunSummary(
-                    run_id=str(run_id),
-                    provider_turns=metrics.provider_turns,
-                    input_tokens=metrics.usage.input_tokens,
-                    output_tokens=metrics.usage.output_tokens,
-                    duration_ms=round(metrics.duration_seconds * 1_000),
-                ),
-            )
-        except DeploymentOwnershipDefect:
-            raise
-        except Exception:
-            pass
-        finally:
-            self._commit_in_progress = False
-            if self._foreground_waiting:
-                cancellation.cancel()
-            self._foreground_waiting = False
-        if commit is None:
-            await self._record_attempt(
-                group,
-                run_id,
-                "commit_failure",
-                metrics,
-            )
-            return False
-        if cancellation.cancelled or not commit.created:
-            return True
-        await self._embed_rows(commit.created, cancellation)
+            if cancellation.cancelled or latest != control:
+                return False
+            if candidate is None:
+                await self.memory.library.park_compaction(connection, task, failure)
+                return False
+            await self.memory.library.complete_compaction(connection, task, candidate)
         return True
 
-    async def _record_attempt(
-        self,
-        group: RemembererGroup,
-        run_id: RunId,
-        terminal_outcome: str,
-        metrics: RunMetrics | None,
-    ) -> None:
+    async def run_one(self, cancellation: CancellationToken) -> bool:
         try:
-            await self._messages.record_rememberer_attempt(
-                message_ids=tuple(target.id for target in group.targets),
-                run_id=str(run_id),
-                terminal_outcome=terminal_outcome,
-                provider_turns=None if metrics is None else metrics.provider_turns,
-                input_tokens=None if metrics is None else metrics.usage.input_tokens,
-                output_tokens=None if metrics is None else metrics.usage.output_tokens,
-                duration_seconds=None if metrics is None else metrics.duration_seconds,
-            )
-        except DeploymentOwnershipDefect:
-            raise
-        except Exception:
-            return
-
-    async def _rememberer_source(
-        self,
-        group: RemembererGroup,
-        material_context: PromptSections,
-    ) -> PromptSections:
-        sections: list[PromptSection] = list(material_context.sections)
-        settlement = group.settlement
-        if settlement is not None:
-            body = None
-            if settlement.conclusion_message_id is not None:
-                conclusion = await self._messages.message_by_id(
-                    UUID(settlement.conclusion_message_id)
-                )
-                if conclusion is None or conclusion.role != "assistant":
-                    raise RuntimeError("rememberer conclusion is missing")
-                body = PromptText(conclusion.text)
-            sections.append(
-                PromptSection(
-                    PromptSectionKind("persisted_conclusion"),
-                    (
-                        PromptAttribute(
-                            PromptAttributeName("conclusion_kind"),
-                            settlement.conclusion_kind,
-                        ),
-                        PromptAttribute(
-                            PromptAttributeName("outcome"), settlement.outcome
-                        ),
-                    ),
-                    body,
-                )
-            )
-        recalled = _recalled_id_sections(group)
-        sections.extend(recalled.sections)
-        return PromptSections(tuple(sections))
-
-    async def _embed_rows(
-        self,
-        rows: tuple[StoredMemory, ...],
-        cancellation: CancellationToken,
-    ) -> bool:
-        vectors = await self._embedding_vectors(
-            tuple(row.text for row in rows), cancellation
-        )
-        if vectors is None:
-            return False
-        if cancellation.cancelled or len(vectors) != len(rows):
-            return False
-        updated = False
-        for row, vector in zip(rows, vectors, strict=True):
             if cancellation.cancelled:
-                break
-            try:
-                await self._memory.update_embedding(
-                    identity=row.identity,
-                    embedding=vector,
-                )
-            except DeploymentOwnershipDefect:
-                raise
-            except Exception:
-                break
-            updated = True
-        return updated
-
-    async def _embedding_vectors(
-        self,
-        texts: tuple[str, ...],
-        cancellation: CancellationToken,
-    ) -> tuple[tuple[float, ...], ...] | None:
-        embedding = asyncio.create_task(self._embedder.embed(texts))
-        cancelled = asyncio.create_task(cancellation.wait())
-        try:
-            done, _pending = await asyncio.wait(
-                (embedding, cancelled),
-                return_when=asyncio.FIRST_COMPLETED,
+                return False
+            if await self.memory.project_pending():
+                return True
+            if await self.compact_one(cancellation):
+                return True
+            if cancellation.cancelled:
+                return False
+            return await self.index_one(cancellation)
+        except (MemoryError, SQLAlchemyError) as error:
+            LOGGER.warning(
+                "memory background did not complete: type=%s", type(error).__name__
             )
-            if cancelled in done:
-                embedding.cancel()
-                await asyncio.gather(embedding, return_exceptions=True)
-                return None
-            cancelled.cancel()
-            await asyncio.gather(cancelled, return_exceptions=True)
-            return embedding.result()
-        except Exception:
-            return None
-        finally:
-            if not embedding.done():
-                embedding.cancel()
-            if not cancelled.done():
-                cancelled.cancel()
-            await asyncio.gather(embedding, cancelled, return_exceptions=True)
+            return False
+
+    async def index_one(self, cancellation: CancellationToken) -> bool:
+        rows = await self.memory.library.embedding_candidates(MAX_EMBEDDING_BATCH_SIZE)
+        if not rows or cancellation.cancelled:
+            return False
+        permit = self.owner.permit("jarvis-memory-index:" + str(uuid4()))
+        await self.owner.require_current(permit)
+        try:
+            vectors = await self.memory.embedder.embed(tuple(row.text for row in rows))
+        except (EmbeddingBusy, EmbeddingFailure):
+            return False
+        if len(vectors) != len(rows):
+            raise EmbeddingFailure("embedding result count differs")
+        if cancellation.cancelled:
+            return False
+        await self.owner.require_current(permit)
+        async with self.memory.database.begin() as connection:
+            if cancellation.cancelled:
+                return False
+            for row, vector in zip(rows, vectors, strict=True):
+                await self.memory.library.update_embedding(
+                    connection, row.reference, vector
+                )
+        return True
 
 
 @dataclass(frozen=True, slots=True)
 class DreamerRunCompleted:
-    run_id: RunId
-    created_summary_ids: tuple[UUID, ...]
-    removed_summary_ids: tuple[UUID, ...]
-    metrics: RunMetrics
-
-
-type DreamerRunOutcome = DreamerRunCompleted | None
+    run_id: str
+    created_note_ids: tuple[UUID, ...]
+    seed_start: int
+    seed_end: int
+    provider_turns: int
 
 
 class DreamerWorker:
-    """Run one isolated summary mutation with a cancellable reasoning boundary."""
-
     def __init__(
         self,
         *,
@@ -418,168 +270,140 @@ class DreamerWorker:
         plan: FrozenToolPlan,
         owner: JarvisOwner,
         provider: ProviderSessionPort,
-        model_decisions: ModelJournalFactory,
-        dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
-        memory: MemoryStore,
+        memory: MemoryService,
+        compactor: MemoryWorker,
+        owner_timezone: str,
+        nightly_time: time,
     ) -> None:
-        self._definition = definition
-        self._plan = plan
-        self._owner = owner
-        self._provider = provider
-        self._model_decisions = model_decisions
-        self._dispatcher_factory = dispatcher_factory
-        self._memory = memory
-        self._commit_in_progress = False
-        self._foreground_waiting = False
+        self.definition, self.plan = definition, plan
+        self.owner, self.provider, self.memory = owner, provider, memory
+        self.compactor = compactor
+        self.timezone, self.nightly_time = ZoneInfo(owner_timezone), nightly_time
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
-        if self._commit_in_progress:
-            self._foreground_waiting = True
-        else:
-            cancellation.cancel()
+        cancellation.cancel()
 
-    async def run_one(
-        self,
-        cancellation: CancellationToken,
-    ) -> bool:
-        outcome = await self.run_at(
-            as_of=datetime.now(UTC),
-            cancellation=cancellation,
-        )
-        return isinstance(outcome, DreamerRunCompleted)
+    async def run_one(self, cancellation: CancellationToken) -> bool:
+        try:
+            completed = await self.run_at(
+                as_of=datetime.now(UTC), cancellation=cancellation, nightly=True
+            )
+        except (MemoryError, SQLAlchemyError) as error:
+            LOGGER.warning("dream did not complete: type=%s", type(error).__name__)
+            return False
+        return completed is not None
 
     async def run_at(
         self,
         *,
         as_of: datetime,
         cancellation: CancellationToken,
-    ) -> DreamerRunOutcome:
-        if cancellation.cancelled or await self._memory.raw_memory_count() == 0:
+        nightly: bool = False,
+    ) -> DreamerRunCompleted | None:
+        if cancellation.cancelled:
             return None
-        run_id = RunId(str(uuid4()))
-        operation_id = "jarvis-dream:" + await self._memory.snapshot_revision()
-        dispatcher = self._dispatcher_factory()
-        decisions, as_of = await isolated_decisions(
-            self._model_decisions, dispatcher, operation_id, as_of
-        )
-        job_input = HostInput(
-            InputId(str(uuid5(NAMESPACE_URL, operation_id))),
-            PromptSections(
-                (
-                    PromptSection(
-                        PromptSectionKind("dream_job"),
-                        (),
-                        PromptText("Run one bounded memory-summary maintenance pass."),
+        run_id = str(uuid4())
+        permit = self.owner.permit("jarvis-dream:" + run_id)
+        await self.owner.require_current(permit)
+        async with self.memory.database.begin() as connection:
+            control = await connection.scalar(
+                select(func.max(message.c.control_sequence)).where(
+                    message.c.source_conversation_id == self.owner.scope_id
+                )
+            )
+            if nightly:
+                local = as_of.astimezone(self.timezone)
+                occurrence = datetime.combine(
+                    local.date(), self.nightly_time, self.timezone
+                )
+                if occurrence > local:
+                    occurrence = datetime.combine(
+                        local.date() - timedelta(days=1),
+                        self.nightly_time,
+                        self.timezone,
+                    )
+                if not await self.memory.library.claim_nightly(
+                    connection, occurrence, attempted_at=as_of
+                ):
+                    return None
+        pending = await self.memory.pending_publication()
+        await self.memory.project_pending(pending)
+        cutoff = await self.memory.library.cutoff()
+        await self.compactor.ensure_ready(cutoff, cancellation)
+        if cancellation.cancelled:
+            return None
+        seed = await self.memory.library.dream_input(cutoff)
+        if seed.seed_start == seed.seed_end:
+            return DreamerRunCompleted(run_id, (), seed.seed_start, seed.seed_end, 0)
+        result, turns = DreamResult(notes=()), 0
+        dispatcher = MemoryToolDispatcher(cutoff=cutoff)
+        if seed.nodes:
+            sections = [
+                PromptSection(
+                    PromptSectionKind("historical_memory_view"),
+                    (),
+                    PromptText(
+                        render_dream_view(seed.nodes, seed.seed_start, seed.seed_end)
                     ),
                 )
-            ),
-            as_of,
-        )
-        try:
+            ]
+            if seed.sample:
+                sections.append(
+                    PromptSection(
+                        PromptSectionKind("historical_memory_view"),
+                        (),
+                        PromptText(
+                            canonical_json_bytes(
+                                [item.model_dump(mode="json") for item in seed.sample]
+                            ).decode()
+                        ),
+                    )
+                )
+            source = PromptSections(tuple(sections))
             outcome = await run_one_shot(
-                decisions=decisions,
-                run_id=run_id,
-                definition=self._definition,
-                inputs=(job_input,),
+                decisions=TransientModelDecisions(),
+                run_id=RunId(run_id),
+                definition=self.definition,
+                inputs=(HostInput(InputId(run_id), PromptSections(()), as_of),),
                 as_of=as_of,
-                plan=self._plan,
-                source_sections=PromptSections(()),
-                owner=self._owner,
-                permit=self._owner.permit(operation_id),
-                provider=self._provider,
+                plan=self.plan,
+                source_sections=source,
+                owner=self.owner,
+                permit=permit,
+                provider=self.provider,
                 dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
             )
-        except DeploymentOwnershipDefect:
-            raise
-        except Exception:
-            return None
-        if (
-            not isinstance(outcome, OneShotCompleted)
-            or cancellation.cancelled
-            or dispatcher.evidence.search_calls == 0
-        ):
-            return None
-        try:
-            result = DreamResult.model_validate(outcome.result)
-            batch = SummaryMutationBatch(
-                insertions=tuple(
-                    SummaryInsertionCandidate(
-                        text=item.text,
-                        source_memory_ids=tuple(
-                            UUID(identity) for identity in item.source_memory_ids
-                        ),
-                    )
-                    for item in result.insertions
-                ),
-                remove_summary_ids=tuple(
-                    UUID(identity) for identity in result.remove_summary_ids
-                ),
+            if not isinstance(outcome, OneShotCompleted) or cancellation.cancelled:
+                return None
+            try:
+                result = DreamResult.model_validate_json(
+                    canonical_json_bytes(thaw_json_value(outcome.result))
+                )
+            except ValidationError:
+                LOGGER.warning("dream did not complete: code=invalid_result")
+                return None
+            turns = outcome.metrics.provider_turns
+        await self.owner.require_current(permit)
+        async with self.memory.database.begin() as connection:
+            latest = await connection.scalar(
+                select(func.max(message.c.control_sequence)).where(
+                    message.c.source_conversation_id == self.owner.scope_id
+                )
             )
-        except (TypeError, ValueError):
-            return None
-        if cancellation.cancelled:
-            return None
-        self._commit_in_progress = True
-        self._foreground_waiting = False
-        commit = None
-        try:
-            commit = await self._memory.apply_summary_mutations(batch=batch)
-        except DeploymentOwnershipDefect:
-            raise
-        except Exception:
-            pass
-        finally:
-            self._commit_in_progress = False
-            if self._foreground_waiting:
-                cancellation.cancel()
-            self._foreground_waiting = False
-        if commit is None:
-            return None
-        completed = DreamerRunCompleted(
-            run_id=run_id,
-            created_summary_ids=tuple(item.id for item in commit.created),
-            removed_summary_ids=commit.removed_summary_ids,
-            metrics=outcome.metrics,
+            if cancellation.cancelled or latest != control:
+                return None
+            identifiers = await self.memory.library.complete_dream(
+                connection,
+                seed,
+                result,
+                dispatcher.references,
+            )
+        return DreamerRunCompleted(
+            run_id,
+            tuple(item.id for item in identifiers),
+            seed.seed_start,
+            seed.seed_end,
+            turns,
         )
-        LOGGER.info(
-            "Dreamer completed: turns=%d inserted=%d removed=%d",
-            completed.metrics.provider_turns,
-            len(completed.created_summary_ids),
-            len(completed.removed_summary_ids),
-        )
-        return completed
-
-
-def _recalled_id_sections(group: RemembererGroup) -> PromptSections:
-    identities: list[dict[str, str]] = []
-    for target in group.targets:
-        recaller = target.trace.get("recaller")
-        if not isinstance(recaller, dict):
-            continue
-        selected = cast("dict[str, object]", recaller).get("selected_memory_ids")
-        if not isinstance(selected, list):
-            continue
-        for value in cast("list[object]", selected):
-            if not isinstance(value, dict):
-                continue
-            item = cast("dict[str, object]", value)
-            table_kind = item.get("table_kind")
-            identifier = item.get("id")
-            if not isinstance(table_kind, str) or not isinstance(identifier, str):
-                continue
-            identity = {"table_kind": table_kind, "id": identifier}
-            if identity not in identities:
-                identities.append(identity)
-    if not identities:
-        return PromptSections(())
-    return PromptSections(
-        (
-            PromptSection(
-                PromptSectionKind("recalled_memory_identities"),
-                (),
-                PromptText(json.dumps(identities, separators=(",", ":"))),
-            ),
-        )
-    )

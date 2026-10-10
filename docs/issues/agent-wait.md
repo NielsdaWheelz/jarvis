@@ -1,8 +1,10 @@
 # asynchronous agent wait deployment acceptance
 
-updated: 2026-10-02. [adr 0064](../decisions/0064-simple-worker-orchestration.md)
-owns the implemented scope. the owner keeps post-turn authority narrow:
+updated: 2026-10-06. [adr 0064](../decisions/0064-simple-worker-orchestration.md)
+owns the implemented scope; [o8 contract](../worker-launch-observation.md)
+consolidates remaining delivery. current source keeps post-turn authority narrow:
 reads/integration/notification only; new writes or waits need current owner input.
+[o6](../one-main-events.md) owns the separately specified broader policy cutover.
 
 problem: local live qualification has not been repeated against the paired
 installed fleet and production notification transport. production activation is
@@ -23,7 +25,10 @@ ports. a separate actual main/gate/recaller scenario registers one wait and sile
 integrates the later event with the original capture/receipt and zero extra effects;
 its public tool plan is tightened to reads/wait and embedding/Discord controlled.
 four separate native cognitive consent cases pass.
-source audit defects are corrected; no worker effect is replayed.
+source audit defects are corrected; no worker effect is replayed. merged pr 49's
+worker-v7/native composition separately qualifies original callback replies and
+wait/product/observer/stop behavior; [native evidence](../native-agent-integration.md#qualification)
+owns those exact artifact identities.
 
 contract: original ref/deadline are immutable; watcher uses 15-second chunks under
 20-second fences and a separate bounded read. cancellation stops observation.
@@ -34,8 +39,8 @@ resolved when: the paired immutable release is installed and authorized service
 qualification repeats receipt/input coexistence, restart, deduplication,
 partial/unavailable text, target changes, overall timeout and cancellation through
 the production boundaries. prove mixed/owner/scheduled visibility and actual
-notification delivery while preserving narrow authority and shared cognition.
+notification delivery while preserving narrow authority and contained cognition.
 
-blockers: paired release/install, production shared-cognition repair/activation
+blockers: paired skid release/install, contained endpoint/application activation
 and authorized external delivery. local checks do not assert production repair.
 no behavioral suite or general harness is retained.

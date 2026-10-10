@@ -6,7 +6,10 @@ sealed stop pass; real-postgres callback/wait and controlled release proofs pass
 separately. exact pins and receipts remain owned by the shared integration owner.
 pre-merge `796fb8` broader receipts remain historical. deployed systemd
 activation and physical google/discord integration NOT_RUN; this is not a
-deployment receipt. branch: `feature/native-agent-supervision`.
+deployment receipt. the native/worker composition is merged in
+[pr 49](https://github.com/NielsdaWheelz/jarvis/pull/49); `78d3af6` records final
+qualification/probe removal and `f3b4dc3` is the merge. the former feature branch
+is historical; current deployment remains an independent operational handoff.
 
 authority: [adr 0065](decisions/0065-native-agent-supervision.md), shared kernel
 native spec section 18 and n4. the pending universal-memory/delegation roadmap

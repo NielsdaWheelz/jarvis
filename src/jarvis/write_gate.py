@@ -23,6 +23,7 @@ from llm_agent_kernel import (
     SessionMode,
     run_one_shot,
 )
+from llm_agent_kernel.decisions import DurableIsolatedDecisions, IsolatedDecisionScope
 from llm_tools import (
     FrozenToolPlan,
     PromptJson,
@@ -35,7 +36,7 @@ from llm_tools import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
-from jarvis.decisions import ModelJournalFactory, isolated_decisions
+from jarvis.decisions import ModelJournalFactory
 from jarvis.definitions import AutomaticWriteGateResult
 from jarvis.kernel import EmptyToolDispatcher
 
@@ -292,9 +293,12 @@ class AutomaticWriteGate:
             assert owner_timezone is not None
             effect["owner_timezone"] = owner_timezone
         run_id = RunId(str(uuid4()))
-        decisions, as_of = await isolated_decisions(
-            self._model_decisions, None, operation_id, as_of
-        )
+        scope = IsolatedDecisionScope(operation_id)
+        journal = self._model_decisions()
+        recorded = await journal.latest(scope)
+        decisions = DurableIsolatedDecisions(scope, journal)
+        if recorded is not None:
+            as_of = recorded.request.as_of
         outcome = await run_one_shot(
             decisions=decisions,
             run_id=run_id,

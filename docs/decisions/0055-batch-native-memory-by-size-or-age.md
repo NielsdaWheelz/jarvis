@@ -1,10 +1,11 @@
 # adr 0055: batch native memory by size or age
 
 [adr 0062](0062-simplify-memory-recovery-and-capture.md) supersedes this record's
-durable extraction replay (size/age batching remains). the
+durable extraction replay. [adr 0066](0066-optchat-memory-adoption.md) now replaces
+selective extraction, including this size/age policy, with chronological compression. the
 [current contract](../universal-memory.md) consolidates the implementation target.
 
-- status: accepted implementation target, 2026-09-30; implementation and
+- status: extraction target superseded by adr 0066, 2026-10-04; implementation and
   behavioral/live acceptance `NOT_RUN`.
 - authority: the owner approved conversation-specific size/age batching,
   independent episodes without overlap, continuous capture and an atomic
@@ -22,7 +23,9 @@ completion is not a reliable capture or extraction rule.
 
 ## decision
 
-the [implementation contract](../universal-memory.md#5-extraction) owns details:
+the choices below record the retired extraction policy. the
+[implementation contract](../universal-memory.md#5-chronological-compression-and-synthesis)
+owns its accepted replacement:
 
 1. keep continuous incremental capture and the startup/20-minute extraction check.
    never hold capture for a conversation to finish or a batch to become eligible.

@@ -12,18 +12,23 @@ dependencies = [
   "alembic==1.16.5",
   "cryptography==50.0.1",
   "discord.py==2.7.1",
+  "fastapi==0.143.0",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@9d57e8945be5b26397c5a3942612f81a190f8db4",
-  "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@2adb9790fc7a54de5342effaca9391c2f3d24ff9",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@e1bec2731ec35aa8c07f2eb277d8993332a7490c",
+  "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@73056dfb23733e68bd32b6765cc34880f69674bd",
+  "mcp==2.3.0",
   "pgvector==0.4.1",
   "psycopg[binary,pool]==3.2.9",
   "pydantic==2.12.5",
-  "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@e1498d8382f192ae664ae9790b682a8e8a8b0d38",
+  "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@d9550d9c53af3d7b608250d9a0db131d78dccf64",
   "sqlalchemy[asyncio]==2.0.43",
+  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@d824d33df9c136952f1d01f7c4a4ad389df42ef1",
+  "uvicorn==0.54.0",
 ]
 
 [project.scripts]
 jarvis = "jarvis.cli:main"
+jarvis-memory-collector = "jarvis.collector:main"
 
 [dependency-groups]
 dev = [

@@ -4,23 +4,24 @@ This document expands [SPEC.md](../SPEC.md). its accepted native cutover and
 [native integration contract](native-agent-integration.md) govern main execution;
 the frozen baseline governs unchanged domain behavior.
 
-accepted target, not yet implemented: [universal memory](universal-memory.md) is
-the single current implementation contract; [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
-records the latest simplification. admitted collectors activate native lanes
-online from complete inventories and submit complete events for atomic capture.
-one shared search implementation fuses keyword and semantic ranks deterministically;
-agents choose when to search. disposable background inference may repeat paid work,
-but notes/bookmarks and summaries/pending flags commit atomically. main's durable
-recovery remains. the memory roadmap remains unimplemented; native main retains the existing
-recaller until that separately authorized cutover.
+[universal memory](universal-memory.md) owns the memory implementation contract.
+this branch replaces the old recall/remember loop with a standalone library,
+recoverable archive projection, one shared tree/view/search instance, serial
+compression and quiet first-delivery dreaming. production activation and
+external client qualification remain separate.
 
-shared policy values have one checked-in owner and one implementation, including
-the search/embedding client and search gate across main, dreamer and mcp callers.
-lane provenance, admission, connection and progress remain scoped; executor budgets
-and mutable turn state remain per run. agent prompts state goals, available context
-and evidence requirements, leaving useful steps to the agent. host protocol,
-permissions and effect preconditions still bind every step. native readers validate
-mapped fields and ignore unrelated additions; model and api schemas stay closed.
+the library owns storage and allocation mechanisms; jarvis owns authority and
+inference. source parts and notes are ordinary leaves in central arrival order,
+retaining original identity and source dates. one shared search path fuses keyword
+and semantic ranks. agents choose their retrieval steps. policy values and
+clients have one owner; provenance, grants, progress and execution state remain
+properly scoped.
+
+canonical messages and effect receipts commit before archive projection.
+archive/checkpoint and synthesis-note/reference/leaf/progress changes each share
+one caller transaction. main retains durable effect/read recovery; disposable
+background inference may repeat. supplied context is reference-only, memory-tool
+echoes are content-free, and internal cognition is excluded from capture.
 
 ## System shape
 
@@ -42,7 +43,7 @@ Discord ingress -> canonical requests/controls -> native runtime
 one Python application and PostgreSQL database own product state. the shared
 kernel supervises native input/callback/control ordering; provider-runtime owns
 the native protocol; llm-tools owns declarations, plans, validation and execution.
-existing memory roles and connectors retain their owners.
+the memory library and product connectors retain distinct owners.
 
 ## Physical deployment
 
@@ -163,8 +164,9 @@ Discord delivery ID. A component interaction must match both.
 1. persist/deduplicate inbound messages; controls update request/action authority.
 2. acquire the dedicated database owner and one conversation claim. freeze the
    exact main or scheduled-read-only plan.
-3. build canonical context from messages, recall and original tool receipts.
-   retain every unfinished request and its accepted actions.
+3. freeze an admitted memory cutoff, build its complete fitting view, and add
+   exact operative requests and original receipts. select a fitting input prefix;
+   excluded requests remain pending. a single oversized request blocks before I/O.
 4. invoke the shared native supervisor. reader, ingress, input polling and outbox
    stay live while one callback executes.
 5. validate and commit each immutable invocation before entering the read recorder
@@ -173,7 +175,8 @@ Discord delivery ID. A component interaction must match both.
    pending approval returns a receipt; independent reasoning continues.
 7. commit the original sealed terminal before decoding per-request dispositions.
    publication completes only explicitly completed requests.
-8. deliver persisted messages and enqueue existing memory work. usage is
+8. project committed originals recoverably, deliver persisted messages and run
+   idle compression/indexing/dreaming. usage is
    observational; no rolling capacity store or arbitrary main cutoff remains.
 
 controls, consent and actual effect entry share the existing conversation lock
@@ -183,10 +186,11 @@ entered effects retain truthful settlement/reconciliation obligations.
 
 ## Context and session lifecycle
 
-main retains a healthy compatible live lease only in the current process.
-fingerprints cover exact provider policy, native base instruction, role/output,
-plan/bindings and owner-controlled revisions. changed identity opens a fresh
-session. saved native bindings are evidence, never a session cache.
+main acquires a fresh lease for each top-level `NativeRunner.run` and discards it
+at completion. its active callback loop and compatible steering stay together;
+entered-effect dispatchers survive reasoning stop until settlement. fingerprints
+cover exact provider policy, native base instruction, role/output, plan/bindings
+and owner-controlled revisions. saved native bindings are evidence, never a cache.
 
 connection/process/owner loss fences old callbacks permanently. a fresh process
 restores reasoning from canonical requests/context and original tool receipts.
@@ -198,33 +202,23 @@ original sealed terminals settle locally under a new owner without provider I/O.
 later stop/resume refuses stale product settlement while preserving terminal and
 usage. local stop and missing native ids never prove non-submission.
 
-recaller, rememberer, dreamer and AutomaticWriteGate remain fresh isolated roles,
+compactor, dreamer and AutomaticWriteGate use fresh isolated sessions,
 using owner permits instead of paid-capacity reservations. the empty-plan gate
 uses its parent's owner and invocation identity; only restricted effect facts
 and owner input enter its context, never the main session history.
 
 ## Cognitive roles
 
-These are five immutable kernel agent definitions, not a general subagent or
-persistent-peer system. The main role is a native callback turn with a closed
-structured terminal contract and a maximum envelope equal to the exact main
-catalog. Recaller, rememberer, dreamer, and AutomaticWriteGate are fixed isolated
-one-shot runs with closed structured output contracts. The first three have
-memory-read envelopes; the gate has none. Jarvis supplies a frozen subset plan
-per run; owner/action-resolution runs use the full Main plan and scheduled-wake
-runs narrow the same native definition to external reads. One-shot plans
-contain no `ToolEffect.Write`. One-shot runs use no application checkpoint or
-saved session-reference port; host code commits or recomputes their results.
+main, compactor, dreamer and AutomaticWriteGate have immutable kernel definitions
+and explicit frozen plans. main uses native callbacks and a closed structured
+terminal contract. isolated roles use strict one-shot output contracts and fresh
+plan-derived budgets. compactor and gate are tool-free; dreamer receives the
+shared memory reads. isolated plans contain no `ToolEffect.Write`.
 
-### Recaller
-
-The recaller opens a fresh session and receives the owner input, bounded recent
-context, owner timezone, and the turn's `as_of`. Its frozen capability plan
-contains only memory search and memory open. Recall begins with exactly one
-kernel-dispatched deterministic `memory.search` call and its schema-validated
-typed observation. From that observation, the recaller may adaptively issue
-further searches or open exact rows. It returns a schema-valid `finish.result`
-bundle of raw memories and summaries, or an explicit empty bundle.
+owner/action-resolution runs use main's full plan; scheduled wakes use its
+read-only plan. plans prove complete catalogue consistency and tightening before
+I/O. jarvis commits or recomputes isolated results; there is no background replay
+journal or saved session port.
 
 ### Main agent
 
@@ -246,7 +240,7 @@ of rendering it against current state.
 
 ### AutomaticWriteGate
 
-For each validated main-agent `Write`, this role opens a fresh isolated session
+for each validated main-agent external `Write`, this role opens a fresh isolated session
 while the main callback awaits effect dispatch. it runs synchronously under
 the same root ownership; its empty frozen plan permits no tool call. It sees
 only current owner-authored input IDs/text, the canonical proposed tool ID, and a
@@ -262,67 +256,53 @@ IDs in the action execution contract. Every other result fails closed with no
 action or approval message. The role neither grants a capability nor classifies
 approval; deterministic Jarvis policy remains authoritative.
 
-### Rememberer
+### compactor
 
-The rememberer opens a fresh session and receives the persisted completed turn,
-material tool observations, source timestamps, and relevant existing memory. It
-can search/open memory and returns a schema-valid `finish.result` list of zero or
-more raw memory strings.
+one serial worker selects a ready library task and supplies its complete two-child
+source separately from the bounded completed-prefix context. free nodes require
+no inference. otherwise an isolated empty-tool run receives measured size
+feedback; bounded retries either commit a valid node or park construction for
+explicit repair. actual persisted frontiers and shrink progress survive restart.
+a waiting main turn retains its fixed cutoff while required compression runs.
 
-Host code performs one transaction that:
+### dreamer
 
-- Appends the new `memory_log` rows.
-- Sets `remembered_at` on every owner message in the settled input group.
+nightly idle work uses a bounded new-material tree view since successfully
+consumed progress, plus optional older originals/explicit notes. its shared reads
+are nondurable and run-local. seed-only and empty completion are valid; there is
+no required first search or call count. interrupted computation may repeat.
 
-The rememberer does not call a memory write tool and creates no action rows. A
-failed or cancelled run leaves every target `remembered_at` null for a bounded
-retry sweep. Shared settlement trace reconstructs the normal group. If grouping
-metadata is absent, the sweep processes owner rows individually and relies on
-memory search/model judgment to limit redundant append.
-
-### Dreamer
-
-The dreamer opens a fresh session, searches and opens memory, then returns a
-schema-valid `finish.result` batch of summary insertions and removals. Host code
-applies the batch transactionally.
-
-Only one dreamer runs at once. It yields the execution mutex when owner input is
-waiting. Missing a dream run cannot break conversational correctness because raw
-memory remains directly searchable.
-
-The process-local timer waits 24 hours by default before its first attempt and
-has no durable scheduling row. Manual dreaming and full derived-memory rebuild
-reuse deployment ownership and therefore refuse to overlap the service. Once a
-validated mutation batch enters its short database transaction, foreground work
-waits for that transaction to commit or roll back atomically.
+host code validates references against supplied/read evidence and atomically
+appends synthesis notes, leaves and consumed progress. prior syntheses can be
+retrieved but create no new seeds or automatic samples. a nightly marker prevents
+repeated attempts for the same occurrence, including empty/failed attempts.
+foreground work interrupts reasoning; entered transactions finish atomically.
+manual dreaming and repair require the stopped deployment lock. there is no
+notification, waking message or dream-triggered main turn.
 
 ## Tool execution
 
 The complete tool manifest and authority classification live in
-[SPEC section 7.3](../SPEC.md#73-tool-contracts-and-exact-catalog). Jarvis owns the
-Gmail, Calendar, Maps, schedule, and memory declarations and bindings. The pinned
+[SPEC section 7.3](../SPEC.md#73-tool-contracts-and-exact-catalog). jarvis owns the
+gmail, calendar, maps and schedule declarations and bindings. the memory library
+owns portable memory declarations; jarvis and nexus supply their own admitted
+handlers and invocation identity. the pinned
 `llm-tools` revision owns the reusable `web.search` and `web.read` declarations
 and implementations; Jarvis explicitly composes, configures, and grants them.
 Discord is the conversation adapter and has no model-callable declarations.
 
-Capability plans are closed by role:
+capability plans are closed by role:
 
-- Main: the catalogued Gmail, Calendar, Maps, Web, and `schedule.wake` tools.
-- Recaller, rememberer, and dreamer: `memory.search` and `memory.open` only.
-- AutomaticWriteGate: no tools.
+- main: the catalogued connector, web, schedule, worker and shared-memory tools,
+  including optional `memory.save_note(text)`;
+- scheduled wakes: main's read-only plan, including memory navigation/retrieval;
+- dreamer: shared memory view/zoom/date/search/open, with no save grant;
+- compactor and AutomaticWriteGate: no tools.
 
-There are no local-filesystem, Gmail organization, progressive-discovery, or
-Discord tools in a v1 capability plan.
-
-The implemented Slice 6 maximum catalog contains exactly the ten Gmail,
-Calendar, Maps, and public-Web reads; `memory.search` and `memory.open`; and all
-seven v1 writes. The selected Main plan contains the ten external reads plus
-`gmail.create_draft`, `gmail.update_draft`, `gmail.send_draft`, the three
-Calendar writes, and `schedule.wake`. The scheduled-wake plan contains only the
-ten external reads. Recaller, rememberer, and dreamer contain only the two
-memory reads, and AutomaticWriteGate has an empty plan. The approval-bearing
-Main plan is selectable only after its exact catalog, HostTable, tightening,
-budget, durable suspension, rendering, resolution, and recovery paths qualify.
+there are no model-callable local-filesystem, gmail organization, discovery or
+discord tools. native dispatch uses the same validated declarations, host table,
+tightening proof, fresh budget and original action/read recorders. the memory
+contract owns the added bindings and their bounds.
 
 The host:
 
@@ -337,8 +317,9 @@ The host:
   `profile.run_limits`; budget state is never shared across runs.
 - Uses the qualified pure `llm-tools` seam to validate canonical tool IDs and
   closed arguments before dispatch-side mutation.
-- Runs AutomaticWriteGate for every validated `Write` before inserting an action
-  or rendering approval.
+- runs AutomaticWriteGate for every validated external `Write` before inserting
+  an action or rendering approval. the exact local note append bypasses this
+  boundary under jarvis admission and its durable native invocation position.
 - Classifies calls using the fixed automatic/approval policy.
 - Owns connector credentials.
 - Executes reads through `llm-tools` without action rows.
@@ -349,10 +330,11 @@ The host:
 - returns the original bounded `ToolResult` or durable pending-action receipt;
   commits it and the exact model reply before native delivery.
 
-Canonical message persistence, raw-memory append, and summary replacement are
-application transactions. They are not model tools and do not pass through
-`llm-tools`; terminal conversation persistence is exposed to the agent kernel
-through its isolated checkpoint or native journal boundary.
+canonical message persistence, archive projection and background memory
+completion are host transactions and create no actions. the optional main note
+tool uses its existing native invocation/read position for exact append recovery,
+with zero external attempts and no gate. canonical persistence remains exposed
+through the native journal boundary.
 
 native reads use original durable read positions and fresh plan-derived budgets.
 main cumulative limits are null; operation bounds remain. the Web secret gate
@@ -601,7 +583,9 @@ selection remains decisive; absence beyond that ceiling remains unknowable.
 
 PostgreSQL owns `message`, `memory_log`, `memory_summary`, `action`,
 `model_decision`, `read_position`, `native_attempt`, `native_invocation` and
-`native_input_delivery`. existing integration state remains with its owner.
+`native_input_delivery`, plus the six library tables `memory_lane`,
+`source_conversation`, `source_record`, `memory_leaf`, `memory_node` and
+`memory_state`. existing integration state remains with its owner.
 message owns request/control state; action remains the sole effect ledger.
 native rows retain original requests, lineage, provider facts and immutable
 replies. product publication is separate from the provider terminal commit.
@@ -651,10 +635,11 @@ endpoint cannot alter the owner's existing coding server.
 
 ## peer agent control
 
-main uses nine owner-directed tools: `agent.list`, `agent.info`, `agent.start`,
-`agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, and
-`agent.close`. [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md)
-owns the current contract; adr 0044's provider/authority boundaries remain.
+main uses eleven worker tools: `agent.list`, `agent.info`, `agent.start`,
+`agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`,
+`agent.close`, `agent.wait` and `agent.cancel_wait`.
+[adr 0064](decisions/0064-simple-worker-orchestration.md) owns the implemented v7
+contract. its coordinated installed cutover remains separate.
 
 `agent_control.py` invokes one fixed skid cli with a private peer configuration,
 bounded pipes and explicit argv. skid owns opaque refs, gateway routing,
@@ -662,31 +647,38 @@ provider methods and live target validation. jarvis projects consumed results
 into `agent_tools.py`; it neither decodes refs nor repeats the provider codec.
 the installed cli is root-owned, separate from the development user's home.
 
-terminal authority addresses an exact tmux/process lifetime. conversation
-authority addresses the captured provider conversation and, for native stop,
-its captured turn. `info` explicitly selects either target. native write previews
-inspect the original conversation even after terminal reassociation or deletion;
-a terminal name can ground that preview only when it still tracks the same
-conversation. a fresh observation never replaces a pending action's ref. native
-unavailability refuses native input; explicit terminal input remains a separate
-capability. compound close reports native halt and exact terminal closure
-separately.
+model targets are short `{machine,handle}` selectors. before gate/action
+admission, jarvis privately captures the original opaque ref and target identity;
+delayed execution and observation use that immutable capture. t-handles select
+terminal lifetimes and guarded input for either provider; c-handles explicitly
+select native conversations. codex native stop retains its captured turn.
+unavailable native operations refuse without terminal fallback. a matching
+terminal name/profile can supply consent context, never renewed target authority.
+close independently reports terminal interruption and closure; neither asserts
+task success or cancellation of shared work.
 
-reads retain the durable recorder; writes remain billed-once with one executor
-entry and no retry. preflight or spawn refusal is not-sent. after possible
-dispatch, lost or malformed replies settle uncertain. valid receipts preserve
-partial creation, unknown write outcomes and partial fleet inventory. native
-acceptance and terminal dispatch do not establish task completion. subprocess
-stdout is capped at 1 mib for inventory and 64 kib otherwise; stderr goes
-directly to the null device. a valid owned stdout receipt survives early stdin
-closure or delayed process exit. existing tool budgets cover preflight calls.
+reads retain the durable recorder; worker mutations remain billed-once with one
+executor entry. current launch options preserve native defaults and literal
+stdin. creation, input and failure facts remain independent, including nonzero
+partial receipts. conclusive staged receipts settle on recovery without another
+executor entry; unresolved dispatch remains uncertain. native acceptance,
+terminal dispatch and idle/latest text do not establish task completion. bounded
+subprocess envelopes and per-operation limits cover capture and execution.
+
+`agent.wait` commits an immutable watching receipt and returns immediately.
+process-local observers use the original ref/deadline outside main's dispatch
+lane. outcome and one deduplicated host event commit atomically; startup resumes
+observation without replaying worker input. `agent.cancel_wait` stops observation,
+not worker work. only unmixed wait-event batches may settle silently. after the
+original owner request closes, events permit reads/integration/notification;
+new mutations or waits still require current owner input.
 
 finalized old worker actions are opaque archives before current tool lookup or
 receipt decoding. common immutable record invariants still apply; raw arguments
 and results remain stored. current malformed receipts are defects. old unfinished
 actions block activation. no historical worker reader, execution adapter, worker
-table, scheduler, transcript copy or reference cache remains. worker control is
-independent of jarvis's shared cognitive app-server contract.
+table, separate scheduler, transcript copy or reference cache remains. independent
+skid workers neither share nor replace jarvis's contained cognitive endpoint.
 
 ## Scheduling
 
@@ -717,7 +709,8 @@ persist a workflow graph, own product state, or wait durably for approvals.
   changes only a queued original to `cancelled`, and records cancellation in the
   original's `wake_outcome`.
 - No periodic connector tick or autonomous inbox/calendar monitor starts turns.
-- A timer may invoke dreaming when the execution mutex is idle.
+- a timer checks the owner-local nightly occurrence when the worker is idle;
+  its persisted attempt marker and seed cursor retain missed/late material.
 - Startup reconciles every action left `executing`; ordinary external calls use
   bounded timeouts while the process is alive.
 
@@ -733,8 +726,10 @@ Each path is an ordinary function over explicit database state.
   protocol faults stop the attempt; they never select fallback routes.
 - stop cancels unentered approvals/work and retains entered settlement.
 - malformed terminal output cannot complete requests or replace provider truth.
-- rememberer failure leaves its source eligible; dreamer failure retains notes
-  and summaries; embedding failure retains existing lexical behavior.
+- archive projection failure retains canonical receipts and retries absent stable
+  identities. compression failure parks only unfinished derived construction;
+  dreaming failure leaves consumed progress unchanged. embedding failure retains
+  lexical candidates, while a failed query embedding returns a typed error.
 - delivery retries original persisted identity under existing bounds. delayed
   text may rarely duplicate; action effects cannot.
 - committed consent survives interrupted acknowledgement. startup disables old
@@ -749,9 +744,9 @@ payloads in ordinary logs:
 
 ```text
 owner message
-→ recalled candidate IDs
-→ selected memory IDs
-→ appended memory IDs
+→ fixed admitted memory cutoff
+→ original invocation/read/action identities
+→ archive projection and appended note identities
 → run ID, provider trace IDs, turns/tokens, duration, outcome
 ```
 
@@ -760,8 +755,7 @@ identity plus relevant IDs and counters. progress alone completes no request.
 action rows carry correctness-critical native attempt/checkpoint/input/callback lineage in
 their immutable execution contract; `origin_message_id` is only the stable root
 pointer. Private payloads and model prose are not duplicated into trace. Trace
-details are implementation diagnostics and rememberer-group reconstruction,
-never a memory-ranking signal in v1.
+details are implementation diagnostics, never a memory-ranking signal.
 
 
 ## Shared-kernel durable recovery

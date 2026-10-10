@@ -1,56 +1,39 @@
-# universal memory native capture
+# universal memory installed capture
 
-problem: the [universal memory contract](../universal-memory.md) needs
-provider-runtime archive codecs that enumerate and read every configured native
-home without resuming, give stable never-reused event identities, mark jarvis's
-own cognition sessions before they persist, and recognize jarvis memory-tool
-results. `memory_save_note` call arguments and results/errors must also become content-free
-references, even after failed saves or missing receipts; otherwise retrieved or
-submitted prose can re-enter extraction as new evidence. none of this exists yet.
+status: source boundary implemented and qualified; installed fleet admission
+remains separate, 2026-10-09.
 
-the current [capture contract](../universal-memory.md#3-native-capture), simplified
-by [adr 0063](../decisions/0063-simplify-memory-policy-and-retrieval.md), accepts
-complete normalized events atomically; the central service then stores 8,000-byte
-chunks. oversized events park capture until repaired, without truncation or skip.
-changed history, conflicting identity or a lost activation boundary also parks
-and reports the conversation; there is no automatic checkpoint reset or replay.
-an admitted collector activates the lane online after a complete inventory, with
-receipt and per-conversation baselines in one transaction. no temporary inventory
-file, manual activation or jarvis stop is required; an incomplete inventory may
-need a quiet native lane. validate mapped native fields strictly and ignore
-unrelated additive fields; this does not relax closed model or api schemas.
+problem: the task's provider and collector branches are not an installed capture
+receipt for every declared home. admitting a lane before its installed provider,
+retention and sharing declaration are verified could miss history or admit
+jarvis's internal cognition.
 
-impact: no native lane can activate until its archive capabilities are qualified
-on the installed provider. this is not a native-version allowlist.
-the devbox codex-personal lane, which also hosts jarvis cognition, stays
-unadmitted until internal marking is qualified, or cognition moves to sessions
-that never persist (see [shared cognition](codex-private-process.md)).
+evidence: provider-runtime `d9550d9c53af3d7b608250d9a0db131d78dccf64`
+implements public read-only inventory, heads and complete events, native
+identity/digest, unfiltered fork reads, internal marking and content-free memory
+tool recognition. isolated live codex 0.160.0 checks proved ordinary persistence,
+restart reads and exclusion of internally marked ephemeral cognition. claude
+2.1.289 transcript and fork mappings are qualified; successful live claude work
+was blocked by expired oauth and explicitly waived by the owner. it is not a
+successful live-provider receipt.
 
-evidence (2026-09-28):
+actual postgres and authenticated loopback checks prove collector baselines,
+complete-event/checkpoint atomicity, direct original coverage and all-copy
+progress, inclusive checkpoint verification, changed-history/nul parking,
+memory-tool suppression, restart and fair bounded collection. dev-server's source
+handoff supplies one private declaration, scoped credentials, profile mcp
+configuration, collectors and long claude retention. no fleet apply or production
+activation ran.
 
-- provider-runtime `sessions.py` session snapshots are metadata-only. codex
-  `read_session` resumes the thread (`codex_sdk.py` `thread_resume`), and
-  `list_sessions` omits archived, exec and subagent threads.
-- the claude adapter refuses isolated-root discovery and history
-  (`claude_sdk.py` `list_sessions`/`read_session`). the claude agent sdk's own
-  reader follows one chain from the newest leaf and returns empty history for a
-  missing session, so it cannot serve as the codec.
-- in `.codex-work`, 1,039 of 1,313 threads are legacy or unmarked history mode,
-  whose item and turn ids are synthesized at read time. rollouts reach 472 mb,
-  over provider-runtime's 4 mib message cap. about 8–9% of codex turns have no
-  terminal event, and claude has no native turn end.
-- provider-runtime certifies codex 0.144.4 while the hosts run 0.157.1; codex's
-  `threadSource` and paged item reads postdate the certified version.
-- provider-runtime hard-codes its client name, so `originator` does not identify
-  jarvis threads.
+resolve through the existing bounded deployment handoff: pin the composed source
+artifacts, verify configured native mappings and retention on each admitted home,
+install the common controller/sharing declaration, then observe online activation
+and subsequent capture. omitted or unqualified lanes remain disabled. the
+devbox codex-personal lane requires the qualified internal marking before
+admission. preserve any explicit live waiver in the installed receipt; never
+describe a partial fleet as universal.
 
-resolved when: codecs validate every mapped native field and demonstrate complete
-activation inventory and read-only coverage, stable event identity, internal
-marking, memory-tool echo suppression (including failed saves) and child-result
-recognition on installed providers, including closed and archived conversations.
-focused capture/retry checks prove automatic activation and complete-event
-atomicity. harmless additive fields are ignored; oversized, changed or conflicting
-history parks without advancing the checkpoint. confirm each admitted lane's
-mapping and record the observed versions and results; do not build a recurring
-fleet qualification matrix. no raw-transcript parsing outside provider-runtime,
-screen capture, resumed-thread read or legacy-reader fallback.
+use [capture](../universal-memory.md#3-native-capture) and
+[operations](../operations.md#memory-operations). no resumed-thread reader,
+legacy fallback, automatic historical reread, transitive omission ledger or
+recurring fleet qualification framework is required.

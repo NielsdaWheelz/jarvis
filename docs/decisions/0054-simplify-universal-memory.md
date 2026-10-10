@@ -1,5 +1,9 @@
 # adr 0054: simplify universal memory before implementation
 
+[adr 0066](0066-optchat-memory-adoption.md) replaces selective automatic extraction
+with chronological compression and amends inherited-fork capture; the consolidated
+[current contract](../universal-memory.md) integrates those accepted choices.
+
 [adr 0063](0063-simplify-memory-policy-and-retrieval.md) supersedes manual activation and related capture-policy rules.
 see the [current contract](../universal-memory.md) for implementation.
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from datetime import time
 from pathlib import Path
 from typing import Final, Literal, Self, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,15 +17,15 @@ from pydantic import (
     ValidationError,
     field_validator,
 )
+from universal_memory.policy import EMBEDDING_DIMENSIONS
 
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError, DiscordSettings
 from jarvis.definitions import QUALIFIED_CODEX_MODELS
 
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
-EMBEDDING_DIMENSION: Final[Literal[1536]] = 1536
+EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
 MAXIMUM_BATCH_SIZE: Final[int] = 100
-DEFAULT_DREAM_INTERVAL_SECONDS: Final[int] = 86_400
 
 
 class Settings(BaseModel):
@@ -45,6 +46,9 @@ class Settings(BaseModel):
     agent_cli_path: Path
     agent_client_config_path: Path
     runtime_state_directory: Path
+    memory_config_path: Path
+    memory_http_port: int = Field(default=8768, ge=1, le=65535)
+    memory_nightly_time: time = time(3)
     google_oauth_state_path: Path
     google_oauth_client_id: SecretStr = Field(repr=False)
     google_oauth_client_secret: SecretStr = Field(repr=False)
@@ -62,10 +66,13 @@ class Settings(BaseModel):
     embedding_dimension: Literal[1536] = EMBEDDING_DIMENSION
     maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
     delivery_batch_size: int = Field(default=20, ge=1, le=100)
-    dream_interval_seconds: int = Field(
-        default=DEFAULT_DREAM_INTERVAL_SECONDS,
-        ge=60,
-    )
+
+    @field_validator("memory_nightly_time")
+    @classmethod
+    def _nightly_time(cls, value: time) -> time:
+        if value.tzinfo is not None or value.second or value.microsecond:
+            raise ValueError("nightly time must be a local hour and minute")
+        return value
 
     @field_validator(
         "database_url",
@@ -114,6 +121,7 @@ class Settings(BaseModel):
         "agent_cli_path",
         "agent_client_config_path",
         "runtime_state_directory",
+        "memory_config_path",
         "google_oauth_state_path",
     )
     @classmethod
@@ -143,6 +151,10 @@ class Settings(BaseModel):
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
         source = os.environ if environ is None else environ
+        if "JARVIS_DREAM_INTERVAL_SECONDS" in source:
+            raise ConfigurationError(
+                "dream intervals are retired; configure JARVIS_MEMORY_NIGHTLY_TIME"
+            )
         if "JARVIS_CODEX_STATE_ROOT" in source:
             raise ConfigurationError(
                 "private Codex state is retired; configure the host mapping"
@@ -218,6 +230,11 @@ class Settings(BaseModel):
                 runtime_state_directory=Path(
                     required("JARVIS_RUNTIME_STATE_DIRECTORY")
                 ),
+                memory_config_path=Path(required("JARVIS_MEMORY_CONFIG_PATH")),
+                memory_http_port=positive_int("JARVIS_MEMORY_HTTP_PORT", 8768),
+                memory_nightly_time=time.fromisoformat(
+                    source.get("JARVIS_MEMORY_NIGHTLY_TIME", "03:00")
+                ),
                 google_oauth_state_path=Path(
                     required("JARVIS_GOOGLE_OAUTH_STATE_PATH")
                 ),
@@ -243,17 +260,12 @@ class Settings(BaseModel):
                 embedding_dimension=EMBEDDING_DIMENSION,
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),
-                dream_interval_seconds=positive_int(
-                    "JARVIS_DREAM_INTERVAL_SECONDS",
-                    DEFAULT_DREAM_INTERVAL_SECONDS,
-                ),
             )
-        except ValidationError as exc:
+        except (ValidationError, ValueError) as exc:
             raise ConfigurationError("invalid Jarvis configuration") from exc
 
 
 __all__ = [
-    "DEFAULT_DREAM_INTERVAL_SECONDS",
     "EMBEDDING_DIMENSION",
     "EMBEDDING_MODEL",
     "MAXIMUM_BATCH_SIZE",

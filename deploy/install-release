@@ -71,7 +71,13 @@ cleanup_archive() {
 }
 trap cleanup_archive EXIT HUP INT TERM
 
-# discard abandoned candidates before preparing this one; retain current.
+# Prove the builder's ordinary Git access before discarding any candidate.
+if ! sudo test -e "$release" && ! sudo -u "$builder_user" env GIT_TERMINAL_PROMPT=0 \
+  git ls-remote --exit-code https://github.com/NielsdaWheelz/universal-memory.git \
+  HEAD >/dev/null 2>&1; then
+  printf 'private memory source is unreadable by the deployment builder\n' >&2
+  exit 1
+fi
 prune_releases "$commit"
 
 verify_release() {

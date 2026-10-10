@@ -70,9 +70,10 @@ receipts describe distinct subjects and must not be collapsed into shared mutabl
 turn state. this is centralized ownership, not arbitrary import-time singletons.
 
 use one embedding client/runtime with explicit one-attempt public retry policy;
-ordinary later indexing sweeps supply retry. the
-[existing retry-accounting discrepancy](../issues/embedding-retry-accounting.md)
-is recorded separately; disabling sdk retries alone would not repair it.
+ordinary later indexing sweeps supply retry. the earlier retry-accounting
+discrepancy is resolved by that public policy and its actual runtime/http check;
+see the [current integration evidence](../universal-memory.md#12-integration-evidence).
+disabling sdk retries alone would not repair it.
 
 ## accepted costs
 

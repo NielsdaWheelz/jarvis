@@ -20,4 +20,6 @@ jobs:
         with:
           python-version-file: ".python-version"
       - name: Static and build checks
-        run: scripts/verify
+        env:
+          UNIVERSAL_MEMORY_READ_TOKEN: ${{ secrets.UNIVERSAL_MEMORY_READ_TOKEN }}
+        run: scripts/with-memory-git scripts/verify

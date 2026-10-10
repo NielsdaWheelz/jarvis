@@ -1,7 +1,8 @@
 # universal memory: implementation contract
 
-owner-approved implementation target, **not shipped**. reconciled with the merged
-native runtime on 2026-10-04; memory implementation and acceptance remain pending.
+owner-approved source contract, **not deployed**. reconciled with the native
+runtime and owner-chat client on 2026-10-09; source implementation and final
+isolated qualification are complete. production activation remains separate.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -13,11 +14,12 @@ bounded source parts and notes are leaves in one shared arrival-ordered binary
 tree, with source dates retained separately. jarvis starts fresh top-level turns;
 native codex/claude/nexus chats keep their own context management. tool-result
 archive text uses a permanent 30,000-character head/tail cap. the core memory
-contracts are settled here; package delivery, integration and qualification
-remain. nexus access is limited to the owner's chats; its bounded
-[consumer handoff](issues/nexus-memory-client.md) still needs account mapping and
-client bindings. earlier adrs retain the rationale.
-implementation and behavioral/live acceptance **not run**. delivery order and cross-system dependencies live in the
+contracts are settled here. nexus access is limited to the owner's chats;
+[adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles its distinct client,
+account attribution and processor grants. its bounded
+[consumer handoff](issues/nexus-memory-client.md) separates source integration from
+private provisioning. earlier adrs retain the rationale. section 12 records
+current evidence and remaining work; delivery order lives in the
 [single roadmap and plan](implementation-plan.md).
 
 MUST, SHOULD and MAY carry SPEC's meaning. requirements below are MUST unless
@@ -178,9 +180,9 @@ or replace their native compaction. tree compression continues in the background
 historical orientation is bounded; a single long running turn still has provider
 context limits. current authority and effect recovery never depend on summaries.
 
-the remaining delivery work is implementation and qualification of these
-contracts. durable attachment originals are a separate delivery. section 12
-identifies actual upstream dependencies; the roadmap owns delivery order.
+the remaining operational work is private provisioning and installed activation.
+durable attachment originals are a separate delivery. section 12 identifies
+qualified source artifacts; the roadmap owns delivery order.
 
 ## 2. ownership and admission
 
@@ -535,9 +537,19 @@ decoding. measure normalized events after the explicitly permitted context/tool
 suppression; no other automatic crop is permitted. native reader limits remain
 separate. postgres `text`/`jsonb` cannot retain nul (`U+0000`): reject a complete
 normalized event containing it in retained text or metadata as `unsupported`,
-without replacing it, splitting past it or advancing its checkpoint. commit
-valid preceding events, then report `event_too_large` without advancing past the
-oversized event. repair the codec or deliberately revise the bound before retry.
+without replacing it, splitting past it or advancing its checkpoint. before
+persistence, every proposed source part must also fit the common 65,536-byte
+result bound as a complete one-record open page and leaf zoom, including actual
+escaping, provenance, continuation and host rendering. the 8 mib event bound
+alone cannot prove that: an otherwise valid event can expand to an 85,824-byte
+open result. the owner accepted whole-event rejection on 2026-10-09; do not crop
+or partially persist it. return `event_too_large` if any part fails this check.
+commit valid preceding events, then park without advancing past the rejected
+event. when central admission rejects a batch, the collector retries its frozen
+events individually in order, stopping at the first rejected event; do not
+reread native history or add a local size estimator. this bounded recovery uses
+at most 64 extra requests and preserves the ordinary atomic batch path.
+repair the codec or deliberately revise the bound before retry.
 the same body bound applies to sync, including activation; define it once.
 these are provisional resource bounds, not measured optima; no multipart transfer.
 
@@ -1107,7 +1119,10 @@ cost; the current fusion constant is a tuning choice, not a measured optimum.
 both serialized envelopes and rendered jarvis observations are bounded to 64 kib,
 including escaping and framing. define that common bound once and reuse it in
 handler validation and internal/mcp schemas. search clips previews; open pages
-complete stored content/lineage with per-identity missing results. callers share
+complete stored content/lineage with per-identity missing results. source admission
+proves each complete part fits open and leaf zoom before allocating its position;
+escaping cannot turn an accepted original into permanently unreadable evidence.
+callers share
 their run's remaining context/call limits. no alternate full-text search result.
 
 both retrieval modes are required. database/embedding failure returns typed
@@ -1136,8 +1151,9 @@ these controls cover different resources/units, not independent profile quotas.
 
 configure the shared provider runtime's PUBLIC retry policy for one attempt,
 including indexing; disabling sdk retries alone is insufficient. later indexing
-sweeps retry failed work. see the existing
-[embedding retry discrepancy](issues/embedding-retry-accounting.md).
+sweeps retry failed work. one-attempt behavior is verified through the actual
+public runtime and synthetic
+http failure; see [integration evidence](#12-integration-evidence).
 main search remains `Read + BilledOnce`, now at most ONE external attempt, with
 actual usage and complete result recorded before return; an unknown paid outcome
 still blocks redispatch. main open retains its replay policy. mcp reads are
@@ -1160,8 +1176,8 @@ retrieval mode.
   this through the existing operation-selected tool plans for both provider
   functions and native callbacks. [adr 0067](decisions/0067-nexus-owner-chat-memory.md)
   binds one configured viewer, a distinct backend client and fully declared
-  processor chains; handlers recheck principal authority. implementation and
-  private provisioning remain in the [consumer handoff](issues/nexus-memory-client.md);
+  processor chains; handlers recheck principal authority. source qualification is
+  complete; private provisioning remains in the [consumer handoff](issues/nexus-memory-client.md);
   other nexus accounts receive no access. this choice does not specify automatic capture of
   nexus application conversations.
 - main's full and scheduled-wake read-only plans include view/zoom/date/search/open over all
@@ -1209,6 +1225,18 @@ recognizable-secret content with `invalid_input`, without echoing it. preserve
 accepted text exactly: no trimming, rewriting, model pass or automatic redaction.
 the host validates mechanics, not factual truth. the note remains agent-authored
 even when its text attributes a statement to the owner.
+
+native callback evidence has a narrow storage exception, approved 2026-10-09:
+postgres jsonb cannot retain decoded nul in arguments or keys. jarvis rejects such
+a callback before sql with a content-free native defect, fences/discards the
+attempt and leaves the request pending; it dispatches no tool or note and retains
+no sanitized replacement or ordinary rejected-call receipt. nexus rejects the
+same unpersistable decoded evidence before its model-turn commit, leaving the
+chat incomplete without dispatch. external mcp validation still returns
+`invalid_input`. keep ordinary error logs content-free, including the outer worker
+handler; no argument, sql diagnostic or exception-chain text. this supersedes the
+baseline requirement to retain every rejected decoded proposal for this case;
+persistable rejected proposals retain their original evidence and receipt.
 
 the caller chooses one `submission_id` uuid per intended note and reuses it with
 identical arguments after a timeout or lost receipt. derive `memory_log.id` with
@@ -1546,8 +1574,8 @@ authentication, policy admission and inference remain host responsibilities.
 | capture | jarvis adapters: stateless collection, admission/activation, normalization and status; call the library's atomic archive/checkpoint operation |
 | memory library | standalone package: postgres archive, note append, binary tree, compaction task/result validation, persisted views, navigation, search and repair; no jarvis imports or extra daemon |
 | jarvis memory integration | host inference/embedding execution, scheduling, dreaming and main-turn context; shared library instance behind internal tools and mcp/http |
-| shared policy | library memory constants/public schemas; jarvis `settings.py`/`definitions.py` own deployment configuration and cognitive role plans |
-| tool adapters | `memory_tools.py`, `memory_dispatch.py`, `read_dispatch.py`, `read_positions.py`, `write_dispatch.py`: shared schemas/grants, main save recovery; production transient read recorder belongs to llm-tools |
+| shared policy | library memory constants/public schemas and portable `tools.py` declarations; jarvis `settings.py`/`definitions.py` own deployment configuration and cognitive role plans |
+| tool adapters | `memory_tools.py`, `memory_dispatch.py`, `read_dispatch.py`, `read_positions.py`, `write_dispatch.py`: consume shared declarations, enforce grants and main save recovery; production transient read recorder belongs to llm-tools |
 | integration | `db.py`/migration, `messages.py`/`native_journal.py`, `service.py`, `definitions.py`, `settings.py`, `cli.py`, `tool_composition.py`: source publication, role wiring and endpoints |
 | cutover cleanup | `native_runtime.py`, `native_journal.py`, `context.py`, `actions.py`, `decisions.py`, `admission.py`, session compatibility: remove only legacy memory/recaller paths, preserve native owner admission and main/effect recovery |
 | deployment | dev-server units, tailnet handler, generated credentials/profile configuration; jarvis dependency pins and deployment files |
@@ -1574,9 +1602,9 @@ of unrelated sessions. record revision, commands, results and gaps once;
 | --- | --- |
 | policy | default-deny lanes; independent switches; sharing authorization; external save needs both; main save needs jarvis admit; pending lanes permit only content-free baseline reads; bearer provenance and cognition isolation |
 | activation | complete inventory including idle/archived/empty conversations; receipt and baselines atomic; retry never moves the cut; old prefix absent, later turns captured; automatic online baseline uses bounded sync request, no staging/file/stop; additive metadata changes neither identity nor digest, malformed consumed fields still fail |
-| capture | complete-event commits under duplicate/stale/lost-response/crash cases; bounded tool head/tail and context suppression preserve original identity/digest; byte bounds include encoding; remaining oversized/rewrite/conflict cases park without unauthorized crop or cursor reset; fair sweeps and outage recovery |
+| capture | complete-event commits under duplicate/stale/lost-response/crash cases; bounded tool head/tail and context suppression preserve original identity/digest; byte bounds include encoding and complete-open/leaf-zoom admission; rejected oversized events retain their valid preceding prefix and park without unauthorized crop or cursor reset; fair sweeps and outage recovery |
 | compression | contiguous transactional positions without rollback gaps; aligned binary/free nodes; corrected priority and batched persisted frontiers; fixed-cutoff clipping and compactor self-dependency avoidance; bounded serial retries/parking; complete fitting context; explicit repair preserves originals/progress |
-| saves | exact text/provenance, optional unverified id, validation/secret rejection; concurrent/retried key gives one original receipt, changed arguments conflict; main/external share append; main crash recovery returns committed receipt even after deadline, proven absence uses original identity; no gate/action; scheduled turns cannot save |
+| saves | exact text/provenance, optional unverified id, validation/secret rejection; unpersistable decoded callbacks fail before sql without replacement evidence, while persistable rejected proposals and literal escapes retain their originals; concurrent/retried key gives one original receipt, changed arguments conflict; main/external share append; main crash recovery returns committed receipt even after deadline, proven absence uses original identity; no gate/action; scheduled turns cannot save |
 | dreaming | eligible range view excludes mixed synthesis spans correctly; four identity-sampled older originals and explicit partial coverage; valid run-local references; frozen read cutoff and context fit; zero-read/empty completion; atomic notes/leaves/cursor including lost receipts; one nightly attempt, preserved backlog and quiet completion |
 | echo / content | all memory-tool bodies/results become content-free references, including malformed saves and bounded range references; no internal cognition capture; attribution, uncertainty and absent antecedents follow section 7 |
 | retrieval | shared keyword/semantic/fusion; bounded frozen view pages and typed stale cursors; zoom reaches source parts/full events; cutoff/provenance/date fidelity; complete paged open; typed failures; main paid-read barriers; transient dreamer reads; shared rate/client with no hidden retries; operator-only status |
@@ -1595,36 +1623,65 @@ dependencies. run affected checks plus `scripts/verify`. restore no old suite;
 the wider testing redesign stays open. this documentation change runs no
 behavioral or live tests.
 
-## 12. open integration evidence
+## 12. integration evidence
 
-the design interview and library contract are complete. delivery still requires:
+source work uses isolated branches/worktrees. no production activation, fleet
+apply, private credential installation or owner resumption has run. the standalone
+package is published privately and both consumers lock its immutable pin with
+the three coordinated upstream pins. jarvis's and nexus's final frozen gates,
+composed callback and bounded live checks pass. earlier source-overlay evidence
+does not replace either final-tree gate.
 
-- provider-runtime's archive surface/codecs/internal marking below; existing
-  `list_sessions`/`read_session` return metadata, not this capture contract;
-- llm-tools' [production nondurable read recorder](issues/transient-memory-read-recorder.md), plus coordinated kernel/tools
-  pins; kernel transient model decisions and empty tool plans already exist;
-- the memory package and composed migration, actual mcp/server pins and protocol
-  qualification, and dev-server's declared lanes/collectors/private endpoint;
-- nexus-web's [memory client contract](issues/nexus-memory-client.md): account
-  mapping and client bindings enforcing the chats-only grant; configuring
-  native developer profiles does not wire nexus's application agents;
-- rendered-context and cache-usage checks on the approved model/transport. the
-  current qualified model remains `gpt-5.6-terra`; no cheap-model change is implied.
+| owner | source artifact / current evidence |
+| --- | --- |
+| provider-runtime | `d9550d9c53af3d7b608250d9a0db131d78dccf64`: public read-only archive/codecs, internal marking and echo suppression; codex 0.160.0 live persistence/restart/isolation and claude 2.1.289 transcript/fork mappings qualified; successful live claude work explicitly waived after expired oauth |
+| llm-tools | `73056dfb23733e68bd32b6765cc34880f69674bd`: production transient recorder; executor/compiler and bounded-result checks qualified |
+| llm-agent-kernel | `e1bec2731ec35aa8c07f2eb277d8993332a7490c`: adopts both pins; exact public rendering/preflight, input batches and strict decoded-json completion; protocol/compiler and isolated-role checks qualified |
+| universal-memory | private main `d824d33df9c136952f1d01f7c4a4ad389df42ef1`, adopted in both frozen consumer locks; frozen static/build and two real-postgres groups pass; source admission proves complete open/zoom before persistence, including actual host framing and utc provenance; public packaged runtime source is accepted for nexus's existing image contract |
+| jarvis | final four-pin frozen static/types/docs/build, clean wheel installation/cli and registry audit pass; retained capture/retry and library completion pass; private mcp, valid-prefix admission, lost-owner search fence, populated migration, exact predecessor drain/snapshot, stopped rebuild and local-save recovery pass; current main-v2 and compactor/dreamer bounded stock live checks pass |
+| dev-server | collector/profile/credential/retention source handoff implemented and peer-reviewed; generated shell/configuration, candidate cleanup and authenticated loopback reconciliation checks pass; its release-pin handoff consumes the qualified central source commit; fleet installation remains separate |
+| nexus-web | `5b282f2ec35a7624140a5935acc7a8d9b33b8524` on `feature/universal-memory`, based on `origin/main` at `167773ac1`; full static/build and frozen four-pin adoption pass; final v7 actual send/cancel/rerun/regenerate routes, provider codec, canonical executor, mcp/postgres and tagged attribution pass with exactly two contained stock native turns; api-provider responses are synthetic; all five reads, save/read-only plans, other-viewer/undeclared-chain exclusion, revocation and nul recovery pass; private provisioning remains separate |
 
-as inspected, kernel/tools/provider revisions are respectively `9d57e894`,
-`2adb9790`, `e1498d83`. the contained endpoint retains its qualified pin. current
-invocation bounds are: provider prepared request 4 mib; jarvis definition
-system/developer material 16,384 bytes each and output schema 32,768 bytes; native
-turn 300 seconds.
-these are not model context capacity; kernel new-context and usage bounds measure
-different surfaces. preflight the rendered request and qualify representative
-fit/output reserve. the authenticated model catalogue publishes no context-window
-capacity, so this document invents none. upgrades remain explicit.
+the model remains `gpt-5.6-terra` on the qualified contained stock 0.160.0 endpoint.
+the final main probe used the full catalog, a 127,997-byte historical section
+within the 128,000-byte bound and the exact 63,038-byte operative receipt; the
+192,221-byte rendered request completed with zero callbacks/actions. this proves
+representative provider fit, not a measured maximum context capacity.
+one actual compactor turn completed a ready node; one seed-only dream turn used
+zero reads/notes and consumed progress. no message, action, model-decision or
+durable read-position rows were created, and the nightly marker prevented an
+extra run. attributed synthesis append/rollback/retry is separately proved in
+the postgres completion checks; model procedure remains discretionary.
 
-the native archive surface, internal marking and memory-tool recognition are not
-yet implemented or qualified across the fleet; track this in
-[universal memory capture](issues/universal-memory-capture.md). observed provider
-versions and qualified native field mappings are established at the provider boundary before
-downstream implementation, not invented here. each lane's controller and permitted sharing
-must be recorded before its admission. document any failed boundary as a disabled
-lane; do not substitute a fallback or describe a partial fleet as universal.
+synthetic http checks through the actual public embedding runtime prove one
+attempt on failure and typed unavailability without lexical fallback. actual
+transient recorder/executor checks reuse one same-run receipt, then recompute in
+a new run; they create no action/read-position/model-decision rows. the registry
+audit reports no known vulnerabilities in its auditable set; the three git-only
+kernel/tools/provider packages are unavailable to that registry audit and are
+covered by source review, pinned builds and focused checks instead.
+
+the actual nexus dockerfile's api/worker build stages fetch the private pin using
+required buildkit secret mounts. token and http-basic scans pass across image
+layers/history, installed wheels/source, uv git cache, exported build cache and
+logs. temporary build resources are removed. ci and the stopped jarvis builder
+still need separately provisioned read access; no image publication ran. nexus's
+qualified stack retains sqlalchemy 2.0.46 and psycopg 3.3.2, aligning its binary
+package from the old 3.3.3 pin to the driver's official 3.3.2 extra requirement.
+
+provider prepared requests are capped at 4 mib including exact native transport
+encoding. definition system/developer material is at most 16,384 bytes each;
+output schemas are at most 32,768 bytes; native turns retain the 300-second
+operation bound. preflight selects a fitting pending-input prefix; a single
+unfitting request blocks before provider entry. actual socket boundary checks
+prove the complete envelope limit, including escaped material and input identity.
+the authenticated model catalogue publishes no context-window capacity; invent
+none and promise no cache hit rate.
+
+run `scripts/verify` in each owning package and `./scripts/test` for nexus's
+static gates. the retained library groups use a task-owned empty database via
+`MEMORY_TEST_DATABASE_URL`; jarvis's `tests/capture_retry.py` requires an explicit
+`--disposable-database-url`. temporary integration/live helpers are removed after
+final-tree proof. installed capture remains in the bounded
+[capture handoff](issues/universal-memory-capture.md), with controllers/sharing
+and disabled or waived lanes stated explicitly.

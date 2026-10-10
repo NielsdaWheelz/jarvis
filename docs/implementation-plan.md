@@ -76,7 +76,7 @@ not an installed fleet receipt.
 | native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
-| embedding attempt accounting | jarvis configures the one shared runtime for one actual embedding attempt; [issue](issues/embedding-retry-accounting.md) |
+| private memory build access | jarvis/nexus ci and the stopped jarvis builder require separately provisioned library read access; local frozen fetch/build and credential-free image/cache checks pass; [handoff](issues/private-memory-build-access.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
 
 these are independent release, repair or policy tasks, not another prerequisite
@@ -96,7 +96,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | one main for every event (o6) | owner choices settled in [contract](one-main-events.md); spec/adr adoption and implementation due | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | mutable todos/physical deletion settled in [contract](work-records.md); adoption/implementation due | jarvis; one bookkeeping table |
 | delegated follow-through (o9) | owner settled agent judgment/semantic stop in [contract](delegated-follow-through.md); adoption/implementation due | jarvis; o6 plus installed worker control; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | core contract and nexus chats-only scope accepted; external repository handoffs and implementation due | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
+| universal memory (m1–m5) | source implemented, frozen and qualified, including first-delivery dreaming and the distinct nexus owner-chat client; private installation separate | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | confined markdown repository, links/history/sync spec due | jarvis; project briefs and prose people records, no people table |
 | complete and continuable searches | paging, scope/cursor ownership and truthful omissions spec due | jarvis; supported connector/note/work surfaces; portable changes only at their owner |
 | event sources, suggestions and recurring work | ingress, deduplication, recurrence, notifications and stop/cancel spec due | jarvis; o6, work records for blocked review, memory roles for their suggestions |
@@ -127,11 +127,11 @@ facts; writing this roadmap sends no assignment to another agent.
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
 | skid | publish the completed launch/control generation and its immutable artifact | existing [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md); implementation done, release handoff due |
-| dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | existing fleet contract plus memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts; adopt the new managed configuration in dev-server's own spec before implementation |
-| llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); accepted requirements, repository-owned api/mapping/qualification handoff due |
-| memory library | standalone postgres archive/tree/view/search package, hosted by jarvis; public operations and atomic capture/checkpoint seam | [memory contract](universal-memory.md); schema/public contract complete; package implementation and pin due |
-| kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); llm-tools owns recorder promotion; public kernel transient decisions already exist, no duplicate kernel work |
-| nexus-web | owner's chats only: client of the same hosted memory endpoint, account admission, chat tool bindings and credential/private connectivity integration; no automated-helper grants | [nexus memory handoff](issues/nexus-memory-client.md); scope accepted, account/client contract incomplete; native profile configuration and dependency upgrades alone do not implement it |
+| dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
+| llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
+| memory library | standalone postgres archive/tree/view/search package, hosted by jarvis; public operations and atomic capture/checkpoint seam | [memory contract](universal-memory.md); private main `d824d33df9c136952f1d01f7c4a4ad389df42ef1`, qualified and adopted in both frozen consumers |
+| kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
+| nexus-web | owner's chats only: client of the same hosted memory endpoint, account admission, chat tool bindings and credential/private connectivity integration; no automated-helper grants | [nexus memory handoff](issues/nexus-memory-client.md); distinct owner-chat contract accepted in adr 0067; source `5b282f2ec35a7624140a5935acc7a8d9b33b8524` frozen and qualified; private provisioning separate |
 
 downstream jarvis code consumes the published public surfaces and qualified pins;
 the external agents do not own jarvis authority, work state or continuation.
@@ -372,6 +372,12 @@ contracts, not a separate owner decision for every parameter.
 | m4 | library navigation/search/open/note append plus jarvis adapters: one keyword/vector rank-fusion pipeline and shared clients/pools; frozen view pages, zoom/date and paged originals, main save recovery, private mcp and admission; select/qualify server pins |
 | m5 | messages/checkpoints/service/migration + dev-server: drain old memory work, preserve existing rows, cut old remembered_at/recaller paths, install private endpoint/collectors/profile config and activate admitted lanes online; no historical import or dual reader |
 
+m1–m5 source boundaries and final isolated checks are complete, including
+first-delivery dreaming and nexus's owner-chat consumer. the
+[integration evidence](universal-memory.md#12-integration-evidence) owns exact
+pins and qualification. actual fleet install/admission, private client/build
+credentials and production cutover remain operational handoffs.
+
 m2–m4 follow the completed product and engineering contracts. use one serial
 compactor and existing postgres/process; no separate daemon or durable job ledger.
 live capture requires m1 proof. revise one shared policy/primitive at its owner, not copies in each unit.
@@ -407,9 +413,9 @@ merge order.
   exception: action-resolution turns can save without owner grounding. scheduled
   turns remain read-only. o6 extends capabilities to scheduled/new origins outside
   that full plan; amend affected grants there, never silently in m4.
-- native main retains the current isolated memory roles and their durable
-  evidence. m3 separately makes background inference and dreamer reads transient;
-  native callbacks do not implement that memory change.
+- native main retains original attempt, invocation and action/read evidence.
+  compactor/dreamer inference and dreamer read receipts are disposable; the
+  completed nodes, synthesis notes and progress commit in the memory store.
 - memory adds six tables to the native nine: fifteen total. the contract defines
   leaf mapping, completed nodes and singleton progress beside the three archive
   tables. o7 separately contributes the one work table. sequence actual migrations and revalidate owner permits and

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID, uuid4, uuid5
@@ -14,6 +14,7 @@ from llm_agent_kernel import (
     CancellationToken,
     Checkpoint,
     HostInput,
+    HostRef,
     InputId,
     NativeDefect,
     NativeDispatchLineage,
@@ -22,11 +23,14 @@ from llm_agent_kernel import (
     NoNewInput,
     Preempt,
     ProviderSessionLease,
-    ThreadId,
+    input_batch,
+    native_request_fits,
     run_native,
 )
 from llm_tools import (
     FrozenToolPlan,
+    InvocationPosition,
+    ParsedJson,
     PromptAttribute,
     PromptAttributeName,
     PromptJson,
@@ -34,6 +38,8 @@ from llm_tools import (
     PromptSectionKind,
     PromptSections,
     PromptText,
+    ReplayPolicy,
+    raw_input_digest,
 )
 from provider_runtime.agent_runtime import (
     AgentMessage,
@@ -43,14 +49,18 @@ from provider_runtime.agent_runtime import (
     decode_agent_output,
     thaw_json_value,
 )
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.dialects.postgresql import array, insert
+from universal_memory import MemoryError, render_view
 
-from jarvis.actions import ActionStore, finish_schedule_conclusion
+from jarvis.actions import (
+    ActionStore,
+    finish_schedule_conclusion,
+    recorded_action_result,
+)
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.agent_tools import AgentListResult
 from jarvis.approval import render_approval
-from jarvis.context import IsolatedRecaller, MemoryReadDispatcherPort, NativeContext
 from jarvis.db import (
     action,
     message,
@@ -59,22 +69,26 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.decisions import ModelJournalFactory
 from jarvis.definitions import RoleDefinitions
-from jarvis.history import PostgresCanonicalHistory
 from jarvis.kernel import KernelRuntime
-from jarvis.memory_retrieval import MemoryRepository
-from jarvis.memory_workers import RemembererWorker
+from jarvis.memory_service import MemoryService
+from jarvis.memory_workers import MemoryWorker
 from jarvis.messages import MessageStore, StoredMessage, render_host_fallback
 from jarvis.native_journal import (
     PostgresNativeJournal,
     commit_product,
     recover_sealed_turn,
 )
-from jarvis.ownership import DeploymentOwnershipDefect, lock_conversation
+from jarvis.ownership import (
+    DeploymentOwnershipDefect,
+    lock_conversation,
+    memory_is_admitted,
+)
+from jarvis.read_positions import PostgresReadRecorder
 from jarvis.read_tools import CalendarListEventsSuccess
 from jarvis.settings import Settings
 from jarvis.terminal import JarvisTerminal, TurnEvidence
+from jarvis.tool_results import completed_tool_result
 from jarvis.write_dispatch import WriteToolDispatcher, require_current_action_binding
 
 LOGGER = logging.getLogger(__name__)
@@ -119,11 +133,12 @@ class NativeInputs:
         owner: JarvisOwner,
         store: MessageStore,
         plan: FrozenToolPlan,
-        context: NativeContext,
+        memory_cutoff: int,
         cancellation: CancellationToken,
         maximum_batch_size: int,
     ) -> None:
-        self.owner, self.store, self.plan, self.context = owner, store, plan, context
+        self.owner, self.store, self.plan = owner, store, plan
+        self.memory_cutoff = memory_cutoff
         self.cancellation, self.maximum_batch_size = cancellation, maximum_batch_size
 
     async def poll(self, request: NativeRequest, through_checkpoint: Checkpoint | None):
@@ -157,7 +172,7 @@ class NativeInputs:
                     )
                 ).scalars()
             )
-        scheduled = self.plan.profile.id != "slice6_main"
+        scheduled = self.plan.profile.id == "scheduled_wake"
         values = await self.store.pending_inputs(
             source_conversation_id=self.owner.scope_id,
             limit=self.maximum_batch_size,
@@ -167,21 +182,10 @@ class NativeInputs:
         if not values:
             return NoNewInput()
         inputs = tuple(map(_host_input, values))
-        recall = await self.context.additional(inputs)
-        if recall.sections:
-            inputs = (
-                replace(
-                    inputs[0],
-                    sections=PromptSections(
-                        (*inputs[0].sections.sections, *recall.sections)
-                    ),
-                ),
-                *inputs[1:],
-            )
         return AppendInputs(
             inputs,
             Checkpoint(str(values[-1].id)),
-            max(item.created_at for item in values),
+            datetime.now(UTC),
         )
 
     async def automatic_write_gate_inputs(
@@ -222,30 +226,15 @@ class NativeRunner:
         owner: JarvisOwner,
         kernel_runtime: KernelRuntime,
         definitions: RoleDefinitions,
-        history: PostgresCanonicalHistory,
+        memory: MemoryService,
+        memory_worker: MemoryWorker,
         dispatcher_factory: Callable[[NativeInputs], WriteToolDispatcher],
-        memory_repository: MemoryRepository,
-        memory_dispatcher_factory: Callable[[], MemoryReadDispatcherPort],
-        model_decisions: ModelJournalFactory,
-        rememberer: RemembererWorker,
         actions: ActionStore,
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
-        self.kernel, self.definitions, self.history = (
-            kernel_runtime,
-            definitions,
-            history,
-        )
+        self.kernel, self.definitions = kernel_runtime, definitions
+        self.memory, self.memory_worker, self.actions = memory, memory_worker, actions
         self.dispatcher_factory = dispatcher_factory
-        self.memory_repository, self.memory_dispatcher_factory = (
-            memory_repository,
-            memory_dispatcher_factory,
-        )
-        self.model_decisions, self.rememberer, self.actions = (
-            model_decisions,
-            rememberer,
-            actions,
-        )
         self._session: ProviderSessionLease | None = None
         self._journal: PostgresNativeJournal | None = None
         self._dispatchers: list[WriteToolDispatcher] = []
@@ -256,14 +245,13 @@ class NativeRunner:
         if self._journal is None:
             raise NativeDefect("public message has no active native journal")
         await self._journal.record(attempt_id, message)
+        await self.memory.publish()
         self.notify_delivery()
 
     async def recover(self) -> None:
-        completed = await recover_native_products(self.owner)
-        if completed:
-            context = await native_receipt_context(self.owner)
-            for identifier in completed:
-                self.rememberer.enqueue((identifier,), context)
+        await recover_native_products(self.owner)
+        await _recover_native_note_saves(self.owner, self.memory)
+        await self.memory.publish()
         self.notify_delivery()
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome:
@@ -310,82 +298,93 @@ class NativeRunner:
                 )
             )
         plan = self.definitions.plans["scheduled_wake" if scheduled else "main"]
-        inputs = tuple(map(_host_input, pending))
-        recaller = IsolatedRecaller(
-            definition=self.definitions.recaller,
-            plan=self.definitions.plans["recaller"],
-            owner=self.owner,
-            provider=self.kernel.provider,
-            dispatcher_factory=self.memory_dispatcher_factory,
-            memory_repository=self.memory_repository,
-            trace=self.store,
-            model_decisions=self.model_decisions,
-        )
-        context = NativeContext(
-            ThreadId(self.owner.scope_id),
-            self.history,
-            recaller=recaller,
-            cancellation=cancellation,
-        )
-        source = await context.bootstrap(
-            inputs, max(item.created_at for item in pending)
-        )
-        receipts = await native_receipt_context(self.owner)
-        projected = PromptSections(
+        try:
+            pending_publication = await self.memory.pending_publication()
+            await self.memory.project_pending(pending_publication)
+            cutoff = await self.memory.library.cutoff()
+            await self.memory_worker.ensure_ready(cutoff, cancellation)
+            nodes = await self.memory.library.main_view(cutoff)
+        except MemoryError as error:
+            LOGGER.warning("memory preparation blocked: code=%s", error.code)
+            return NativeRunOutcome("blocked")
+        if cancellation.cancelled:
+            return NativeRunOutcome("stopped")
+        source = PromptSections(
             (
-                *source.sections,
-                *receipts.sections,
-                *(section for item in inputs for section in item.sections.sections),
+                PromptSection(
+                    PromptSectionKind("historical_memory_view"),
+                    (),
+                    PromptText(render_view(nodes, cutoff)),
+                ),
             )
         )
+        as_of = datetime.now(UTC)
+        while pending:
+            inputs = tuple(map(_host_input, pending))
+            current = input_batch(
+                inputs,
+                as_of,
+                render_source_timestamps=True,
+                render_batch_as_of=True,
+            )
+
+            def fits(
+                receipts: PromptSections, current: PromptSection = current
+            ) -> bool:
+                return native_request_fits(
+                    self.definitions.main,
+                    PromptSections((*source.sections, *receipts.sections, current)),
+                )
+
+            receipts = await native_receipt_context(
+                self.owner,
+                input_ids=tuple(item.input_id for item in inputs),
+                fits=fits,
+            )
+            if receipts is not None:
+                break
+            pending = pending[:-1]
+        else:
+            LOGGER.warning("native context blocked: code=request_too_large")
+            return NativeRunOutcome("blocked")
+        projected = PromptSections((*source.sections, *receipts.sections, current))
         attempt_id = str(uuid4())
         permit = self.owner.permit("jarvis-native:" + attempt_id)
-        previous = self._session
-        self._session = await self.kernel.provider.acquire_native(
-            self.definitions.main, plan, permit, previous
-        )
-        submitted = (
-            projected
-            if self._session is not previous
-            else PromptSections(
-                (
-                    *receipts.sections,
-                    *(section for item in inputs for section in item.sections.sections),
-                    *source.sections,
-                )
-            )
-        )
         request = NativeRequest(
             attempt_id,
             permit,
             "thread",
             tuple(item.input_id for item in inputs),
             projected,
-            submitted,
+            projected,
             plan,
             "restart_reasoning",
             None,
             Checkpoint(str(pending[-1].id)),
         )
-        journal = PostgresNativeJournal(
-            self.owner.database,
-            definition=self.definitions.main,
-            plan=plan,
-            owner=self.owner,
-        )
-        self._journal = journal
-        native_inputs = NativeInputs(
-            owner=self.owner,
-            store=self.store,
-            plan=plan,
-            context=context,
-            cancellation=cancellation,
-            maximum_batch_size=self.settings.maximum_batch_size,
-        )
-        dispatcher = self.dispatcher_factory(native_inputs)
-        dispatcher.on_effect_settled = self.notify_work
-        self._dispatchers.append(dispatcher)
         try:
+            self._session = await self.kernel.provider.acquire_native(
+                self.definitions.main, plan, permit, None
+            )
+            journal = PostgresNativeJournal(
+                self.owner.database,
+                definition=self.definitions.main,
+                plan=plan,
+                owner=self.owner,
+                memory=self.memory,
+            )
+            self._journal = journal
+            native_inputs = NativeInputs(
+                owner=self.owner,
+                store=self.store,
+                plan=plan,
+                memory_cutoff=cutoff,
+                cancellation=cancellation,
+                maximum_batch_size=self.settings.maximum_batch_size,
+            )
+            dispatcher = self.dispatcher_factory(native_inputs)
+            dispatcher.on_effect_settled = self.notify_work
+            self._dispatchers.append(dispatcher)
             terminal = await run_native(
                 definition=self.definitions.main,
                 request=request,
@@ -412,11 +411,7 @@ class NativeRunner:
                     await _mark_stale(self.owner, UUID(attempt_id), "owner_stopped")
                 return NativeRunOutcome("stopped")
             if isinstance(terminal.evidence, NativeTerminalEvidence):
-                completed = await _settle_native_product(self.owner, request.attempt_id)
-                if completed:
-                    context = await native_receipt_context(self.owner)
-                    for identifier in completed:
-                        self.rememberer.enqueue((identifier,), context)
+                await _settle_native_product(self.owner, request.attempt_id)
             else:
                 await _fail_native_product(
                     self.owner,
@@ -429,7 +424,6 @@ class NativeRunner:
             raise
         except NativeUncertain:
             # run_native fences old callbacks; restart reasoning in a fresh thread.
-            self._session = None
             return NativeRunOutcome("progressed")
         except NativeDefect as error:
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
@@ -448,6 +442,10 @@ class NativeRunner:
             return NativeRunOutcome("blocked")
         finally:
             self._journal = None
+            session, self._session = self._session, None
+            if session is not None:
+                await self.kernel.provider.discard(session)
+            await self.memory.publish()
             self.notify_delivery()
 
     async def refresh_stopped_approvals(self) -> None:
@@ -502,6 +500,7 @@ class NativeRunner:
             await dispatcher.close()
         if self._session is not None:
             await self.kernel.provider.discard(self._session)
+            self._session = None
 
 
 async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
@@ -694,6 +693,7 @@ async def _fail_native_product(
                 role="assistant",
                 text=content,
                 source="native_failure",
+                memory_admitted=memory_is_admitted(connection),
                 source_conversation_id=owner.scope_id,
                 processed_at=timestamp,
                 trace={"native_attempt_id": attempt_id},
@@ -748,7 +748,8 @@ async def _fail_native_product(
             )
 
 
-async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
+async def _recover_native_note_saves(owner: JarvisOwner, memory: MemoryService) -> None:
+    """Link existing local note receipts after the old callback owner is fenced."""
     async with owner.database.connect() as connection:
         rows = (
             (
@@ -760,18 +761,94 @@ async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
                     )
                     .where(
                         native_attempt.c.conversation_id == owner.scope_id,
+                        native_attempt.c.fenced_at.is_not(None),
+                        native_invocation.c.tool_id == "memory.save_note",
+                        native_invocation.c.validation == "accepted",
+                        native_invocation.c.reply_receipt.is_(None),
                     )
-                    .order_by(
-                        native_attempt.c.attempt_seq.desc(),
-                        native_invocation.c.ordinal.desc(),
-                    )
-                    .limit(100)
+                    .order_by(native_attempt.c.attempt_seq, native_invocation.c.ordinal)
                 )
             )
             .mappings()
             .all()
         )
-        records: list[dict[str, object]] = []
+    recorder = PostgresReadRecorder(owner.database)
+    for row in rows:
+        if row["frozen_contract"]["effect"] != "Write":
+            raise NativeDefect(
+                "local note recovery requires the original Write contract"
+            )
+        position = InvocationPosition("native-invocation:" + str(row["id"]))
+        arguments = row["proposal"]["arguments"]
+        contract = {
+            "tool_id": "memory.save_note",
+            "tool_contract_revision": row["frozen_contract"]["tool_contract_revision"],
+            "policy_revision": row["frozen_contract"]["policy_revision"],
+            "plan_revision": row["frozen_contract"]["plan_revision"],
+            "input_digest": raw_input_digest(ParsedJson(arguments)),
+            "replay_policy": ReplayPolicy.ReDispatchable.value,
+        }
+        result = await recorder.recover_committed_note_save(
+            position=position, arguments=arguments, contract=contract, memory=memory
+        )
+        if result is None:
+            continue
+        receipt = completed_tool_result(result, HostRef(str(position)))
+        async with owner.database.begin() as connection:
+            await lock_conversation(connection, owner.scope_id)
+            current = (
+                (
+                    await connection.execute(
+                        select(native_invocation)
+                        .where(native_invocation.c.id == row["id"])
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if current["reply_receipt"] is not None:
+                if current["read_position"] != str(position):
+                    raise NativeDefect("local note receipt lost its original position")
+                continue
+            await connection.execute(
+                update(native_invocation)
+                .where(native_invocation.c.id == row["id"])
+                .values(
+                    read_position=str(position),
+                    reply_receipt={
+                        "type": "tool_result_ref",
+                        "result_ref": str(position),
+                        "host_ref": str(position),
+                        "wire_text": receipt.model_text,
+                        "success": result["type"] == "Success",
+                    },
+                    reply_recorded_at=datetime.now(UTC),
+                )
+            )
+
+
+async def native_receipt_context(
+    owner: JarvisOwner,
+    *,
+    input_ids: tuple[InputId, ...],
+    fits: Callable[[PromptSections], bool],
+) -> PromptSections | None:
+    """Keep every operative fact, then fit a whole-record recent tail around it."""
+    selected_ids = tuple(map(UUID, input_ids))
+    async with owner.database.connect() as connection:
+        resolutions = (
+            (
+                await connection.execute(
+                    select(message.c.source_message_id).where(
+                        message.c.id.in_(selected_ids),
+                        message.c.source == "action",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         accepted_actions = (
             (
                 await connection.execute(
@@ -779,7 +856,10 @@ async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
                     .join(message, message.c.id == action.c.origin_message_id)
                     .where(
                         message.c.source_conversation_id == owner.scope_id,
-                        message.c.request_state.in_(("pending", "waiting")),
+                        or_(
+                            action.c.origin_message_id.in_(selected_ids),
+                            action.c.id.in_(tuple(map(UUID, resolutions))),
+                        ),
                     )
                     .order_by(action.c.created_at, action.c.id)
                 )
@@ -787,6 +867,46 @@ async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
             .mappings()
             .all()
         )
+        action_ids = tuple(row["id"] for row in accepted_actions)
+        recent = (
+            select(native_invocation.c.id)
+            .join(native_attempt, native_attempt.c.id == native_invocation.c.attempt_id)
+            .where(native_attempt.c.conversation_id == owner.scope_id)
+            .order_by(
+                native_attempt.c.attempt_seq.desc(),
+                native_invocation.c.ordinal.desc(),
+            )
+            .limit(100)
+            .correlate(None)
+        )
+        rows = (
+            (
+                await connection.execute(
+                    select(native_invocation, native_attempt.c.attempt_seq)
+                    .join(
+                        native_attempt,
+                        native_attempt.c.id == native_invocation.c.attempt_id,
+                    )
+                    .where(
+                        native_attempt.c.conversation_id == owner.scope_id,
+                        or_(
+                            native_invocation.c.proposal["input_ids"].op("?|")(
+                                array(tuple(map(str, input_ids)))
+                            ),
+                            native_invocation.c.action_id.in_(action_ids),
+                            native_invocation.c.id.in_(recent),
+                        ),
+                    )
+                    .order_by(
+                        native_attempt.c.attempt_seq,
+                        native_invocation.c.ordinal,
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        records: list[dict[str, object]] = []
         for row in accepted_actions:
             records.append(
                 {
@@ -798,7 +918,9 @@ async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
                     "execution_contract": row["execution_contract"],
                     "status": row["status"],
                     "attempts": row["attempts"],
-                    "recorded_result": row["result"],
+                    "recorded_result": await recorded_action_result(
+                        connection, row["id"]
+                    ),
                     "supersedes_action_ref": (
                         str(row["supersedes_action_id"])
                         if row["supersedes_action_id"] is not None
@@ -806,37 +928,62 @@ async def native_receipt_context(owner: JarvisOwner) -> PromptSections:
                     ),
                 }
             )
-        for row in reversed(rows):
+        observations: list[tuple[dict[str, object], bool]] = []
+        for row in rows:
             result = None
-            if row["read_position"] is not None:
-                result = await connection.scalar(
-                    select(read_position.c.result).where(
-                        read_position.c.position == row["read_position"]
+            # The original wire already contains the entire public result.
+            # Keep it once; canonical recorder storage stays unchanged.
+            if row["reply_receipt"] is None:
+                if row["read_position"] is not None:
+                    result = await connection.scalar(
+                        select(read_position.c.result).where(
+                            read_position.c.position == row["read_position"]
+                        )
                     )
+                elif row["action_id"] is not None:
+                    result = await recorded_action_result(connection, row["action_id"])
+            observations.append(
+                (
+                    {
+                        "kind": "native_invocation",
+                        "invocation_id": str(row["id"]),
+                        "tool_id": row["tool_id"],
+                        "proposal": row["proposal"],
+                        "reply": row["reply_receipt"],
+                        "recorded_result": result,
+                    },
+                    bool(set(row["proposal"]["input_ids"]).intersection(input_ids))
+                    or row["action_id"] in action_ids,
                 )
-            elif row["action_id"] is not None:
-                result = await connection.scalar(
-                    select(action.c.result).where(action.c.id == row["action_id"])
-                )
-            records.append(
-                {
-                    "kind": "native_invocation",
-                    "invocation_id": str(row["id"]),
-                    "tool_id": row["tool_id"],
-                    "proposal": row["proposal"],
-                    "reply": row["reply_receipt"],
-                    "recorded_result": result,
-                }
             )
-    return PromptSections(
-        (
-            PromptSection(
-                PromptSectionKind("recorded_tool_observations"),
-                (),
-                PromptJson(records),
-            ),
+    required = tuple(record for record, operative in observations if operative)
+
+    def frame(values: tuple[dict[str, object], ...]) -> PromptSections:
+        return PromptSections(
+            (
+                PromptSection(
+                    PromptSectionKind("recorded_tool_observations"),
+                    (),
+                    PromptJson([*records, *values]),
+                ),
+            )
         )
-    )
+
+    context = frame(required)
+    if not fits(context):
+        return None
+    selected = {record["invocation_id"] for record in required}
+    for record, operative in reversed(observations):
+        if operative:
+            continue
+        selected.add(record["invocation_id"])
+        candidate = frame(
+            tuple(item for item, _ in observations if item["invocation_id"] in selected)
+        )
+        if not fits(candidate):
+            break
+        context = candidate
+    return context
 
 
 async def _turn_evidence(owner: JarvisOwner, attempt_id: UUID) -> TurnEvidence:

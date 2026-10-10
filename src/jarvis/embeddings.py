@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Sequence
-from typing import Final
+from dataclasses import replace
+from typing import Final, Protocol
 
 import httpx
 from provider_runtime import (
@@ -14,6 +16,8 @@ from provider_runtime import (
     ProviderCredential,
     ProviderRuntime,
 )
+from provider_runtime.errors import NonGenerationCallFailed, RuntimeDefect
+from provider_runtime.retry import DEFAULT_RETRY
 from pydantic import SecretStr
 
 from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL
@@ -21,8 +25,16 @@ from jarvis.settings import EMBEDDING_DIMENSION, EMBEDDING_MODEL
 MAX_EMBEDDING_BATCH_SIZE: Final[int] = 32
 
 
+class MemoryEmbedder(Protocol):
+    async def embed(self, inputs: Sequence[str]) -> tuple[tuple[float, ...], ...]: ...
+
+
 class EmbeddingFailure(RuntimeError):
     """A content-free embedding failure safe for ordinary diagnostics."""
+
+
+class EmbeddingBusy(RuntimeError):
+    """No provider attempt entered because the shared inference lane is occupied."""
 
 
 class OpenAIEmbedder:
@@ -39,8 +51,13 @@ class OpenAIEmbedder:
             raise ValueError(
                 "embedding credential must be non-empty without edge whitespace"
             )
-        self._runtime = ProviderRuntime(Credentials(), http_client=http_client)
+        self._runtime = ProviderRuntime(
+            Credentials(),
+            retry=replace(DEFAULT_RETRY, max_attempts=1),
+            http_client=http_client,
+        )
         self._credential = ProviderCredential(provider="openai", key=key)
+        self._inference = asyncio.Lock()
 
     async def embed(self, inputs: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         """Embed one finite non-empty batch in input order."""
@@ -52,17 +69,20 @@ class OpenAIEmbedder:
         if any(not value.strip() for value in values):
             raise ValueError("embedding inputs must be non-empty text")
 
-        try:
-            response = await self._runtime.embed(
-                EmbeddingCall(
-                    model=EMBEDDING_MODEL,
-                    inputs=values,
-                    dimensions=Present(EMBEDDING_DIMENSION),
-                ),
-                credential=self._credential,
-            )
-        except Exception:
-            raise EmbeddingFailure("embedding provider call failed") from None
+        if self._inference.locked():
+            raise EmbeddingBusy("embedding inference is busy")
+        async with self._inference:
+            try:
+                response = await self._runtime.embed(
+                    EmbeddingCall(
+                        model=EMBEDDING_MODEL,
+                        inputs=values,
+                        dimensions=Present(EMBEDDING_DIMENSION),
+                    ),
+                    credential=self._credential,
+                )
+            except (NonGenerationCallFailed, RuntimeDefect):
+                raise EmbeddingFailure("embedding provider call failed") from None
 
         if len(response.embeddings) != len(values):
             raise EmbeddingFailure("embedding provider returned invalid vectors")
@@ -78,6 +98,8 @@ class OpenAIEmbedder:
 
 __all__ = [
     "MAX_EMBEDDING_BATCH_SIZE",
+    "EmbeddingBusy",
     "EmbeddingFailure",
+    "MemoryEmbedder",
     "OpenAIEmbedder",
 ]

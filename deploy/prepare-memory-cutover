@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+"""Drain and snapshot schema 0005 using the selected predecessor's Python."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import os
+import shutil
+import sys
+from pathlib import Path
+
+import httpx
+from llm_agent_kernel import CancellationToken
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+
+from jarvis.admission import JarvisOwner
+
+# This stopped script runs the selected predecessor's exact checks under its lock.
+from jarvis.cli import (
+    _require_paused,  # pyright: ignore[reportPrivateUsage]
+    _validate_runtime_layout,  # pyright: ignore[reportPrivateUsage]
+)
+from jarvis.db import create_engine, normalize_database_url
+from jarvis.decisions import PostgresModelDecisionJournal
+from jarvis.definitions import build_rememberer
+from jarvis.embeddings import OpenAIEmbedder
+from jarvis.kernel import (
+    build_agent_runtime,
+    build_kernel_runtime,
+    resolve_provider_configuration,
+)
+from jarvis.memory import MemoryStore, RemembererGroup
+from jarvis.memory_dispatch import MemoryToolDispatcher
+from jarvis.memory_retrieval import PostgresMemoryRepository
+from jarvis.memory_tools import compose_memory_catalog
+from jarvis.memory_workers import RemembererWorker
+from jarvis.messages import MessageStore
+from jarvis.ownership import Database, deployment_ownership
+from jarvis.read_positions import PostgresReadRecorder
+from jarvis.settings import Settings
+
+
+class CutoverBlocked(RuntimeError):
+    """A content-free refusal to change the stopped deployment."""
+
+
+async def finish_process(process: asyncio.subprocess.Process, failure: str) -> None:
+    try:
+        if await process.wait():
+            raise CutoverBlocked(failure)
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            await process.wait()
+
+
+async def old_work(
+    database: Database, maximum_messages: int
+) -> tuple[RemembererGroup, ...]:
+    async with database.connect() as connection:
+        if (
+            await connection.scalar(text("SELECT version_num FROM alembic_version"))
+            != "0005"
+        ):
+            raise CutoverBlocked("memory preparation requires predecessor schema 0005")
+        parked = await connection.scalar(
+            text("""
+              SELECT id FROM message
+              WHERE role = 'owner' AND processed_at IS NOT NULL
+                AND remembered_at IS NULL AND processing_parked_at IS NOT NULL
+              LIMIT 1
+            """)
+        )
+        if parked is not None:
+            raise CutoverBlocked("parked legacy memory work blocks cutover")
+        unresolved = await connection.scalar(
+            text("""
+              SELECT decision_id FROM model_decision
+              WHERE (request->>'operation_id' LIKE 'jarvis-remember:%'
+                  OR request->>'operation_id' LIKE 'jarvis-dream:%'
+                  OR request->>'operation_id' LIKE 'jarvis-recall:%')
+                AND terminal IS NULL AND submission IS NULL LIMIT 1
+            """)
+        )
+        if unresolved is not None:
+            raise CutoverBlocked("unresolved legacy memory cognition blocks cutover")
+    return await MemoryStore(database).select_pending_rememberer_groups(
+        maximum_groups=1, maximum_messages_per_group=maximum_messages
+    )
+
+
+async def drain_pending(
+    database: Database, worker: RemembererWorker, maximum_messages: int
+) -> int:
+    completed = 0
+    cancellation = CancellationToken()
+    while groups := await old_work(database, maximum_messages):
+        if not await worker.run_one(cancellation):
+            raise CutoverBlocked(
+                "legacy rememberer did not complete; repair its retained evidence"
+            )
+        completed += len(groups[0].targets)
+    return completed
+
+
+async def drain(settings: Settings) -> int:
+    host = settings.codex_host_config
+    _validate_runtime_layout(settings, host)
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await _require_paused(database, settings)
+            if not await old_work(database, settings.maximum_batch_size):
+                return 0
+            async with httpx.AsyncClient(
+                trust_env=False, follow_redirects=False
+            ) as http:
+                memory = MemoryStore(database)
+                embedder = OpenAIEmbedder(
+                    settings.embedding_openai_api_key, http_client=http
+                )
+                catalog = compose_memory_catalog(
+                    PostgresMemoryRepository(database), embedder
+                )
+                runtime = build_agent_runtime(
+                    provider_state_root=settings.runtime_state_directory,
+                    codex_endpoints=host.endpoints,
+                )
+                try:
+                    provider = await resolve_provider_configuration(
+                        runtime=runtime,
+                        profile_key=settings.codex_profile_key,
+                        model_key=settings.codex_model,
+                    )
+                    definition, plan = build_rememberer(
+                        catalog=catalog,
+                        provider=provider,
+                        owner_timezone=settings.owner_timezone,
+                    )
+                    kernel = build_kernel_runtime(
+                        runtime=runtime,
+                        shared_cwd_parent=Path(host.cognition_cwd_parent),
+                    )
+                except BaseException:
+                    await runtime.close()
+                    raise
+                try:
+                    worker = RemembererWorker(
+                        definition=definition,
+                        plan=plan,
+                        owner=JarvisOwner(database, str(settings.discord.channel_id)),
+                        provider=kernel.provider,
+                        model_decisions=lambda evidence: PostgresModelDecisionJournal(
+                            database, evidence=evidence
+                        ),
+                        dispatcher_factory=lambda: MemoryToolDispatcher(
+                            PostgresReadRecorder(database)
+                        ),
+                        memory=memory,
+                        messages=MessageStore(database),
+                        embedder=embedder,
+                        maximum_messages_per_group=settings.maximum_batch_size,
+                    )
+                    return await drain_pending(
+                        database, worker, settings.maximum_batch_size
+                    )
+                finally:
+                    await kernel.close()
+    finally:
+        await engine.dispose()
+
+
+async def snapshot(
+    settings: Settings,
+    destination: Path,
+    state_directory: Path,
+    declarations_directory: Path,
+    previous_release: Path,
+) -> None:
+    if destination.resolve().is_relative_to(state_directory.resolve()):
+        raise CutoverBlocked("the snapshot must be outside private application state")
+    url = make_url(settings.database_url.get_secret_value())
+    if url.get_backend_name() != "postgresql" or set(url.query) - {"sslmode"}:
+        raise CutoverBlocked("unsupported postgres snapshot connection")
+    environment = dict(os.environ)
+    environment.update(
+        PGHOST=url.host or "",
+        PGPORT=str(url.port or 5432),
+        PGUSER=url.username or "",
+        PGPASSWORD=url.password or "",
+        PGDATABASE=url.database or "",
+    )
+    if "sslmode" in url.query:
+        environment["PGSSLMODE"] = str(url.query["sslmode"])
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await _require_paused(database, settings)
+            if await old_work(database, settings.maximum_batch_size):
+                raise CutoverBlocked(
+                    "drain legacy memory work before taking the cutover snapshot"
+                )
+            destination.parent.mkdir(mode=0o700, exist_ok=True)
+            if any(destination.parent.iterdir()):
+                raise CutoverBlocked(
+                    "one prior cutover artifact already exists; inspect it first"
+                )
+            destination.mkdir(mode=0o700)
+            try:
+                dump = destination / "database.dump"
+                with dump.open("xb") as output:
+                    dump.chmod(0o600)
+                    process = await asyncio.create_subprocess_exec(
+                        "pg_dump",
+                        "--format=custom",
+                        env=environment,
+                        stdout=output,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await finish_process(process, "postgres snapshot failed")
+                with dump.open("rb") as source:
+                    process = await asyncio.create_subprocess_exec(
+                        "pg_restore",
+                        "--list",
+                        stdin=source,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await finish_process(process, "postgres snapshot validation failed")
+                for original, copied in (
+                    (state_directory, destination / "private-state"),
+                    (declarations_directory, destination / "declarations"),
+                    (previous_release, destination / "RELEASE.json"),
+                ):
+                    process = await asyncio.create_subprocess_exec(
+                        "cp",
+                        "-a",
+                        "--",
+                        str(original),
+                        str(copied),
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await finish_process(process, "private state snapshot failed")
+                if await old_work(database, settings.maximum_batch_size):
+                    raise CutoverBlocked(
+                        "legacy memory work appeared during snapshot preparation"
+                    )
+            except BaseException:
+                shutil.rmtree(destination)
+                raise
+    finally:
+        await engine.dispose()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("drain")
+    capture = commands.add_parser("snapshot")
+    capture.add_argument("destination", type=Path)
+    arguments = parser.parse_args()
+    environment = dict(os.environ)
+    try:
+        if arguments.command == "snapshot":
+            migration_url = environment.get("JARVIS_MIGRATION_DATABASE_URL")
+            runtime_url = environment.get("JARVIS_DATABASE_URL")
+            if not migration_url or not runtime_url:
+                raise CutoverBlocked(
+                    "snapshot requires runtime and migration database credentials"
+                )
+            original = make_url(normalize_database_url(runtime_url))
+            maintenance = make_url(normalize_database_url(migration_url))
+            if (original.host, original.port, original.database) != (
+                maintenance.host,
+                maintenance.port,
+                maintenance.database,
+            ):
+                raise CutoverBlocked(
+                    "snapshot must use the configured postgres endpoint and database"
+                )
+            environment["JARVIS_DATABASE_URL"] = migration_url
+        settings = Settings.from_env(environment)
+        if arguments.command == "drain":
+            completed = asyncio.run(drain(settings))
+            print(f"legacy rememberer drained: owner_rows={completed}")
+        else:
+            asyncio.run(
+                snapshot(
+                    settings,
+                    arguments.destination,
+                    Path("/var/lib/jarvis"),
+                    Path("/etc/jarvis"),
+                    Path("/opt/jarvis/current/RELEASE.json"),
+                )
+            )
+            print("private cutover snapshot validated")
+        return 0
+    except CutoverBlocked as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    except Exception as error:
+        print(f"memory cutover failed: type={type(error).__name__}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -70,9 +70,9 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.memory import SettlementIdentity
+from jarvis.memory_service import MemoryService
 from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
-from jarvis.ownership import Database, lock_conversation
+from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 from jarvis.terminal import (
     JarvisNativeMessage,
     JarvisTerminal,
@@ -80,6 +80,20 @@ from jarvis.terminal import (
     TurnEvidence,
     render_terminal,
 )
+
+
+def _contains_nul(value: object) -> bool:
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, str) and "\x00" in current:
+            return True
+        if isinstance(current, dict):
+            for key, item in cast(dict[str, object], current).items():
+                pending.extend((key, item))
+        elif isinstance(current, list):
+            pending.extend(cast(list[object], current))
+    return False
 
 
 def _sections_json(sections: PromptSections) -> list[dict[str, object]]:
@@ -183,11 +197,13 @@ class PostgresNativeJournal:
         definition: NativeDefinition,
         plan: FrozenToolPlan,
         owner: JarvisOwner,
+        memory: MemoryService,
     ) -> None:
         self.database = database
         self.definition = definition
         self.plan = plan
         self.owner = owner
+        self.memory = memory
 
     async def recover(self, attempt_id: str) -> NativeRecovery | None:
         async with self.database.connect() as connection:
@@ -334,6 +350,7 @@ class PostgresNativeJournal:
                     conversation_id=request.permit.scope_id,
                     attempt_seq=seq,
                     owner_epoch=str(request.permit.owner_token),
+                    memory_admitted=memory_is_admitted(connection),
                     request_fingerprint=request.fingerprint,
                     request=document,
                     armed_at=datetime.now(UTC),
@@ -359,11 +376,15 @@ class PostgresNativeJournal:
         self, proposal: NativeInvocationProposal
     ) -> InvocationRecord:
         arguments = thaw_json_value(proposal.arguments)
+        if _contains_nul(arguments):
+            raise NativeDefect("native callback evidence contains nul")
         binding = self.plan.catalog_view.binding(proposal.tool_id)
         accepted = proposal.validation_error is None
         request_id = (
             UUID(cast(dict[str, Any], arguments)["request_ref"])
-            if accepted and binding.spec.effect is ToolEffect.Write
+            if accepted
+            and binding.spec.effect is ToolEffect.Write
+            and str(binding.spec.id) != "memory.save_note"
             else None
         )
         document = {
@@ -472,6 +493,7 @@ class PostgresNativeJournal:
                     else asdict(cast(NativeRejected, proposal.validation_error)),
                 )
             )
+        await self.memory.publish()
         return InvocationRecord(str(identifier), ordinal, proposal, None)
 
     async def _reply(
@@ -615,6 +637,8 @@ class PostgresNativeJournal:
                     **links, reply_receipt=value, reply_recorded_at=datetime.now(UTC)
                 )
             )
+
+        await self.memory.publish()
 
     async def record_delivery(self, delivery: NativeDelivery) -> None:
         evidence = None if delivery.evidence is None else _evidence(delivery.evidence)
@@ -830,6 +854,7 @@ class PostgresNativeJournal:
                 "role": "assistant",
                 "text": value.response.text,
                 "source": "native_progress",
+                "memory_admitted": memory_is_admitted(connection),
                 "source_conversation_id": row["conversation_id"],
                 "source_message_id": None,
                 "processed_at": datetime.now(UTC),
@@ -1024,15 +1049,15 @@ async def commit_product(
             )
             trace = {**target["trace"], "native_attempt_id": turn.attempt_id}
             if state == "completed":
-                trace["settlement"] = SettlementIdentity(
-                    run_id=turn.attempt_id,
-                    through_checkpoint=str(identifier),
-                    conclusion_message_id=str(conclusion_id)
+                trace["settlement"] = {
+                    "run_id": turn.attempt_id,
+                    "through_checkpoint": str(identifier),
+                    "conclusion_message_id": str(conclusion_id)
                     if rendered.content is not None
                     else None,
-                    conclusion_kind=rendered.conclusion_kind,
-                    outcome=rendered.outcome,
-                ).as_json()
+                    "conclusion_kind": rendered.conclusion_kind,
+                    "outcome": rendered.outcome,
+                }
             await connection.execute(
                 update(message)
                 .where(message.c.id == identifier)
@@ -1052,6 +1077,7 @@ async def commit_product(
                     role="assistant",
                     text=rendered.content,
                     source="native_final",
+                    memory_admitted=memory_is_admitted(connection),
                     source_conversation_id=owner.scope_id,
                     processed_at=datetime.now(UTC),
                     trace={"native_attempt_id": turn.attempt_id},

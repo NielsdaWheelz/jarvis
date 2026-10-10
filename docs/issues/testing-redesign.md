@@ -23,14 +23,15 @@ worker/native checks, now removed after integrated qualification. existing share
 kernel conformance remains with its owning repository. these exceptions neither
 restore the retired jarvis suite nor resolve the standing redesign.
 
-pending scoped exception: the [universal-memory contract](../universal-memory.md),
+current scoped exception: the [universal-memory contract](../universal-memory.md),
 as simplified by [adr 0063](../decisions/0063-simplify-memory-policy-and-retrieval.md),
 retains two small regression groups: capture/retry and memory completion.
 verify atomic capture and memory progress, bounded background retries, direct-note
 idempotency and the unchanged main recovery boundaries. background memory jobs
 need no frozen-batch replay or unknown-paid-call tests; interrupted inference may
 repeat paid work. targeted review and focused live checks replace per-feature
-ceremony; remove exploratory helpers. these checks remain unimplemented and are
-not a general replacement suite. focused checks for automatic activation, native
+ceremony; remove exploratory helpers. the memory library has the two postgres
+groups; jarvis retains its canonical capture/retry checks. these are not a general
+replacement suite. focused checks for automatic activation, native
 mapped-field validation, deterministic fusion, the shared search gate and seed-only
 dreaming need no new harness or model-selection exercise. this issue stays open.

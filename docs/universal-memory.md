@@ -1,8 +1,10 @@
 # universal memory: implementation contract
 
 owner-approved source contract, **not deployed**. reconciled with the native
-runtime and owner-chat client on 2026-10-09; source implementation and final
-isolated qualification are complete. production activation remains separate.
+runtime and owner-chat client on 2026-10-09; that baseline's source implementation
+and isolated qualification are complete. the 2026-10-13
+[repair evidence](#memory-repair-source-candidate) records current pins and open
+qualification. production activation remains separate.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -1686,7 +1688,7 @@ prove the complete envelope limit, including escaped material and input identity
 the authenticated model catalogue publishes no context-window capacity; invent
 none and promise no cache hit rate.
 
-run `scripts/verify` in each owning package and `./scripts/test` for nexus's
+run `scripts/verify` in jarvis/universal-memory and `./scripts/test` for nexus's
 static gates. the retained library groups use a task-owned empty database via
 `MEMORY_TEST_DATABASE_URL`; jarvis's `tests/capture_retry.py` requires an explicit
 `--disposable-database-url`. temporary integration/live helpers are removed after
@@ -1696,9 +1698,11 @@ and disabled or waived lanes stated explicitly.
 
 ### memory repair source candidate
 
-2026-10-13: repaired source is published on `codex/memory-repairs`, with normal
-merges preserving both the repair ancestry and current provider/kernel/nexus main
-fixes. source merging does not install or activate memory. the owner selected
+2026-10-13: repaired source uses normal merges preserving both the repair ancestry
+and current provider/kernel/nexus main fixes. the four library prs and nexus
+client/build pr are merged; the [streamed-request follow-up](https://github.com/NielsdaWheelz/nexus-web/pull/573)
+repairs a real-network finding missed by buffered mocks. source merging does not
+install or activate memory. the owner selected
 remaining qualification issues and cleanup; incomplete live acceptance stays open.
 
 | package | exact final pin in both consumers |
@@ -1731,6 +1735,11 @@ controlled red → green → refactor evidence:
 - nexus: 45 actual-sdk/portable-dispatch cases and six catalog-derived grant
   checks pass. compose proves both build-secret grants and unset-key failure.
   synthetic transport/fence surfaces do not prove canonical nexus rows/routes.
+  real transport exposed `RequestNotRead` in response correlation. one request
+  hook caches exact sdk bytes before send; stream probes and the actual socket
+  case pass without a retry/catch. the binding revision advances to v3; pins,
+  schemas and policy epoch remain unchanged. independent review and a final
+  complete `scripts/test` pass.
 - after access was restored, the full provider non-live suite passes: 982 cases,
   one existing skip. kernel's full non-live suite passes: 176 cases, two opt-in
   live cases deselected. previously denied socket/process/setgid checks pass.
@@ -1743,15 +1752,35 @@ audit. no known vulnerabilities were reported in its auditable set; git-only
 kernel/tools/provider packages are not registry-audited. the former network
 blocker is resolved.
 
-real-postgres integration is being recorded before the consumer source merge;
-its provisional result is not an acceptance pass. checks use empty migrated
-pg16/pgvector 0.8.1 and runtime grants for ordinary operations; only stopped full
-maintenance uses the existing migrator role under the deployment lock.
+real-postgres integration passes on empty migrated pg16/pgvector 0.8.1:
+
+- actual codecs → collector → http → archive/checkpoint/leaves, rollback and
+  inclusive lost-response retry; inline-image and both document forms.
+- exact main/dream/read presentation and older samples; the 2,047-leaf
+  irreducible forest returns typed blocking with zero inference.
+- stopped full rebuild preserves originals, leaf positions, checkpoints, dream
+  cursor/nightly marker, invalidates snapshots and reconstructs a fitting
+  ordinary view using controlled ~512-byte summaries.
+- actual nexus client/mcp save-loss and outer-deadline uncertainty, one-note/leaf
+  exact-id original receipt replay, changed-argument conflict and revocation.
+- jarvis's retained capture/retry check and all three retained library cases.
+
+ordinary operations use runtime grants; only stopped full maintenance uses the
+existing migrator role under the deployment lock. inference/fences remain
+controlled, so this proves neither live model content nor canonical nexus chat
+admission/rows. fixture corrections changed readiness/migrator setup and summary
+length, not release behavior or assertions. task containers and temporary
+credential state are removed. the original jarvis checkout incorporates the
+repair through normal merges and also passes frozen `scripts/verify`; five pending
+product documents are preserved byte for byte in local commits.
 
 remaining acceptance is explicit in
 [live inference/cache/native persistence](issues/memory-live-qualification.md),
 [canonical nexus rows/routes](issues/nexus-memory-live-qualification.md) and
 [clean image/secret qualification](issues/nexus-memory-image-qualification.md).
+jarvis's [hosted verification](issues/memory-ci-build-credential.md) stops before
+checks because its private-dependency actions secret is absent; local frozen
+verification does not make that hosted job green.
 synthetic proof does not waive those requirements. dev-server retains its prior
 qualified release pin until the complete repair candidate is qualified; no fleet
 apply, private provisioning, personal-history admission or activation occurred.
@@ -1761,8 +1790,10 @@ reproduce source checks from each repository root with its frozen environment:
 ```sh
 scripts/verify                   # jarvis and universal-memory
 ./scripts/test                   # nexus
-uv run pytest tests -q           # kernel non-live suite
-uv run pytest tests --ignore=tests/live -q  # provider non-live suite
+uv run --frozen pytest tests -q           # kernel non-live suite
+uv run --frozen pytest tests --ignore=tests/live -q  # provider non-live suite
+MEMORY_TEST_DATABASE_URL=<disposable-url> uv run --frozen python -m unittest discover -s tests -v  # memory
+uv run --frozen python tests/capture_retry.py --disposable-database-url <disposable-url>  # jarvis
 ```
 
 the owner requested cleanup after issue recording. all new temporary probes,

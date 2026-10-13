@@ -33,8 +33,9 @@ views. preserve original text and keep navigation addresses stable.
 source repair: one shared json presentation encoder protects retained text;
 observations preserve original strings and older samples remain arrays. controlled
 presentation/composition cases pass, including typed irreducible-cover blocking
-with no inference. actual database readiness, repair preservation and live content
-remain unrun. see the
+with no inference. actual database readiness, stopped repair preservation and
+ordinary fitting reconstruction pass. live model content remains open in
+[live qualification](memory-live-qualification.md). see the
 [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: a colored tool result, an explicit note and a summary containing

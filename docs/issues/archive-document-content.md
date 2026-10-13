@@ -20,7 +20,8 @@ source: `llm-calling/src/provider_runtime/agent_runtime/_claude_archive.py:484`.
 
 source repair: supported string and ordered text/image content retain exact text,
 availability and complete capture-relevant digest input. controlled cases pass;
-actual codec→collector→http→postgres and native persistence remain unrun. see the
+actual codec→collector→http→postgres passes. native persistence remains open in
+[live qualification](memory-live-qualification.md). see the
 [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: supported document content forms retain exposed text and its

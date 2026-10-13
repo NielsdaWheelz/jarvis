@@ -1,6 +1,6 @@
 # jarvis: roadmap and implementation plan
 
-updated 2026-10-11; notes, searches, events, dreamer work context and attachments have focused contracts.
+updated 2026-10-13 after source reconciliation; notes, searches, events, dreamer work context and attachments have focused contracts.
 this is the ONE active feature roadmap and delivery plan. native cognition and
 worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
@@ -46,12 +46,11 @@ native journal tables. accepted universal memory adds six; the later work
 slice adds one, events add two and attachments add one. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
-source refresh 2026-10-11: fetched `origin/main` includes merged universal-memory
-delivery (`89f9249`, implementation `c62647a`) and newer library pins. this
-planning checkout needs [source reconciliation](issues/planning-checkout-sync.md);
-local checks describe its older tree. memory boundaries below retain their
-contracts; upstream source completion is separate from installed fleet/cutover
-acceptance and current memory-review issues.
+source refresh 2026-10-13: this checkout incorporates merged memory repair
+source and exact dependency pins, preserving pending product contracts in local
+commits. frozen `scripts/verify` passes. remaining repair qualification is in the
+[integration evidence](universal-memory.md#memory-repair-source-candidate);
+installation and activation remain separate.
 
 the native provider/kernel/tools work is merged. jarvis [pr 49](https://github.com/NielsdaWheelz/jarvis/pull/49)
 merges native main and worker-v7 composition. [adr 0065](decisions/0065-native-agent-supervision.md)
@@ -103,7 +102,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | one main for every event (o6) | owner choices settled in [contract](one-main-events.md); spec/adr adoption and implementation due | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | mutable todos/physical deletion settled in [contract](work-records.md); adoption/implementation due | jarvis; one bookkeeping table |
 | delegated follow-through (o9) | owner settled agent judgment/semantic stop in [contract](delegated-follow-through.md); adoption/implementation due | jarvis; o6 plus installed worker control; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | core source and repair source implemented; repair qualification and installed handoffs remain | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
+| universal memory (m1–m5) | core source and repair source implemented, including first-delivery dreaming and the distinct nexus owner-chat client; repair qualification and private installation remain | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | owner choices settled in [contract](private-notes-and-rolodex.md); adoption/implementation due | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
 | complete and continuable searches | owner choices settled in [contract](complete-and-continuable-searches.md); adoption/implementation due, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; bounded pages/chunks without total application ceilings |
 | event sources, suggestions and recurring work | owner choices settled in [contract](event-sources-and-recurring-work.md); adoption/implementation due, including selected dream wakes | jarvis; o6, complete-search references, o7 for daily review and memory for dreaming |
@@ -144,6 +143,10 @@ facts; writing this roadmap sends no assignment to another agent.
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
 | llm-tools, search | portable web-search paging/provider boundaries and complete supported extracted-text chunks, retaining web safety | [search surface contract](complete-and-continuable-searches.md#exact-surface-changes); bounded handoff prepared, not handed off/implemented; no kernel redesign |
 | nexus-web | owner's chats only: client of the same hosted memory endpoint, account admission, chat tool bindings and credential/private connectivity integration; no automated-helper grants | [nexus memory handoff](issues/nexus-memory-client.md); distinct owner-chat contract accepted in adr 0067; source `5b282f2ec35a7624140a5935acc7a8d9b33b8524` frozen and qualified; private provisioning separate |
+
+memory qualification/pins in the handoff table describe the 2026-10-09 baseline.
+the [repair evidence](universal-memory.md#memory-repair-source-candidate) owns the
+2026-10-13 pins and remaining acceptance.
 
 downstream jarvis code consumes the published public surfaces and qualified pins;
 the external agents do not own jarvis authority, work state or continuation.
@@ -386,10 +389,11 @@ contracts, not a separate owner decision for every parameter.
 | m4 | library navigation/search/open/note append plus jarvis adapters: one keyword/vector rank-fusion pipeline and shared clients/pools; frozen view pages, zoom/date and paged originals, main save recovery, private mcp and admission; select/qualify server pins |
 | m5 | messages/checkpoints/service/migration + dev-server: drain old memory work, preserve existing rows, cut old remembered_at/recaller paths, install private endpoint/collectors/profile config and activate admitted lanes online; no historical import or dual reader |
 
-m1–m5 source boundaries and final isolated checks are complete, including
-first-delivery dreaming and nexus's owner-chat consumer. the
+m1–m5 source boundaries and isolated checks are complete for the 2026-10-09
+baseline, including first-delivery dreaming and nexus's owner-chat consumer. the
 [integration evidence](universal-memory.md#12-integration-evidence) owns exact
-pins and qualification. actual fleet install/admission, private client/build
+pins and qualification; the [repair record](universal-memory.md#memory-repair-source-candidate)
+owns the later repairs. actual fleet install/admission, private client/build
 credentials and production cutover remain operational handoffs.
 
 m2–m4 follow the completed product and engineering contracts. use one serial

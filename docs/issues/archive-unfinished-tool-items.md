@@ -20,7 +20,8 @@ occurrence before claiming a reproduced fleet incident.
 
 source repair: both native history shapes return the stable prefix before an
 unfinished tool item; completion preserves preceding ids/digests. controlled
-cases pass. real capture/retry and stock native persistence remain unrun;
+cases and real capture/retry pass. stock native persistence remains open in
+[live qualification](memory-live-qualification.md);
 non-occurrence does not establish impossibility. see the
 [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 

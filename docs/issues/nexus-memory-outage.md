@@ -22,8 +22,11 @@ sources: `nexus-web/python/nexus/services/tools/memory.py:173`,
 
 source repair: the existing stateless-json client normalizes known boundary
 failures without swallowing defects/cancellation or resubmitting a call. controlled
-actual-sdk/portable-dispatch and catalog grant cases pass. real mcp/postgres saves,
-canonical nexus tool-row completion and authenticated chat routes remain unrun.
+actual-sdk/portable-dispatch and catalog grant cases pass. real network checking
+also exposed uncached streamed request bytes; buffering at the client request
+boundary repairs it. real mcp/postgres uncertain saves, exact replay, conflict
+and revocation pass. canonical nexus tool-row completion and authenticated chat
+routes remain open in [live qualification](nexus-memory-live-qualification.md).
 see the [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: the backend client maps expected connection/authentication/protocol

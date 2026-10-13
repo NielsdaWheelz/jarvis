@@ -3,7 +3,8 @@
 status: source repaired, 2026-10-13; remaining live qualification is tracked in
 [jarvis](issues/memory-live-qualification.md) and
 [nexus](issues/nexus-memory-live-qualification.md), with
-[image qualification](issues/nexus-memory-image-qualification.md) separate.
+[image qualification](issues/nexus-memory-image-qualification.md) and
+[hosted verification](issues/memory-ci-build-credential.md) separate.
 the owner selected source completion with qualification gaps reported explicitly,
 then requested issues, prs/merges and cleanup. this does not waive live acceptance.
 the owner selected source fixes and isolated qualification, excluding installation
@@ -39,9 +40,9 @@ unrelated roadmap features and production/private configuration stay outside sco
 review baselines: jarvis `89f9249`; memory `d824d33`; provider files at `d9550d9`
 and `5aecc2b`; tools `73056df`; kernel `e1bec273`; dev-server `0e5e5a2`;
 nexus `82eb4bab`. newer nexus release changes do not fix these client/build defects.
-the repair worktrees use current main with the owner/concurrent planning documents
-preserved. the [original planning checkout](issues/planning-checkout-sync.md)
-remains untouched; inspecting an incoming snapshot is not a source merge.
+the repair worktrees use current main. the original planning checkout now
+incorporates the repaired source through a normal merge; its pending product
+contracts are preserved in local commits. its reconciled `scripts/verify` passes.
 
 ## ownership and composition
 
@@ -189,6 +190,9 @@ excludes generic streaming/stateful interoperability.
 one bounded protocol session, at most ONE `tools/call` submission. no automatic
 resubmit, fallback endpoint, auth refresh or reconnect retry. expected failures
 settle the existing durable tool call and permit ordinary chat continuation.
+cache exact sdk request bytes before send, including method-preserving redirect
+copies; response correlation reads those bytes. a missing local body cache is a
+defect, never an outage classification. the nexus binding revision is v3.
 
 save identity is the current `tool_calls.id`, not the retired
 `ToolPositionRecord`. text, configured owner and host-known conversation stay fixed.

@@ -22,8 +22,9 @@ credentialed build was not run.
 
 source repair: one file-backed compose build secret is explicitly granted to both
 targets, with matching export documentation. actual compose configuration and
-unset-key checks pass. docker socket access is denied, so builds/missing-file and
-image/key-leak checks remain unrun. see the
+unset-key checks pass. docker access is restored; authorized-key clean builds,
+missing-file and image/key-leak checks remain open in
+[image qualification](nexus-memory-image-qualification.md). see the
 [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: both compose worker builds receive the existing secret through

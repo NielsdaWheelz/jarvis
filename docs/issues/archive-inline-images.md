@@ -20,8 +20,9 @@ source: `llm-calling/src/provider_runtime/agent_runtime/_codex_archive.py:430`;
 collector permanent-error handling is `jarvis/src/jarvis/collector.py:232`.
 
 source repair: inline data is recognized before the ordinary-reference bound and
-fully digested before suppression. controlled size/digest cases pass; real
-collector/http/postgres and native image persistence remain unrun. see the
+fully digested before suppression. controlled size/digest and real
+collector/http/postgres cases pass. native image persistence remains open in
+[live qualification](memory-live-qualification.md). see the
 [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: inline image content is validated under the appropriate native

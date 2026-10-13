@@ -19,6 +19,17 @@ reservations are removed; operation limits, current owner authority, containment
 isolated cognitive roles and memory behavior remain. no memory or delegation
 upgrade is included. all new behavior requires its target integration proof.
 
+focused memory repair target (2026-10-13):
+[memory repairs](docs/memory-repairs.md) owns the reviewed presentation/cache,
+native attachment/stable-prefix and nexus client/build corrections. it supersedes
+affected details in the memory contract, preserving archive originals, authority
+and existing schemas. the owner selected source fixes and isolated qualification
+only and confirmed no real capture activation. one revised native codec replaces
+the old contract; no compatibility reader or production activation is included.
+new repair qualification tests are temporary and deleted after red/green/refactor;
+the existing approved regression groups remain. repair source is isolated and
+unactivated; blocked qualification is recorded in the memory integration evidence.
+
 accepted universal-memory target (2026-10-01): the consolidated
 [implementation contract](docs/universal-memory.md) defines the current source
 contract; installed activation remains separate.

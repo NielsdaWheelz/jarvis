@@ -112,6 +112,11 @@ class MemoryWorker:
                 source = PromptSections(
                     (
                         PromptSection(
+                            PromptSectionKind("historical_memory_view"),
+                            (),
+                            PromptText(task.context),
+                        ),
+                        PromptSection(
                             PromptSectionKind("compaction_source"),
                             (),
                             PromptJson(
@@ -123,11 +128,6 @@ class MemoryWorker:
                                     "size_feedback": feedback,
                                 }
                             ),
-                        ),
-                        PromptSection(
-                            PromptSectionKind("historical_memory_view"),
-                            (),
-                            PromptText(task.context),
                         ),
                     )
                 )
@@ -352,10 +352,8 @@ class DreamerWorker:
                     PromptSection(
                         PromptSectionKind("historical_memory_view"),
                         (),
-                        PromptText(
-                            canonical_json_bytes(
-                                [item.model_dump(mode="json") for item in seed.sample]
-                            ).decode()
+                        PromptJson(
+                            [item.model_dump(mode="json") for item in seed.sample]
                         ),
                     )
                 )

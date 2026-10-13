@@ -39,6 +39,11 @@ async def lock_conversation(connection: AsyncConnection, conversation_id: str) -
     )
 
 
+def memory_is_admitted(connection: AsyncConnection) -> bool:
+    """Stamp canonical publication eligibility from the owning host declaration."""
+    return connection.info.get("jarvis_memory_admitted") is True
+
+
 class _OwnedDatabase:
     def __init__(self, connection: AsyncConnection) -> None:
         self._connection = connection
@@ -71,10 +76,13 @@ class _OwnedDatabase:
 
 
 @asynccontextmanager
-async def deployment_ownership(engine: AsyncEngine) -> AsyncIterator[Database]:
+async def deployment_ownership(
+    engine: AsyncEngine, *, memory_admitted: bool = False
+) -> AsyncIterator[Database]:
     """Hold the deployment advisory lock on one dedicated connection."""
 
     async with engine.connect() as connection:
+        connection.info["jarvis_memory_admitted"] = memory_admitted
         try:
             acquired = await connection.scalar(
                 text("SELECT pg_try_advisory_lock(:lock_key)"),

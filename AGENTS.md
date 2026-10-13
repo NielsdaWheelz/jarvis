@@ -28,6 +28,12 @@ These instructions govern all work in this repository.
   replaces selective automatic note extraction with chronological compression,
   and retains associative dreaming as a distinct function seeded automatically
   by new admitted archive material and retained optional explicit notes.
+  [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds one distinct
+  nexus-owner backend client for a configured authenticated viewer's chat
+  send/rerun/regenerate operations and tagged native/nexus note provenance.
+  it preserves the sixteen capture lanes and adds no nexus conversation capture.
+  declare complete nexus processor chains before granting tools; other viewers
+  and automated helpers receive none. private provisioning is separate.
   dreaming is required in the first delivery. it quietly appends attributed
   synthesis notes with supporting references into the shared tree/view/search;
   previous syntheses can be retrieved but create no new seed work. corrections

@@ -26,6 +26,7 @@ from jarvis.discord import (
     DiscordApprovalInteraction,
     DiscordOwnerMessage,
 )
+from jarvis.memory_service import MemoryService
 from jarvis.messages import InboundInsert, StoredMessage
 from jarvis.native_runtime import NativeRunOutcome
 from jarvis.proactivity import ProcessLocalWakeTimer
@@ -176,12 +177,14 @@ class JarvisService:
         agent_waits: AgentController,
         approval_handler: ApprovalActionHandler,
         dispatch_lane: asyncio.Lock,
+        memory: MemoryService,
         disable_stopped_approvals: Callable[[], Awaitable[None]],
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
+        self._memory = memory
         self._store = store
         self._paused = paused
         self._delivery = delivery
@@ -265,6 +268,7 @@ class JarvisService:
                 await self._runner.refresh_stopped_approvals()
 
         self.request_delivery()
+        await self._memory.publish()
         self._agent_waits.notify_wait_changed()
         self._work.set()
         if incoming.control in {Control.STOP, Control.PAUSE}:
@@ -435,6 +439,11 @@ class JarvisService:
                     raise outcome
 
     def request_work(self) -> None:
+        if (
+            self._active_background is not None
+            and self._background_cancellation is not None
+        ):
+            self._active_background.request_interrupt(self._background_cancellation)
         self._work.set()
 
     def request_shutdown(self) -> None:
@@ -547,11 +556,9 @@ class JarvisService:
 
     async def _dream_timer(self) -> None:
         while not self._shutdown.is_set():
-            await self._dream_sleep(self._settings.dream_interval_seconds)
-            if self._shutdown.is_set():
-                return
             self._dream_due = True
             self._work.set()
+            await self._dream_sleep(60)
 
     def _require_gateway(self) -> GatewayPort:
         if self._gateway is None:

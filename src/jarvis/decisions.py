@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import Literal
 
 from llm_agent_kernel import InputId
 from llm_agent_kernel.decisions import (
     DecisionScope,
-    DurableIsolatedDecisions,
     IsolatedDecisionScope,
     ModelDecisionArmed,
     ModelDecisionCompleted,
@@ -127,34 +126,12 @@ def _record(row: RowMapping) -> ModelDecisionRecord:
         raise ModelDecisionDefect("stored paid decision is invalid") from error
 
 
-class ModelEvidence(Protocol):
-    def snapshot_model_evidence(self) -> dict[str, object]: ...
-    def restore_model_evidence(self, value: object) -> None: ...
-
-
-type ModelJournalFactory = Callable[[ModelEvidence | None], ModelDecisionJournal]
-
-
-async def isolated_decisions(
-    factory: ModelJournalFactory,
-    evidence: ModelEvidence | None,
-    operation_id: str,
-    as_of: datetime,
-) -> tuple[DurableIsolatedDecisions, datetime]:
-    scope = IsolatedDecisionScope(operation_id)
-    journal = factory(evidence)
-    recorded = await journal.latest(scope)
-    return DurableIsolatedDecisions(
-        scope, journal
-    ), as_of if recorded is None else recorded.request.as_of
+type ModelJournalFactory = Callable[[], ModelDecisionJournal]
 
 
 class PostgresModelDecisionJournal:
-    def __init__(
-        self, engine: Database, *, evidence: ModelEvidence | None = None
-    ) -> None:
+    def __init__(self, engine: Database) -> None:
         self._engine = engine
-        self._evidence = evidence
 
     async def latest(self, scope: DecisionScope) -> ModelDecisionRecord | None:
         async with self._engine.connect() as connection:
@@ -172,23 +149,14 @@ class PostgresModelDecisionJournal:
             )
         if row is None:
             return None
-        record = _record(row)
-        if isinstance(record, ModelDecisionCompleted | ModelDecisionNotSubmitted):
-            if self._evidence is None:
-                if row["host_evidence"] is not None:
-                    raise ModelDecisionDefect(
-                        "paid decision requires its original host evidence owner"
-                    )
-            else:
-                self._evidence.restore_model_evidence(row["host_evidence"])
-        return record
+        if row["host_evidence"] is not None:
+            raise ModelDecisionDefect(
+                "retired memory cognition cannot replay through the gate"
+            )
+        return _record(row)
 
     async def arm(self, request: ModelDecisionRequest) -> None:
         document = _Request.from_request(request)
-        host_evidence = (
-            None if self._evidence is None else self._evidence.snapshot_model_evidence()
-        )
-        canonical_json_bytes(host_evidence)
         try:
             async with self._engine.begin() as connection:
                 previous = (
@@ -226,7 +194,7 @@ class PostgresModelDecisionJournal:
                         ordinal=request.ordinal,
                         request_fingerprint=request.request_fingerprint,
                         request=document.model_dump(mode="json"),
-                        host_evidence=host_evidence,
+                        host_evidence=None,
                     )
                 )
         except IntegrityError as error:

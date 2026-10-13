@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Supply build-only Git credentials for the one private memory dependency."""
+
+import os
+import shlex
+import sys
+from pathlib import Path
+
+REPOSITORY = "https://github.com/NielsdaWheelz/universal-memory.git"
+
+
+def token() -> str | None:
+    value = os.environ.get("UNIVERSAL_MEMORY_READ_TOKEN")
+    source = os.environ.get("UNIVERSAL_MEMORY_READ_TOKEN_FILE")
+    if source is not None:
+        if value is not None:
+            raise SystemExit("provide one private memory build credential source")
+        try:
+            value = Path(source).read_text().removesuffix("\n")
+        except (OSError, UnicodeError):
+            raise SystemExit("private memory build credential is unreadable") from None
+    if value is not None and (
+        not value or value != value.strip() or "\n" in value or "\r" in value
+    ):
+        raise SystemExit("private memory build credential is invalid")
+    return value
+
+
+if sys.argv[1:2] == ["--git-credential"]:
+    if sys.argv[2:3] != ["get"]:
+        raise SystemExit(0)
+    fields = {}
+    for line in sys.stdin:
+        if line == "\n":
+            break
+        key, _, value = line.removesuffix("\n").partition("=")
+        fields[key] = value
+    if (
+        fields.get("protocol") == "https"
+        and fields.get("host") == "github.com"
+        and fields.get("path") == "NielsdaWheelz/universal-memory.git"
+    ):
+        secret = token()
+        if secret is None:
+            raise SystemExit("private memory build credential is missing")
+        print("username=x-access-token")
+        print("password=" + secret)
+    raise SystemExit(0)
+
+if len(sys.argv) < 2:
+    raise SystemExit("usage: scripts/with-memory-git COMMAND [ARGUMENT ...]")
+environment = os.environ.copy()
+if token() is not None:
+    count = int(environment.get("GIT_CONFIG_COUNT", "0"))
+    for key, value in (
+        ("useHttpPath", "true"),
+        ("helper", ""),
+        (
+            "helper",
+            "!" + shlex.quote(str(Path(__file__).resolve())) + " --git-credential",
+        ),
+    ):
+        environment[f"GIT_CONFIG_KEY_{count}"] = f"credential.{REPOSITORY}.{key}"
+        environment[f"GIT_CONFIG_VALUE_{count}"] = value
+        count += 1
+    environment["GIT_CONFIG_COUNT"] = str(count)
+    environment["GIT_TERMINAL_PROMPT"] = "0"
+os.execvpe(sys.argv[1], sys.argv[1:], environment)

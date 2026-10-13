@@ -60,8 +60,55 @@ sudo systemd-run --quiet --wait --pipe --collect --unit="$host_check_unit" \
   "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null ||
   refuse "the selected release's contained host did not qualify; leave service stopped"
 
-# The stopped target migrates before its native tables can be read. Cutover
-# validates and converts only proven unentered authority; unknown work refuses.
+schema_unit="jarvis-schema-${commit:0:12}-$RANDOM"
+memory_schema="$(sudo systemd-run --quiet --wait --pipe --collect \
+  --unit="$schema_unit" --property=Type=oneshot \
+  --property=EnvironmentFile=/etc/jarvis/migration.env \
+  "$release/.venv/bin/python" - <<'PY'
+import os
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
+
+from jarvis.db import normalize_database_url
+
+try:
+    engine = create_engine(
+        normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
+    )
+    with engine.connect() as connection:
+        version = connection.scalar(text("SELECT version_num FROM alembic_version"))
+    engine.dispose()
+except (KeyError, SQLAlchemyError, ValueError):
+    raise SystemExit("schema inspection failed") from None
+print(version)
+PY
+)"
+if [[ "$memory_schema" == 0005 ]]; then
+  previous="$(sudo readlink -f /opt/jarvis/current)"
+  sudo test -f "$previous/RELEASE.json" &&
+    sudo test -x "$previous/.venv/bin/python" ||
+    refuse "memory cutover requires the selected predecessor release"
+  drain_unit="jarvis-memory-drain-${commit:0:12}-$RANDOM"
+  sudo systemd-run --quiet --wait --pipe --collect --unit="$drain_unit" \
+    "${runtime_properties[@]}" "$previous/.venv/bin/python" \
+    "$release/deploy/prepare-memory-cutover" drain </dev/null ||
+    refuse "old memory work did not drain; leave service stopped"
+  snapshot="/var/lib/jarvis-memory-cutover/$commit"
+  snapshot_unit="jarvis-memory-snapshot-${commit:0:12}-$RANDOM"
+  sudo systemd-run --quiet --wait --pipe --collect --unit="$snapshot_unit" \
+    --property=Type=oneshot --property="WorkingDirectory=$previous" \
+    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+    --property=EnvironmentFile=/etc/jarvis/migration.env \
+    "$previous/.venv/bin/python" "$release/deploy/prepare-memory-cutover" \
+    snapshot "$snapshot" </dev/null ||
+    refuse "memory snapshot did not validate; leave service stopped"
+elif [[ "$memory_schema" != 0006 ]]; then
+  refuse "memory cutover requires schema 0005 or the implemented target 0006"
+fi
+
+# Migration rechecks the old sweep and preserved originals under the lock.
 migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
 sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
   --property=Type=oneshot \
@@ -69,6 +116,7 @@ sudo systemd-run --quiet --wait --collect --unit="$migration_unit" \
   --property=Group=jarvis \
   --property="WorkingDirectory=$release" \
   --property=EnvironmentFile=/etc/jarvis/migration.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
   "$release/.venv/bin/alembic" -c alembic.ini upgrade head
 
 cutover_unit="jarvis-cutover-${commit:0:12}-$RANDOM"
@@ -99,5 +147,8 @@ prune_releases
 printf 'Activated Jarvis release: %s\n' "$commit"
 printf 'jarvis.service started paused; startup recovery runs before ingress, and no owner request is processed until resume\n'
 printf 'owner resume is a separate step after deploy/verify-containment passes\n'
+if [[ "$memory_schema" == 0005 ]]; then
+  printf 'delete the private cutover snapshot after acceptance: %s\n' "$snapshot"
+fi
 REMOTE
 } | ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- "$commit"

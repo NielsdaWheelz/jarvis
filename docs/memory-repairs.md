@@ -1,6 +1,11 @@
 # memory repairs: target contract
 
-status: planned, 2026-10-13. this turn changes documentation only.
+status: source repaired, 2026-10-13; remaining live qualification is tracked in
+[jarvis](issues/memory-live-qualification.md) and
+[nexus](issues/nexus-memory-live-qualification.md), with
+[image qualification](issues/nexus-memory-image-qualification.md) separate.
+the owner selected source completion with qualification gaps reported explicitly,
+then requested issues, prs/merges and cleanup. this does not waive live acceptance.
 the owner selected source fixes and isolated qualification, excluding installation
 and activation, and confirmed that memory has captured no real history beyond
 disposable qualification data. this is a repair of the accepted
@@ -34,8 +39,9 @@ unrelated roadmap features and production/private configuration stay outside sco
 review baselines: jarvis `89f9249`; memory `d824d33`; provider files at `d9550d9`
 and `5aecc2b`; tools `73056df`; kernel `e1bec273`; dev-server `0e5e5a2`;
 nexus `82eb4bab`. newer nexus release changes do not fix these client/build defects.
-first [reconcile the planning checkout](issues/planning-checkout-sync.md), preserving
-owner/concurrent work. inspecting an incoming snapshot is not a source merge.
+the repair worktrees use current main with the owner/concurrent planning documents
+preserved. the [original planning checkout](issues/planning-checkout-sync.md)
+remains untouched; inspecting an incoming snapshot is not a source merge.
 
 ## ownership and composition
 
@@ -43,7 +49,7 @@ owner/concurrent work. inspecting an incoming snapshot is not a source merge.
 | --- | --- |
 | presentation/content | llm-tools `src/llm_tools/{prompt_sections.py,__init__.py}`; kernel `src/llm_agent_kernel/{context.py,definitions.py}`; memory `src/universal_memory/{tree.py,dreaming.py,tools.py}`. one writer owns presentation/save guidance, including package docs and base-instruction wording/revision |
 | native capture | provider-runtime `src/provider_runtime/agent_runtime/{archive.py,_archive_codec.py,_codex_archive.py,_claude_archive.py}`; native parsers remain here |
-| jarvis integration/release lead | `src/jarvis/{tool_results.py,memory_workers.py,definitions.py,native_runtime.py}`, dependency/lock files across packages/consumers and compatibility/role manifests; reuse capture, service, maintenance and transactions. other writers leave pin/manifest files to this lead |
+| jarvis integration/release lead | `src/jarvis/{tool_results.py,memory_tools.py,memory_workers.py,definitions.py,native_runtime.py}`, dependency/lock files across packages/consumers and compatibility/role manifests; reuse capture, service, maintenance and transactions. other writers leave pin/manifest files to this lead |
 | nexus | `python/nexus/services/tools/memory.py`, `docs/modules/model-tools.md`, local build/configuration docs and compose; correct misleading rollback comments in `services/tools/run.py` without changing shared dispatch behavior |
 | fleet source handoff | dev-server `assets/memory/release-pin.json` and source handoff only after the integration lead supplies the qualified jarvis artifact; no installation |
 
@@ -177,6 +183,9 @@ never catch arbitrary `Exception`, `RuntimeError` or `BaseException` as an outag
 keep the one-text-item/no-structured-content envelope and actual serialized size
 bound. failures/logs contain no remote prose, arguments, bearer or chain dump.
 
+the nexus client accepts the existing stateless json server. sse or session-id
+responses are `unsupported`, rejected before sdk logging/reconnect; this deliberately
+excludes generic streaming/stateful interoperability.
 one bounded protocol session, at most ONE `tools/call` submission. no automatic
 resubmit, fallback endpoint, auth refresh or reconnect retry. expected failures
 settle the existing durable tool call and permit ordinary chat continuation.
@@ -261,7 +270,8 @@ those existing groups do not replace the deleted repair cases.
 record final artifact/pin identities, probe commands, red/green/refactor outcomes,
 content findings and explicit gaps once in existing integration evidence/issue
 records. run affected repository checks, jarvis/library `scripts/verify` and nexus
-`scripts/test`; complete the [network-blocked audit](issues/memory-review-audit-network.md).
+`scripts/test` and the dependency audit. network access and the audit were restored
+on 2026-10-13; the audit reports no known vulnerabilities in its auditable set.
 delete resolved issue files only after their acceptance, and preserve blockers.
 source completion means all required checks passed or a separately owner-approved
 qualification exception is recorded; not run is never pass. prepare the separate

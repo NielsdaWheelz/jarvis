@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from llm_agent_kernel import (
@@ -19,15 +19,18 @@ from llm_tools import (
     BudgetState,
     FrozenToolPlan,
     InvocationPosition,
+    ParsedJson,
     PositionState,
     RecoveryRequired,
     ReplayPolicy,
     Reservation,
     Settlement,
     ToolBinding,
+    ToolEffect,
     ToolId,
     ToolResult,
     canonical_json_bytes,
+    raw_input_digest,
     validate_tool_input,
 )
 from sqlalchemy import RowMapping, select, update
@@ -43,6 +46,9 @@ from jarvis.db import (
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
 from jarvis.tool_results import completed_tool_result
 
+if TYPE_CHECKING:
+    from jarvis.memory_service import MemoryService
+
 
 class PostgresReadRecorder:
     def __init__(self, database: Database) -> None:
@@ -52,6 +58,126 @@ class PostgresReadRecorder:
     @property
     def durable(self) -> bool:
         return True
+
+    async def recover_committed_note_save(
+        self,
+        *,
+        position: InvocationPosition,
+        arguments: dict[str, Any],
+        contract: dict[str, str],
+        memory: MemoryService,
+    ) -> ToolResult | None:
+        """Settle an original committed local note; absence permits no execution."""
+        if (
+            not str(position).startswith("native-invocation:")
+            or contract["tool_id"] != "memory.save_note"
+            or contract["replay_policy"] != ReplayPolicy.ReDispatchable.value
+        ):
+            raise ValueError("note recovery requires its original local position")
+        async with self._database.connect() as connection:
+            row = (
+                (
+                    await connection.execute(
+                        select(read_position).where(
+                            read_position.c.position == str(position)
+                        )
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            return None
+        if row["contract"] != contract:
+            raise ValueError("local note invocation contract changed")
+        if row["state"] == "completed":
+            return cast(ToolResult, row["result"])
+        receipt = await memory.recover_main_note(arguments["text"], str(position))
+        if receipt is None:
+            return None
+        if row["reservation"] is None:
+            raise ValueError("a committed note has no original reservation")
+        reservation = Reservation(**row["reservation"])
+        result: ToolResult = {
+            "type": "Success",
+            "value": receipt.model_dump(mode="json"),
+        }
+        settlement = Settlement(0, len(canonical_json_bytes(result)))
+        if (
+            reservation.max_attempts != 0
+            or settlement.actual_output_bytes > reservation.max_output_bytes
+        ):
+            raise ValueError("local note receipt exceeds its original reservation")
+        async with self._database.begin() as connection:
+            original = (
+                (
+                    await connection.execute(
+                        select(read_position)
+                        .where(read_position.c.position == str(position))
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if original["result"] is not None and (
+                original["result"] != result
+                or original["settlement"] != asdict(settlement)
+            ):
+                raise ValueError("local note position terminal result changed")
+            await connection.execute(
+                update(read_position)
+                .where(read_position.c.position == str(position))
+                .values(
+                    state="completed",
+                    result=result,
+                    settlement=asdict(settlement),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+        return result
+
+    async def recover_note_save(
+        self,
+        *,
+        lineage: NativeDispatchLineage,
+        binding: ToolBinding[Any, Any, Any],
+        plan: FrozenToolPlan,
+        arguments: dict[str, Any],
+        budgets: BudgetState,
+        memory: MemoryService,
+    ) -> DispatchCompleted | None:
+        """Recover only the exact local note write after its transaction resolves."""
+        if (
+            binding.spec.id != ToolId("memory.save_note")
+            or binding.spec.effect is not ToolEffect.Write
+            or binding.replay_policy is not ReplayPolicy.ReDispatchable
+        ):
+            raise ValueError("note recovery is limited to the local note binding")
+        position = lineage.position
+        contract = {
+            "tool_id": str(binding.spec.id),
+            "tool_contract_revision": binding.spec.tool_contract_revision,
+            "policy_revision": binding.policy_revision,
+            "plan_revision": plan.plan_revision,
+            "input_digest": raw_input_digest(ParsedJson(arguments)),
+            "replay_policy": binding.replay_policy.value,
+        }
+        result = await self.recover_committed_note_save(
+            position=position, arguments=arguments, contract=contract, memory=memory
+        )
+        if result is not None:
+            await self.recover_budget(lineage=lineage, budgets=budgets)
+            return completed_tool_result(result, HostRef(str(position)))
+        # The owned connection has resolved any previous append. Only this local
+        # zero-attempt write may return to prepared; paid reads retain barriers.
+        async with self._database.begin() as connection:
+            await connection.execute(
+                update(read_position)
+                .where(read_position.c.position == str(position))
+                .values(state="prepared", updated_at=datetime.now(UTC))
+            )
+        return None
 
     async def recover_native_read(
         self,

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Never
 
 from llm_agent_kernel import (
+    CODEX_NATIVE_OPTIONS,
     CancellationToken,
     CodexProvider,
     ProviderConfiguration,
@@ -49,6 +50,7 @@ async def resolve_provider_configuration(
         reasoning=reasoning,
         agent_definition_revision=catalog.definition_revision,
         row_fingerprint=row.row_fingerprint,
+        native=replace(CODEX_NATIVE_OPTIONS, archive_internal=True),
     )
 
 

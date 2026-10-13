@@ -3,6 +3,8 @@
 priority: p2. reviewed 2026-10-11 against provider-runtime `d9550d9`; unchanged
 at merged `5aecc2b`.
 
+status: source fixed in the isolated v2 candidate; qualification remains open.
+
 problem: `_claude_archive.py:484` accepts document source type `content`, but
 the projection reads `source.data` and ignores `source.content`. the installed
 official anthropic schema supports `content` as text or a content-block iterable.
@@ -16,7 +18,10 @@ text through the codec. both produce empty retained text,
 `text_availability="none"` and the same native digest. no live provider was used.
 source: `llm-calling/src/provider_runtime/agent_runtime/_claude_archive.py:484`.
 
-planned repair: [native capture contract](../memory-repairs.md#native-capture-contract).
+source repair: supported string and ordered text/image content retain exact text,
+availability and complete capture-relevant digest input. controlled cases pass;
+actual codec→collector→http→postgres and native persistence remain unrun. see the
+[candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: supported document content forms retain exposed text and its
 availability, and the complete capture-relevant content binds the digest before

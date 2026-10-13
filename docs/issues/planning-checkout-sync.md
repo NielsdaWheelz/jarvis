@@ -2,6 +2,11 @@
 
 status: open, observed 2026-10-11.
 
+2026-10-13: isolated repair worktrees use `89f9249` and preserve the owner planning
+documents. the original checkout and sibling repos are untouched; their git
+metadata is read-only here. this removes the source-repair dependency, but does not
+reconcile the original checkout. portable candidate bundles carry the handoff.
+
 problem: this planning checkout is two commits ahead and five behind fetched
 `origin/main`, with owner-owned documentation and concurrent review records.
 the incoming branch includes universal-memory implementation and newer dependency

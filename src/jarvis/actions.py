@@ -57,7 +57,7 @@ from jarvis.messages import (
     MAX_TRACE_BYTES,
     SettlementTrace,
 )
-from jarvis.ownership import Database, lock_conversation
+from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 
 if TYPE_CHECKING:
     from jarvis.schedule_tools import ScheduleTarget
@@ -353,7 +353,6 @@ class ActionStore:
             "processed_at": timestamp,
             "processing_attempts": 0,
             "processing_parked_at": None,
-            "remembered_at": None,
             "trace": {},
         }
         action_values: dict[str, object] = {
@@ -428,7 +427,10 @@ class ActionStore:
             message_row = (
                 await connection.execute(
                     postgresql_insert(message)
-                    .values(**message_values)
+                    .values(
+                        **message_values,
+                        memory_admitted=memory_is_admitted(connection),
+                    )
                     .on_conflict_do_nothing(index_elements=(message.c.id,))
                     .returning(message.c.id)
                 )
@@ -1370,7 +1372,7 @@ class ActionStore:
                         processed_at=None,
                         processing_attempts=0,
                         processing_parked_at=None,
-                        remembered_at=None,
+                        memory_admitted=memory_is_admitted(connection),
                         trace={},
                     )
                     .on_conflict_do_nothing(constraint="uq_message_source_identity")
@@ -1555,6 +1557,7 @@ class ActionStore:
                             role="host",
                             text=content,
                             source="action",
+                            memory_admitted=memory_is_admitted(connection),
                             source_conversation_id=source_conversation_id,
                             source_message_id=source_id,
                             created_at=timestamp,
@@ -2221,7 +2224,7 @@ async def _fail_incompatible_schedule_in_transaction(
                 processed_at=recorded_at,
                 processing_attempts=0,
                 processing_parked_at=None,
-                remembered_at=None,
+                memory_admitted=memory_is_admitted(connection),
                 trace={},
             )
         )
@@ -2503,7 +2506,6 @@ async def _require_approval_message(
         or row["processed_at"] is None
         or row["processing_attempts"] != 0
         or row["processing_parked_at"] is not None
-        or row["remembered_at"] is not None
         or row["trace"] != {}
     ):
         raise ActionPersistenceDefect("approval message relationship is invalid")
@@ -3086,7 +3088,7 @@ async def _publish_agent_wait_event(
             processed_at=None,
             processing_attempts=0,
             processing_parked_at=None,
-            remembered_at=None,
+            memory_admitted=memory_is_admitted(connection),
             trace={},
         )
         .on_conflict_do_nothing(constraint="uq_message_source_identity")

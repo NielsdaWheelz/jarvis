@@ -42,6 +42,7 @@ from llm_tools import (
     raw_input_digest,
 )
 from pydantic import BaseModel
+from universal_memory.tools import MEMORY_SAVE_NOTE_SPEC
 
 from jarvis.action_requests import ActionRequest
 from jarvis.actions import (
@@ -76,7 +77,7 @@ from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
 from jarvis.ownership import DeploymentOwnershipDefect
 from jarvis.read_dispatch import ReadDispatchPort, contains_secret
 from jarvis.schedule_tools import ScheduleCreateRequest, ScheduleWakeInput
-from jarvis.tool_results import completed_tool_result
+from jarvis.tool_results import NoTelemetry, completed_tool_result
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     GoogleWriteConnector,
@@ -108,11 +109,6 @@ class ScheduleChanged(Protocol):
 
 class ApprovalDisabler(Protocol):
     async def __call__(self, action: StoredAction) -> None: ...
-
-
-class NoTelemetry:
-    def event(self, name: str, attributes: dict[str, object]) -> None:
-        del name, attributes
 
 
 class WriteAuthority(Protocol):
@@ -167,6 +163,27 @@ class WriteToolDispatcher:
         cancellation: CancellationToken,
         lineage: ToolDispatchLineage,
     ) -> DispatchResult:
+        if binding.spec.id == MEMORY_SAVE_NOTE_SPEC.id:
+            if not isinstance(lineage, NativeDispatchLineage):
+                raise ToolDispatchDefect("a local note write needs native lineage")
+
+            async def save_note() -> DispatchResult:
+                async with self._dispatch_lane:
+                    return await self._read.save_note(
+                        binding=binding,
+                        validated_input=validated_input,
+                        plan=plan,
+                        budgets=budgets,
+                        cancellation=cancellation,
+                        lineage=lineage,
+                    )
+
+            task = asyncio.create_task(
+                save_note(), name=f"jarvis-note:{lineage.invocation_id}"
+            )
+            self._effects.add(task)
+            task.add_done_callback(lambda _task: self.on_effect_settled())
+            return await asyncio.shield(task)
         if binding.spec.effect is ToolEffect.Read:
             async with self._dispatch_lane:
                 return await self._read.dispatch(

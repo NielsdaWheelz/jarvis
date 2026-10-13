@@ -3,6 +3,8 @@
 priority: p2. reviewed 2026-10-11 against universal-memory `d824d33`, jarvis
 `89f9249`, and its pinned kernel/tools rendering path.
 
+status: source fixed in the isolated candidate; live cache qualification is open.
+
 problem: two placements invalidate the historical prefix. library
 `tree.render` prepends changing `coverage [0,through)` metadata to every main and
 compactor view. jarvis additionally places changing compaction source/address/
@@ -22,7 +24,10 @@ sources: `universal-memory/src/universal_memory/tree.py:58`,
 `jarvis/src/jarvis/memory_workers.py:112`, kernel `context.py:132`,
 tools `prompt_sections.py:129`.
 
-planned repair: [presentation/cache contract](../memory-repairs.md#presentation-and-cache-contract).
+source repair: stable tool plans/view nodes precede changing footers, tasks and
+clocks in the actual kernel request. controlled rendered-prefix and jarvis
+composition cases pass. qualified-route cache counters remain unobserved. see the
+[candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: volatile coverage/interval metadata follows the stable view and
 the compactor view precedes its task/feedback. whole-node size accounting must

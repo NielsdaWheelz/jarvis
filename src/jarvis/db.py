@@ -4,6 +4,7 @@ from typing import cast
 
 from pgvector.sqlalchemy import VECTOR  # pyright: ignore[reportMissingTypeStubs]
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -22,6 +23,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.types import TypeEngine
+from universal_memory.policy import (
+    EMBEDDING_DIMENSIONS,
+    READ_POOL_SIZE,
+    READ_STATEMENT_SECONDS,
+)
+from universal_memory.schema import MEMORY_TABLES
 
 NAMING_CONVENTION = {
     "ck": "ck_%(table_name)s_%(constraint_name)s",
@@ -31,8 +38,10 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
+MEMORY_SCHEMA_REVISION = "0006"
+
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
-vector_1536 = cast(TypeEngine[object], VECTOR(1536))
+vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
 
 message = Table(
     "message",
@@ -57,7 +66,7 @@ message = Table(
         server_default=text("0"),
     ),
     Column("processing_parked_at", DateTime(timezone=True)),
-    Column("remembered_at", DateTime(timezone=True)),
+    Column("memory_admitted", Boolean, nullable=False, server_default=text("false")),
     Column("request_state", Text),
     Column("wait_reason", Text),
     Column("control_kind", Text),
@@ -151,6 +160,8 @@ memory_log = Table(
         server_default=text("CURRENT_TIMESTAMP"),
     ),
     Column("embedding", vector_1536),
+    Column("agent_submission", JSONB(none_as_null=True)),
+    Column("synthesis", JSONB(none_as_null=True)),
     CheckConstraint("length(text) > 0", name="text_nonempty"),
 )
 
@@ -368,6 +379,7 @@ native_attempt = Table(
     Column("conversation_id", Text, nullable=False),
     Column("attempt_seq", Integer, nullable=False),
     Column("owner_epoch", Text, nullable=False),
+    Column("memory_admitted", Boolean, nullable=False, server_default=text("false")),
     Column("request_fingerprint", Text, nullable=False),
     Column("request", JSONB, nullable=False),
     Column("native_binding", JSONB(none_as_null=True)),
@@ -459,7 +471,8 @@ native_invocation = Table(
     ),
     CheckConstraint("read_position IS NULL OR action_id IS NULL", name="one_execution"),
     CheckConstraint(
-        "(validation = 'accepted' AND frozen_contract->>'effect' = 'Write') "
+        "(validation = 'accepted' AND frozen_contract->>'effect' = 'Write' "
+        "AND tool_id <> 'memory.save_note') "
         "IS NOT DISTINCT FROM (request_message_id IS NOT NULL)",
         name="write_origin",
     ),
@@ -514,6 +527,10 @@ native_input_delivery = Table(
 )
 
 
+for memory_table in MEMORY_TABLES:
+    memory_table.to_metadata(metadata)
+
+
 def normalize_database_url(database_url: str) -> str:
     if database_url.startswith("postgresql://"):
         return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
@@ -525,8 +542,20 @@ def normalize_database_url(database_url: str) -> str:
     raise ValueError(msg)
 
 
-def create_engine(database_url: str) -> AsyncEngine:
+def create_engine(database_url: str, *, memory_reads: bool = False) -> AsyncEngine:
     return create_async_engine(
         normalize_database_url(database_url),
         pool_pre_ping=True,
+        **(
+            {
+                "pool_size": READ_POOL_SIZE,
+                "max_overflow": 0,
+                "connect_args": {
+                    "options": "-c default_transaction_read_only=on "
+                    f"-c statement_timeout={READ_STATEMENT_SECONDS * 1000}"
+                },
+            }
+            if memory_reads
+            else {}
+        ),
     )

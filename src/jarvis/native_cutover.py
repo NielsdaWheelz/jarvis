@@ -22,7 +22,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from jarvis._atomic_json import read_private_json
 from jarvis.actions import ACTION_MAX_ATTEMPTS, ExecutionContract
 from jarvis.approval import render_approval
-from jarvis.db import action, message, model_decision, read_position
+from jarvis.db import (
+    MEMORY_SCHEMA_REVISION,
+    action,
+    message,
+    model_decision,
+    read_position,
+)
 from jarvis.ownership import Database, lock_conversation
 
 
@@ -52,6 +58,11 @@ async def _require_settled_legacy_reads(
 
 async def require_native_data(database: Database, *, conversation_id: str) -> None:
     async with database.connect() as connection:
+        revision = await connection.scalar(
+            text("SELECT version_num FROM alembic_version")
+        )
+        if revision != MEMORY_SCHEMA_REVISION:
+            raise RuntimeError("universal memory requires the target schema")
         await _require_settled_legacy_reads(connection, conversation_id)
         legacy = await connection.scalar(
             select(action.c.id)

@@ -3,6 +3,8 @@
 priority: p1. reviewed 2026-10-11 against jarvis `89f9249` and universal-memory
 `d824d33`, using the exact pinned consumer dependencies.
 
+status: source fixed in the isolated candidate; database/live qualification is open.
+
 problem: archive and node validation accept non-nul utf-8 control characters,
 but jarvis's `memory_view_size` wraps their rendered text in `PromptText`, which
 rejects xml presentation controls. short ansi-colored tool output becomes a free
@@ -28,8 +30,12 @@ fix at the shared memory presentation boundary: visibly encode supported retaine
 controls, and use that exact presentation for sizing, main, compactor and dream
 views. preserve original text and keep navigation addresses stable.
 
-planned repair: [shared presentation contract](../memory-repairs.md#presentation-and-cache-contract).
-no source repair or live qualification has run in this documentation turn.
+source repair: one shared json presentation encoder protects retained text;
+observations preserve original strings and older samples remain arrays. controlled
+presentation/composition cases pass, including typed irreducible-cover blocking
+with no inference. actual database readiness, repair preservation and live content
+remain unrun. see the
+[candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: a colored tool result, an explicit note and a summary containing
 supported controls can complete nodes and enter a fitting view; zoom/open return

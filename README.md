@@ -3,7 +3,8 @@
 Jarvis is a personal, persistent AI assistant for one user. It lives in one
 configured private Discord channel, uses the user's existing Gmail, Google
 Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
-and develops durable memory through a simple remember/retrieve/dream loop.
+and retains admitted history through a shared archive, compressed view, retrieval
+and quiet dreaming.
 
 this repository is specification-first. native cognition and worker orchestration
 are implemented and qualified; production cutover and owner acceptance remain
@@ -16,38 +17,30 @@ replaces the bounded main loop and file-backed control. it preserves isolated
 memory roles and existing connectors. see the [integration handoff](docs/native-agent-integration.md)
 for the stopped migration, current qualification and dependency-pin status.
 
-accepted target, not yet shipped: [universal memory](docs/universal-memory.md)
-is the single current implementation contract; [adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md)
-records its latest simplification. shared keyword/semantic search uses deterministic
-rank fusion; agents choose their retrieval steps. admitted native lanes activate
-automatically after a complete inventory. capture and memory completion are atomic,
-while interrupted background inference may repeat paid work. main's durable
-recovery and direct-note idempotency remain.
-[adr 0066](docs/decisions/0066-optchat-memory-adoption.md) adopts a standalone
-memory library hosted in jarvis: archive, binary summary tree, persisted bounded
-views, and search/navigation. ordinary source-part/note leaves replace private
-large-event reduction; tool-result archive text keeps at most 30,000 characters
-from head/tail with explicit omissions. all admitted worker histories share the
-tree, with original identity/dates and linked report occurrences. context remains
-reference-only. jarvis reconstructs each new top-level turn from the view and
-exact current requests/receipts; native codex/claude/nexus chats retain their own
-context management and use shared memory through mcp/api. optional notes remain;
-first-delivery nightly dreaming starts from a new-material tree view and quietly
-appends attributed synthesis notes to the same tree, without creating new seeds
-or main turns. email uses ordinary tool capture; attachments retain exposed text
-and references. durable originals and a dedicated memory browser remain later
-work. product and implementation contracts are complete; delivery and
-qualification remain. the prototype uses one serial compactor and the existing
-postgres/process, with no separate memory service.
-the descriptions below record the current native runtime and existing memory,
-not the unshipped universal-memory target.
+[universal memory](docs/universal-memory.md) is the source implementation contract.
+this branch hosts the standalone `universal-memory` library in the existing
+process/database. it owns append-only originals, a binary summary tree, bounded
+views and shared navigation/rank-fused search. jarvis supplies admission,
+inference, embeddings, scheduling and a private mcp/http endpoint; provider-runtime
+owns native decoding and dev-server owns collectors/profile configuration.
+
+canonical requests and receipts commit before recoverable memory projection.
+each new top-level jarvis turn gets a fixed admitted view plus exact operative
+requests/receipts. its active loop and compatible steering stay together. native
+codex/claude/nexus chats manage their own context and choose shared reads; nexus's
+[owner-chat consumer contract](docs/decisions/0067-nexus-owner-chat-memory.md)
+is accepted; its source integration and private provisioning remain in progress.
+optional notes use the same append-only tree. nightly dreaming quietly
+appends attributed syntheses, which create no new seeds or proactive turns.
+production activation, actual fleet installation and seven-day owner acceptance
+remain separate.
 
 ## current product
 
 jarvis converses naturally in discord, uses connected services, and asks for
-approve or deny before consequential external work. current memory still uses
-isolated recall, remembering and dreaming; raw notes are permanent and summaries,
-embeddings and indexes are rebuildable.
+approve or deny before consequential external work. originals are permanent;
+derived nodes, views, embeddings and indexes are rebuildable. legacy notes and
+flat summaries remain searchable without backfill or invented provenance.
 
 main uses native declared host callbacks through `llm-agent-kernel`,
 `provider-runtime` and `llm-tools`. public prose progress persists before delivery;
@@ -56,14 +49,14 @@ independent work can continue while an action awaits approval. tools execute
 serially through existing validation, gate, action and read-recorder boundaries.
 new effects still require current owner intent; event-wide autonomy is future work.
 
-a healthy compatible session may continue within one process. connection or owner
-loss fences old callbacks and recovers original sealed results or fresh reasoning
-from canonical requests/receipts. no saved-session recovery, rolling paid-capacity
+a fresh lease serves each top-level turn. connection or owner loss fences old
+callbacks and recovers original sealed results or fresh reasoning from canonical
+requests/receipts. no saved-session recovery, rolling paid-capacity
 reservation or arbitrary main cutoff remains. finite operation limits and effect
 uncertainty barriers remain. skid owns independent worker launch/control; jarvis
 owns durable observation and integration.
 
-jarvis owns nine application tables:
+jarvis owns fifteen application tables, including six library-owned memory tables:
 
 ```text
 message
@@ -75,6 +68,12 @@ read_position
 native_attempt
 native_invocation
 native_input_delivery
+memory_lane
+source_conversation
+source_record
+memory_leaf
+memory_node
+memory_state
 ```
 
 ## Authoritative documents
@@ -82,8 +81,8 @@ native_input_delivery
 1. [V1 specification](SPEC.md) — normative product and engineering contract.
 2. [Architecture](docs/architecture.md) — runtime, component, data, and tool
    boundaries.
-3. [Memory](docs/memory.md) — exact rememberer, recaller, and dreamer behavior,
-   plus the physical schema and rebuild contract.
+3. [memory](docs/universal-memory.md) — archive, tree/view, retrieval, admission,
+   dreaming, schema and atomic completion contracts.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
 5. [Roadmap and implementation plan](docs/implementation-plan.md) — the single
@@ -175,12 +174,13 @@ These are accepted knowingly, not overlooked.
   query-embedding calls are metered by that processor.
 - One subscription pool is a single point of total conversational outage, with
   no fallback by design.
-- Every owner-authored foreground turn needs recall plus the main-agent call,
-  while remembering follows asynchronously. This is slower and more expensive
-  than a stateless chat response.
+- fresh top-level turns reconstruct historical orientation and exact operative
+  facts. compression may delay dispatch until a complete fitting view exists.
+  summaries can lose detail; source opening remains available.
 - Embedding failures leave committed raw memories with null vectors. Those rows
   remain lexically searchable and a bounded later sweep retries them, but
-  semantic recall is incomplete during the outage.
+  semantic coverage is incomplete during the outage. a failed query embedding
+  returns a typed error; there is no lexical-only fallback search.
 - Raw memory grows indefinitely in v1. There is deliberately no deletion,
   redaction, forgetting, or destructive consolidation path; storage and search
   cost grow with use until a later accepted design addresses every durable copy.
@@ -222,10 +222,10 @@ These are accepted knowingly, not overlooked.
   context bootstrap, and no cost saving is guaranteed. Rotating or discarding
   Jarvis's local reference does not prove deletion of provider-retained session
   data.
-- Dreaming runs from a process-local 24-hour timer. It can drift or miss runs
-  across downtime; raw memory remains searchable and one stopped manual command
-  is available. Summary creation and full rebuild add metered Terra and embedding
-  work, while nullable derived vectors remain possible during ordinary outages.
+- nightly idle dreaming processes one bounded pending prefix and makes at most
+  one attempt per owner-local occurrence. backlog can exceed nightly throughput;
+  stopped manual work is available. interrupted background inference may repeat
+  paid work. completed nodes, original receipts and consumed progress persist.
 - Extracting the generic run loop adds a third pinned local-library boundary.
   It also required a small `llm-tools` public-API upgrade. In return,
   crash/race semantics, strict protocol handling, provider
@@ -263,8 +263,6 @@ These are accepted knowingly, not overlooked.
 - Every action has a finite lifetime executor-entry ceiling. A proven-absent
   effect can end failed when that capacity is exhausted rather than retrying
   forever.
-- Raw memory grows without bound and model-made memories can be wrong.
-  Correction is by append; v1 deliberately has no erasure mechanism.
 - Discord deduplicates a stable per-message nonce only within a recent window,
   and historical responses may omit that nonce. V1 therefore accepts that an
   ambiguous acknowledgement followed by a sufficiently delayed bounded retry

@@ -2,6 +2,8 @@
 
 priority: p2. reviewed 2026-10-11 against nexus-web `39dfa9456`.
 
+status: source fixed in the isolated candidate; database/live qualification is open.
+
 problem: the memory handler catches `MemoryError`, while mcp initialization and
 calls can raise transport/protocol errors inside a task-group exception. these
 escape the portable dispatcher and generation failure classifier.
@@ -18,8 +20,11 @@ credentials were used.
 sources: `nexus-web/python/nexus/services/tools/memory.py:173`,
 `nexus-web/python/nexus/services/tools/run.py:329`.
 
-still present in inspected source at nexus `82eb4bab`; no new live probe ran.
-planned repair: [nexus client contract](../memory-repairs.md#nexus-client-and-local-build-contract).
+source repair: the existing stateless-json client normalizes known boundary
+failures without swallowing defects/cancellation or resubmitting a call. controlled
+actual-sdk/portable-dispatch and catalog grant cases pass. real mcp/postgres saves,
+canonical nexus tool-row completion and authenticated chat routes remain unrun.
+see the [candidate evidence](../universal-memory.md#memory-repair-source-candidate).
 
 resolved when: the backend client maps expected connection/authentication/protocol
 failures to the shared typed memory failure, preserves cancellation and exact

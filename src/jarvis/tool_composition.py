@@ -26,7 +26,7 @@ from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
 from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadConnector
-from jarvis.memory_retrieval import MemoryEmbedder, MemoryRepository
+from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
 from jarvis.read_tools import maps_family
 from jarvis.schedule_tools import schedule_family
@@ -48,8 +48,7 @@ def build_tool_composition(
     google_api_http: httpx.AsyncClient,
     maps_http: httpx.AsyncClient,
     brave_http: httpx.AsyncClient,
-    memory_repository: MemoryRepository,
-    memory_embedder: MemoryEmbedder,
+    memory: MemoryService,
     actions: ActionStore,
     agents: AgentController,
     automatic_write_gate_definition_fingerprint: str,
@@ -118,7 +117,7 @@ def build_tool_composition(
                 ),
                 read=bind_web_read(SafeWebReader()),
             ),
-            memory_family(memory_repository, memory_embedder),
+            memory_family(memory),
             _bind_write_policy(
                 schedule,
                 gate_fingerprint=automatic_write_gate_definition_fingerprint,

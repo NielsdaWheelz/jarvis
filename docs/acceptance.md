@@ -15,7 +15,7 @@ dated reports in git remain evidence only for their recorded revisions and envir
 Every result appears in a dated acceptance report. Any owner-approved waiver is
 named explicitly; no criterion disappears or is weakened silently.
 
-the accepted, unimplemented [universal-memory contract](universal-memory.md)
+the accepted [universal-memory contract](universal-memory.md)
 owns its [focused acceptance](universal-memory.md#11-acceptance-and-verification),
 as simplified by [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md).
 retain two small regression groups: capture/retry and memory completion. verify
@@ -27,9 +27,10 @@ required. focused checks also cover automatic atomic activation, native-field
 validation, deterministic fusion, the shared search gate and valid seed-only
 dreaming. targeted review and live provider checks supplement these regressions;
 there is no learned-reranker selection or mandated search choreography.
-the target separately adds three tables after the native nine and supersedes
-A5.4/A5.5's recall role/retrieval and A5.6–A5.8's background-memory rules. these
-baseline criteria do not override the current target or establish that it ships.
+the source implementation adds six tables after the native nine and replaces
+A5's old role/evaluation criteria with the consolidated focused acceptance.
+source, live provider, fleet installation and production results remain distinct;
+none establishes the seven-day personal acceptance by implication.
 
 ## native cutover acceptance
 
@@ -56,12 +57,13 @@ existing shared conformance remains. this restores no retired standing suite.
       and a reproducible lockfile. Jarvis opens no public listener, is not owned
       by rootless Docker, and the Nexus production host and application state
       remain untouched.
-- [ ] **A1.2** `llm-agent-kernel`, `provider-runtime`, and `llm-tools` use
+- [ ] **A1.2** `llm-agent-kernel`, `provider-runtime`, `llm-tools` and `universal-memory` use
       qualified pinned git revisions, not the user's mutable local worktrees.
 - [ ] **A1.3** A clean checkout can be configured without modifying Ariel,
       `llm-agent-kernel`, `llm-calling`, or `llm-tools`.
-- [ ] **A1.4** migrations produce the nine native-cutover application tables and exact
-      columns in SPEC section 9. the separately accepted memory target adds three.
+- [ ] **A1.4** migrations produce the fifteen application tables: the native nine
+      and six library-owned memory tables, with exact columns from spec and the
+      memory contract.
 - [ ] **A1.5** `scripts/verify` runs the frozen-environment, formatting, lint, type,
       documentation-link, dependency-audit and package build/install checks.
       native integration/live acceptance follows the explicit adr 0065 exception;
@@ -123,9 +125,11 @@ existing shared conformance remains. this restores no retired standing suite.
       because Discord history can omit nonce. Create uses the qualified direct
       REST binding, not a private `discord.py` API; duplicate presentation never
       duplicates an action effect.
-- [ ] **A2.10** a compatible healthy native lease may be reused in-process. connection,
-      process or owner loss fences old callbacks and starts fresh reasoning from
-      canonical unfinished requests/context and original tool receipts. no saved
+- [ ] **A2.10** each top-level turn acquires a fresh native lease from the fixed
+      admitted memory view, exact unfinished requests and original tool receipts.
+      compatible steering stays in its active tool loop. connection, process or
+      owner loss fences old callbacks; effects already entered retain their
+      dispatchers until settlement. no saved
       session-reference cache, restart resume or CAS exists. sealed original
       terminals settle locally before current model/tool construction; stale
       stop/resume refuses publication. unknown action/read outcomes block
@@ -215,7 +219,7 @@ in Slice 0.
 
 - [ ] **A4.1** every role uses the shared kernel through personal subscription-backed
       Codex, without provider/model/API-key fallback. main is a
-      `NativeDefinition`/`run_native`; recaller, rememberer, dreamer and gate remain
+      `NativeDefinition`/`run_native`; compactor, dreamer and gate use
       actual fresh isolated `AgentDefinition`/`run_one_shot` roles. closed schemas
       and exact frozen-plan consistency/tightening validate before I/O; isolated
       plans contain no Write and scheduled wakes are read-only. fresh budgets
@@ -295,49 +299,22 @@ in Slice 0.
       rows remain opaque history. actual worker-fleet journeys require their own
       receipt and are not native-kernel acceptance.
 
-## A5. Memory
+## a5. memory
 
-- [ ] **A5.1** Recall runs before every owner-authored human input and begins with
-      exactly one kernel-dispatched deterministic `memory.search` typed
-      observation before adaptive recaller search/open. The isolated recaller may
-      correctly return an empty schema-valid bundle through its one-shot terminal
-      result.
-- [ ] **A5.2** Full-text search finds an exact or rare-keyword memory.
-- [ ] **A5.3** Semantic search finds relevant memory with no important shared
-      query keyword.
-- [ ] **A5.4** Search covers raw memories and summaries, deduplicates only exact
-      row identities, and permits a summary and its raw source to coexist.
-- [ ] **A5.5** The recaller may issue multiple searches and open a summary's raw
-      sources.
-- [ ] **A5.6** The rememberer runs once per settled input group containing owner
-      messages after an `answered`, `partial`, `needs_input`, `failed`, or
-      `silent` terminal, or an approval proposal. It receives every
-      consumed owner message plus persisted response/tool context and returns a
-      schema-valid isolated one-shot result even when it chooses no memory.
-- [ ] **A5.7** A successful zero-memory result sets `remembered_at` on every
-      consumed owner row; a cancelled run leaves all targets null. A bounded
-      sweep retries only completed `role = owner` rows, normally grouping by
-      shared settlement trace and falling back to individual rows when grouping
-      metadata is absent. Host inputs are never targets.
-- [ ] **A5.8** Raw memories and every target `remembered_at` commit atomically and
-      create no action row or duplicate storage elsewhere.
-- [ ] **A5.9** Under the application role, raw text/time updates, deletes, and
-      truncation fail while embedding updates succeed.
-- [ ] **A5.10** A useful preference is recalled in a fresh provider session and a
-      linked external resource can be reopened.
-- [ ] **A5.11** An unmistakable private-key or known API-token fixture is rejected
-      before memory insertion without leaking the value in diagnostics.
-- [ ] **A5.12** Memory text asserting permission or standing approval cannot alter
-      host action classification. Safety behavior, five of five.
-- [ ] **A5.13** Every summary has non-empty valid raw lineage; summary-of-summary
-      lineage is flattened.
-- [ ] **A5.14** The dreamer changes summaries but cannot change raw memory or use
-      external tools; its mutation batch is a schema-valid isolated one-shot
-      result applied only by host code.
-- [ ] **A5.15** Wiping summaries and embeddings leaves lexical raw recall working;
-      complete rebuild restores a recall-evaluation result no worse than before.
-- [ ] **A5.16** The checked-in recall set has at least fifteen cases with the lane
-      coverage required by the memory specification.
+the [universal-memory acceptance](universal-memory.md#11-acceptance-and-verification)
+is authoritative for policy, activation, capture, compression, orientation,
+dreaming, echo suppression, retrieval and cutover/repair. retain only the two small
+capture/retry and memory-completion regression categories. wider temporary
+integration/live checks qualify exact artifacts and are removed after proof;
+the retired recaller/rememberer suite and scoring corpus are not restored.
+
+prove the package boundary through actual jarvis composition, including canonical
+receipt survival under projection failure, admitted post-cutover eligibility,
+fresh top-level views and active steering, exact main-save replay under revocation,
+quiet atomic dreaming, shared search accounting and unchanged paid-read/effect
+barriers. dev-server's loaded collectors/native clients and nexus's chats-only
+consumer require separate concrete receipts. no automated nexus helper inherits
+the owner's corpus.
 
 ## A6. Automatic actions and approval
 
@@ -427,8 +404,7 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A6.16** `schedule.wake` creates an exact due wake and cancels a named
       queued wake. A requested wake becomes eligible at its stored instant and
       after restart when overdue. Claiming it creates exactly one host input from
-      the immutable stored instruction and requested instant; it does not invoke
-      the owner-input recaller. The visible model result or deterministic
+      the immutable stored instruction and requested instant. The visible model result or deterministic
       fallback marks the wake succeeded atomically. Schedule creation stores an
       immutable creation receipt while status remains queued; recorder replay
       returns that receipt at every later lifecycle status, and due processing
@@ -460,7 +436,7 @@ These criteria are **live** where they call Gmail or Discord.
 - [ ] **A7.1** V1 deploys with no application backup, restore command, Restic/R2
       credential, backup database role, or backup timer. The owner explicitly
       accepts that loss of the devbox, disk, or database can permanently lose
-      Jarvis state; backup remains addable later without changing the nine-table
+      jarvis state; backup remains addable later without changing the application
       application schema.
 - [ ] **A7.2** The acceptance report records the production host, release commit,
       Python, PostgreSQL, pgvector, and running-kernel identities; UTC state;
@@ -468,8 +444,9 @@ These criteria are **live** where they call Gmail or Discord.
       parent and systemd `/proc`/resource controls; process restart recovery;
       and the deferred newer-kernel reboot. Deployment does
       not interrupt the owner's tmux sessions or live Codex processes.
-- [ ] **A7.3** Derived summaries and embeddings can be completely regenerated
-      from the preserved local raw memory log.
+- [ ] **A7.3** derived tree nodes, frontiers, embeddings and indexes can be rebuilt
+      from preserved originals. original positions and dream progress survive;
+      legacy flat summaries remain preserved rather than newly regenerated.
 - [ ] **A7.4** After process restart, `succeeded`, `failed`, `uncertain`, and
       `cancelled` actions do not become executable; `executing` actions reconcile
       before any evidence-proven repeat.
@@ -522,11 +499,11 @@ required scenario:
 
 1. The owner states a durable preference and discusses a matter linked to Gmail
    and Calendar.
-2. Jarvis responds and the rememberer appends useful raw memory.
-3. The provider session is discarded.
-4. The dreamer creates a grounded summary.
-5. In a new conversation, the owner refers to the matter indirectly.
-6. The recaller locates relevant summary/raw memory and can open its raw basis.
+2. jarvis responds; canonical originals project into the admitted archive/tree.
+3. the top-level provider lease is discarded.
+4. compression builds the historical view; dreaming may append attributed notes.
+5. in a fresh turn, the owner refers to the matter indirectly.
+6. main receives the fixed historical view and can retrieve/open original evidence.
 7. Jarvis reads live Gmail or Calendar state where current truth matters.
 8. Jarvis produces a useful response or draft without requiring repeated context.
 

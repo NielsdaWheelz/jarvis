@@ -586,15 +586,15 @@ requires-dist = [
     { name = "discord-py", specifier = "==2.7.1" },
     { name = "fastapi", specifier = "==0.143.0" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=e1bec2731ec35aa8c07f2eb277d8993332a7490c" },
-    { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=73056dfb23733e68bd32b6765cc34880f69674bd" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=4ac3f4b8897d7463e2db3e2899fa95ba28a23f50" },
+    { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=5a37102bc73c1af0c23e63c5b70df320661f63ed" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=d9550d9c53af3d7b608250d9a0db131d78dccf64" },
+    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=ac547ad2a0be0523b32c7f54a831038b0191d6cd" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.43" },
-    { name = "universal-memory", git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=d824d33df9c136952f1d01f7c4a4ad389df42ef1" },
+    { name = "universal-memory", git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=5d52e6a266c9769dafa318a24c21236db8929903" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 
@@ -674,7 +674,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=e1bec2731ec35aa8c07f2eb277d8993332a7490c#e1bec2731ec35aa8c07f2eb277d8993332a7490c" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=4ac3f4b8897d7463e2db3e2899fa95ba28a23f50#4ac3f4b8897d7463e2db3e2899fa95ba28a23f50" }
 dependencies = [
     { name = "llm-tools" },
     { name = "provider-runtime" },
@@ -684,7 +684,7 @@ dependencies = [
 [[package]]
 name = "llm-tools"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=73056dfb23733e68bd32b6765cc34880f69674bd#73056dfb23733e68bd32b6765cc34880f69674bd" }
+source = { git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=5a37102bc73c1af0c23e63c5b70df320661f63ed#5a37102bc73c1af0c23e63c5b70df320661f63ed" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
@@ -1010,7 +1010,7 @@ wheels = [
 [[package]]
 name = "provider-runtime"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=d9550d9c53af3d7b608250d9a0db131d78dccf64#d9550d9c53af3d7b608250d9a0db131d78dccf64" }
+source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=ac547ad2a0be0523b32c7f54a831038b0191d6cd#ac547ad2a0be0523b32c7f54a831038b0191d6cd" }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },
@@ -1485,7 +1485,7 @@ wheels = [
 [[package]]
 name = "universal-memory"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=d824d33df9c136952f1d01f7c4a4ad389df42ef1#d824d33df9c136952f1d01f7c4a4ad389df42ef1" }
+source = { git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=5d52e6a266c9769dafa318a24c21236db8929903#5d52e6a266c9769dafa318a24c21236db8929903" }
 dependencies = [
     { name = "llm-tools" },
     { name = "pgvector" },

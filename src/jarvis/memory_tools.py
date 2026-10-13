@@ -112,7 +112,7 @@ def memory_family(service: MemoryService) -> ToolFamily:
             replay_policy=ReplayPolicy.BilledOnce
             if spec is MEMORY_SEARCH_SPEC
             else ReplayPolicy.ReDispatchable,
-            implementation_revision=f"jarvis-{str(spec.id).replace('.', '-')}-v2",
+            implementation_revision=f"jarvis-{str(spec.id).replace('.', '-')}-v3",
             policy_epoch=PolicyEpoch("jarvis-universal-memory-v1"),
             policy_inputs={
                 **policy,

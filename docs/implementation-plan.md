@@ -393,6 +393,39 @@ no backup platform, native-memory disablement or automatic history import. full
 acceptance includes all declared hosts/profiles; disabled/unqualified lanes are
 reported, not passed off as universal coverage.
 
+### memory repair delivery
+
+[repair contract](memory-repairs.md) owns behavior, files and acceptance for the
+current review findings. source fixes and isolated qualification only; production
+installation/activation remain separate. no schema/service or unrelated feature
+expansion. source repairs use current-main worktrees with preserved owner documents.
+the source candidate and blocked qualification are recorded in the memory
+[integration evidence](universal-memory.md#memory-repair-source-candidate).
+
+1. freeze the corrected presentation/codec/client contracts and write temporary
+   red integration cases against the actual reviewed paths. each boundary gets a
+   content designer and independent adversarial review before implementation.
+2. implement in parallel without shared-file writes: presentation writer owns
+   tools/kernel/library rendering; capture writer owns provider codecs; nexus
+   writer owns its client/build wiring. the jarvis integration lead owns host
+   context/order, stopped repair and package/consumer pins/locks/manifests; other
+   writers leave those files to that lead. dev-server owns the later fleet pin.
+3. compose immutable tools/provider pins into kernel and memory, then those
+   qualified pins into jarvis/nexus. propagate exact dependency and role fingerprints;
+   upgrade no unrelated model/library. prove green end-to-end, refactor at the
+   responsible boundary, and repeat only checks justified by changes/concerns.
+4. qualify final artifacts with synthetic postgres/mcp/native/compose probes,
+   complete affected static/build checks and the blocked audit, delete new temporary
+   tests/helpers, and record results/gaps in existing evidence/issue records.
+   dev-server then advances its collector release pin to the qualified jarvis
+   artifact and verifies source preparation; no fleet apply or private provisioning.
+5. close only proved-resolved review issues. hand off exact artifacts, remaining
+   private installation/client/fleet checks and activation instructions separately.
+
+no production v1 capture exists; use clean task-owned v2 qualification state.
+discovering real old capture blocks cutover rather than authorizing reset/backfill.
+the contract states encoding cost, uncertain-save and deleted-test tradeoffs.
+
 ### memory and native-main integration
 
 these tracks share invocation identity, source publication, library pins and

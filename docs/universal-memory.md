@@ -20,6 +20,11 @@ client bindings. earlier adrs retain the rationale.
 implementation and behavioral/live acceptance **not run**. delivery order and cross-system dependencies live in the
 [single roadmap and plan](implementation-plan.md).
 
+the [focused repair contract](memory-repairs.md) owns the 2026-10-13 corrections
+to presentation/cache, native attachments/stable prefixes and nexus failure/build
+handling, including the single revised native codec and temporary qualification.
+it supersedes affected details below without changing the memory architecture.
+
 MUST, SHOULD and MAY carry SPEC's meaning. requirements below are MUST unless
 marked otherwise. the capture latency is a SHOULD target.
 

@@ -1696,89 +1696,77 @@ and disabled or waived lanes stated explicitly.
 
 ### memory repair source candidate
 
-2026-10-13: source repairs are isolated on `codex/memory-repairs` in independent
-worktrees under `/private/tmp/memory-repairs.4x_c6cr2`. the original repositories
-and owner documents are untouched. the owner selected source completion with
-blocked qualification reported; repair acceptance remains open.
+2026-10-13: repaired source is published on `codex/memory-repairs`, with normal
+merges preserving both the repair ancestry and current provider/kernel/nexus main
+fixes. source merging does not install or activate memory. the owner selected
+remaining qualification issues and cleanup; incomplete live acceptance stays open.
 
-| package | exact candidate pin in both consumers |
+| package | exact final pin in both consumers |
 | --- | --- |
 | llm-tools | `5a37102bc73c1af0c23e63c5b70df320661f63ed` |
-| provider-runtime | `ac547ad2a0be0523b32c7f54a831038b0191d6cd` |
-| llm-agent-kernel | `4ac3f4b8897d7463e2db3e2899fa95ba28a23f50` |
+| provider-runtime | `98ea2f2a8646bf42aec943596f88135512f612bd` |
+| llm-agent-kernel | `533ae2364cc7aa816b8ed58122dce3a04bb2f1af` |
 | universal-memory | `5d52e6a266c9769dafa318a24c21236db8929903` |
 
 pyprojects, frozen locks, installed git provenance and jarvis's compatibility
-manifest agree. frozen registry versions, model, schemas, corpus policy and authority
-are unchanged. the kernel base instruction is v3; jarvis main/compactor/dreamer
-role revisions advance for changed presentation. the read binding family advances
-to v3 for changed result packing; save remains v1. one v2 native codec replaces v1.
+manifest agree. frozen registry versions, model, schemas, corpus policy and
+authority are unchanged. kernel base instruction is v3; jarvis role revisions
+advance for presentation. read bindings advance to v3 for changed result packing;
+save remains v1. one v2 native codec replaces v1, with no compatibility reader.
 
-three writers implemented the independent boundaries; independent adversarial
-reviews also repaired kernel tool-plan placement, unexpected http statuses,
-private redirect logging and unexpected json-rpc notifications. json quoting
-preserves exact raw text and identities while expanding prompt bytes; views keep
-their stable node prefix, with volatile footers/task/clocks last. samples remain
-arrays. compactor output is raw attributed summary prose. the nexus client supports
-the current stateless json endpoint and rejects streaming/stateful responses;
-expected failures settle as typed results, and missing save receipts never prove
-that a remote note is absent.
+three writers implemented separate boundaries; independent adversarial reviews
+also corrected tool-plan placement, unexpected http statuses, private redirect
+logging and unexpected json-rpc notifications. quoting preserves raw text and
+identities while using more prompt bytes. stable nodes precede volatile
+footers/tasks/clocks; older samples are arrays and compactor output is raw prose.
+nexus supports the current stateless json endpoint; missing save receipts never
+prove that a remote note is absent.
 
-controlled red → green → refactor proof:
+controlled red → green → refactor evidence:
 
 - presentation: seven initial failures; eight final cases pass. actual jarvis
-  worker/bootstrap composition: both initial failures repaired, two final cases
-  pass. a supplemental irreducible 135,375-byte cover blocks with zero inference.
-- native codecs/readers: 48 initial failures and four unchanged cases; 53 final
-  cases pass, including unaffected digest fixtures and malformed later suffixes.
-- nexus: initial sdk/dispatch defects reproduced; 45 final cases pass, including
-  status/protocol/schema/group/cancellation handling, transport privacy, save
-  uncertainty and exact invocation identity. six catalog-derived grant checks
-  pass. these use actual sdk/executor/adapters with synthetic transport/fence
-  surfaces; no canonical nexus database or live route is implied.
-- existing checks: 39 tools cases; 171 kernel cases with native socket/setgid
-  prerequisites excluded after explicit failures; 863 provider cases with blocked
-  native socket/process-observation groups excluded, one existing skip. the full
-  provider attempt had 106 socket setup errors and one denied `ps` failure;
-  kernel had four socket errors and the denied setgid precondition. obsolete
-  expected export/observation fixtures were updated; no new permanent tests.
+  worker/bootstrap composition: two initial failures; two final cases pass.
+- native codecs/readers: 48 initial failures plus four unchanged cases; 53 final
+  cases pass, including unaffected digests and malformed later suffixes.
+- nexus: 45 actual-sdk/portable-dispatch cases and six catalog-derived grant
+  checks pass. compose proves both build-secret grants and unset-key failure.
+  synthetic transport/fence surfaces do not prove canonical nexus rows/routes.
+- after access was restored, the full provider non-live suite passes: 982 cases,
+  one existing skip. kernel's full non-live suite passes: 176 cases, two opt-in
+  live cases deselected. previously denied socket/process/setgid checks pass.
+  tools' 39 focused checks pass. no new permanent repair cases were added.
 
-commands use task-owned frozen environments, without source overlays:
+final frozen library lint/types/build pass; nexus `scripts/test` passes including
+web/extension builds, tool projection and one migration head. jarvis `scripts/verify`
+passes static/types/docs, source/wheel build, clean installation/cli and network
+audit. no known vulnerabilities were reported in its auditable set; git-only
+kernel/tools/provider packages are not registry-audited. the former network
+blocker is resolved.
+
+real-postgres integration is being recorded before the consumer source merge;
+its provisional result is not an acceptance pass. checks use empty migrated
+pg16/pgvector 0.8.1 and runtime grants for ordinary operations; only stopped full
+maintenance uses the existing migrator role under the deployment lock.
+
+remaining acceptance is explicit in
+[live inference/cache/native persistence](issues/memory-live-qualification.md),
+[canonical nexus rows/routes](issues/nexus-memory-live-qualification.md) and
+[clean image/secret qualification](issues/nexus-memory-image-qualification.md).
+synthetic proof does not waive those requirements. dev-server retains its prior
+qualified release pin until the complete repair candidate is qualified; no fleet
+apply, private provisioning, personal-history admission or activation occurred.
+
+reproduce source checks from each repository root with its frozen environment:
 
 ```sh
-memory_repair_root=/private/tmp/memory-repairs.4x_c6cr2
-export UV_OFFLINE=1 UV_CACHE_DIR="$memory_repair_root/uv-cache"
-cd "$memory_repair_root/worktrees/jarvis"
-.venv/bin/python "$memory_repair_root/qualification/core/presentation_boundary.py"
-.venv/bin/python "$memory_repair_root/qualification/jarvis_composition.py"
-scripts/verify
-cd "$memory_repair_root/worktrees/llm-calling"
-.venv/bin/python -m pytest -c pyproject.toml "$memory_repair_root/qualification/capture/test_native_archive_repairs.py" -q
-cd "$memory_repair_root/worktrees/nexus-web"
-./scripts/test
+scripts/verify                   # jarvis and universal-memory
+./scripts/test                   # nexus
+uv run pytest tests -q           # kernel non-live suite
+uv run pytest tests --ignore=tests/live -q  # provider non-live suite
 ```
 
-each command is independent; jarvis's audit failure does not skip another repo's
-checks. package-specific commands/logs stay with the temporary probes until final
-qualification.
-library frozen static/types/build pass. jarvis frozen static/types/docs, wheel/
-sdist, clean installation and cli pass; `scripts/verify` still fails at its audit
-because `pypi.org` cannot resolve. no dependency-audit pass is claimed.
-nexus `scripts/test` passes: lint/types, tool projection, web/extension builds and
-single migration head. compose configuration proves both build-secret grants and
-an explicit unset-key failure; image builds and key-leak inspection remain unrun.
-
-remaining acceptance: real postgres archive/checkpoint/leaf and repair preservation;
-real mcp/postgres committed-save lost-receipt/deadline and canonical nexus tool-row
-completion; qualified inference/content/cache counters, current live chat routes
-and native attachment/interrupted-tail persistence; clean builds of both compose
-targets, missing-file failure and image/key-leak inspection; socket/setgid and
-network audit checks. docker socket access and socket binds are denied; no local
-postgres server is installed/listening, setgid is stripped, and package-network
-dns is unavailable. synthetic checks do not waive these requirements.
-
-temporary probes remain OUTSIDE release repositories pending that proof, then
-must all be deleted. existing approved regression groups remain. publish the
-candidate dependency commits before consumer qualification on an enabled host.
-dev-server keeps its previous qualified release pin until the candidate passes;
-installation, private provisioning and activation remain separate.
+the owner requested cleanup after issue recording. all new temporary probes,
+fixtures, helper environments and build outputs are deleted after the final
+available checks; unfinished live cases must be regenerated from the repair
+contract on their qualification host. existing approved regression groups remain.
+prs retain the exact reviewed commits; no permanent repair harness ships.

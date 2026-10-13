@@ -415,7 +415,7 @@ the source candidate and blocked qualification are recorded in the memory
    upgrade no unrelated model/library. prove green end-to-end, refactor at the
    responsible boundary, and repeat only checks justified by changes/concerns.
 4. qualify final artifacts with synthetic postgres/mcp/native/compose probes,
-   complete affected static/build checks and the blocked audit, delete new temporary
+   complete affected static/build checks and the audit, delete new temporary
    tests/helpers, and record results/gaps in existing evidence/issue records.
    dev-server then advances its collector release pin to the qualified jarvis
    artifact and verifies source preparation; no fleet apply or private provisioning.

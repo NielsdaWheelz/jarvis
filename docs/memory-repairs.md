@@ -1,7 +1,11 @@
 # memory repairs: target contract
 
-status: source repaired, 2026-10-13; qualification blocked. the owner selected
-source completion with the remaining qualification reported explicitly.
+status: source repaired, 2026-10-13; remaining live qualification is tracked in
+[jarvis](issues/memory-live-qualification.md) and
+[nexus](issues/nexus-memory-live-qualification.md), with
+[image qualification](issues/nexus-memory-image-qualification.md) separate.
+the owner selected source completion with qualification gaps reported explicitly,
+then requested issues, prs/merges and cleanup. this does not waive live acceptance.
 the owner selected source fixes and isolated qualification, excluding installation
 and activation, and confirmed that memory has captured no real history beyond
 disposable qualification data. this is a repair of the accepted
@@ -266,7 +270,8 @@ those existing groups do not replace the deleted repair cases.
 record final artifact/pin identities, probe commands, red/green/refactor outcomes,
 content findings and explicit gaps once in existing integration evidence/issue
 records. run affected repository checks, jarvis/library `scripts/verify` and nexus
-`scripts/test`; complete the [network-blocked audit](issues/memory-review-audit-network.md).
+`scripts/test` and the dependency audit. network access and the audit were restored
+on 2026-10-13; the audit reports no known vulnerabilities in its auditable set.
 delete resolved issue files only after their acceptance, and preserve blockers.
 source completion means all required checks passed or a separately owner-approved
 qualification exception is recorded; not run is never pass. prepare the separate

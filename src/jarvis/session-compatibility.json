@@ -1,9 +1,9 @@
 {
   "application_session_contract_revision": "jarvis-memory-presentation-v2",
   "dependencies": {
-    "llm-agent-kernel": "4ac3f4b8897d7463e2db3e2899fa95ba28a23f50",
+    "llm-agent-kernel": "533ae2364cc7aa816b8ed58122dce3a04bb2f1af",
     "llm-tools": "5a37102bc73c1af0c23e63c5b70df320661f63ed",
-    "provider-runtime": "ac547ad2a0be0523b32c7f54a831038b0191d6cd",
+    "provider-runtime": "98ea2f2a8646bf42aec943596f88135512f612bd",
     "universal-memory": "5d52e6a266c9769dafa318a24c21236db8929903"
   },
   "qualified_models": [

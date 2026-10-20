@@ -2979,6 +2979,7 @@ def retired_worker_action(stored: StoredAction) -> bool:
         "jarvis-agent-control-v4",
         "jarvis-agent-control-v5",
         "jarvis-agent-control-v6",
+        "jarvis-agent-control-v7",
     }
 
 

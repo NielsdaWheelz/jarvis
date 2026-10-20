@@ -233,16 +233,14 @@ class AgentController:
         self,
         *,
         cli_path: Path,
-        client_config_path: Path,
+        state_directory: Path,
         actions: ActionStore,
         source_conversation_id: str,
     ) -> None:
-        if not cli_path.is_absolute() or not client_config_path.is_absolute():
-            raise ValueError(
-                "agent CLI and client configuration paths must be absolute"
-            )
+        if not cli_path.is_absolute() or not state_directory.is_absolute():
+            raise ValueError("agent CLI and installed state directory must be absolute")
         self.cli_path = cli_path
-        self.client_config_path = client_config_path
+        self.state_directory = state_directory
         self._actions = actions
         self.source_conversation_id = source_conversation_id
         self._wait_changed = asyncio.Event()
@@ -260,7 +258,7 @@ class AgentController:
             process = await asyncio.create_subprocess_exec(
                 str(self.cli_path),
                 "--config",
-                str(self.client_config_path),
+                str(self.state_directory),
                 *argv,
                 "--json",
                 stdin=asyncio.subprocess.PIPE
@@ -562,8 +560,6 @@ class AgentController:
         for flag, item in (
             ("cwd", value.cwd),
             ("group", value.group),
-            ("model", value.model),
-            ("effort", value.effort),
         ):
             if item is not None:
                 argv += ["--" + flag, item]

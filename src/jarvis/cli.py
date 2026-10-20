@@ -355,7 +355,7 @@ async def _compose_main(
     )
     agents = AgentController(
         cli_path=settings.agent_cli_path,
-        client_config_path=settings.agent_client_config_path,
+        state_directory=settings.agent_state_directory,
         actions=actions,
         source_conversation_id=str(settings.discord.channel_id),
     )

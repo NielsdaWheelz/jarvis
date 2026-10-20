@@ -132,7 +132,10 @@ These instructions govern all work in this repository.
   owns the implemented next target contract and current qualification record.
   the owner explicitly authorized source implementation and temporary
   integration/live checks; installed cutover remains separate. both use
-  the skid cli and private three-peer config. adr 0052 supersedes the worker
+  the skid cli. [adr 0068](docs/decisions/0068-generalized-skid-consumer.md)
+  replaces private three-peer config with live installed computer state and removes
+  creation model/effort overrides. installed service-state access is separately
+  blocked; do not add a privilege bridge or copy stale state. adr 0052 supersedes the worker
   transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049. cognition uses adr 0065's separate contained stock
   endpoint; its production activation is separate from worker fleet installation.

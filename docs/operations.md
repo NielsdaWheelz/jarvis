@@ -306,27 +306,20 @@ activation. actual deployment remains separately authorized and verified.
 2. cooperatively stop jarvis. require systemd ActiveState=inactive, Result=success,
    MainPID=0 and canonical postgres pause. a failed or
    killed stop needs operator inspection; activation never stops the service.
-3. stage the admitted devbox skid artifact through dev-server; its root cli and
-   gateway share artifact/pin. changing either cli bytes or client configuration
-   requires the pause and clean stop before switching; identical apply is inert.
-4. supply the existing human-provisioned, three-peer private file explicitly:
-
-   ```sh
-   JARVIS_SOURCE_AGENT_CLIENT_CONFIG=/absolute/private/client.json deploy/install-agent-client
-   ```
-
-   the worker installer copies a mode-0600 candidate under /etc/jarvis and validates it
-   through the installed skid cli under the service's relevant restrictions.
-   partial inventory proves config admission only. invalid config leaves the
-   installed file unchanged. identical apply is inert only for a regular,
-   non-symlink, jarvis:jarvis mode-0600 file. replacement is atomic and requires
-   the prepared pause/clean-stop checks;
-   a symlink is replaced, while an existing directory is refused and preserved.
-   no bearer minting or peer table.
-   `deploy/install-private-state` composes this step when all application and
-   connector private state also needs installation. `deploy/verify-agent-client`
-   qualifies all three peers as the service identity while jarvis is stopped;
-   it does not require cognition to be running.
+3. select the matching reviewed standalone skid release. the worker cli and host
+   must share its wire contract. changing cli bytes or current worker contracts
+   requires the pause, clean stop and unfinished-action drain before switching.
+4. the generalized cli reads `--config STATE_DIRECTORY`, configured by
+   `JARVIS_AGENT_STATE_DIRECTORY`. it requires the enrolled computer's live state,
+   including future membership/configuration updates. the old private client-json
+   installer is removed; `deploy/install-agent-client` now refuses with the
+   [service-state access blocker](issues/skid-installed-state-access.md).
+   installed worker cutover remains BLOCKED until that separate integration is
+   designed and qualified. retain jarvis's service uid and containment. copying
+   the current state files is insufficient. `deploy/install-private-state`
+   deliberately reaches the same refusal before any remote private-state change.
+   `deploy/verify-agent-client` accepts an explicit installed-state directory for
+   the eventual qualified service boundary; source fixtures do not establish it.
 5. `deploy/activate-release COMMIT` migrates, runs stopped native cutover and
    checks compatibility under the deployment lock. incompatible active authority
    and entered uncertainty refuse. known historical terminal resolutions and new
@@ -443,11 +436,13 @@ cognition parent. no native authentication belongs in jarvis state or environmen
 main has no arbitrary elapsed cutoff or cumulative model/tool quota. per-operation
 bounds, finite callback queues and owner stop still apply.
 
-peer agent control uses `/usr/local/libexec/skidbladnir` (regular root:root 0755)
-and `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by
-`JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_CLIENT_CONFIG_PATH`. all three existing
-peers come from human fleet provisioning. no development-home symlink,
-JARVIS_HERDR setting, jarvis ref codec or provider-home table remains.
+peer agent control uses the explicitly configured `JARVIS_AGENT_CLI_PATH` and
+`JARVIS_AGENT_STATE_DIRECTORY`. skid owns installed auth/routing and refresh;
+jarvis retains its personal machine/profile enums. the existing service cannot
+read the enrolled development user's private live state under its containment.
+[service-state access](issues/skid-installed-state-access.md) records the separate
+integration required before installed worker activation. no copied client-json
+reader, second ref codec or fallback transport remains.
 
 the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
 wait/cancel_wait. addressed inputs use short `{machine,handle}`; t-handles select
@@ -458,8 +453,8 @@ optional observedRef. matching optional name/profile facts provide consent conte
 terminal loss/reassociation never renews native authority.
 
 terminal send is guarded input for both providers; native claude input remains
-unavailable. start options use explicit overrides then native defaults, with
-literal optional stdin. creation/input and interruption/closure facts remain
+unavailable. start accepts name, cwd, group and literal optional stdin; the configured
+profile command owns provider options. model/effort launch fields are rejected. creation/input and interruption/closure facts remain
 independent, including nonzero partial results. native accepted means admitted,
 terminal written means dispatched; neither proves completion. unknown writes
 enter once and never replay; conclusive owned receipts settle without re-entry.

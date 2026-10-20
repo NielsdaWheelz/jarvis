@@ -85,7 +85,7 @@ type AgentReference = Annotated[str, Field(min_length=1, max_length=4096)]
 type AgentLabel = Literal["macbook", "devbox", "arch"]
 type AgentHandle = Annotated[str, Field(pattern=r"^[tc]-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
-AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v7"
+AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v8"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
 
 
@@ -151,21 +151,7 @@ class AgentStartInput(_Closed):
     name: AgentName | None = None
     cwd: str | None = Field(default=None, min_length=1, max_length=4096)
     group: str | None = Field(default=None, min_length=1, max_length=64)
-    model: str | None = Field(default=None, min_length=1, max_length=256)
-    effort: str | None = Field(default=None, min_length=1, max_length=256)
     prompt: str | None = Field(default=None, min_length=1, max_length=32768)
-
-    @field_validator("model", "effort")
-    @classmethod
-    def provider_value(cls, value: str | None) -> str | None:
-        if value is not None and (
-            len(value.encode("utf-8")) > 256
-            or any(c.isspace() or unicodedata.category(c) == "Cc" for c in value)
-        ):
-            raise ValueError(
-                "provider value exceeds its UTF-8 bound or contains whitespace/controls"
-            )
-        return value
 
     @field_validator("prompt")
     @classmethod
@@ -370,8 +356,21 @@ class Execution(_Wire):
     agent: ExecutionAgent | None = None
 
 
+class TerminalUsage(_Wire):
+    fiveHourUsedPercent: int | None = Field(default=None, ge=0, le=100, strict=True)
+    sevenDayUsedPercent: int | None = Field(default=None, ge=0, le=100, strict=True)
+
+    @model_validator(mode="after")
+    def observed_window(self) -> TerminalUsage:
+        if self.fiveHourUsedPercent is None and self.sevenDayUsedPercent is None:
+            raise ValueError("terminal usage requires an observed window")
+        return self
+
+
 class AgentTerminal(_Wire):
     terminalStatus: TerminalStatus
+    terminalUsage: TerminalUsage | None = None
+    terminalFooter: str | None = Field(default=None, min_length=1, max_length=1024)
     activePaneId: str
     name: str
     nameMode: Literal["automatic", "manual"]
@@ -388,6 +387,38 @@ class AgentTerminal(_Wire):
     group: str | None = None
     conversation: Conversation | None = None
 
+    @field_validator("terminalFooter")
+    @classmethod
+    def literal_footer(cls, value: str | None) -> str | None:
+        if value is not None and (
+            len(value.encode("utf-8")) > 1024
+            or value.strip() != value
+            or any(unicodedata.category(c) in {"Cc", "Cf", "Zl", "Zp"} for c in value)
+        ):
+            raise ValueError("invalid terminal footer")
+        return value
+
+    @model_validator(mode="after")
+    def displayed_evidence(self) -> AgentTerminal:
+        if self.terminalUsage is not None or self.terminalFooter is not None:
+            if (
+                self.agent is None
+                or self.connection is not None
+                or self.terminalStatus.source != "terminal"
+                or self.terminalStatus.reason
+                not in {
+                    "recognized",
+                    "partial",
+                    "layout_unknown",
+                    "evidence_clipped",
+                    "evidence_conflict",
+                }
+            ):
+                raise ValueError(
+                    "displayed evidence lacks a successful provider sample"
+                )
+        return self
+
 
 class WireFailure(_Wire):
     code: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
@@ -398,8 +429,47 @@ class WireFailure(_Wire):
 class Profile(_Wire):
     key: str
     label: str
-    provider: Literal["Codex", "Claude"]
+    provider: Literal["Codex", "Claude"] | None = None
     historyScope: str | None = None
+
+
+class RecoveryFailure(_Wire):
+    at: AwareDatetime
+    phase: Literal[
+        "ownership",
+        "checkpoint_read",
+        "source",
+        "capture",
+        "checkpoint_write",
+        "restore",
+    ]
+    cause: Literal[
+        "timeout",
+        "changed",
+        "unavailable",
+        "invalid",
+        "limit",
+        "busy",
+        "permission",
+        "no_space",
+        "io",
+        "already_attempted",
+        "not_empty",
+    ]
+
+
+class Recovery(_Wire):
+    state: Literal["tracking", "recovered", "delayed", "broken"]
+    savedAt: AwareDatetime | None = None
+    failure: RecoveryFailure | None = None
+
+    @model_validator(mode="after")
+    def consistent(self) -> Recovery:
+        if (self.state in {"tracking", "recovered"}) != (self.failure is None):
+            raise ValueError("recovery state and failure disagree")
+        if self.state == "recovered" and self.savedAt is None:
+            raise ValueError("recovered state requires a saved checkpoint")
+        return self
 
 
 class Peer(_Wire):
@@ -409,6 +479,7 @@ class Peer(_Wire):
     observedAt: str | None = None
     profiles: tuple[Profile, ...] | None = None
     sessions: tuple[AgentTerminal, ...] | None = None
+    recovery: Recovery | None = None
     error: WireFailure | None = None
 
     @model_validator(mode="after")
@@ -417,6 +488,7 @@ class Peer(_Wire):
             self.profiles is not None
             and self.sessions is not None
             and self.observedAt is not None
+            and self.recovery is not None
         ):
             raise ValueError("peer inventory is inconsistent")
         return self
@@ -823,7 +895,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
         ),
         (
             "start",
-            "start codex or claude with optional name/cwd/group/model/effort and "
+            "start codex or claude with optional name/cwd/group and "
             "initial literal prompt. omitted options use native defaults. partial "
             "launch retains captured evidence.",
             controller.start,
@@ -899,7 +971,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
             policy_epoch=PolicyEpoch(AGENT_POLICY_EPOCH),
             policy_inputs={
                 "cli_path": str(controller.cli_path),
-                "client_config_path": str(controller.client_config_path),
+                "state_directory": str(controller.state_directory),
                 "authority": "current-owner-write-gate",
                 "automatic_retry": False,
                 "action_max_attempts": 2 if spec.id in AGENT_LOCAL_IDS else 1,

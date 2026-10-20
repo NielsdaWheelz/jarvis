@@ -115,8 +115,9 @@ receipts qualify only their named artifacts and boundaries.
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 - worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
-  skid cli and private macbook/devbox/arch client configuration; coordinated
-  orchestration release/fleet installation remains separate
+  skid cli and live installed computer state (`JARVIS_AGENT_STATE_DIRECTORY`);
+  macbook/devbox/arch remain personal tool enums. [service-state access](docs/issues/skid-installed-state-access.md)
+  blocks installed worker cutover pending separate deployment integration
 - cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate
   contained stock endpoint and the existing personal host account
 

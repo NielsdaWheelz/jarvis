@@ -119,8 +119,6 @@ def write_effect_descriptor(
             ("terminal_name", value.name),
             ("cwd", value.cwd),
             ("group", value.group),
-            ("model", value.model),
-            ("effort", value.effort),
         ):
             if item is not None:
                 targets.append(

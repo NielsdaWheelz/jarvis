@@ -1184,7 +1184,8 @@ pipeline, never a nested agent.
 | `memory.search`, `memory.open`, `memory.view`, `memory.zoom`, `memory.date` | main, dreamer | Read; automatic |
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
-worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md).
+worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
+amended by [adr 0068](docs/decisions/0068-generalized-skid-consumer.md).
 all model inputs and outputs are closed. machines are `macbook|devbox|arch`;
 profiles are `personal|work|work2|claude-work`. addressed inputs contain
 `target:{machine,handle}`: `t-` or `c-` plus 16 lowercase hexadecimal characters.
@@ -1194,7 +1195,7 @@ names are labels. no opaque ref or raw provider/process identity is model-facing
 | --- | --- | --- |
 | agent.list | machine?, group?, unassigned?; group/unassigned exclusive | list [--machine …] [--group … or --unassigned] |
 | agent.info | target | info t-HANDLE or inspect c-HANDLE --machine … |
-| agent.start | machine, profile, name?, cwd?, group?, model?, effort?, prompt? | start [name] --machine … --profile … [--cwd/group/model/effort …] [--stdin] |
+| agent.start | machine, profile, name?, cwd?, group?, prompt? | start [name] --machine … --profile … [--cwd/group …] [--stdin] |
 | agent.read | target, source latest/history default latest, maxBytes default 16384/max 32768; history native-only | read HANDLE --machine … [--history] --max-bytes … |
 | agent.send | target, text | send --ref CAPTURED [--input peer for native only] --stdin |
 | agent.text | terminal target, text | text --ref CAPTURED --stdin |
@@ -1204,14 +1205,15 @@ names are labels. no opaque ref or raw provider/process identity is model-facing
 | agent.wait | target, observable state default idle, timeout_seconds default 300/1–86400, maxBytes default 16384/max 32768 | durable local registration; watcher uses wait --ref CAPTURED --state … --timeout CHUNK |
 | agent.cancel_wait | action_id | durable local cancellation; no worker mutation |
 
-all cli commands use fixed `--config` and `--json`, argv without a shell, minimal
+all cli commands use fixed `--config STATE_DIRECTORY` and `--json`; the directory
+is skid's live installed computer state, never the retired private client json.
+argv uses no shell and minimal
 `PATH=/usr/bin:/bin`, and literal text through stdin. text/prompt is nonempty,
 at most 32768 utf-8 bytes and contains no nul. keys are enter, escape, ctrl-c,
 up, down, left, right, tab, backspace, page-up and page-down. optional name uses
 skid's 1–64 ascii letter/digit/underscore/hyphen grammar, beginning letter/digit.
-model/effort values are nonempty, at most 256 utf-8 bytes, without whitespace or
-controls; they are provider values, never arbitrary configuration/argv. omission
-preserves native account defaults. initial input may fail after creation; no
+creation model/effort overrides are absent and rejected as unknown fields.
+profile commands own provider defaults. initial input may fail after creation; no
 trust/permission dialog is answered automatically.
 
 raw text admission does not guarantee fit in skid's 65536-byte serialized body.
@@ -1808,7 +1810,7 @@ the root-owned schema-4 codex host mapping contains only the contained personal
 endpoint and explicit host/app/group/cwd identities. worker routing comes only
 from the
 explicit skid settings, `JARVIS_AGENT_CLI_PATH` and
-`JARVIS_AGENT_CLIENT_CONFIG_PATH` (adr 0052). deployment owns this mapping;
+`JARVIS_AGENT_STATE_DIRECTORY` (adr 0068). deployment owns this mapping;
 worker launcher fields do not belong to it.
 
 The checked-in compatibility manifest schema v3 records

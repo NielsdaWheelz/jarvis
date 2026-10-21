@@ -3,8 +3,7 @@
 status: source repaired, 2026-10-13; remaining live qualification is tracked in
 [jarvis](issues/memory-live-qualification.md) and
 [nexus](issues/nexus-memory-live-qualification.md), with
-[image qualification](issues/nexus-memory-image-qualification.md) and
-[hosted verification](issues/memory-ci-build-credential.md) separate.
+[image qualification](issues/nexus-memory-image-qualification.md) separate.
 the owner selected source completion with qualification gaps reported explicitly,
 then requested issues, prs/merges and cleanup. this does not waive live acceptance.
 the owner selected source fixes and isolated qualification, excluding installation

@@ -7,8 +7,9 @@ preceding consolidated accepted contract, 2026-10-06. worker source is implement
 under [adr 0064](decisions/0064-simple-worker-orchestration.md); installed paired
 qualification remains open. v9 terminal-only source and isolated qualification are complete under adr 0069. the [roadmap](implementation-plan.md#o8-richer-start-and-asynchronous-wait)
 owns sequencing; [spec §7.3](../SPEC.md#73-tool-contracts-and-exact-catalog) and
-the [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md)
-own the full existing schemas. no new product choice is required.
+the [terminal-only paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md)
+own the current schemas. earlier native-era qualification applies only to its
+recorded source.
 
 ## goal and boundaries
 
@@ -39,7 +40,7 @@ profiles are `personal`, `work`, `work2`, `claude-work`. names are labels.
 | tools | contract |
 | --- | --- |
 | `agent.list` | machine/group/unassigned filters; group and unassigned exclusive; preserve empty versus partial/unavailable inventory |
-| `agent.info` | target; preserve observed status and method availability |
+| `agent.info` | target; preserve observed terminal status/unavailability |
 | `agent.start` | machine/profile required; optional name/cwd/group/prompt; omitted provider values retain account defaults |
 | `agent.read` | target, `maxBytes = 16384`, range 1–32768; preserve terminal source/scope/truncation |
 | `agent.send`, `agent.text`, `agent.keys` | send uses guarded terminal input for either provider; text/keys are deliberate terminal input |
@@ -135,39 +136,17 @@ and usefulness, not wording; no new runtime critic.
 | jarvis adapter | `agent_tools.py`, `agent_control.py`: existing schemas, capture, transport/watcher; change only for a demonstrated defect |
 | jarvis durability/composition | `actions.py`, `write_dispatch.py`, `service.py`, `native_journal.py`, `tool_composition.py`, `write_policy.py`, `definitions.py`, `cli.py`: existing receipts/events/admission; applies designer content |
 | skid release | publish immutable artifacts containing the implemented paired contract; no new worker protocol/source redesign |
-| dev-server installer | `devbox`, `assets/skidbladnir/release-pin.json`, `lib/skidbladnir.sh`, `ansible/playbooks/gateway.yml`, `SPEC.md`: paired cli/gateway pins and canonical-pause preflight |
-| jarvis deployment | `deploy/activate-release`, `deploy/install-agent-client`, `deploy/install-private-state`, `docs/operations.md`: preparation boundary, explicit target selection and bootstrap order |
+| dev-server consumer | matching published skid pin and desired personal yaml; skid owns installation/services |
+| jarvis deployment | separately resolve live installed-state access under the existing service containment before installed cutover |
 | temporary qualification | scoped proof files only; installed artifact/configuration and actual service/discord evidence |
 
-source is already qualified; remaining code repair is the installer boundary.
-dev-server still reads retired `jarvis-paused.v1`; native jarvis rejects that file.
-use the target release's existing `jarvis check-paused` as jarvis:jarvis with the
-existing runtime env files/systemd restrictions. retain stopped-service and
-identical-byte/owner/mode no-op checks. no direct database query or file fallback.
-the private-client installer must use that same target, not an obsolete `/current`.
-track this in [cli cutover](issues/skid-terminal-flags.md).
-
-planned deployment inputs:
-
-- `deploy/activate-release FULL_GIT_COMMIT --prepare-only`: reuse one preparation
-  implementation for release/env/clean-stop/contained-host checks, migration and
-  native conversion. finish with target `check-paused`; exit before activation
-  checks, service-unit/current changes or startup. ordinary activation reuses it.
-- `deploy/install-agent-client FULL_GIT_COMMIT`: require the explicit target.
-- `deploy/install-private-state`: install environment/connector secrets only;
-  remove its eager client call, unused client input and misleading success text.
-  client installation is explicit after canonical pause preparation.
-- dev-server `devbox` forwards invocation input `JARVIS_RELEASE_COMMIT` as gateway
-  playbook `jarvis_release_commit`: pass it as the preflight's
-  fourth argument, replacing the pause-file path. require it for replacements;
-  identical installs remain inert.
-
-one full 40-hex commit selects admitted `/opt/jarvis/releases/COMMIT` for all three.
-validate its existing `RELEASE.json` and executable through existing release
-admission rules; never select arbitrary paths or fall back to `/current`.
-reuse the deployment lock/retention rules; preparation preserves the candidate.
-adoption supersedes adr 0052's full-private-state/client composition and updates
-the runbook; no no-argument client-install fallback.
+source qualification does not resolve installed deployment. generalized skid
+reads the enrolled owner's live state; the jarvis service cannot access it under
+its current uid and containment. `deploy/install-agent-client` refuses explicitly.
+the [service-state access issue](issues/skid-installed-state-access.md) owns that
+separate decision and proof. dev-server no longer installs a private jarvis
+client or reads `jarvis-paused.v1`; the former file-pause installer proposal is
+superseded. no copied state or privilege bridge is assigned by worker v9.
 
 ## cutover and acceptance
 
@@ -176,13 +155,13 @@ the runbook; no no-argument client-install fallback.
    without starting jarvis; complete existing preparation/native
    conversion first. a fresh database needs migration and public
    `initialize-state` instead of importing predecessor state.
-3. target `check-paused` must pass before changing gateway/cli/private client.
+3. target `check-paused` must pass before changing worker cli/configuration.
    missing canonical pause, competing owner, unavailable database/qualified
    release or retired files refuse; preserve current executables on refusal.
 4. install paired artifacts/configuration, run target pre-start activation checks,
    activate PAUSED, then run `deploy/verify-containment` before explicit owner
    resume. installed turn journeys require authorized resumed admission.
-   finalized v1–v6 worker bytes stay opaque;
+   finalized v1–v8 worker bytes stay opaque;
    unfinished retired state refuses activation. no compatibility decoder.
 
 rollback requires proof the prior release reads current schema/contracts and
@@ -190,13 +169,10 @@ paired configuration. incompatible conversion or new receipts requires preservin
 evidence and forward repair. code rollback cannot undo worker effects; never
 restore over them.
 
-reuse [source qualification](native-agent-integration.md#qualification); do not
-manufacture new red evidence for already-green source. for the installer defect,
-temporary end-to-end red proves native pause/fileless bootstrap fails today;
-green proves target selection, refusal-before-change and inert identical installs.
-also prove fresh secrets → migration/initialize-state → checker → client →
-paused activation. use actual postgres/public pause checker plus host installer
-boundaries.
+reuse [v9 source qualification](decisions/0069-terminal-only-workers.md); do not
+manufacture new red evidence for already-green source. installed work first needs
+the separately chosen live-state access boundary and paused/stopped release
+qualification; source fixtures do not establish either.
 
 remaining installed live acceptance: both-provider explicit/omitted launch options
 and literal input; partial/refused/unknown effects with no mutation replay;

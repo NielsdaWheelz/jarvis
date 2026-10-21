@@ -3,7 +3,7 @@
 - status: source implemented and isolated-qualified, 2026-10-21; installed cutover separate.
 - supersedes: worker-native targeting, reads, writes, identity and waits in
   adrs 0052/0064/0068. separate native cognition and memory archives remain binding.
-- paired contract: [terminal-only control](https://github.com/NielsdaWheelz/skidbladnir/blob/feat/terminal-only-control/docs/terminal-only-control.md).
+- paired contract: [terminal-only control](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md).
 
 ## decision
 

@@ -142,7 +142,7 @@ facts; writing this roadmap sends no assignment to another agent.
 
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
-| skid | publish the completed launch/control generation and its immutable artifact | existing [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md); implementation done, release handoff due |
+| skid | publish the terminal-only generation and its immutable artifact | [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md), [worker v9](decisions/0069-terminal-only-workers.md); source implemented, release handoff due |
 | dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
 | memory library | standalone postgres archive/tree/view/search package, hosted by jarvis; public operations and atomic capture/checkpoint seam | [memory contract](universal-memory.md); private main `d824d33df9c136952f1d01f7c4a4ad389df42ef1`, qualified and adopted in both frozen consumers |
@@ -588,7 +588,7 @@ intent merely because their implementation is incomplete.
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
 | o6 | replacement authority/lineage and notification rules for equal-capability turns |
 | o7 | owner choices settled in [work-record contract](work-records.md); table/spec/adr adoption and focused implementation proof remain |
-| o8 | [contract](worker-launch-observation.md) consolidates implemented adr 0064; source qualification complete; canonical-pause installer repair, paired installed cutover and external delivery remain |
+| o8 | [contract](worker-launch-observation.md) and adr 0069 own terminal-only v9; source qualified; separate service-state access decision, paired installed cutover and external delivery remain |
 | o9 | owner decisions settled in [contract](delegated-follow-through.md); concise behavior/content and chat-stop cutover due |
 | new event sources | ingress/deduplication, recurrence, notification and self-trigger suppression; every source uses the same main |
 | m1–m5 | provider archive/codecs, production transient recorder and package pins, declared lane controllers/sharing, mcp/server qualification, shared embedding retry repair |

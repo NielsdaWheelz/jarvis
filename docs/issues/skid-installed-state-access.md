@@ -1,5 +1,10 @@
 # skid installed-state access for the jarvis service
 
+decision, 2026-10-21: the owner authorized terminal-only skid pr integration,
+release and deployment. jarvis must remain STOPPED pending separate live-state
+access-boundary work and qualification. no new privilege bridge or copied state
+is authorized by this decision.
+
 problem: the generalized skid cli reads the enrolled computer's live installed
 state directory. jarvis runs as `jarvis`; the devbox installation belongs to
 `niels`, whose state directory is `0700` with `0600` private files. jarvis also

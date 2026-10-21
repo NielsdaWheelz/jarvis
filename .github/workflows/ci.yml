@@ -14,12 +14,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
-          version: 0.11.28
+          version: 0.13.4
           enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version-file: ".python-version"
       - name: Static and build checks
-        env:
-          UNIVERSAL_MEMORY_READ_TOKEN: ${{ secrets.UNIVERSAL_MEMORY_READ_TOKEN }}
-        run: scripts/with-memory-git scripts/verify
+        run: scripts/verify

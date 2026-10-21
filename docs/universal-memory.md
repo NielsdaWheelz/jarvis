@@ -1778,9 +1778,8 @@ remaining acceptance is explicit in
 [live inference/cache/native persistence](issues/memory-live-qualification.md),
 [canonical nexus rows/routes](issues/nexus-memory-live-qualification.md) and
 [clean image/secret qualification](issues/nexus-memory-image-qualification.md).
-jarvis's [hosted verification](issues/memory-ci-build-credential.md) stops before
-checks because its private-dependency actions secret is absent; local frozen
-verification does not make that hosted job green.
+the memory library is now public; jarvis's hosted verification fetches its exact
+git pin without a private-dependency credential.
 synthetic proof does not waive those requirements. dev-server retains its prior
 qualified release pin until the complete repair candidate is qualified; no fleet
 apply, private provisioning, personal-history admission or activation occurred.

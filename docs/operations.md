@@ -160,14 +160,10 @@ repaired in place. Each release carries its own interpreter/package bytes:
 additional disk use buys independence from private account homes and writable
 builder caches. It refuses tracked changes.
 
-the existing builder identity must have git read access to the private
+the existing builder identity must have git read access to the public
 `NielsdaWheelz/universal-memory` repository before installation. the installer
-checks that access before pruning a candidate. ci supplies
-`UNIVERSAL_MEMORY_READ_TOKEN` through the process-scoped
-`scripts/with-memory-git` helper; local builds may use ordinary authenticated git.
-the helper stores no credential and scopes it to that repository. provisioning
-the builder access and ci secret is a separate
-[handoff](issues/private-memory-build-access.md) from source qualification.
+checks that access before pruning a candidate. ci and local builds fetch the
+immutable public git pin without a private-dependency credential.
 
 release/contained-host installation, activation and pruning share
 `/opt/jarvis/.deploy.lock`. retain only the

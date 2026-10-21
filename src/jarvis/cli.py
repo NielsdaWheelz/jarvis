@@ -30,7 +30,7 @@ from universal_memory import MemoryError, MemoryStore
 from universal_memory.policy import bounded_text
 from universal_memory.schema import source_conversation
 
-from jarvis.actions import ActionPersistenceDefect, ActionStore
+from jarvis.actions import ActionPersistenceDefect, ActionStore, archived_worker_action
 from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.approval import ApprovalRenderError, render_approval
@@ -355,7 +355,7 @@ async def _compose_main(
     )
     agents = AgentController(
         cli_path=settings.agent_cli_path,
-        client_config_path=settings.agent_client_config_path,
+        state_directory=settings.agent_state_directory,
         actions=actions,
         source_conversation_id=str(settings.discord.channel_id),
     )
@@ -755,38 +755,81 @@ async def check_activation(
                         brave_http=http,
                     )
                     plan = definitions.plans["main"]
-                    # End the locked read before loading any action.
-                    async with database.connect() as connection:
-                        unfinished = (
-                            await connection.execute(
-                                text(
-                                    "select id, status, tool_name from action "
-                                    "where status = any(:statuses) "
-                                    "order by created_at, id"
-                                ),
-                                {
-                                    "statuses": [
-                                        "queued",
-                                        "awaiting_approval",
-                                        "executing",
-                                        "uncertain",
-                                    ]
-                                },
-                            )
-                        ).all()
-                    verdicts: list[tuple[UUID, str, str, str]] = []
-                    for action_id, status, tool_name in unfinished:
-                        verdict = (
-                            "in_flight"
-                            if status in {"executing", "uncertain"}
-                            else await _pending_action_verdict(actions, plan, action_id)
-                        )
-                        verdicts.append((action_id, status, tool_name, verdict))
-                    return tuple(verdicts)
+                    return await _action_activation_verdicts(
+                        actions,
+                        plan,
+                        source_conversation_id=str(settings.discord.channel_id),
+                    )
             finally:
                 await agent_runtime.close()
     finally:
         await engine.dispose()
+
+
+async def _action_activation_verdicts(
+    actions: ActionStore,
+    plan: FrozenToolPlan,
+    *,
+    source_conversation_id: str,
+) -> tuple[tuple[UUID, str, str, str], ...]:
+    """assess stored execution authority without opening providers or connectors."""
+    # End the locked read before loading any action.
+    async with actions.engine.connect() as connection:
+        unfinished = (
+            await connection.execute(
+                text(
+                    "select id, status, tool_name from action "
+                    "where status = any(:statuses) "
+                    "order by created_at, id"
+                ),
+                {
+                    "statuses": [
+                        "queued",
+                        "awaiting_approval",
+                        "executing",
+                        "uncertain",
+                    ]
+                },
+            )
+        ).all()
+    retired_reports = await actions.unreported_terminal(
+        source_conversation_id=source_conversation_id,
+        limit=100,
+        retired_only=True,
+    )
+    verdicts = [
+        (
+            item.id,
+            item.status,
+            str(item.tool_name),
+            "incompatible retired_pending_events",
+        )
+        for item in retired_reports
+    ]
+    reported = {item.id for item in retired_reports}
+    for action_id, status, tool_name in unfinished:
+        if action_id in reported:
+            continue
+        if status == "uncertain":
+            try:
+                stored = await actions.get(action_id)
+            except ActionPersistenceDefect:
+                verdict = "incompatible does_not_load"
+            else:
+                if stored is not None and archived_worker_action(stored):
+                    verdict = (
+                        "compatible"
+                        if not retired_reports
+                        else "incompatible retired_pending_events"
+                    )
+                else:
+                    verdict = "in_flight"
+        elif status == "executing":
+            verdict = "in_flight"
+        else:
+            verdict = await _pending_action_verdict(actions, plan, action_id)
+        verdicts.append((action_id, status, tool_name, verdict))
+    return tuple(verdicts)
 
 
 async def _pending_action_verdict(

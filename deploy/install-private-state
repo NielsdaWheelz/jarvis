@@ -5,7 +5,7 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
 source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
-source_agent_client="${JARVIS_SOURCE_AGENT_CLIENT_CONFIG:?supply the provisioned private skid client configuration}"
+agent_state_directory="${JARVIS_AGENT_STATE_DIRECTORY:?worker deployment is blocked until docs/issues/skid-installed-state-access.md is resolved}"
 source_memory="${JARVIS_SOURCE_MEMORY_CONFIG:-$repo_dir/deploy/memory-config.example.json}"
 
 for path in "$source_environment" "$source_google" "$source_memory"; do
@@ -26,12 +26,15 @@ trap cleanup EXIT HUP INT TERM
 chmod 0700 "$scratch"
 umask 077
 
-python3 - "$source_environment" "$scratch/jarvis.env" <<'PY'
+python3 - "$source_environment" "$scratch/jarvis.env" "$agent_state_directory" <<'PY'
 import pathlib
 import re
 import sys
 
 source = pathlib.Path(sys.argv[1])
+agent_state_directory = pathlib.Path(sys.argv[3])
+if not agent_state_directory.is_absolute():
+    raise SystemExit("agent installed state directory must be absolute")
 target = pathlib.Path(sys.argv[2])
 required = {
     "JARVIS_BRAVE_API_KEY",
@@ -72,7 +75,6 @@ JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_MODEL=gpt-5.6-terra
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
 JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
-JARVIS_AGENT_CLIENT_CONFIG_PATH=/etc/jarvis/agent-client.json
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
@@ -84,6 +86,7 @@ JARVIS_MEMORY_NIGHTLY_TIME=03:00
 JARVIS_MAXIMUM_BATCH_SIZE=20
 JARVIS_DELIVERY_BATCH_SIZE=20
 """
+static += "JARVIS_AGENT_STATE_DIRECTORY=" + str(agent_state_directory) + "\n"
 target.write_bytes(raw.rstrip(b"\n") + b"\n" + static.encode("utf-8"))
 target.chmod(0o600)
 PY
@@ -111,8 +114,7 @@ cp -p "$source_google" "$scratch/google-oauth-state.json"
 chmod 0600 "$scratch/google-oauth-state.json"
 
 # Validate the application declaration before entering either remote install.
-JARVIS_SOURCE_AGENT_CLIENT_CONFIG="$source_agent_client" \
-  "$repo_dir/deploy/install-agent-client"
+"$repo_dir/deploy/install-agent-client"
 
 remote="$(ssh "$target" mktemp -d /tmp/jarvis-private-state.XXXXXX)"
 case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
@@ -139,5 +141,5 @@ sudo install -m 0600 -o jarvis -g jarvis \
 sudo install -m 0600 -o jarvis -g jarvis \
   "$remote/google-oauth-state.json" \
   /var/lib/jarvis/connectors/google-oauth-state.json
-printf 'installed jarvis private state; agent client configuration validated.\n'
+printf 'installed jarvis private state; worker installed-state access validated.\n'
 REMOTE

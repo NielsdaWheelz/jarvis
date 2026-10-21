@@ -78,6 +78,10 @@ supersedes the affected session, main-loop, host and capacity decisions below.
 | [0066](0066-optchat-memory-adoption.md) | optchat memory adoption | accepted scoped target; standalone memory library hosted by jarvis, archive/tree/view with ordinary part leaves, bounded tool results, persisted binary views, search/navigation and fresh jarvis turns; native clients stay native; product/schema/integration contracts complete, first-delivery quiet dreaming; implementation/live acceptance `NOT_RUN` |
 | [0067](0067-nexus-owner-chat-memory.md) | nexus owner-chat memory client | accepted distinct backend client; owner-only send/rerun/regenerate grants, complete processor-chain admission and tagged note provenance; sixteen native capture lanes unchanged; source qualification in [memory integration evidence](../universal-memory.md#12-integration-evidence), private provisioning separate |
 
+| [0068](0068-generalized-skid-consumer.md) | generalized skid consumer | source adapter removes launch model/effort and reads installed state; installed service-uid access blocked pending separate integration |
+
+| [0069](0069-terminal-only-workers.md) | terminal-only skid workers | v9 source implemented and isolated-qualified; removes worker-native controls and classifies finalized retired envelopes before target decoding; installed cutover separate |
+
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current
 verification requirements.

@@ -13,6 +13,17 @@ changes before implementation. [operations](operations.md) owns deployment and
 repair. [adrs](decisions/README.md) preserve rationale; retired delivery checklists,
 qualification reports and completed cleanup logs live in git history.
 
+## terminal-only worker cutover — source implemented and isolated-qualified
+
+[adr 0069](decisions/0069-terminal-only-workers.md) and the linked skid spec
+own implemented v9 terminal-only worker control, closed schemas and opaque
+retired-row loading. existing v8 generalized-client source is composed before this removal;
+no private client-json path returns. 13 distinct disposable checks plus engineering verification pass; independent
+review and deletion are recorded in the adr.
+installed cutover remains separate and blocked by
+[service-state access](issues/skid-installed-state-access.md). source checks
+cannot establish installed service or delivery acceptance.
+
 ## destination and rules
 
 one visible jarvis remembers context, keeps useful working records and carries
@@ -63,16 +74,21 @@ correctness defects and adr-number collisions are resolved. these are completed
 source handoffs, not new feature-spec assignments.
 
 production activation remains separate. the last recorded jarvis state is stopped
-and paused; this reconciliation inspected no running service. skid's current
-published/dev-server pin is v0.13.0, from before the orchestration merge. publishing
-and installing the matching generation is still o2. a current source checkout is
-not an installed fleet receipt.
+and paused; this reconciliation inspected no running service. dev-server's exact
+release-pin file owns the selected published skid version. v9 source and signed
+fixture proof do not change that installed generation. matching release/pin,
+service-state access and installed worker observation remain operational cutover.
+
+pending worker search may inspect only retained terminal history through
+`agent.read`; it cannot promise complete saved conversations or route silently
+to provider-native archives/shared memory. independent memory retrieval remains
+its own explicitly selected capability.
 
 ## operational cutovers and upkeep
 
 | item | owner / remaining result |
 | --- | --- |
-| skid release and fleet cutover (o2) | skid publishes the immutable orchestration generation; dev-server pins/installs matching gateways and cli; jarvis installs its matching private client/configuration; [cutover issue](issues/skid-terminal-flags.md) |
+| skid release and fleet cutover (o2) | skid publishes the immutable orchestration generation; dev-server pins/installs matching gateways and cli; jarvis consumes matching live installed state after its service-access boundary is resolved; [cutover issue](issues/skid-terminal-flags.md) |
 | native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
@@ -126,7 +142,7 @@ facts; writing this roadmap sends no assignment to another agent.
 
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
-| skid | publish the completed launch/control generation and its immutable artifact | existing [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md); implementation done, release handoff due |
+| skid | publish the terminal-only generation and its immutable artifact | [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md), [worker v9](decisions/0069-terminal-only-workers.md); source implemented, release handoff due |
 | dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
 | memory library | standalone postgres archive/tree/view/search package, hosted by jarvis; public operations and atomic capture/checkpoint seam | [memory contract](universal-memory.md); private main `d824d33df9c136952f1d01f7c4a4ad389df42ef1`, qualified and adopted in both frozen consumers |
@@ -572,7 +588,7 @@ intent merely because their implementation is incomplete.
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
 | o6 | replacement authority/lineage and notification rules for equal-capability turns |
 | o7 | owner choices settled in [work-record contract](work-records.md); table/spec/adr adoption and focused implementation proof remain |
-| o8 | [contract](worker-launch-observation.md) consolidates implemented adr 0064; source qualification complete; canonical-pause installer repair, paired installed cutover and external delivery remain |
+| o8 | [contract](worker-launch-observation.md) and adr 0069 own terminal-only v9; source qualified; separate service-state access decision, paired installed cutover and external delivery remain |
 | o9 | owner decisions settled in [contract](delegated-follow-through.md); concise behavior/content and chat-stop cutover due |
 | new event sources | ingress/deduplication, recurrence, notification and self-trigger suppression; every source uses the same main |
 | m1–m5 | provider archive/codecs, production transient recorder and package pins, declared lane controllers/sharing, mcp/server qualification, shared embedding retry repair |

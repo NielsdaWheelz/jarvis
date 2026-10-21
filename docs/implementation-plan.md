@@ -13,6 +13,17 @@ changes before implementation. [operations](operations.md) owns deployment and
 repair. [adrs](decisions/README.md) preserve rationale; retired delivery checklists,
 qualification reports and completed cleanup logs live in git history.
 
+## terminal-only worker cutover — source implemented and isolated-qualified
+
+[adr 0069](decisions/0069-terminal-only-workers.md) and the linked skid spec
+own implemented v9 terminal-only worker control, closed schemas and opaque
+retired-row loading. existing v8 generalized-client source is composed before this removal;
+no private client-json path returns. 13 distinct disposable checks plus engineering verification pass; independent
+review and deletion are recorded in the adr.
+installed cutover remains separate and blocked by
+[service-state access](issues/skid-installed-state-access.md). source checks
+cannot establish installed service or delivery acceptance.
+
 ## destination and rules
 
 one visible jarvis remembers context, keeps useful working records and carries
@@ -63,16 +74,21 @@ correctness defects and adr-number collisions are resolved. these are completed
 source handoffs, not new feature-spec assignments.
 
 production activation remains separate. the last recorded jarvis state is stopped
-and paused; this reconciliation inspected no running service. skid's current
-published/dev-server pin is v0.13.0, from before the orchestration merge. publishing
-and installing the matching generation is still o2. a current source checkout is
-not an installed fleet receipt.
+and paused; this reconciliation inspected no running service. dev-server's exact
+release-pin file owns the selected published skid version. v9 source and signed
+fixture proof do not change that installed generation. matching release/pin,
+service-state access and installed worker observation remain operational cutover.
+
+pending worker search may inspect only retained terminal history through
+`agent.read`; it cannot promise complete saved conversations or route silently
+to provider-native archives/shared memory. independent memory retrieval remains
+its own explicitly selected capability.
 
 ## operational cutovers and upkeep
 
 | item | owner / remaining result |
 | --- | --- |
-| skid release and fleet cutover (o2) | skid publishes the immutable orchestration generation; dev-server pins/installs matching gateways and cli; jarvis installs its matching private client/configuration; [cutover issue](issues/skid-terminal-flags.md) |
+| skid release and fleet cutover (o2) | skid publishes the immutable orchestration generation; dev-server pins/installs matching gateways and cli; jarvis consumes matching live installed state after its service-access boundary is resolved; [cutover issue](issues/skid-terminal-flags.md) |
 | native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |

@@ -1,8 +1,11 @@
 # worker launch and asynchronous observation — o8
 
-status: consolidated accepted contract, 2026-10-06. worker source is implemented
+status: amended by [adr 0069](decisions/0069-terminal-only-workers.md), 2026-10-20.
+worker v9 is terminal-only; earlier qualification retains its original source.
+
+preceding consolidated accepted contract, 2026-10-06. worker source is implemented
 under [adr 0064](decisions/0064-simple-worker-orchestration.md); installed paired
-qualification remains open. this task changes docs only. the [roadmap](implementation-plan.md#o8-richer-start-and-asynchronous-wait)
+qualification remains open. v9 terminal-only source and isolated qualification are complete under adr 0069. the [roadmap](implementation-plan.md#o8-richer-start-and-asynchronous-wait)
 owns sequencing; [spec §7.3](../SPEC.md#73-tool-contracts-and-exact-catalog) and
 the [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/ab9e0acf0c01e2a94d785016cd9500e20bac1787/docs/jarvis-orchestration.md)
 own the full existing schemas. no new product choice is required.
@@ -30,23 +33,22 @@ of that policy implicitly in o8.
 
 reuse closed models in `agent_tools.py`; every write retains `ActionRequest` and
 the existing serial action lane. target is `{machine,handle}`: machine is
-`macbook`, `devbox` or `arch`; handle is `t-`/`c-` plus 16 lowercase hex digits.
+`macbook`, `devbox` or `arch`; handle is `t-` plus 16 lowercase hex digits.
 profiles are `personal`, `work`, `work2`, `claude-work`. names are labels.
 
 | tools | contract |
 | --- | --- |
 | `agent.list` | machine/group/unassigned filters; group and unassigned exclusive; preserve empty versus partial/unavailable inventory |
 | `agent.info` | target; preserve observed status and method availability |
-| `agent.start` | machine/profile required; optional name/cwd/group/model/effort/prompt; omitted provider values retain account defaults |
-| `agent.read` | target, source latest/history (history native-only), `maxBytes = 16384`, range 1–32768; preserve scope/truncation/output state |
-| `agent.send`, `agent.text`, `agent.keys` | send uses guarded terminal input for either provider; explicit c-target selects native input; text/keys terminal-only; claude native input unavailable |
-| `agent.stop`, `agent.close` | stop targets terminal/native explicitly; native claude interactive stop unavailable; close terminal-only, `terminal_only = false`; interruption and closure remain separate facts |
+| `agent.start` | machine/profile required; optional name/cwd/group/prompt; omitted provider values retain account defaults |
+| `agent.read` | target, `maxBytes = 16384`, range 1–32768; preserve terminal source/scope/truncation |
+| `agent.send`, `agent.text`, `agent.keys` | send uses guarded terminal input for either provider; text/keys are deliberate terminal input |
+| `agent.stop`, `agent.close` | stop interrupts the selected terminal; close is terminal-only, `terminal_only = false`; interruption and closure remain separate facts |
 | `agent.wait` | target, `state = idle`, `timeout_seconds = 300` (1–86400), `maxBytes = 16384` (1–32768) |
 | `agent.cancel_wait` | original wait `action_id`; returns cancelled/already_settled; observation only |
 
-wait states: t-target idle/working/needs-input; c-target idle/blocked/done/failed/
-stopped. prompt/text is nonempty, at most 32768 utf-8 bytes, no nul, literal stdin.
-model/effort is at most 256 bytes without whitespace/controls. name uses skid's
+wait states: idle/working/needs-input. prompt/text is nonempty, at most 32768
+utf-8 bytes, no nul, literal stdin. name uses skid's
 existing 1–64 ascii grammar. keys use the existing 1–16-key allowlist. retain
 cwd/group bounds and encoded-body preflight; never crop input to make it fit.
 
@@ -62,8 +64,8 @@ not null. hide structured opaque refs/process/account identities from model
 results; preserve their immutable private evidence. resolve fresh reads normally;
 capture addressed writes/waits ONCE before insertion into
 `execution_contract.agent_target`. dispatch uses the original opaque `--ref`;
-changed panes/successors never renew it. codex native stop retains its captured
-turn; claude's background helper selects its job at dispatch, not admission.
+changed panes/successors never renew it. native conversation targets and
+read/write/identity paths are removed without compatibility decoding.
 
 fixed argv/config/json, no shell. concurrent stdin/stdout, discarded stderr,
 existing 1 mib inventory/64 kib other stdout caps. retain 20-second child fences
@@ -74,8 +76,7 @@ and current 20/45-second tool deadlines; cleanup kills only the cli child.
 external start/send/text/keys/stop/close are `BilledOnce`: one executor entry.
 known staged `agent_control_v5` evidence settles through the same classifier on
 restart without dispatch. missing/unknown evidence remains uncertain; never
-relaunch/resend automatically. native accepted-send evidence is unstaged, so its
-pre-settlement crash remains uncertain.
+relaunch/resend automatically.
 
 wait/cancel are local `ReDispatchable` actions: two lifetime entries, zero worker
 mutation attempts. reuse `ActionStore`/`ActionPositionRecorder`:
@@ -85,7 +86,7 @@ registration_receipt = {action_id,target,state,deadline,recorded_at,
                         arguments_digest,status:"watching"}
 action.result = {registration_receipt,wait_outcome:null | AgentWaitOutcome}
 wait_outcome = {target,outcome,recorded_at,cancellation_action_id?,
-                status?,terminalStatus?,output?,failure?}
+                terminalStatus?,output?,failure?}
 ```
 
 return watching immediately; action stays queued. original callback always
@@ -114,7 +115,7 @@ shutdown cancels read children and joins database settlement before ownership en
 brief: concrete objective, useful context/scope and requested evidence; ordinary
 prose, no template or report protocol. results identify the worker and what
 happened; include unknowns/next steps when material. distinguish creation, dispatched
-bytes, native admission, observed state and evidenced task completion.
+bytes, observed terminal state and evidenced task completion.
 
 good brief: `inspect the authentication flow in /srv/example. explain the expired-session 500; no code changes. include files and evidence.`
 

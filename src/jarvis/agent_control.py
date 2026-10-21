@@ -35,7 +35,6 @@ from jarvis.agent_tools import (
     AgentError,
     AgentInfoInput,
     AgentInfoResult,
-    AgentInspectResult,
     AgentKeysInput,
     AgentLabel,
     AgentListInput,
@@ -44,7 +43,6 @@ from jarvis.agent_tools import (
     AgentReadInput,
     AgentReadResult,
     AgentSendInput,
-    AgentSendResult,
     AgentSessionResult,
     AgentStartInput,
     AgentStartResult,
@@ -159,10 +157,6 @@ def classify_agent_receipt(
         value, AgentTargetInput
     ):
         raise ValueError("foreign write receipt")
-    if (observed.method == "native") != value.target.native or (
-        observed.method == "native" and operation != "stop"
-    ):
-        raise ValueError("write receipt differs from target or operation")
     if observed.outcome == "unknown":
         return None
     return AgentControlResult(
@@ -202,9 +196,6 @@ def _session(machine: AgentLabel, value: object) -> AgentSessionResult:
     row = AgentTerminal.model_validate(value)
     return AgentSessionResult(
         target=AgentTarget(machine=machine, handle=row.terminalHandle),
-        conversation=None
-        if row.conversationHandle is None
-        else AgentTarget(machine=machine, handle=row.conversationHandle),
         name=row.name,
         provider=None if row.agent is None else row.agent.provider,
         profile=None if row.agent is None else row.agent.profile,
@@ -215,16 +206,12 @@ def _session(machine: AgentLabel, value: object) -> AgentSessionResult:
 
 
 def _output(target: AgentTarget, value: WireReadResult) -> AgentReadResult:
-    if (value.source == "native") != target.native:
-        raise ValueError("read substituted target kind")
     return AgentReadResult(
         target=target,
         text=value.text,
         source=value.source,
         scope=value.scope,
         truncated=value.truncated,
-        outputState=value.outputState,
-        status=None if value.observation is None else value.observation.status,
     )
 
 
@@ -357,51 +344,6 @@ class AgentController:
         self, tool_id: ToolId, value: AgentTargetInput
     ) -> AgentWriteTarget:
         target = value.target
-        if target.native:
-            if str(tool_id) in {"agent.text", "agent.keys", "agent.close"}:
-                raise ValueError("terminal operation requires t- handle")
-            deadline = asyncio.get_running_loop().time() + AGENT_CALL_SECONDS
-            observed = await self._call(
-                ["inspect", target.handle, "--machine", target.machine],
-                AgentInspectResult,
-            )
-            if (
-                isinstance(observed, WireFailure)
-                or not observed.inspection.ok
-                or observed.label != target.machine
-            ):
-                raise ValueError("native capture unavailable")
-            name = None
-            try:
-                async with asyncio.timeout_at(deadline):
-                    inventory = await self._call(
-                        ["list", "--machine", target.machine],
-                        WireInventory,
-                        inventory=True,
-                    )
-                if not isinstance(inventory, WireFailure):
-                    matches = [
-                        row
-                        for peer in inventory.peers
-                        if peer.ok
-                        and peer.label == target.machine
-                        and peer.machine == observed.machine
-                        for row in peer.sessions or ()
-                        if row.conversation == observed.target.conversation
-                    ]
-                    if len(matches) == 1:
-                        name = matches[0].name
-            except TimeoutError:
-                # Optional display metadata cannot revoke the native capture.
-                pass
-            return AgentWriteTarget(
-                target=target,
-                ref=observed.target.ref,
-                name=name,
-                profile=observed.target.conversation.profileKey,
-                conversation=observed.target.conversation,
-                turn=observed.target.turn,
-            )
         observed = await self._call(
             ["info", target.handle, "--machine", target.machine], ObservedSession
         )
@@ -424,9 +366,9 @@ class AgentController:
         self, value: AgentTargetInput, context: ExecutionContext
     ) -> AgentWriteTarget:
         stored = await self._actions.get(self._effect_id(context))
-        if stored is None or stored.execution_contract.agent_target is None:
+        if stored is None or stored.agent_target is None:
             raise RuntimeError("addressed action lacks captured target")
-        captured = stored.execution_contract.agent_target
+        captured = stored.agent_target
         if captured.target != value.target:
             raise RuntimeError("action substituted model target")
         return captured
@@ -494,36 +436,15 @@ class AgentController:
         self, value: AgentInfoInput, context: ExecutionContext | None = None
     ) -> HandlerSuccess[AgentInfoResult]:
         target = value.target
-        if target.native:
-            result = await self._call(
-                ["inspect", target.handle, "--machine", target.machine],
-                AgentInspectResult,
-            )
-            if isinstance(result, WireFailure):
-                self._failure(result, target=target)
-            if result.label != target.machine:
-                raise ValueError("inspection substituted machine")
-            current = result.inspection.result
-            projected = AgentInfoResult(
-                target=target,
-                provider=result.target.conversation.provider,
-                profile=result.target.conversation.profileKey,
-                status=None if current is None else current.status,
-                methods=None if current is None else current.methods,
-                failure=None
-                if result.inspection.error is None
-                else result.inspection.error.code,
-            )
-        else:
-            result = await self._call(
-                ["info", target.handle, "--machine", target.machine], ObservedSession
-            )
-            if isinstance(result, WireFailure):
-                self._failure(result, target=target)
-            row = _session(result.label, result.session)
-            if row.target != target:
-                raise ValueError("inspection substituted target")
-            projected = AgentInfoResult(target=target, terminal=row)
+        result = await self._call(
+            ["info", target.handle, "--machine", target.machine], ObservedSession
+        )
+        if isinstance(result, WireFailure):
+            self._failure(result, target=target)
+        row = _session(result.label, result.session)
+        if row.target != target:
+            raise ValueError("inspection substituted target")
+        projected = AgentInfoResult(target=target, terminal=row)
         return HandlerSuccess(projected, actual_attempts=1)
 
     async def read(
@@ -538,7 +459,6 @@ class AgentController:
                 target.machine,
                 "--max-bytes",
                 str(value.maxBytes),
-                *(["--history"] if value.source == "history" else []),
             ],
             WireReadResult,
         )
@@ -580,29 +500,13 @@ class AgentController:
         keys: tuple[str, ...] = (),
     ) -> HandlerSuccess[AgentControlResult]:
         captured = await self._target(value, context)
-        native = value.target.native
-        if operation in {"text", "keys"} and native:
-            raise DeclaredToolFailure(
-                AgentError(
-                    code="wrong_target_kind", dispatch="not_sent", target=value.target
-                ),
-                actual_attempts=0,
-            )
         argv = [operation, "--ref", captured.ref]
         if text is not None:
             argv += ["--stdin"]
-        if operation == "send" and native:
-            argv += ["--input", "peer"]
         argv += list(keys)
-        model = AgentSendResult if operation == "send" and native else AgentWriteResult
-        result = await self._call(argv, model, text=text, write=True)
-        if isinstance(result, AgentSendResult):
-            projected = AgentControlResult(
-                target=value.target, method=result.method, outcome=result.outcome
-            )
-        else:
-            projected = await self._receipt(operation, value, result, context)
-            assert isinstance(projected, AgentControlResult)
+        result = await self._call(argv, AgentWriteResult, text=text, write=True)
+        projected = await self._receipt(operation, value, result, context)
+        assert isinstance(projected, AgentControlResult)
         return HandlerSuccess(projected, actual_attempts=1)
 
     async def send(
@@ -694,7 +598,7 @@ class AgentController:
 
         state = agent_wait_state(stored)
         request = AgentWaitInput.model_validate(stored.payload)
-        captured = stored.execution_contract.agent_target
+        captured = stored.agent_target
         if captured is None:
             raise RuntimeError("wait lacks immutable target")
         now = datetime.now(UTC)
@@ -722,15 +626,8 @@ class AgentController:
                 recorded_at=datetime.now(UTC),
                 failure=result.code,
             )
-        if result.target != captured.ref or (
-            result.observation is not None
-            and result.observation.binding.conversation != captured.conversation
-        ):
+        if result.target != captured.ref:
             raise RuntimeError("wait substituted captured target")
-        if (request.target.native and result.terminalStatus is not None) or (
-            not request.target.native and result.observation is not None
-        ):
-            raise RuntimeError("wait substituted target kind")
         if (
             result.outcome == "timeout"
             and datetime.now(UTC) < state.registration_receipt.deadline
@@ -751,7 +648,6 @@ class AgentController:
             target=request.target,
             outcome=result.outcome,
             recorded_at=datetime.now(UTC),
-            status=None if result.observation is None else result.observation.status,
             terminalStatus=result.terminalStatus,
             output=output,
             failure=failure,

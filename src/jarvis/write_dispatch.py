@@ -540,6 +540,10 @@ class ActionRecovery:
         ):
             groups: dict[str, list[StoredAction]] = {}
             for terminal in terminals:
+                if archived_worker_action(terminal):
+                    raise RuntimeError(
+                        "retired worker events must drain before activation"
+                    )
                 groups.setdefault(terminal.execution_contract.claim_id, []).append(
                     terminal
                 )

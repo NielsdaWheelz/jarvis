@@ -486,7 +486,7 @@ class NativeRunner:
             await self.actions.insert_awaiting_approval(
                 tool_name=stored.tool_name,
                 arguments=stored.arguments,
-                execution_contract=stored.execution_contract,
+                execution_contract=stored.current_execution_contract,
                 origin_message_id=stored.origin_message_id,
                 approval_text=presentation.content,
                 source_conversation_id=self.owner.scope_id,

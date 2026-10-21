@@ -139,6 +139,10 @@ These instructions govern all work in this repository.
   transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049. cognition uses adr 0065's separate contained stock
   endpoint; its production activation is separate from worker fleet installation.
+- [adr 0069](docs/decisions/0069-terminal-only-workers.md) supersedes worker-native
+  conversation control/identity and makes worker v9 terminal-only. keep separate
+  native cognition and archive/memory libraries. classify finalized known retired
+  worker contracts before decoding their nested target; never execute archives.
 - preserve captured target kind/ref and independent interruption/closure facts
   through admission and execution. require current owner input before target lookups.
   worker writes are billed once, with one lifetime executor entry. finalized

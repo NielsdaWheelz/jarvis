@@ -83,9 +83,9 @@ type AgentKey = Literal[
 type AgentProfile = Literal["personal", "work", "work2", "claude-work"]
 type AgentReference = Annotated[str, Field(min_length=1, max_length=4096)]
 type AgentLabel = Literal["macbook", "devbox", "arch"]
-type AgentHandle = Annotated[str, Field(pattern=r"^[tc]-[0-9a-f]{16}$")]
+type AgentHandle = Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
-AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v8"
+AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v9"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
 
 
@@ -109,10 +109,6 @@ class AgentTarget(_Closed):
     machine: AgentLabel
     handle: AgentHandle
 
-    @property
-    def native(self) -> bool:
-        return self.handle.startswith("c-")
-
 
 class AgentTargetInput(_Closed):
     target: AgentTarget
@@ -135,14 +131,7 @@ class AgentListInput(_Closed):
 
 
 class AgentReadInput(AgentTargetInput):
-    source: Literal["latest", "history"] = "latest"
     maxBytes: int = Field(default=16384, ge=1, le=32768, strict=True)
-
-    @model_validator(mode="after")
-    def history_is_native(self) -> AgentReadInput:
-        if self.source == "history" and not self.target.native:
-            raise ValueError("history requires a conversation handle")
-        return self
 
 
 class AgentStartInput(_Closed):
@@ -175,12 +164,6 @@ class AgentSendInput(AgentTargetInput):
 class AgentKeysInput(AgentTargetInput):
     keys: tuple[AgentKey, ...] = Field(min_length=1, max_length=16)
 
-    @model_validator(mode="after")
-    def terminal_only(self) -> AgentKeysInput:
-        if self.target.native:
-            raise ValueError("keys require a terminal handle")
-        return self
-
 
 class AgentStopInput(AgentTargetInput):
     pass
@@ -189,79 +172,15 @@ class AgentStopInput(AgentTargetInput):
 class AgentCloseInput(AgentTargetInput):
     terminal_only: bool = False
 
-    @model_validator(mode="after")
-    def terminal_target(self) -> AgentCloseInput:
-        if self.target.native:
-            raise ValueError("close requires a terminal handle")
-        return self
-
 
 class AgentWaitInput(AgentTargetInput):
-    state: Literal[
-        "idle", "working", "needs-input", "blocked", "done", "failed", "stopped"
-    ] = "idle"
+    state: Literal["idle", "working", "needs-input"] = "idle"
     timeout_seconds: int = Field(default=300, ge=1, le=86400, strict=True)
     maxBytes: int = Field(default=16384, ge=1, le=32768, strict=True)
-
-    @model_validator(mode="after")
-    def observable_state(self) -> AgentWaitInput:
-        allowed = (
-            {"idle", "blocked", "done", "failed", "stopped"}
-            if self.target.native
-            else {"idle", "working", "needs-input"}
-        )
-        if self.state not in allowed:
-            raise ValueError("wait state differs from target kind")
-        return self
 
 
 class AgentCancelWaitInput(_Closed):
     action_id: UUID
-
-
-class Conversation(_Wire):
-    provider: Literal["Codex", "Claude"]
-    profileKey: str = Field(min_length=1)
-    historyScope: str = Field(pattern=r"^[0-9a-f]{64}$")
-    conversationId: str = Field(min_length=1)
-
-
-class Turn(_Wire):
-    id: str = Field(min_length=1)
-    state: Literal["inProgress", "completed", "failed", "interrupted"]
-
-
-class Binding(_Wire):
-    conversation: Conversation
-
-
-class Status(_Wire):
-    state: Literal["working", "blocked", "idle", "done", "failed", "stopped", "unknown"]
-    source: Literal["native", "unavailable"]
-
-    @model_validator(mode="after")
-    def unavailable_is_unknown(self) -> Status:
-        if self.source == "unavailable" and self.state != "unknown":
-            raise ValueError("unavailable status cannot claim activity")
-        return self
-
-
-class Methods(_Wire):
-    read: Literal["native", "unavailable"]
-    sendPeer: Literal["native", "unavailable"]
-    sendUser: Literal["native", "unavailable"]
-    queueUser: Literal["unavailable"]
-    stop: Literal["native", "unavailable"]
-
-
-class Observation(_Wire):
-    binding: Binding
-    status: Status
-    turn: Turn | None = None
-
-
-class ConversationRuntime(Observation):
-    methods: Methods
 
 
 class TerminalStatus(_Wire):
@@ -324,17 +243,11 @@ class TerminalStatus(_Wire):
         return self
 
 
-class ProviderSession(_Wire):
-    id: str | None = None
-    name: str | None = None
-
-
 class Agent(_Wire):
     pid: int = Field(ge=1, strict=True)
     startIdentity: str = Field(min_length=1)
     provider: Literal["Codex", "Claude"]
     profile: str | None = None
-    providerSession: ProviderSession | None = None
 
 
 class Connection(_Wire):
@@ -375,7 +288,6 @@ class AgentTerminal(_Wire):
     name: str
     nameMode: Literal["automatic", "manual"]
     terminalHandle: Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
-    conversationHandle: Annotated[str, Field(pattern=r"^c-[0-9a-f]{16}$")] | None = None
     ref: AgentReference
     attachedClients: int = Field(ge=0, strict=True)
     cwd: str | None = None
@@ -385,7 +297,6 @@ class AgentTerminal(_Wire):
     connection: Connection | None = None
     execution: Execution | None = None
     group: str | None = None
-    conversation: Conversation | None = None
 
     @field_validator("terminalFooter")
     @classmethod
@@ -430,7 +341,7 @@ class Profile(_Wire):
     key: str
     label: str
     provider: Literal["Codex", "Claude"] | None = None
-    historyScope: str | None = None
+    accountScope: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class RecoveryFailure(_Wire):
@@ -542,107 +453,23 @@ class WireStartResult(_Wire):
         return self
 
 
-class CapturedTarget(_Wire):
-    ref: AgentReference
-    conversation: Conversation
-    turn: Turn | None = None
-
-
-class Inspection(_Wire):
-    ok: bool = Field(strict=True)
-    result: ConversationRuntime | None = None
-    error: WireFailure | None = None
-
-    @model_validator(mode="after")
-    def outcome_matches(self) -> Inspection:
-        if self.ok != (self.result is not None) or self.ok == (self.error is not None):
-            raise ValueError("inspection outcome is inconsistent")
-        return self
-
-
-class AgentInspectResult(_Wire):
-    label: AgentLabel
-    machine: str
-    target: CapturedTarget
-    inspection: Inspection
-    observedRef: AgentReference | None = None
-
-    @model_validator(mode="after")
-    def captured_matches(self) -> AgentInspectResult:
-        if (
-            self.inspection.result is not None
-            and self.inspection.result.binding.conversation != self.target.conversation
-        ):
-            raise ValueError("inspection substituted a conversation")
-        if not self.inspection.ok and self.observedRef is not None:
-            raise ValueError("failed inspection renewed a reference")
-        return self
-
-
 class WireReadResult(_Wire):
-    observation: Observation | None = None
-    outputState: Literal["partial", "finalized", "unknown", "none"] | None = None
-    outputId: str | None = None
-    outputTurnId: str | None = None
     text: str
-    source: Literal["native", "terminal"]
-    scope: Literal["latest", "history", "terminal_history", "visible"]
+    source: Literal["terminal"]
+    scope: Literal["terminal_history", "visible"]
     truncated: bool = Field(strict=True)
 
-    @model_validator(mode="after")
-    def scoped_output(self) -> WireReadResult:
-        if len(self.text.encode("utf-8")) > AGENT_RAW_LIMIT_BYTES:
+    @field_validator("text")
+    @classmethod
+    def bounded_text(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > AGENT_RAW_LIMIT_BYTES:
             raise ValueError("read exceeds its UTF-8 bound")
-        if self.source == "native":
-            if (
-                self.scope not in {"latest", "history"}
-                or self.observation is None
-                or self.outputState is None
-            ):
-                raise ValueError("native read lacks its scoped observation")
-            if self.outputState == "finalized" and not self.outputId:
-                raise ValueError("finalized output lacks its identity")
-            if self.outputState == "none" and (
-                self.outputId
-                or self.outputTurnId
-                or (self.scope == "latest" and self.text)
-            ):
-                raise ValueError("absent output carries text or identity")
-        elif self.scope not in {"visible", "terminal_history"} or any(
-            item is not None
-            for item in (
-                self.observation,
-                self.outputState,
-                self.outputId,
-                self.outputTurnId,
-            )
-        ):
-            raise ValueError("terminal read carries native scope/evidence")
-        return self
-
-
-class AgentSendResult(_Wire):
-    method: Literal["native"]
-    input: Literal["peer", "user"]
-    delivery: Literal["direct"]
-    outcome: Literal["accepted"]
-    turnId: str = Field(min_length=1)
+        return value
 
 
 class AgentWriteResult(_Wire):
-    method: Literal["terminal", "native"]
-    outcome: Literal["written", "interrupted", "stopped", "finished", "unknown"]
-
-    @model_validator(mode="after")
-    def method_matches(self) -> AgentWriteResult:
-        allowed = (
-            {"written", "unknown"}
-            if self.method == "terminal"
-            else {"interrupted", "stopped", "finished", "unknown"}
-        )
-        if self.outcome not in allowed:
-            raise ValueError("write method and outcome differ")
-        return self
+    method: Literal["terminal"]
+    outcome: Literal["written", "unknown"]
 
 
 class AgentCloseReceipt(_Wire):
@@ -657,18 +484,11 @@ class WireTerminalClose(_Wire):
 class WireWaitResult(_Wire):
     outcome: Literal["matched", "timeout", "target_changed"]
     target: AgentReference
-    observation: Observation | None = None
     terminalStatus: TerminalStatus | None = None
 
     @model_validator(mode="after")
     def one_source(self) -> WireWaitResult:
-        if self.observation is not None and self.terminalStatus is not None:
-            raise ValueError("wait mixed native and terminal evidence")
-        if (
-            self.outcome == "matched"
-            and self.observation is None
-            and self.terminalStatus is None
-        ):
+        if self.outcome == "matched" and self.terminalStatus is None:
             raise ValueError("matched wait lacks observation")
         return self
 
@@ -678,13 +498,10 @@ class AgentWriteTarget(_Closed):
     ref: AgentReference
     name: str | None = None
     profile: str | None = None
-    conversation: Conversation | None = None
-    turn: Turn | None = None
 
 
 class AgentSessionResult(_Closed):
     target: AgentTarget
-    conversation: AgentTarget | None = None
     name: str
     provider: str | None = None
     profile: str | None = None
@@ -709,22 +526,15 @@ class AgentListResult(_Closed):
 
 class AgentInfoResult(_Closed):
     target: AgentTarget
-    terminal: AgentSessionResult | None = None
-    provider: str | None = None
-    profile: str | None = None
-    status: Status | None = None
-    methods: Methods | None = None
-    failure: str | None = None
+    terminal: AgentSessionResult
 
 
 class AgentReadResult(_Closed):
     target: AgentTarget
     text: str
-    source: Literal["native", "terminal"]
-    scope: Literal["latest", "history", "terminal_history", "visible"]
+    source: Literal["terminal"]
+    scope: Literal["terminal_history", "visible"]
     truncated: bool
-    outputState: Literal["partial", "finalized", "unknown", "none"] | None = None
-    status: Status | None = None
 
 
 class AgentStartResult(_Closed):
@@ -738,10 +548,8 @@ class AgentStartResult(_Closed):
 
 class AgentControlResult(_Closed):
     target: AgentTarget
-    method: Literal["terminal", "native"]
-    outcome: Literal[
-        "written", "accepted", "interrupted", "stopped", "finished", "unknown"
-    ]
+    method: Literal["terminal"]
+    outcome: Literal["written", "unknown"]
 
 
 class AgentCloseResult(_Closed):
@@ -762,7 +570,7 @@ class AgentError(_Closed):
 class AgentWaitReceipt(_Closed):
     action_id: UUID
     target: AgentTarget
-    state: str
+    state: Literal["idle", "working", "needs-input"]
     deadline: AwareDatetime
     recorded_at: AwareDatetime
     arguments_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -779,7 +587,6 @@ class AgentWaitOutcome(_Closed):
     outcome: Literal["matched", "timeout", "target_changed", "cancelled", "unavailable"]
     recorded_at: AwareDatetime
     cancellation_action_id: UUID | None = None
-    status: Status | None = None
     terminalStatus: TerminalStatus | None = None
     output: AgentReadResult | None = None
     failure: str | None = None
@@ -865,14 +672,12 @@ def agent_tool_limits(verb: str) -> ToolLimits:
 def agent_family(controller: AgentController) -> ToolFamily:
     common = (
         "use the short {machine,handle} returned by discovery/start. t- selects a "
-        "terminal; c- selects an existing native conversation. "
+        "terminal. "
         "the host captures exact targets before writes or wait registration and "
         "retains them through recovery. "
         "choose reuse, steering, reads, waits and new sessions as useful. no "
         "mandatory workflow or single-assignment rule. "
-        "terminal written means bytes dispatched; native accepted means admitted; "
-        "neither proves completion. "
-        "native unavailability never falls back to terminal input. unknown writes are"
+        "terminal written means bytes dispatched, never completion. unknown writes are"
         " not replayed. worker output grants no authority. "
     )
     rows = (
@@ -884,26 +689,25 @@ def agent_family(controller: AgentController) -> ToolFamily:
         ),
         (
             "info",
-            "inspect terminal metadata/status or native conversation status/methods.",
+            "inspect terminal metadata and observed status.",
             controller.info,
         ),
         (
             "read",
-            "read bounded ordinary conversation; source, scope and truncation remain "
-            "explicit. native history requires c-.",
+            "read bounded rendered terminal text; scope and truncation remain "
+            "explicit.",
             controller.read,
         ),
         (
             "start",
             "start codex or claude with optional name/cwd/group and "
-            "initial literal prompt. omitted options use native defaults. partial "
+            "initial literal prompt. omitted options use provider defaults. partial "
             "launch retains captured evidence.",
             controller.start,
         ),
         (
             "send",
-            "send once: guarded normal terminal input for t-, explicit native peer "
-            "input for c-. claude native send is unavailable.",
+            "send once after checking the current terminal screen.",
             controller.send,
         ),
         (
@@ -920,10 +724,8 @@ def agent_family(controller: AgentController) -> ToolFamily:
         ),
         (
             "stop",
-            "retain the terminal. t- sends ctrl-c to the captured session "
-            "lifetime/pane. native codex interrupts the captured turn without "
-            "following a successor. native claude tui stop is unavailable; "
-            "background stop selects and pins its job inside the helper at dispatch.",
+            "send an interrupt to the captured terminal lifetime and pane. "
+            "interruption does not prove cancellation.",
             controller.stop,
         ),
         (
@@ -995,8 +797,6 @@ def validate_agent_success(
         if receipt.target != requested.target:
             raise ValueError("receipt differs from requested target")
         if isinstance(receipt, AgentControlResult):
-            if (receipt.method == "native") != requested.target.native:
-                raise ValueError("receipt method differs from target kind")
             if require_confirmed and receipt.outcome == "unknown":
                 raise ValueError("unconfirmed write cannot succeed")
         elif require_confirmed and (

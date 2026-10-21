@@ -638,22 +638,23 @@ endpoint cannot alter the owner's existing coding server.
 main uses eleven worker tools: `agent.list`, `agent.info`, `agent.start`,
 `agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`,
 `agent.close`, `agent.wait` and `agent.cancel_wait`.
-[adr 0064](decisions/0064-simple-worker-orchestration.md) owns the implemented v7
-contract. its coordinated installed cutover remains separate.
+[adr 0069](decisions/0069-terminal-only-workers.md) owns worker v9, amending
+[adr 0064](decisions/0064-simple-worker-orchestration.md) and the existing
+[generalized consumer](decisions/0068-generalized-skid-consumer.md). installed
+cutover remains separate.
 
-`agent_control.py` invokes one fixed skid cli with a private peer configuration,
+`agent_control.py` invokes one fixed skid cli with live installed computer state,
 bounded pipes and explicit argv. skid owns opaque refs, gateway routing,
-provider methods and live target validation. jarvis projects consumed results
+terminal operations and live target validation. jarvis projects consumed results
 into `agent_tools.py`; it neither decodes refs nor repeats the provider codec.
 the installed cli is root-owned, separate from the development user's home.
 
 model targets are short `{machine,handle}` selectors. before gate/action
 admission, jarvis privately captures the original opaque ref and target identity;
 delayed execution and observation use that immutable capture. t-handles select
-terminal lifetimes and guarded input for either provider; c-handles explicitly
-select native conversations. codex native stop retains its captured turn.
-unavailable native operations refuse without terminal fallback. a matching
-terminal name/profile can supply consent context, never renewed target authority.
+terminal lifetimes and guarded input for either provider. no conversation target,
+read/write/control/identity detection or provider-session metadata remains. an
+observed profile/name supplies consent context, never renewed target authority.
 close independently reports terminal interruption and closure; neither asserts
 task success or cancellation of shared work.
 
@@ -661,8 +662,8 @@ reads retain the durable recorder; worker mutations remain billed-once with one
 executor entry. current launch options preserve native defaults and literal
 stdin. creation, input and failure facts remain independent, including nonzero
 partial receipts. conclusive staged receipts settle on recovery without another
-executor entry; unresolved dispatch remains uncertain. native acceptance,
-terminal dispatch and idle/latest text do not establish task completion. bounded
+executor entry; unresolved dispatch remains uncertain. terminal dispatch and
+idle/rendered text do not establish task completion. bounded
 subprocess envelopes and per-operation limits cover capture and execution.
 
 `agent.wait` commits an immutable watching receipt and returns immediately.
@@ -673,8 +674,8 @@ not worker work. only unmixed wait-event batches may settle silently. after the
 original owner request closes, events permit reads/integration/notification;
 new mutations or waits still require current owner input.
 
-finalized old worker actions are opaque archives before current tool lookup or
-receipt decoding. common immutable record invariants still apply; raw arguments
+finalized known retired worker actions are opaque archives before current target,
+tool lookup or receipt decoding. current v9 targets are terminal-only. common immutable record invariants still apply; raw arguments
 and results remain stored. current malformed receipts are defects. old unfinished
 actions block activation. no historical worker reader, execution adapter, worker
 table, separate scheduler, transcript copy or reference cache remains. independent

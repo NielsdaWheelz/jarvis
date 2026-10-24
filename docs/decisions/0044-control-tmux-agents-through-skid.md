@@ -42,7 +42,8 @@ bound stdin/control output to 64 kib, list output to 1 mib, elapsed time to
 retain codex host configuration needed by cognition. remove obsolete worker
 launchers only after the final caller is gone. no new database table, task
 schema, ownership graph, scheduler, transcript store, or privilege framework.
-the canonical cross-repository wire contract is skid's `docs/agent-control.md`.
+the canonical cross-repository wire contract was skid's [`docs/agent-control.md`](https://github.com/NielsdaWheelz/skidbladnir/blob/ba60841/docs/agent-control.md);
+skid has since deleted it, and its architecture §7 and cli sections own that contract.
 existing `codex_uncertainty_v1` action results retain a narrow read-only decoder.
 the execution/catalog cut does not rewrite or make canonical history unreadable.
 

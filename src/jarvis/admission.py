@@ -43,6 +43,7 @@ class JarvisOwner:
                         native_invocation.c.id == UUID(permit.parent_invocation_id),
                         native_attempt.c.owner_epoch == str(self.token),
                         native_attempt.c.fenced_at.is_(None),
+                        native_attempt.c.terminal.is_(None),
                         native_attempt.c.product_outcome.is_(None),
                     )
                 )
@@ -66,6 +67,7 @@ class JarvisOwner:
                 if attempt is not None and (
                     attempt["owner_epoch"] != str(self.token)
                     or attempt["fenced_at"] is not None
+                    or attempt["terminal"] is not None
                     or attempt["product_outcome"] is not None
                 ):
                     raise NativeDefect("native attempt authority is no longer current")

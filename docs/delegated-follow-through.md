@@ -61,8 +61,10 @@ now passes; result observation and full-plan follow-through need their own proof
 schemas stay `ActionRequest`, short `{machine,handle}` terminal targets (`t-` plus
 16 lowercase hex digits) with existing private
 capture, original worker/wait receipts, o7 work-mutation receipts and
-`JarvisNativeMessage`/`InputOutcome`. retired schedule receipts remain historical
-evidence; scheduled todos use o7. every origin uses
+`JarvisNativeMessage`/`InputOutcome`, with o6 adding `disposition=stop` for named
+delivered requests. it cancels only their proven unentered actions; entered
+effects settle and no worker/descendant cancellation is implied. retired schedule
+receipts remain historical evidence; scheduled todos use o7. every origin uses
 o6's full frozen main plan and ordinary dispatch. work can proceed without a todo.
 retain ordinary conversational connector consent, trusted worker independence, deployment
 ownership, protocol validation and original effect/read recovery. fresh events
@@ -87,13 +89,10 @@ template, independent recheck of every claim or runtime critic.
 
 ## implementation boundaries and cutover
 
-| unit | exclusive files / responsibility |
-| --- | --- |
-| content/composition | `src/jarvis/definitions.py`, `src/jarvis/session-compatibility.json`: merge this behavior into the one main prompt; remove contradictory rules |
-| conversational stop | `src/jarvis/discord.py`, `service.py`, `messages.py`: retire `Control.STOP` interception/normalization/cancellation/acknowledgment; preserve original text through normal ingress/steering |
-| temporary proofs | scoped proof files only: end-to-end/live behavior and designer review |
-
-use one writer per shared file when integrating o6/o9.
+[o6's file ownership](one-main-events.md#non-overlapping-implementation-boundaries)
+owns the combined source change. merge this content into the one main prompt;
+retire `Control.STOP` interception and preserve original text through ingress.
+main uses the scoped input disposition, never the global control transaction.
 keep existing administrative pause/resume controls for deployment operation;
 they are outside this conversational-stop change. remove unreachable stop-specific
 new-control handling; historical controls/receipts remain evidence. no fallback
@@ -130,5 +129,5 @@ working; it is not an out-of-band fence. interrupting a coordinator proves no
 descendant cancellation or reversal of effects. main may interpret an owner's stop
 as denial of a pending action and record that decision through o6's callback,
 referencing the actual owner message. stop prose alone does not cancel it.
-bookkeeping is not a durable execution stop. temporary test
+todo bookkeeping is not a durable execution stop. temporary test
 deletion leaves less retained regression coverage.

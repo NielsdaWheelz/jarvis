@@ -23,6 +23,12 @@ These instructions govern all work in this repository.
   still pending; keep current baseline claims distinct from the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
   schemas and behavior. this documentation task authorizes no code or live work.
+  [slice 1](docs/one-main-events.md) owns the source-audited common lifecycle,
+  atomic conversational decision receipt and scoped `stop` disposition. it removes
+  the old scheduler; intermediate slices need not be usable. its future
+  implementation uses owner-requested temporary integration/live red/green/refactor,
+  content design and adversarial review per feature, then deletes those probes.
+  this scoped exception leaves the wider testing reset and memory checks intact.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

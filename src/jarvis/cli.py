@@ -33,22 +33,14 @@ from universal_memory.schema import source_conversation
 from jarvis.actions import ActionPersistenceDefect, ActionStore, archived_worker_action
 from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
-from jarvis.approval import ApprovalRenderError, render_approval
-from jarvis.approval_runtime import (
-    ApprovalActionHandler,
-    ApprovalAwareDiscordDelivery,
-    ApprovalRecoveryDisabler,
-)
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.db import create_engine, normalize_database_url
-from jarvis.decisions import PostgresModelDecisionJournal
 from jarvis.definitions import (
     RoleDefinitions,
     build_compactor,
     build_definitions,
     build_dreamer,
-    build_write_gate,
 )
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
@@ -77,7 +69,6 @@ from jarvis.ownership import (
     DeploymentAlreadyOwned,
     deployment_ownership,
 )
-from jarvis.proactivity import ProcessLocalWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
@@ -92,7 +83,6 @@ from jarvis.write_dispatch import (
     gmail_send_basis_is_current,
     require_current_action_binding,
 )
-from jarvis.write_gate import AutomaticWriteGate
 from jarvis.write_tools import GmailSendDraftInput
 
 LOGGER = logging.getLogger(__name__)
@@ -279,9 +269,8 @@ async def recover_startup_actions(
     *,
     action_recovery: ActionRecovery,
     paused: PausedState,
-    messages: MessageStore,
 ) -> int:
-    inactive = await paused.is_paused() or await messages.circuit_is_open()
+    inactive = await paused.is_paused()
     return await action_recovery.recover(allow_queued_execution=not inactive)
 
 
@@ -350,9 +339,6 @@ async def _compose_main(
         profile_key=settings.codex_profile_key,
         model_key=settings.codex_model,
     )
-    provisional_gate, _ = build_write_gate(
-        provider=provider_configuration,
-    )
     agents = AgentController(
         cli_path=settings.agent_cli_path,
         state_directory=settings.agent_state_directory,
@@ -368,15 +354,12 @@ async def _compose_main(
         memory=memory,
         actions=actions,
         agents=agents,
-        automatic_write_gate_definition_fingerprint=provisional_gate.fingerprint,
     )
     definitions = build_definitions(
         catalog=composition.catalog,
         provider=provider_configuration,
         owner_timezone=settings.owner_timezone,
     )
-    if definitions.automatic_write_gate.fingerprint != provisional_gate.fingerprint:
-        raise StartupDefect("write-gate definition changed during composition")
     return composition, definitions, agents
 
 
@@ -457,13 +440,6 @@ async def _serve(
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
                     )
 
-                    gate = AutomaticWriteGate(
-                        definition=definitions.automatic_write_gate,
-                        plan=definitions.plans["automatic_write_gate"],
-                        owner=owner,
-                        provider=kernel_runtime.provider,
-                        model_decisions=lambda: PostgresModelDecisionJournal(database),
-                    )
                     compactor = MemoryWorker(
                         definition=definitions.compactor,
                         plan=definitions.plans["compactor"],
@@ -488,11 +464,11 @@ async def _serve(
                         kernel_runtime=kernel_runtime,
                         definitions=definitions,
                         actions=actions,
-                        dispatcher_factory=lambda checkpoint: (
+                        dispatcher_factory=lambda checkpoint, journal: (
                             WriteToolDispatcher(
                                 checkpoint=checkpoint,
                                 dispatch_lane=dispatch_lane,
-                                gate=gate,
+                                journal=journal,
                                 actions=actions,
                                 google_write=composition.google_write,
                                 agents=agents,
@@ -502,76 +478,26 @@ async def _serve(
                                     memory=memory,
                                     cutoff=checkpoint.memory_cutoff,
                                 ),
-                                owner_timezone=settings.owner_timezone,
                                 source_conversation_id=str(settings.discord.channel_id),
                                 verified_owner_only_calendar_ids=(
                                     settings.verified_owner_only_calendar_ids
                                 ),
                                 host_secrets=settings.host_secrets,
-                                schedule_changed=schedule_changed,
                             )
                         ),
                         memory=memory,
                         memory_worker=compactor,
                     )
-                    discord_delivery = DiscordCreateMessageClient(
+                    delivery = DiscordCreateMessageClient(
                         settings.discord, discord_http
                     )
-                    delivery = ApprovalAwareDiscordDelivery(
-                        actions=actions,
-                        plan=definitions.plans["main"],
-                        discord=discord_delivery,
-                    )
-                    wake_timer: ProcessLocalWakeTimer | None = None
-
-                    def schedule_changed() -> None:
-                        agents.notify_wait_changed()
-                        if wake_timer is not None:
-                            wake_timer.notify_changed()
-
                     action_recovery = ActionRecovery(
                         actions=actions,
                         google_write=composition.google_write,
                         plan=definitions.plans["main"],
                         source_conversation_id=str(settings.discord.channel_id),
-                        schedule_changed=schedule_changed,
-                        approval_disabler=ApprovalRecoveryDisabler(
-                            actions=actions,
-                            discord=discord_delivery,
-                        ),
+                        wait_changed=agents.notify_wait_changed,
                     )
-                    approval_handler = ApprovalActionHandler(
-                        actions=actions,
-                        plan=definitions.plans["main"],
-                        source_conversation_id=str(settings.discord.channel_id),
-                    )
-                    approval_disabler = ApprovalRecoveryDisabler(
-                        actions=actions,
-                        discord=discord_delivery,
-                    )
-
-                    async def disable_stopped_approvals() -> None:
-                        async with database.connect() as connection:
-                            ids = tuple(
-                                (
-                                    await connection.execute(
-                                        text(
-                                            "select a.id from action a join message m "
-                                            "on m.id = a.approval_message_id "
-                                            "where a.status = 'cancelled' "
-                                            "and a.result->>'reason_code' "
-                                            "= 'owner_stopped' "
-                                            "and m.source_conversation_id = :scope "
-                                            "and m.source_message_id is not null"
-                                        ),
-                                        {"scope": owner.scope_id},
-                                    )
-                                ).scalars()
-                            )
-                        for identifier in ids:
-                            stored = await actions.get(identifier)
-                            assert stored is not None
-                            await approval_disabler(stored)
 
                     service = JarvisService(
                         settings=settings,
@@ -582,25 +508,16 @@ async def _serve(
                         background=compactor,
                         memory=memory,
                         dreamer=dreamer,
-                        scheduled_wakes=actions,
                         action_plan=definitions.plans["main"],
                         action_recovery=action_recovery,
                         agent_waits=agents,
-                        approval_handler=approval_handler,
                         dispatch_lane=dispatch_lane,
-                        disable_stopped_approvals=disable_stopped_approvals,
                     )
-                    wake_timer = ProcessLocalWakeTimer(
-                        store=actions,
-                        on_due=service.request_work,
-                    )
-                    service.bind_wake_timer(wake_timer)
                     if shutdown.is_set():
                         return
                     recovered_actions = await recover_startup_actions(
                         action_recovery=action_recovery,
                         paused=paused,
-                        messages=store,
                     )
                     if recovered_actions:
                         LOGGER.warning(
@@ -622,9 +539,6 @@ async def _serve(
                         settings.discord,
                         service.receive_owner_message,
                         ready_handler=ready,
-                        approval_interaction_sink=(
-                            service.receive_approval_interaction
-                        ),
                     )
                     service.bind_gateway(gateway)
                     await run_service(
@@ -664,41 +578,16 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
 
 
 async def stopped_native_cutover(settings: Settings, host: CodexHostConfig) -> int:
-    """Convert the stopped deployment before native activation."""
+    """Write the private stopped inventory without provider or connector work."""
     _validate_runtime_layout(settings, host)
-    config = MemoryConfig.load(settings.memory_config_path)
     engine = create_engine(settings.database_url.get_secret_value())
     try:
         async with deployment_ownership(engine) as database:
-            async with httpx.AsyncClient(
-                trust_env=False, follow_redirects=False
-            ) as http:
-                runtime = build_agent_runtime(
-                    provider_state_root=settings.runtime_state_directory,
-                    codex_endpoints=host.endpoints,
-                )
-                try:
-                    async with _memory_service(
-                        settings, config, database, http
-                    ) as memory:
-                        _, definitions, _ = await _compose_main(
-                            settings=settings,
-                            agent_runtime=runtime,
-                            actions=ActionStore(database),
-                            memory=memory,
-                            google_oauth_http=http,
-                            google_api_http=http,
-                            maps_http=http,
-                            brave_http=http,
-                        )
-                        return await cutover_native(
-                            database,
-                            directory=settings.runtime_state_directory,
-                            conversation_id=str(settings.discord.channel_id),
-                            plan=definitions.plans["main"],
-                        )
-                finally:
-                    await runtime.close()
+            return await cutover_native(
+                database,
+                directory=settings.runtime_state_directory,
+                conversation_id=str(settings.discord.channel_id),
+            )
     finally:
         await engine.dispose()
 
@@ -850,11 +739,6 @@ async def _pending_action_verdict(
     except RuntimeError:
         return "incompatible binding"
     value = binding.spec.input_type.model_validate(stored.arguments).arguments
-    if stored.status == "awaiting_approval":
-        try:
-            render_approval(stored.id, stored.tool_name, value)
-        except ApprovalRenderError:
-            return "incompatible render"
     if isinstance(value, GmailSendDraftInput):
         try:
             current = await gmail_send_basis_is_current(actions, value)
@@ -1069,7 +953,8 @@ def _parser() -> argparse.ArgumentParser:
         help="check unfinished actions against this release while stopped",
     )
     commands.add_parser(
-        "cutover-native", help="convert stopped legacy state for native activation"
+        "cutover-native",
+        help="inventory stopped obligations before common-main cutover",
     )
     commands.add_parser("dream", help="run one isolated dream while stopped")
     rebuild = commands.add_parser(
@@ -1114,7 +999,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("canonical deployment pause confirmed")
         elif arguments.command == "cutover-native":
             count = asyncio.run(stopped_native_cutover(settings, host))
-            print(f"native cutover completed: converted_actions={count}")
+            print(
+                f"private cutover inventory retained: records={count}; "
+                "activation unchanged"
+            )
         elif arguments.command == "check-activation":
             try:
                 verdicts = asyncio.run(check_activation(settings, host))

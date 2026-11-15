@@ -47,6 +47,11 @@ and exact-human-payload binding are removed in that target. existing determinist
 tool policy remains; add no semantic consent classifier. canonical actions,
 immutable executed arguments, original receipts and effect reconciliation remain.
 conversational stop is interpreted by main; operational pause remains host-owned.
+slice 1 removes the old scheduler and approval component paths; intermediate
+source slices need not be independently usable. retain outstanding reminders in
+the private stopped-cutover inventory for slice 2. do not resume an incomplete
+release or silently drop those commitments. its [owning spec](one-main-events.md)
+defines migration, local consent receipts and scoped request stopping.
 
 optional one-time/repeated wakes belong to work records, replacing separate
 schedule/recurring-wake products. due dates remain distinct. keep the existing
@@ -224,20 +229,16 @@ the contained host's loaded `ExecStart`. if that host still selects another
 release, cleanup refuses before deleting files. cleanly stop or install the host
 for the retained release before retrying; no extra rollback release is retained.
 
-`activate-release FULL_GIT_COMMIT` never stops jarvis. it requires an installed
-release, regular root-owned environment files and a cleanly stopped service
-(`ActiveState=inactive`, `Result=success`, `MainPID=0`). it migrates the stopped
-database, runs the target's `cutover-native`, then read-only `check-activation`
-under the existing deployment lock. missing legacy files are correct after this
-cut; the scripts do not require or recreate them. routine replacement preserves
-the recorded pause/resume state. it does not require another owner control merely
-to repair a stopped service. native state and every execution-contract check still
-apply; a retained resume preserves startup action recovery. new main reasoning
-and background memory work wait for validated discord catch-up.
-before migration, activation requires the contained unit active and the selected
-release's read-only host qualifier to pass, including exact loaded release,
-stock version and startup catalogue. host installation remains a separate
-explicit stopped-application operation.
+`deploy/activate-release` deliberately refuses this intermediate one-main
+release. slice 1 removes the scheduler; slice 2 supplies scheduled todos. restore
+activation only after the selected slices and retained reminder obligations are
+accounted for. installation, private stopped snapshots and isolated qualification
+remain available. source completion does not imply deployment or owner resumption.
+
+the qualified routine-activation primitive remains in memory merge `50611a3`.
+this source retains its initialized-control checks and preserves canonical
+pause/resume. startup action recovery remains available; new main reasoning and
+background memory wait for validated discord catch-up.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.
@@ -251,17 +252,13 @@ effective configuration contains the memory registration, but every inherited
 mcp server must report disabled with zero tools. startup-catalogue qualification
 alone does not establish that thread boundary.
 
-cutover validates original entered work before converting proven unentered
-legacy authority. pending approvals receive fresh consent; queued writes re-enter
-the current gate. unknown effects or paid reads refuse cutover. canonical pause
-lives in postgres. `check-activation` rejects incompatible unfinished authority,
-entered uncertainty and stale active contracts; deliverable historical resolutions
-and known terminal facts remain readable by paused startup. it does not require
-an empty outbox. the target then installs its unit, selects the immutable release
-and starts with the recorded control state. fresh initialization and legacy pause
-import start paused; ingress and outbox recovery precede their explicit owner
-resume. pause-required migrations and private-configuration/authority changes
-retain their separate paused checks.
+
+`jarvis check-activation` remains a read-only inspection of the current schema,
+initialized canonical control, unfinished authority and recorded effects. an unfinished action
+with a retired execution contract blocks admission. terminal historical contracts
+remain opaque evidence, never an execution route. old unknown paid reads and
+unfinished isolated cognition require their original release's disposition.
+current unknown effects retain their existing reconciliation and causal barriers.
 
 for a fresh database, migrate and run `jarvis initialize-state` once under the
 runtime identity/environment. this creates canonical paused state, with no
@@ -286,34 +283,43 @@ ownership; the service receives no mount capability. actual installed cli/servic
 reads pass on both online hosts; [evidence](universal-memory.md#native-memory-installed-qualification)
 keeps worker observation and offline arch qualification separate.
 
-Do not activate an older release across an incompatible migration. A
-same-schema rollback requires rebuilding with `deploy/install-release <commit>`
-from the clean maintained checkout, then `deploy/activate-release <commit>` only
-after the service is stopped, and only
-to a release that carries `check-activation`; older releases are refused, not
-skipped. That release's check then judges each unfinished action against its
-own plan.
-
-ADR 0035 rotates the AutomaticWriteGate fingerprint and therefore every Write
-binding policy that commits to it. Before this cutover, prove the production
-action ledger contains no `queued`, `awaiting_approval`, or `executing` row made
-under the predecessor identity. A terminal historical action remains evidence
-and is never rewritten.
+forward repair is required after new canonical effects are admitted; code rollback
+alone cannot restore old semantics over new receipts.
 
 ## native cutover
 
-pause the existing owner task, reconcile entered effects and paid reads, and stop
-the service cleanly. preserve a local pre-cutover database/state copy. install the
-qualified target and separate contained host, then activate as above. an entered
-unknown action cannot be made safe by stopping its reasoning or deleting its
-record. main's original requests, action receipts and historical observations
-remain canonical throughout cutover.
+while the original release still owns its executable contracts, pause and stop it
+cleanly. reconcile entered effects and paid reads; settle original native seals.
+disable old discord approval components and explicitly drain or cancel incompatible
+unentered actions under that release. never renew those approvals or rewrite an
+original execution contract. retain undelivered canonical prose and original
+arguments, times, effect identities and receipts.
 
-migration 0005 creates the native request/attempt/invocation tables. the stopped
-`cutover-native` command imports the old deployment pause, cancels only proven
-unentered legacy authority and removes the replaced local session/pause/admission
-files. no new acceptance evidence is invented for old records. a partial or
-unresolved legacy state refuses and stays stopped.
+before migration, take one private database/runtime snapshot using the existing
+stopped snapshot procedure. `jarvis cutover-native` now only writes
+`one-main-cutover.json` in the private runtime directory, mode 0600. it requires
+canonical administrative pause and holds deployment ownership. the inventory
+contains outstanding effects/approvals, original schedules, waiting/stopped/parked
+requests, unsettled attempts and undelivered results. it changes no request,
+action, approval or deployment state. inventory is evidence, not completion.
+retained reminder purpose, time and source references belong to slice 2's todo
+conversion; there is no temporary reminder table or executable old scheduler.
+
+migrate from the actual merged predecessor after the separate memory delivery.
+the one-main migration adds immutable causal parentage, gives host requests the
+same lifecycle and removes the component-required action constraint. it reconstructs
+parents only by joining canonical action identities; ambiguous historical host
+settlement or parentage is parked for named repair, never inferred complete.
+source times remain original; historical first-observation time remains unknown
+where no canonical evidence exists.
+
+retired local pause/session/admission files must be explicitly dispositioned under
+the original release before current admission. the new runtime neither imports
+those files nor creates successor approvals. `release-parked MESSAGE_ID...` repairs
+only the named live configuration-parked requests and returns them to pending;
+it cannot revive completed or conversationally stopped requests. administrative
+resume only releases its own accumulated pause targets. ordinary chat `stop`
+reaches main and affects only its explicitly named delivered requests.
 
 ## universal memory cutover
 
@@ -328,15 +334,13 @@ to the old settings parser; neither helper dispatches workers or restores a
 legacy configuration to the target runtime.
 
 migration `0006` requires a stopped, canonically paused native `0005` deployment
-with drained old remembering and resolved old memory cognition. activation runs
-the new stopped helper through the selected predecessor's exact frozen interpreter
-and libraries; the target runtime contains no old memory roles. parked work or
+with drained old remembering and resolved old memory cognition. run the stopped
+helper through the selected predecessor's exact frozen interpreter and libraries;
+the target runtime contains no old memory roles. parked work or
 unknown old submissions refuse migration and require repair under that predecessor.
 
-`deploy/activate-release` first drains through the predecessor runtime, then takes
-one private recovery artifact at `/var/lib/jarvis-memory-cutover/<target-commit>`.
-for this two-stage existing deployment, retain the preceding native-transition
-snapshot until final acceptance too; remove both temporary artifacts afterward.
+before the memory migration, use the selected predecessor runtime and
+`deploy/prepare-memory-cutover` to drain and take one private recovery artifact at `/var/lib/jarvis-memory-cutover/<target-commit>`.
 it contains a custom-format database dump, `/var/lib/jarvis`, `/etc/jarvis` and the
 predecessor release receipt. the helper requires the deployment lock, canonical
 pause and resolved drained work; it verifies the dump listing and preserves file

@@ -74,9 +74,13 @@ use a small set of meaningful implementation checks when that work is authorized
   connector receipts do not imply native exactly-once execution. conversational
   stop and operational pause retain their distinct scopes.
 
-these are future behavior checks, not an additional standing suite or delivery
-gate. docs-only adoption runs none of them. shared-memory acceptance above stays
-unchanged; browser/credential products, interactive deliverables, separate ui,
+slice 1's [source-audited proof plan](one-main-events.md#acceptance-and-redgreenrefactor)
+owns its temporary integration/live red/green/refactor, content design and
+adversarial review, followed by probe deletion. real timed producers are slice 2,
+installed workers slice 3 and external producers slice 6; generic input proof
+does not qualify those adapters. these are future behavior checks, not an
+additional standing suite. docs-only adoption runs none. shared-memory acceptance
+above stays unchanged; browser/credential products, interactive deliverables, separate ui,
 selected dream wakes and work context are outside this cut. complete-search and
 budget acceptance stays with their later contracts.
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -27,10 +26,8 @@ LOGGER = logging.getLogger(__name__)
 
 DISCORD_API_BASE_URL = "https://discord.com/api/v10"
 DISCORD_MAX_CONTENT_CHARACTERS = 2_000
-DISCORD_APPROVAL_ATTACHMENT_MAX_BYTES = 1_000_000
 SUPPRESS_EMBEDS = 1 << 2
 MAX_RETRY_AFTER_SLEEP_SECONDS = 30.0
-APPROVAL_CUSTOM_ID_PREFIX = "jarvis:approval:v1:"
 
 REQUIRED_CHANNEL_PERMISSIONS = frozenset(
     {"view_channel", "send_messages", "attach_files", "read_message_history"}
@@ -55,152 +52,11 @@ class DiscordConfigurationError(RuntimeError):
     """The live Discord surface does not match configured authority."""
 
 
-class DiscordInteractionRejected(ValueError):
-    """An approval interaction does not match its configured durable target."""
-
-
 class Control(StrEnum):
     """Host-owned controls intercepted before model work."""
 
-    STOP = "stop"
     PAUSE = "pause"
     RESUME = "resume"
-
-
-class ApprovalComponentDecision(StrEnum):
-    """The only component decisions accepted by Jarvis."""
-
-    APPROVE = "approve"
-    DENY = "deny"
-
-
-@dataclass(frozen=True, slots=True)
-class DiscordApprovalInteraction:
-    """A configured-channel approval component with parsed durable identity."""
-
-    action_id: UUID
-    approval_message_id: UUID
-    decision: ApprovalComponentDecision
-    discord_message_id: str
-
-
-def approval_custom_id(
-    action_id: UUID,
-    approval_message_id: UUID,
-    decision: ApprovalComponentDecision,
-) -> str:
-    """Bind one opaque component to its action and internal approval message."""
-
-    value = (
-        f"{APPROVAL_CUSTOM_ID_PREFIX}{decision.value}:"
-        f"{action_id.hex}:{approval_message_id.hex}"
-    )
-    if len(value) > 100:  # Discord's documented custom_id ceiling.
-        raise AssertionError("approval custom ID exceeds Discord's bound")
-    return value
-
-
-def parse_approval_custom_id(
-    value: str,
-) -> tuple[ApprovalComponentDecision, UUID, UUID] | None:
-    """Parse only Jarvis's exact closed approval component identity."""
-
-    if not value.startswith(APPROVAL_CUSTOM_ID_PREFIX):
-        return None
-    parts = value.removeprefix(APPROVAL_CUSTOM_ID_PREFIX).split(":")
-    if len(parts) != 3:
-        raise DiscordInteractionRejected("approval component identity is malformed")
-    try:
-        decision = ApprovalComponentDecision(parts[0])
-        action_id = UUID(hex=parts[1])
-        approval_message_id = UUID(hex=parts[2])
-    except ValueError as exc:
-        raise DiscordInteractionRejected(
-            "approval component identity is malformed"
-        ) from exc
-    if parts[1] != action_id.hex or parts[2] != approval_message_id.hex:
-        raise DiscordInteractionRejected("approval component identity is malformed")
-    return decision, action_id, approval_message_id
-
-
-def approval_components(
-    action_id: UUID,
-    approval_message_id: UUID,
-    *,
-    disabled: bool,
-) -> list[dict[str, object]]:
-    """Return the exact host-owned Approve and Deny component row."""
-
-    return [
-        {
-            "type": 1,
-            "components": [
-                {
-                    "type": 2,
-                    "style": 3,
-                    "label": "Approve",
-                    "custom_id": approval_custom_id(
-                        action_id,
-                        approval_message_id,
-                        ApprovalComponentDecision.APPROVE,
-                    ),
-                    "disabled": disabled,
-                },
-                {
-                    "type": 2,
-                    "style": 4,
-                    "label": "Deny",
-                    "custom_id": approval_custom_id(
-                        action_id,
-                        approval_message_id,
-                        ApprovalComponentDecision.DENY,
-                    ),
-                    "disabled": disabled,
-                },
-            ],
-        }
-    ]
-
-
-def approval_interaction_from_event(
-    interaction: discord.Interaction,
-    settings: DiscordSettings,
-) -> DiscordApprovalInteraction | None:
-    """Validate configured Discord authority and parse an approval component."""
-
-    if interaction.type is not discord.InteractionType.component:
-        return None
-    data = cast(object, interaction.data)
-    if not isinstance(data, dict):
-        return None
-    component = cast("dict[str, object]", data)
-    raw_custom_id = component.get("custom_id")
-    if not isinstance(raw_custom_id, str):
-        return None
-    parsed = parse_approval_custom_id(raw_custom_id)
-    if parsed is None:
-        return None
-    if component.get("component_type") != 2:
-        raise DiscordInteractionRejected("approval component type is invalid")
-
-    user = interaction.user
-    if user.id != settings.owner_user_id or getattr(user, "bot", False):
-        raise DiscordInteractionRejected("approval interaction owner does not match")
-    if interaction.guild_id != settings.guild_id:
-        raise DiscordInteractionRejected("approval interaction guild does not match")
-    if interaction.channel_id != settings.channel_id:
-        raise DiscordInteractionRejected("approval interaction channel does not match")
-    message = interaction.message
-    if message is None or message.id <= 0:
-        raise DiscordInteractionRejected("approval interaction message is missing")
-
-    decision, action_id, approval_message_id = parsed
-    return DiscordApprovalInteraction(
-        action_id=action_id,
-        approval_message_id=approval_message_id,
-        decision=decision,
-        discord_message_id=str(message.id),
-    )
 
 
 def classify_control(content: str) -> Control | None:
@@ -376,9 +232,6 @@ async def bounded_catch_up(
 
 
 type ReadyHandler = Callable[[], Awaitable[None]]
-type ApprovalInteractionSink = Callable[
-    [discord.Interaction, DiscordApprovalInteraction], Awaitable[None]
-]
 
 
 class DiscordGateway(discord.Client):
@@ -390,13 +243,11 @@ class DiscordGateway(discord.Client):
         owner_message_sink: OwnerMessageSink,
         *,
         ready_handler: ReadyHandler | None = None,
-        approval_interaction_sink: ApprovalInteractionSink | None = None,
     ) -> None:
         super().__init__(intents=gateway_intents())
         self._settings = settings
         self._owner_message_sink = owner_message_sink
         self._ready_handler = ready_handler
-        self._approval_interaction_sink = approval_interaction_sink
         self._event_failed = False
         self._stopping = False
         self._active_callbacks = 0
@@ -443,17 +294,6 @@ class DiscordGateway(discord.Client):
             accepted = owner_message_from_event(message, self._settings)
             if accepted is not None:
                 await self._owner_message_sink(accepted)
-
-    async def on_interaction(self, interaction: discord.Interaction) -> None:
-        with self._admit_callback() as admitted:
-            if not admitted or self._approval_interaction_sink is None:
-                return
-            try:
-                accepted = approval_interaction_from_event(interaction, self._settings)
-            except DiscordInteractionRejected:
-                return
-            if accepted is not None:
-                await self._approval_interaction_sink(interaction, accepted)
 
     async def on_error(
         self,
@@ -511,48 +351,6 @@ class DiscordGateway(discord.Client):
             yield
 
 
-async def acknowledge_and_disable_approval(
-    interaction: discord.Interaction,
-    accepted: DiscordApprovalInteraction,
-) -> None:
-    """Acknowledge one claimed decision by disabling both components."""
-
-    if interaction.response.is_done():
-        raise DiscordInteractionRejected(
-            "approval interaction was already acknowledged"
-        )
-    view = discord.ui.View(timeout=None)
-    view.add_item(
-        discord.ui.Button(
-            style=discord.ButtonStyle.success,
-            label="Approve",
-            custom_id=approval_custom_id(
-                accepted.action_id,
-                accepted.approval_message_id,
-                ApprovalComponentDecision.APPROVE,
-            ),
-            disabled=True,
-        )
-    )
-    view.add_item(
-        discord.ui.Button(
-            style=discord.ButtonStyle.danger,
-            label="Deny",
-            custom_id=approval_custom_id(
-                accepted.action_id,
-                accepted.approval_message_id,
-                ApprovalComponentDecision.DENY,
-            ),
-            disabled=True,
-        )
-    )
-    await interaction.response.edit_message(
-        view=view,
-        allowed_mentions=discord.AllowedMentions.none(),
-        suppress_embeds=True,
-    )
-
-
 def discord_nonce(message_id: UUID | str) -> str:
     """Derive the exact 20-character v1 Discord nonce from a message UUID."""
 
@@ -595,7 +393,6 @@ type DeliveryResult = DeliverySucceeded | DeliveryFailed
 
 
 type Sleep = Callable[[float], Awaitable[None]]
-type _AttachmentUpload = tuple[str, str, bytes]
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
@@ -650,106 +447,12 @@ class DiscordCreateMessageClient:
             lambda: self._create_request(
                 content=content,
                 nonce=nonce,
-                components=None,
-                attachment=None,
             )
         )
-
-    async def create_approval_message(
-        self,
-        *,
-        action_id: UUID,
-        approval_message_id: UUID,
-        content: str,
-        attachment_name: str,
-        attachment_media_type: str,
-        attachment_content: bytes,
-        disabled: bool = False,
-    ) -> DeliveryResult:
-        """Create one host-owned approval attachment and component message."""
-
-        if not content or len(content) > DISCORD_MAX_CONTENT_CHARACTERS:
-            raise ValueError("Discord content must contain 1 to 2000 characters")
-        if type(disabled) is not bool:
-            raise ValueError("approval disabled marker must be boolean")
-        if (
-            not attachment_name
-            or len(attachment_name) > 100
-            or attachment_name != attachment_name.strip()
-            or "/" in attachment_name
-            or "\\" in attachment_name
-        ):
-            raise ValueError("Discord attachment name is invalid")
-        if attachment_media_type != "text/plain; charset=utf-8":
-            raise ValueError("approval attachment must be UTF-8 plain text")
-        if (
-            not attachment_content
-            or len(attachment_content) > DISCORD_APPROVAL_ATTACHMENT_MAX_BYTES
-        ):
-            raise ValueError("approval attachment is empty or exceeds its byte bound")
-        try:
-            attachment_content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError("approval attachment is not UTF-8") from exc
-
-        nonce = discord_nonce(approval_message_id)
-        components = approval_components(
-            action_id, approval_message_id, disabled=disabled
-        )
-        return await self._deliver(
-            lambda: self._create_request(
-                content=content,
-                nonce=nonce,
-                components=components,
-                attachment=(attachment_name, attachment_media_type, attachment_content),
-            )
-        )
-
-    async def disable_approval_message(
-        self,
-        *,
-        action_id: UUID,
-        approval_message_id: UUID,
-        discord_message_id: str,
-    ) -> DeliveryResult:
-        """Idempotently disable a known approval before recovered execution."""
-
-        if (
-            not discord_message_id.isascii()
-            or not discord_message_id.isdecimal()
-            or int(discord_message_id) <= 0
-            or str(int(discord_message_id)) != discord_message_id
-        ):
-            raise ValueError("Discord approval message ID is invalid")
-
-        async def request() -> httpx.Response:
-            return await self._http_client.patch(
-                f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}"
-                f"/messages/{discord_message_id}",
-                headers={
-                    "Authorization": "Bot "
-                    + self._settings.bot_token.get_secret_value(),
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "components": approval_components(
-                        action_id,
-                        approval_message_id,
-                        disabled=True,
-                    ),
-                    "allowed_mentions": {"parse": []},
-                    "flags": SUPPRESS_EMBEDS,
-                },
-                timeout=self._settings.request_timeout_seconds,
-            )
-
-        return await self._deliver(request, expected_message_id=discord_message_id)
 
     async def _deliver(
         self,
         request: Callable[[], Awaitable[httpx.Response]],
-        *,
-        expected_message_id: str | None = None,
     ) -> DeliveryResult:
         """Apply one bounded response and retry policy to host-owned requests."""
 
@@ -776,10 +479,6 @@ class DiscordCreateMessageClient:
                     )
                     if (
                         isinstance(message_id, str)
-                        and (
-                            expected_message_id is None
-                            or message_id == expected_message_id
-                        )
                         and message_id.isascii()
                         and message_id.isdecimal()
                         and int(message_id) > 0
@@ -827,53 +526,19 @@ class DiscordCreateMessageClient:
             await self._sleep(delay)
         raise AssertionError("delivery policy made no attempt")  # pragma: no cover
 
-    async def _create_request(
-        self,
-        *,
-        content: str,
-        nonce: str,
-        components: list[dict[str, object]] | None,
-        attachment: _AttachmentUpload | None,
-    ) -> httpx.Response:
-        payload: dict[str, object] = {
-            "content": content,
-            "nonce": nonce,
-            "enforce_nonce": True,
-            "allowed_mentions": {"parse": []},
-            "flags": SUPPRESS_EMBEDS,
-        }
-        if components is not None:
-            payload["components"] = components
-        url = f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}/messages"
-        authorization = {
-            "Authorization": "Bot " + self._settings.bot_token.get_secret_value()
-        }
-        if attachment is None:
-            return await self._http_client.post(
-                url,
-                headers={**authorization, "Content-Type": "application/json"},
-                json=payload,
-                timeout=self._settings.request_timeout_seconds,
-            )
-        filename, media_type, body = attachment
-        payload["attachments"] = [
-            {
-                "id": "0",
-                "filename": filename,
-                "description": "Complete Jarvis approval payload",
-            }
-        ]
+    async def _create_request(self, *, content: str, nonce: str) -> httpx.Response:
         return await self._http_client.post(
-            url,
-            headers=authorization,
-            data={
-                "payload_json": json.dumps(
-                    payload,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
+            f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}/messages",
+            headers={
+                "Authorization": "Bot " + self._settings.bot_token.get_secret_value(),
+                "Content-Type": "application/json",
             },
-            files={"files[0]": (filename, body, media_type)},
+            json={
+                "content": content,
+                "nonce": nonce,
+                "enforce_nonce": True,
+                "allowed_mentions": {"parse": []},
+                "flags": SUPPRESS_EMBEDS,
+            },
             timeout=self._settings.request_timeout_seconds,
         )

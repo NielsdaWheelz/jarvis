@@ -22,6 +22,9 @@ or worker callback service. the current memory completion is a separate pr.
    jarvis chooses action, delegation, notification or silence. remove the
    current-owner-only model write gate and read-only wake plan. preserve source
    identity, deployment ownership, canonical requests and effect recovery.
+   slice 1 refines this into one owner/host lifecycle, a causal message reference
+   for recovery, a `stop` disposition for named delivered requests and an atomic
+   local decision receipt in the existing native journal. no new table or role.
 2. work records are the existing proposed todo table. optional one-time/repeated
    wake data lives on that row; its content holds context and references. a due
    wake publishes an ordinary event. deadlines remain separate from wake times;
@@ -89,6 +92,12 @@ receipts. no dual scheduler, rewritten historical receipt or silently lost
 commitment. notes requires the explicit kernel/provider native-access handoff;
 the current contained endpoint does not already provide it.
 
+the owner subsequently confirmed that intermediate slices need not be usable.
+slice 1 removes the old scheduler; slice 2 replaces it. retain reminder obligations
+in the private cutover inventory until conversion; do not keep old execution
+paths merely to make intermediate prs deployable. unattended activation waits
+for the selected slices and accounted-for commitments.
+
 ## consequences and verification
 
 main has more discretion. conversational consent depends on model judgment;
@@ -106,4 +115,8 @@ this change is documentation only. run static/build/document checks; no source,
 behavioral/live execution, deployment or service resumption is included. future
 implementation uses the focused outcomes in the owning contracts and
 [acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks.
-adr 0046's testing reset and the separate memory verification exception remain.
+the owner selected temporary integration/live red/green/refactor for slice 1,
+with designer and adversarial review per feature/stage, then probe deletion.
+that scoped implementation exception does not restore a standing suite under
+adr 0046 or change memory's separate checks. this specification task runs no
+behavioral/live work and authorizes no source change or activation.

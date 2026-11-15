@@ -4,26 +4,23 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import Any
-from uuid import UUID
+from typing import Annotated, Any
 
 from llm_tools import Available, PromptDocument, ToolBinding, ToolEffect, ToolFamily
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field
+
+CanonicalUuid = Annotated[
+    str,
+    Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+]
 
 
 class ActionRequest[InputT: BaseModel](BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
-    request_ref: str
-    existing_action_ref: str | None
+    request_ref: CanonicalUuid
+    existing_action_ref: CanonicalUuid | None
     arguments: InputT
-
-    @field_validator("request_ref", "existing_action_ref")
-    @classmethod
-    def canonical_reference(cls, value: str | None) -> str | None:
-        if value is not None and str(UUID(value)) != value:
-            raise ValueError("action/request reference must be a canonical UUID")
-        return value
 
 
 def bind_action_requests(family: ToolFamily) -> ToolFamily:
@@ -49,10 +46,11 @@ def bind_action_requests(family: ToolFamily) -> ToolFamily:
             input_type=ActionRequest[binding.spec.input_type],
             documentation=PromptDocument(
                 binding.spec.documentation.text
-                + "\nrequest_ref names the canonical owner request authorizing "
-                "this action. existing_action_ref is null for a new effect; echo "
-                "a recorded action reference to recover its result or pending "
-                "status. arguments holds the exact operation input."
+                + "\nrequest_ref names a delivered live owner or host request. "
+                "existing_action_ref is null for a new invocation, even when its "
+                "arguments equal earlier work. use an explicit recorded action "
+                "reference to recover its original result or pending status within "
+                "the same causal component. arguments is the exact operation input."
             ),
             limits=replace(
                 binding.spec.limits,
@@ -66,7 +64,7 @@ def bind_action_requests(family: ToolFamily) -> ToolFamily:
                 execute=Available(execute),
                 policy_inputs={
                     **binding.policy_inputs,
-                    "action_request_revision": "jarvis-action-request.v1",
+                    "action_request_revision": "jarvis-action-request.v2",
                 },
             )
         )
@@ -75,4 +73,4 @@ def bind_action_requests(family: ToolFamily) -> ToolFamily:
     )
 
 
-__all__ = ["ActionRequest", "bind_action_requests"]
+__all__ = ["ActionRequest", "CanonicalUuid", "bind_action_requests"]

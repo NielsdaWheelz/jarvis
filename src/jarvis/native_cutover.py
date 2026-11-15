@@ -1,103 +1,22 @@
-"""Stopped data conversion; historical records never become execution routes."""
+"""Stopped inventory and current admission; historical bytes remain evidence."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
-from uuid import NAMESPACE_URL, uuid5
 
-from llm_tools import (
-    FrozenToolPlan,
-    ParsedJson,
-    ReplayPolicy,
-    ToolEffect,
-    ToolId,
-    raw_input_digest,
-)
-from sqlalchemy import func, select, text, update
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.engine import RowMapping
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy import and_, or_, select, text
 
-from jarvis._atomic_json import read_private_json
-from jarvis.actions import (
-    ACTION_MAX_ATTEMPTS,
-    ActionStore,
-    ExecutionContract,
-    archived_worker_action,
-)
-from jarvis.approval import render_approval
+from jarvis._atomic_json import replace_private_json
+from jarvis.agent_tools import AGENT_IMPLEMENTATION_REVISION
 from jarvis.db import (
-    MEMORY_SCHEMA_REVISION,
+    APPLICATION_SCHEMA_REVISION,
     action,
     message,
     model_decision,
     read_position,
 )
-from jarvis.messages import SettlementTrace
 from jarvis.ownership import Database, lock_conversation
-
-
-async def _require_settled_legacy_reads(
-    connection: AsyncConnection, conversation_id: str
-) -> None:
-    unknown = await connection.scalar(
-        select(read_position.c.position)
-        .join(
-            model_decision,
-            read_position.c.position
-            == "model-decision:" + model_decision.c.decision_id,
-        )
-        .where(
-            model_decision.c.thread_id == conversation_id,
-            read_position.c.state.in_(("dispatched", "uncertain")),
-            read_position.c.contract["replay_policy"].as_string() == "BilledOnce",
-        )
-        .limit(1)
-    )
-    if unknown is not None:
-        raise RuntimeError(
-            f"legacy paid read {unknown} needs its original "
-            "settlement/reconciliation before activation"
-        )
-
-
-async def _legacy_actions(
-    database: Database, conversation_id: str
-) -> tuple[RowMapping, ...]:
-    """Keep unresolved authority; validated retired terminal rows stay evidence."""
-    async with database.connect() as connection:
-        await _require_settled_legacy_reads(connection, conversation_id)
-        rows = (
-            (
-                await connection.execute(
-                    select(action)
-                    .join(message, message.c.id == action.c.origin_message_id)
-                    .where(
-                        message.c.source_conversation_id == conversation_id,
-                        ~action.c.arguments.has_key("request_ref"),
-                        action.c.status.in_(
-                            ("queued", "awaiting_approval", "executing", "uncertain")
-                        ),
-                    )
-                    .order_by(action.c.id)
-                )
-            )
-            .mappings()
-            .all()
-        )
-    actions = ActionStore(database)
-    legacy: list[RowMapping] = []
-    for row in rows:
-        if row["status"] == "uncertain" or row["tool_name"].startswith(
-            ("agent.", "codex.")
-        ):
-            stored = await actions.get(row["id"])
-            if stored is not None and archived_worker_action(stored):
-                continue
-        legacy.append(row)
-    return tuple(legacy)
 
 
 async def require_native_data(database: Database, *, conversation_id: str) -> None:
@@ -105,13 +24,57 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         revision = await connection.scalar(
             text("SELECT version_num FROM alembic_version")
         )
-        if revision != MEMORY_SCHEMA_REVISION:
-            raise RuntimeError("universal memory requires the target schema")
-    if await _legacy_actions(database, conversation_id):
-        raise RuntimeError(
-            "unresolved legacy action blocks native activation; "
-            "run stopped cutover-native"
+        if revision != APPLICATION_SCHEMA_REVISION:
+            raise RuntimeError("one main requires the current application schema")
+        legacy = await connection.scalar(
+            select(action.c.id)
+            .join(message, message.c.id == action.c.origin_message_id)
+            .where(
+                message.c.source_conversation_id == conversation_id,
+                or_(
+                    action.c.execution_contract["schema_version"]
+                    .as_string()
+                    .is_distinct_from("jarvis.action.v2"),
+                    and_(
+                        action.c.tool_name.like("agent.%"),
+                        action.c.execution_contract["implementation_revision"]
+                        .as_string()
+                        .is_distinct_from(AGENT_IMPLEMENTATION_REVISION),
+                    ),
+                    action.c.tool_name.like("codex.%"),
+                ),
+                action.c.status.in_(("queued", "awaiting_approval", "executing")),
+            )
+            .limit(1)
         )
+        if legacy is not None:
+            raise RuntimeError(
+                "unfinished retired action requires original-release "
+                "settlement or cancellation"
+            )
+        unknown = await connection.scalar(
+            select(read_position.c.position)
+            .where(
+                ~read_position.c.position.startswith("native-invocation:"),
+                read_position.c.state.in_(("dispatched", "uncertain")),
+                read_position.c.contract["replay_policy"].as_string() == "BilledOnce",
+            )
+            .limit(1)
+        )
+        if unknown is not None:
+            raise RuntimeError("retired paid read requires original-release settlement")
+        inference = await connection.scalar(
+            select(model_decision.c.decision_id)
+            .where(
+                model_decision.c.terminal.is_(None),
+                model_decision.c.submission.is_(None),
+            )
+            .limit(1)
+        )
+        if inference is not None:
+            raise RuntimeError(
+                "unfinished retired inference requires original-release disposition"
+            )
 
 
 async def cutover_native(
@@ -119,201 +82,58 @@ async def cutover_native(
     *,
     directory: Path,
     conversation_id: str,
-    plan: FrozenToolPlan,
 ) -> int:
-    """Validate old actions, convert unentered authority, and import pause."""
-    paths = tuple(
-        directory / name
-        for name in (
-            "paused.json",
-            "admission.json",
-            "session-ref.json",
-            "memory-rebuild-admission.json",
-        )
-    )
-    paused = read_private_json(paths[0])
-    if paused is not None and (
-        set(paused) != {"paused", "schema_version"}
-        or paused["schema_version"] != "jarvis-paused.v1"
-        or type(paused["paused"]) is not bool
-    ):
-        raise RuntimeError("old pause state is invalid")
-    legacy = await _legacy_actions(database, conversation_id)
-    converted: list[tuple[Any, dict[str, object], ExecutionContract, str | None]] = []
-    for row in legacy:
-        if row["attempts"] != 0 or row["status"] == "uncertain":
-            raise RuntimeError(
-                f"legacy effect {row['id']} needs its original "
-                "settlement/reconciliation before activation"
-            )
-        original = ExecutionContract.model_validate(row["execution_contract"])
-        origin = str(row["origin_message_id"])
-        if original.write_gate_supporting_owner_message_ids != (origin,):
-            raise RuntimeError(f"legacy action {row['id']} has ambiguous owner intent")
-        binding = plan.catalog_view.binding(ToolId(row["tool_name"]))
-        if binding.spec.effect is not ToolEffect.Write:
-            raise RuntimeError("legacy action is not a current Write")
-        value = binding.spec.input_type.model_validate(
-            {
-                "request_ref": origin,
-                "existing_action_ref": None,
-                "arguments": row["arguments"],
-            }
-        )
-        arguments = value.model_dump(mode="json")
-        contract = ExecutionContract(
-            tool_contract_revision=binding.spec.tool_contract_revision,
-            implementation_revision=binding.implementation_revision,
-            policy_revision=binding.policy_revision,
-            plan_revision=plan.plan_revision,
-            tool_effect=ToolEffect.Write,
-            replay_policy=cast(Any, binding.replay_policy),
-            input_digest=raw_input_digest(ParsedJson(arguments)),
-            max_attempts=1
-            if binding.replay_policy is ReplayPolicy.BilledOnce
-            else ACTION_MAX_ATTEMPTS,
-            claim_id=str(uuid5(row["id"], "native-cutover")),
-            through_checkpoint=origin,
-            model_step_ordinal=1,
-            input_message_ids=(origin,),
-            write_gate_supporting_owner_message_ids=(origin,),
-        )
-        preview = None
-        if row["approval_message_id"] is not None:
-            preview = render_approval(
-                uuid5(row["id"], "native-approval"), binding.spec.id, value.arguments
-            ).content
-        converted.append((row, arguments, contract, preview))
-    timestamp = datetime.now(UTC)
+    """Retain private obligations before a stopped, explicitly managed cutover."""
+    inventory: dict[str, object] = {
+        "schema_version": "jarvis-one-main-inventory.v1",
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "conversation_id": conversation_id,
+    }
     async with database.begin() as connection:
         await lock_conversation(connection, conversation_id)
-        origins = tuple(
-            sorted({row["origin_message_id"] for row, _, _, _ in converted})
-        )
-        inputs = (
-            (
-                await connection.execute(
-                    select(message)
-                    .where(message.c.id.in_(origins))
-                    .order_by(message.c.id)
-                    .with_for_update()
-                )
+        paused = await connection.scalar(
+            select(message.c.control_kind)
+            .where(
+                message.c.source_conversation_id == conversation_id,
+                message.c.control_kind.is_not(None),
             )
-            .mappings()
-            .all()
+            .order_by(message.c.control_sequence.desc())
+            .limit(1)
         )
-        if len(inputs) != len(origins) or any(row["role"] != "owner" for row in inputs):
-            raise RuntimeError("legacy action origin is not an owner request")
-        for original, _, _, _ in converted:
-            current = (
+        if paused != "pause":
+            raise RuntimeError(
+                "cutover inventory requires canonical administrative pause"
+            )
+        queries = {
+            "actions": """SELECT to_jsonb(a) FROM action a JOIN message m
+              ON m.id=a.origin_message_id WHERE m.source_conversation_id=:scope
+              AND a.status IN ('queued','awaiting_approval','executing','uncertain')
+              ORDER BY a.created_at,a.id""",
+            "reminders": """SELECT to_jsonb(a) FROM action a JOIN message m
+              ON m.id=a.origin_message_id WHERE m.source_conversation_id=:scope
+              AND a.tool_name='schedule.wake' ORDER BY a.created_at,a.id""",
+            "requests": """SELECT to_jsonb(m) FROM message m
+              WHERE m.source_conversation_id=:scope AND m.role IN ('owner','host')
+              AND (m.request_state IN ('pending','waiting','stopped')
+                OR m.processing_parked_at IS NOT NULL) ORDER BY m.created_at,m.id""",
+            "undelivered": """SELECT to_jsonb(m) FROM message m
+              WHERE m.source_conversation_id=:scope AND m.role='assistant'
+              AND m.source_message_id IS NULL ORDER BY m.created_at,m.id""",
+            "unsettled_attempts": """SELECT to_jsonb(a) FROM native_attempt a
+              WHERE a.conversation_id=:scope AND a.product_outcome IS NULL
+              ORDER BY a.attempt_seq""",
+        }
+        count = 0
+        for name, query in queries.items():
+            rows = list(
                 (
-                    await connection.execute(
-                        select(action)
-                        .where(action.c.id == original["id"])
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .one()
+                    await connection.execute(text(query), {"scope": conversation_id})
+                ).scalars()
             )
-            if current != original:
-                raise RuntimeError("legacy action changed during stopped cutover")
-            await connection.execute(
-                update(action)
-                .where(action.c.id == original["id"])
-                .values(
-                    status="cancelled",
-                    decided_at=func.coalesce(action.c.decided_at, timestamp),
-                    completed_at=timestamp,
-                    result={
-                        "type": "action_cancelled_v1",
-                        "reason_code": "native_cutover",
-                    },
-                )
-            )
-        for origin in origins:
-            await connection.execute(
-                update(message)
-                .where(message.c.id == origin)
-                .values(
-                    request_state="pending",
-                    wait_reason=None,
-                    processed_at=None,
-                )
-            )
-        for row, arguments, contract, preview in converted:
-            if preview is None:
-                continue
-            identifier = uuid5(row["id"], "native-approval")
-            approval_id = uuid5(
-                NAMESPACE_URL, f"jarvis-action-approval-v1:{identifier}"
-            )
-            await connection.execute(
-                insert(message).values(
-                    id=approval_id,
-                    role="assistant",
-                    text=preview,
-                    source="discord",
-                    source_conversation_id=conversation_id,
-                    created_at=timestamp,
-                    processed_at=timestamp,
-                )
-            )
-            await connection.execute(
-                insert(action).values(
-                    id=identifier,
-                    tool_name=row["tool_name"],
-                    arguments=arguments,
-                    execution_contract=contract.as_json(),
-                    status="awaiting_approval",
-                    attempts=0,
-                    origin_message_id=row["origin_message_id"],
-                    approval_message_id=approval_id,
-                    created_at=timestamp,
-                    supersedes_action_id=row["id"],
-                )
-            )
-        if paused is not None:
-            identifier = uuid5(
-                NAMESPACE_URL, "jarvis-native-cutover-pause:" + conversation_id
-            )
-            old = await connection.scalar(
-                select(message.c.id).where(message.c.id == identifier)
-            )
-            if old is None:
-                # The old boolean identifies no stopped request set. Import the
-                # deployment pause only; preserve each request's canonical state.
-                await connection.execute(
-                    insert(message).values(
-                        id=identifier,
-                        role="owner",
-                        text="imported deployment pause",
-                        source="native_cutover",
-                        source_conversation_id=conversation_id,
-                        source_message_id=str(identifier),
-                        processed_at=timestamp,
-                        request_state="completed",
-                        control_kind="pause" if paused["paused"] else "resume",
-                        control_sequence=text("nextval('message_control_sequence')"),
-                        control_targets=[],
-                        trace={
-                            "pause_import_revision": "jarvis-native-cutover.v1",
-                            "settlement": SettlementTrace(
-                                run_id=f"native-cutover:{identifier}",
-                                through_checkpoint=str(identifier),
-                                conclusion_kind="control",
-                                outcome="imported_pause"
-                                if paused["paused"]
-                                else "imported_resume",
-                            ).as_json(None),
-                        },
-                    )
-                )
-    # The stopped operator holds deployment ownership throughout. After every
-    # database conversion commits, the old files cease to be authorities.
-    for path in paths:
-        path.unlink(missing_ok=True)
-    return len(converted)
+            inventory[name] = rows
+            count += len(rows)
+    replace_private_json(directory / "one-main-cutover.json", inventory)
+    return count
 
 
 def require_native_files(directory: Path) -> None:
@@ -326,7 +146,9 @@ def require_native_files(directory: Path) -> None:
             "memory-rebuild-admission.json",
         )
     ):
-        raise RuntimeError("run stopped cutover-native before native activation")
+        raise RuntimeError(
+            "retired local authority requires stopped original-release disposition"
+        )
 
 
 __all__ = ["cutover_native", "require_native_data", "require_native_files"]

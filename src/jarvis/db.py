@@ -38,7 +38,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-MEMORY_SCHEMA_REVISION = "0008"
+APPLICATION_SCHEMA_REVISION = "0007_one_main_events"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -67,6 +67,11 @@ message = Table(
     ),
     Column("processing_parked_at", DateTime(timezone=True)),
     Column("memory_admitted", Boolean, nullable=False, server_default=text("false")),
+    Column(
+        "parent_request_id",
+        UUID(as_uuid=True),
+        ForeignKey("message.id", ondelete="RESTRICT"),
+    ),
     Column("request_state", Text),
     Column("wait_reason", Text),
     Column("control_kind", Text),
@@ -278,10 +283,6 @@ action = Table(
     ),
     CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
     CheckConstraint(
-        "status <> 'awaiting_approval' OR approval_message_id IS NOT NULL",
-        name="approval_message_required",
-    ),
-    CheckConstraint(
         "(status IN ('succeeded', 'failed', 'uncertain', 'cancelled')) "
         "= (completed_at IS NOT NULL)",
         name="terminal_completion",
@@ -472,7 +473,7 @@ native_invocation = Table(
     CheckConstraint("read_position IS NULL OR action_id IS NULL", name="one_execution"),
     CheckConstraint(
         "(validation = 'accepted' AND frozen_contract->>'effect' = 'Write' "
-        "AND tool_id <> 'memory.save_note') "
+        "AND tool_id NOT IN ('memory.save_note', 'approval.respond')) "
         "IS NOT DISTINCT FROM (request_message_id IS NOT NULL)",
         name="write_origin",
     ),

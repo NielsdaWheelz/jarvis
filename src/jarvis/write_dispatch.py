@@ -1,22 +1,18 @@
-"""Gate, classify, persist, execute, and reconcile durable Writes."""
+"""Classify, persist, execute, and reconcile durable application writes."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from hashlib import sha256
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
     CancellationToken,
-    DispatchCompleted,
     DispatchResult,
     DispatchSuspended,
-    HostInput,
     HostRef,
     NativeDispatchLineage,
     ToolDispatchDefect,
@@ -30,7 +26,6 @@ from llm_tools import (
     FrozenToolPlan,
     ParsedJson,
     Principal,
-    PromptText,
     RecoveryRequired,
     ReplayPolicy,
     Scope,
@@ -52,40 +47,26 @@ from jarvis.actions import (
     ExecutionContract,
     StoredAction,
     action_replay_result,
-    agent_wait_state,
-    archived_worker_action,
     retired_worker_action,
 )
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
     AGENT_LOCAL_IDS,
-    AGENT_SUCCESS_TYPES,
     AGENT_WRITE_IDS,
-    AgentActionEvidence,
-    AgentCloseReceipt,
-    AgentError,
     AgentTargetInput,
-    AgentWriteResult,
-    WireFailure,
-    WireStartResult,
-    validate_agent_evidence,
-    validate_agent_failure,
 )
-from jarvis.approval import ApprovalRenderError, render_approval
-from jarvis.messages import ACTION_MODEL_CONTEXT_SEPARATOR
-from jarvis.ownership import DeploymentOwnershipDefect
+from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
+from jarvis.native_journal import PostgresNativeJournal
 from jarvis.read_dispatch import ReadDispatchPort, contains_secret
-from jarvis.schedule_tools import ScheduleCreateRequest, ScheduleWakeInput
-from jarvis.tool_results import NoTelemetry, completed_tool_result
+from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     GoogleWriteConnector,
     ReconciliationResult,
     gmail_effect_id,
 )
-from jarvis.write_gate import AutomaticWriteGate, GateOwnerInput
-from jarvis.write_policy import classify_write, write_effect_descriptor
+from jarvis.write_policy import classify_write
 from jarvis.write_tools import (
     CalendarCreateEventInput,
     CalendarDeleteEventInput,
@@ -103,54 +84,41 @@ _UNAVAILABLE: ToolResult = {
 LOGGER = logging.getLogger(__name__)
 
 
-class ScheduleChanged(Protocol):
-    def __call__(self) -> None: ...
-
-
-class ApprovalDisabler(Protocol):
-    async def __call__(self, action: StoredAction) -> None: ...
-
-
 class WriteAuthority(Protocol):
-    async def automatic_write_gate_inputs(
-        self,
-        lineage: NativeDispatchLineage,
-        request_ref: UUID,
-    ) -> tuple[tuple[HostInput, ...], datetime]: ...
+    async def require_live_request(
+        self, lineage: NativeDispatchLineage, request_ref: UUID
+    ) -> None: ...
 
 
 class WriteToolDispatcher:
-    """One run-local dispatcher with durable positions for Writes only."""
+    """Serialize admitted callbacks and retain entered effects until settlement."""
 
     def __init__(
         self,
         *,
         checkpoint: WriteAuthority,
-        gate: AutomaticWriteGate,
+        journal: PostgresNativeJournal,
         actions: ActionStore,
         google_write: GoogleWriteConnector,
         agents: AgentController,
         read: ReadDispatchPort,
-        owner_timezone: str,
         source_conversation_id: str,
         verified_owner_only_calendar_ids: tuple[str, ...],
         host_secrets: tuple[str, ...],
-        schedule_changed: ScheduleChanged,
         dispatch_lane: asyncio.Lock,
     ) -> None:
         self._checkpoint = checkpoint
-        self._gate = gate
+        self._journal = journal
         self._actions = actions
         self._google_write = google_write
         self._agents = agents
         self._read = read
-        self._owner_timezone = owner_timezone
         self._source_conversation_id = source_conversation_id
         self._verified_calendar_ids = verified_owner_only_calendar_ids
         self._host_secrets = host_secrets
-        self._schedule_changed = schedule_changed
         self._dispatch_lane = dispatch_lane
         self._effects: set[asyncio.Task[DispatchResult]] = set()
+        self._closing = False
         self.on_effect_settled: Callable[[], None] = lambda: None
 
     async def dispatch(
@@ -163,27 +131,8 @@ class WriteToolDispatcher:
         cancellation: CancellationToken,
         lineage: ToolDispatchLineage,
     ) -> DispatchResult:
-        if binding.spec.id == MEMORY_SAVE_NOTE_SPEC.id:
-            if not isinstance(lineage, NativeDispatchLineage):
-                raise ToolDispatchDefect("a local note write needs native lineage")
-
-            async def save_note() -> DispatchResult:
-                async with self._dispatch_lane:
-                    return await self._read.save_note(
-                        binding=binding,
-                        validated_input=validated_input,
-                        plan=plan,
-                        budgets=budgets,
-                        cancellation=cancellation,
-                        lineage=lineage,
-                    )
-
-            task = asyncio.create_task(
-                save_note(), name=f"jarvis-note:{lineage.invocation_id}"
-            )
-            self._effects.add(task)
-            task.add_done_callback(lambda _task: self.on_effect_settled())
-            return await asyncio.shield(task)
+        if plan.catalog_view.binding(binding.spec.id) is not binding:
+            raise ToolDispatchDefect("binding differs from its frozen plan")
         if binding.spec.effect is ToolEffect.Read:
             async with self._dispatch_lane:
                 return await self._read.dispatch(
@@ -194,112 +143,122 @@ class WriteToolDispatcher:
                     cancellation=cancellation,
                     lineage=lineage,
                 )
-        if (
-            binding.spec.effect is not ToolEffect.Write
-            or not isinstance(lineage, NativeDispatchLineage)
-            or not isinstance(validated_input, ActionRequest)
+        if binding.spec.effect is not ToolEffect.Write or not isinstance(
+            lineage, NativeDispatchLineage
         ):
-            raise ToolDispatchDefect(
-                "Write requires a native invocation and ActionRequest"
-            )
-        if plan.catalog_view.binding(binding.spec.id) is not binding:
-            raise ToolDispatchDefect("Write binding differs from its frozen plan")
-        if binding.replay_policy not in {
-            ReplayPolicy.BilledOnce,
-            ReplayPolicy.ReDispatchable,
-        }:
-            raise ToolDispatchDefect(
-                "Write replay policy cannot create a durable action"
-            )
-        validated_input = cast(ActionRequest[BaseModel], validated_input)
-        await self._read.recover_budget(lineage=lineage, budgets=budgets)
-        request_id = UUID(validated_input.request_ref)
-        payload = validated_input.arguments
-        arguments = validated_input.model_dump(mode="json")
-        previous, recovered = await self._actions.accepted_actions(
-            request_id, UUID(lineage.attempt_id)
+            raise ToolDispatchDefect("a write requires its native invocation")
+        detached = False
+
+        async def invoke() -> DispatchResult:
+            async with self._dispatch_lane:
+                if binding.spec.id == MEMORY_SAVE_NOTE_SPEC.id:
+                    return await self._read.save_note(
+                        binding=binding,
+                        validated_input=validated_input,
+                        plan=plan,
+                        budgets=budgets,
+                        cancellation=cancellation,
+                        lineage=lineage,
+                    )
+                if binding.spec.id == APPROVAL_RESPOND_SPEC.id:
+                    if not isinstance(validated_input, ApprovalRespondInput):
+                        raise ToolDispatchDefect("approval decision input is invalid")
+                    result = await self._journal.respond_approval(
+                        lineage.invocation_id, validated_input
+                    )
+                    if result.result["type"] == "Success":
+                        task = asyncio.create_task(
+                            self._finish_decision(
+                                UUID(validated_input.action_id), plan, cancellation
+                            ),
+                            name=f"jarvis-decision:{validated_input.action_id}",
+                        )
+                        self._effects.add(task)
+                        task.add_done_callback(lambda _task: self.on_effect_settled())
+                    return result
+                if not isinstance(validated_input, ActionRequest):
+                    raise ToolDispatchDefect("application write needs ActionRequest")
+                result = await self._dispatch_action(
+                    binding=binding,
+                    request=cast(ActionRequest[BaseModel], validated_input),
+                    plan=plan,
+                    budgets=budgets,
+                    cancellation=cancellation,
+                    lineage=lineage,
+                )
+                if detached and result.host_ref is not None:
+                    await self._publish_outcome(UUID(result.host_ref))
+                return result
+
+        task = asyncio.create_task(
+            invoke(), name=f"jarvis-write:{lineage.invocation_id}"
         )
-        selected = None
-        if validated_input.existing_action_ref is not None:
+        self._effects.add(task)
+        task.add_done_callback(lambda _task: self.on_effect_settled())
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            detached = True
+            raise
+
+    async def _dispatch_action(
+        self,
+        *,
+        binding: ToolBinding[Any, Any, Any],
+        request: ActionRequest[BaseModel],
+        plan: FrozenToolPlan,
+        budgets: BudgetState,
+        cancellation: CancellationToken,
+        lineage: NativeDispatchLineage,
+    ) -> DispatchResult:
+        request_id = UUID(request.request_ref)
+        await self._checkpoint.require_live_request(lineage, request_id)
+        await self._read.recover_budget(lineage=lineage, budgets=budgets)
+        previous, blocked = await self._actions.accepted_actions(request_id)
+        payload = request.arguments
+        if request.existing_action_ref is not None:
             selected = next(
                 (
                     item
                     for item in previous
-                    if str(item.id) == validated_input.existing_action_ref
+                    if str(item.id) == request.existing_action_ref
                 ),
                 None,
             )
             if selected is None:
-                return _host_rejected("action_reference_outside_request")
-        else:
-            selected = next(
-                (
-                    item
-                    for item in previous
-                    if item.tool_name == binding.spec.id
-                    and item.execution_contract.policy_revision
-                    == binding.policy_revision
-                    and item.payload == payload.model_dump(mode="json")
-                ),
-                None,
-            )
-        if selected is not None:
-            contract = selected.execution_contract
+                return host_rejected("action_reference_outside_request")
+            try:
+                require_current_action_binding(selected, plan)
+            except RuntimeError:
+                return host_rejected("action_reference_contract_changed")
             if (
                 selected.tool_name != binding.spec.id
-                or contract.tool_contract_revision
-                != binding.spec.tool_contract_revision
-                or contract.implementation_revision != binding.implementation_revision
-                or contract.policy_revision != binding.policy_revision
                 or selected.payload != payload.model_dump(mode="json")
             ):
-                return _host_rejected("action_reference_contract_changed")
+                return host_rejected("action_reference_contract_changed")
+            reference = HostRef(str(selected.id))
             if selected.status == "awaiting_approval":
-                return DispatchSuspended(HostRef(str(selected.id)), WaitingFor.user)
+                return DispatchSuspended(reference, WaitingFor.user)
             recorded = action_replay_result(selected)
             if recorded is not None:
-                return completed_tool_result(recorded, HostRef(str(selected.id)))
+                return completed_tool_result(recorded, reference)
             if selected.status in {"queued", "executing", "uncertain"}:
-                return DispatchSuspended(HostRef(str(selected.id)), WaitingFor.system)
-            return _host_rejected("action_was_cancelled", HostRef(str(selected.id)))
-        if recovered:
-            return _host_rejected("recovery_requires_action_reference")
-        tool_id = binding.spec.id
-        try:
-            owners, as_of = await self._checkpoint.automatic_write_gate_inputs(
-                lineage, request_id
-            )
-            owner_inputs = _gate_owner_inputs(owners)
-            target = None
-            if tool_id in AGENT_WRITE_IDS and isinstance(
-                payload,
-                AgentTargetInput,
-            ):
-                target = await self._agents.locate(tool_id, payload)
-            gate = await self._gate.evaluate(
-                owner_inputs,
-                operation_id=f"jarvis-write-gate:{lineage.invocation_id}",
-                parent_invocation_id=lineage.invocation_id,
-                tool_id=tool_id,
-                descriptor=write_effect_descriptor(tool_id, payload, target=target),
-                owner_timezone=self._owner_timezone,
-                as_of=as_of,
-                cancellation=cancellation,
-            )
-        except (asyncio.CancelledError, DeploymentOwnershipDefect):
-            raise
-        except Exception as error:
-            LOGGER.warning(
-                "write gate unavailable: tool=%s invocation=%s exception=%s",
-                tool_id,
-                lineage.invocation_id,
-                type(error).__name__,
-            )
-            return _write_check_failure(tool_id, "write_check_unavailable")
-        if not gate.allowed:
-            return _write_check_failure(tool_id, "policy_denied")
+                return DispatchSuspended(reference, WaitingFor.system)
+            return host_rejected("action_was_cancelled", reference)
+        if blocked:
+            return host_rejected("effect_outcome_unknown")
+        if binding.replay_policy not in {
+            ReplayPolicy.BilledOnce,
+            ReplayPolicy.ReDispatchable,
+        }:
+            raise ToolDispatchDefect("write replay policy has no action contract")
+        arguments = request.model_dump(mode="json")
         if contains_secret(arguments, self._host_secrets):
             return completed_tool_result(dict(_INVALID_INPUT))
+        tool_id = binding.spec.id
+        target = None
+        if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
+            target = await self._agents.locate(tool_id, payload)
         if isinstance(
             payload, GmailSendDraftInput
         ) and not await gmail_send_basis_is_current(self._actions, payload):
@@ -320,10 +279,10 @@ class WriteToolDispatcher:
         )
         if authority == "rejected":
             return completed_tool_result(dict(_UNAVAILABLE))
-        if cancellation.cancelled:
+        if cancellation.cancelled or self._closing:
             raise asyncio.CancelledError
-        action_id = uuid4()
         contract = ExecutionContract(
+            schema_version="jarvis.action.v2",
             tool_contract_revision=binding.spec.tool_contract_revision,
             implementation_revision=binding.implementation_revision,
             policy_revision=binding.policy_revision,
@@ -342,101 +301,81 @@ class WriteToolDispatcher:
             model_step_ordinal=lineage.ordinal,
             input_message_ids=tuple(map(str, lineage.input_ids)),
             agent_target=target,
-            write_gate_supporting_owner_message_ids=tuple(
-                map(str, gate.supporting_owner_message_ids)
-            ),
         )
+        action_id = uuid4()
         if authority == "approval_required":
-            try:
-                presentation = render_approval(action_id, tool_id, payload)
-            except ApprovalRenderError:
-                return completed_tool_result(dict(_UNAVAILABLE))
             await self._actions.insert_awaiting_approval(
                 tool_name=tool_id,
                 arguments=arguments,
                 execution_contract=contract,
                 origin_message_id=request_id,
-                approval_text=presentation.content,
-                source_conversation_id=self._source_conversation_id,
                 action_id=action_id,
                 invocation_id=UUID(lineage.invocation_id),
             )
             return DispatchSuspended(HostRef(str(action_id)), WaitingFor.user)
-        execute_after = (
-            payload.request.execute_after
-            if isinstance(payload, ScheduleWakeInput)
-            and isinstance(payload.request, ScheduleCreateRequest)
-            else None
-        )
         await self._actions.insert_automatic(
             tool_name=tool_id,
             arguments=arguments,
             execution_contract=contract,
             origin_message_id=request_id,
-            execute_after=execute_after,
             action_id=action_id,
             invocation_id=UUID(lineage.invocation_id),
         )
-        detached = False
+        result = await execute_recorded_action(
+            self._actions,
+            action_id=action_id,
+            binding=binding,
+            plan=plan,
+            budgets=budgets,
+        )
+        self._agents.notify_wait_changed()
+        return result
 
-        async def execute() -> DispatchResult:
-            async with self._dispatch_lane:
-                grant = plan.grant(tool_id)
-                recorder = ActionPositionRecorder(
-                    store=self._actions,
-                    action_id=action_id,
-                    implementation_revision=binding.implementation_revision,
-                    max_external_attempts=grant.limits.max_attempts,
+    async def _finish_decision(
+        self, action_id: UUID, plan: FrozenToolPlan, cancellation: CancellationToken
+    ) -> DispatchResult:
+        async with self._dispatch_lane:
+            stored = await self._actions.get(action_id)
+            if stored is None:
+                raise ToolDispatchDefect("decided action disappeared")
+            if stored.status in {"queued", "executing"}:
+                await ActionRecovery(
+                    actions=self._actions,
+                    google_write=self._google_write,
+                    plan=plan,
+                    source_conversation_id=self._source_conversation_id,
+                    wait_changed=self._agents.notify_wait_changed,
+                ).recover_action(
+                    action_id,
+                    allow_queued_execution=not cancellation.cancelled
+                    and not self._closing,
                 )
-                try:
-                    result = await ToolExecutor.execute(
-                        binding,
-                        ParsedJson(arguments),
-                        ExecutionContext(
-                            plan=plan,
-                            grant=grant,
-                            catalog_view=plan.catalog_view,
-                            position=recorder.position,
-                            recorder=recorder,
-                            effect_id=EffectId(str(action_id)),
-                            budgets=budgets,
-                            principal=Principal("jarvis-owner"),
-                            scope=Scope("automatic-write"),
-                            cancellation=CancellationToken(),
-                            telemetry=NoTelemetry(),
-                        ),
-                    )
-                except RecoveryRequired:
-                    return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
-                if (
-                    tool_id in {ToolId("schedule.wake"), *AGENT_LOCAL_IDS}
-                    and result["type"] == "Success"
-                ):
-                    self._schedule_changed()
-                if detached:
-                    stored = await self._actions.get(action_id)
-                    if stored is not None and stored.status in {
-                        "succeeded",
-                        "failed",
-                        "uncertain",
-                        "cancelled",
-                    }:
-                        await self._actions.finish_recovered_origins(
-                            reports=((action_id, action_resolution_text(stored)),),
-                            source_conversation_id=self._source_conversation_id,
-                        )
-                return completed_tool_result(result, HostRef(str(action_id)))
+            await self._publish_outcome(action_id)
+            stored = await self._actions.get(action_id)
+            if stored is None:
+                raise ToolDispatchDefect("decided action disappeared")
+            result = action_replay_result(stored)
+            return (
+                completed_tool_result(result, HostRef(str(action_id)))
+                if result is not None
+                else DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
+            )
 
-        task = asyncio.create_task(execute(), name=f"jarvis-action:{action_id}")
-        self._effects.add(task)
-        task.add_done_callback(lambda _task: self.on_effect_settled())
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            detached = True
-            raise
+    async def _publish_outcome(self, action_id: UUID) -> None:
+        stored = await self._actions.get(action_id)
+        if stored is not None and stored.status in {
+            "succeeded",
+            "failed",
+            "uncertain",
+            "cancelled",
+        }:
+            await self._actions.publish_outcomes(
+                action_ids=(action_id,),
+                source_conversation_id=self._source_conversation_id,
+            )
 
     async def close(self) -> None:
+        self._closing = True
         if self._effects:
             await asyncio.gather(*self._effects)
 
@@ -448,15 +387,51 @@ class WriteToolDispatcher:
         return bool(self._effects)
 
 
-def _host_rejected(code: str, reference: HostRef | None = None) -> DispatchCompleted:
-    # Host authority failures are not executor observations and occupy no position.
-    return completed_tool_result(
-        {"type": "Failure", "error": {"type": "HostRejected", "code": code}}, reference
+async def execute_recorded_action(
+    actions: ActionStore,
+    *,
+    action_id: UUID,
+    binding: ToolBinding[Any, Any, Any],
+    plan: FrozenToolPlan,
+    budgets: BudgetState,
+) -> DispatchResult:
+    """Enter the same durable position for immediate, approved and recovered work."""
+    stored = await actions.get(action_id)
+    if stored is None:
+        raise ToolDispatchDefect("recorded action disappeared")
+    require_current_action_binding(stored, plan)
+    grant = plan.grant(binding.spec.id)
+    recorder = ActionPositionRecorder(
+        store=actions,
+        action_id=action_id,
+        implementation_revision=binding.implementation_revision,
+        max_external_attempts=grant.limits.max_attempts,
     )
+    try:
+        result = await ToolExecutor.execute(
+            binding,
+            ParsedJson(stored.arguments),
+            ExecutionContext(
+                plan=plan,
+                grant=grant,
+                catalog_view=plan.catalog_view,
+                position=recorder.position,
+                recorder=recorder,
+                effect_id=EffectId(str(action_id)),
+                budgets=budgets,
+                principal=Principal("jarvis-owner"),
+                scope=Scope("recorded-action"),
+                cancellation=CancellationToken(),
+                telemetry=NoTelemetry(),
+            ),
+        )
+    except RecoveryRequired:
+        return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
+    return completed_tool_result(result, HostRef(str(action_id)))
 
 
 class ActionRecovery:
-    """Bounded startup recovery using only each tool's exact evidence procedure."""
+    """Bounded action recovery using only each tool's exact evidence procedure."""
 
     def __init__(
         self,
@@ -465,85 +440,39 @@ class ActionRecovery:
         google_write: GoogleWriteConnector,
         plan: FrozenToolPlan,
         source_conversation_id: str,
-        schedule_changed: ScheduleChanged,
-        approval_disabler: ApprovalDisabler,
+        wait_changed: Callable[[], None],
     ) -> None:
         self._actions = actions
         self._google_write = google_write
         self._plan = plan
         self._source_conversation_id = source_conversation_id
-        self._schedule_changed = schedule_changed
-        self._approval_disabler = approval_disabler
+        self._wait_changed = wait_changed
 
     async def recover(self, *, allow_queued_execution: bool = True) -> int:
         if type(allow_queued_execution) is not bool:
             raise ValueError("queued recovery selection must be boolean")
         recovered: set[UUID] = set()
-        for pending in await self._actions.pending_approvals(
-            source_conversation_id=self._source_conversation_id,
-            limit=100,
-        ):
-            compatible = True
-            try:
-                binding = self._binding(pending)
-                value = binding.spec.input_type.model_validate(
-                    pending.arguments
-                ).arguments
-                render_approval(pending.id, pending.tool_name, value)
-                if isinstance(value, GmailSendDraftInput):
-                    compatible = await gmail_send_basis_is_current(self._actions, value)
-            except DeploymentOwnershipDefect:
-                raise
-            except (ApprovalRenderError, RuntimeError, ValueError):
-                compatible = False
-            if compatible:
-                continue
-            discord_message_id = (
-                await self._actions.approval_discord_message_id_or_none(pending.id)
-            )
-            if discord_message_id is not None:
-                await self._approval_disabler(pending)
-            await self._actions.cancel_nonexecuting(
-                action_id=pending.id,
-                result={
-                    "type": "action_cancelled_v1",
-                    "reason_code": "incompatible_execution_contract",
-                },
-            )
-            recovered.add(pending.id)
-        for scheduled in await self._actions.executing_schedule_receipts(limit=100):
-            try:
-                self._binding(scheduled)
-            except RuntimeError:
-                await self._actions.fail_incompatible_schedule(
-                    action_id=scheduled.id,
-                    source_conversation_id=self._source_conversation_id,
-                )
-                self._schedule_changed()
-                recovered.add(scheduled.id)
         while candidates := await self._actions.recovery_candidates(
             include_queued=allow_queued_execution,
             limit=100,
         ):
+            changed = False
             for candidate in candidates:
-                await self._recover_one(
-                    candidate,
+                await self.recover_action(
+                    candidate.id,
                     allow_queued_execution=allow_queued_execution,
                 )
                 current = await self._require(candidate.id)
                 if current != candidate:
+                    changed = True
                     recovered.add(candidate.id)
-            if not allow_queued_execution:
+            if not allow_queued_execution or not changed:
                 break
         while terminals := await self._actions.unreported_terminal(
             source_conversation_id=self._source_conversation_id, limit=100
         ):
             groups: dict[str, list[StoredAction]] = {}
             for terminal in terminals:
-                if archived_worker_action(terminal):
-                    raise RuntimeError(
-                        "retired worker events must drain before activation"
-                    )
                 groups.setdefault(terminal.execution_contract.claim_id, []).append(
                     terminal
                 )
@@ -552,32 +481,25 @@ class ActionRecovery:
                     group,
                     key=lambda value: value.execution_contract.model_step_ordinal,
                 )
-                for value in ordered:
-                    if (
-                        value.approval_message_id is not None
-                        and value.status == "cancelled"
-                        and value.result
-                        == {
-                            "type": "approval_denied_v1",
-                            "reason_code": "owner_denied",
-                        }
-                    ):
-                        await self._approval_disabler(value)
-                await self._actions.finish_recovered_origins(
-                    reports=tuple(
-                        (value.id, action_resolution_text(value)) for value in ordered
-                    ),
+                published = await self._actions.publish_outcomes(
+                    action_ids=tuple(value.id for value in ordered),
                     source_conversation_id=self._source_conversation_id,
                 )
-                recovered.update(value.id for value in ordered)
+                recovered.update(
+                    value.id
+                    for value, receipt in zip(ordered, published, strict=True)
+                    if receipt.inserted
+                )
         return len(recovered)
 
-    async def _recover_one(
+    async def recover_action(
         self,
-        stored: StoredAction,
+        action_id: UUID,
         *,
         allow_queued_execution: bool,
     ) -> None:
+        """Settle one recorded action without sweeping unrelated work."""
+        stored = await self._require(action_id)
         if retired_worker_action(stored):
             raise RuntimeError("retired unfinished worker action blocks activation")
         if (
@@ -588,20 +510,7 @@ class ActionRecovery:
             # deployment to retain its old executable/profile configuration.
             await self._actions.reconcile_agent_receipt(stored.id)
             return
-        try:
-            binding = self._binding(stored)
-        except RuntimeError:
-            current = await self._require(stored.id)
-            if current.status != "queued":
-                raise
-            await self._actions.cancel_nonexecuting(
-                action_id=current.id,
-                result={
-                    "type": "action_cancelled_v1",
-                    "reason_code": "incompatible_execution_contract",
-                },
-            )
-            return
+        binding = self._binding(stored)
         value = binding.spec.input_type.model_validate(stored.arguments).arguments
         if isinstance(value, GmailSendDraftInput) and not (
             await gmail_send_basis_is_current(self._actions, value)
@@ -630,33 +539,8 @@ class ActionRecovery:
                 else:
                     await self._actions.reconcile_agent_receipt(current.id)
                 continue
-            if (
-                current.status == "executing"
-                and current.approval_message_id is not None
-                and current.decided_at is not None
-                and current.attempts == 0
-            ):
-                await self._approval_disabler(current)
-                if not allow_queued_execution:
-                    return
-            if str(current.tool_name) in {
-                "schedule.wake",
-                "agent.wait",
-                "agent.cancel_wait",
-            }:
+            if current.tool_name in AGENT_LOCAL_IDS:
                 if current.result is not None:
-                    if current.tool_name in AGENT_LOCAL_IDS:
-                        return
-                    if (
-                        current.status == "executing"
-                        and current.execute_after is not None
-                        and current.execute_after <= datetime.now(UTC)
-                    ):
-                        await self._actions.claim_due_schedule(
-                            action_id=current.id,
-                            plan=self._plan,
-                            source_conversation_id=self._source_conversation_id,
-                        )
                     return
                 if current.status == "executing":
                     if current.attempts >= current.execution_contract.max_attempts:
@@ -671,7 +555,9 @@ class ActionRecovery:
                         continue
                     if not allow_queued_execution:
                         return
-                    await self._actions.requeue_local_schedule(current.id)
+                    await self._actions.requeue_after_proved_absence(
+                        current.id, actual_external_attempts=0, max_external_attempts=0
+                    )
                 if not allow_queued_execution:
                     return
                 await self._execute(current.id, binding)
@@ -794,39 +680,14 @@ class ActionRecovery:
     async def _execute(
         self, action_id: UUID, binding: ToolBinding[Any, Any, Any]
     ) -> None:
-        current = await self._require(action_id)
-        grant = self._plan.grant(current.tool_name)
-        recorder = ActionPositionRecorder(
-            store=self._actions,
+        await execute_recorded_action(
+            self._actions,
             action_id=action_id,
-            implementation_revision=binding.implementation_revision,
-            max_external_attempts=grant.limits.max_attempts,
+            binding=binding,
+            plan=self._plan,
+            budgets=ExactToolBudgetFactory().create(self._plan),
         )
-        try:
-            result = await ToolExecutor.execute(
-                binding,
-                ParsedJson(current.arguments),
-                ExecutionContext(
-                    plan=self._plan,
-                    grant=grant,
-                    catalog_view=self._plan.catalog_view,
-                    position=recorder.position,
-                    recorder=recorder,
-                    effect_id=EffectId(str(action_id)),
-                    budgets=ExactToolBudgetFactory().create(self._plan),
-                    principal=Principal("jarvis-owner"),
-                    scope=Scope("automatic-write-recovery"),
-                    cancellation=CancellationToken(),
-                    telemetry=NoTelemetry(),
-                ),
-            )
-        except RecoveryRequired:
-            return
-        if (
-            current.tool_name in {ToolId("schedule.wake"), *AGENT_LOCAL_IDS}
-            and result["type"] == "Success"
-        ):
-            self._schedule_changed()
+        self._wait_changed()
 
     async def _reconcile(
         self,
@@ -880,166 +741,6 @@ class ActionRecovery:
         return stored
 
 
-def _write_check_failure(
-    tool_id: ToolId,
-    code: Literal["policy_denied", "write_check_unavailable"],
-) -> DispatchCompleted:
-    if tool_id not in AGENT_WRITE_IDS:
-        return completed_tool_result(dict(_UNAVAILABLE))
-    return completed_tool_result(
-        {
-            "type": "Failure",
-            "error": AgentError(code=code, dispatch="not_sent").model_dump(mode="json"),
-        }
-    )
-
-
-def _gate_owner_inputs(values: tuple[HostInput, ...]) -> tuple[GateOwnerInput, ...]:
-    result: list[GateOwnerInput] = []
-    for value in values:
-        sections = value.sections.sections
-        if len(sections) != 1 or str(sections[0].kind) != "owner_input":
-            raise ToolDispatchDefect("write gate received a non-owner projection")
-        body = sections[0].body
-        if not isinstance(body, PromptText):
-            raise ToolDispatchDefect("write gate owner projection is malformed")
-        result.append(
-            GateOwnerInput(
-                message_id=UUID(str(value.input_id)),
-                text=body.text,
-                created_at=value.source_timestamp,
-            )
-        )
-    return tuple(result)
-
-
-def action_resolution_text(stored: StoredAction) -> str:
-    if set(stored.arguments) != {"request_ref", "existing_action_ref", "arguments"}:
-        return (
-            f"historical action {stored.id}; tool: {stored.tool_name}; "
-            f"recorded status: {stored.status}; "
-            "original arguments and receipt retained."
-        )
-    if archived_worker_action(stored):
-        return (
-            f"archived action {stored.id}; tool: {stored.tool_name}; "
-            f"recorded status: {stored.status}; "
-            "receipt details unavailable after cutover"
-        )
-    if (
-        stored.tool_name == ToolId("agent.wait")
-        and stored.result is not None
-        and "registration_receipt" in stored.result
-    ):
-        state = agent_wait_state(stored)
-        outcome = state.wait_outcome
-        observed = "watching" if outcome is None else outcome.outcome
-        safe_prefix = (
-            f"worker observation {stored.id}: {observed}. "
-            "state observations and text do not prove task completion."
-        )
-        context = {
-            "type": "agent_wait_event_v1",
-            "action_id": str(stored.id),
-            "tool_name": "agent.wait",
-            "arguments": stored.arguments,
-            "status": stored.status,
-            "registration": state.registration_receipt.model_dump(mode="json"),
-            "result": None if outcome is None else outcome.model_dump(mode="json"),
-        }
-        return (
-            safe_prefix
-            + ACTION_MODEL_CONTEXT_SEPARATOR
-            + json.dumps(
-                context, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-            )
-        )
-    public_result = _safe_resolution_result(stored)
-    evidence = "Validated provider or local success receipt recorded."
-    instruction = ""
-    if stored.status == "queued" and stored.tool_name == ToolId("schedule.wake"):
-        evidence = (
-            "Durable schedule creation receipt recorded; the wake remains queued."
-        )
-    elif stored.status == "uncertain":
-        assert stored.result is not None
-        evidence_code = stored.result.get("evidence_code")
-        if not isinstance(evidence_code, str):
-            raise RuntimeError("uncertain action lacks safe reconciliation evidence")
-        evidence = evidence_code
-        instruction = (
-            "\nOwner action: inspect current state; this action will not be repeated "
-            "automatically."
-        )
-    elif stored.status == "failed":
-        assert stored.result is not None
-        error = public_result.get("error")
-        error_type = (
-            cast("dict[str, object]", error).get("type")
-            if isinstance(error, dict)
-            else None
-        )
-        evidence = (
-            f"Validated failure receipt recorded: {error_type}."
-            if isinstance(error_type, str)
-            else "Validated failure receipt recorded."
-        )
-        if error_type == "AgentFailure" and stored.tool_name in AGENT_WRITE_IDS:
-            dispatch = _agent_failure(stored, public_result["error"])["dispatch"]
-            if dispatch == "sent":
-                evidence = (
-                    "Validated failure receipt recorded: AgentFailure, sent; failed "
-                    "does not mean no effect."
-                )
-            elif dispatch == "not_sent":
-                evidence = "Validated failure receipt recorded: AgentFailure, not sent."
-    elif stored.status == "cancelled":
-        assert stored.result is not None
-        reason = stored.result.get("reason_code")
-        evidence = (
-            f"Host cancellation recorded: {reason}."
-            if isinstance(reason, str)
-            and reason
-            and len(reason) <= 64
-            and all(character.isalnum() or character in "_.-" for character in reason)
-            else "Host cancellation recorded."
-        )
-    safe_result = json.dumps(
-        _safe_fallback_result(stored),
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    safe_prefix = (
-        f"Action ID: {stored.id}\n"
-        f"Tool: {stored.tool_name}\n"
-        f"Status: {stored.status}\n"
-        f"Evidence: {evidence}\n"
-        f"Safe result: {safe_result}"
-        f"{instruction}"
-    )
-    if len(safe_prefix) > 1_024 or len(safe_prefix.encode("utf-8")) > 1_024:
-        raise RuntimeError("safe action resolution exceeds its character bound")
-    model_context = {
-        "type": "action_resolution_context_v1",
-        "action_id": str(stored.id),
-        "tool_name": str(stored.tool_name),
-        "arguments": stored.arguments,
-        "status": stored.status,
-        "result": public_result,
-    }
-    return (
-        safe_prefix
-        + ACTION_MODEL_CONTEXT_SEPARATOR
-        + json.dumps(
-            model_context,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-    )
-
-
 def require_current_action_binding(
     stored: StoredAction,
     plan: FrozenToolPlan,
@@ -1054,7 +755,7 @@ def require_current_action_binding(
         binding.spec.input_type.model_validate(stored.arguments)
     except (KeyError, ValueError) as exc:
         raise RuntimeError("stored action tool is no longer selectable") from exc
-    contract = stored.execution_contract
+    contract = stored.current_execution_contract
     if (
         binding.spec.effect is not ToolEffect.Write
         or binding.spec.tool_contract_revision != contract.tool_contract_revision
@@ -1084,347 +785,10 @@ async def gmail_send_basis_is_current(
     )
 
 
-def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
-    if stored.result is None:
-        raise RuntimeError("resolved action has no durable result")
-    if stored.tool_name in AGENT_WRITE_IDS and "tool_result" in stored.result:
-        result = stored.result["tool_result"]
-        if not isinstance(result, dict):
-            raise RuntimeError("invalid private action receipt")
-        return cast(dict[str, object], result)
-    if (
-        stored.status == "uncertain"
-        and stored.result.get("type") == "agent_uncertainty_v1"
-    ):
-        control = _agent_control(stored, stored.result.get("control"))
-        return {
-            "type": "Failure",
-            "error": {
-                "type": "Unknown",
-                "observed": _compact_agent_observation(control.observed),
-            },
-        }
-    if (
-        stored.tool_name in AGENT_WRITE_IDS
-        and stored.status == "failed"
-        and stored.result.get("type") == "Failure"
-    ):
-        error = stored.result.get("error")
-        if (
-            isinstance(error, dict)
-            and cast(dict[str, object], error).get("type") == "AgentFailure"
-        ):
-            return {
-                "type": "Failure",
-                "error": _agent_failure(stored, stored.result["error"]),
-            }
-    if stored.status == "failed" and stored.result.get("type") == "Failure":
-        error = stored.result.get("error")
-        error_type = (
-            cast("dict[str, object]", error).get("type")
-            if isinstance(error, dict)
-            else None
-        )
-        return {
-            "type": "Failure",
-            "error": {
-                "type": error_type
-                if isinstance(error_type, str)
-                and error_type
-                and len(error_type) <= 128
-                and all(
-                    character.isalnum() or character in "_.-"
-                    for character in error_type
-                )
-                else "UnknownFailure"
-            },
-        }
-    if stored.status == "cancelled" and stored.tool_name != ToolId("schedule.wake"):
-        reason = stored.result.get("reason_code")
-        return {
-            "type": "action_cancelled_v1",
-            "reason_code": reason
-            if isinstance(reason, str)
-            and reason
-            and len(reason) <= 64
-            and all(character.isalnum() or character in "_.-" for character in reason)
-            else "cancelled",
-        }
-    return stored.result
-
-
-def _compact_agent_observation(
-    value: WireFailure | WireStartResult | AgentWriteResult | AgentCloseReceipt | None,
-) -> dict[str, object] | None:
-    if value is None:
-        return None
-    if isinstance(value, WireStartResult):
-        launch = value
-        target = (
-            None
-            if launch.handle is None
-            else {"machine": launch.label, "handle": launch.handle}
-        )
-        return {
-            "machine": launch.label,
-            "target": target,
-            "captured": launch.target is not None,
-            "creation": launch.creation,
-            "prompt": launch.prompt,
-            "failure": None if launch.failure is None else launch.failure.code,
-        }
-    fields = value.model_dump(mode="json", exclude_none=True)
-    return {
-        key: fields[key]
-        for key in ("code", "dispatch", "method", "outcome", "interrupt", "terminal")
-        if key in fields
-    }
-
-
-def _safe_fallback_result(stored: StoredAction) -> dict[str, object]:
-    if stored.status == "uncertain":
-        assert stored.result is not None
-        result = stored.result
-        safe: dict[str, object] = {
-            "type": "uncertain",
-            "evidence_code": _safe_atom(result.get("evidence_code"), 256),
-            "recorded_at": _safe_atom(result.get("recorded_at"), 64),
-        }
-        if result.get("type") == "agent_uncertainty_v1":
-            control = _agent_control(stored, result.get("control"))
-            safe["control"] = {
-                "type": control.type,
-                "observed": _compact_agent_observation(control.observed),
-            }
-        return safe
-    result = _safe_resolution_result(stored)
-    if result.get("type") == "Failure":
-        error = result.get("error")
-        if not isinstance(error, dict):
-            raise RuntimeError("failed action has malformed safe evidence")
-        safe_error = cast("dict[str, object]", error)
-        if (
-            stored.tool_name in AGENT_WRITE_IDS
-            and safe_error.get("type") == "AgentFailure"
-        ):
-            return {"type": "failure", "error": _bounded_agent_failure(safe_error)}
-        return {
-            "type": "failure",
-            "error_type": _safe_atom(safe_error.get("type"), 128),
-        }
-    if stored.status == "cancelled" and stored.tool_name != ToolId("schedule.wake"):
-        return {
-            "type": "cancelled",
-            "reason_code": _safe_atom(result.get("reason_code"), 64),
-        }
-    tool_name = str(stored.tool_name)
-    if stored.tool_name in AGENT_WRITE_IDS:
-        value = _agent_success(stored, _success_result_value(result))
-        return {
-            "type": "agent_receipt",
-            **{
-                key: value[key]
-                for key in (
-                    "target",
-                    "machine",
-                    "creation",
-                    "prompt",
-                    "captured",
-                    "method",
-                    "outcome",
-                    "interrupt",
-                    "terminal",
-                    "failure",
-                )
-                if key in value
-            },
-        }
-    if tool_name in {"gmail.create_draft", "gmail.update_draft"}:
-        value = _success_result_value(result)
-        return {
-            "type": "gmail_draft",
-            **_safe_fields(
-                value,
-                (
-                    "draft_id",
-                    "message_id",
-                    "thread_id",
-                    "jarvis_effect_id",
-                    "content_digest",
-                    "observed_at",
-                ),
-            ),
-        }
-    if tool_name == "gmail.send_draft":
-        value = _success_result_value(result)
-        return {
-            "type": "gmail_sent",
-            **_safe_fields(
-                value,
-                (
-                    "sent_message_id",
-                    "thread_id",
-                    "jarvis_effect_id",
-                    "content_digest",
-                    "sent_at",
-                ),
-            ),
-        }
-    if tool_name in {"calendar.create_event", "calendar.update_event"}:
-        value = _success_result_value(result)
-        event = value.get("event")
-        if not isinstance(event, dict):
-            raise RuntimeError("calendar result lacks an event snapshot")
-        safe_event = cast("dict[str, object]", event)
-        recorded_key = (
-            "created_at" if tool_name.endswith("create_event") else "updated_at"
-        )
-        return {
-            "type": "calendar_event",
-            **_safe_fields(
-                safe_event,
-                ("calendar_id", "event_id", "etag", "status", "updated_at"),
-            ),
-            recorded_key: _safe_atom(value.get(recorded_key), 64),
-        }
-    if tool_name == "calendar.delete_event":
-        value = _success_result_value(result)
-        return {
-            "type": "calendar_event_deleted",
-            **_safe_fields(
-                value,
-                ("calendar_id", "event_id", "prior_etag", "deleted_at"),
-            ),
-        }
-    if tool_name == "schedule.wake":
-        return _safe_schedule_result(result)
-    raise RuntimeError("action has no safe deterministic result renderer")
-
-
-def _agent_success(stored: StoredAction, value: object) -> dict[str, object]:
-    return (
-        AGENT_SUCCESS_TYPES[str(stored.tool_name).removeprefix("agent.")]
-        .model_validate(value)
-        .model_dump(mode="json")
-    )
-
-
-def _agent_failure(stored: StoredAction, error: object) -> dict[str, object]:
-    return validate_agent_failure(
-        str(stored.tool_name).removeprefix("agent."), error
-    ).model_dump(mode="json")
-
-
-def _agent_control(stored: StoredAction, control: object) -> AgentActionEvidence:
-    return validate_agent_evidence(
-        str(stored.tool_name).removeprefix("agent."), control
-    )
-
-
-def _bounded_agent_failure(error: dict[str, object]) -> dict[str, object]:
-    safe = {
-        key: error[key]
-        for key in ("type", "code", "dispatch", "target")
-        if key in error
-    }
-    launch = error.get("launch")
-    if isinstance(launch, dict):
-        safe["launch"] = {
-            key: launch[key]
-            for key in ("machine", "target", "creation", "prompt", "captured")
-            if key in launch
-        }
-    close = error.get("close")
-    if isinstance(close, dict):
-        safe["close"] = {
-            key: close[key]
-            for key in ("target", "interrupt", "terminal")
-            if key in close
-        }
-    return safe
-
-
-def _success_result_value(result: dict[str, object]) -> dict[str, object]:
-    value = result.get("value")
-    if result.get("type") != "Success" or not isinstance(value, dict):
-        raise RuntimeError("successful action lacks a validated result value")
-    return cast("dict[str, object]", value)
-
-
-def _safe_schedule_result(result: dict[str, object]) -> dict[str, object]:
-    if "creation_receipt" in result:
-        receipt = result.get("creation_receipt")
-        if not isinstance(receipt, dict):
-            raise RuntimeError("schedule result lacks its creation receipt")
-        safe_receipt = cast("dict[str, object]", receipt)
-        safe: dict[str, object] = {
-            "type": "schedule",
-            "creation_receipt": _safe_fields(
-                safe_receipt,
-                ("action_id", "execute_after", "arguments_digest", "recorded_at"),
-            ),
-        }
-        wake_outcome = result.get("wake_outcome")
-        if wake_outcome is None:
-            safe["wake_outcome"] = None
-        elif isinstance(wake_outcome, dict):
-            safe_wake_outcome = cast("dict[str, object]", wake_outcome)
-            outcome_type = _safe_atom(safe_wake_outcome.get("type"), 32)
-            outcome_fields = {
-                "concluded": ("conclusion_message_id", "recorded_at"),
-                "cancelled": ("cancellation_action_id", "recorded_at"),
-                "failed": ("reason_code", "recorded_at"),
-            }.get(outcome_type)
-            if outcome_fields is None:
-                raise RuntimeError("schedule result has an invalid wake outcome")
-            safe["wake_outcome"] = {
-                "type": outcome_type,
-                **_safe_fields(safe_wake_outcome, outcome_fields),
-            }
-        else:
-            raise RuntimeError("schedule result has an invalid wake outcome")
-        return safe
-    value = _success_result_value(result)
-    receipt = value.get("receipt")
-    if not isinstance(receipt, dict):
-        raise RuntimeError("schedule operation lacks its receipt")
-    safe_receipt = cast("dict[str, object]", receipt)
-    receipt_type = _safe_atom(safe_receipt.get("type"), 32)
-    fields = {
-        "created": ("action_id", "execute_after", "arguments_digest", "recorded_at"),
-        "cancelled": ("target_action_id", "recorded_at"),
-    }.get(receipt_type)
-    if fields is None:
-        raise RuntimeError("schedule operation has an invalid receipt")
-    return {
-        "type": "schedule_operation",
-        "receipt": {"type": receipt_type, **_safe_fields(safe_receipt, fields)},
-    }
-
-
-def _safe_fields(value: dict[str, object], names: tuple[str, ...]) -> dict[str, object]:
-    return {name: _safe_atom(value.get(name), 96) for name in names}
-
-
-def _safe_atom(value: object, maximum_bytes: int) -> str:
-    if not isinstance(value, str) or not value:
-        raise RuntimeError("durable result lacks safe normalized evidence")
-    encoded = value.encode("utf-8")
-    if len(encoded) <= maximum_bytes:
-        return value
-    digest = sha256(encoded).hexdigest()[:16]
-    prefix = value
-    prefix_bound = maximum_bytes - len(f"…#{digest}".encode())
-    while len(prefix.encode("utf-8")) > prefix_bound:
-        prefix = prefix[:-1]
-    return f"{prefix}…#{digest}"
-
-
 __all__ = [
     "ActionRecovery",
     "NoTelemetry",
     "WriteToolDispatcher",
-    "action_resolution_text",
     "gmail_send_basis_is_current",
     "require_current_action_binding",
 ]

@@ -141,20 +141,21 @@ do not respec completed foundations or reconstruct memory's superseded adr chain
 
 ### v2 reviewable pr slices
 
-these are proposed implementation boundaries, not opened prs or deployed work.
-each completes useful behavior and its proportionate checks; upstream changes
-stay in the repository that owns their public interface.
+these are implementation boundaries, not opened prs or deployed work.
+each completes its scoped behavior and proportionate checks; intermediate slices
+need not be independently usable. upstream changes stay in the repository that
+owns their public interface.
 
-land this documentation first. then, for each slice, audit and finish its one
-owning spec against the actual current source; hand that spec to an implementation
-agent; review the diff and evidence, resolve gaps and land the implementation.
+the documentation baseline landed in pr 60 (`8c0bf36`). for each slice, audit and
+finish its owning spec against current source; hand it to an implementation
+agent; review the diff/evidence, resolve gaps and land the implementation.
 prepare the next spec against that updated system. refine existing feature
 contracts in place rather than introducing parallel work orders.
 
 | order | review unit | completion and dependency |
 | --- | --- | --- |
-| 1 | common main and conversational consent | o6/o9 source/native composition: every current event gets the same plan; remove model gate, source restrictions, component approval and chat-stop interception; installed worker-dependent outcomes are proved in 3 |
-| 2 | todos and scheduled turns | o7: CRUD, optional one-time/repeated wake, atomic publication and reminder cutover; compose with 1 before replacing the old schedule path |
+| 1 | common main and conversational consent | [source-audited spec](one-main-events.md): common request lifecycle, full plan, atomic conversational consent, scoped stop and recovery; remove gate, component approval and old scheduler; installed worker outcomes are proved in 3 |
+| 2 | todos and scheduled turns | o7: CRUD, optional one-time/repeated wake, atomic publication and conversion of retained reminder obligations; replaces scheduling removed in 1 |
 | 3 | installed skid follow-through | reuse adr 0072's qualified state mount, use current terminal-only start/control/wait and prove installed asynchronous result/restart delivery; depends on 1 and matching artifacts, not a new worker protocol |
 | 4 | ordinary private repo | notes: minimal kernel/provider native-access handoffs, persistent checkout, native files/git and small file deliverables; isolated memory roles retain their existing posture |
 | 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
@@ -162,8 +163,10 @@ contracts in place rather than introducing parallel work orders.
 
 independent investigation of 4's upstream needs and 6's source interfaces may
 proceed alongside earlier units; finalize their specs after prior work lands.
-1 and 2 may be reviewed separately but share the reminder/authority cutover;
-never leave a deployed gap between retiring schedules and admitting todo wakes.
+the owner accepts incomplete intermediate slices. remove replaced paths in their
+own slice; do not retain a compatibility scheduler or make each pr independently
+deployable. keep reminder obligations in the private cutover inventory until 2;
+unattended activation waits for the selected slices and accounted-for commitments.
 3 reuses existing observation source and is installation/repair work unless proof
 exposes a missing primitive. source review of 1 does not claim installed o9
 acceptance; 3 supplies its fleet/discord/restart evidence before that behavior is

@@ -67,6 +67,13 @@ def memory_result_size(value: object) -> int:
     )
 
 
+def host_rejected(code: str, reference: HostRef | None = None) -> DispatchCompleted:
+    """Host admission failures occupy no executor position."""
+    return completed_tool_result(
+        {"type": "Failure", "error": {"type": "HostRejected", "code": code}}, reference
+    )
+
+
 def completed_tool_result(
     result: ToolResult, host_ref: HostRef | None = None
 ) -> DispatchCompleted:

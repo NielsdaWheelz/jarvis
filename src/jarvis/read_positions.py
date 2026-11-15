@@ -43,6 +43,7 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
+from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
 from jarvis.tool_results import completed_tool_result
 
@@ -187,7 +188,7 @@ class PostgresReadRecorder:
         plan: FrozenToolPlan,
         arguments: dict[str, Any],
     ) -> DispatchCompleted | None:
-        """Reuse original paid-read truth while its request remains unfinished."""
+        """Retain matching paid-read barriers across every live causal component."""
         contract = {
             "plan_revision": plan.plan_revision,
             "tool_contract_revision": binding.spec.tool_contract_revision,
@@ -231,7 +232,9 @@ class PostgresReadRecorder:
                         select(message.c.id).where(
                             message.c.source_conversation_id == lineage.permit.scope_id,
                             message.c.id.in_(tuple(map(UUID, lineage.input_ids))),
-                            message.c.role == "owner",
+                            message.c.role.in_(("owner", "host")),
+                            message.c.control_kind.is_(None),
+                            message.c.processing_parked_at.is_(None),
                             message.c.request_state.in_(("pending", "waiting")),
                         )
                     )
@@ -239,6 +242,7 @@ class PostgresReadRecorder:
             )
             if not unfinished:
                 return None
+            component = set(await causal_component_ids(connection, tuple(unfinished)))
             rows = (
                 (
                     await connection.execute(
@@ -249,7 +253,7 @@ class PostgresReadRecorder:
                         )
                         .where(
                             native_attempt.c.conversation_id == lineage.permit.scope_id,
-                            native_invocation.c.attempt_id != UUID(lineage.attempt_id),
+                            native_invocation.c.id != UUID(lineage.invocation_id),
                             native_invocation.c.tool_id == str(binding.spec.id),
                             native_invocation.c.validation == "accepted",
                         )
@@ -261,6 +265,7 @@ class PostgresReadRecorder:
                 .mappings()
                 .all()
             )
+            completed: DispatchCompleted | None = None
             for invocation in rows:
                 prior_arguments = invocation["proposal"]["arguments"]
                 if invocation["frozen_contract"] == contract:
@@ -268,7 +273,7 @@ class PostgresReadRecorder:
                     prior_arguments = prior_input.model_dump(mode="json")
                 if canonical_json_bytes(prior_arguments) != canonical_json_bytes(
                     arguments
-                ) or not unfinished.intersection(
+                ) or not component.intersection(
                     map(UUID, invocation["proposal"]["input_ids"])
                 ):
                     continue
@@ -288,31 +293,30 @@ class PostgresReadRecorder:
                 )
                 if row is None or row["state"] == "prepared":
                     continue
-                if invocation["frozen_contract"] != contract:
+                if row["state"] in {"dispatched", "uncertain"} and (
+                    row["contract"].get("replay_policy")
+                    == ReplayPolicy.BilledOnce.value
+                    or binding.replay_policy is ReplayPolicy.BilledOnce
+                ):
                     return completed_tool_result(
                         {
                             "type": "Failure",
                             "error": {
                                 "type": "HostRejected",
-                                "code": "paid_read_contract_changed",
+                                "code": "paid_read_outcome_unknown"
+                                if invocation["frozen_contract"] == contract
+                                else "paid_read_contract_changed",
                             },
                         },
                         HostRef(position),
                     )
-                if row["state"] == "completed":
-                    return completed_tool_result(row["result"], HostRef(position))
-                if binding.replay_policy is ReplayPolicy.BilledOnce:
-                    return completed_tool_result(
-                        {
-                            "type": "Failure",
-                            "error": {
-                                "type": "HostRejected",
-                                "code": "paid_read_outcome_unknown",
-                            },
-                        },
-                        HostRef(position),
-                    )
-        return None
+                if (
+                    row["state"] == "completed"
+                    and invocation["frozen_contract"] == contract
+                    and invocation["attempt_id"] != UUID(lineage.attempt_id)
+                ):
+                    completed = completed_tool_result(row["result"], HostRef(position))
+            return completed
 
     async def recover_budget(
         self, *, lineage: ToolDispatchLineage, budgets: BudgetState

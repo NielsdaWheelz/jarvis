@@ -1941,6 +1941,15 @@ activation removes old releases only after its existing startup checks pass.
 rollback and one-time migration releases are rebuilt from their exact commits
 when needed, then removed after use; they are not retained as recovery copies.
 
+routine replacement of a cleanly stopped initialized release preserves canonical
+pause/resume. activation requires deployment ownership, valid native state and
+the current execution-contract checks; it creates no owner control. a retained
+resume preserves startup action recovery; new main/background work waits for
+validated discord catch-up. fresh initialization, pause-required migrations and
+private-configuration/authority changes retain
+their separate canonical-pause prerequisites. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
+records this distinction; no force flag or recovery bypass is provided.
+
 Production activation requires the installed PostgreSQL and pgvector identities
 to be recorded and qualified against the release. It does not require a host
 reboot: a pending newer kernel is recorded and applied only during a later

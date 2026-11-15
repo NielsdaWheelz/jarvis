@@ -229,7 +229,11 @@ release, regular root-owned environment files and a cleanly stopped service
 (`ActiveState=inactive`, `Result=success`, `MainPID=0`). it migrates the stopped
 database, runs the target's `cutover-native`, then read-only `check-activation`
 under the existing deployment lock. missing legacy files are correct after this
-cut; the scripts do not require or recreate them.
+cut; the scripts do not require or recreate them. routine replacement preserves
+the recorded pause/resume state. it does not require another owner control merely
+to repair a stopped service. native state and every execution-contract check still
+apply; a retained resume preserves startup action recovery. new main/background
+work waits for validated discord catch-up.
 before migration, activation requires the contained unit active and the selected
 release's read-only host qualifier to pass, including exact loaded release,
 stock version and startup catalogue. host installation remains a separate
@@ -254,13 +258,17 @@ lives in postgres. `check-activation` rejects incompatible unfinished authority,
 entered uncertainty and stale active contracts; deliverable historical resolutions
 and known terminal facts remain readable by paused startup. it does not require
 an empty outbox. the target then installs its unit, selects the immutable release
-and starts paused. ingress and outbox recovery precede an explicit owner resume.
+and starts with the recorded control state. fresh initialization and legacy pause
+import start paused; ingress and outbox recovery precede their explicit owner
+resume. pause-required migrations and private-configuration/authority changes
+retain their separate paused checks.
 
 for a fresh database, migrate and run `jarvis initialize-state` once under the
 runtime identity/environment. this creates canonical paused state, with no
 provider call or action. repeated initialization refuses rather than resetting
-existing requests. activation uses the same pause check. never edit database
-request rows or synthesize an empty execution journal to bypass a failed check.
+existing requests. later release activation preserves that control state. never
+edit database request rows or synthesize an empty execution journal to bypass a
+failed check.
 
 `verify-containment` runs after activation without printing secret values. It
 proves the three environment files are root-owned mode 0600 and unreadable by

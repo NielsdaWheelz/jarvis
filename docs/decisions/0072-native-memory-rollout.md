@@ -53,6 +53,18 @@ unfinished or unrecognized authority still blocks. an immutable temporary native
 predecessor handles the existing `0004→0005` pause transition; the ordinary memory
 cutover then advances to `0008`. no bridge service is resumed or retained afterward.
 
+the installed restart proof exposed a discord-readiness race and a repair deadlock:
+normal release activation required a canonical pause although the stopped service
+retained the owner's approved resume. routine replacement now preserves canonical
+pause/resume. the deployment must be cleanly stopped, hold exclusive deployment
+ownership, validate native state and pass every existing execution-contract check.
+startup fences old native attempts and recovers original sealed evidence. a retained
+resume preserves startup action recovery; new main/background work waits for
+validated discord catch-up. no control is synthesized, and no override flag is
+added. fresh initialization, pause-required migrations and private-configuration/authority
+changes retain their separate canonical-pause requirements. this repairs the
+authorized restart without changing memory admission or current owner authority.
+
 ## costs and acceptance
 
 shared work/personal evidence remains captured after native deletion. the mounted

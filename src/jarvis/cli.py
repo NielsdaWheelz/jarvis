@@ -735,7 +735,11 @@ async def check_activation(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
-            await _require_paused(database, settings)
+            require_native_files(settings.runtime_state_directory)
+            scope = str(settings.discord.channel_id)
+            await require_native_data(database, conversation_id=scope)
+            if await MessageStore(database).current_control(scope) is None:
+                raise StartupDefect("activation requires initialized canonical control")
             actions = ActionStore(database)
             agent_runtime = build_agent_runtime(
                 provider_state_root=settings.runtime_state_directory,
@@ -758,7 +762,7 @@ async def check_activation(
                     return await _action_activation_verdicts(
                         actions,
                         plan,
-                        source_conversation_id=str(settings.discord.channel_id),
+                        source_conversation_id=scope,
                     )
             finally:
                 await agent_runtime.close()

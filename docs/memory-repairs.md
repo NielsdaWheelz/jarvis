@@ -3,7 +3,7 @@
 status: october repair source and controlled evidence are recorded below.
 [current memory delivery](memory-delivery.md) now owns completion, current nexus
 capture and installed/live qualification under
-[adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md). this document
+[adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md). this document
 retains the repaired presentation/native/client invariants; current delivery
 supersedes its former source-only scope and stale nexus/build assumptions.
 [current evidence](universal-memory.md#memory-completion-source-qualification)

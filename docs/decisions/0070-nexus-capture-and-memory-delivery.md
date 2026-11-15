@@ -1,4 +1,4 @@
-# adr 0068: nexus capture and memory delivery
+# adr 0070: nexus capture and memory delivery
 
 status: accepted and implemented source, 2026-11-14; isolated functional proof
 recorded in [current evidence](../universal-memory.md#memory-completion-source-qualification).

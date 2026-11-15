@@ -17,10 +17,12 @@ only the first reminder is framed while both are consumed.
 
 resolved when o6 atomically parks all affected live owner/host requests as
 waiting/configuration with null processed time and stamped `processing_parked_at`,
-retains notice obligations/seal/action evidence, emits one truthful batch-failure
-notice and records zero wake fulfillment. repaired configuration releases only
+retains unfinished requests/seal/action evidence and emits one truthful
+batch-failure notice without claiming requested work succeeded. this needs no
+notification-policy field. repaired configuration releases only
 configuration waits; late stopped/fenced output changes none. cutover inspects
-prior failed products for false consumption; unknown notice evidence blocks
-activation, and original receipts remain unchanged. prove with a
+prior failed products for false consumption; unresolved retained commitments
+need explicit disposition, and original receipts remain unchanged. the todo
+timer's future publication does not itself mean task completion. prove with a
 temporary real-database/native-settlement integration case and delete it after
 accepted final-tree qualification. [o6](../one-main-events.md) owns the repair.

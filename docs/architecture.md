@@ -2,7 +2,9 @@
 
 This document expands [SPEC.md](../SPEC.md). its accepted native cutover and
 [native integration contract](native-agent-integration.md) govern main execution;
-the frozen baseline governs unchanged domain behavior.
+the frozen baseline governs unchanged domain behavior. except for the accepted
+target section below, runtime descriptions record the implemented baseline;
+source implementation, installed activation and future contracts remain distinct.
 
 [universal memory](universal-memory.md) owns the memory implementation contract.
 this branch replaces the old recall/remember loop with a standalone library,
@@ -22,6 +24,39 @@ archive/checkpoint and synthesis-note/reference/leaf/progress changes each share
 one caller transaction. main retains durable effect/read recovery; disposable
 background inference may repeat. supplied context is reference-only, memory-tool
 echoes are content-free, and internal cognition is excluded from capture.
+
+## accepted v2 target
+
+[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts an unimplemented
+event-driven target. owner input, connector events, time and skid outcomes enter
+the same main with the same full plan and honest source attribution. evidence
+does not become counterfeit owner speech. main decides what to do and whether a
+visible response helps; no `notice_policy` field or notification framework owns
+that judgment.
+
+remove the separate `AutomaticWriteGate` and read-only wake plan in this target.
+retain existing `classify_write` for automatic versus consent-needed tools; add
+no semantic consent classifier. main requests and interprets conversational
+approval; a narrow decision callback applies the existing action approval/denial
+transition. the host does not infer semantic consent or bind the owner's words
+to an exact human-approved payload. no buttons or json preview are required.
+validation, immutable executed arguments, current deployment ownership and
+original effect receipts/reconciliation remain host responsibilities.
+
+one work table owns current work and optional one-time/repeated wakes; a due date
+does not itself schedule execution. this replaces separate schedule/recurring-wake
+products. skid's existing asynchronous observation supplies ordinary main events;
+it requires no new callback service or repeated model polling. the private native
+checkout owns mutable notes/files; private r2 storage owns inbound attachment
+originals. native access and connector action recovery remain distinct execution
+domains. conversational stop follows main's interpretation; operational pause
+remains a host control, and entered effects retain settlement obligations.
+
+the detailed contracts own implementation; the
+[implementation plan](implementation-plan.md) owns delivery. shared memory and
+quiet dreaming remain unchanged. selected dream wakes, work-informed dreaming,
+browser/credential products, interactive deliverables and a separate ui are
+outside this cut. later search and budget contracts are not adopted by it.
 
 ## System shape
 
@@ -638,22 +673,23 @@ endpoint cannot alter the owner's existing coding server.
 main uses eleven worker tools: `agent.list`, `agent.info`, `agent.start`,
 `agent.read`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`,
 `agent.close`, `agent.wait` and `agent.cancel_wait`.
-[adr 0064](decisions/0064-simple-worker-orchestration.md) owns the implemented v7
-contract. its coordinated installed cutover remains separate.
+[adr 0069](decisions/0069-terminal-only-workers.md) owns worker v9, amending
+[adr 0064](decisions/0064-simple-worker-orchestration.md) and the existing
+[generalized consumer](decisions/0068-generalized-skid-consumer.md). installed
+cutover remains separate.
 
-`agent_control.py` invokes one fixed skid cli with a private peer configuration,
+`agent_control.py` invokes one fixed skid cli with live installed computer state,
 bounded pipes and explicit argv. skid owns opaque refs, gateway routing,
-provider methods and live target validation. jarvis projects consumed results
+terminal operations and live target validation. jarvis projects consumed results
 into `agent_tools.py`; it neither decodes refs nor repeats the provider codec.
 the installed cli is root-owned, separate from the development user's home.
 
 model targets are short `{machine,handle}` selectors. before gate/action
 admission, jarvis privately captures the original opaque ref and target identity;
 delayed execution and observation use that immutable capture. t-handles select
-terminal lifetimes and guarded input for either provider; c-handles explicitly
-select native conversations. codex native stop retains its captured turn.
-unavailable native operations refuse without terminal fallback. a matching
-terminal name/profile can supply consent context, never renewed target authority.
+terminal lifetimes and guarded input for either provider. no conversation target,
+read/write/control/identity detection or provider-session metadata remains. an
+observed profile/name supplies consent context, never renewed target authority.
 close independently reports terminal interruption and closure; neither asserts
 task success or cancellation of shared work.
 
@@ -661,8 +697,8 @@ reads retain the durable recorder; worker mutations remain billed-once with one
 executor entry. current launch options preserve native defaults and literal
 stdin. creation, input and failure facts remain independent, including nonzero
 partial receipts. conclusive staged receipts settle on recovery without another
-executor entry; unresolved dispatch remains uncertain. native acceptance,
-terminal dispatch and idle/latest text do not establish task completion. bounded
+executor entry; unresolved dispatch remains uncertain. terminal dispatch and
+idle/rendered text do not establish task completion. bounded
 subprocess envelopes and per-operation limits cover capture and execution.
 
 `agent.wait` commits an immutable watching receipt and returns immediately.
@@ -673,8 +709,8 @@ not worker work. only unmixed wait-event batches may settle silently. after the
 original owner request closes, events permit reads/integration/notification;
 new mutations or waits still require current owner input.
 
-finalized old worker actions are opaque archives before current tool lookup or
-receipt decoding. common immutable record invariants still apply; raw arguments
+finalized known retired worker actions are opaque archives before current target,
+tool lookup or receipt decoding. current v9 targets are terminal-only. common immutable record invariants still apply; raw arguments
 and results remain stored. current malformed receipts are defects. old unfinished
 actions block activation. no historical worker reader, execution adapter, worker
 table, separate scheduler, transcript copy or reference cache remains. independent

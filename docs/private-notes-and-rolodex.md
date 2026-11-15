@@ -1,7 +1,8 @@
 # private notes and rolodex
 
-status: owner choices settled, 2026-10-09; docs only. adopt in spec/an adr
-superseding affected adr 0065 main-containment rules before implementation.
+status: accepted v2 target under
+[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-14; unimplemented.
+this supersedes affected adr 0065 main-containment rules for main only.
 the [roadmap](implementation-plan.md#private-notes-repository-and-rolodex) owns
 sequencing. this contract expands main's native authority; it is not shipped.
 
@@ -19,6 +20,8 @@ semantic stop. this feature adds access and content guidance, not another agent.
 no notes api/tools, database, sync worker, importer, search index, document ui,
 contacts service, metadata schema, revision ledger or filesystem broker.
 reuse native tools, markdown, git and existing application callbacks.
+browser access, a credential broker and interactive deliverable hosting remain
+deferred. existing git/account setup is deployment configuration.
 
 ## files and designer's content contract
 
@@ -44,6 +47,12 @@ link rather than mirror current task state. this adds no archive route or wholes
 repo ingestion; existing capture/admission rules still apply to eligible observed
 content. a document cannot grant connector authority or owner consent.
 
+small deliverables are ordinary files here: a draft, comparison, report, csv or
+chart. main chooses the form and points the owner to the result through ordinary
+conversation and existing repository access. no deliverable table, publishing
+service or special completion ui. interactive pages and the proposed television
+app are deferred; file creation alone does not mean a file was delivered to discord.
+
 ## ordinary git and links
 
 use ordinary git status/diff/history and agent judgment. preserve owner changes;
@@ -61,9 +70,11 @@ observations or promise physical erasure. history rewriting is outside this slic
 ## authority and composition
 
 main is a trusted native execution domain, like existing coding workers.
-native commands bypass jarvis's `AutomaticWriteGate`, `action` ledger, exact-action
-approvals and callback replay guarantees. connector calls retain those mechanisms;
-`Approve`/`Deny` governs connector calls only. native access can read beyond the repo
+native commands bypass jarvis's `action` ledger, connector consent handling and
+callback replay guarantees. connector calls retain their action/recovery path and
+[ordinary conversational approval](one-main-events.md). o6 removes the old
+`AutomaticWriteGate`; no transitive approval machinery replaces it.
+native access can read beyond the repo
 and make network effects using credentials accessible to the native host account.
 this is an explicit authority expansion, not repo-only containment.
 the ordinary stock built-in set, including native collaboration when exposed by
@@ -93,7 +104,7 @@ application non-dumpability and privilege restrictions. never copy jarvis's
 connector/database/discord/embedding credentials into native cwd, environment or
 account home. native codex/git account credentials belong to the trusted domain.
 
-isolated gates/memory roles keep private empty read-only directories, disabled
+isolated memory roles keep private empty read-only directories, disabled
 native tools/network and their strict grammar. main's wider posture never leaks
 through a shared mutable configuration. existing model selection, clients/pools,
 callback dispatch, canonical journals and connector recovery remain shared.
@@ -170,8 +181,8 @@ auto-pull or remove an existing checkout during installation.
 agree upstream contracts first; publish exact qualified kernel/provider pins,
 then consume them through normal jarvis dependencies. no llm-tools, skid, work
 or memory schema change. one writer integrates shared o6/o9/composition files.
-adopt authority/instruction/config changes together in spec/adr and use the existing
-stopped cutover. remove main-only disabled-native rules and schema-4 acceptance;
+implement the adopted authority/instruction/config changes together and use the
+existing stopped cutover. remove main-only disabled-native rules and schema-4 acceptance;
 retain isolated rules and canonical connector journals. no dual-mode legacy path.
 
 temporary red/green integration and one live synthetic-repo journey must prove:
@@ -181,7 +192,8 @@ temporary red/green integration and one live synthetic-repo journey must prove:
 2. real git commit/fetch/pull/push to a private test remote under the exact frozen
    policy, including a failed/offline push with truthful local/remote status.
 3. native tools and a declared callback in one turn; valid progress/final;
-   connector approval still binds exact stored arguments; isolated tools stay disabled.
+   conversational connector consent uses the existing action/recovery path;
+   isolated tools stay disabled.
 4. close/restart retains checkout and dirty changes; interruption/loss causes no
    automatic native replay or fabricated stop/success; fresh main retains access.
 

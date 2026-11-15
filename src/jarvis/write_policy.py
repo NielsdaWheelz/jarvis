@@ -119,8 +119,6 @@ def write_effect_descriptor(
             ("terminal_name", value.name),
             ("cwd", value.cwd),
             ("group", value.group),
-            ("model", value.model),
-            ("effort", value.effort),
         ):
             if item is not None:
                 targets.append(
@@ -160,9 +158,7 @@ def write_effect_descriptor(
         targets = [
             EffectTarget(kind="machine", value=value.target.machine),
             EffectTarget(kind="handle", value=value.target.handle),
-            EffectTarget(
-                kind="mode", value="native" if value.target.native else "terminal"
-            ),
+            EffectTarget(kind="mode", value="terminal"),
         ]
         if target.profile is not None:
             targets.append(EffectTarget(kind="profile", value=target.profile))

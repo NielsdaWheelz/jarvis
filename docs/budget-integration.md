@@ -5,6 +5,10 @@ docs only. adopt the authority, catalog and recovery amendments in
 [spec](../SPEC.md)/an adr and budget's owning contract before implementation.
 the [roadmap](implementation-plan.md#budget-integration) owns delivery order.
 
+[adr 0071](decisions/0071-simple-event-driven-v2.md) preserves these owner choices
+as later scoped work. it does not include budget in the selected v2 cut or adopt
+the budget-side authority/storage changes by implication.
+
 ## target and scope
 
 jarvis reads the budget, records expenses/refunds, interprets receipts, corrects

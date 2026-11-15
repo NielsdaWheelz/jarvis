@@ -77,14 +77,25 @@ ACTION_MAX_ATTEMPTS = 2
 _MAX_CONTRACT_TEXT = 256
 _MAX_RESOLUTION_TEXT_BYTES = 262_144
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_RETIRED_AGENT_REVISIONS = (
+    "jarvis-agent-control-v1",
+    "jarvis-agent-control-v2",
+    "jarvis-agent-control-v3",
+    "jarvis-agent-control-v4",
+    "jarvis-agent-control-v5",
+    "jarvis-agent-control-v6",
+    "jarvis-agent-control-v7",
+    "jarvis-agent-control-v8",
+)
+_RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
 
 
 class ActionPersistenceDefect(RuntimeError):
     """The durable action ledger is absent, stale, or internally inconsistent."""
 
 
-class ExecutionContract(BaseModel):
-    """Closed immutable evidence for one occupied write position."""
+class _ExecutionEnvelope(BaseModel):
+    """common immutable evidence, without interpreting a retired target."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
@@ -103,8 +114,6 @@ class ExecutionContract(BaseModel):
     write_gate_supporting_owner_message_ids: Annotated[
         tuple[str, ...], Field(min_length=1, max_length=100)
     ]
-
-    agent_target: AgentWriteTarget | None = None
 
     @field_validator(
         "tool_contract_revision",
@@ -138,7 +147,7 @@ class ExecutionContract(BaseModel):
         return canonical
 
     @model_validator(mode="after")
-    def consistent_lineage(self) -> ExecutionContract:
+    def consistent_lineage(self) -> _ExecutionEnvelope:
         expected_attempts = (
             1 if self.replay_policy is ReplayPolicy.BilledOnce else ACTION_MAX_ATTEMPTS
         )
@@ -153,7 +162,29 @@ class ExecutionContract(BaseModel):
         return self
 
     def as_json(self) -> dict[str, object]:
+        return cast(dict[str, object], self.model_dump(mode="json", exclude_unset=True))
+
+
+class ExecutionContract(_ExecutionEnvelope):
+    """current execution authority always has the current target schema."""
+
+    agent_target: AgentWriteTarget | None = None
+
+    def as_json(self) -> dict[str, object]:
         return cast(dict[str, object], self.model_dump(mode="json"))
+
+
+class _ArchivedExecutionContract(_ExecutionEnvelope):
+    agent_target: object = None
+
+
+def _common_execution_envelope(value: object) -> _ExecutionEnvelope:
+    if not isinstance(value, dict):
+        raise ValueError("stored execution contract must be an object")
+    fields = _json_object(cast(dict[str, object], value), "stored execution contract")
+    return _ExecutionEnvelope.model_validate(
+        {key: item for key, item in fields.items() if key != "agent_target"}
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +192,7 @@ class StoredAction:
     id: UUID
     tool_name: ToolId
     arguments: dict[str, object]
-    execution_contract: ExecutionContract
+    execution_contract: _ExecutionEnvelope
     status: ActionStatus
     attempts: int
     execute_after: datetime | None
@@ -185,6 +216,16 @@ class StoredAction:
     @property
     def position(self) -> InvocationPosition:
         return InvocationPosition(str(self.id))
+
+    @property
+    def current_execution_contract(self) -> ExecutionContract:
+        if not isinstance(self.execution_contract, ExecutionContract):
+            raise ActionPersistenceDefect("archived action has no execution authority")
+        return self.execution_contract
+
+    @property
+    def agent_target(self) -> AgentWriteTarget | None:
+        return self.current_execution_contract.agent_target
 
     @property
     def recovered_external_attempts(self) -> int:
@@ -875,6 +916,7 @@ class ActionStore:
         *,
         source_conversation_id: str,
         limit: int = 100,
+        retired_only: bool = False,
     ) -> tuple[StoredAction, ...]:
         if type(limit) is not int or limit <= 0:
             raise ValueError("action report limit must be a positive integer")
@@ -960,6 +1002,26 @@ class ActionStore:
                     "AND invocation.reply_receipt->>'type' = 'tool_result_ref')"
                 ),
             )
+            if retired_only:
+                revision = action.c.execution_contract[
+                    "implementation_revision"
+                ].as_string()
+                eligible = and_(
+                    eligible,
+                    action.c.status.in_(
+                        ("succeeded", "failed", "uncertain", "cancelled")
+                    ),
+                    or_(
+                        and_(
+                            action.c.tool_name.like("agent.%"),
+                            revision.in_(_RETIRED_AGENT_REVISIONS),
+                        ),
+                        and_(
+                            action.c.tool_name.like("codex.%"),
+                            revision.in_(_RETIRED_CODEX_REVISIONS),
+                        ),
+                    ),
+                )
             claim_id = await connection.scalar(
                 select(action.c.execution_contract["claim_id"].as_string())
                 .where(eligible)
@@ -2339,7 +2401,7 @@ async def _locked_action(
     if origin is None:
         return None
     await lock_conversation(connection, origin.source_conversation_id)
-    contract = ExecutionContract.model_validate(origin.execution_contract)
+    contract = _common_execution_envelope(origin.execution_contract)
     await connection.execute(
         select(message.c.id)
         .where(message.c.id.in_(tuple(map(UUID, contract.input_message_ids))))
@@ -2572,7 +2634,7 @@ async def _update_action(
 
 def _stored_action(row: RowMapping) -> StoredAction:
     try:
-        contract = ExecutionContract.model_validate(row["execution_contract"])
+        envelope = _common_execution_envelope(row["execution_contract"])
         status = cast(ActionStatus, row["status"])
         if status not in {
             "queued",
@@ -2584,6 +2646,15 @@ def _stored_action(row: RowMapping) -> StoredAction:
             "cancelled",
         }:
             raise ValueError("action status is invalid")
+        tool = str(row["tool_name"])
+        if _retired_worker_revision(tool, envelope.implementation_revision):
+            if status not in {"succeeded", "failed", "uncertain", "cancelled"}:
+                raise ValueError("retired worker action must drain before activation")
+            contract = _ArchivedExecutionContract.model_validate(
+                row["execution_contract"]
+            )
+        else:
+            contract = ExecutionContract.model_validate(row["execution_contract"])
         attempts = cast(int, row["attempts"])
         if type(attempts) is not int or not 0 <= attempts <= contract.max_attempts:
             raise ValueError("action attempts violate the execution contract")
@@ -2617,12 +2688,14 @@ def _stored_action(row: RowMapping) -> StoredAction:
 def _validate_new_action(
     tool_name: ToolId,
     arguments: dict[str, object],
-    contract: ExecutionContract,
+    contract: _ExecutionEnvelope,
     origin_message_id: UUID,
     *,
     historical: bool = False,
 ) -> None:
     ToolId(str(tool_name))
+    if not historical and not isinstance(contract, ExecutionContract):
+        raise ValueError("archived action has no execution authority")
     if contract.tool_effect is not ToolEffect.Write:
         raise ValueError("actions require the Write effect")
     if not historical and (
@@ -2697,12 +2770,20 @@ def _validate_stored_action(stored: StoredAction) -> None:
         raise ValueError("decided approval action is missing its decision time")
     if stored.status in {"succeeded", "failed", "uncertain"} and stored.result is None:
         raise ValueError("resolved action is missing its result")
+    if retired_worker_action(stored):
+        return
+    worker = str(stored.tool_name).startswith(("agent.", "codex."))
+    if worker and (
+        stored.tool_name not in AGENT_WRITE_IDS
+        or stored.execution_contract.implementation_revision
+        != AGENT_IMPLEMENTATION_REVISION
+        or set(stored.arguments) != {"request_ref", "existing_action_ref", "arguments"}
+    ):
+        raise ValueError("current worker contract is invalid")
     if set(stored.arguments) != {"request_ref", "existing_action_ref", "arguments"}:
         if not terminal:
             raise ValueError("unfinished historical action requires stopped cutover")
         # Original bytes remain audit facts; no current tool interprets them.
-        return
-    if retired_worker_action(stored):
         return
     if (
         stored.tool_name in AGENT_WRITE_IDS and stored.tool_name not in AGENT_LOCAL_IDS
@@ -2721,8 +2802,11 @@ def _validate_stored_action(stored: StoredAction) -> None:
             )
         ):
             raise ValueError("current worker contract is invalid")
+        AGENT_INPUT_TYPES[str(stored.tool_name).removeprefix("agent.")].model_validate(
+            stored.payload
+        )
         addressed = stored.payload.get("target")
-        captured = stored.execution_contract.agent_target
+        captured = stored.agent_target
         if addressed is not None:
             requested = AgentTargetInput.model_validate({"target": addressed})
             if captured is None or captured.target != requested.target:
@@ -2773,7 +2857,7 @@ def _action_identity(
 ) -> tuple[
     ToolId,
     dict[str, object],
-    ExecutionContract,
+    _ExecutionEnvelope,
     UUID,
     datetime | None,
     datetime,
@@ -2965,21 +3049,17 @@ def _agent_receipt_resolution(
     )
 
 
+def _retired_worker_revision(tool: str, revision: str) -> bool:
+    return (tool.startswith("codex.") and revision in _RETIRED_CODEX_REVISIONS) or (
+        tool.startswith("agent.") and revision in _RETIRED_AGENT_REVISIONS
+    )
+
+
 def retired_worker_action(stored: StoredAction) -> bool:
     """Retired worker records are opaque; current malformed rows stay defects."""
-    tool = str(stored.tool_name)
-    if tool.startswith("codex."):
-        return True
-    return tool.startswith(
-        "agent."
-    ) and stored.execution_contract.implementation_revision in {
-        "jarvis-agent-control-v1",
-        "jarvis-agent-control-v2",
-        "jarvis-agent-control-v3",
-        "jarvis-agent-control-v4",
-        "jarvis-agent-control-v5",
-        "jarvis-agent-control-v6",
-    }
+    return _retired_worker_revision(
+        str(stored.tool_name), stored.execution_contract.implementation_revision
+    )
 
 
 def archived_worker_action(stored: StoredAction) -> bool:

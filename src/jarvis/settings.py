@@ -44,7 +44,7 @@ class Settings(BaseModel):
     codex_model: str = Field(min_length=1, max_length=255)
     codex_host_config_path: Path
     agent_cli_path: Path
-    agent_client_config_path: Path
+    agent_state_directory: Path
     runtime_state_directory: Path
     memory_config_path: Path
     memory_http_port: int = Field(default=8768, ge=1, le=65535)
@@ -119,7 +119,7 @@ class Settings(BaseModel):
     @field_validator(
         "codex_host_config_path",
         "agent_cli_path",
-        "agent_client_config_path",
+        "agent_state_directory",
         "runtime_state_directory",
         "memory_config_path",
         "google_oauth_state_path",
@@ -223,9 +223,7 @@ class Settings(BaseModel):
                 ),
                 codex_model=required("JARVIS_CODEX_MODEL"),
                 agent_cli_path=Path(required("JARVIS_AGENT_CLI_PATH")),
-                agent_client_config_path=Path(
-                    required("JARVIS_AGENT_CLIENT_CONFIG_PATH")
-                ),
+                agent_state_directory=Path(required("JARVIS_AGENT_STATE_DIRECTORY")),
                 codex_host_config_path=Path(required("JARVIS_CODEX_HOST_CONFIG_PATH")),
                 runtime_state_directory=Path(
                     required("JARVIS_RUNTIME_STATE_DIRECTORY")

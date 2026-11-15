@@ -2,17 +2,17 @@
 set -euo pipefail
 
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
-ssh "$target" bash -s <<'REMOTE'
+state="${JARVIS_AGENT_STATE_DIRECTORY:?supply the separately qualified live installed state directory}"
+[[ "$state" = /* ]] || exit 1
+ssh "$target" bash -s -- "$state" <<'REMOTE'
 set -euo pipefail
 cli=/usr/local/libexec/skidbladnir
-client=/etc/jarvis/agent-client.json
-for file in "$cli" "$client"; do
-  sudo test -f "$file" && sudo test ! -L "$file"
-done
+state="$1"
+sudo test -f "$cli" && sudo test ! -L "$cli"
+sudo test -d "$state"
 [[ "$(sudo stat -c '%U:%G:%a' "$cli")" == root:root:755 ]]
-[[ "$(sudo stat -c '%U:%G:%a' "$client")" == jarvis:jarvis:600 ]]
 sudo test "$(sudo systemctl show --property=ProtectHome --value jarvis.service)" = yes
-# Read-only probes copy the restrictions governing client file access and TLS.
+# Read-only probes copy the restrictions governing installed-state access and TLS.
 as_jarvis=(sudo systemd-run --quiet --wait --pipe --collect
   --property=User=jarvis --property=Group=jarvis
   --property=ProtectHome=true --property=ProtectSystem=strict
@@ -20,7 +20,7 @@ as_jarvis=(sudo systemd-run --quiet --wait --pipe --collect
   --property=NoNewPrivileges=true
   "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
   --property=RuntimeMaxSec=25
-  "$cli" --config "$client")
+  "$cli" --config "$state")
 for machine in devbox macbook arch; do
   "${as_jarvis[@]}" list --machine "$machine" --json 2>/dev/null | \
     python3 -c '

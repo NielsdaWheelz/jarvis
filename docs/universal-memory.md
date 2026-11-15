@@ -4,7 +4,7 @@ owner-approved source contract, **not deployed**. reconciled with the native
 runtime and owner-chat client on 2026-10-09; that baseline's source implementation
 and isolated qualification are complete. the 2026-10-13
 [repair evidence](#memory-repair-source-candidate) records that candidate's pins
-and then-open qualification. [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md)
+and then-open qualification. [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md)
 adopts the 2026-11-14 [completion contract](memory-delivery.md): future-only nexus
 capture, compactor content repair and current functional integration/live proof.
 that delta is implemented and isolated functional proof passes; see the
@@ -23,7 +23,7 @@ native codex/claude/nexus chats keep their own context management. tool-result
 archive text uses a permanent 30,000-character head/tail cap. the core memory
 contracts are settled here. nexus access is limited to the owner's chats;
 [adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles its distinct client,
-account attribution and processor grants; adr 0068 adds capture without extending
+account attribution and processor grants; adr 0070 adds capture without extending
 the sixteen native/jarvis lanes. its bounded
 [consumer handoff](issues/nexus-memory-client.md) separates source integration from
 private provisioning. earlier adrs retain the rationale. section 12 records
@@ -655,7 +655,7 @@ native_attempt +=
   memory_admitted boolean not null default false
 ```
 
-adr 0068 adds the nexus source variant to this existing table, no seventh memory
+adr 0070 adds the nexus source variant to this existing table, no seventh memory
 table. enforce disjoint shapes: native/jarvis retains its matching lane and null
 `capture_id`; nexus has owner uuid as `native_id`, capture id, null native lane,
 relation, parent and cwd. nexus checkpoints are `export:<n>` plus envelope digest.
@@ -729,7 +729,7 @@ do not certify factual truth or imply that every original was read.
 | `gap` | reason `unreadable` or `unsupported` |
 | `revision` | reason `branch` |
 
-adr 0068 permits the closed `nexus` source attribute on its projected kinds,
+adr 0070 permits the closed `nexus` source attribute on its projected kinds,
 including suppressed memory references. its exact fields and source mapping live
 in the completion contract; native events cannot supply it.
 
@@ -1217,7 +1217,7 @@ retrieval mode.
   processor chains; handlers recheck principal authority. october qualification
   does not qualify current librarian routes; [consumer handoff](issues/nexus-memory-client.md)
   owns the remaining checks/provisioning. other accounts receive no access.
-  adr 0068 separately admits host-owned future-only capture; this grants no
+  adr 0070 separately admits host-owned future-only capture; this grants no
   background model tools and changes no native-client context management.
 - main's full and scheduled-wake read-only plans include view/zoom/date/search/open over all
   three stores. its full plan also includes `memory.save_note`; scheduled turns
@@ -1360,7 +1360,7 @@ including failed saves. never republish their prose as new source evidence.
 ## 7. content contract
 
 central wording belongs in `definitions.py` and shared tool descriptions, never
-copied into client configuration. keep this one shared contract; adr 0068's scoped
+copied into client configuration. keep this one shared contract; adr 0070's scoped
 delivery assigns each feature a designer for concrete schema examples and an
 independent adversarial reviewer. no runtime critic or permanent review framework.
 
@@ -1841,7 +1841,7 @@ prs retain the exact reviewed commits; no permanent repair harness ships.
 
 ### memory completion source qualification
 
-2026-11-14 local date: [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md)
+2026-11-14 local date: [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md)
 and [memory delivery](memory-delivery.md) are implemented in isolated
 `feature/memory-delivery` worktrees. original checkouts and personal histories
 are untouched. this is source/isolated qualification, not installed activation.

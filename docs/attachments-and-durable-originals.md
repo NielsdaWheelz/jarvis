@@ -1,7 +1,8 @@
 # attachments and durable originals
 
-status: proposed implementation contract, 2026-10-11; docs only. adopt the table,
-tools and narrow ingress exception in spec/adr before implementation. the
+status: accepted v2 target under
+[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-14; unimplemented.
+the table, tools and narrow ingress exception are adopted; the
 [roadmap](implementation-plan.md#attachments-and-original-storage) owns sequencing.
 
 ## target and settled choices
@@ -15,7 +16,7 @@ reader, custom extraction pipeline, ocr agent or document index.
 | capture | configured-owner discord uploads automatically; gmail file parts only when main selects them to fetch |
 | reading | images, pdf, ordinary text, docx and csv; native tools and standard utilities |
 | originals | one private cloudflare r2 bucket; indefinite retention; no expiry lifecycle |
-| deletion | exact-approved physical deletion of our original/cache; previously captured memory/notes remain |
+| deletion | physical deletion of our original/cache after ordinary conversational consent; previously captured memory/notes remain |
 
 unsupported files may still be retained; reading failure never means storage
 failure. initial qualified images are jpeg/png/webp; other native decoders may
@@ -23,12 +24,16 @@ be used without promising fidelity. audio/video, office macros, xlsx/pptx
 qualification, outgoing sharing, public links, a browser/ui, bulk mailbox capture
 and database backup are outside this slice. accounting remains
 [budget integration](implementation-plan.md#budget-integration).
+storage credentials use ordinary private deployment configuration. this adds no
+credential vault, owner credential-entry flow or interactive deliverable host.
 
 [trusted-native notes access](private-notes-and-rolodex.md) is a prerequisite for
 image/shell reading; [o6](one-main-events.md) owns main/input/action rules. reuse
-[complete mail manifests](complete-and-continuable-searches.md) and
-[memory capture](universal-memory.md). inspected upstream pins still need the
-existing notes handoff; an image path in a text callback does not present pixels.
+[complete mail manifests](complete-and-continuable-searches.md) and reopenable
+message/body/part references; only those necessary mail surfaces are a prerequisite,
+not the later full-search overhaul. [memory capture](universal-memory.md) keeps
+its existing rules. inspected upstream pins still need the notes handoff;
+an image path in a text callback does not present pixels.
 attachments require no additional kernel/provider media protocol.
 
 ## data and identity
@@ -139,12 +144,13 @@ verified account and discovered external attachment id to the stored source tupl
 | --- | --- | --- |
 | `attachment.retain` | discovered discord/gmail source reference; result original snapshot/reference | automatic write; existing action position; no arbitrary url/native path |
 | `attachment.open` | id; result snapshot/source plus verified local path | fresh automatic read; `Pending`, `Unavailable` or `Deleted` as appropriate |
-| `attachment.delete` | target `{id, name, size_bytes, sha256}`; result id/deleted time/scope | consequential write; exact Approve/Deny |
+| `attachment.delete` | `id`; result id/deleted time/scope | consequential write; ordinary conversational consent under o6 |
 
 snapshot is `{id, name, name_truncated, media_type, size_bytes, sha256}`. name
 is a deterministic 240-byte utf-8-safe display preview, not a filesystem name.
-delete validates its four target fields against the immutable copy before
-proposal/execution; host approval shows those exact arguments. source refs use
+delete resolves the id to its stored original; main explains which file it proposes
+to remove in ordinary conversation. no hash recital, exact-payload preview or
+approval component is required. source refs use
 the tuples above. retain errors include id when registered. typed codes:
 `NotFound`, `TooLarge`, `SourceChanged`, `Unavailable`, `Pending`,
 `CaptureUnresolved`, `StorageConflict`, `Deleting`, `Deleted`.
@@ -176,7 +182,8 @@ normal operator tools. add the narrow stopped-owner command
 `jarvis attachment-reconcile <id>`: observe only, using the same metadata checks.
 matching pending bytes may become ready; confirmed absent deleting bytes/cache
 become deleted. absent uncertain uploads stay unresolved. commit the factual
-state and required host notice together; preserve original action/reply evidence.
+state and canonical resolution event together; main chooses ordinary owner
+communication. preserve original action/reply evidence.
 never reset ready, rerun the old mutation or claim manual cleanup proves the
 original delete succeeded. no model-callable repair or general repair framework.
 
@@ -198,14 +205,15 @@ or commands.
 
 good: `the receipt shows 42.80; the currency is illegible. which currency?`
 good: `pdf page 7 describes [...]; i have not inspected the figures or appendix.`
+good: `the renewal clause is on pdf page 4. the scanned schedule is partly illegible; i cannot verify its dates.`
 cite its original reference. no guessed expense or manufactured completion.
 
 memory captures published answers/notes/callback references. main's native
 extraction history remains internal; not every extracted word becomes searchable.
 admitted worker/client histories keep ordinary capture rules. originals stay
 reopenable; no extraction mirror/new memory schema. existing provider codec
-repairs remain with provider-runtime; current document/image proof is recorded
-in [memory evidence](universal-memory.md#memory-completion-source-qualification).
+repairs remain with provider-runtime; [current memory evidence](universal-memory.md#memory-completion-source-qualification)
+records the qualified image/document behavior.
 
 ## implementation, handoffs and acceptance
 
@@ -229,7 +237,7 @@ three temporary journeys suffice:
 - real postgres/private test bucket/discord: attachment-only/multi-file intake,
   replay/restart, source disappearance/cold-cache reopen. crashes around upload/
   receipt, delayed put/negative head, deletion/cache races. prove bytes/hash,
-  active-source uniqueness, no resurrection, exact approval and honest uncertainty;
+  active-source uniqueness, no resurrection, conversational consent and honest uncertainty;
   operator cleanup/reconciliation changes facts without replaying an old mutation.
 - gmail synthetic fixtures: inline/external leaves, named text attachment,
   duplicate source, missing/wrong part/account, bounds and failed source. unopened

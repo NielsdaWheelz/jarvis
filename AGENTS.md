@@ -9,6 +9,20 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the unimplemented
+  simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
+  rules below: one full main plan for every event; one todo table with optional
+  one-time/repeated wakes; ordinary private repo/native tools; private r2
+  attachments; existing skid asynchronous observation. approvals are ordinary
+  conversation interpreted by main, using the existing action decision transition;
+  no buttons, exact-preview requirement, semantic consent framework or new ledger.
+  preserve immutable executed arguments and effect recovery. progress/blockers/
+  results are agent behavior, not separate features. defer browser, new credential
+  handling and interactive deliverables/television. shared memory remains separate
+  and quiet dreaming unchanged. source implementation and installed activation are
+  still pending; keep current baseline claims distinct from the adopted target.
+  `docs/implementation-plan.md` owns sequence; its linked feature contracts own
+  schemas and behavior. this documentation task authorizes no code or live work.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity
@@ -31,7 +45,7 @@ These instructions govern all work in this repository.
   [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds one distinct
   nexus-owner backend client for a configured authenticated viewer's chat
   operations and tagged native/nexus note provenance.
-  [adr 0068](docs/decisions/0068-nexus-capture-and-memory-delivery.md) adds
+  [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adds
   future-only nexus capture, specified in [memory delivery](docs/memory-delivery.md):
   immutable terminal exports survive source deletion until acknowledged; no
   edit/delete synchronization or historical import. one source-owned nexus table,
@@ -133,7 +147,7 @@ These instructions govern all work in this repository.
 - retain the two approved small regression groups:
   capture/retry and memory completion. no standing per-feature review machinery
   or restoration of the retired suite;
-  the wider testing redesign remains open. adr 0068's scoped delivery uses a
+  the wider testing redesign remains open. adr 0070's scoped delivery uses a
   content designer and independent adversarial review per feature, temporary
   end-to-end/live red/green/refactor checks, then deletes only its new probes.
   complete functional proof now; broad usefulness/load evaluation and
@@ -143,10 +157,17 @@ These instructions govern all work in this repository.
   owns the implemented next target contract and current qualification record.
   the owner explicitly authorized source implementation and temporary
   integration/live checks; installed cutover remains separate. both use
-  the skid cli and private three-peer config. adr 0052 supersedes the worker
+  the skid cli. [adr 0068](docs/decisions/0068-generalized-skid-consumer.md)
+  replaces private three-peer config with live installed computer state and removes
+  creation model/effort overrides. installed service-state access is separately
+  blocked; do not add a privilege bridge or copy stale state. adr 0052 supersedes the worker
   transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049. cognition uses adr 0065's separate contained stock
   endpoint; its production activation is separate from worker fleet installation.
+- [adr 0069](docs/decisions/0069-terminal-only-workers.md) supersedes worker-native
+  conversation control/identity and makes worker v9 terminal-only. keep separate
+  native cognition and archive/memory libraries. classify finalized known retired
+  worker contracts before decoding their nested target; never execute archives.
 - preserve captured target kind/ref and independent interruption/closure facts
   through admission and execution. require current owner input before target lookups.
   worker writes are billed once, with one lifetime executor entry. finalized

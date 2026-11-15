@@ -31,6 +31,37 @@ cancels pending delivery. no revision/remove sync or historical import is added.
 reads, optional note saves and capture have distinct grants under the shared
 private declaration. automated helpers and other viewers receive no memory tools.
 
+## accepted v2 target and operational scope
+
+[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts an unimplemented
+product target. this runbook's commands, gate/button approval behavior, read-only
+wakes, exact chat controls and schedule queries describe the existing baseline;
+they are not instructions for an already-installed v2 release. do not change
+live configuration or reinterpret stored receipts from documentation adoption.
+
+the target sends owner, event, time and skid inputs to the same full-plan main,
+with source attribution preserved. main judges work, notification or silence and
+interprets conversational approvals through one narrow action-decision callback.
+the separate model write gate, read-only wake split, buttons, json previews
+and exact-human-payload binding are removed in that target. existing deterministic
+tool policy remains; add no semantic consent classifier. canonical actions,
+immutable executed arguments, original receipts and effect reconciliation remain.
+conversational stop is interpreted by main; operational pause remains host-owned.
+
+optional one-time/repeated wakes belong to work records, replacing separate
+schedule/recurring-wake products. due dates remain distinct. keep the existing
+asynchronous skid observer and separately prove its installed event delivery;
+no new callback service or repeated model polling is proposed. future native
+notes/files require the persistent private checkout; inbound originals require
+private r2 storage. activation must use the eventual qualified artifacts and
+their cutover instructions, reconciling entered effects before incompatible
+changes. this section supplies no new migration command or deployment authority.
+
+the [implementation plan](implementation-plan.md) owns those handoffs. shared
+memory delivery and quiet dreaming remain unchanged. browser/credential products,
+interactive deliverables, a separate ui, selected dream wakes and work context
+remain outside this cut; later search and budget contracts are not adopted here.
+
 ## Approved production target
 
 Slice 7 deployed the exact accepted release as a host-native systemd service
@@ -221,12 +252,13 @@ controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
 control; no provider connection is opened before the control succeeds. the
-service then receives the non-secret cognition profile/socket view and the
-private skid client file. it receives no provider account-home access.
-`deploy/verify-containment` checks the root cli and mode-0600 jarvis-owned client
-and reads all three peers under the real identity and relevant service restrictions;
-an unreachable host fails it. full gateway bearers replace ssh command allowlists,
-an accepted cost rather than a new credential-scope boundary.
+service receives the non-secret cognition profile/socket view, with no provider
+account-home access. the earlier copied skid client-file path is retired.
+current worker activation remains blocked on
+[live installed-state access](issues/skid-installed-state-access.md); the worker
+verification step refuses until that boundary is implemented and qualified.
+do not treat the historical client-file or three-peer receipt as proof that
+today's service uid can use the enrolled computer's live state.
 
 Do not activate an older release across an incompatible migration. A
 same-schema rollback requires rebuilding with `deploy/install-release <commit>`
@@ -317,27 +349,20 @@ activation. actual deployment remains separately authorized and verified.
 2. cooperatively stop jarvis. require systemd ActiveState=inactive, Result=success,
    MainPID=0 and canonical postgres pause. a failed or
    killed stop needs operator inspection; activation never stops the service.
-3. stage the admitted devbox skid artifact through dev-server; its root cli and
-   gateway share artifact/pin. changing either cli bytes or client configuration
-   requires the pause and clean stop before switching; identical apply is inert.
-4. supply the existing human-provisioned, three-peer private file explicitly:
-
-   ```sh
-   JARVIS_SOURCE_AGENT_CLIENT_CONFIG=/absolute/private/client.json deploy/install-agent-client
-   ```
-
-   the worker installer copies a mode-0600 candidate under /etc/jarvis and validates it
-   through the installed skid cli under the service's relevant restrictions.
-   partial inventory proves config admission only. invalid config leaves the
-   installed file unchanged. identical apply is inert only for a regular,
-   non-symlink, jarvis:jarvis mode-0600 file. replacement is atomic and requires
-   the prepared pause/clean-stop checks;
-   a symlink is replaced, while an existing directory is refused and preserved.
-   no bearer minting or peer table.
-   `deploy/install-private-state` composes this step when all application and
-   connector private state also needs installation. `deploy/verify-agent-client`
-   qualifies all three peers as the service identity while jarvis is stopped;
-   it does not require cognition to be running.
+3. select the matching reviewed standalone skid release. the worker cli and host
+   must share its wire contract. changing cli bytes or current worker contracts
+   requires the pause, clean stop and unfinished-action drain before switching.
+4. the generalized cli reads `--config STATE_DIRECTORY`, configured by
+   `JARVIS_AGENT_STATE_DIRECTORY`. it requires the enrolled computer's live state,
+   including future membership/configuration updates. the old private client-json
+   installer is removed; `deploy/install-agent-client` now refuses with the
+   [service-state access blocker](issues/skid-installed-state-access.md).
+   installed worker cutover remains BLOCKED until that separate integration is
+   designed and qualified. retain jarvis's service uid and containment. copying
+   the current state files is insufficient. `deploy/install-private-state`
+   deliberately reaches the same refusal before any remote private-state change.
+   `deploy/verify-agent-client` accepts an explicit installed-state directory for
+   the eventual qualified service boundary; source fixtures do not establish it.
 5. `deploy/activate-release COMMIT` migrates, runs stopped native cutover and
    checks compatibility under the deployment lock. incompatible active authority
    and entered uncertainty refuse. known historical terminal resolutions and new
@@ -455,25 +480,27 @@ cognition parent. no native authentication belongs in jarvis state or environmen
 main has no arbitrary elapsed cutoff or cumulative model/tool quota. per-operation
 bounds, finite callback queues and owner stop still apply.
 
-peer agent control uses `/usr/local/libexec/skidbladnir` (regular root:root 0755)
-and `/etc/jarvis/agent-client.json` (regular jarvis:jarvis 0600), configured by
-`JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_CLIENT_CONFIG_PATH`. all three existing
-peers come from human fleet provisioning. no development-home symlink,
-JARVIS_HERDR setting, jarvis ref codec or provider-home table remains.
+peer agent control uses the explicitly configured `JARVIS_AGENT_CLI_PATH` and
+`JARVIS_AGENT_STATE_DIRECTORY`. skid owns installed auth/routing and refresh;
+jarvis retains its personal machine/profile enums. the existing service cannot
+read the enrolled development user's private live state under its containment.
+[service-state access](issues/skid-installed-state-access.md) records the separate
+integration required before installed worker activation. no copied client-json
+reader, second ref codec or fallback transport remains.
 
 the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
-wait/cancel_wait. addressed inputs use short `{machine,handle}`; t-handles select
-terminal mechanisms, c-handles explicit native capabilities. the host captures
-original refs before gate/action admission and retains them through delay/restart.
-native capture preserves the original target separately from observation and
-optional observedRef. matching optional name/profile facts provide consent context;
-terminal loss/reassociation never renews native authority.
+wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v9 accepts
+only `t-` plus 16 lowercase hex digits. the host captures the original terminal
+ref before gate/action admission and retains it through delay/restart. terminal
+loss/reassociation never silently renews that target. worker-native conversation
+handles, history and controls are removed; native cognition and memory archive
+access remain separate capabilities.
 
-terminal send is guarded input for both providers; native claude input remains
-unavailable. start options use explicit overrides then native defaults, with
-literal optional stdin. creation/input and interruption/closure facts remain
-independent, including nonzero partial results. native accepted means admitted,
-terminal written means dispatched; neither proves completion. unknown writes
+terminal send is guarded input for both providers. start accepts name, cwd, group
+and literal optional stdin; the configured
+profile command owns provider options. model/effort launch fields are rejected. creation/input and interruption/closure facts remain
+independent, including nonzero partial results. terminal written means dispatched;
+it proves neither provider acceptance nor completion. unknown writes
 enter once and never replay; conclusive owned receipts settle without re-entry.
 
 wait registration returns watching immediately; a separate durable outcome/event

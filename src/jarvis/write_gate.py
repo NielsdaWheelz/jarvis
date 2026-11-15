@@ -98,8 +98,6 @@ class EffectTarget(BaseModel):
         "machine",
         "handle",
         "group",
-        "model",
-        "effort",
         "state",
         "timeout_seconds",
         "mode",

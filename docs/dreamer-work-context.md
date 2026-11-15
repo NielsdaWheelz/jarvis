@@ -1,6 +1,8 @@
 # dreamer work context
 
-status: proposed implementation contract, 2026-10-09; docs only. adopt before
+status: later proposed contract, originally 2026-10-09; outside the selected v2
+cut under [adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-14.
+shared memory's separate pr is unchanged. adopt this amendment before
 implementation. the [roadmap](implementation-plan.md#dreamer-work-context) owns
 sequencing; [work records](work-records.md) and [associative dreaming](universal-memory.md#daily-dreaming)
 own their existing schemas and behavior.
@@ -16,9 +18,10 @@ this is one work query, one prompt section and a content change after m3 and o7.
 add no table, migration, model tool, scheduler, agent, work planner or ranking.
 work edits do not independently seed or schedule dreaming; ordinary admitted
 conversation/tool observations remain eligible under the memory contract.
-daily work review stays a main duty. selected-note waking belongs exclusively to
-the [event contract](event-sources-and-recurring-work.md#useful-internal-suggestions);
-this feature neither requires that amendment nor changes dream completion.
+daily work review is an ordinary scheduled todo handled by main. selected-note
+waking is also deferred, as recorded in the
+[event contract](event-sources-and-recurring-work.md#useful-internal-suggestions).
+this proposal neither requires it nor changes quiet dream completion.
 
 ## projection contract
 
@@ -85,8 +88,8 @@ work check. main checks current relevant work with ordinary tools when action
 depends on its present existence/state; this is agent judgment, not a work gate.
 
 the dreamer's read-only memory grant and `{notes: [{text, references}]}` output
-stay unchanged. event delivery, if adopted, uses its existing selected-note field
-and transaction; introduce no work-specific nomination or output schema.
+stay unchanged. no selected-note field or waking transaction is adopted here;
+a future event-delivery amendment must own those changes separately.
 the memory library, kernel, provider, skid and external clients need no new api.
 
 ## designer's content rules
@@ -120,9 +123,9 @@ nor a deadline. main's follow-up uses the ordinary event/content contract.
 | b: integration/content | `src/jarvis/memory_workers.py`, `src/jarvis/definitions.py`, `src/jarvis/cli.py`, `src/jarvis/session-compatibility.json` | inject work store at service/manual composition, prepare section, designer instructions and affected role revision |
 | c: temporary proofs | scoped proof files only | end-to-end/live evidence; no production edits |
 
-agree the small store result before parallel edits. current source still uses
-summary-maintenance dreaming and mandatory first search; m3 retires that path.
-build directly on accepted associative dreaming, never extend that old loop or
+agree the small store result before parallel edits. the original october audit
+predated current memory completion; inspect its actual source when implementing.
+build directly on accepted associative dreaming, never restore the retired loop or
 its rebuild callbacks. cut to the new context/role contract with no feature flag,
 legacy adapter or fallback. no unrelated cleanup or memory-core redesign.
 

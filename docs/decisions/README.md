@@ -9,6 +9,13 @@ contracts remain binding; dated evidence remains historical. adr 0065 separately
 owns the current native contract and its temporary integration/live proof; it
 supersedes the affected session, main-loop, host and capacity decisions below.
 
+[adr 0071](0071-simple-event-driven-v2.md) adopts the unimplemented v2 target:
+same main for every event, scheduled todos, private native repo, durable attachments
+and conversational approvals. it supersedes the affected baseline authority,
+approval presentation, scheduling and main-containment portions identified there;
+current implementation evidence remains historical until each new cutover.
+memory's separate adrs 0066, 0067 and 0070 remain unchanged.
+
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted; trace amended by 0010/0019; internal gate added by 0019 |
@@ -76,8 +83,11 @@ supersedes the affected session, main-loop, host and capacity decisions below.
 | [0064](0064-simple-worker-orchestration.md) | simple worker orchestration | implemented design; source, darwin/linux providers, native consent, real postgres crash/recovery and local service/cognitive wait checks pass; installed fleet, external Discord delivery and production activation `NOT_RUN`; supersedes affected 0052 worker contracts and amends notification/concurrency |
 | [0065](0065-native-agent-supervision.md) | native main, canonical requests and durable callback evidence | implemented and merged; frozen worker-v7/native composition qualification PASS; production activation and physical google/discord integration NOT_RUN; replaces main step loop, capacity reservations and file pause state |
 | [0066](0066-optchat-memory-adoption.md) | optchat memory adoption | implemented source with isolated functional proof; shared archive/tree/view, ordinary part leaves, fresh jarvis turns and quiet dreaming; current evidence in the [memory contract](../universal-memory.md#memory-completion-source-qualification); installed activation and pre-existing audit findings remain open |
-| [0067](0067-nexus-owner-chat-memory.md) | nexus owner-chat memory client | accepted distinct backend client, complete processor-chain admission and tagged note provenance; retired chat routes and no-capture scope superseded by 0068; historical source qualification in [memory integration evidence](../universal-memory.md#12-integration-evidence) |
-| [0068](0068-nexus-capture-and-memory-delivery.md) | nexus capture and memory delivery | implemented source with isolated functional proof; future-only durable nexus exports and explicit provenance; installed activation and pre-existing audit findings open; usefulness/load, historical import and backup deferred |
+| [0067](0067-nexus-owner-chat-memory.md) | nexus owner-chat memory client | accepted distinct backend client, complete processor-chain admission and tagged note provenance; retired chat routes and no-capture scope superseded by 0070; historical source qualification in [memory integration evidence](../universal-memory.md#12-integration-evidence) |
+| [0068](0068-generalized-skid-consumer.md) | generalized skid consumer | source adapter removes launch model/effort and reads installed state; installed service-uid access blocked pending separate integration |
+| [0069](0069-terminal-only-workers.md) | terminal-only skid workers | v9 source implemented and isolated-qualified; removes worker-native controls and classifies finalized retired envelopes before target decoding; installed cutover separate |
+| [0070](0070-nexus-capture-and-memory-delivery.md) | nexus capture and memory delivery | implemented source with isolated functional proof; future-only durable nexus exports and explicit provenance; installed activation and pre-existing audit findings open; usefulness/load, historical import and backup deferred |
+| [0071](0071-simple-event-driven-v2.md) | simple event-driven v2 | accepted documentation target; one main, scheduled todos, conversational consent, ordinary private repo, private originals and existing skid observation; browser/credential products/interactive deliverables deferred; implementation/activation separate |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current
@@ -88,3 +98,4 @@ justify. They are founding rationale rather than records of decisions taken unde
 observed pressure. That is worth knowing when reading SPEC section 13's
 "observed evidence" bar for future ADRs: the bar applies to changing these
 decisions, not to how they were originally reached.
+| [0072](0072-native-memory-rollout.md) | native memory rollout | owner-authorized dependency/source/deployment work; configured claude-work2 lanes and read-only live skid state mount; macbook/devbox now, arch later, nexus next release; installed proof pending |

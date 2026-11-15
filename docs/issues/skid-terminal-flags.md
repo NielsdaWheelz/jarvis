@@ -1,19 +1,21 @@
 # skid worker client cutover
 
-updated: 2026-10-06. merged source implements
-[adr 0064](../decisions/0064-simple-worker-orchestration.md). paired installed
+updated: 2026-10-21. terminal-only worker v9 implements
+[adr 0069](../decisions/0069-terminal-only-workers.md). paired installed
 fleet and production service acceptance remain `NOT_RUN`.
 [o8 contract](../worker-launch-observation.md) owns remaining delivery and acceptance.
 
-problem: the installed baseline uses the old worker generation; the new short
-targets, closed wire schemas, launch options/input and nonblocking wait contract
-require one coordinated stopped cutover. dev-server's installer also requires
-retired file-based pause state, which native jarvis rejects.
+problem: terminal-only targets, closed wire schemas and worker v9 require one
+coordinated stopped cutover. the jarvis service cannot read the enrolled owner's
+live skid state under its existing uid and containment; the client installer
+refuses. the [service-state issue](skid-installed-state-access.md) owns that
+separate deployment decision. current dev-server does not read file-based pause
+state or install a private jarvis client.
 
 impact: mixed readers can reject valid receipts after effects or refuse ordinary
 terminal input. local source qualification does not establish installed behavior.
 
-evidence: strict adapter/client checks pass null/additive/wrong-kind rejection,
+historical evidence, 2026-10-06: strict adapter/client checks pass null/additive/wrong-kind rejection,
 short projection, original-ref capture/dispatch and nonzero partial receipts.
 isolated darwin stock providers exercise launch/options/literal stdin, effective
 codex selection, guarded input, retained draft, pane change and lost create/input
@@ -38,30 +40,23 @@ still select an obsolete release. no running installation was inspected.
 before installing `jarvis.env`; forwarding a commit alone cannot bootstrap it.
 
 cutover: drain old actions/turns/required events/delivery, pause and stop cleanly,
-stage paired immutable cli/jarvis artifacts and private three-peer configuration,
-validate unfinished actions, then activate separately. finalized v1–v6 worker rows
+stage matching immutable host/cli/jarvis artifacts and resolve live state access,
+validate unfinished actions, then activate separately. finalized v1–v8 worker rows
 stay opaque after common immutable checks; unfinished retired rows block startup.
 no compatibility reader, ref codec, account registry or fallback is added.
 
-repair: both installers use the explicit installed target release's existing
-`check-paused`, as jarvis:jarvis with existing runtime env/systemd restrictions.
-retain clean stopped-service checks and identical-byte/ownership/mode no-ops.
-target migration/native conversion must precede that check without activating
-the service; reuse the preparation stages in `deploy/activate-release`.
-private-state setup installs secrets first; remove its eager client call and
-install the client explicitly after target migration/initialization and pause.
-dev-server `devbox` must forward validated `JARVIS_RELEASE_COMMIT` to its gateway
-playbook/preflight; the current entrypoint sends only product and operation.
-remove the retired file guard/spec; no mirrored pause state or database-query
-fallback. invalid/unavailable target, canonical pause or ownership refuses before
-executable/config replacement.
+current evidence: [adr 0069](../decisions/0069-terminal-only-workers.md) records
+reviewed v9 source/integration proof. `deploy/install-agent-client` explicitly
+refuses live-state access; `dev-server/lib/skidbladnir.sh` delegates ordinary
+installation/application to skid. the earlier file-pause installer requirement is
+superseded, not remaining implementation work.
 
 resolved when: authorized installed-service checks prove both provider launches,
-current schemas/flags, short discovery, literal input/options, partial evidence,
+current terminal schemas/flags, short discovery, literal input, partial evidence,
 original targeting across delay/restart and zero mutation replay. preserve
-shared provider ownership, account/plugin/permissions and containment.
-prove fileless native bootstrap, exact target selection, inert identical installs
-and refusal-before-change through real postgres/public checker/host boundaries.
+shared provider ownership, account settings and containment. first qualify the
+chosen service-state boundary under the owning issue; no copied stale state,
+privilege bridge, fallback or deployment change is assigned here.
 
-blockers: canonical-pause/target-release installer repair, paired release/install,
+blockers: service-state access decision and qualification, paired release/install,
 production cognition and authorized activation.

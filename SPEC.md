@@ -1,13 +1,65 @@
-# Jarvis v1 specification
+# jarvis specification
 
 status: **native runtime and memory delivery source; installed activation pending**
 
 date: **2026-11-14**
 
-Audience: product, engineering, design, operations, and future coding agents
+audience: product, engineering, design, operations, and future coding agents
+
+## accepted v2 target
+
+[adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
+2026-11-14 owner decisions. this is an unimplemented target, not a claim about the
+installed service. these contracts supersede conflicting baseline rules below
+for their v2 slices; unchanged contracts and the separate memory delivery remain.
+
+- [one main](docs/one-main-events.md) handles owner input and every admitted event
+  with the same normal capabilities. remove the model write gate, read-only wake
+  route and host interpretation of conversational stop. retain operational pause,
+  canonical request/invocation journals and effect/read recovery.
+- [work](docs/work-records.md) is one mutable todo table with optional deadline
+  and independent one-time/repeated wake. the timer publishes the todo's context
+  to main; firing never means completion. scheduling lives here, replacing the
+  separate schedule product and proposed recurring-wake table.
+- [events](docs/event-sources-and-recurring-work.md) publish email/calendar facts
+  through the same input path; one cursor table owns polling progress. existing
+  [skid observation](docs/worker-launch-observation.md) already provides the
+  asynchronous result path. [follow-through](docs/delegated-follow-through.md)
+  is main's judgment; installed skid qualification remains outstanding.
+- [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
+  with trusted native tools. [attachments](docs/attachments-and-durable-originals.md)
+  retain discord/email original bytes privately in r2, with one metadata table
+  and native image/pdf/file reading. notes' explicit provider/kernel handoff
+  precedes native file access; no notes service or extraction framework.
+- approvals are [ordinary conversation](docs/one-main-events.md#conversational-approvals).
+  main interprets consent and records it through the existing action transition;
+  clear prior consent needs no repeated question. retire mandatory buttons,
+  exact-payload previews and free-text rejection. add no semantic matching engine
+  or separate approval ledger. stored execution arguments remain immutable and
+  unknown effects remain non-retryable without the existing recovery proof.
+- progress, blockers, results and notification/silence are ordinary agent
+  behavior. add no notification-policy field, completion dashboard or workflow
+  controller. small deliverables are prose and repo files through existing access.
+- browser control, new credential products, interactive mini-apps/television,
+  credential-entry forms and a separate ui are deferred. existing connector and
+  storage credentials remain deployment configuration.
+
+the adopted schema additions are `work`, `event_cursor` and `attachment`, plus
+o6's causal message reference and contract changes; there is no `recurring_wake`
+table. detailed fields/tools, migration and acceptance belong to the linked
+contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
+shared memory stays in its separate pr: no capture, dreaming or memory-schema
+change is implied, and selected dream-triggered turns remain deferred. existing
+complete-search and budget proposals remain separately scoped later work.
+
+the following accepted memory/native sections and numbered v1 baseline describe
+their respective contracts and implemented history. where v2 conflicts, the
+adopted target above governs its implementation; old runtime/runbook claims do
+not constitute v2 acceptance. no code or production activation occurs in this
+documentation change.
 
 accepted memory completion target (2026-11-14):
-[adr 0068](docs/decisions/0068-nexus-capture-and-memory-delivery.md) adopts the
+[adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the
 [completion contract](docs/memory-delivery.md). finish the existing system and
 prove every supported api/mcp and actual jarvis/native/nexus composition. add
 future-only capture of the configured nexus owner's durable librarian turns:
@@ -24,7 +76,13 @@ retired nexus-route and review wording below. the owner subsequently authorized
 source implementation and temporary integration/live checks. that source is now
 implemented and isolated functional proof passes; see the
 [current evidence](docs/universal-memory.md#memory-completion-source-qualification).
-the pre-existing dependency audit findings and installed activation remain open.
+the subsequent owner instruction authorizes dependency repair, source integration
+and installed jarvis/native-fleet rollout. nexus deployment is deferred to its
+next release; macbook and devbox proceed now, arch later. the owner authorizes
+sharing across all configured personal/work/work2 profiles and controls their
+content. [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the native profile
+and service-state boundary; [the rollout plan](docs/implementation-plan.md#memory-installed-rollout)
+owns sequence and receipts. installed success is not inferred from source proof.
 
 accepted native-agent cutover (2026-10-02):
 [adr 0065](docs/decisions/0065-native-agent-supervision.md) adopts the shared
@@ -69,7 +127,7 @@ through mcp/api. the core memory source is implemented and isolated qualificatio
 passes; production activation remains separate. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
 backend client and tagged note attribution, preserving sixteen capture lanes.
-adr 0068 adds the distinct nexus capture source without changing those lanes.
+adr 0070 adds the distinct nexus capture source without changing those lanes.
 the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
@@ -679,8 +737,8 @@ Jarvis acts without approval for:
   `agent.stop`, `agent.close`, `agent.wait` and `agent.cancel_wait`, grounded by
   `AutomaticWriteGate`; explicit
   terminal input may answer worker permission dialogs under existing host-user
-  authority. short target kind distinguishes native conversation control from exact terminal
-  controls; close distinguishes interruption from terminal closure.
+  authority. short targets select exact terminal controls; close distinguishes
+  interruption from terminal closure.
 - Normal Jarvis responses and proactive owner notices through the configured
   Discord transport.
 
@@ -1206,34 +1264,37 @@ pipeline, never a nested agent.
 | `memory.search`, `memory.open`, `memory.view`, `memory.zoom`, `memory.date` | main, dreamer | Read; automatic |
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
-worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md).
+worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
+amended by [adr 0068](docs/decisions/0068-generalized-skid-consumer.md) and
+[adr 0069](docs/decisions/0069-terminal-only-workers.md).
 all model inputs and outputs are closed. machines are `macbook|devbox|arch`;
 profiles are `personal|work|work2|claude-work`. addressed inputs contain
-`target:{machine,handle}`: `t-` or `c-` plus 16 lowercase hexadecimal characters.
+`target:{machine,handle}`: `t-` plus 16 lowercase hexadecimal characters.
 names are labels. no opaque ref or raw provider/process identity is model-facing.
 
 | tool | input | fixed skid command |
 | --- | --- | --- |
 | agent.list | machine?, group?, unassigned?; group/unassigned exclusive | list [--machine …] [--group … or --unassigned] |
-| agent.info | target | info t-HANDLE or inspect c-HANDLE --machine … |
-| agent.start | machine, profile, name?, cwd?, group?, model?, effort?, prompt? | start [name] --machine … --profile … [--cwd/group/model/effort …] [--stdin] |
-| agent.read | target, source latest/history default latest, maxBytes default 16384/max 32768; history native-only | read HANDLE --machine … [--history] --max-bytes … |
-| agent.send | target, text | send --ref CAPTURED [--input peer for native only] --stdin |
+| agent.info | target | info t-HANDLE --machine … |
+| agent.start | machine, profile, name?, cwd?, group?, prompt? | start [name] --machine … --profile … [--cwd/group …] [--stdin] |
+| agent.read | target, maxBytes default 16384/max 32768 | read HANDLE --machine … --max-bytes … |
+| agent.send | target, text | send --ref CAPTURED --stdin |
 | agent.text | terminal target, text | text --ref CAPTURED --stdin |
 | agent.keys | terminal target, 1–16 keys | keys --ref CAPTURED key… |
-| agent.stop | target; kind selects terminal/native | stop --ref CAPTURED |
+| agent.stop | target | stop --ref CAPTURED |
 | agent.close | terminal target, terminal_only default false | close --ref CAPTURED [--terminal-only] |
 | agent.wait | target, observable state default idle, timeout_seconds default 300/1–86400, maxBytes default 16384/max 32768 | durable local registration; watcher uses wait --ref CAPTURED --state … --timeout CHUNK |
 | agent.cancel_wait | action_id | durable local cancellation; no worker mutation |
 
-all cli commands use fixed `--config` and `--json`, argv without a shell, minimal
+all cli commands use fixed `--config STATE_DIRECTORY` and `--json`; the directory
+is skid's live installed computer state, never the retired private client json.
+argv uses no shell and minimal
 `PATH=/usr/bin:/bin`, and literal text through stdin. text/prompt is nonempty,
 at most 32768 utf-8 bytes and contains no nul. keys are enter, escape, ctrl-c,
 up, down, left, right, tab, backspace, page-up and page-down. optional name uses
 skid's 1–64 ascii letter/digit/underscore/hyphen grammar, beginning letter/digit.
-model/effort values are nonempty, at most 256 utf-8 bytes, without whitespace or
-controls; they are provider values, never arbitrary configuration/argv. omission
-preserves native account defaults. initial input may fail after creation; no
+creation model/effort overrides are absent and rejected as unknown fields.
+profile commands own provider defaults. initial input may fail after creation; no
 trust/permission dialog is answered automatically.
 
 raw text admission does not guarantee fit in skid's 65536-byte serialized body.
@@ -1241,7 +1302,7 @@ locally predictable initial-input overflow must reject before creation; exact
 captured-body overflow retains created/not_sent with target. never truncate input.
 
 before preparatory capture, every worker write requires current owner input.
-skid resolves `info`/`inspect` to one target before gate/action admission. private
+skid resolves `info` to one terminal before gate/action admission. private
 immutable `execution_contract.agent_target` contains the original opaque ref,
 short target and normalized identity. canonical model arguments are validated,
 default-completed `model_dump(mode="json")`, then stored/hashed unchanged; capture
@@ -1249,25 +1310,17 @@ is separate. all later execution and recovery use original `--ref`.
 there is no independent registry or
 consumer ref codec. read/info resolve afresh. a short terminal handle can follow
 a current pane, while captured effects/waits retain the original pane/session.
-native codex stop retains the captured turn and refuses a successor; native claude
-interactive stop is unavailable and its existing background helper captures its
-job at dispatch, not jarvis admission. delayed claude job pinning is outside this
-slice. wait/read/send address the conversation.
-new observed refs never renew an existing effect. native unavailability never
-selects terminal delivery. only short/readable normalized facts enter the gate,
-never worker prose.
-
-retain known native profile and optional matching terminal-name consent context
-using existing machine-scoped discovery. require the full captured conversation
-tuple; missing, ambiguous or reassociated terminals supply no name. observed
-terminal profile is retained only where known. explicit native-target authority
-survives terminal loss; display names never substitute a captured ref.
+new observations never renew an existing effect. only short/readable normalized
+facts enter the gate, never worker prose. retain observed profile and terminal
+name as consent context where known; neither supplies target authority.
+all worker operations use terminals. provider-native conversation ids, target
+variants, source selectors, status, methods, turns and finalized results are absent.
 
 skid wire schemas are closed and decoded before compact projection. current
 session status/handles/process fields are validated, then hidden identities are
 omitted from model results. list preserves empty versus partial/unavailable peers;
-info preserves status/method unavailability. read preserves bounded prose,
-source/scope/truncation and output state, without exact-submission attribution.
+info preserves terminal status/unavailability. read preserves bounded prose and
+`source:"terminal"`, `scope:"terminal_history"|"visible"`, `truncated`.
 send/stop/close preserve admission versus terminal dispatch and independent
 interruption/closure facts. output is evidence, never task success or consent.
 
@@ -1300,15 +1353,14 @@ external worker mutations remain `BilledOnce`, one executor entry and
 max_attempts=1. spawn/preflight failure is not_sent; post-spawn timeout, overflow,
 malformed/lost replies or unknown dispatch are terminal uncertain unless an owned
 receipt proves otherwise. stage known partial evidence as `agent_control_v5`;
-never automatically resend, relaunch or resolve a successor. native acceptance
-proves admission; terminal written proves dispatched bytes; neither completion.
+never automatically resend, relaunch or resolve a successor. terminal written
+proves dispatched bytes, never completion or provider acceptance.
 
 recovery classifies conclusive staged evidence through the same ordinary outcome
 rules: success or definite partial/refusal settles without executor entry.
 missing/unknown evidence remains uncertain and publishes a safe event/fallback,
-including when no observation exists. native accepted-send evidence remains
-unstaged, so a crash before generic settlement remains uncertain. no recovery
-classification adds executor entry or external effects.
+including when no observation exists. no recovery classification adds executor
+entry or external effects.
 
 local wait/cancel use `ReDispatchable`, two bounded lifetime executor entries and
 zero external mutation attempts. registration commits immutable
@@ -1334,8 +1386,11 @@ after the original owner turn closes, such observations permit reads/integration
 notification only. further worker input or fresh wait registration requires new
 current owner authority. agent choice does not widen the gate's authority.
 
-finalized retired worker implementation revisions v1–v6 remain opaque after
-common immutable digest/effect/lineage/state/time checks. old nonterminal rows
+worker implementation is v9. finalized retired worker revisions v1–v8 are
+classified from the common immutable envelope BEFORE current target decoding.
+retain digest/effect/lineage/state/time checks; archived nested target, arguments
+and results remain opaque and unchanged. unknown revisions and malformed v9
+records receive no archive escape. old nonterminal rows
 block activation. drain effects, interrupted turns, required messages and delivery
 under the old release before coordinated cli/catalog cutover. no legacy receipt
 reader, schema migration or new worker table is added. partial fleet evidence
@@ -1344,7 +1399,7 @@ retains the existing incompleteness/fallback path.
 hard cutover qualifies rollback separately: before new receipts, paired
 code/config/artifact rollback follows ordinary stopped checks. selected-only
 retention under adr 0053 requires rebuilding any discarded jarvis release from
-its exact commit. after v7 writes canonical receipts,
+its exact commit. after v9 writes canonical receipts,
 older readers are unqualified; pause, preserve data and forward-repair. whole-state
 restoration must account for new records and external effects. code rollback alone
 is not data rollback; no legacy reader is added to mask that limitation.
@@ -1830,7 +1885,7 @@ the root-owned schema-4 codex host mapping contains only the contained personal
 endpoint and explicit host/app/group/cwd identities. worker routing comes only
 from the
 explicit skid settings, `JARVIS_AGENT_CLI_PATH` and
-`JARVIS_AGENT_CLIENT_CONFIG_PATH` (adr 0052). deployment owns this mapping;
+`JARVIS_AGENT_STATE_DIRECTORY` (adr 0068). deployment owns this mapping;
 worker launcher fields do not belong to it.
 
 The checked-in compatibility manifest schema v3 records
@@ -2399,7 +2454,7 @@ Frozen decisions:
   receipts that remain replayable across the later wake lifecycle.
 - No v1 redaction or destructive memory consolidation.
 - No Android, OnePassword, Nexus, Skidbladnir source/API, or other unlisted
-  application integration. worker terminals and conversations remain skid-owned.
+  application integration. worker terminals remain skid-owned; providers own saved history.
 
 Changing one requires an ADR stating observed evidence, migration impact, and
 the acceptance criteria affected.

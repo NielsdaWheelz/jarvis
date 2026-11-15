@@ -3,7 +3,7 @@
 status: implemented source, 2026-11-14; isolated functional proof passes.
 [current evidence](universal-memory.md#memory-completion-source-qualification)
 records exact artifacts, the pre-existing audit failure and installed limits.
-[adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md) adopts the scope.
+[adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md) adopts the scope.
 [SPEC.md](../SPEC.md) is authoritative; [universal memory](universal-memory.md)
 owns unchanged storage, compression, search, note and dream contracts. this file
 owns the completion delta and bounded cross-repository handoffs. the

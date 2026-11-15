@@ -69,6 +69,7 @@ from jarvis.ownership import (
     DeploymentAlreadyOwned,
     deployment_ownership,
 )
+from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
@@ -77,6 +78,7 @@ from jarvis.settings import Settings
 from jarvis.state import PausedState
 from jarvis.tool_composition import ToolComposition, build_tool_composition
 from jarvis.tool_results import memory_result_size, memory_view_size
+from jarvis.work import WorkStore
 from jarvis.write_dispatch import (
     ActionRecovery,
     WriteToolDispatcher,
@@ -326,6 +328,7 @@ async def _compose_main(
     settings: Settings,
     agent_runtime: AgentRuntime,
     actions: ActionStore,
+    work: WorkStore,
     memory: MemoryService,
     google_oauth_http: httpx.AsyncClient,
     google_api_http: httpx.AsyncClient,
@@ -354,6 +357,7 @@ async def _compose_main(
         memory=memory,
         actions=actions,
         agents=agents,
+        work=work,
     )
     definitions = build_definitions(
         catalog=composition.catalog,
@@ -421,6 +425,8 @@ async def _serve(
                         _memory_service(settings, config, database, embedding_http)
                     )
                     actions = ActionStore(database)
+                    work = WorkStore(database, str(settings.discord.channel_id))
+                    await work.recompute_calendar_wakes()
                     agent_runtime = build_agent_runtime(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=host.endpoints,
@@ -429,6 +435,7 @@ async def _serve(
                         settings=settings,
                         agent_runtime=agent_runtime,
                         actions=actions,
+                        work=work,
                         memory=memory,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
@@ -471,6 +478,7 @@ async def _serve(
                                 journal=journal,
                                 actions=actions,
                                 google_write=composition.google_write,
+                                work=work,
                                 agents=agents,
                                 read=ReadToolDispatcher(
                                     host_secrets=settings.host_secrets,
@@ -494,11 +502,16 @@ async def _serve(
                     action_recovery = ActionRecovery(
                         actions=actions,
                         google_write=composition.google_write,
+                        work=work,
                         plan=definitions.plans["main"],
                         source_conversation_id=str(settings.discord.channel_id),
                         wait_changed=agents.notify_wait_changed,
                     )
 
+                    work_timer = WorkWakeTimer(
+                        work=work, paused=paused, on_event=lambda: runner.notify_work()
+                    )
+                    work.notify_changed = work_timer.notify_changed
                     service = JarvisService(
                         settings=settings,
                         store=store,
@@ -512,6 +525,7 @@ async def _serve(
                         action_recovery=action_recovery,
                         agent_waits=agents,
                         dispatch_lane=dispatch_lane,
+                        work_timer=work_timer,
                     )
                     if shutdown.is_set():
                         return
@@ -641,6 +655,7 @@ async def check_activation(
                         settings=settings,
                         agent_runtime=agent_runtime,
                         actions=actions,
+                        work=WorkStore(database, scope),
                         memory=memory,
                         google_oauth_http=http,
                         google_api_http=http,

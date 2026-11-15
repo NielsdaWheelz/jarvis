@@ -78,6 +78,7 @@ from jarvis.messages import (
     rearm_action_waiters,
 )
 from jarvis.ownership import Database, lock_conversation
+from jarvis.work_tools import WORK_MUTATION_IDS, validate_work_result
 
 ActionStatus = Literal[
     "queued",
@@ -321,7 +322,11 @@ class ActionStore:
         )
         async with self.engine.begin() as connection:
             await _lock_new_action(
-                connection, origin_message_id, execution_contract, invocation_id
+                connection,
+                origin_message_id,
+                execution_contract,
+                invocation_id,
+                tool_name,
             )
             row = (
                 (
@@ -346,7 +351,7 @@ class ActionStore:
             stored = (
                 _stored_action(row)
                 if row is not None
-                else await _require_locked_action(connection, identifier)
+                else await require_locked_action(connection, identifier)
             )
             if _action_identity(stored) != (
                 tool_name,
@@ -573,7 +578,7 @@ class ActionStore:
             }
         )
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if stored.tool_name != ToolId("gmail.update_draft"):
                 raise ActionPersistenceDefect(
                     "reconciliation basis belongs only to Gmail draft update"
@@ -608,7 +613,7 @@ class ActionStore:
         """Retain the observed partial result of one non-repeatable agent command."""
 
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if (
                 stored.status != "executing"
                 or stored.execution_contract.replay_policy
@@ -633,7 +638,7 @@ class ActionStore:
         if type(actual_external_attempts) is not int or actual_external_attempts <= 0:
             raise ValueError("external attempt count must be a positive integer")
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
                 raise ActionPersistenceDefect("BilledOnce work is never readmitted")
             if stored.status != "executing":
@@ -672,11 +677,11 @@ class ActionStore:
         ):
             raise ValueError("external attempt accounting is invalid")
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
                 raise ActionPersistenceDefect("BilledOnce work is never readmitted")
             if max_external_attempts == 0 and (
-                stored.tool_name not in AGENT_LOCAL_IDS
+                stored.tool_name not in (*AGENT_LOCAL_IDS, *WORK_MUTATION_IDS)
                 or action_replay_result(stored) is not None
             ):
                 raise ActionPersistenceDefect(
@@ -725,7 +730,7 @@ class ActionStore:
             if (status == "succeeded") != (tool_result["type"] == "Success"):
                 raise ValueError("action status disagrees with its tool result")
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if status == "uncertain":
                 canonical_result = _uncertainty_result(stored, canonical_result)
             if stored.status in {"succeeded", "failed"}:
@@ -752,7 +757,7 @@ class ActionStore:
         """Settle an entered worker command without another executor entry."""
 
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if stored.status in {"succeeded", "failed", "uncertain"}:
                 return stored
             if (
@@ -781,7 +786,7 @@ class ActionStore:
         _aware(timestamp, "action cancellation time")
         canonical_result = _json_object(dict(result), "action cancellation result")
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if stored.status == "cancelled":
                 if stored.result != canonical_result:
                     raise ActionPersistenceDefect("cancelled action result changed")
@@ -814,7 +819,7 @@ class ActionStore:
         async with self.engine.begin() as connection:
             await lock_conversation(connection, source_conversation_id)
             for identifier in action_ids:
-                stored = await _require_locked_action(connection, identifier)
+                stored = await require_locked_action(connection, identifier)
                 results.append(
                     await _publish_action_outcome(
                         connection, stored, source_conversation_id
@@ -845,7 +850,7 @@ class ActionStore:
         self, action_id: UUID, outcome: AgentWaitOutcome, *, source_conversation_id: str
     ) -> bool:
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             state = agent_wait_state(stored)
             if state.wait_outcome is not None:
                 return False
@@ -875,7 +880,7 @@ class ActionStore:
         source_conversation_id: str,
     ) -> bool:
         async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
+            stored = await require_locked_action(connection, action_id)
             if (
                 stored.tool_name != ToolId("agent.wait")
                 or stored.result is None
@@ -883,7 +888,7 @@ class ActionStore:
             ):
                 raise ValueError("wait is not registered")
             state = agent_wait_state(stored)
-            cancellation = await _require_locked_action(
+            cancellation = await require_locked_action(
                 connection, cancellation_action_id
             )
             if cancellation.tool_name != ToolId(
@@ -1060,7 +1065,7 @@ class ActionPositionRecorder:
     ) -> PositionState:
         self._require_position(position)
         async with self._store.engine.begin() as connection:
-            stored = await _require_locked_action(connection, self._action_id)
+            stored = await require_locked_action(connection, self._action_id)
             self._require_contract(stored)
             if replay_policy is not stored.execution_contract.replay_policy:
                 raise ValueError("action replay policy changed")
@@ -1179,7 +1184,7 @@ class ActionPositionRecorder:
             raise ValueError("write position settlement changed")
 
         async with self._store.engine.begin() as connection:
-            stored = await _require_locked_action(connection, self._action_id)
+            stored = await require_locked_action(connection, self._action_id)
             self._require_contract(stored)
             prior_external_attempts = _recovery_external_attempts(stored)
             if settlement.actual_attempts < prior_external_attempts:
@@ -1375,6 +1380,7 @@ async def _lock_new_action(
     origin_id: UUID,
     contract: ExecutionContract,
     invocation_id: UUID,
+    tool_name: ToolId,
 ) -> None:
     scope = await connection.scalar(
         select(message.c.source_conversation_id).where(message.c.id == origin_id)
@@ -1440,7 +1446,7 @@ async def _lock_new_action(
         )
         .limit(1)
     )
-    if unknown is not None:
+    if unknown is not None and tool_name not in WORK_MUTATION_IDS:
         raise ActionPersistenceDefect("causal component has an unknown effect")
     attempt_id = await connection.scalar(
         select(native_invocation.c.attempt_id).where(
@@ -1512,13 +1518,32 @@ async def _link_native_action(
     )
 
 
-async def _require_locked_action(
+async def require_locked_action(
     connection: AsyncConnection, action_id: UUID
 ) -> StoredAction:
     stored = await _locked_action(connection, action_id)
     if stored is None:
         raise ActionPersistenceDefect("action does not exist")
     return stored
+
+
+async def complete_local_action(
+    connection: AsyncConnection,
+    stored: StoredAction,
+    result: ToolResult,
+    completed_at: datetime,
+) -> None:
+    """Commit local state and its exact terminal tool receipt in one transaction."""
+    if stored.status != "executing" or stored.attempts < 1:
+        raise ActionPersistenceDefect("local mutation has no executor entry")
+    canonical = _tool_result(dict(result))
+    await _update_action(
+        connection,
+        stored.id,
+        status="succeeded" if canonical["type"] == "Success" else "failed",
+        completed_at=completed_at,
+        result=canonical,
+    )
 
 
 async def _update_action(
@@ -2129,6 +2154,18 @@ def action_resolution_text(stored: StoredAction) -> str:
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
+    if stored.tool_name in WORK_MUTATION_IDS and stored.status in {
+        "succeeded",
+        "failed",
+    }:
+        result = _stored_tool_result(stored)
+        if result["type"] == "Success" or result["error"].get("type") in {
+            "NotFound",
+            "NextUpFull",
+            "InvalidSchedule",
+        }:
+            validate_work_result(stored.tool_name, result)
+            return cast(dict[str, object], result)
     if stored.tool_name in AGENT_WRITE_IDS and "tool_result" in stored.result:
         result = stored.result["tool_result"]
         if not isinstance(result, dict):
@@ -2331,6 +2368,8 @@ __all__ = [
     "action_resolution_text",
     "agent_uncertainty_result",
     "archived_worker_action",
+    "complete_local_action",
     "recorded_action_result",
+    "require_locked_action",
     "retired_worker_action",
 ]

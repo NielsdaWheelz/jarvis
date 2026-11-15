@@ -12,7 +12,7 @@
   "role_contract_revisions": {
     "compactor": "jarvis-memory-compactor-v3",
     "dreamer": "jarvis-memory-dreamer-v3",
-    "main": "jarvis-main-work-v1"
+    "main": "jarvis-main-follow-through-v1"
   },
   "schema_version": "jarvis-session-compatibility.v3"
 }

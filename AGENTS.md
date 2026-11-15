@@ -19,8 +19,9 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling and interactive deliverables/television. shared memory remains separate
-  and quiet dreaming unchanged. slices 1–2 are implemented and source-qualified;
-  remaining slices and installed activation are pending. keep installed baseline
+  and quiet dreaming unchanged. slices 1–3 are source-qualified; slice 3 also has
+  temporary-candidate qualification against installed skid. remaining slices and
+  installed activation are pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
   schemas and behavior.
@@ -35,6 +36,17 @@ These instructions govern all work in this repository.
   separate. admitted queued schedules may wake late; recurring
   rows remain active between occurrences. consume slice 1's landed primitives
   after auditing the actual predecessor; do not restore the retired scheduler.
+  [slice 3](docs/delegated-follow-through.md) owns skid follow-through qualification
+  and demonstrated repairs, using the same scoped temporary proof method.
+  full-plan worker events and conversational stop are already implemented.
+  reuse worker v10, existing waits and the qualified live-state mount. the owner
+  selected a temporary candidate against installed skid; its source repairs and
+  candidate journeys are qualified; temporary resources are removed. subsequent
+  memory-mainline integration retains its own evidence in slice 3.
+  `claude-work` remains unavailable by owner
+  decision, with useful execution NOT_RUN. the [unexplained native
+  defect](docs/issues/native-protocol-diagnostics.md) remains open. production
+  acceptance stays at final v2 cutover; do not restore intermediate activation.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

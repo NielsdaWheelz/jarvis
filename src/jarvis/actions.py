@@ -397,16 +397,7 @@ class ActionStore:
 
     async def get(self, action_id: UUID) -> StoredAction | None:
         async with self.engine.connect() as connection:
-            row = (
-                (
-                    await connection.execute(
-                        select(action).where(action.c.id == action_id)
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-        return None if row is None else _stored_action(row)
+            return await recorded_action(connection, action_id)
 
     async def gmail_draft_creation_action(
         self,
@@ -1582,7 +1573,7 @@ def _stored_action(row: RowMapping) -> StoredAction:
         envelope = _common_execution_envelope(row["execution_contract"])
         if row["execution_contract"].get(
             "schema_version"
-        ) is None or _retired_worker_revision(
+        ) is None or retired_worker_revision(
             str(row["tool_name"]), envelope.implementation_revision
         ):
             if status not in {"succeeded", "failed", "uncertain", "cancelled"}:
@@ -1790,21 +1781,46 @@ def _stored_tool_result(stored: StoredAction) -> ToolResult:
     return _tool_result(cast(dict[str, object], value))
 
 
-async def recorded_action_result(
+async def recorded_action(
     connection: AsyncConnection, action_id: UUID
-) -> ToolResult | None:
-    """Project the original tool result within the caller's transaction."""
+) -> StoredAction | None:
+    """Read and validate action evidence within the caller's transaction."""
     row = (
         (await connection.execute(select(action).where(action.c.id == action_id)))
         .mappings()
         .one_or_none()
     )
-    if row is None:
-        return None
-    stored = _stored_action(row)
-    if isinstance(stored.execution_contract, _ArchivedExecutionContract):
+    return None if row is None else _stored_action(row)
+
+
+async def recorded_action_result(
+    connection: AsyncConnection, action_id: UUID
+) -> ToolResult | None:
+    """Project the original tool result within the caller's transaction."""
+    stored = await recorded_action(connection, action_id)
+    if stored is None or isinstance(
+        stored.execution_contract, _ArchivedExecutionContract
+    ):
         return None
     return action_replay_result(stored)
+
+
+def action_context(stored: StoredAction) -> dict[str, object]:
+    """Expose recovery facts to main while keeping execution authority private."""
+    context: dict[str, object] = {
+        "kind": "accepted_action",
+        "action_ref": str(stored.id),
+        "request_ref": str(stored.origin_message_id),
+        "tool_id": str(stored.tool_name),
+        "status": stored.status,
+        "attempts": stored.attempts,
+    }
+    if isinstance(stored.execution_contract, ExecutionContract):
+        context.update(
+            arguments=stored.arguments,
+            recorded_result=action_replay_result(stored),
+        )
+    return context
 
 
 def action_replay_result(stored: StoredAction) -> ToolResult | None:
@@ -2032,7 +2048,8 @@ async def _delivered_archived_actions(
     return tuple(delivered)
 
 
-def _retired_worker_revision(tool: str, revision: str) -> bool:
+def retired_worker_revision(tool: str, revision: str) -> bool:
+    """Identify only the known retired worker bindings, without decoding payloads."""
     return (tool.startswith("codex.") and revision in _RETIRED_CODEX_REVISIONS) or (
         tool.startswith("agent.") and revision in _RETIRED_AGENT_REVISIONS
     )
@@ -2040,7 +2057,7 @@ def _retired_worker_revision(tool: str, revision: str) -> bool:
 
 def retired_worker_action(stored: StoredAction) -> bool:
     """Retired worker records are opaque; current malformed rows stay defects."""
-    return _retired_worker_revision(
+    return retired_worker_revision(
         str(stored.tool_name), stored.execution_contract.implementation_revision
     )
 
@@ -2364,12 +2381,15 @@ __all__ = [
     "ResolutionInsert",
     "StoredAction",
     "TerminalActionStatus",
+    "action_context",
     "action_replay_result",
     "action_resolution_text",
     "agent_uncertainty_result",
     "archived_worker_action",
     "complete_local_action",
+    "recorded_action",
     "recorded_action_result",
     "require_locked_action",
     "retired_worker_action",
+    "retired_worker_revision",
 ]

@@ -208,12 +208,20 @@ class InvalidSchedule(_Closed):
 
 type WorkError = NotFound | NextUpFull | InvalidSchedule
 
+_WAKE_CONTENT_GUIDANCE = (
+    "for a future wake, preserve the intended outcome, needed sources/locations "
+    "and material owner constraints in content; the current row supplies that "
+    "turn's brief, and the original conversation may be absent."
+)
+
 WORK_CREATE_SPEC = ToolSpec[WorkCreateInput, WorkMutationSuccess, WorkError](
     id=ToolId("work.create"),
     summary="record one outcome, optionally with a separate deadline and wake.",
     documentation=PromptDocument(
-        "all fields are explicit: normally backlog, empty content, null due_date "
-        "and null wake. due_date is a deadline, not a wake. reuse existing work "
+        "all fields are explicit: normally backlog, null due_date and null wake. "
+        "empty content suits a bare-title backlog item. "
+        + _WAKE_CONTENT_GUIDANCE
+        + " due_date is a deadline, not a wake. reuse existing work "
         "for the same outcome. non-null wake.at must follow admission time; admitted "
         "queued schedules can fire late. confirm scheduling only from its committed "
         "receipt, with next local time/zone and material lateness. calendar rules "
@@ -234,7 +242,8 @@ WORK_UPDATE_SPEC = ToolSpec[WorkUpdateInput, WorkMutationSuccess, WorkError](
         "retain it. validate the final state independently of change order. "
         "NextUpFull changes nothing; do not silently demote another priority. "
         "bookkeeping remains possible while an external effect is uncertain; "
-        "record the blocker honestly rather than retrying that effect."
+        "record the blocker honestly rather than retrying that effect. "
+        + _WAKE_CONTENT_GUIDANCE
     ),
     input_type=WorkUpdateInput,
     success_type=WorkMutationSuccess,

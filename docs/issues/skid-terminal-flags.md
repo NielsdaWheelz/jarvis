@@ -1,64 +1,56 @@
-# skid worker client cutover
+# skid worker client acceptance
 
-updated: 2026-11-14. terminal-only worker v10 implements
-[adr 0069](../decisions/0069-terminal-only-workers.md), amended by
-[adr 0072](../decisions/0072-native-memory-rollout.md). installed service-uid reads
-pass; production launch/control/observation acceptance remains separate.
-[o8 contract](../worker-launch-observation.md) owns remaining delivery and acceptance.
+updated: 2026-11-15. [o8](../worker-launch-observation.md) owns worker v10;
+[slice 3](../delegated-follow-through.md) qualifies a temporary candidate against
+installed skid. production acceptance remains at final v2 cutover.
 
-problem: terminal-only targets and closed wire schemas require matching installed
-artifacts and actual launch/control proof. the coordinated stopped cutover now
-installs skid `v0.24.2` and its live read-only state mount; restricted service-uid
-reads succeed on macbook/dev-server. [installed receipts](../universal-memory.md#native-memory-installed-qualification)
-do not qualify provider launch or uncertain-effect recovery. current dev-server
-does not read file-based pause state or install a private jarvis client.
+problem: qualified candidate launch, control and truthful partial/uncertain
+outcomes do not establish the selected production journey. source fixtures and
+candidate ingress cannot establish that boundary.
 
-impact: mixed readers can reject valid receipts after effects or refuse ordinary
-terminal input. local source qualification does not establish installed behavior.
+impact: an artifact/schema mismatch can reject a valid receipt after an effect;
+an unsupported claim about launch or interruption can misstate what work exists.
 
-historical evidence, 2026-10-06: strict adapter/client checks pass null/additive/wrong-kind rejection,
-short projection, original-ref capture/dispatch and nonzero partial receipts.
-isolated darwin stock providers exercise launch/options/literal stdin, effective
-codex selection, guarded input, retained draft, pane change and lost create/input
-acknowledgements. real postgres crash/recovery and actual service/cli observation
-checks pass. current native cognitive gate proves explicit/grounded consent and
-denies absent/conflicting context. source audit defects are corrected. both providers pass linux launch/input/
-read/wait/refusal/stop/close, and actual cognitive wait integration passes.
-production endpoints and external delivery are unqualified. skid pr 61 is merged,
-but published/dev-server v0.13.0 pins predate that orchestration source. a release
-containing it and matching installed gateway/cli/jarvis artifacts remain due.
+known evidence: [adr 0069](../decisions/0069-terminal-only-workers.md) records v9
+source/integration proof; [adr 0072](../decisions/0072-native-memory-rollout.md)
+adds worker v10, the enrolled `dev-server` label and actual live-state access.
+[installed receipts](../universal-memory.md#native-memory-installed-qualification)
+record skid `v0.24.2`, the root-managed read-only id-mapped mount and restricted
+service-uid reads on macbook/dev-server. the old private-client/file-pause installer
+and access blocker are resolved; do not restore them. immutable current captures
+and finalized opaque retired receipts remain required.
 
-2026-10-06 source inspection: dev-server's `assets/skidbladnir/release-pin.json`
-still selects v0.13.0 / `b2ea62aea57a87668835eefbcaebcffcf5761559`.
-`lib/skidbladnir.sh:129–175` reads exact `jarvis-paused.v1` json;
-`ansible/playbooks/gateway.yml:149` passes `runtime/paused.json`, and dev-server
-spec still requires it. jarvis `cli.py:668` instead provides public
-`check-paused`: native-file/data checks, canonical database pause and deployment
-ownership, without providers/connectors. `deploy/install-agent-client` invokes
-that checker through `/opt/jarvis/current`; during native bootstrap this may
-still select an obsolete release. no running installation was inspected.
-`deploy/install-private-state:19` calls client installation without a release,
-before installing `jarvis.env`; forwarding a commit alone cannot bootstrap it.
+candidate evidence: [slice 3](../delegated-follow-through.md#implementation-evidence--2026-11-15)
+records actual native/service-uid launch and terminal interaction over installed
+skid and the live read-only mount, ending on signed `v0.24.3`
+(`0c2874f9f9e33bb4037afa310f16ef6e0c584db8`).
+codex produced useful source evidence on both online machines. both claude-work
+routes hit their monthly spend limit before useful execution; main reported that
+limit honestly and recorded blocked state. a created terminal with undelivered
+initial input was retained and deliberately inspected/interacted with rather than
+relaunching it. controlled unknown-effect recovery performed no mutation replay.
 
-cutover: drain old actions/turns/required events/delivery, pause and stop cleanly,
-stage matching immutable host/cli/jarvis artifacts and resolve live state access,
-validate unfinished actions, then activate separately. finalized v1–v8 worker rows
-stay opaque after common immutable checks; unfinished retired rows block startup.
-no compatibility reader, ref codec, account registry or fallback is added.
+resolved upstream defects: the wrapped-footer parser cap left a completed codex
+terminal `layout_unknown`. [skid pr 203](https://github.com/NielsdaWheelz/skidbladnir/pull/203)
+repairs the owning decoder and grammar. signed artifact construction then exposed
+build-identity metadata being mistaken for a mac runtime code change;
+[pr 204](https://github.com/NielsdaWheelz/skidbladnir/pull/204) repairs the existing
+comparison after signature verification. source/live red/green and negative cases
+pass. the owner-approved signed release and gateway-only installation are complete
+on macbook/dev-server. original runtime starts, service definitions, existing
+session/pane refs and the read-only mount remained unchanged. the same captured
+terminal now matches `idle/none/recognized` through the actual service-uid cli.
+independent installed review passes. worker wire/meaning remains v10; its
+fingerprint does not purport to pin the external executable.
 
-current evidence: [adr 0069](../decisions/0069-terminal-only-workers.md) records
-reviewed v9 source/integration proof; adr 0072 adds v10 label/state qualification.
-`deploy/install-agent-client` now installs the exact cli and root-managed live
-mount under the stopped deployment lock. `dev-server/lib/skidbladnir.sh` delegates
-ordinary installation/application to skid. the earlier file-pause installer
-requirement is superseded, not remaining implementation work.
+next: qualify the production handoff below at final v2 cutover. useful claude-work execution
+remains `NOT_RUN` after both configured routes reached their account limit; the
+owner explicitly selected unavailable status for this delivery. obtain that
+evidence after quota availability.
 
-resolved when: authorized installed-service checks prove both provider launches,
-current terminal schemas/flags, short discovery, literal input, partial evidence,
-original targeting across delay/restart and zero mutation replay. preserve
-shared provider ownership, account settings and containment. first qualify the
-chosen service-state boundary under its owning contract; no copied stale state,
-privilege bridge, fallback or deployment change is assigned here.
-
-remaining: production provider launch/control/observation through the qualified
-installed boundary. offline arch stays explicitly deferred.
+resolved when: the final selected-production journey passes
+with its exact artifact/host/profile evidence. [wait acceptance](agent-wait.md)
+owns event continuation/restart; [operations](../operations.md#skid-only-worker-cutover)
+owns eventual activation. intermediate activation stays disabled. offline arch
+and untested profile combinations remain explicitly unqualified; no compatibility
+reader, copied state, privilege bridge or new worker protocol.

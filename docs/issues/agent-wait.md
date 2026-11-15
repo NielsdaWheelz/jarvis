@@ -1,73 +1,50 @@
-# asynchronous agent wait deployment acceptance
+# asynchronous agent wait acceptance
 
-updated: 2026-11-14. [adr 0064](../decisions/0064-simple-worker-orchestration.md)
-owns durable observation, amended by [generalized installed state](../decisions/0068-generalized-skid-consumer.md)
-and [terminal-only worker v9](../decisions/0069-terminal-only-workers.md).
-[o8 contract](../worker-launch-observation.md)
-consolidates remaining delivery. current source keeps post-turn authority narrow:
-reads/integration/notification only; new writes or waits need current owner input.
-[adr 0071](../decisions/0071-simple-event-driven-v2.md) and
-[o6](../one-main-events.md) now adopt the broader policy target: the existing
-asynchronous wait delivers an event to the same full-plan main, which judges
-follow-through and whether to respond. that target is unimplemented; it adds no
-callback service or repeated model polling.
+updated: 2026-11-15. [o8](../worker-launch-observation.md) owns existing wait
+transport; [slice 3](../delegated-follow-through.md) owns candidate qualification
+and demonstrated repairs. full-plan result events are implemented in source.
 
-problem: worker source and isolated qualification do not establish installed
-observation/restart/notification behavior. v10's actual service-uid reads now pass
-through the qualified [live-state boundary](../universal-memory.md#native-memory-installed-qualification)
-on both online hosts. jarvis is owner-resumed; the production observation journey
-remains open and belongs to the coordinated worker/events delivery.
+problem: qualified candidate follow-through does not establish the selected
+production journey. the owner selected candidate qualification now and production
+acceptance at final v2 cutover.
 
-impact: current-source correctness does not prove deployed artifact/configuration
-agreement, service containment or delivered Discord notifications.
+impact: until each boundary passes, do not claim real worker observation,
+restart/continuation or complete production gateway/discord delivery from source
+checks, artifact pins or read-only fleet access.
 
-historical evidence consolidated 2026-10-06 for the adr 0064/0065 worker-v7 generation: 39 real
-postgres/process-exit/restart cases passed registration, staged
-receipt recovery, atomic outcome/event commit, first-commit cancellation and
-original watching replay; baseline failed 19 of the original 27. eleven actual
-service/public-cli lifecycle checks passed immediate registration, owner ingress
-and settlement during a pending stock-provider read, outcome commit outside the
-main mutex, bounded matched read, pause/quarantine deadlines, cancel/shutdown
-joins, fresh service-process observer restart and shutdown blocked on a real
-postgres outcome commit. those eleven checks use controlled cognition/notification
-ports. a separate actual main/gate/recaller scenario registers one wait and silently
-integrates the later event with the original capture/receipt and zero extra effects;
-its public tool plan is tightened to reads/wait and embedding/Discord controlled.
-four separate native cognitive consent cases passed.
-source audit defects were corrected; no worker effect was replayed. merged pr 49's
-worker-v7/native composition separately qualified original callback replies and
-wait/product/observer/stop behavior; [native evidence](../native-agent-integration.md#qualification)
-owns those exact artifact identities.
+evidence: [adr 0064](../decisions/0064-simple-worker-orchestration.md) and
+[adr 0069](../decisions/0069-terminal-only-workers.md) retain their historical
+postgres/cli/fixture-gateway proofs. [slice 1](../one-main-events.md#implementation-evidence)
+qualifies common event authority and scoped stop; slice 2 qualifies scheduled
+todos. [adr 0072's installed boundary](../universal-memory.md#native-memory-installed-qualification)
+qualifies the matching cli and real service-uid reads through the live read-only
+state mount. none of those results proves the remaining worker journey.
 
-current evidence, 2026-10-21: adr 0069 records 13 distinct disposable checks across actual
-postgresql 16.15, the public skid cli engine, signed fixture state and an
-authenticated tls gateway with isolated tmux. these qualify terminal discovery,
-reads/replay, captured send, wait/cancel, changed-pane refusal, lost-successful-reply
-no-replay and retired v8 archival/activation rules. they do not qualify installed
-fleet networking, stock providers, the service uid or discord delivery. v9 has no
-worker-native target/history route and no start model/effort overrides; independent
-provider archives and memory remain available through their own contracts.
+candidate evidence: [slice 3](../delegated-follow-through.md#implementation-evidence--2026-11-15)
+records real native/service-uid worker launch, unrelated input while watching,
+original receipt/ref/deadline across a candidate process restart and useful
+event-driven continuation/todo mutation through the actual discord outbox.
+controlled real-postgres race, atomic publication, pause/deadline, park, shutdown,
+watching replay and unknown-effect no-replay checks pass. private worker captures
+and opaque retired callback payloads were removed from fresh model context while
+preserving original evidence. ingress/catch-up were controlled, not physical owner
+gateway acceptance.
 
-contract: original ref/deadline are immutable; watcher uses 15-second chunks under
-20-second fences and a separate bounded read. cancellation stops observation.
-in the implemented baseline, only unmixed wait-event batches without owner rows
-may settle silently. the v2 target replaces that visibility/authority split with
-ordinary main judgment. startup
-and replay never turn watching receipts into new worker work.
+candidate qualification passes on installed skid `v0.24.3`, including the repaired
+wrapped-footer observation, actual scheduled delegation, registered-wait process
+restart, supported result and independent content review. both configured
+claude-work routes exhausted their monthly quota; useful claude execution is
+`NOT_RUN`, explicitly accepted as unavailable by the owner. an earlier safely
+parked [unexplained native defect](native-protocol-diagnostics.md) remains a
+diagnostic follow-up, not a resolved failure.
 
-resolved when: the live-state access issue is resolved, the matching terminal-only
-release is installed and authorized real service-uid
-qualification repeats receipt/input coexistence, restart, deduplication,
-partial/unavailable text, target changes, overall timeout and cancellation through
-the production boundaries. prove mixed/owner/scheduled visibility and actual
-notification delivery under the exact selected release's authority and native
-configuration. baseline qualification preserves its narrow authority; a later
-v2 release must separately prove same-main event continuation under adr 0071.
-identify and fix any installed artifact/observer defects found there rather than
-infer that a new observation mechanism is required.
+next: qualify the production handoff below at final v2 cutover. obtain useful
+claude execution when its quota permits; retain the explicit unavailable boundary.
 
-remaining: installed observation/restart and external delivery under the selected
-worker contract. live state access, matching cli, contained endpoint and owner
-resumption are qualified; no copied-state or retired client installer workaround.
-the memory rollout's read-only worker checks do not qualify worker effects.
-no behavioral suite or general harness is retained.
+resolved when: final authorized v2 cutover repeats
+real owner gateway → main → worker → observation → useful continuation → discord,
+including selected-service restart. preserve original receipts, latest stopped
+intent and effect recovery. production migration/reminder accounting belongs to
+[the existing todo cutover](work-installed-cutover.md); candidate success does not
+close this issue. arch remains deferred. no new callback protocol or standing
+behavioral harness is required.

@@ -3,9 +3,10 @@
 status: accepted documentation target, 2026-11-14. source implementation,
 dependency adoption, installed qualification and activation remain separate.
 
-implementation: [slice 1](../one-main-events.md#implementation-evidence) now has
-source and isolated functional proof. the remaining slices and installed
-activation are pending; the intermediate source removes the old scheduler.
+implementation: [slice 1](../one-main-events.md#implementation-evidence) and
+[slice 2](../work-records.md#implementation-evidence) now have source and isolated
+functional proof. the remaining slices and installed activation are pending;
+scheduled todos replace the retired scheduler.
 
 ## context
 
@@ -49,6 +50,9 @@ or worker callback service. the current memory completion is a separate pr.
    event when observation completes; main need not poll sessions to discover it.
    qualify the installed path and repair demonstrated gaps before proposing a
    new callback protocol. worker idle and task success remain different facts.
+   the 2026-11-15 owner refinement scopes slice 3 to a temporary candidate against
+   the installed fleet; production acceptance waits for final v2 cutover.
+   preserve the intermediate activation refusal and existing reminder handoff.
 6. approvals, progress, blockers and results use ordinary conversation. main
    interprets consent, including clear consent already given, and uses one narrow
    callback to the existing action approval/denial transition. no buttons,
@@ -124,7 +128,7 @@ this change is documentation only. run static/build/document checks; no source,
 behavioral/live execution, deployment or service resumption is included. future
 implementation uses the focused outcomes in the owning contracts and
 [acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks.
-the owner selected temporary integration/live red/green/refactor for slices 1 and 2,
+the owner selected temporary integration/live red/green/refactor for slices 1–3,
 with designer and adversarial review per feature/stage, then probe deletion.
 that scoped implementation exception does not restore a standing suite under
 adr 0046 or change memory's separate checks. this specification task runs no

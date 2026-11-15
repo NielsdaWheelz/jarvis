@@ -17,12 +17,19 @@ from llm_tools import (
 )
 from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis._atomic_json import read_private_json
-from jarvis.actions import ACTION_MAX_ATTEMPTS, ExecutionContract
+from jarvis.actions import (
+    ACTION_MAX_ATTEMPTS,
+    ActionStore,
+    ExecutionContract,
+    archived_worker_action,
+)
 from jarvis.approval import render_approval
 from jarvis.db import action, message, model_decision, read_position
+from jarvis.messages import SettlementTrace
 from jarvis.ownership import Database, lock_conversation
 
 
@@ -50,22 +57,45 @@ async def _require_settled_legacy_reads(
         )
 
 
-async def require_native_data(database: Database, *, conversation_id: str) -> None:
+async def _legacy_actions(
+    database: Database, conversation_id: str
+) -> tuple[RowMapping, ...]:
+    """Keep unresolved authority; validated retired terminal rows stay evidence."""
     async with database.connect() as connection:
         await _require_settled_legacy_reads(connection, conversation_id)
-        legacy = await connection.scalar(
-            select(action.c.id)
-            .join(message, message.c.id == action.c.origin_message_id)
-            .where(
-                message.c.source_conversation_id == conversation_id,
-                ~action.c.arguments.has_key("request_ref"),
-                action.c.status.in_(
-                    ("queued", "awaiting_approval", "executing", "uncertain")
-                ),
+        rows = (
+            (
+                await connection.execute(
+                    select(action)
+                    .join(message, message.c.id == action.c.origin_message_id)
+                    .where(
+                        message.c.source_conversation_id == conversation_id,
+                        ~action.c.arguments.has_key("request_ref"),
+                        action.c.status.in_(
+                            ("queued", "awaiting_approval", "executing", "uncertain")
+                        ),
+                    )
+                    .order_by(action.c.id)
+                )
             )
-            .limit(1)
+            .mappings()
+            .all()
         )
-    if legacy is not None:
+    actions = ActionStore(database)
+    legacy: list[RowMapping] = []
+    for row in rows:
+        if row["status"] == "uncertain" or row["tool_name"].startswith(
+            ("agent.", "codex.")
+        ):
+            stored = await actions.get(row["id"])
+            if stored is not None and archived_worker_action(stored):
+                continue
+        legacy.append(row)
+    return tuple(legacy)
+
+
+async def require_native_data(database: Database, *, conversation_id: str) -> None:
+    if await _legacy_actions(database, conversation_id):
         raise RuntimeError(
             "unresolved legacy action blocks native activation; "
             "run stopped cutover-native"
@@ -96,26 +126,7 @@ async def cutover_native(
         or type(paused["paused"]) is not bool
     ):
         raise RuntimeError("old pause state is invalid")
-    async with database.connect() as connection:
-        await _require_settled_legacy_reads(connection, conversation_id)
-        legacy = (
-            (
-                await connection.execute(
-                    select(action)
-                    .join(message, message.c.id == action.c.origin_message_id)
-                    .where(
-                        message.c.source_conversation_id == conversation_id,
-                        ~action.c.arguments.has_key("request_ref"),
-                        action.c.status.in_(
-                            ("queued", "awaiting_approval", "executing", "uncertain")
-                        ),
-                    )
-                    .order_by(action.c.id)
-                )
-            )
-            .mappings()
-            .all()
-        )
+    legacy = await _legacy_actions(database, conversation_id)
     converted: list[tuple[Any, dict[str, object], ExecutionContract, str | None]] = []
     for row in legacy:
         if row["attempts"] != 0 or row["status"] == "uncertain":
@@ -273,7 +284,17 @@ async def cutover_native(
                         control_kind="pause" if paused["paused"] else "resume",
                         control_sequence=text("nextval('message_control_sequence')"),
                         control_targets=[],
-                        trace={"pause_import_revision": "jarvis-native-cutover.v1"},
+                        trace={
+                            "pause_import_revision": "jarvis-native-cutover.v1",
+                            "settlement": SettlementTrace(
+                                run_id=f"native-cutover:{identifier}",
+                                through_checkpoint=str(identifier),
+                                conclusion_kind="control",
+                                outcome="imported_pause"
+                                if paused["paused"]
+                                else "imported_resume",
+                            ).as_json(None),
+                        },
                     )
                 )
     # The stopped operator holds deployment ownership throughout. After every

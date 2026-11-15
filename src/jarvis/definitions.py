@@ -62,9 +62,9 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "905b51209c76813786ec67af3e7f1a73730e341d",
+    "llm-agent-kernel": "b7218b9b59c0a58c0da548307320af9377486ed9",
     "llm-tools": "8989f3afdcc640f775bd0cc9e7a0b4c246f10e57",
-    "provider-runtime": "9ab39e4e762196eb8349bab17607343d2be798ef",
+    "provider-runtime": "d69c7c69a2ce60e46cfaf296d12e4535b21456c5",
     "universal-memory": "93e02af07fee7e79250fb800835c324f092b5bec",
 }
 QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)

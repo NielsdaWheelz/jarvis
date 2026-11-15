@@ -2227,10 +2227,15 @@ gap exclusion, restart deduplication and v2 wire refusal. a real localhost HTTP
 server plus native claude transcript reader independently proves capture and
 reopening. populated 0008→0008a preserves original rows, cuts, checkpoints and tree;
 runtime-role grants permit only the specified transition. fresh migration also
-passes; current main ends at 0009, the installed-compatible patch at 0008a.
+passes; the installed-compatible patch ends at 0008a. subsequent integration
+with work-records pr 65 also qualifies fresh 0→0010, preserving the chain
+0008→0008a→0009→0010 and the independent work table/grants. memory capture code,
+work-record code and the v2 activation refusal retain their reviewed behavior.
 
 independent provider/library/jarvis reviews pass. frozen static/types/docs/build,
-clean installation and registry audit pass for both jarvis compositions; existing
-capture/completion regressions remain. only new temporary probes are removed
+clean installation and registry audit pass for both jarvis compositions and the
+combined main source. the clean-wheel check now verifies exact runtime pins and
+the packaged session manifest. retained capture/retry and all three library
+capture/completion checks pass after the main integration. only new temporary probes are removed
 after final verification. installed acceptance is recorded separately in the
 [rollout plan](implementation-plan.md#per-conversation-capture-amendment).

@@ -10,6 +10,14 @@ sharing all configured personal/work/work2 profiles and confirms control of thei
 content. macbook/devbox proceed; offline arch is deferred. preserve existing
 canonical data and the separately owned events delivery.
 
+the owner accepts three narrower qualification deferrals: macbook codex-work2
+installs now but queues automatic activation until its active turns finish;
+devbox claude-personal installs capture and memory access now, with its real model
+check waiting for provider login; devbox codex-work2 receives memory tools while
+capture waits for two missing native source rollouts to be recovered. no exception
+changes admission boundaries or permits historical capture. record each separately
+until proved.
+
 extend the shared account contract for the existing distinct claude-work2 home:
 eighteen native lanes plus jarvis, with no new table, collector or credential
 category. native admission remains future-only. current rollout declares twelve

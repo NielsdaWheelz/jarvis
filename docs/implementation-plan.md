@@ -520,6 +520,12 @@ all configured personal/work/work2 profiles may share with jarvis and one anothe
 the owner confirms control of their content. capture starts from new activation
 boundaries, never history import. the existing separate events task owns the subsequent migration;
 its intermediate source is not a deployable release and stays out of this rollout.
+the owner accepts queued [macbook codex-work2 activation](issues/macbook-work2-memory-activation.md)
+until active turns finish and defers only [devbox claude-personal's model check](issues/devbox-claude-personal-model-check.md)
+until provider login. install both profiles now; preserve the strict baseline.
+devbox codex-work2 also installs tools now; its owner-approved
+[capture deferral](issues/devbox-work2-native-source.md) waits for missing native
+source recovery. no affected history is skipped or relabeled.
 
 | step / owner | action and completion evidence |
 | --- | --- |
@@ -536,8 +542,12 @@ the recorded starting snapshot is stopped/paused on `0004`; three
 retired terminal-uncertain worker results already have processed resolution
 messages, all paid reads/model decisions are terminal, and eleven unremembered owner rows are ineligible control/stop settlements: the
 exact migration sweep predicate finds zero pending groups. the initial deployment
-lacked cognition-host and memory configuration. the temporary immutable bridge is
-being installed; current native-profile archive failures remain under diagnosis.
+lacked cognition-host and memory configuration. the immutable bridge
+`d9968b6b09699cf9c12d05a7b4c51b4443198192` is now selected at `0005`, never resumed.
+all six original table projections remain byte-identical; its new canonical pause
+is the only added message. the separate stock `0.160.0` host, live skid state mount,
+matching cli and private memory configuration are installed. jarvis stays stopped
+while current native-profile archive compatibility is qualified.
 no completed target `0008` transition, activated capture or installed acceptance is
 claimed here. [source evidence](universal-memory.md#native-memory-rollout-source-qualification)
 does not waive those transition requirements.
@@ -546,7 +556,7 @@ costs: retained shared copies are available across personal/work profiles;
 claude's existing 36,500-day retention consumes disk. id-mapping relies on the
 qualified linux kernel/filesystem/mount implementation but avoids privilege or
 permission changes to the source account. a temporary migration predecessor and
-one local snapshot are needed for this existing deployment; this adds no ongoing
+local transition snapshots are needed for this existing deployment; this adds no ongoing
 backup service. dependency security fixes tighten malformed-input handling.
 new tests are temporary by owner choice; existing approved regressions remain.
 

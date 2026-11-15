@@ -169,7 +169,7 @@ receipts qualify only their named artifacts and boundaries.
 ## Development and verification
 
 Development uses the CPython 3.12.13 pin in `.python-version`; supported runtimes
-are 3.12.13 or later in the 3.12 series. with `uv` 0.11.28 installed, run:
+are 3.12.13 or later in the 3.12 series. with the qualified `uv` 0.13.4 installed, run:
 
 ```sh
 scripts/verify

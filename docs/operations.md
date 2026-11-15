@@ -339,7 +339,7 @@ after first start, repair forward: restoring the old snapshot would erase new
 canonical data. delete the single artifact after acceptance. activation does not
 retain an extra rollback release. a fresh database must migrate and initialize
 paused state before release activation; activation itself accepts only schema
-`0005` or `0006`.
+`0005`, `0006`, `0007` or `0008`.
 
 ## admission journal cutover
 

@@ -1,16 +1,19 @@
 """Common waking requests and conversational approval receipts.
 
-Revision ID: 0008
-Revises: 0007
+Revision ID: 0009
+Revises: 0008
 """
+
+import json
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from alembic import op
 from sqlalchemy import text
 
 from jarvis.ownership import DEPLOYMENT_LOCK_KEY
 
-revision = "0008"
-down_revision = "0007"
+revision = "0009"
+down_revision = "0008"
 branch_labels = None
 depends_on = None
 
@@ -56,6 +59,76 @@ def upgrade() -> None:
             AND delivery.state IN ('sent', 'queued', 'recorded')
             AND attempt.product_outcome->>'status' = 'committed');
 
+    """)
+    # Pre-native turns bound their delivered conclusion to the original claim,
+    # captured inputs and exact prose. Preserve that proof before clearing an
+    # ambiguous host's processed_at; migration history must not import runtime codecs.
+    conclusions = (
+        op.get_bind()
+        .execute(
+            text("""
+      SELECT original.execution_contract->'input_message_ids' AS input_ids,
+        original.execution_contract->>'claim_id' AS claim_id,
+        original.execution_contract->>'through_checkpoint' AS checkpoint,
+        origin.source_conversation_id AS scope,
+        origin.trace->'settlement'->>'run_id' AS run_id,
+        conclusion.id AS conclusion_id,
+        encode(sha256(convert_to(conclusion.text, 'UTF8')), 'hex') AS digest
+      FROM action original
+      JOIN message origin ON origin.id = original.origin_message_id
+      JOIN message conclusion ON conclusion.id::text =
+        origin.trace->'settlement'->>'conclusion_message_id'
+      WHERE original.status IN ('succeeded', 'failed')
+        AND original.approval_message_id IS NULL
+        AND origin.trace->'settlement'->>'conclusion_kind' = 'conversation'
+        AND origin.trace->'settlement'->>'outcome' = 'answered'
+        AND origin.trace->'settlement'->>'through_checkpoint' =
+          original.execution_contract->>'through_checkpoint'
+        AND jsonb_typeof(origin.trace->'settlement'->'run_id') = 'string'
+        AND conclusion.role = 'assistant' AND conclusion.source = 'discord'
+        AND conclusion.source_conversation_id = origin.source_conversation_id
+        AND conclusion.source_message_id IS NOT NULL
+        AND conclusion.processed_at = conclusion.created_at
+        AND original.completed_at <= conclusion.created_at
+        AND NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(
+            original.execution_contract->'input_message_ids') AS captured(value)
+          LEFT JOIN message input ON input.id::text = captured.value
+          WHERE input.id IS NULL OR input.role NOT IN ('owner', 'host')
+            OR input.source_conversation_id <> origin.source_conversation_id
+            OR input.processed_at IS DISTINCT FROM conclusion.created_at
+            OR input.trace->'settlement' IS DISTINCT FROM origin.trace->'settlement'
+        )
+    """)
+        )
+        .mappings()
+    )
+    for row in conclusions:
+        identity = json.dumps(
+            [
+                row["scope"],
+                row["run_id"],
+                row["claim_id"],
+                row["checkpoint"],
+                "conversation",
+                "answered",
+                row["digest"],
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        if (
+            uuid5(NAMESPACE_URL, f"jarvis-conclusion-v1:{identity}")
+            != row["conclusion_id"]
+        ):
+            continue
+        op.get_bind().execute(
+            text("""UPDATE message SET request_state = 'completed'
+              WHERE id = ANY(:input_ids) AND role = 'host'
+                AND request_state IS NULL"""),
+            {"input_ids": [UUID(value) for value in row["input_ids"]]},
+        )
+    op.execute("""
       UPDATE message SET request_state = 'waiting', wait_reason = 'configuration',
         processed_at = NULL, processing_parked_at = CURRENT_TIMESTAMP,
         trace = trace || '{"repair_reason":"historical_host_settlement"}'::jsonb

@@ -63,9 +63,9 @@ from jarvis.terminal import JarvisNativeMessage
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "8524c8c737bbe56a0993da1421084d0122d08f49",
+    "llm-agent-kernel": "ba38f12bcec8269fad0b1b3afd48d96fc9983706",
     "llm-tools": "8989f3afdcc640f775bd0cc9e7a0b4c246f10e57",
-    "provider-runtime": "7a2493e5f4da34f6d9a32e2504d8fc6333482385",
+    "provider-runtime": "97c0475fdd99679c813b12b23b89ea12c9819dff",
     "universal-memory": "11f4220031d56f71d5a732b748a9bbb52c842e0e",
 }
 QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)

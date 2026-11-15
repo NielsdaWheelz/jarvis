@@ -1977,8 +1977,8 @@ source and restricted task-boundary receipts; installed acceptance remains open.
 | target dependency | exact pin |
 | --- | --- |
 | universal-memory | `11f4220031d56f71d5a732b748a9bbb52c842e0e` |
-| provider-runtime | `7a2493e5f4da34f6d9a32e2504d8fc6333482385` |
-| llm-agent-kernel | `8524c8c737bbe56a0993da1421084d0122d08f49` |
+| provider-runtime | `97c0475fdd99679c813b12b23b89ea12c9819dff` |
+| llm-agent-kernel | `ba38f12bcec8269fad0b1b3afd48d96fc9983706` |
 | llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
 
 the source contract now declares eighteen native lanes plus `(devbox, jarvis)`:
@@ -1988,6 +1988,44 @@ clients on macbook/devbox and capture-only jarvis; arch is disabled and nexus
 is null. migration `0008` extends the account constraint and grants runtime
 schema inspection without adding a table or rewriting originals. this does not
 qualify every installed native home.
+
+the archive maintenance pin reads current native formats without upgrading the
+contained cognition runtime. codex inventories require both the all-provider and
+configured-provider native views: the former supplies the unrestricted provider
+contract, while the latter preserves additional native identities omitted by the
+database-backed view, including three on macbook. both must finish; neither
+is a fallback. canonical metadata/history select originals, same-scope duplicates
+collapse by native identity, and cross-scope contradictions still block activation.
+both complete observations remain required. observed unions contain 317 personal
+and 1,202 work identities on macbook; listing paths never choose source content.
+
+legacy codex uses one full native turn per page; paginated history uses one item
+per item page. measured aggregate responses of 6,039,580 and 8,821,663 bytes reduce
+to unchanged ordered evidence within existing 4-mib frame/event limits. this costs
+extra local calls and legacy history reconstruction, lengthening initial inventory.
+claude raw file records allow 8 mib to validate an excluded 4,268,702-byte request
+log; event and cognition limits stay unchanged. the larger temporary allocation is
+explicit. no record is silently skipped, truncated or imported to get a baseline.
+
+claude workflow children use `workflow/<run>/<agent>` identity and retained native
+parent metadata across relocation; disjoint direct/workflow streams stay distinct.
+known bookkeeping is excluded, fork-context references retain their exact empty-body
+attribution, and optional prompt context remains digest-distinct from explicit null.
+54 temporary protocol cases pass, including previous identity/digest parity,
+bounded rejection, cursor cycles and required-view failures. the provider's 983
+existing nonlive checks pass with one expected sdk-present skip; a separate clean
+base-wheel check proves sdk absence. paid/live tests are not inferred from that
+suite. the archive's actual formerly failing native read also passes from the
+built wheel. current native inventory completion and installed journeys remain
+separate rollout evidence.
+
+the maintenance kernel changes only its provider composition and five inherited
+registry security revisions; its source, tests and stock 0.160.0 catalogue remain
+unchanged. all 176 nonlive kernel checks pass. the final jarvis lock changes only
+the two git pins and their dependency metadata, preserving every registry version.
+its full frozen verification passes, as do retained jarvis capture/retry and the
+library's three capture/completion checks against separate disposable databases
+at the final schema. no temporary feature test is added to the standing suite.
 
 the merged main supplied `filelock 4.2.4` and reduced the earlier nineteen audit
 findings to six. targeted compatible updates to `msgpack 1.2.3`,

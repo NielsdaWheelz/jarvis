@@ -529,7 +529,7 @@ source recovery. no affected history is skipped or relabeled.
 
 | step / owner | action and completion evidence |
 | --- | --- |
-| 1 / integration lead | source composed with current main and its security fixes; memory adr consolidated as 0070, original worktrees preserved. final immutable target publication remains; no provider/model upgrade |
+| 1 / integration lead | source composed with current main and its security fixes; memory adr consolidated as 0070, original worktrees preserved. archive-only provider maintenance and its kernel composition are published; final target publication remains, with no cognition/model upgrade |
 | 2 / dependency writer | complete: targeted registry repairs, four actual consumer probes and full frozen `scripts/verify` pass with zero reported index findings; no suppression |
 | 3 / native configuration writer | include the existing distinct claude-work2 profile through the shared account contract and existing renderer/collector primitives; eighteen native lanes plus jarvis. privately generate one controller/processor/recipient declaration, unique scoped credentials and per-host bundles. macbook/devbox capture+connect, jarvis capture only, arch disabled, nexus null |
 | 4 / deployment writer | source-qualified: schema `0008`, runtime schema-read grant, validated retired-worker archival handling and exact predecessor empty drain; actual postgres cases preserve old originals and reject unfinished/unknown authority. execute and verify the production transition separately |

@@ -141,6 +141,9 @@ target: discovered changes commit within 60 seconds while their dependencies are
 available. metadata misses wait for the initially hourly revisit. compaction runs
 serially when idle or required by a waiting turn; no compression latency or
 complete fleet capture is promised.
+live qualification records native completion, discovery, archive commit and exact
+readback separately. a short discovery-to-commit interval does not excuse a long
+undiscovered interval; do not present either measurement as the other.
 
 prerequisite: [claude transcript retention](issues/claude-transcript-retention.md).
 [deferred work](implementation-plan.md#deferred-from-universal-memory): historical import
@@ -434,6 +437,17 @@ archive_read(home, native_id, after?, from_event_id?)
   native lineage and complete central coverage proof above, during central ingest.
   inheritance never changes the native read's activation/checkpoint starting
   boundary or removes its inclusive checkpoint verification.
+- modern codex item paging remains forward and preserves full-prefix validation.
+  request at most 100 native items per page under the unchanged 4-mib response
+  and structural bounds. if a multi-item response exceeds those bounds, close
+  its failed connection and retry the same opaque cursor with fewer items, down
+  to one. a failed page emits nothing and advances no position. a single-item
+  overflow retains the existing error. normalize each successful page in native
+  order and stop at an unfinished item before validating later item bodies.
+  identities, digests, checkpoint checks and capture boundaries are unchanged;
+  there is no aggregate-history reader or larger-response escape path. legacy
+  full-turn pages remain unchanged. this reduces native round trips; it does not
+  eliminate full-prefix decoding or bound elapsed fresh-baseline time.
 - an event whose native parent is not the preceding event, as after a claude
   rewind, is preceded by a `revision` event with reason `branch`. abandoned
   branches stay archived.

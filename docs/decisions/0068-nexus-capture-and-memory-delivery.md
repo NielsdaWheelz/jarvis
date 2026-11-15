@@ -1,7 +1,8 @@
 # adr 0068: nexus capture and memory delivery
 
-status: accepted target, 2026-11-14; documentation only. source implementation,
-live qualification, installation and production activation are distinct.
+status: accepted and implemented source, 2026-11-14; isolated functional proof
+recorded in [current evidence](../universal-memory.md#memory-completion-source-qualification).
+installed activation and the pre-existing dependency audit remain open.
 
 ## authority and evidence
 
@@ -11,17 +12,19 @@ the broader usefulness/realistic-load comparison to a later pr. the owner then
 selected future activity only; one-time capture without version/update/delete
 synchronization; durable conversation/evidence rather than transient tool bodies;
 and a durable pending export that survives nexus deletion until acknowledged.
-historical import and backup/restore remain deferred. this turn authorizes docs,
-not implementation or activation.
+historical import and backup/restore remain deferred. the initial instruction
+authorized docs; the subsequent owner instruction authorizes full source work
+and temporary red/green/refactor proof in isolated worktrees. installed activation
+remains separate.
 
 current nexus source has one account-owned librarian transcript, immutable
 question/answer pairs, failed/cancelled retries as new turns, and physical
 terminal-turn deletion. its sole terminal fold is the appropriate local commit
 boundary. polling deletable messages would lose evidence during an outage.
 the prior send/rerun/regenerate and private-build-secret handoffs are stale.
-the existing compactor also omits its accepted editorial ordering and initial
-numeric byte target; its [existing issue](../issues/memory-compactor-content-contract.md)
-records that source gap.
+the pre-delivery compactor omitted its accepted editorial ordering and initial
+numeric byte target; the implementation repairs both through the existing role
+and shared target constant.
 
 ## decision
 

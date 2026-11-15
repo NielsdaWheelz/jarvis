@@ -88,8 +88,9 @@ These instructions govern all work in this repository.
   dedicated browser/export is deferred. product/schema/integration contracts are
   complete for the core; nexus access is chats only, excluding automated helpers.
   nexus account/client integration still needs its
-  [consumer handoff](docs/issues/nexus-memory-client.md). core/repair source exists;
-  completion, nexus capture and current live qualification remain. one serial tool-free
+  [consumer handoff](docs/issues/nexus-memory-client.md). completion and nexus capture
+  source are implemented with isolated functional proof; installed acceptance and
+  the pre-existing dependency audit remain open. one serial tool-free
   compactor uses existing inference; no jobs table or extra daemon.
   ordinary implementation details do not require another preference interview.
   it supersedes affected baseline rules below when implemented: six memory tables
@@ -102,7 +103,7 @@ These instructions govern all work in this repository.
   projection; immutable message/attempt eligibility bits exclude old or unadmitted
   material. fresh top-level leases preserve entered-effect dispatchers. historical
   import/provenance remain deferred.
-- for the accepted, unimplemented universal-memory target, preserve atomic
+- for the implemented universal-memory source contract, preserve atomic
   archive/checkpoint and synthesis-note/reference/tree-position/consumed-seed
   completion commits. extraction bookmarks are
   retired; compactor nodes/views persist while interrupted inference may repeat.
@@ -129,7 +130,7 @@ These instructions govern all work in this repository.
   narrow local-write `read_position` recovery. this exact write bypasses the
   gate/action rules; no scheduled/background grant or native cognition mcp.
   archive memory-tool prose as content-free references to prevent feedback.
-- once that memory target is implemented, retain two small regression groups:
+- retain the two approved small regression groups:
   capture/retry and memory completion. no standing per-feature review machinery
   or restoration of the retired suite;
   the wider testing redesign remains open. adr 0068's scoped delivery uses a

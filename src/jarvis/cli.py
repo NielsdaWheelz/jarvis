@@ -933,6 +933,14 @@ async def memory_status(settings: Settings) -> dict[str, object]:
                 channel_id=settings.discord.channel_id,
             )
             declared = {(lane.machine, lane.account): lane for lane in config.lanes}
+            registration = None
+            if config.nexus_client is not None:
+                async with engine.connect() as connection:
+                    state = await memory.library.nexus_capture_state(
+                        connection, config.nexus_client.owner_user_id
+                    )
+                if state.registration is not None:
+                    registration = state.registration.model_dump(mode="json")
             return {
                 "memory": await memory.library.status(),
                 "publication_backlog": len(await memory.pending_publication()),
@@ -942,6 +950,9 @@ async def memory_status(settings: Settings) -> dict[str, object]:
                     "admit": config.nexus_admitted_owner is not None,
                     "connect": config.nexus_client is not None
                     and config.nexus_client.connect,
+                    "capture": config.nexus_client is not None
+                    and config.nexus_client.capture,
+                    "registration": registration,
                     "processors": list(config.processors.nexus_model_processors),
                 },
                 "lanes": [

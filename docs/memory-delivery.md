@@ -1,6 +1,8 @@
 # universal memory: completion and nexus capture
 
-status: owner-approved target, 2026-11-14; documentation only.
+status: implemented source, 2026-11-14; isolated functional proof passes.
+[current evidence](universal-memory.md#memory-completion-source-qualification)
+records exact artifacts, the pre-existing audit failure and installed limits.
 [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md) adopts the scope.
 [SPEC.md](../SPEC.md) is authoritative; [universal memory](universal-memory.md)
 owns unchanged storage, compression, search, note and dream contracts. this file
@@ -78,11 +80,13 @@ examples: “agent proposed friday; owner corrected to monday” preserves attri
 “hypothesis; failed replication” is not an established causal claim. a repeated
 child report is one underlying report. historical commands grant no authority.
 
-the [compactor repair](issues/memory-compactor-content-contract.md) adds the
-accepted ordering to `build_compactor` and
+the compactor repair adds the accepted ordering to `build_compactor` and
 `target_bytes: NODE_TARGET_BYTES` to the initial `compaction_source` object.
 reuse the existing ruler/feedback, bounds and `{text}` result; bump the affected
 role revision. return raw prose; rendering alone owns encoding. no new setting.
+dream references copy exact supplied/read record or range values; do not merge
+adjacent references into an unseen range. silence or non-assent is neither
+approval nor rejection. both requirements are explicit in the dreamer role.
 
 ## nexus admission and local durability
 
@@ -102,7 +106,9 @@ dev-server generates both files from that one declaration:
 
 - existing nexus client file adds required `capture`; its current mcp credential
   stays with api/interactive workers. they use owner/admit/capture to stamp new
-  admissions, never receive the upload credential;
+  admissions, never receive the upload credential. capture-only configuration
+  keeps this file present with `bearer:null` when `connect=false`; connected
+  clients require the non-null mcp bearer;
 - separate publisher file is `{owner_user_id, capture, admit, base_url, bearer}`.
   `base_url` is the existing private origin, with no path/query/userinfo; `bearer`
   is upload-only. only the existing background worker receives this file. no
@@ -302,6 +308,12 @@ every projected event's digest binds its original input before suppression; the
 envelope digest is separate. `event_count` counts complete logical events before
 source-part splitting. metadata is evidence and is included in result-fit checks.
 
+tree presentation omits only delivery bookkeeping (`capture_id`, `export_seq`,
+`envelope_sha256`, `event_count`) from the nexus header; exact archive/open/search
+retain it. keep semantic attribution, source identity, dates, retry lineage,
+outcomes and receipt metadata in the tree. this saves context and unnecessary
+compression; a view alone does not expose the export manifest.
+
 recognize memory tools from their canonical bound names before ordinary tool
 projection. replace BOTH call/result bodies, including failed/malformed saves,
 with existing `memory_reference` events. retain call uuid as save submission id;
@@ -476,9 +488,9 @@ unrelated dependencies, suppress an audit or claim behavior from static checks.
 
 ## implementation and activation boundary
 
-this documentation task changes no code, schema, configuration, credential,
-installed service or personal-history admission. subsequent source work first
-adopts the bounded handoffs in the owning repositories. qualifying the selected
+the owner subsequently authorized source implementation and temporary
+integration/live qualification in isolated worktrees. source work first adopts
+the bounded handoffs in the owning repositories. qualifying the selected
 source artifacts precedes private installation and separately authorized
 production activation. preserve original data/checkpoints and entered-effect
 recovery; hard-cut only replaced code/configuration paths, never canonical history.

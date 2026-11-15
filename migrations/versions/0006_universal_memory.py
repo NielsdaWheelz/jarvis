@@ -127,7 +127,45 @@ def upgrade() -> None:
       GRANT UPDATE(embedding) ON memory_summary TO jarvis_runtime;
     """)
     for table in MEMORY_TABLES:
-        table.create(connection)
+        if table.name == "source_conversation":
+            # Freeze this predecessor's source shape; 0007 owns nexus adoption.
+            op.execute("""
+              CREATE TABLE source_conversation (
+                id uuid NOT NULL,
+                provider text NOT NULL,
+                native_id text NOT NULL,
+                machine text NOT NULL,
+                account text NOT NULL,
+                relation text,
+                parent_native_id text,
+                working_directory text,
+                captured_from timestamptz NOT NULL,
+                capture_after_event_id text,
+                checkpoint_event_id text,
+                checkpoint_native_digest text,
+                last_read_at timestamptz,
+                capture_error text,
+                CONSTRAINT pk_source_conversation PRIMARY KEY (id),
+                CONSTRAINT fk_source_conversation_machine_memory_lane
+                  FOREIGN KEY(machine, account)
+                    REFERENCES memory_lane(machine, account),
+                CONSTRAINT uq_source_conversation_provider UNIQUE (provider, native_id),
+                CONSTRAINT ck_source_conversation_provider
+                  CHECK (provider IN ('codex', 'claude', 'jarvis')),
+                CONSTRAINT ck_source_conversation_relation
+                  CHECK (relation IS NULL OR relation IN ('child', 'fork')),
+                CONSTRAINT ck_source_conversation_checkpoint_pair CHECK (
+                  (checkpoint_event_id IS NULL) = (checkpoint_native_digest IS NULL)),
+                CONSTRAINT ck_source_conversation_capture_error CHECK (
+                  capture_error IS NULL OR capture_error IN
+                  ('native_missing','unsupported','event_too_large','history_changed',
+                   'activation_boundary_lost','source_conflict')),
+                CONSTRAINT ck_source_conversation_native_id
+                  CHECK (octet_length(native_id) BETWEEN 1 AND 256)
+              )
+            """)
+        else:
+            table.create(connection)
     for table in (memory_log, memory_summary, source_record):
         for index in table.indexes:
             index.create(connection, checkfirst=True)

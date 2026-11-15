@@ -62,6 +62,7 @@ from jarvis.memory_capture import (
     SyncResult,
 )
 from jarvis.memory_config import MemoryClient, MemoryConfig, NexusClient
+from jarvis.memory_nexus import add_nexus_routes
 from jarvis.memory_service import MemoryService
 from jarvis.ownership import DeploymentOwnershipDefect
 
@@ -128,7 +129,11 @@ class _MemoryBoundary:
             if not authorization.startswith("Bearer "):
                 raise MemoryError("unauthorized")
             bearer = authorization.removeprefix("Bearer ")
-            if request.url.path.startswith("/v1/memory/"):
+            if request.url.path.startswith("/v1/memory/nexus/"):
+                scope["memory_nexus_capture"] = self.config.authenticate_nexus_capture(
+                    bearer
+                )
+            elif request.url.path.startswith("/v1/memory/"):
                 scope["memory_machine"] = self.config.authenticate_capture(bearer)
             elif request.url.path in ("/v1/mcp", "/v1/mcp/"):
                 scope["memory_client"] = self.config.authenticate_client(bearer)
@@ -507,4 +512,5 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
     app.add_api_route("/v1/memory/lanes", lanes, methods=["GET"])
     app.add_api_route("/v1/memory/sync", sync, methods=["POST"])
     app.add_api_route("/v1/memory/ingest", ingest, methods=["POST"])
+    add_nexus_routes(app, memory)
     return app

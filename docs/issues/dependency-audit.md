@@ -1,15 +1,16 @@
 # dependency audit findings
 
-status: open, observed 2026-11-14 during the documentation-only competitive
-research pass at `ce6f48870ca2968f8c57375b7bdcadba133d8973`.
+status: open, observed 2026-11-14 at baseline
+`ce6f48870ca2968f8c57375b7bdcadba133d8973` and reproduced after the memory
+delivery implementation. affected registry package versions are unchanged.
 
 ## problem and impact
 
 `scripts/verify` fails at its final `uv run pip-audit --local` step. the scanner
 reports 19 known vulnerabilities across four packages in the frozen development
 environment. this prevents claiming that the full verification command passes.
-the research changed neither dependency declarations nor the lockfile; runtime
-reachability and exploitability were not assessed.
+the memory delivery changes only its explicitly qualified git dependencies;
+runtime reachability and exploitability of these findings were not assessed.
 
 ## evidence
 
@@ -45,9 +46,10 @@ index audit would not establish those packages' security.
 run `scripts/verify`, or reproduce only the finding with
 `uv run --frozen pip-audit --local`. inspect dependency ownership and affected
 paths before choosing compatible upgrades; scanner suggestions alone do not
-qualify a library change. no upgrades are authorized by this documentation task.
+qualify a library change. the memory contract excludes unrelated dependency
+upgrades; they need their own bounded qualification.
 
 resolved when the relevant dependency changes are explicitly qualified under
 the repository's upgrade rules and the full verification command passes, or
 specific findings are otherwise disposed of through an explicit accepted policy.
-do not disable the audit to make this research pass appear green.
+do not disable the audit to make the delivery appear green.

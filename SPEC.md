@@ -1,6 +1,6 @@
 # Jarvis v1 specification
 
-status: **native runtime and universal-memory source; memory completion target**
+status: **native runtime and memory delivery source; installed activation pending**
 
 date: **2026-11-14**
 
@@ -20,8 +20,11 @@ existing source schema with explicit nexus provenance and separately scoped
 capture credentials. each feature gets content design, adversarial review and
 temporary red/green/refactor integration/live proof; delete those new probes,
 preserve existing approved checks. this supersedes affected no-capture, schema,
-retired nexus-route and review wording below. docs only; implementation and
-production activation remain distinct.
+retired nexus-route and review wording below. the owner subsequently authorized
+source implementation and temporary integration/live checks. that source is now
+implemented and isolated functional proof passes; see the
+[current evidence](docs/universal-memory.md#memory-completion-source-qualification).
+the pre-existing dependency audit findings and installed activation remain open.
 
 accepted native-agent cutover (2026-10-02):
 [adr 0065](docs/decisions/0065-native-agent-supervision.md) adopts the shared
@@ -45,7 +48,8 @@ only and confirmed no real capture activation. one revised native codec replaces
 the old contract; no compatibility reader or production activation is included.
 new repair qualification tests are temporary and deleted after red/green/refactor;
 the existing approved regression groups remain. repair source is isolated and
-unactivated; blocked qualification is recorded in the memory integration evidence.
+unactivated; current live proof and installed limits are recorded in the memory
+integration evidence.
 
 accepted universal-memory target (2026-10-01): the consolidated
 [implementation contract](docs/universal-memory.md) defines the current source

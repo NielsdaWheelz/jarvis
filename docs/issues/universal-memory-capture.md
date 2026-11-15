@@ -1,36 +1,33 @@
 # universal memory installed capture
 
-status: open. native source and isolated proof exist; current artifacts, installed
-fleet receipts and future-only nexus capture remain to complete under
-[memory delivery](../memory-delivery.md).
+status: native/nexus source and isolated functional proof complete, 2026-11-14;
+installed fleet/admission remains open.
 
-problem: a source codec/collector or connected mcp client is not evidence that an
-installed admitted home captures complete future events. current nexus capture is
-new work, independent of its existing shared-memory tool connection.
+problem: real task-home capture and loaded mcp calls do not establish correct
+admission, credentials, routing, retention or permissions for every installed home.
 
-historical evidence (2026-10-09/13): native codecs, collector/http/postgres,
-baselines, atomic complete-event/checkpoint commits, direct fork coverage/all-copy
-progress, inclusive retry, suppression and parking were qualified on named
-artifacts. codex 0.160.0 ordinary persistence/restart/isolation passed; claude
-2.1.289 mappings passed but successful live claude inference was owner-waived
-after expired oauth. later attachment/stable-prefix source fixes still need actual
-current native persistence proof. no fleet apply or real-history activation was
-recorded by those receipts.
+[current evidence](../universal-memory.md#memory-completion-source-qualification)
+records exact pins, current codex 0.169.0 and claude 2.1.325 live artifacts,
+post-boundary capture, restart/lost-ack recovery, attachments, fork coverage,
+changed-history parking and memory-tool echo suppression. six fleet subprocess
+checks pass against frozen consumers; all fifteen disposable native profile
+configurations reconcile, and actual codex/claude task clients use mcp. codex's
+restrictive task home required explicit grants for the two model-used memory
+tools; installed permission behavior is not inferred from that fixture.
 
-dev-server's release pin remained `c62647a285457e0f61668947f50ab9274aa9bdaf` at
-this review. it is not the current jarvis/nexus dependency composition. native
-lane admission/connection and long claude retention must be verified per installed
-home. `claude-work2` is outside the existing native capture lane set; do not call
-an omitted or unqualified home captured.
+dev-server's `assets/memory/release-pin.json` selects the qualified jarvis delivery
+commit. production installation remains separate. no fleet apply, personal-history
+admission or production resumption ran. `claude-work2` remains outside the native
+lane set; do not call an omitted/unqualified home captured.
 
-resolved when: qualify exact selected source/locks, advance the collector artifact
-pin, install declarations/credentials/routing, and observe each admitted native
-home establish its activation boundary then capture post-boundary content and use
-the loaded mcp endpoint. record denied/omitted/waived lanes explicitly. prove
-outage/restart recovery without moving boundaries or importing history.
+resolved when: install exact selected source/locks and private declarations,
+credentials and routing. verify each admitted home establishes its immutable
+activation boundary, captures post-boundary synthetic content and uses the loaded
+mcp endpoint with the intended read/save permissions. verify long claude retention
+before activation. record disabled/omitted/unqualified homes explicitly and prove
+outage/restart recovery without rebaselining or importing history.
 
-nexus must independently capture new admitted owner-librarian runs through durable
-pending exports of approved content, survive transcript deletion until central
-acknowledgement and retry without duplicate originals. remove acknowledged exports;
-add no later revision/delete sync. keep helper/other-viewer tool grants denied.
-source, installation, capture activation and owner resumption remain distinct.
+nexus's distinct future-only export path passed isolated deletion/outage/replay
+proof. its [private activation](nexus-memory-client.md) remains separate; configured
+owner/helper grants and publication require their own installed receipt. source,
+installation, capture activation and owner resumption are distinct.

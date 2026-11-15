@@ -90,9 +90,11 @@ class NexusClient(_Closed):
     sharing_authorization: SharingAuthorization | None = None
     admit: bool = False
     connect: bool = False
+    capture: bool
     bearer_sha256: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$", repr=False
     )
+    capture_bearer_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
 
 
 type MemoryClient = MemoryLane | NexusClient
@@ -164,8 +166,12 @@ class MemoryConfig(_Closed):
             if lane.client_bearer_sha256 is not None
         ]
         client = self.nexus_client
-        if client is not None and client.bearer_sha256 is not None:
-            hashes.append(client.bearer_sha256)
+        if client is not None:
+            hashes.extend(
+                value
+                for value in (client.bearer_sha256, client.capture_bearer_sha256)
+                if value is not None
+            )
         if len(hashes) != len(set(hashes)) or any(
             re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes
         ):
@@ -218,7 +224,11 @@ class MemoryConfig(_Closed):
                 or processors.codex_account is None
                 or "devbox:jarvis" not in self.recipients
             ):
-                raise ValueError("admitted nexus notes lack controller authorization")
+                raise ValueError(
+                    "admitted nexus content lacks controller authorization"
+                )
+            if client.capture and client.admit and client.capture_bearer_sha256 is None:
+                raise ValueError("admitted nexus capture needs its upload bearer")
         for origin in self.origins:
             memory_origin(origin)
         return self
@@ -240,35 +250,56 @@ class MemoryConfig(_Closed):
                 return lane
         raise MemoryError("forbidden")
 
-    def _identity(self, bearer: str) -> tuple[Machine | None, MemoryClient | None]:
+    def _identity(
+        self, bearer: str
+    ) -> tuple[
+        Literal["native_capture", "client", "nexus_capture"], Machine | MemoryClient
+    ]:
         if re.fullmatch(r"jmem_[0-9a-f]{64}", bearer) is None:
             raise MemoryError("unauthorized")
         digest = hashlib.sha256(bearer.encode()).hexdigest()
         for machine, expected in self.capture_bearer_sha256.items():
             if hmac.compare_digest(digest, expected):
-                return machine, None
+                return "native_capture", machine
         for lane in self.lanes:
             if lane.client_bearer_sha256 is not None and hmac.compare_digest(
                 digest, lane.client_bearer_sha256
             ):
-                return lane.machine, lane
+                return "client", lane
         client = self.nexus_client
         if (
             client is not None
             and client.bearer_sha256 is not None
             and hmac.compare_digest(digest, client.bearer_sha256)
         ):
-            return None, client
+            return "client", client
+        if (
+            client is not None
+            and client.capture_bearer_sha256 is not None
+            and hmac.compare_digest(digest, client.capture_bearer_sha256)
+        ):
+            return "nexus_capture", client
         raise MemoryError("unauthorized")
 
     def authenticate_capture(self, bearer: str) -> Machine:
-        machine, lane = self._identity(bearer)
-        if lane is not None or machine is None:
+        scope, machine = self._identity(bearer)
+        if scope != "native_capture" or not isinstance(machine, str):
             raise MemoryError("forbidden")
         return machine
 
     def authenticate_client(self, bearer: str) -> MemoryClient:
-        _, lane = self._identity(bearer)
-        if lane is None or not lane.connect:
+        scope, lane = self._identity(bearer)
+        if scope != "client" or isinstance(lane, str) or not lane.connect:
             raise MemoryError("forbidden")
         return lane
+
+    def authenticate_nexus_capture(self, bearer: str) -> NexusClient:
+        scope, client = self._identity(bearer)
+        if (
+            scope != "nexus_capture"
+            or not isinstance(client, NexusClient)
+            or not client.capture
+            or not client.admit
+        ):
+            raise MemoryError("forbidden")
+        return client

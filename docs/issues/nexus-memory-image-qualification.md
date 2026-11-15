@@ -1,25 +1,24 @@
-# nexus memory image qualification
+# nexus deployment-platform image qualification
 
-status: open, reconciled 2026-11-14. historical [issue 571](https://github.com/NielsdaWheelz/nexus-web/issues/571)
-named private dependency build-secret qualification. that source assumption is
-retired; [memory delivery](../memory-delivery.md) owns current acceptance.
+status: current anonymous linux/arm64 builds and runtime inspection pass,
+2026-11-14; deployment-platform build and installed access pending.
 
-problem: clean artifact builds and runtime grant separation need current proof.
-current `docker/Dockerfile.backend` performs frozen public dependency fetches
-without a build secret, through unified dependency stages and `api`, `worker`,
-`worker-checkout` targets. current compose is not the old two-private-builder path.
+problem: this macbook's successful arm64 image proof does not qualify an amd64
+release on the intended host. the local amd64 attempt failed with `exec format
+error`; no emulation was installed and no remote docker service was started.
 
-source evidence: nexus's governing llm contract states the library is public;
-its dockerfile has no required memory deploy-key mount. current consumer pins
-differ from jarvis's october repair pins. prior compose-secret checks and image
-scans qualify only the artifacts recorded on 2026-10-09/13.
+source/evidence: [current integration record](../universal-memory.md#memory-completion-source-qualification)
+records nexus `12f74c865eb289e186ff33b310f8d34a28c9220d`, the three exact local
+image ids, frozen packages, actual compose consumers and credential scans.
+anonymous no-cache api/worker/worker-checkout builds pass; 51 raw/decompressed
+layer files, build output and environments contain no task memory credentials.
+worker-checkout contains locked dependencies and deliberately mounts application
+source. api/interactive receive only the client file; background only the upload
+file. automated helpers/native hosts receive neither.
 
-resolved when: anonymous clean frozen fetch/build of selected current targets and
-actual compose consumers succeeds; resulting images/installed packages match the
-selected source and locks; runtime configuration proves only authorized consumers
-receive the private memory declaration/grants. automated helpers receive no memory
-tools. inspect layers/output/runtime configuration for credential leakage using
-task-owned values. public build access is not corpus access. record image digests
-and installed dependency identities; do not restore retired build-key plumbing.
-start no installed service merely to qualify image construction. new probes are
-temporary; installed private client access has its own live receipt.
+resolved when: build the selected source/lock on the actual deployment
+architecture, record image digests/installed identities, and verify current compose
+with the intended private files under the owning stopped release procedure.
+run the [installed client/capture smoke](nexus-memory-client.md) separately.
+current public dependency fetch requires no build key; do not restore retired
+private-build-secret plumbing. source checks authorize no service activation.

@@ -204,8 +204,8 @@ memory captures published answers/notes/callback references. main's native
 extraction history remains internal; not every extracted word becomes searchable.
 admitted worker/client histories keep ordinary capture rules. originals stay
 reopenable; no extraction mirror/new memory schema. existing provider codec
-repairs remain with their owner: [document content](issues/archive-document-content.md)
-and [inline images](issues/archive-inline-images.md).
+repairs remain with provider-runtime; current document/image proof is recorded
+in [memory evidence](universal-memory.md#memory-completion-source-qualification).
 
 ## implementation, handoffs and acceptance
 

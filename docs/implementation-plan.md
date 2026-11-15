@@ -49,9 +49,11 @@ do not hard-code a stale total into independently developed slices.
 
 source refresh 2026-10-13: this checkout incorporates merged memory repair
 source and exact dependency pins, preserving pending product contracts in local
-commits. frozen `scripts/verify` passes. remaining repair qualification is in the
-[integration evidence](universal-memory.md#memory-repair-source-candidate);
-installation and activation remain separate.
+commits. the 2026-11-14 completion source and isolated functional proof are now
+complete; [current evidence](universal-memory.md#memory-completion-source-qualification)
+records exact pins and passing static/build checks. full `scripts/verify` remains
+red only at the pre-existing dependency audit. installation and activation remain
+separate.
 
 the native provider/kernel/tools work is merged. jarvis [pr 49](https://github.com/NielsdaWheelz/jarvis/pull/49)
 merges native main and worker-v7 composition. [adr 0065](decisions/0065-native-agent-supervision.md)
@@ -83,7 +85,7 @@ not an installed fleet receipt.
 | native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
-| current memory artifacts | qualify current public dependency fetch and clean anonymous nexus image targets; retired private-build-secret provisioning is removed; [image handoff](issues/nexus-memory-image-qualification.md) |
+| current memory artifacts | anonymous current arm64 targets pass; build/qualify the deployment architecture and private installed access; [image handoff](issues/nexus-memory-image-qualification.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
 
 these are independent release, repair or policy tasks, not another prerequisite
@@ -103,7 +105,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | one main for every event (o6) | owner choices settled in [contract](one-main-events.md); spec/adr adoption and implementation due | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | mutable todos/physical deletion settled in [contract](work-records.md); adoption/implementation due | jarvis; one bookkeeping table |
 | delegated follow-through (o9) | owner settled agent judgment/semantic stop in [contract](delegated-follow-through.md); adoption/implementation due | jarvis; o6 plus installed worker control; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | core/repair source implemented; accepted [completion contract](memory-delivery.md) adds future-only nexus capture, compactor content repair and all current functional integration/live proof; installed activation separate | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
+| universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented; isolated current api/mcp/main/native/nexus proof passes; installed activation and pre-existing audit findings remain open | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | owner choices settled in [contract](private-notes-and-rolodex.md); adoption/implementation due | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
 | complete and continuable searches | owner choices settled in [contract](complete-and-continuable-searches.md); adoption/implementation due, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; bounded pages/chunks without total application ceilings |
 | event sources, suggestions and recurring work | owner choices settled in [contract](event-sources-and-recurring-work.md); adoption/implementation due, including selected dream wakes | jarvis; o6, complete-search references, o7 for daily review and memory for dreaming |
@@ -145,12 +147,12 @@ facts; writing this roadmap sends no assignment to another agent.
 | llm-tools, search | portable web-search paging/provider boundaries and complete supported extracted-text chunks, retaining web safety | [search surface contract](complete-and-continuable-searches.md#exact-surface-changes); bounded handoff prepared, not handed off/implemented; no kernel redesign |
 | budget-app | broaden existing write authority to all bookkeeping, reuse shared planner calculation through an api, and support independent originals up to 100 mib through private r2 | [budget api handoff](budget-integration.md#budget-api-handoff); fresh `7b7a9c2` source audit complete; bounded handoff prepared, not assigned or implemented |
 | budget deployment owner and dev-server | budget private bucket/cors/storage secrets; jarvis configured budget origin/owner/read/write credentials and native cache access | [budget delivery](budget-integration.md#nonoverlapping-delivery-and-hard-cutover); provisioning and installed qualification remain separate |
-| nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); accepted adr 0068 target, source implementation and current-route qualification remain |
+| nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); adr 0068 source and current-route qualification complete; installed private access remains |
 
-existing memory qualification describes the 2026-10-09 baseline and
-[2026-10-13 repair source](universal-memory.md#memory-repair-source-candidate).
-it does not qualify current nexus, the new capture target or installed clients.
-dev-server additionally owns the new capture declaration/publisher credential.
+[current memory qualification](universal-memory.md#memory-completion-source-qualification)
+covers current source, nexus capture and isolated clients. historical records
+retain their exact original scope. dev-server owns the implemented capture
+declaration/publisher credential; installed fleet receipts remain separate.
 
 downstream jarvis code consumes the published public surfaces and qualified pins;
 the external agents do not own jarvis authority, work state or continuation.
@@ -402,7 +404,8 @@ m1–m5 source boundaries and isolated checks are complete for the 2026-10-09
 baseline, including first-delivery dreaming and nexus's owner-chat consumer. the
 [integration evidence](universal-memory.md#12-integration-evidence) owns exact
 pins and qualification; the [repair record](universal-memory.md#memory-repair-source-candidate)
-owns the later repairs. the completion delta remains unimplemented. actual fleet
+owns the later repairs. the completion delta and isolated functional proof are
+complete, with exact artifacts in the current evidence. actual fleet
 install/admission, private client/capture credentials and production cutover
 remain operational handoffs.
 
@@ -426,7 +429,9 @@ reported, not passed off as universal coverage.
 [completion contract](memory-delivery.md) owns the bounded nexus schema/transport,
 content, files and acceptance. [repair contract](memory-repairs.md) retains the
 presentation/codec/client guarantees. production installation/activation remain
-separate. preserve owner changes and current consumer dependency compositions.
+separate. preserve owner changes and current consumer dependency compositions. steps 1–4
+are complete for isolated functional proof; the full audit retains its recorded
+pre-existing findings. step 5 is the remaining operational handoff.
 
 1. adopt bounded handoffs in the owning repositories. designers supply schema
    examples; independent reviewers challenge admission, content and failure
@@ -608,7 +613,7 @@ intent merely because their implementation is incomplete.
 | o8 | [contract](worker-launch-observation.md) consolidates implemented adr 0064; source qualification complete; canonical-pause installer repair, paired installed cutover and external delivery remain |
 | o9 | owner decisions settled in [contract](delegated-follow-through.md); behavior/spec adoption and chat-stop cutover due |
 | new event sources | owner choices settled in [contract](event-sources-and-recurring-work.md); tables/tools/spec adoption, polling/recurrence and selected-dream proof remain |
-| m1–m5 | core source merged; implement [completion delta](memory-delivery.md), qualify every current functional route, then provision client/capture access and qualify installed fleet/admission/cutover |
+| m1–m5 | [completion delta](memory-delivery.md) source and isolated functional proof complete; source integration, private provisioning and installed fleet/admission/cutover remain |
 | notes | owner choices settled in [contract](private-notes-and-rolodex.md); authority adoption, kernel/provider handoffs, persistent checkout and live native/git proof remain |
 | search | owner choices settled in [contract](complete-and-continuable-searches.md); full message text, uncapped ranked memory, library/skid handoffs and cross-turn page/chunk proof remain |
 | attachments | owner choices settled in [contract](attachments-and-durable-originals.md); table/ingress/tool adoption, private storage/native setup and live file journeys remain |

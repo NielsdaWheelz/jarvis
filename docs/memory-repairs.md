@@ -6,21 +6,18 @@ capture and installed/live qualification under
 [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md). this document
 retains the repaired presentation/native/client invariants; current delivery
 supersedes its former source-only scope and stale nexus/build assumptions.
-[jarvis live](issues/memory-live-qualification.md),
-[nexus live](issues/nexus-memory-live-qualification.md) and
-[current image qualification](issues/nexus-memory-image-qualification.md) remain open.
-no new qualification result is claimed by this reconciliation.
+[current evidence](universal-memory.md#memory-completion-source-qualification)
+records passing isolated live checks and arm64 images; installed access and
+[target-platform image qualification](issues/nexus-memory-image-qualification.md)
+remain open.
 
 ## scope and final state
 
-retain the repaired presentation, native capture and client boundaries in
-the review records: [controls](issues/memory-render-controls.md),
-[cache prefix](issues/memory-cache-prefix.md),
-[inline images](issues/archive-inline-images.md),
-[document content](issues/archive-document-content.md),
-[unfinished items](issues/archive-unfinished-tool-items.md),
-[nexus outages](issues/nexus-memory-outage.md). the october private-build-secret
-defect is absent from current public-fetch source; qualify current images instead.
+retain the repaired control presentation, stable cache prefix, native inline
+image/document capture, unfinished-tail handling and nexus outage boundaries
+below. their resolved issue records are in git history; current proof is in the
+integration evidence. the october private-build-secret defect is absent from
+current public-fetch source.
 
 final state: supported retained text reaches bounded prompts and exact source
 reads; growing views retain their stable prefix; native attachments retain exposed
@@ -114,8 +111,8 @@ the accepted compactor priority remains: owner wording/reasons, lasting changes
 and failures, findings, then tool-step descriptions. supply numeric
 `target_bytes` from the existing `NODE_TARGET_BYTES` constant in the initial task;
 the ruler alone is insufficient. verify the actual rendered first request and
-affected role revision. the [content gap](issues/memory-compactor-content-contract.md)
-remains open until implemented and qualified; no new knob or output schema is needed.
+affected role revision. current source and actual model proof close that gap;
+no new knob or output schema is needed.
 
 ```text
 historical evidence

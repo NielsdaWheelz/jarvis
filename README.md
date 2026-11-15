@@ -32,7 +32,9 @@ codex/claude/nexus chats manage their own context and choose shared reads. the
 capture of the configured owner's nexus librarian runs and completes the live
 jarvis/native/nexus integration paths. durable pending exports survive transcript
 deletion until central acknowledgement; capture adds no revision or deletion sync.
-source implementation, qualification and installed activation remain distinct.
+source and isolated functional proof are complete;
+[current evidence](docs/universal-memory.md#memory-completion-source-qualification)
+records exact artifacts, the pre-existing audit failure and installed limits.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
 production activation and actual fleet installation remain separate. realistic-load
@@ -87,7 +89,7 @@ memory_state
    boundaries.
 3. [memory](docs/universal-memory.md) — archive, tree/view, retrieval, admission,
    dreaming, schema and atomic completion contracts; [current delivery](docs/memory-delivery.md)
-   owns nexus capture and remaining integration qualification.
+   owns implemented nexus capture and the remaining installed handoff.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
 5. [Roadmap and implementation plan](docs/implementation-plan.md) — the single

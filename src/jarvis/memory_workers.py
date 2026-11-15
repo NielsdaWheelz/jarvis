@@ -125,6 +125,7 @@ class MemoryWorker:
                                     "count": task.count,
                                     "source": task.source,
                                     "ruler": task.ruler,
+                                    "target_bytes": NODE_TARGET_BYTES,
                                     "size_feedback": feedback,
                                 }
                             ),

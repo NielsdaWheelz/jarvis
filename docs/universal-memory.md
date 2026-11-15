@@ -4,10 +4,12 @@ owner-approved source contract, **not deployed**. reconciled with the native
 runtime and owner-chat client on 2026-10-09; that baseline's source implementation
 and isolated qualification are complete. the 2026-10-13
 [repair evidence](#memory-repair-source-candidate) records that candidate's pins
-and open qualification. [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md)
+and then-open qualification. [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md)
 adopts the 2026-11-14 [completion contract](memory-delivery.md): future-only nexus
 capture, compactor content repair and current functional integration/live proof.
-that delta is specified, not implemented. production activation remains separate.
+that delta is implemented and isolated functional proof passes; see the
+[current evidence](#memory-completion-source-qualification). the dependency audit
+and installed activation remain open, explicitly distinguished below.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -195,8 +197,7 @@ or replace their native compaction. tree compression continues in the background
 historical orientation is bounded; a single long running turn still has provider
 context limits. current authority and effect recovery never depend on summaries.
 
-remaining work includes the completion delta, current functional qualification,
-private provisioning and installed activation. durable attachment originals are a
+remaining work includes private provisioning and installed activation. durable attachment originals are a
 separate delivery. section 12 identifies qualified source artifacts; the roadmap
 owns delivery order.
 
@@ -1811,10 +1812,10 @@ credential state are removed. the original jarvis checkout incorporates the
 repair through normal merges and also passes frozen `scripts/verify`; five pending
 product documents are preserved byte for byte in local commits.
 
-remaining acceptance is explicit in
-[live inference/cache/native persistence](issues/memory-live-qualification.md),
-[canonical nexus rows/routes](issues/nexus-memory-live-qualification.md) and
-[current clean image qualification](issues/nexus-memory-image-qualification.md).
+the then-open live inference/native persistence and canonical nexus route checks
+are resolved by the [current evidence](#memory-completion-source-qualification).
+[target-host image qualification](issues/nexus-memory-image-qualification.md)
+remains separate.
 the memory library is now public; jarvis's hosted verification fetches its exact
 git pin without a private-dependency credential.
 synthetic proof does not waive those requirements. dev-server retains its prior
@@ -1838,22 +1839,125 @@ available checks; unfinished live cases must be regenerated from the repair
 contract on their qualification host. existing approved regression groups remain.
 prs retain the exact reviewed commits; no permanent repair harness ships.
 
-### 2026-11-14 completion specification
+### memory completion source qualification
 
-[adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md) and
-[memory delivery](memory-delivery.md) specify the remaining functional delivery
-and future-only nexus capture. source inspection used current nexus
-`8a16a039a351df267b3d61f8a1efd8bb951e9e2f`; its librarian routes, canonical
-terminal fold, tool-call identity, public builds and dependency composition differ
-from october's qualified artifact. three independent source/architecture/content
-reviews found and resolved snapshot freshness, receipt-field retention, periodic
-overlap, retry-order and documentation inconsistencies. this is design evidence,
-not implementation or live acceptance.
+2026-11-14 local date: [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md)
+and [memory delivery](memory-delivery.md) are implemented in isolated
+`feature/memory-delivery` worktrees. original checkouts and personal histories
+are untouched. this is source/isolated qualification, not installed activation.
+the delivery commit owns jarvis's code, four immutable pins and compatibility
+manifest; dev-server's release pin names that exact jarvis commit.
 
-the documentation-only pass ran `scripts/verify`: lock/sync, whitespace,
-formatting, lint, types, documentation links, wheel/sdist build and fresh
-installation/import/cli smoke passed. the final dependency audit failed with
-19 reported vulnerabilities across four packages, already tracked in
-[dependency audit](issues/dependency-audit.md). no dependency change or audit
-suppression was made. behavioral/live checks were not run; no runtime code,
-schema, credentials, installed service or capture admission changed.
+| artifact | immutable source |
+| --- | --- |
+| universal-memory, both consumers | `27d6f1b4e2ddcbc2aa831eb6066f384fccb552ad` |
+| jarvis provider-runtime | `7a2493e5f4da34f6d9a32e2504d8fc6333482385` |
+| jarvis kernel | `8524c8c737bbe56a0993da1421084d0122d08f49` |
+| llm-tools, both consumers | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+| nexus application | `12f74c865eb289e186ff33b310f8d34a28c9220d` |
+| nexus provider-runtime | `adf5a5a44783f67fc4a8950b2ae499a98bb657c4` |
+| nexus kernel | `e5c46d397758d6a0e504a091f5c0e809ebdeab9a` |
+| dev-server configuration source | `ec0dc3a32054df3a4539cee6bb82a3d7543c4f92`; later release-pin-only handoff selects jarvis |
+
+the library owns the closed nexus envelope and transactional append. jarvis adds
+three authenticated source routes and migration `0007` after `0006`, without a
+new table or native lane. nexus adds `memory_exports` in migration `0346`, stamps
+future eligibility at admission and freezes the export in its canonical terminal
+transaction. its existing scheduler publishes the durable prefix and deletes
+only exactly acknowledged exports. disconnected capture retains owner metadata;
+client and upload credentials remain disjoint.
+
+independent design, red/green, refactor and cleanup reviews covered each writer's
+boundary. reviews caught stale terminal snapshots, overlap cleanup, lost save
+receipts, digest timestamp spelling, source bookkeeping in summaries and prompt
+ambiguities. the fixes use existing transactions, insertion/rendering primitives,
+job scheduling and dispatchers; no compatibility path or new workflow layer.
+
+functional evidence, using disposable pg16/pgvector and the current nexus pg15
+schema, real loopback http/mcp, authenticated native persistence and paid models:
+
+| boundary | observed result |
+| --- | --- |
+| library / central capture | eight temporary postgres cases and all three retained regressions pass; fresh `0→0007` and populated `0006→0007` agree with installed library schema, preserve originals/digests and enforce stopped migration/runtime grants; capture middleware rejects wrong scope/admission before parsing; writes bind the parsed owner before their transaction and commit archive/leaves/checkpoint before acknowledgement |
+| export durability | exact old replay returns its original receipt after later progress; changed run/sequence/digest rejects, including timestamp spelling; transaction faults leave no partial turn; five deleted-source exports project sixteen logical events; commit/lost reply, local cleanup crash and overlapping publishers converge without duplicates |
+| nexus source | current successful, error/partial and queued-cancelled turns; saved excerpts/receipts without refetch; fresh raw-sql tool settlement; retry lineage and out-of-order terminal settlement; pre-cut admitted turn excluded; deletion/outage/restart preserves pending content; malformed/oversize head parks without losing the terminal or advancing the source |
+| mcp / retrieval | actual sdk initialize/list/call covers all six operations; original/source/note/synthesis provenance, two-page exact opening and eight near-limit control/unicode notes; exact save replay, changed intent, nul and permission rejection; frozen two-page view survives append, fresh view advances, evicted cursor rejects; actual embedding indexing/search returns three lexical and three semantic candidates with zero missing embeddings in the bounded dream corpus |
+| jarvis main | actual `NativeRunner`, `_compose_main`, journals and dispatchers: canonical request→projection→ready fixed view→fresh turn; model save/search/open plus all five read dispatches; one note/leaf/original receipt, no gate/action; scheduled and dream plans cannot save; next fresh turn sees the note and exact current request; retained capture/retry proves recoverable failed projection and fencing |
+| compactor | rendered first request contains the priority and numeric 512-byte target; actual model keeps the owner's monday correction/reason, identifier and failed verification; raw prose seals into the node; controls/unicode traverse actual presentation/readiness without changing originals; stable historical content precedes volatile task/clock; provider cache counters observed, with no hit-rate claim |
+| dreamer | actual nonempty synthesis distinguishes restored table count from failed controls, explicit rejection from mere non-assent, and uses both exact supplied references; open/zoom recovers its originals; note/leaf/cursor commit atomically, no action/message/wake; current-owner loss after a real terminal rejects commit; controlled rollback, future-reference rejection, empty success, fixed cutoff, older sampling, nightly marker and no self-seeding pass |
+| nexus tools | full asgi authentication with real signed task token/jwks; send/cancel/retry routes and canonical rows; paid provider-function and native-callback journeys cover all six tools; owner/complete-chain/read-only/helper exclusions; initialization/call auth, rate limit, unavailable, malformed response, cancellation and defect semantics; lost committed-save response and actual outer deadline remain unknown until exact original `Call.id` receipt replay |
+
+jarvis live inference used stock codex `0.160.0`, model `gpt-5.6-terra/high`,
+library `27d6f1b`, kernel `3e083ef` and provider `22aee34`. final kernel/provider
+pins change only metadata and one additional claude archive bookkeeping kind;
+inference/session code is identical. final frozen artifact replay qualifies that
+codec change without buying duplicate inference. nexus keeps its current
+stock `0.165.0` composition and used `gpt-6-luna` through both actual routes.
+no consumer was downgraded to force equal pins.
+
+current codex `0.169.0` and claude `2.1.325` (`sonnet 5.5`) produced real persisted
+task conversations, image/document references and loaded memory mcp calls.
+baseline exclusion, collector restart after lost committed acknowledgement,
+incomplete copied tail, changed-history parking and diagnostic-only retry pass.
+actual fork metadata retains uncertain inherited copies; controlled exact origin
+proof separately qualifies direct coverage/all-copy progress. missing or transitive
+proof retains eligible copies; changed existing identity rejects atomically. no naturally persisted interrupted tool tail was observed;
+its stable-prefix behavior is proved with controlled native-artifact faults.
+
+current codex list responses omit internal/fork fields. the archive reader now
+reads authoritative content-free thread metadata before body access, at the cost
+of one metadata rpc per thread per inventory pass. four explicit claude request/cache/tool-name
+bookkeeping kinds are excluded; real tool calls/results remain. actual codex and
+claude memory calls archive blank references, with no recalled/query/note prose
+echo. nexus native sessions are marked internal before generation and excluded
+from native capture.
+
+fleet rendering passed six temporary subprocess cases against actual frozen
+jarvis/nexus validators, including rotation, modes, disabled capture, invalid
+input preservation and all fifteen disposable native profile configurations.
+codex's actual cli writes/reads nine profiles; claude's writer handles six.
+actual codex/claude mcp loading is additionally proved in two task homes.
+codex's restrictive test home required explicit permission for its two model-used
+`memory_view` and `memory_save_note` tools; this does not prove every installed
+home's permission posture.
+
+anonymous no-cache `docker buildx bake --set '*.platform=linux/arm64' --no-cache
+--load` builds of current nexus api/worker/worker-checkout pass. actual image
+inspection proves locked packages, non-root runtime and current schema/source
+where embedded; worker-checkout deliberately receives application source by
+mount. scans of 51 raw/decompressed layer files, output and environment find no
+task memory credentials. actual compose grants the client only to api/interactive
+and upload only to background; helpers/native hosts receive neither.
+
+| linux/arm64 image | local image id |
+| --- | --- |
+| api | `sha256:58a8e50c271fcdf858ffe34282a0e116d50be5eb0286816b7b5279fa5026246c` |
+| worker | `sha256:f1c6722f420df3d2610c8ed927edeb71c22442c8edd89473f98fe7c9c51d8e1b` |
+| worker-checkout | `sha256:ab1dd2d2f2cc07ee0d362cd8648be505b87e24987a8768a95c1053b123e5583b` |
+
+the local amd64 attempt failed with `exec format error`; no emulation was
+installed and no remote docker service started. target-platform build/runtime
+proof remains in the [image handoff](issues/nexus-memory-image-qualification.md).
+an earlier disposable nexus fixture had an incorrect processor label and helper
+cwd; its native closure stayed honestly uncertain. fresh correctly composed
+current-image runs supplied the successful receipts; no failed turn was replayed
+or relabelled complete.
+
+final commands: library `scripts/verify` and its three retained postgres cases
+pass; nexus `env -u PYTHONPATH ./scripts/test` passes; provider non-live pytest
+passes 983 with one existing absent-sdk-case skip because the sdk extra is installed
+(40 live cases deselected), kernel
+passes 176 (two live cases deselected); both pass formatting/lint/types/build.
+jarvis `scripts/verify` passes lock/sync, static/types/docs, source/wheel build and
+fresh wheel import/cli checks, then FAILS its audit with the same 19 pre-existing
+findings in four packages. [dependency audit](issues/dependency-audit.md) remains
+open; unrelated packages were neither upgraded nor suppressed. git-only package
+security is not established by that index audit.
+
+new temporary probes/helpers/fixtures are removed after reviewed proof; approved
+regression groups remain. no permanent test framework ships. original resources
+and any explicitly handed-off live host remain with their owners. no private
+fleet configuration, production activation, personal-history admission, discord
+delivery or connector effect ran. [installed capture](issues/universal-memory-capture.md)
+and [nexus private access](issues/nexus-memory-client.md) remain open. load/usefulness,
+historical import and backup/restore remain deferred as agreed.

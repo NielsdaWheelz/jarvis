@@ -66,7 +66,7 @@ EXPECTED_GIT_PINS = {
     "llm-agent-kernel": "8524c8c737bbe56a0993da1421084d0122d08f49",
     "llm-tools": "8989f3afdcc640f775bd0cc9e7a0b4c246f10e57",
     "provider-runtime": "7a2493e5f4da34f6d9a32e2504d8fc6333482385",
-    "universal-memory": "27d6f1b4e2ddcbc2aa831eb6066f384fccb552ad",
+    "universal-memory": "11f4220031d56f71d5a732b748a9bbb52c842e0e",
 }
 QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)
 

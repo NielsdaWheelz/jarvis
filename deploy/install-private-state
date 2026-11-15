@@ -5,7 +5,6 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
 source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
-agent_state_directory="${JARVIS_AGENT_STATE_DIRECTORY:?worker deployment is blocked until docs/issues/skid-installed-state-access.md is resolved}"
 source_memory="${JARVIS_SOURCE_MEMORY_CONFIG:-$repo_dir/deploy/memory-config.example.json}"
 
 for path in "$source_environment" "$source_google" "$source_memory"; do
@@ -26,15 +25,12 @@ trap cleanup EXIT HUP INT TERM
 chmod 0700 "$scratch"
 umask 077
 
-python3 - "$source_environment" "$scratch/jarvis.env" "$agent_state_directory" <<'PY'
+python3 - "$source_environment" "$scratch/jarvis.env" <<'PY'
 import pathlib
 import re
 import sys
 
 source = pathlib.Path(sys.argv[1])
-agent_state_directory = pathlib.Path(sys.argv[3])
-if not agent_state_directory.is_absolute():
-    raise SystemExit("agent installed state directory must be absolute")
 target = pathlib.Path(sys.argv[2])
 required = {
     "JARVIS_BRAVE_API_KEY",
@@ -75,6 +71,7 @@ JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_MODEL=gpt-5.6-terra
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
 JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
+JARVIS_AGENT_STATE_DIRECTORY=/run/jarvis-skid-state
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
@@ -86,7 +83,6 @@ JARVIS_MEMORY_NIGHTLY_TIME=03:00
 JARVIS_MAXIMUM_BATCH_SIZE=20
 JARVIS_DELIVERY_BATCH_SIZE=20
 """
-static += "JARVIS_AGENT_STATE_DIRECTORY=" + str(agent_state_directory) + "\n"
 target.write_bytes(raw.rstrip(b"\n") + b"\n" + static.encode("utf-8"))
 target.chmod(0o600)
 PY
@@ -121,7 +117,7 @@ case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
 scp -q "$scratch/jarvis.env" "$scratch/google-oauth-state.json" "$scratch/memory.json" \
   "$target:$remote/"
 
-ssh "$target" bash -s -- "$remote" <<'REMOTE'
+ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- "$remote" <<'REMOTE'
 set -euo pipefail
 remote="$1"
 case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
@@ -129,6 +125,10 @@ cleanup() {
   case "$remote" in /tmp/jarvis-private-state.*) rm -rf -- "$remote" ;; *) return 1 ;; esac
 }
 trap cleanup EXIT HUP INT TERM
+
+[[ "$(systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+[[ "$(systemctl show --property=Result --value jarvis.service)" == success ]]
+[[ "$(systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
 
 for file in jarvis.env google-oauth-state.json memory.json; do
   [[ -f "$remote/$file" && ! -L "$remote/$file" ]]

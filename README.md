@@ -32,9 +32,12 @@ codex/claude/nexus chats manage their own context and choose shared reads. the
 capture of the configured owner's nexus librarian runs and completes the live
 jarvis/native/nexus integration paths. durable pending exports survive transcript
 deletion until central acknowledgement; capture adds no revision or deletion sync.
-source and isolated functional proof are complete;
-[current evidence](docs/universal-memory.md#memory-completion-source-qualification)
-records exact artifacts, the pre-existing audit failure and installed limits.
+source and isolated functional proof are complete. the
+[latest source evidence](docs/universal-memory.md#native-memory-rollout-source-qualification)
+records the qualified dependency repairs, nineteen native/jarvis lanes and
+service access boundaries. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
+authorizes macbook/devbox installation; arch is deferred and nexus waits for its
+next release. installed acceptance remains open.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
 production activation and actual fleet installation remain separate. realistic-load
@@ -142,9 +145,11 @@ temporary integration/live qualification; the broader
 [testing redesign](docs/issues/testing-redesign.md) remains separate. historical
 receipts qualify only their named artifacts and boundaries.
 
-- status as of 2026-10-04: native main and worker-v7 composition merged in pr 49;
-  exact artifact qualification is recorded in the integration handoff; production
-  systemd activation and physical google/discord integration remain unrun
+- source status as of 2026-11-14: memory and worker-v10 source checks pass;
+  native main retains its recorded functional proof. full static/build/install
+  checks and the registry audit pass.
+  [installed rollout](docs/implementation-plan.md#memory-installed-rollout),
+  current native-home capture and physical delivery acceptance remain open
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server
@@ -152,10 +157,14 @@ receipts qualify only their named artifacts and boundaries.
   through `provider-runtime` and host tools through `llm-tools`
 - worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
   skid cli and live installed computer state (`JARVIS_AGENT_STATE_DIRECTORY`);
-  macbook/devbox/arch remain personal tool enums. [service-state access](docs/issues/skid-installed-state-access.md)
-  blocks installed worker cutover pending separate deployment integration
+  [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the enrolled
+  `macbook|dev-server|arch` worker names and a read-only id-mapped state mount.
+  memory provenance still uses `devbox`. source boundary proof passes;
+  [installed service-state acceptance](docs/issues/skid-installed-state-access.md)
+  remains open
 - cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate
-  contained stock endpoint and the existing personal host account
+  contained stock endpoint and the existing personal host account; its public
+  host mapping has a read-only file bind, preserving private directory access
 
 ## Development and verification
 

@@ -6,29 +6,24 @@ import hashlib
 import hmac
 import re
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from llm_tools import canonical_json_bytes
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from universal_memory import MemoryError
-from universal_memory.types import Lane
+from universal_memory.types import Account, Lane
 
 from jarvis.config import ConfigurationError
 
 type Machine = Literal["macbook", "arch", "devbox"]
 
-MEMORY_IDENTITIES = frozenset(
+MEMORY_IDENTITIES: frozenset[tuple[str, str]] = frozenset(
     (machine, account)
     for machine in ("macbook", "arch", "devbox")
-    for account in (
-        "codex-personal",
-        "codex-work",
-        "codex-work2",
-        "claude-personal",
-        "claude-work",
-    )
+    for account in get_args(Account.__value__)
+    if account != "jarvis"
 ) | {("devbox", "jarvis")}
 
 

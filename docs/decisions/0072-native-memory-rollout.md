@@ -16,7 +16,7 @@ category. native admission remains future-only. current rollout declares twelve
 native clients plus internal jarvis; arch remains disabled and nexus is null.
 this amends the earlier fixed sixteen-lane count, not nexus's distinct provenance.
 
-resolve adr0068's postponed service access at the operating-system boundary:
+resolve adr 0068's postponed service access at the operating-system boundary:
 use a root-managed read-only id-mapped bind mount of the actual enrolled skid
 state directory. map only its owner uid/gid to jarvis at the mount; keep source
 ownership/modes, live membership publication, ProtectHome, NoNewPrivileges and
@@ -27,12 +27,21 @@ the actual cli state, cannot write it, and observes atomic membership-file
 replacement. replacing the state-root directory itself requires stopped remount;
 normal skid publication keeps that directory and replaces its files.
 
-retain existing deployment mechanisms. migration0008 adds the account check and
+the enrolled skid host is named `dev-server`; the previous worker api named it
+`devbox` and cannot address that host. the owner explicitly chose the enrolled
+name. change the worker machine vocabulary to `macbook | dev-server | arch`,
+with no alias or membership rewrite. memory's separate `devbox` provenance stays
+unchanged. the existing shared worker binding revision advances to v10; validated
+finalized v9 receipts remain opaque and unfinished v9 work blocks activation.
+install the enrolled owner's matching cli artifact at the fixed service path;
+the previously installed service executable predates the current state format.
+
+retain existing deployment mechanisms. migration `0008` adds the account check and
 runtime schema-read grant; the native cutover validates terminal retired worker
 rows through the existing archival contract and leaves their facts untouched.
 unfinished or unrecognized authority still blocks. an immutable temporary native
-predecessor handles the existing0004→0005 pause transition; the ordinary memory
-cutover then advances to0008. no bridge service is resumed or retained afterward.
+predecessor handles the existing `0004→0005` pause transition; the ordinary memory
+cutover then advances to `0008`. no bridge service is resumed or retained afterward.
 
 ## costs and acceptance
 
@@ -40,7 +49,7 @@ shared work/personal evidence remains captured after native deletion. the mounte
 state gives the service the same enrolled fleet authority its host cli already
 uses; models still have only catalogued tools. this requires the qualified linux
 id-mapping implementation and stable state-root ownership. no service uid or
-source file permission is relaxed. the temporary predecessor and local snapshot
+source file permission is relaxed. the temporary predecessor and local snapshots
 are transition artifacts, not ongoing backup infrastructure.
 
 [the active plan](../implementation-plan.md#memory-installed-rollout) owns ordering,

@@ -8,8 +8,10 @@ and then-open qualification. [adr 0070](decisions/0070-nexus-capture-and-memory-
 adopts the 2026-11-14 [completion contract](memory-delivery.md): future-only nexus
 capture, compactor content repair and current functional integration/live proof.
 that delta is implemented and isolated functional proof passes; see the
-[current evidence](#memory-completion-source-qualification). the dependency audit
-and installed activation remain open, explicitly distinguished below.
+[completion evidence](#memory-completion-source-qualification). the
+[native rollout source qualification](#native-memory-rollout-source-qualification)
+resolves the dependency audit and qualifies adr 0072's source amendments.
+installed acceptance remains open; nexus and arch are deferred.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -23,8 +25,9 @@ native codex/claude/nexus chats keep their own context management. tool-result
 archive text uses a permanent 30,000-character head/tail cap. the core memory
 contracts are settled here. nexus access is limited to the owner's chats;
 [adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles its distinct client,
-account attribution and processor grants; adr 0070 adds capture without extending
-the sixteen native/jarvis lanes. its bounded
+account attribution and processor grants; adr 0070 adds capture without adding
+a native lane. the current native rollout includes eighteen native lanes plus
+jarvis, including each host's separate `claude-work2` account. the bounded nexus
 [consumer handoff](issues/nexus-memory-client.md) separates source integration from
 private provisioning. earlier adrs retain the rationale. section 12 records
 current evidence and remaining work; delivery order lives in the
@@ -205,7 +208,7 @@ owns delivery order.
 
 | concept / owner | contract |
 | --- | --- |
-| lane | declared native home identified by `(machine, account)`, never a path; fifteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work}) plus `(devbox, jarvis)` |
+| lane | declared native home identified by `(machine, account)`, never a path; eighteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work, claude-work2}) plus `(devbox, jarvis)` |
 | nexus client/source | one optional `nexus-owner` backend client for a configured viewer; librarian reads/notes and separately admitted durable source capture; no native lane or automated-helper tool grant |
 | conversation | native `(provider, native_id)` with first-report lane ownership, jarvis's configured-channel conversation, or nexus's configured owner transcript with explicit source identity |
 | event / part | complete persisted native item, never a streaming delta / one central text chunk of at most 8,000 utf-8 bytes |
@@ -222,8 +225,9 @@ owns delivery order.
 owner-chat client and note attribution. the optional `nexus_client` declaration
 contains `client="nexus-owner"`, canonical `owner_user_id`, controller/sharing
 authorization, `admit`, `connect`, `capture`, client `bearer_sha256` and nullable
-upload-only `capture_bearer_sha256`. defaults deny; the sixteen capture lanes do
-not expand. notes require `admit && connect`; capture requires `admit && capture`.
+upload-only `capture_bearer_sha256`. defaults deny; nexus adds no lane to the
+nineteen native/jarvis lanes. notes require `admit && connect`; capture requires
+`admit && capture`.
 reads require `connect`. the two credentials have disjoint scopes. recipients
 may include `nexus-owner`; `processors.nexus_model_processors` is a bounded list
 of existing nexus processor-chain labels, empty by default and covered by the
@@ -1948,11 +1952,12 @@ pass; nexus `env -u PYTHONPATH ./scripts/test` passes; provider non-live pytest
 passes 983 with one existing absent-sdk-case skip because the sdk extra is installed
 (40 live cases deselected), kernel
 passes 176 (two live cases deselected); both pass formatting/lint/types/build.
-jarvis `scripts/verify` passes lock/sync, static/types/docs, source/wheel build and
-fresh wheel import/cli checks, then FAILS its audit with the same 19 pre-existing
-findings in four packages. [dependency audit](issues/dependency-audit.md) remains
-open; unrelated packages were neither upgraded nor suppressed. git-only package
-security is not established by that index audit.
+jarvis `scripts/verify` passed lock/sync, static/types/docs, source/wheel build and
+fresh wheel import/cli checks, then reported 19 pre-existing audit findings in
+four packages. that dated failure was subsequently resolved by the
+[native rollout source qualification](#native-memory-rollout-source-qualification);
+it is not the current audit result. git-only package security is not established
+by that index audit.
 
 new temporary probes/helpers/fixtures are removed after reviewed proof; approved
 regression groups remain. no permanent test framework ships. original resources
@@ -1961,3 +1966,87 @@ fleet configuration, production activation, personal-history admission, discord
 delivery or connector effect ran. [installed capture](issues/universal-memory-capture.md)
 and [nexus private access](issues/nexus-memory-client.md) remain open. load/usefulness,
 historical import and backup/restore remain deferred as agreed.
+
+### native memory rollout source qualification
+
+2026-11-14: [adr 0072](decisions/0072-native-memory-rollout.md) authorizes the
+native rollout. current main and memory source are composed in isolated
+`feature/memory-rollout` worktrees, preserving the original checkouts. these are
+source and restricted task-boundary receipts; installed acceptance remains open.
+
+| target dependency | exact pin |
+| --- | --- |
+| universal-memory | `11f4220031d56f71d5a732b748a9bbb52c842e0e` |
+| provider-runtime | `7a2493e5f4da34f6d9a32e2504d8fc6333482385` |
+| llm-agent-kernel | `8524c8c737bbe56a0993da1421084d0122d08f49` |
+| llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+
+the source contract now declares eighteen native lanes plus `(devbox, jarvis)`:
+each host has three codex and three claude accounts, including its existing
+distinct `claude-work2` home. the selected declaration admits twelve native
+clients on macbook/devbox and capture-only jarvis; arch is disabled and nexus
+is null. migration `0008` extends the account constraint and grants runtime
+schema inspection without adding a table or rewriting originals. this does not
+qualify every installed native home.
+
+the merged main supplied `filelock 4.2.4` and reduced the earlier nineteen audit
+findings to six. targeted compatible updates to `msgpack 1.2.3`,
+`opentelemetry-api 1.45.2` and `pyasn1 0.6.5` remove the remaining findings.
+four real-consumer probes pass: requests/cachecontrol file persistence; bounded
+malformed-msgpack rejection; actual mcp/provider trace propagation and malformed
+trace rejection; and asn.1/google-auth certificate/signature handling. valid
+behavior remains intact; malformed-input handling tightens. no suppression,
+provider/model upgrade or blanket registry refresh was used.
+
+full target `scripts/verify` passes frozen lock/sync, formatting/lint/types,
+documentation links, source/wheel build, fresh wheel import/cli and the network
+audit. the audit reports no known vulnerabilities in its auditable set; its
+existing git-only kernel/tools/provider exclusions remain. targeted shell syntax
+and shellcheck pass for the changed deployment scripts.
+
+| stopped-state boundary | observed source result |
+| --- | --- |
+| target cutover | fifteen real-postgres checks pass: runtime schema `0008`, preserved terminal v2/v3 uncertainty, refusal of unfinished/unknown authority, bad digest and unknown paid reads, and exact accepted/rejected installer schema heads |
+| runtime schema grant | four actual installer-excerpt checks pass: `0004` stays read-only; held ownership refuses without a grant; stopped installation changes only the schema-read grant; repetition changes nothing |
+| temporary predecessor | thirteen exact-predecessor checks plus five linux helper checks pass; actual `0004→0005` preserves ten notes/two summaries; the old and new remembering predicates find no eligible groups; malformed/writable host mappings refuse and helper execution leaves all nine tables unchanged |
+| worker v10 | fourteen real cli/postgres checks pass: enrolled `dev-server` replaces worker `devbox`, exact target capture is retained, finalized validated v9 receipts stay opaque/unchanged, and unfinished, malformed or unknown contracts refuse; memory provenance remains `devbox` |
+
+the snapshot helper also exposed an actual client-version mismatch: postgres
+18.6 produced the 3,399,555-byte archive, while bare `pg_restore` selected 16.16
+and rejected it. forwarding the same database environment selects 18.6 and
+lists that archive successfully. this check mutates no database and does not
+establish a completed production restore or migration.
+
+on the target's linux 6.8/ext4, util-linux 2.39.3 and systemd 255, private task mounts
+prove the read-only id-mapped state boundary: original owner/modes stay unchanged;
+jarvis sees its own uid/gid with `0700` directories and `0600` files; actual skid
+private-file reads pass with home restriction, no-new-privileges and zero effective
+capabilities. writes, unlink, chmod and creation refuse; atomic file and nested
+directory replacements remain visible. replacing the state-root inode requires
+a stopped remount. no credential/state copy, daemon or application privilege
+wrapper was added.
+
+the old fixed service cli rejects the live fleet state. the enrolled owner's
+`v0.24.2`, source `d4afbfcec963b1f231fc117675120eff1685e881`, is the qualified
+replacement (sha256 `472a1899dd13b863397cb5b00ed871e0a6a313ba6b958fe87a68974516aad68e`).
+through the restricted task view it reports dev-server/macbook successfully and
+arch `unavailable`; the actual jarvis `WireInventory` decoder and shared installer
+verifier accept those results. the installer holds the existing stopped-deploy
+lock, checks the candidate before replacement, and makes the mount a service
+prerequisite. this is not an installed service receipt.
+
+the contained host's actual config loader initially could not traverse private
+`/etc/jarvis`. its single public mapping now has a read-only file bind inside the
+host namespace. actual `niels:codex-clients` loading passes while the original path
+stays inaccessible, root ownership is preserved and writes refuse; no-new-privileges
+and empty capabilities remain. immutable bridge
+`d9968b6b09699cf9c12d05a7b4c51b4443198192` contains that unit fix; target source uses
+the same boundary. production host startup/containment still requires its own
+receipt.
+
+the [active rollout](implementation-plan.md#memory-installed-rollout) retains the
+production `0004` transition, current native-home archive compatibility, installed
+capture/mcp, cognition and restart proof. none is inferred from these checks.
+nexus waits for its next release; arch, historical import, backup/restore and
+broad usefulness/load evaluation remain deferred. temporary rollout probes remain
+until final review and cleanup; existing approved regression groups are retained.

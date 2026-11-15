@@ -1,12 +1,12 @@
 # worker launch and asynchronous observation — o8
 
-status: consolidated accepted contract, updated 2026-11-14. worker v9 source is
-terminal-only and isolated-qualified under
-[adr 0069](decisions/0069-terminal-only-workers.md), retaining
+status: consolidated accepted contract, updated 2026-11-14. worker v10 adopts
+the enrolled `dev-server` label under
+[adr 0072](decisions/0072-native-memory-rollout.md). terminal-only behavior retains
+the v9 source qualification in [adr 0069](decisions/0069-terminal-only-workers.md) and
 [adr 0064](decisions/0064-simple-worker-orchestration.md)'s durable observation and
 [adr 0068](decisions/0068-generalized-skid-consumer.md)'s installed-state composition.
-installed jarvis qualification remains blocked by
-[service-uid access](issues/skid-installed-state-access.md).
+installed jarvis qualification includes adr 0072's read-only live-state mount.
 the [roadmap](implementation-plan.md#o8-richer-start-and-asynchronous-wait)
 owns sequencing; [spec §7.3](../SPEC.md#73-tool-contracts-and-exact-catalog) and
 the [terminal-only paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md)
@@ -39,7 +39,8 @@ protocol for that change.
 
 reuse closed models in `agent_tools.py`; every write retains `ActionRequest` and
 the existing serial action lane. target is `{machine,handle}`: machine is
-`macbook`, `devbox` or `arch`; handle is `t-` plus 16 lowercase hex digits.
+`macbook`, `dev-server` or `arch`; handle is `t-` plus 16 lowercase hex digits.
+`devbox` is not a worker alias; memory retains its separate `devbox` provenance.
 profiles are `personal`, `work`, `work2`, `claude-work`. names are labels.
 
 | tools | contract |
@@ -135,7 +136,7 @@ bytes, observed terminal state and evidenced task completion.
 
 good brief: `inspect the authentication flow in /srv/example. explain the expired-session 500; no code changes. include files and evidence.`
 
-good partial result: `auth-review was created on devbox, but its brief was not sent. the worker remains available; the launch will not repeat.`
+good partial result: `auth-review was created on dev-server, but its brief was not sent. the worker remains available; the launch will not repeat.`
 
 good observation: `the worker reached idle; its latest output was unavailable, so i cannot verify the result.`
 
@@ -157,12 +158,11 @@ and usefulness, not wording; no new runtime critic.
 | temporary qualification | scoped proof files only; installed artifact/configuration and actual service/discord evidence |
 
 source qualification does not resolve installed deployment. generalized skid
-reads the enrolled owner's live state; the jarvis service cannot access it under
-its current uid and containment. `deploy/install-agent-client` refuses explicitly.
-the [service-state access issue](issues/skid-installed-state-access.md) owns that
-separate decision and proof. dev-server no longer installs a private jarvis
-client or reads `jarvis-paused.v1`; the former file-pause installer proposal is
-superseded. no copied state or privilege bridge is assigned by worker v9.
+reads the enrolled owner's live state through adr 0072's root-managed read-only
+id-mapped mount. installation must qualify access under the service uid and
+containment, including atomic membership replacement. no copied identity or
+private jarvis client file is created. canonical pause is checked in postgres;
+the former file-pause installer proposal is superseded.
 
 ## cutover and acceptance
 
@@ -180,7 +180,7 @@ superseded. no copied state or privilege bridge is assigned by worker v9.
 4. install paired artifacts/configuration, run target pre-start activation checks,
    activate PAUSED, then run `deploy/verify-containment` before explicit owner
    resume. installed turn journeys require authorized resumed admission.
-   finalized v1–v8 worker bytes stay opaque;
+   finalized v1–v9 worker bytes stay opaque;
    unfinished retired state refuses activation. no compatibility decoder.
 
 rollback requires proof the prior release reads current schema/contracts and
@@ -188,10 +188,11 @@ paired configuration. incompatible conversion or new receipts requires preservin
 evidence and forward repair. code rollback cannot undo worker effects; never
 restore over them.
 
-reuse [v9 source qualification](decisions/0069-terminal-only-workers.md); do not
-manufacture new red evidence for already-green source. installed work first needs
-the separately chosen live-state access boundary and paused/stopped release
-qualification; source fixtures do not establish either.
+reuse [v9 source qualification](decisions/0069-terminal-only-workers.md) for
+unchanged behavior. v10 additionally qualifies the enrolled label through actual
+cli inventory/target capture and verifies finalized v9 preservation, unfinished
+v9 refusal and strict current labels. installed work still requires the live-state
+access boundary and paused/stopped release qualification.
 
 remaining installed live acceptance: configured codex/claude profiles, optional
 name/cwd/group/prompt and literal input, with provider options owned by the profile;

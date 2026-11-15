@@ -1,5 +1,82 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-printf '%s\n' 'worker deployment is blocked: generalized skid requires live installed state access for the jarvis service; see docs/issues/skid-installed-state-access.md' >&2
-exit 1
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+owner="${JARVIS_AGENT_STATE_OWNER:?supply the enrolled host account}"
+source_state="${JARVIS_AGENT_SOURCE_STATE_DIRECTORY:?supply the enrolled host live state directory}"
+source_cli="${JARVIS_AGENT_SOURCE_CLI:?supply the exact enrolled host release executable}"
+[[ "$owner" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+for path in "$source_state" "$source_cli"; do
+  [[ "$path" =~ ^/[a-zA-Z0-9_./-]+$ ]] || {
+    printf 'agent source paths must be absolute deployment paths\n' >&2
+    exit 1
+  }
+done
+
+{
+cat "$repo_dir/deploy/agent-client-functions"
+cat <<'REMOTE'
+set -euo pipefail
+owner="$1"
+source_state="$2"
+source_cli="$3"
+state=/run/jarvis-skid-state
+cli=/usr/local/libexec/skidbladnir
+unit="$(systemd-escape --path --suffix=mount "$state")"
+
+[[ "$(systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+[[ "$(systemctl show --property=Result --value jarvis.service)" == success ]]
+[[ "$(systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+owner_uid="$(id -u "$owner")"
+owner_gid="$(id -g "$owner")"
+service_uid="$(id -u jarvis)"
+service_gid="$(id -g jarvis)"
+[[ "$owner_uid" != 0 && "$owner_uid" != "$service_uid" ]]
+[[ "$(readlink -e "$source_state")" == "$source_state" ]]
+[[ "$(readlink -e "$source_cli")" == "$source_cli" ]]
+[[ -d "$source_state" && -f "$source_cli" && ! -L "$source_cli" ]]
+[[ "$(stat -c '%u:%g:%a' "$source_state")" == "$owner_uid:$owner_gid:700" ]]
+source_metadata="$(stat -c '%u:%g:%a:%d:%i' "$source_state")"
+[[ "$(stat -c '%u:%a' "$source_cli")" == "$owner_uid:755" ||
+   "$(stat -c '%u:%a' "$source_cli")" == 0:755 ]]
+
+scratch="$(mktemp -d /tmp/jarvis-agent-client.XXXXXX)"
+candidate="$(mktemp /usr/local/libexec/.skidbladnir.XXXXXX)"
+cleanup() { rm -rf -- "$scratch"; rm -f -- "$candidate"; }
+trap cleanup EXIT HUP INT TERM
+install -m 0755 -o root -g root "$source_cli" "$candidate"
+cat >"$scratch/$unit" <<UNIT
+[Unit]
+Description=Jarvis read-only enrolled Skid state
+RequiresMountsFor=$source_state
+
+[Mount]
+What=$source_state
+Where=$state
+Type=none
+Options=bind,ro,nosuid,nodev,noexec,X-mount.idmap=u:$owner_uid:$service_uid:1 g:$owner_gid:$service_gid:1
+DirectoryMode=0700
+UNIT
+systemd-analyze verify "$scratch/$unit"
+if systemctl cat "$unit" >/dev/null 2>&1; then
+  systemctl stop "$unit"
+fi
+if findmnt --mountpoint "$state" >/dev/null; then
+  printf 'agent state target has an unmanaged mount\n' >&2
+  exit 1
+fi
+install -d -m 0700 -o root -g root "$state"
+install -m 0644 -o root -g root "$scratch/$unit" "/etc/systemd/system/$unit"
+systemctl daemon-reload
+systemctl start "$unit"
+[[ "$(stat -c '%u:%g:%a:%d:%i' "$source_state")" == "$source_metadata" ]]
+[[ "$(stat -c '%d:%i' "$state")" == "$(stat -c '%d:%i' "$source_state")" ]]
+verify_agent_client "$candidate" "$state"
+mv -fT -- "$candidate" "$cli"
+sudo -u jarvis "$cli" version
+sha256sum "$cli"
+printf 'installed live enrolled state mount; jarvis remains stopped\n'
+REMOTE
+} | ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- \
+  "$owner" "$source_state" "$source_cli"

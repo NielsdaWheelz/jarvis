@@ -1,8 +1,11 @@
 # universal memory: completion and nexus capture
 
 status: implemented source, 2026-11-14; isolated functional proof passes.
-[current evidence](universal-memory.md#memory-completion-source-qualification)
-records exact artifacts, the pre-existing audit failure and installed limits.
+[completion evidence](universal-memory.md#memory-completion-source-qualification)
+records the original artifacts and functional proof; the
+[native rollout source qualification](universal-memory.md#native-memory-rollout-source-qualification)
+resolves the audit and extends the native profile contract under adr 0072.
+installed acceptance remains open; nexus waits for its next release.
 [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md) adopts the scope.
 [SPEC.md](../SPEC.md) is authoritative; [universal memory](universal-memory.md)
 owns unchanged storage, compression, search, note and dream contracts. this file
@@ -260,8 +263,9 @@ central schema changes are limited to `source_conversation`:
 - store the immutable boundary as `capture_after_event_id="message-seq:<n>"`,
   source registration time as `captured_from`, and checkpoint as
   `checkpoint_event_id="export:<n>"` plus original envelope digest. before export
-  1 both checkpoint fields are null. the sixteen native/jarvis lanes keep their
-  current meaning; a nexus source is not a fabricated native lane;
+  1 both checkpoint fields are null. the nineteen native/jarvis lanes under
+  [adr 0072](decisions/0072-native-memory-rollout.md) keep their current meaning;
+  a nexus source is not a fabricated native lane;
 - extend public provenance/provider filters and null-aware source rendering,
   search/open/zoom/date and repair to this explicit source variant. native client
   lane schemas still exclude nexus. no host name is inferred for nexus.

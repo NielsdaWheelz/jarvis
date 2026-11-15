@@ -224,6 +224,7 @@ async def snapshot(
                     process = await asyncio.create_subprocess_exec(
                         "pg_restore",
                         "--list",
+                        env=environment,
                         stdin=source,
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
@@ -263,6 +264,8 @@ def main() -> int:
     capture.add_argument("destination", type=Path)
     arguments = parser.parse_args()
     environment = dict(os.environ)
+    # The stopped predecessor never dispatches workers; /dev/null grants none.
+    environment["JARVIS_AGENT_CLIENT_CONFIG_PATH"] = "/dev/null"
     try:
         if arguments.command == "snapshot":
             migration_url = environment.get("JARVIS_MIGRATION_DATABASE_URL")

@@ -3,6 +3,12 @@
 status: source and isolated functional proof complete, 2026-11-14; private
 installation and activation pending.
 
+the owner deferred nexus activation until its next release. nexus remains
+disabled during the native fleet rollout. before enabling access, that release
+must adopt universal-memory `11f4220031d56f71d5a732b748a9bbb52c842e0e` or a
+qualified descendant: earlier consumers reject the new `claude-work2` account
+in native note provenance. qualify the updated client before private activation.
+
 problem: a qualified source checkout and task-owned credentials do not prove the
 installed configured owner, complete processor chains or upload/read separation.
 no real history has been admitted by this delivery.

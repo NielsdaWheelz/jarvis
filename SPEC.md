@@ -126,8 +126,10 @@ claude and nexus chats retain their own context management and access shared mem
 through mcp/api. the core memory source is implemented and isolated qualification
 passes; production activation remains separate. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
-backend client and tagged note attribution, preserving sixteen capture lanes.
-adr 0070 adds the distinct nexus capture source without changing those lanes.
+backend client and tagged note attribution. adr 0070 adds the distinct nexus
+capture source without adding a native lane. the current native rollout includes
+`claude-work2` on each host: eighteen native lanes plus `(devbox, jarvis)`.
+the shared library account contract owns that fixed vocabulary.
 the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
@@ -1266,8 +1268,9 @@ pipeline, never a nested agent.
 
 worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
 amended by [adr 0068](docs/decisions/0068-generalized-skid-consumer.md) and
-[adr 0069](docs/decisions/0069-terminal-only-workers.md).
-all model inputs and outputs are closed. machines are `macbook|devbox|arch`;
+[adr 0069](docs/decisions/0069-terminal-only-workers.md) and
+[adr 0072](docs/decisions/0072-native-memory-rollout.md).
+all model inputs and outputs are closed. machines are `macbook|dev-server|arch`;
 profiles are `personal|work|work2|claude-work`. addressed inputs contain
 `target:{machine,handle}`: `t-` plus 16 lowercase hexadecimal characters.
 names are labels. no opaque ref or raw provider/process identity is model-facing.

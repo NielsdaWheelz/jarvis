@@ -82,10 +82,10 @@ type AgentKey = Literal[
 ]
 type AgentProfile = Literal["personal", "work", "work2", "claude-work"]
 type AgentReference = Annotated[str, Field(min_length=1, max_length=4096)]
-type AgentLabel = Literal["macbook", "devbox", "arch"]
+type AgentLabel = Literal["macbook", "dev-server", "arch"]
 type AgentHandle = Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
-AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v9"
+AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v10"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
 
 

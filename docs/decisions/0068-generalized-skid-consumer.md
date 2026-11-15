@@ -41,4 +41,6 @@ synthetic https host. its real JSON exercises command-only/codex/claude profile
 rows, recovery, displayed quota/footer and the unchanged compact list projection. these are local source/subprocess proof;
 no installed service, provider or fleet acceptance is claimed. independent
 source review and all six disposable groups passed on 2026-10-20; the probes
-were removed before commit. the existing dependency-audit issue remains open.
+were removed before commit. the dependency audit remained open at that point;
+[adr 0072's source qualification](../universal-memory.md#native-memory-rollout-source-qualification)
+subsequently resolves it.

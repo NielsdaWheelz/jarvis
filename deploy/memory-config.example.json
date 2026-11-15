@@ -28,6 +28,16 @@
     },
     {
       "machine": "arch",
+      "account": "claude-work2",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "arch",
       "account": "codex-personal",
       "provider": "codex",
       "controller": null,
@@ -69,6 +79,16 @@
     {
       "machine": "devbox",
       "account": "claude-work",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "devbox",
+      "account": "claude-work2",
       "provider": "claude",
       "controller": null,
       "sharing_authorization": null,
@@ -129,6 +149,16 @@
     {
       "machine": "macbook",
       "account": "claude-work",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "macbook",
+      "account": "claude-work2",
       "provider": "claude",
       "controller": null,
       "sharing_authorization": null,

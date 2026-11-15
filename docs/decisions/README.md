@@ -9,6 +9,13 @@ contracts remain binding; dated evidence remains historical. adr 0065 separately
 owns the current native contract and its temporary integration/live proof; it
 supersedes the affected session, main-loop, host and capacity decisions below.
 
+[adr 0071](0071-simple-event-driven-v2.md) adopts the unimplemented v2 target:
+same main for every event, scheduled todos, private native repo, durable attachments
+and conversational approvals. it supersedes the affected baseline authority,
+approval presentation, scheduling and main-containment portions identified there;
+current implementation evidence remains historical until each new cutover.
+memory's separate adrs 0066, 0067 and 0070 remain unchanged.
+
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted; trace amended by 0010/0019; internal gate added by 0019 |
@@ -76,11 +83,11 @@ supersedes the affected session, main-loop, host and capacity decisions below.
 | [0064](0064-simple-worker-orchestration.md) | simple worker orchestration | implemented design; source, darwin/linux providers, native consent, real postgres crash/recovery and local service/cognitive wait checks pass; installed fleet, external Discord delivery and production activation `NOT_RUN`; supersedes affected 0052 worker contracts and amends notification/concurrency |
 | [0065](0065-native-agent-supervision.md) | native main, canonical requests and durable callback evidence | implemented and merged; frozen worker-v7/native composition qualification PASS; production activation and physical google/discord integration NOT_RUN; replaces main step loop, capacity reservations and file pause state |
 | [0066](0066-optchat-memory-adoption.md) | optchat memory adoption | accepted scoped target; standalone memory library hosted by jarvis, archive/tree/view with ordinary part leaves, bounded tool results, persisted binary views, search/navigation and fresh jarvis turns; native clients stay native; product/schema/integration contracts complete, first-delivery quiet dreaming; implementation/live acceptance `NOT_RUN` |
-| [0067](0067-nexus-owner-chat-memory.md) | nexus owner-chat memory client | accepted distinct backend client; owner-only send/rerun/regenerate grants, complete processor-chain admission and tagged note provenance; sixteen native capture lanes unchanged; source qualification in [memory integration evidence](../universal-memory.md#12-integration-evidence), private provisioning separate |
-
+| [0067](0067-nexus-owner-chat-memory.md) | nexus owner-chat memory client | accepted distinct backend client, complete processor-chain admission and tagged note provenance; retired chat routes and no-capture scope superseded by 0070; historical source qualification in [memory integration evidence](../universal-memory.md#12-integration-evidence) |
 | [0068](0068-generalized-skid-consumer.md) | generalized skid consumer | source adapter removes launch model/effort and reads installed state; installed service-uid access blocked pending separate integration |
-
 | [0069](0069-terminal-only-workers.md) | terminal-only skid workers | v9 source implemented and isolated-qualified; removes worker-native controls and classifies finalized retired envelopes before target decoding; installed cutover separate |
+| [0070](0070-nexus-capture-and-memory-delivery.md) | nexus capture and memory delivery | accepted documentation target; future-only durable nexus exports, explicit source provenance, current functional integration/live proof and temporary per-feature red/green/refactor; usefulness/load, historical import and backup deferred; implementation/activation separate |
+| [0071](0071-simple-event-driven-v2.md) | simple event-driven v2 | accepted documentation target; one main, scheduled todos, conversational consent, ordinary private repo, private originals and existing skid observation; browser/credential products/interactive deliverables deferred; implementation/activation separate |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

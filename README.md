@@ -27,15 +27,22 @@ owns native decoding and dev-server owns collectors/profile configuration.
 canonical requests and receipts commit before recoverable memory projection.
 each new top-level jarvis turn gets a fixed admitted view plus exact operative
 requests/receipts. its active loop and compatible steering stay together. native
-codex/claude/nexus chats manage their own context and choose shared reads; nexus's
-[owner-chat consumer contract](docs/decisions/0067-nexus-owner-chat-memory.md)
-is accepted; its source integration and private provisioning remain in progress.
+codex/claude/nexus chats manage their own context and choose shared reads. the
+[current memory delivery](docs/memory-delivery.md) adds future-only automatic
+capture of the configured owner's nexus librarian runs and completes the live
+jarvis/native/nexus integration paths. durable pending exports survive transcript
+deletion until central acknowledgement; capture adds no revision or deletion sync.
+source implementation, qualification and installed activation remain distinct.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
-production activation, actual fleet installation and seven-day owner acceptance
-remain separate.
+production activation and actual fleet installation remain separate. realistic-load
+and usefulness evaluation belongs to a [later pr](docs/issues/memory-usefulness-evaluation.md),
+as does broader personal acceptance; this delivery adds no backup or history import.
 
-## current product
+## implemented baseline
+
+this section describes source behavior, not proof of installed activation. the
+accepted v2 target below supersedes affected product contracts when implemented.
 
 jarvis converses naturally in discord, uses connected services, and asks for
 approve or deny before consequential external work. originals are permanent;
@@ -47,7 +54,8 @@ main uses native declared host callbacks through `llm-agent-kernel`,
 final dispositions explicitly complete, continue or wait each owner request.
 independent work can continue while an action awaits approval. tools execute
 serially through existing validation, gate, action and read-recorder boundaries.
-new effects still require current owner intent; event-wide autonomy is future work.
+new effects still require current owner intent in this baseline; event-wide
+autonomy is accepted but unimplemented v2 work.
 
 a fresh lease serves each top-level turn. connection or owner loss fences old
 callbacks and recovers original sealed results or fresh reasoning from canonical
@@ -76,13 +84,39 @@ memory_node
 memory_state
 ```
 
+## accepted v2 target
+
+[adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the next product
+contract; this documentation change implements or activates none of it. owner
+messages, connected events, time and skid results reach the same main with its
+full plan. source material remains attributed evidence, not owner speech. main
+chooses useful work, a response or silence through ordinary judgment.
+
+the target removes the separate write gate and read-only wake plan. main asks
+for and interprets approval conversationally, then uses one narrow decision
+callback to reuse the existing action approval/denial transition. remove buttons,
+json previews and exact-human-payload binding; add no consent classifier.
+the existing simple write policy still distinguishes automatic from consent-needed
+tools. executed arguments remain immutable and effect recovery still distinguishes
+confirmed, failed and uncertain outcomes.
+
+one work table holds current work and optional one-time or repeated wakes;
+due dates remain separate. ordinary notes and files live in a private native git
+checkout; inbound attachment originals live in private r2 storage. existing
+asynchronous skid observation delivers an event without repeated model polling.
+browser and credential products, interactive deliverables and a separate ui are
+deferred. the shared-memory delivery remains separate and unchanged; selected
+dream wakes and work-informed dreaming are outside this cut. complete searches
+and budget integration retain their later contracts without adoption here.
+
 ## Authoritative documents
 
-1. [V1 specification](SPEC.md) — normative product and engineering contract.
+1. [specification](SPEC.md) — normative baseline and accepted product targets.
 2. [Architecture](docs/architecture.md) — runtime, component, data, and tool
    boundaries.
 3. [memory](docs/universal-memory.md) — archive, tree/view, retrieval, admission,
-   dreaming, schema and atomic completion contracts.
+   dreaming, schema and atomic completion contracts; [current delivery](docs/memory-delivery.md)
+   owns nexus capture and remaining integration qualification.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
 5. [Roadmap and implementation plan](docs/implementation-plan.md) — the single
@@ -94,8 +128,8 @@ ADR that also updates every affected normative document in the same change.
 
 the [integrated roadmap and plan](docs/implementation-plan.md) brings approved
 product direction, delivery dependencies, open decisions and acceptance together.
-it distinguishes the accepted memory contract from v2 slices still needing their
-own specification. retired v1 plans, qualification reports and the completed cleanup
+it distinguishes accepted memory and v2 targets from implemented source, installed
+behavior and later contracts. retired v1 plans, qualification reports and the completed cleanup
 log live in git history; current contracts and operations remain in the working tree.
 
 ## Status
@@ -145,6 +179,9 @@ temporarily stages one candidate and replaces any abandoned candidate.
 
 ## Explicit non-goals
 
+these describe the implemented v1 scope; adr 0071 adopts the explicitly named
+v2 expansions above, without adopting every later roadmap contract.
+
 - A general multi-user assistant platform
 - A visible society of named agents
 - General subagent delegation or a model-generated program runtime in v1
@@ -158,6 +195,9 @@ temporarily stages one candidate and replaces any abandoned candidate.
   v1
 
 ## Stated trade-offs
+
+the gate, approval and scheduling descriptions below record baseline behavior;
+adr 0071 owns their accepted replacement, not a claim of current runtime behavior.
 
 These are accepted knowingly, not overlooked.
 
@@ -275,6 +315,5 @@ These are accepted knowingly, not overlooked.
 - Some providers cannot prove whether every timed-out external effect committed.
   Jarvis exhausts provider-specific automatic reconciliation first, then records
   terminal `uncertain` and asks the owner to inspect rather than retrying blindly.
-- A one-user system has no second reviewer. The owner is simultaneously the
-  builder, the auditor, and the beneficiary, which instrumentation mitigates and
-  nothing removes.
+- a one-user system has one accountable human operator. independent agent review
+  helps challenge changes; it does not transfer the owner's responsibility.

@@ -3,7 +3,9 @@
 jarvis is one cpython 3.12 process, one postgres database, a separate contained
 native host and one configured discord channel. it hosts the shared memory
 endpoint on loopback; dev-server owns private tailnet routing and native client
-configuration. [universal memory](universal-memory.md) owns the memory contract.
+configuration. [universal memory](universal-memory.md) owns the core contract;
+[current delivery](memory-delivery.md) owns nexus capture and remaining integration
+qualification. historical evidence qualifies only its named artifacts.
 source implementation and isolated qualification do not authorize production
 activation or fleet installation.
 
@@ -20,6 +22,46 @@ complete inventory; incomplete inventory retries without inventing a boundary.
 oversized/conflicting history parks without moving its checkpoint. operator
 status is cli-only. no ongoing backup or separate memory daemon is added.
 
+nexus capture is future-only for new admitted owner-librarian runs. its durable
+pending export retains the approved question/answer, saved citation/attachment
+excerpts and available persisted tool receipts before source deletion can lose
+them. retry delivery with the same identity/content; remove the export only after
+central acknowledgement. source deletion neither deletes central originals nor
+cancels pending delivery. no revision/remove sync or historical import is added.
+reads, optional note saves and capture have distinct grants under the shared
+private declaration. automated helpers and other viewers receive no memory tools.
+
+## accepted v2 target and operational scope
+
+[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts an unimplemented
+product target. this runbook's commands, gate/button approval behavior, read-only
+wakes, exact chat controls and schedule queries describe the existing baseline;
+they are not instructions for an already-installed v2 release. do not change
+live configuration or reinterpret stored receipts from documentation adoption.
+
+the target sends owner, event, time and skid inputs to the same full-plan main,
+with source attribution preserved. main judges work, notification or silence and
+interprets conversational approvals through one narrow action-decision callback.
+the separate model write gate, read-only wake split, buttons, json previews
+and exact-human-payload binding are removed in that target. existing deterministic
+tool policy remains; add no semantic consent classifier. canonical actions,
+immutable executed arguments, original receipts and effect reconciliation remain.
+conversational stop is interpreted by main; operational pause remains host-owned.
+
+optional one-time/repeated wakes belong to work records, replacing separate
+schedule/recurring-wake products. due dates remain distinct. keep the existing
+asynchronous skid observer and separately prove its installed event delivery;
+no new callback service or repeated model polling is proposed. future native
+notes/files require the persistent private checkout; inbound originals require
+private r2 storage. activation must use the eventual qualified artifacts and
+their cutover instructions, reconciling entered effects before incompatible
+changes. this section supplies no new migration command or deployment authority.
+
+the [implementation plan](implementation-plan.md) owns those handoffs. shared
+memory delivery and quiet dreaming remain unchanged. browser/credential products,
+interactive deliverables, a separate ui, selected dream wakes and work context
+remain outside this cut; later search and budget contracts are not adopted here.
+
 ## Approved production target
 
 Slice 7 deployed the exact accepted release as a host-native systemd service
@@ -33,8 +75,9 @@ The dev-server convergence repository owns shared host prerequisites, UTC, the
 service account, and base directories. This repository owns application
 release/rollback, its locked dependencies, credentials,
 database roles and migrations, the systemd unit, and recovery.
-Nexus production state is out of scope even though both systems are owned by the
-same user.
+nexus owns its application state and pending exports; jarvis owns central corpus
+admission. nexus installation remains in its release process, with the cross-system
+receipts required by the [memory delivery](memory-delivery.md).
 
 the [2026-09-08 deployment report in git history](https://github.com/NielsdaWheelz/jarvis/blob/42f1fa21c3d2f687a3f3fafc9366fea41023e0cb/docs/qualification/2026-09-08-production-deployment.md)
 records that release's housekeeping, host qualification and activation, not current
@@ -119,7 +162,10 @@ set `JARVIS_MEMORY_CONFIG_PATH=/etc/jarvis/memory.json`,
 service environment. the nightly time is owner-local. remove
 `JARVIS_DREAM_INTERVAL_SECONDS`; its presence now rejects configuration.
 dev-server generates client/capture credentials and native profile files from its
-single private bundle. keep credentials out of repository files and command output.
+single private bundle. nexus's backend declaration is separate from native profile
+credentials; only its named runtime consumers receive it. qualify current image
+targets and grants, not the retired private-dependency build-secret arrangement.
+keep credentials out of repository files and command output.
 
 The qualified Google client, connector-encryption, Maps, Brave, Discord, and
 embedding settings remain host-owned and never enter model context or the Codex
@@ -206,12 +252,13 @@ controls, and confirms a same-identity process cannot read the non-dumpable
 Jarvis parent environment before accepting the deployment. It tolerates only
 the bounded service-start interval before Python establishes that process-local
 control; no provider connection is opened before the control succeeds. the
-service then receives the non-secret cognition profile/socket view and the
-private skid client file. it receives no provider account-home access.
-`deploy/verify-containment` checks the root cli and mode-0600 jarvis-owned client
-and reads all three peers under the real identity and relevant service restrictions;
-an unreachable host fails it. full gateway bearers replace ssh command allowlists,
-an accepted cost rather than a new credential-scope boundary.
+service receives the non-secret cognition profile/socket view, with no provider
+account-home access. the earlier copied skid client-file path is retired.
+current worker activation remains blocked on
+[live installed-state access](issues/skid-installed-state-access.md); the worker
+verification step refuses until that boundary is implemented and qualified.
+do not treat the historical client-file or three-peer receipt as proof that
+today's service uid can use the enrolled computer's live state.
 
 Do not activate an older release across an incompatible migration. A
 same-schema rollback requires rebuilding with `deploy/install-release <commit>`
@@ -419,8 +466,9 @@ this exception restores no retired suite or unrun production acceptance.
 
 ## shared runtime and fleet control
 
-main retains a compatible live native thread until it ends, is stopped or loses
-its connection/owner. connection loss fences old callbacks, then restarts reasoning
+within one active top-level turn, main retains its compatible native thread until
+that turn ends, is stopped or loses its connection/owner. the next top-level turn
+gets a fresh lease and admitted view. connection loss fences old callbacks, then restarts reasoning
 from canonical requests and durable results in a fresh thread. recorded effects
 remain authoritative; unresolved action/read outcomes retain their barriers.
 provider history is disposable. a sealed original terminal is settled locally
@@ -441,18 +489,18 @@ integration required before installed worker activation. no copied client-json
 reader, second ref codec or fallback transport remains.
 
 the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
-wait/cancel_wait. addressed inputs use short `{machine,handle}`; t-handles select
-terminal mechanisms, c-handles explicit native capabilities. the host captures
-original refs before gate/action admission and retains them through delay/restart.
-native capture preserves the original target separately from observation and
-optional observedRef. matching optional name/profile facts provide consent context;
-terminal loss/reassociation never renews native authority.
+wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v9 accepts
+only `t-` plus 16 lowercase hex digits. the host captures the original terminal
+ref before gate/action admission and retains it through delay/restart. terminal
+loss/reassociation never silently renews that target. worker-native conversation
+handles, history and controls are removed; native cognition and memory archive
+access remain separate capabilities.
 
-terminal send is guarded input for both providers; native claude input remains
-unavailable. start accepts name, cwd, group and literal optional stdin; the configured
+terminal send is guarded input for both providers. start accepts name, cwd, group
+and literal optional stdin; the configured
 profile command owns provider options. model/effort launch fields are rejected. creation/input and interruption/closure facts remain
-independent, including nonzero partial results. native accepted means admitted,
-terminal written means dispatched; neither proves completion. unknown writes
+independent, including nonzero partial results. terminal written means dispatched;
+it proves neither provider acceptance nor completion. unknown writes
 enter once and never replay; conclusive owned receipts settle without re-entry.
 
 wait registration returns watching immediately; a separate durable outcome/event
@@ -485,8 +533,19 @@ uv run jarvis memory status
 ```
 
 status reports all declared/omitted lanes, activation/checkpoints/parks, canonical
-projection backlog, tree frontiers and dream progress. it prints counts and
-identities, never memory text. the shared mcp endpoint has no operator status tool.
+projection backlog, tree frontiers and dream progress. the new nexus capture
+handoff adds central registration/progress here; nexus's own
+`memory-capture-status` and `memory-capture-retry` commands own pending exports
+and parked diagnostics. do not claim those surfaces are deployed before their
+implementation. status prints counts
+and identities, never memory text. the shared mcp endpoint has no operator status tool.
+
+before installation, record selected jarvis/nexus commits, each frozen dependency
+lock and built image digest, then advance dev-server's collector release pin to
+the qualified jarvis artifact. old four-pin equality and old qualification do not
+qualify current consumers. source, artifact publication, installation, capture
+activation and owner resumption require distinct receipts. hard-cut replaced
+paths without rewriting originals or moving activation boundaries backward.
 
 repair and retry only while the service is stopped, after correcting the cause:
 

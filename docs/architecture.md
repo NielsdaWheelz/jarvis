@@ -2,7 +2,9 @@
 
 This document expands [SPEC.md](../SPEC.md). its accepted native cutover and
 [native integration contract](native-agent-integration.md) govern main execution;
-the frozen baseline governs unchanged domain behavior.
+the frozen baseline governs unchanged domain behavior. except for the accepted
+target section below, runtime descriptions record the implemented baseline;
+source implementation, installed activation and future contracts remain distinct.
 
 [universal memory](universal-memory.md) owns the memory implementation contract.
 this branch replaces the old recall/remember loop with a standalone library,
@@ -22,6 +24,39 @@ archive/checkpoint and synthesis-note/reference/leaf/progress changes each share
 one caller transaction. main retains durable effect/read recovery; disposable
 background inference may repeat. supplied context is reference-only, memory-tool
 echoes are content-free, and internal cognition is excluded from capture.
+
+## accepted v2 target
+
+[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts an unimplemented
+event-driven target. owner input, connector events, time and skid outcomes enter
+the same main with the same full plan and honest source attribution. evidence
+does not become counterfeit owner speech. main decides what to do and whether a
+visible response helps; no `notice_policy` field or notification framework owns
+that judgment.
+
+remove the separate `AutomaticWriteGate` and read-only wake plan in this target.
+retain existing `classify_write` for automatic versus consent-needed tools; add
+no semantic consent classifier. main requests and interprets conversational
+approval; a narrow decision callback applies the existing action approval/denial
+transition. the host does not infer semantic consent or bind the owner's words
+to an exact human-approved payload. no buttons or json preview are required.
+validation, immutable executed arguments, current deployment ownership and
+original effect receipts/reconciliation remain host responsibilities.
+
+one work table owns current work and optional one-time/repeated wakes; a due date
+does not itself schedule execution. this replaces separate schedule/recurring-wake
+products. skid's existing asynchronous observation supplies ordinary main events;
+it requires no new callback service or repeated model polling. the private native
+checkout owns mutable notes/files; private r2 storage owns inbound attachment
+originals. native access and connector action recovery remain distinct execution
+domains. conversational stop follows main's interpretation; operational pause
+remains a host control, and entered effects retain settlement obligations.
+
+the detailed contracts own implementation; the
+[implementation plan](implementation-plan.md) owns delivery. shared memory and
+quiet dreaming remain unchanged. selected dream wakes, work-informed dreaming,
+browser/credential products, interactive deliverables and a separate ui are
+outside this cut. later search and budget contracts are not adopted by it.
 
 ## System shape
 

@@ -1,6 +1,9 @@
 # jarvis: roadmap and implementation plan
 
-updated 2026-10-13 after source reconciliation; notes, searches, events, dreamer work context and attachments have focused contracts.
+updated 2026-11-14; simple event-driven v2 adopted by
+[adr 0071](decisions/0071-simple-event-driven-v2.md). shared memory remains a
+separate delivery. notes, searches, events, attachments and budget have focused
+contracts; the selected v2 cut and later work are distinguished below.
 this is the ONE active feature roadmap and delivery plan. native cognition and
 worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
@@ -8,8 +11,9 @@ runtime change, release, deployment or resumption.
 
 [SPEC.md](../SPEC.md) remains normative. the
 [universal-memory contract](universal-memory.md) supplies its accepted schemas,
-apis, bounds and acceptance; other v2 slices still need their owning adr/spec
-changes before implementation. [operations](operations.md) owns deployment and
+apis, bounds and acceptance. adr 0071 adopts the selected v2 feature contracts;
+later search, dreamer-context and budget amendments remain separately scoped.
+[operations](operations.md) owns deployment and
 repair. [adrs](decisions/README.md) preserve rationale; retired delivery checklists,
 qualification reports and completed cleanup logs live in git history.
 
@@ -54,12 +58,15 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 the native cutover has nine application tables: the original six plus three
 native journal tables. accepted universal memory adds six; the later work
-slice adds one, events add two and attachments add one. derive migration dependencies from the actual predecessor;
+slice adds one including scheduling, events add one cursor table and attachments
+add one. there is no separate recurring-wake table. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
 source refresh 2026-10-13: this checkout incorporates merged memory repair
 source and exact dependency pins, preserving pending product contracts in local
-commits. frozen `scripts/verify` passes. remaining repair qualification is in the
+commits. that dated source refresh recorded `scripts/verify` passing; the current
+[dependency audit issue](issues/dependency-audit.md) records the later failure.
+remaining repair qualification is in the
 [integration evidence](universal-memory.md#memory-repair-source-candidate);
 installation and activation remain separate.
 
@@ -75,9 +82,11 @@ direction. current qualification is recorded in [acceptance](acceptance.md#nativ
 
 skid [pr 61](https://github.com/NielsdaWheelz/skidbladnir/pull/61) implements launch
 options/input and concise controls. jarvis [adr 0064](decisions/0064-simple-worker-orchestration.md)
-implements immutable captured targets and asynchronous wait/cancel. the earlier
-correctness defects and adr-number collisions are resolved. these are completed
-source handoffs, not new feature-spec assignments.
+introduced immutable captured targets and asynchronous wait/cancel. current
+[adr 0068](decisions/0068-generalized-skid-consumer.md) uses live installed state
+and profile-owned provider options; [adr 0069](decisions/0069-terminal-only-workers.md)
+owns terminal-only worker v9 and its isolated source proof. those completed
+source handoffs do not need another worker-protocol specification.
 
 production activation remains separate. the last recorded jarvis state is stopped
 and paused; this reconciliation inspected no running service. dev-server's exact
@@ -98,7 +107,7 @@ its own explicitly selected capability.
 | native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
-| private memory build access | jarvis/nexus ci and the stopped jarvis builder require separately provisioned library read access; local frozen fetch/build and credential-free image/cache checks pass; [handoff](issues/private-memory-build-access.md) |
+| current memory artifacts | qualify current public dependency fetch and clean anonymous nexus image targets; retired private-build-secret provisioning is removed; [image handoff](issues/nexus-memory-image-qualification.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
 
 these are independent release, repair or policy tasks, not another prerequisite
@@ -115,28 +124,57 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 
 | feature | contract / specification work | owner and dependencies |
 | --- | --- | --- |
-| one main for every event (o6) | owner choices settled in [contract](one-main-events.md); spec/adr adoption and implementation due | jarvis; builds on native main; source adapters remain separate |
-| useful work records (o7) | mutable todos/physical deletion settled in [contract](work-records.md); adoption/implementation due | jarvis; one bookkeeping table |
-| delegated follow-through (o9) | owner settled agent judgment/semantic stop in [contract](delegated-follow-through.md); adoption/implementation due | jarvis; o6 plus installed worker control; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | core source and repair source implemented, including first-delivery dreaming and the distinct nexus owner-chat client; repair qualification and private installation remain | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
-| private notes and rolodex | owner choices settled in [contract](private-notes-and-rolodex.md); adoption/implementation due | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
-| complete and continuable searches | owner choices settled in [contract](complete-and-continuable-searches.md); adoption/implementation due, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; bounded pages/chunks without total application ceilings |
-| event sources, suggestions and recurring work | owner choices settled in [contract](event-sources-and-recurring-work.md); adoption/implementation due, including selected dream wakes | jarvis; o6, complete-search references, o7 for daily review and memory for dreaming |
-| dreamer work context | focused [contract](dreamer-work-context.md) written; adoption/implementation due; suggestion delivery belongs to the event contract | jarvis; m3 and o7; one work query and run-local context, not summary evidence |
-| attachments and durable originals | owner choices settled in [contract](attachments-and-durable-originals.md); adoption/implementation due | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
-| budget integration | fresh budget-api audit and source-linked ingestion/replay contract due | jarvis plus budget-app; durable receipt originals before the full upload journey |
+| one main for every event (o6) | [contract](one-main-events.md) adopted by 0071; full event authority and conversational consent unimplemented | jarvis; builds on native main; source adapters remain separate |
+| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos with optional one-time/repeated wakes unimplemented | jarvis; one table and existing timer |
+| delegated follow-through (o9) | [contract](delegated-follow-through.md) adopted by 0071; ordinary agent judgment/semantic stop unimplemented | jarvis; o6 plus installed skid observation; o7 supplies optional bookkeeping |
+| universal memory (m1–m5) | core/repair source implemented; accepted [completion contract](memory-delivery.md) adds future-only nexus capture, compactor content repair and all current functional integration/live proof; installed activation separate | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
+| private notes and rolodex | [contract](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
+| event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
+| attachments and durable originals | [contract](attachments-and-durable-originals.md) adopted by 0071; unimplemented | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
+| complete and continuable searches — later | settled [contract](complete-and-continuable-searches.md) retained; adoption/implementation separate, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; deliver only necessary source/attachment references within the selected v2 slices |
+| dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
+| budget integration — later | settled [contract](budget-integration.md) retained; full bookkeeping authority and larger originals need separate adoption/implementation | jarvis plus budget-app; existing ledger/api, private object storage and attachment/native-reading prerequisites |
 
-preserve orchestration priority: adopt and implement the settled o6/o7/o9 contracts.
-prepare memory's external handoffs alongside them;
-m2–m4 can develop against agreed public contracts while m1 and host work proceed.
-notes, search, events, dreamer work context and attachments have focused contracts; budget follows in its
-dependency order. the work view and delegated follow-through do not wait for full
-memory; native callbacks alone do not provide archive capture.
+the work view and delegated follow-through do not wait for full memory. its
+separate pr retains its own source/integration handoffs and stopped cutover.
+do not respec completed foundations or reconstruct memory's superseded adr chain.
 
-accepted direction is not an accepted schema or authority change. write missing
-contracts before their implementation; do not respec completed foundations or
-reconstruct memory's superseded adr chain. memory's review units converge on one
-stopped schema/legacy cutover, without an old/new runtime fallback.
+### v2 reviewable pr slices
+
+these are proposed implementation boundaries, not opened prs or deployed work.
+each completes useful behavior and its proportionate checks; upstream changes
+stay in the repository that owns their public interface.
+
+land this documentation first. then, for each slice, audit and finish its one
+owning spec against the actual current source; hand that spec to an implementation
+agent; review the diff and evidence, resolve gaps and land the implementation.
+prepare the next spec against that updated system. refine existing feature
+contracts in place rather than introducing parallel work orders.
+
+| order | review unit | completion and dependency |
+| --- | --- | --- |
+| 1 | common main and conversational consent | o6/o9 source/native composition: every current event gets the same plan; remove model gate, source restrictions, component approval and chat-stop interception; installed worker-dependent outcomes are proved in 3 |
+| 2 | todos and scheduled turns | o7: CRUD, optional one-time/repeated wake, atomic publication and reminder cutover; compose with 1 before replacing the old schedule path |
+| 3 | installed skid follow-through | resolve the existing service-state access boundary, use current terminal-only start/control/wait and prove installed asynchronous result/restart delivery; depends on 1 and matching artifacts, not a new worker protocol |
+| 4 | ordinary private repo | notes: minimal kernel/provider native-access handoffs, persistent checkout, native files/git and small file deliverables; isolated memory roles retain their existing posture |
+| 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
+| 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
+
+independent investigation of 4's upstream needs and 6's source interfaces may
+proceed alongside earlier units; finalize their specs after prior work lands.
+1 and 2 may be reviewed separately but share the reminder/authority cutover;
+never leave a deployed gap between retiring schedules and admitting todo wakes.
+3 reuses existing observation source and is installation/repair work unless proof
+exposes a missing primitive. source review of 1 does not claim installed o9
+acceptance; 3 supplies its fleet/discord/restart evidence before that behavior is
+called delivered. no implementation, live test or cutover is performed
+by this documentation update.
+
+v2 includes ordinary progress, blocker questions, approvals and completed results
+inside these journeys. it does not add standalone components for them. approval
+meaning is main's judgment; reuse the existing action decision transition, with
+no exact-prose matching or additional consent system. defer browser control, new
+credential handling, interactive deliverables/television and a separate ui.
 
 ## external specifications and handoffs
 
@@ -149,20 +187,23 @@ facts; writing this roadmap sends no assignment to another agent.
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
 | skid | publish the terminal-only generation and its immutable artifact | [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md), [worker v9](decisions/0069-terminal-only-workers.md); source implemented, release handoff due |
-| skid, search | page worker inventory and retained native/terminal text before response fencing; consume provider-owned archive/history codecs | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); bounded consumer handoff prepared, not handed off/implemented; existing m1 provider handoff supplies history primitives |
+| skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
 | dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
 | llm-calling (`provider-runtime` package), notes | native built-ins plus declared callbacks in one session, both declared authority postures and host qualification | [notes public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); bounded handoff prepared here, not handed off or implemented |
 | kernel, notes | frozen application-owned cwd/native configuration, retained checkout lifecycle, native activity alongside host callbacks | [notes public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); bounded handoff prepared here, not handed off or implemented; no llm-tools change |
 | jarvis deployment owner on dev-server, notes | persistent private checkout, ordinary git authentication, host permissions and hard-cut host mapping | [notes deployment contract](private-notes-and-rolodex.md#public-contracts-and-deployment); source changes stay in jarvis's existing deploy files; operator bootstrap/install remains separate |
-| memory library | standalone postgres archive/tree/view/search package, hosted by jarvis; public operations and atomic capture/checkpoint seam; uncapped ranked search amendment | [memory contract](universal-memory.md) owns the implemented core; [repair evidence](universal-memory.md#memory-repair-source-candidate) owns current pins and remaining qualification; [search amendment](complete-and-continuable-searches.md#uncapped-ranked-memory) is the settled next target, requiring adoption before implementation |
+| memory library | existing archive/tree/view/search; add explicit nexus source values and atomic export append/duplicate proof through shared insertion primitives | [core](universal-memory.md), [completion handoff](memory-delivery.md#non-overlapping-implementation-boundaries); uncapped ranked [search amendment](complete-and-continuable-searches.md#uncapped-ranked-memory) remains a separate delivery |
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
 | llm-tools, search | portable web-search paging/provider boundaries and complete supported extracted-text chunks, retaining web safety | [search surface contract](complete-and-continuable-searches.md#exact-surface-changes); bounded handoff prepared, not handed off/implemented; no kernel redesign |
-| nexus-web | owner's chats only: client of the same hosted memory endpoint, account admission, chat tool bindings and credential/private connectivity integration; no automated-helper grants | [nexus memory handoff](issues/nexus-memory-client.md); distinct owner-chat contract accepted in adr 0067; source `5b282f2ec35a7624140a5935acc7a8d9b33b8524` frozen and qualified; private provisioning separate |
+| budget-app | broaden existing write authority to all bookkeeping, reuse shared planner calculation through an api, and support independent originals up to 100 mib through private r2 | [budget api handoff](budget-integration.md#budget-api-handoff); fresh `7b7a9c2` source audit complete; bounded handoff prepared, not assigned or implemented |
+| budget deployment owner and dev-server | budget private bucket/cors/storage secrets; jarvis configured budget origin/owner/read/write credentials and native cache access | [budget delivery](budget-integration.md#nonoverlapping-delivery-and-hard-cutover); provisioning and installed qualification remain separate |
+| nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); accepted adr 0070 target, source implementation and current-route qualification remain |
 
-memory qualification/pins in the handoff table describe the 2026-10-09 baseline.
-the [repair evidence](universal-memory.md#memory-repair-source-candidate) owns the
-2026-10-13 pins and remaining acceptance.
+existing memory qualification describes the 2026-10-09 baseline and
+[2026-10-13 repair source](universal-memory.md#memory-repair-source-candidate).
+it does not qualify current nexus, the new capture target or installed clients.
+dev-server additionally owns the new capture declaration/publisher credential.
 
 downstream jarvis code consumes the published public surfaces and qualified pins;
 the external agents do not own jarvis authority, work state or continuation.
@@ -174,20 +215,18 @@ there is no further generic kernel/skid orchestration redesign in this roadmap.
 one mcp server lives inside jarvis. dev-server configures native codex/claude
 clients and installs the capture collectors; it does not implement another memory
 server. nexus's application agents require their own client bindings, distinct
-from developer agents working in the nexus repository. its access handoff does
-not implicitly add nexus application-conversation capture.
+from developer agents working in the nexus repository. adr 0070 explicitly adds
+its distinct account-owned capture source; the sixteen native/jarvis lanes remain.
 
 ## orchestration delivery
 
 ### o1–o2: fleet launch
 
-o1 is implemented. skid start accepts machine/profile, provider-compatible raw model/effort,
-cwd and optional freeform initial prompt. profile determines provider/account;
-provider convenience selection must resolve a compatible profile. keep one launch
-configuration declaration; explicit model/effort fields override native account
-defaults and omitted fields preserve them. no extra skid profile-default layer.
-jarvis chooses the machine/profile. unsupported pairs fail;
-no capability tiers, hidden model substitution or shell interpolation.
+o1 is implemented. current worker v9 start accepts machine/profile and optional
+name/cwd/group/freeform initial prompt. the configured profile command owns
+provider/account/model/effort; creation has no model/effort overrides. jarvis
+chooses an available machine/profile. preserve one launch configuration owner,
+literal input and explicit refusal for unsupported targets.
 
 skid owns readiness and initial prompt submission. preserve the created terminal
 ref if submission fails or is unknown; never relaunch after ambiguous creation.
@@ -195,7 +234,7 @@ creation, submitted prompt and completed work are distinct facts. retain ordinar
 start without a prompt. dev-server pins the immutable release/configuration and
 verifies the intended artifact on each peer without replacing jarvis cognition.
 
-source qualification covers literal prompts, defaults/overrides and inspectable
+source qualification covers literal prompts, configured profiles and inspectable
 partial launch without replay. o2 still publishes/pins/installs the coordinated
 artifact and records each peer's installed identity. use the existing fleet
 release contract; no additional launch design is due.
@@ -269,17 +308,16 @@ resumption remain operational work; this plan resumes no stopped service.
 
 ### o6: one main for every event
 
-the proposed [o6 implementation contract](one-main-events.md) specifies schemas,
-authority, selective notices, lifecycle, hard cutover and temporary acceptance.
-it supersedes this outline's details when adopted by spec/adr; no runtime change
-is implied by this document.
+the [o6 implementation contract](one-main-events.md), adopted by adr 0071, owns
+common input, ordinary conversational consent, lifecycle and stopped cutover.
+source implementation and installed qualification remain outstanding.
 
 owner messages, action results and scheduled wakes receive the same main tools
 and approval rules. background origin alone is not read-only and need not invent
 fresh owner input or obtain a new standing instruction. jarvis may initiate
 ordinary work and schedules, or do nothing. consequential effects still await
-exact-action approval; do not add another permission conversation before preparing
-that approval. source identity stays honest and cannot elevate permissions.
+owner consent interpreted in conversation; clear prior consent need not be asked
+again. source identity stays honest; an external fact is not owner consent.
 
 replace current-owner-only write grounding, the read-only wake plan and affected
 action lineage together in the authority adr. preserve immutable arguments,
@@ -287,8 +325,9 @@ classification, reconciliation and stop. define the common entry path for worker
 results, email and internal suggestions; migrate supported sources now. new
 source adapters/cursors belong to later source slices, not a second event engine.
 
-specify visibility: ambient events may be silent; requested reminders, action
-outcomes, failures and approval requests need an explicit notification contract.
+main chooses useful progress, blocker questions and results in ordinary prose;
+routine events may be silent. no notice-policy field or separate notification
+feature. verify that requested reminders and useful outcomes actually reach the owner.
 compatible input steers the live native turn; incompatible input queues durably;
 conversational stop uses main's judgment as specified by o9. equal authority does
 not itself implement email ingress.
@@ -299,8 +338,8 @@ cannot change authority; unrelated input remains serviceable during a long run.
 
 ### o7: one work table and four attention states
 
-the proposed [work-record contract](work-records.md) owns schema, CRUD tools,
-content and temporary acceptance. owner decisions: mutable current rows,
+the accepted [work-record contract](work-records.md) owns schema, CRUD tools,
+optional scheduling, content and focused acceptance. owner decisions: mutable current rows,
 physical deletion, agent-managed bookkeeping. one table covers todos, projects,
 commitments and things to track; jarvis manages records automatically.
 
@@ -312,33 +351,38 @@ commitments and things to track; jarvis manages records automatically.
 | backlog | lightweight capture; do not pre-plan everything |
 
 the same state field adds done/cancelled outside the active view. title/content,
-optional due date and ordinary identity/timestamps suffice. owners, blockers,
-estimates and refs stay prose. no history, tombstones or separate lifecycle.
+optional due date, next wake/repeat and ordinary identity/timestamps suffice.
+due date is a deadline; a wake starts a turn. owners, blockers, estimates and
+refs stay prose. no history, tombstones or separate lifecycle.
 
 reuse an item for the same work; no row for each specialist. changing/deleting
-records does not stop workers or cancel actions/wakes. attention states inform
-agent judgment; recurrence owns daily review. later dreamer integration
-uses ordinary reads. [work-state record](issues/work-state-semantics.md) tracks
-spec/adr adoption and implementation evidence.
+records does not stop workers or cancel pending effects. completing/cancelling/
+deleting the todo disables its future wakes; already-published inputs remain.
+attention states inform agent judgment. daily review is an ordinary repeating
+todo. [work-state record](issues/work-state-semantics.md) tracks implementation
+evidence; later dreamer work context is outside this cut.
 
 exit: automatic CRUD persists across restart; active views obey the four states
 and three-next-up cap; deletion physically removes the row; old callbacks cannot
-recreate it. no execution machinery is added to this todo-table slice.
+recreate it. a due wake publishes context once across restart and never implies
+task completion; missed recurrence coalesces. no workflow controller is added.
 
 ### o8: richer start and asynchronous wait
 
-[contract](worker-launch-observation.md) consolidates accepted [adr 0064](decisions/0064-simple-worker-orchestration.md):
-optional launch input/options, short targets with immutable private capture,
-bounded inspection/control and durable nonblocking wait/cancel. source and scoped
-provider/postgres/service/cognitive checks are complete; [qualification](native-agent-integration.md#qualification)
-owns evidence. o6 owns broader event authority/notices; o7 records and o9
+[contract](worker-launch-observation.md) consolidates current
+[adr 0069](decisions/0069-terminal-only-workers.md): optional launch input,
+terminal targets with immutable capture, bounded terminal inspection/control and
+durable nonblocking wait/cancel. v9 isolated source proof is complete; earlier
+[native qualification](native-agent-integration.md#qualification) describes its
+recorded predecessor only. o6 owns broader event authority; o7 records and o9
 discretionary follow-through remain separate.
 
-remaining: publish/install paired artifacts, replace dev-server's retired pause
-file guard with the qualified target release's public `check-paused`, prepare
-native state before that check, then qualify installed observation and actual
-delivery. [cli cutover](issues/skid-terminal-flags.md) and [wait acceptance](issues/agent-wait.md)
-own blockers. no worker protocol redesign or new table.
+remaining: resolve [live installed-state access](issues/skid-installed-state-access.md)
+under the jarvis service uid, install matching artifacts through the existing
+stopped release path, then qualify observation and actual delivery. the old
+private-client/file-pause installer design is retired. [cli cutover](issues/skid-terminal-flags.md)
+and [wait acceptance](issues/agent-wait.md) own remaining evidence. no worker
+protocol redesign or new table.
 
 exit: coordinated installed launch/control; register, serve another owner message,
 receive one deduplicated later observation, repeat across restart. preserve
@@ -355,7 +399,7 @@ and ordinary tool actions. no work controller, links, eligibility or stop guaran
 
 o5/o6/o8 provide the machinery; o7 supplies useful bookkeeping. implementation is
 main content/composition plus removal of exact chat-stop interception. keep
-deployment controls and exact connector approvals. exit: useful delegated results
+deployment controls and ordinary conversational consent. exit: useful delegated results
 integrate across events/restart, ordinary stop reaches main, and claims match
 original receipts/evidence. no new library or worker protocol.
 
@@ -387,8 +431,8 @@ supporting references into the shared tree. prior dreams can be retrieved but
 create no new seeds. nightly idle runs start from a bounded tree view of eligible
 new material since successful progress; missed days and late capture stay pending.
 saving is quiet under the accepted core; ordinary turns may surface findings.
-the [event contract](event-sources-and-recurring-work.md) separately adds optional
-selected-finding wakes after its spec/adr adoption; it does not silently change m3.
+selected-finding wakes are deferred outside the adr 0071 cut; the
+[event contract](event-sources-and-recurring-work.md) does not change m3.
 each bounded run also receives a small random sample of older original events/
 explicit notes for optional exploration; shared search ranking is unchanged.
 the closed output/progress contract is complete. implementation
@@ -396,6 +440,11 @@ proceeds in dependency order, but a core-only release does not complete this
 delivery. use the [contract](universal-memory.md), not duplicated schema/api prose here.
 ordinary algorithm defaults and resource tuning need coherent implementation
 contracts, not a separate owner decision for every parameter.
+
+the accepted [completion contract](memory-delivery.md), adopted by
+[adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md), adds future-only
+nexus capture and current functional proof. it owns the exact schema/api/content
+delta; the units below describe the existing core, not new implementation work.
 
 | unit | implementation boundary / done when |
 | --- | --- |
@@ -409,8 +458,9 @@ m1–m5 source boundaries and isolated checks are complete for the 2026-10-09
 baseline, including first-delivery dreaming and nexus's owner-chat consumer. the
 [integration evidence](universal-memory.md#12-integration-evidence) owns exact
 pins and qualification; the [repair record](universal-memory.md#memory-repair-source-candidate)
-owns the later repairs. actual fleet install/admission, private client/build
-credentials and production cutover remain operational handoffs.
+owns the later repairs. the completion delta remains unimplemented. actual fleet
+install/admission, private client/capture credentials and production cutover
+remain operational handoffs.
 
 m2–m4 follow the completed product and engineering contracts. use one serial
 compactor and existing postgres/process; no separate daemon or durable job ledger.
@@ -427,34 +477,32 @@ no backup platform, native-memory disablement or automatic history import. full
 acceptance includes all declared hosts/profiles; disabled/unqualified lanes are
 reported, not passed off as universal coverage.
 
-### memory repair delivery
+### memory completion delivery
 
-[repair contract](memory-repairs.md) owns behavior, files and acceptance for the
-current review findings. source fixes and isolated qualification only; production
-installation/activation remain separate. no schema/service or unrelated feature
-expansion. source repairs use current-main worktrees with preserved owner documents.
-the source candidate and blocked qualification are recorded in the memory
-[integration evidence](universal-memory.md#memory-repair-source-candidate).
+[completion contract](memory-delivery.md) owns the bounded nexus schema/transport,
+content, files and acceptance. [repair contract](memory-repairs.md) retains the
+presentation/codec/client guarantees. production installation/activation remain
+separate. preserve owner changes and current consumer dependency compositions.
 
-1. freeze the corrected presentation/codec/client contracts and write temporary
-   red integration cases against the actual reviewed paths. each boundary gets a
-   content designer and independent adversarial review before implementation.
-2. implement in parallel without shared-file writes: presentation writer owns
-   tools/kernel/library rendering; capture writer owns provider codecs; nexus
-   writer owns its client/build wiring. the jarvis integration lead owns host
-   context/order, stopped repair and package/consumer pins/locks/manifests; other
-   writers leave those files to that lead. dev-server owns the later fleet pin.
-3. compose immutable tools/provider pins into kernel and memory, then those
-   qualified pins into jarvis/nexus. propagate exact dependency and role fingerprints;
-   upgrade no unrelated model/library. prove green end-to-end, refactor at the
-   responsible boundary, and repeat only checks justified by changes/concerns.
-4. qualify final artifacts with synthetic postgres/mcp/native/compose probes,
-   complete affected static/build checks and the audit, delete new temporary
-   tests/helpers, and record results/gaps in existing evidence/issue records.
-   dev-server then advances its collector release pin to the qualified jarvis
-   artifact and verifies source preparation; no fleet apply or private provisioning.
-5. close only proved-resolved review issues. hand off exact artifacts, remaining
-   private installation/client/fleet checks and activation instructions separately.
+1. adopt bounded handoffs in the owning repositories. designers supply schema
+   examples; independent reviewers challenge admission, content and failure
+   boundaries. freeze shared source values before adapters diverge.
+2. write temporary red end-to-end/live cases for missing behavior; preserve
+   already-green core cases. use the completion contract's non-overlapping
+   library, jarvis-capture, jarvis-cognition, nexus, fleet and integration owners.
+   cognition repair can proceed while capture owners implement the shared seam.
+3. compose one qualified memory pin into current consumers. the integration lead
+   alone owns shared locks/manifests/composition; do not downgrade nexus to the
+   october stack. propagate exact role/dependency fingerprints and remove replaced
+   paths. prove green, independently review, refactor and recheck affected behavior.
+4. prove every current api/mcp operation and actual jarvis/native/nexus journeys,
+   including the durable export failure matrix. complete static/build/audit gates.
+   independently review cleanup, then delete only new temporary probes/helpers.
+   record exact artifacts, commands, results and gaps in existing evidence/issues.
+5. prepare the exact fleet/client/image handoff. installation and production
+   activation stay separately authorized; each selected installed host/client
+   must pass its live smoke before claiming universal delivery. broader
+   [usefulness/load evaluation](issues/memory-usefulness-evaluation.md) is a later pr.
 
 no production v1 capture exists; use clean task-owned v2 qualification state.
 discovering real old capture blocks cutover rather than authorizing reset/backfill.
@@ -490,10 +538,9 @@ merge order.
 
 ## subsequent product slices
 
-these are approved direction; notes/search have focused contracts, the others still
-need design. none is a prerequisite for delegation or initial universal memory.
-adopt each focused contract before implementation; do not turn every open question
-into present code.
+these have focused contracts. notes, attachments and event sources are adopted
+v2 work; search, dreamer context and budget remain later scoped amendments.
+none is a prerequisite for delegation or initial universal memory.
 
 ### private notes repository and rolodex
 
@@ -502,11 +549,11 @@ private github checkout: native read/create/edit/move/delete and search; agent-c
 commit/pull/push. advisory folders hold briefs, procedures, research, drafts and
 one prose document per person. no notes service, schema or sync worker.
 
-main becomes a trusted native domain; connector `Approve`/`Deny` governs connector
-calls only. this explicitly replaces the earlier confined-access direction.
+main becomes a trusted native domain; conversational connector consent governs
+connector calls only. this replaces the earlier confined-access direction.
 kernel/provider mixed native-callback support and borrowed cwd lifecycle are
-bounded upstream work, not already supplied by the current pins. adopt the
-authority amendment and qualify the same dedicated host before activation.
+bounded upstream work, not already supplied by the current pins. adr 0071 adopts
+the authority amendment; qualify the same dedicated host before activation.
 ordinary git history/relative links have no synchronization or stable-link
 guarantee. memories/work/documents link without mirroring current task state.
 
@@ -527,37 +574,37 @@ provider history. adopt the affected contracts and hard-cut their old schemas.
 
 ### event sources, suggestions and recurring work
 
-[contract](event-sources-and-recurring-work.md) owns the settled 2026-10-09 target:
+[contract](event-sources-and-recurring-work.md) owns the accepted v2 target:
 new incoming mail including archived mail; all readable calendar changes and
 approximate upcoming attention; one-minute polling; simple recurring schedules
-with coalesced missed runs; and a quiet daily 09:00 active-work review.
-two small tables hold source cursors and recurring wakes. existing one-shot
-reminders, worker waits, main, authority and receipt paths are reused.
+with coalesced missed runs; and an ordinary daily 09:00 review todo.
+one new table holds source cursors; the work table owns all one-time/repeated
+wakes. reuse the timer, worker waits, main and receipt paths.
 
-useful dream findings may nominate one newly saved note to wake main; note append,
-seed progress and the canonical input commit together. this expressly supersedes
-memory's quiet-only completion after adoption. synthesis references create no new
-dream seed; semantic novelty remains agent judgment. no new suggestion generator,
-controller or per-work execution gate. main chooses action/notification/nothing.
+trusted internal producers can use the same append with actual source identity.
+selected dream wakes remain deferred; memory's quiet completion is unchanged.
+no new suggestion generator, controller or per-work execution gate. main chooses
+action, notification or nothing.
 disable/cancel stops future publication; already published work remains ordinary
 main context. implement source adapters independently of the later work projection.
 
 ### dreamer work context
 
-the [contract](dreamer-work-context.md) adds one shared work query and a dated,
+outside this v2 cut, the [contract](dreamer-work-context.md) proposes one shared work query and a dated,
 bounded prompt section after m3 and o7. doing now, blocked and next up guide
 attention; omit backlog and disclose record/content omissions. freeze context
 for one invocation; later attempts read current state. preserve personal,
 scientific and creative dreaming and m3's settled evidence/output contract.
 main rechecks current work before dependent action. no new tool, table,
-scheduler or work-triggered dream; daily review and selected-note delivery keep
-their existing owners. query failure uses the ordinary dream failure policy.
+scheduler or work-triggered dream. daily review belongs to ordinary scheduled
+todos; selected-note delivery is deferred. query failure uses the ordinary dream
+failure policy. neither amendment is part of the separate memory pr.
 
 ### attachments and original storage
 
 the [contract](attachments-and-durable-originals.md) settles automatic owner
-discord capture, gmail on fetch, indefinite private r2 originals and exact-approved
-file deletion. one table holds source identity/bytes/hash; ordinary native tools
+discord capture, gmail on fetch, indefinite private r2 originals and file deletion
+with conversational consent. one table holds source identity/bytes/hash; ordinary native tools
 and installed utilities read images, pdf, text, docx and csv. no reader ui,
 extraction pipeline or multimodal wire redesign. notes' trusted-native cutover
 and dev-server storage/cache/utility setup remain prerequisites.
@@ -569,23 +616,25 @@ memory. budget accounting and outgoing file sharing remain separate.
 
 ### budget integration
 
-when specifying this slice, **spawn the owner-requested subagent** to inspect the
-current budget repository/api/ingestion surfaces. do not reuse the stale claim that
-it only supports load/save, or expose private finance data/credentials. this is a
-specific investigation requirement, not a mandatory runtime agent procedure.
+the [contract](budget-integration.md) follows the owner-requested independent
+audit of freshly pulled budget-app `7b7a9c2`. its ledger, evidence inbox,
+reports, revision checks and durable command api already exist. jarvis adds typed
+tools and uses those owners; no competing financial table, arithmetic or importer.
 
-the budget app owns records, arithmetic and reconciliation. define supported
-reads/writes, duplicate handling, source-linked receipts, ambiguity/correction and
-replay. journey: upload → retain original → extract → record expense once through
-its actual api → linked confirmation. expense bookkeeping does not authorize a
-payment; consequential financial actions keep the defined approval boundary.
-no competing ledger in notes or memory.
+the owner selected full automatic bookkeeping, including plans, manual entries,
+corrections/voids and evidence repairs, plus attachment-compatible formats and
+100-mib originals. budget broadens its existing write credential, exposes its
+shared planner calculation and replaces bytea/base64 with independent private r2
+originals. payments, bank access and currency conversion stay outside this slice.
+budget originals survive jarvis attachment deletion. exact command replay and
+current financial truth remain distinct; preserve receipts and revisions.
 
 ### deferred from universal memory
 
 separately specify historical imports (pre-activation lanes, legacy codex homes,
 old canonical jarvis messages and old-note lineage), including deduplication,
-provenance, extraction cost and order; off-machine backup; and disabling or
+provenance, extraction cost and order; nexus historical import; backup/restore;
+broader [usefulness/load evaluation](issues/memory-usefulness-evaluation.md); and disabling or
 reconciling native automatic memories. retained native history preserves an import
 opportunity, not proof of capture. preserve existing messages/notes in the meantime.
 
@@ -593,6 +642,12 @@ forgetting/exclusion is outside the prototype and is not promised v2 work.
 automatic external context injection was rejected, not deferred; future push
 would require a new authority design. learned reranking may be reconsidered only
 from measured retrieval failures; keep one current ranking path.
+
+browser control, new credential handling/brokering, interactive deliverables,
+credential-entry forms and television/artifact hosting are explicitly deferred
+from v2. small prose/file outputs use the ordinary repo and existing access.
+progress, blockers and completed results are not deferred features: they are
+ordinary main behavior, with no separate subsystem.
 
 other earlier ideas remain uncommitted/outside this delivery: extra discord
 channels, api-backed cognition, a separate application program-execution api, selected
@@ -610,16 +665,16 @@ intent merely because their implementation is incomplete.
 | feature or cutover | remaining decision / evidence owner |
 | --- | --- |
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
-| o6 | owner choices settled in [contract](one-main-events.md); authority/spec adoption and focused implementation proof remain |
-| o7 | owner choices settled in [work-record contract](work-records.md); table/spec/adr adoption and focused implementation proof remain |
+| o6 | [contract](one-main-events.md) adopted by 0071; common input/authority, conversational consent and focused implementation proof remain |
+| o7 | [work-record contract](work-records.md) adopted by 0071; todo/schedule implementation and focused proof remain |
 | o8 | [contract](worker-launch-observation.md) and adr 0069 own terminal-only v9; source qualified; separate service-state access decision, paired installed cutover and external delivery remain |
-| o9 | owner decisions settled in [contract](delegated-follow-through.md); behavior/spec adoption and chat-stop cutover due |
-| new event sources | owner choices settled in [contract](event-sources-and-recurring-work.md); tables/tools/spec adoption, polling/recurrence and selected-dream proof remain |
-| m1–m5 | source merged upstream; reconcile checkout, resolve current memory-review findings, provision private build/client access and qualify installed fleet/admission/cutover |
-| notes | owner choices settled in [contract](private-notes-and-rolodex.md); authority adoption, kernel/provider handoffs, persistent checkout and live native/git proof remain |
+| o9 | [contract](delegated-follow-through.md) adopted by 0071; content/composition and chat-stop cutover due |
+| new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; cursor/adapters and same-main proof remain; recurrence belongs to o7, dream wakes deferred |
+| m1–m5 | core source merged; implement [completion delta](memory-delivery.md), qualify every current functional route, then provision client/capture access and qualify installed fleet/admission/cutover |
+| notes | [contract](private-notes-and-rolodex.md) adopted by 0071; kernel/provider handoffs, persistent checkout and live native/git proof remain |
 | search | owner choices settled in [contract](complete-and-continuable-searches.md); full message text, uncapped ranked memory, library/skid handoffs and cross-turn page/chunk proof remain |
-| attachments | owner choices settled in [contract](attachments-and-durable-originals.md); table/ingress/tool adoption, private storage/native setup and live file journeys remain |
-| budget | fresh budget api audit and ingestion contract |
+| attachments | [contract](attachments-and-durable-originals.md) adopted by 0071; table/ingress/tools, private storage/native setup and live file journeys remain |
+| budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |
 
 [adr 0046](decisions/0046-reset-testing.md) remains in force. run `scripts/verify`
 for static/build checks; do not claim behavioral acceptance from it. native and
@@ -640,9 +695,9 @@ integrated acceptance journeys, when their owning verification is authorized:
 - a native connection is lost: fence stale callbacks, reconcile recorded connector effects and recover
   requests with original receipts; fresh reasoning sees latest owner intent,
   including semantic stop, without repeating unknown effects.
-- an email or memory-role suggestion may create useful work without forged owner
+- an email or trusted internal event may create useful work without forged owner
   input; irrelevant input creates no make-work; consequential connector communication still
-  waits for exact approval.
+  uses conversational consent.
 - main edits useful project/person documents through native tools and chooses
   ordinary git operations; checkout/dirty changes survive lease loss and native
   effects are inspected rather than blindly replayed.
@@ -654,8 +709,8 @@ integrated acceptance journeys, when their owning verification is authorized:
 - a receipt survives as an addressable original and becomes one source-linked
   expense through the budget app, including repeated delivery and correction.
 
-promote slices through their own adr/spec changes, exact pins and removal of old
-paths. inspect shared-library impact. qualify transport, then effect durability,
+implement adopted slices through exact pins and removal of old paths; adopt
+later amendments separately. inspect shared-library impact. qualify transport, then effect durability,
 then authority, then restart/stop behavior. preserve existing user work. stop
 admission and reconcile outstanding effects before incompatible pins/migrations;
 code rollback never reverses external effects or new canonical data. use the

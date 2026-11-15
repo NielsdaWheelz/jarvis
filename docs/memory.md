@@ -2,8 +2,10 @@
 
 [universal memory](universal-memory.md) is the accepted contract and the source
 implementation in this branch. production activation and external client
-qualification are separate. the [delivery plan](implementation-plan.md#memory-delivery)
-owns remaining repository handoffs; [operations](operations.md#memory-operations)
+qualification are separate. the [current delivery contract](memory-delivery.md)
+owns remaining integration and future-only nexus capture; the
+[roadmap](implementation-plan.md#memory-delivery) owns sequencing;
+[operations](operations.md#memory-operations)
 owns inspection and stopped repair.
 
 memory has three representations with different responsibilities:
@@ -17,8 +19,12 @@ navigation and rank-fused retrieval. its write operations use the caller's sql
 transaction. jarvis hosts one package instance and supplies admission, inference,
 embeddings, scheduling and the private mcp/http endpoint. provider-runtime owns
 native archive decoding; dev-server owns collectors and profile configuration.
-nexus's [chats-only consumer handoff](issues/nexus-memory-client.md) remains
-incomplete until its accepted client is implemented, verified and provisioned.
+nexus's [owner-librarian handoff](issues/nexus-memory-client.md) covers shared
+reads/notes and future-only automatic capture of new admitted runs. capture retains
+durable question/answer, saved citation/attachment excerpts and available persisted
+tool receipts. a durable temporary export survives source deletion until central
+acknowledgement, then is removed. there is no import, revision or deletion sync.
+current source, live qualification and private provisioning are separate facts.
 
 each new top-level jarvis turn receives a fixed-cutoff historical view plus exact
 operative requests and receipts. compatible steering stays in its active native
@@ -37,4 +43,8 @@ provenance or historical backfill.
 capture/retry and memory completion are the two retained regression categories.
 the [focused acceptance](universal-memory.md#11-acceptance-and-verification)
 defines their boundaries; wider temporary integration/live checks are removed
-after qualification. this does not restore the retired test suite.
+after qualification. each delivery feature has a content designer and independent
+adversarial review at design, red, green, refactor and cleanup; central content
+rules remain shared. this is scoped delivery work, not a permanent review process.
+[usefulness and realistic-load evaluation](issues/memory-usefulness-evaluation.md)
+is deferred to a later pr. backup/restore and historical import remain deferred.

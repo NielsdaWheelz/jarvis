@@ -73,11 +73,12 @@ use a small set of meaningful implementation checks when that work is authorized
   commitment active; explicitly completing that commitment disables recurrence.
 - an existing asynchronous skid wait delivers its result after foreground work
   has ended or the service has restarted. main integrates that evidence without
-  repeated model polling. [slice 3](delegated-follow-through.md#temporary-qualification-and-acceptance)
+  repeated model polling. [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15)
   qualifies a temporary candidate against installed workers, including ordinary
   follow-up and truthful interruption/results. controlled candidate ingress and
   actual rest outbox are named; production gateway and selected-service restart
-  remain final v2 cutover acceptance.
+  remain final v2 cutover acceptance. useful claude execution remains `NOT_RUN`
+  after account limits; the owner selected explicit unavailable status.
 - main creates and reopens a useful native document and reads an inbound image
   or pdf from its retained private original. report actual native/file outcomes;
   connector receipts do not imply native exactly-once execution. conversational

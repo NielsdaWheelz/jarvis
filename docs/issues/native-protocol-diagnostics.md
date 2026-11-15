@@ -23,7 +23,7 @@ a task-only private diagnostic wrapper rethrows future failures unchanged and
 records only controlled error/frame/schema coordinates. the corrected scheduled
 journey reached worker observation across restart; final evidence belongs to
 [slice 3](../delegated-follow-through.md#implementation-evidence--2026-11-15).
-temporary diagnostics are removed after qualification, not installed as a feature.
+temporary diagnostics were removed after qualification, not installed as a feature.
 
 resolved when: reproduce with sufficient content-free evidence to identify the
 actual owning layer, repair any demonstrated defect there and verify the affected

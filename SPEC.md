@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–2 implemented in source, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–3 source-qualified, not activated**
 
 date: **2026-11-15**
 
@@ -10,6 +10,9 @@ audience: product, engineering, design, operations, and future coding agents
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
 2026-11-14 owner decisions. slices 1–2 are implemented and isolated-qualified;
+slice 3 has source and temporary-candidate qualification against installed skid.
+final runtime/deployment inputs equal the qualified artifact; temporary resources
+are removed.
 the remaining slices and v2 activation are pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
@@ -33,9 +36,11 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   through the same input path; one cursor table owns polling progress. existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
-  is main's judgment. slice 3 qualifies a temporary candidate against installed
-  skid and repairs demonstrated defects; production acceptance remains at final
-  v2 cutover. retain the intermediate activation refusal.
+  is main's judgment. slice 3's source repairs and temporary candidate are
+  qualified against installed skid. `claude-work` remains unavailable by owner
+  decision; useful execution is NOT_RUN. an [unexplained native
+  defect](docs/issues/native-protocol-diagnostics.md) remains open. production
+  acceptance remains at final v2 cutover; retain the intermediate activation refusal.
 - [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
   with trusted native tools. [attachments](docs/attachments-and-durable-originals.md)
   retain discord/email original bytes privately in r2, with one metadata table

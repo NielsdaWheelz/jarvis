@@ -4,9 +4,9 @@ updated: 2026-11-15. [o8](../worker-launch-observation.md) owns worker v10;
 [slice 3](../delegated-follow-through.md) qualifies a temporary candidate against
 installed skid. production acceptance remains at final v2 cutover.
 
-problem: matching artifacts and service-uid reads are qualified; real launch,
-control and truthful partial/uncertain outcomes through the v2 composition remain
-unproved. source fixtures cannot establish installed behavior.
+problem: qualified candidate launch, control and truthful partial/uncertain
+outcomes do not establish the selected production journey. source fixtures and
+candidate ingress cannot establish that boundary.
 
 impact: an artifact/schema mismatch can reject a valid receipt after an effect;
 an unsupported claim about launch or interruption can misstate what work exists.
@@ -22,27 +22,34 @@ and finalized opaque retired receipts remain required.
 
 candidate evidence: [slice 3](../delegated-follow-through.md#implementation-evidence--2026-11-15)
 records actual native/service-uid launch and terminal interaction over installed
-v0.24.2 (`d4afbfcec963b1f231fc117675120eff1685e881`) and the live read-only mount.
+skid and the live read-only mount, ending on signed `v0.24.3`
+(`0c2874f9f9e33bb4037afa310f16ef6e0c584db8`).
 codex produced useful source evidence on both online machines. both claude-work
 routes hit their monthly spend limit before useful execution; main reported that
 limit honestly and recorded blocked state. a created terminal with undelivered
 initial input was retained and deliberately inspected/interacted with rather than
 relaunching it. controlled unknown-effect recovery performed no mutation replay.
 
-remaining installed defect: at 80×24 a wrapped codex status footer can exceed the
-gateway's three-row parser cap, leaving a completed worker `layout_unknown` and
-timing out its idle wait. [skid pr 203](https://github.com/NielsdaWheelz/skidbladnir/pull/203)
-repairs the owning decoder and grammar; guarded actual-source red/green, authored
-frame boundaries, existing corpus and host checks pass. pr 203 merged after normal checks and the owner approved signed publication and gateway-only updates. installed repair proof is still open: signed v0.24.3 construction exposed a normalized mac terminal-runtime difference, so publication/installation are held for build diagnosis. no comparator bypass or terminal-runtime restart is authorized. retain v10's unchanged public wire/meaning, not a jarvis workaround or
-an invented claim that its fingerprint pins the external executable.
+resolved upstream defects: the wrapped-footer parser cap left a completed codex
+terminal `layout_unknown`. [skid pr 203](https://github.com/NielsdaWheelz/skidbladnir/pull/203)
+repairs the owning decoder and grammar. signed artifact construction then exposed
+build-identity metadata being mistaken for a mac runtime code change;
+[pr 204](https://github.com/NielsdaWheelz/skidbladnir/pull/204) repairs the existing
+comparison after signature verification. source/live red/green and negative cases
+pass. the owner-approved signed release and gateway-only installation are complete
+on macbook/dev-server. original runtime starts, service definitions, existing
+session/pane refs and the read-only mount remained unchanged. the same captured
+terminal now matches `idle/none/recognized` through the actual service-uid cli.
+independent installed review passes. worker wire/meaning remains v10; its
+fingerprint does not purport to pin the external executable.
 
-next: qualify the signed gateway-only update without replacing/restarting an
-unchanged terminal runtime, rerun installed status/wait, and obtain useful
-claude-work evidence after quota availability; the owner explicitly selected unavailable status for this delivery. finish slice 3's final content and
-cleanup checks. all production cutover work below remains open.
+next: qualify the production handoff below at final v2 cutover. useful claude-work execution
+remains `NOT_RUN` after both configured routes reached their account limit; the
+owner explicitly selected unavailable status for this delivery. obtain that
+evidence after quota availability.
 
-resolved when: candidate proof and the final selected-production journey pass
-with their exact artifact/host/profile evidence. [wait acceptance](agent-wait.md)
+resolved when: the final selected-production journey passes
+with its exact artifact/host/profile evidence. [wait acceptance](agent-wait.md)
 owns event continuation/restart; [operations](../operations.md#skid-only-worker-cutover)
 owns eventual activation. intermediate activation stays disabled. offline arch
 and untested profile combinations remain explicitly unqualified; no compatibility

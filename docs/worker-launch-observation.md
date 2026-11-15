@@ -166,10 +166,11 @@ is checked in postgres; the former file-pause installer proposal is superseded.
 
 ## cutover and acceptance
 
-the matching cli and live-state access boundary are installed and read-qualified;
-worker mutations and follow-through still need their own evidence.
-[slice 3](delegated-follow-through.md) owns that proof, not a second installation
-workflow.
+the matching cli and live-state access boundary are installed and read-qualified.
+[slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15)
+qualifies candidate worker mutations and follow-through, with useful claude
+execution explicitly unavailable by owner decision. selected-production proof
+remains at final v2 cutover; no second installation workflow.
 
 [operations](operations.md#skid-only-worker-cutover) owns eventual activation.
 the intermediate v2 `activate-release` intentionally refuses. selected-release
@@ -196,7 +197,7 @@ cli inventory/target capture and verifies finalized v9 preservation, unfinished
 v9 refusal and strict current labels. preserve that qualified boundary and keep
 candidate proof separate from selected-production acceptance.
 
-remaining worker acceptance, within slice 3's candidate/production split:
+remaining selected-production acceptance:
 configured codex/claude profiles, optional
 name/cwd/group/prompt and literal input, with provider options owned by the profile;
 partial/refused/unknown effects with no mutation replay;

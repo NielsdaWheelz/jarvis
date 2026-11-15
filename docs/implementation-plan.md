@@ -126,7 +126,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | --- | --- | --- |
 | one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified; installed activation pending | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis; one work table, independent timer; installed conversion/activation separate |
-| delegated follow-through (o9) | [slice 3 spec](delegated-follow-through.md): existing source plus temporary-candidate proof against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
+| delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | [contract](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
 | event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
@@ -158,7 +158,7 @@ orders.
 | --- | --- | --- |
 | 1 | common main and conversational consent | [source-audited spec](one-main-events.md): common request lifecycle, full plan, atomic conversational consent, scoped stop and recovery; remove gate, component approval and old scheduler; installed worker outcomes are proved in 3 |
 | 2 | todos and scheduled turns | [implementation spec](work-records.md): ordinary CRUD, atomic local receipts, fresh reads, calendar/interval wakes and busy-main publication; accepts queued-late schedules; depends on 1 and converts retained reminder obligations |
-| 3 | skid follow-through | [source-audited spec](delegated-follow-through.md): temporary candidate against real skid, full-plan continuation/restart/content proof and demonstrated repairs; depends on 1–2 and matching artifacts; production acceptance at final v2 cutover |
+| 3 | skid follow-through | [source and candidate qualified](delegated-follow-through.md#implementation-evidence--2026-11-15): real skid, full-plan continuation/restart/content proof and bounded repairs; depends on 1–2 and matching artifacts; production acceptance at final v2 cutover |
 | 4 | ordinary private repo | notes: minimal kernel/provider native-access handoffs, persistent checkout, native files/git and small file deliverables; isolated memory roles retain their existing posture |
 | 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
 | 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
@@ -169,8 +169,11 @@ the owner accepts incomplete intermediate slices. remove replaced paths in their
 own slice; do not retain a compatibility scheduler or make each pr independently
 deployable. keep reminder obligations in the private cutover inventory until 2;
 unattended activation waits for the selected slices and accounted-for commitments.
-3 reuses existing observation source for candidate qualification and demonstrated
+3 reused existing observation source for its qualified candidate and demonstrated
 repairs. the owner selected real installed workers with a temporary candidate;
+`claude-work` remains unavailable by owner decision; useful execution is NOT_RUN.
+final runtime/deployment inputs equal the qualified artifact; temporary resources
+are removed.
 keep production's release/database/control state and intermediate activation
 refusal unchanged. its evidence labels controlled ingress and actual discord
 outbox separately. physical-owner gateway and selected-production restart/complete
@@ -322,7 +325,8 @@ resumption remain operational work; this plan resumes no stopped service.
 the [o6 implementation contract](one-main-events.md), adopted by adr 0071, owns
 common input, ordinary conversational consent, lifecycle and stopped cutover.
 source implementation and isolated integration/live qualification are complete;
-the contract records exact evidence. installed worker proof remains slice 3.
+the contract records exact evidence. slice 3 now records candidate proof against
+installed skid; selected-production acceptance remains at final v2 cutover.
 the old scheduler is removed; slice 2 supplies scheduled todos. selected slices
 and retained obligations still govern resumption. this branch is not the
 installed memory rollout release.
@@ -418,10 +422,13 @@ todos inform judgment, not permissions; stop/interruption are interpreted intent
 and ordinary tool actions. no work controller, links, eligibility or stop guarantee.
 
 o5/o6/o8 provide the implemented machinery; o7 supplies bookkeeping. full-plan
-events and conversational stop are already source-qualified. slice 3 proves
-useful delegation, asynchronous continuation, restart and honest content against
-real skid from a temporary candidate; repair only demonstrated defects. production
-activation/acceptance stays at final v2 cutover. no new library or worker protocol.
+events and conversational stop are already source-qualified. slice 3's source
+repairs and temporary candidate are qualified for useful delegation, asynchronous
+continuation, restart and honest content against installed skid. `claude-work`
+remains unavailable by owner decision; useful execution is NOT_RUN. the
+[unexplained native defect](issues/native-protocol-diagnostics.md) remains open.
+production activation/acceptance stays at final v2 cutover. no new library or
+worker protocol.
 
 ## memory delivery
 
@@ -787,7 +794,7 @@ intent merely because their implementation is incomplete.
 | o6 | [contract](one-main-events.md) source and isolated functional proof complete; selected-slice cutover and installed activation remain |
 | o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](issues/work-installed-cutover.md) remains |
 | o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
-| o9 | [spec](delegated-follow-through.md) source behavior complete; slice 3 qualifies a temporary candidate against installed skid; production acceptance stays at final v2 cutover |
+| o9 | [evidence](delegated-follow-through.md#implementation-evidence--2026-11-15) qualifies source and temporary candidate against installed skid, with `claude-work` explicitly unavailable by owner decision; production acceptance stays at final v2 cutover |
 | new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; cursor/adapters and same-main proof remain; recurrence belongs to o7, dream wakes deferred |
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) adopted by 0071; kernel/provider handoffs, persistent checkout and live native/git proof remain |

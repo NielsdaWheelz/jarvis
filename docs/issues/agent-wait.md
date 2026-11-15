@@ -4,9 +4,9 @@ updated: 2026-11-15. [o8](../worker-launch-observation.md) owns existing wait
 transport; [slice 3](../delegated-follow-through.md) owns candidate qualification
 and demonstrated repairs. full-plan result events are implemented in source.
 
-problem: source and isolated proof do not establish actual skid follow-through
-from the v2 candidate or selected production release. the owner selected candidate
-qualification now and production acceptance at final v2 cutover.
+problem: qualified candidate follow-through does not establish the selected
+production journey. the owner selected candidate qualification now and production
+acceptance at final v2 cutover.
 
 impact: until each boundary passes, do not claim real worker observation,
 restart/continuation or complete production gateway/discord delivery from source
@@ -30,14 +30,18 @@ and opaque retired callback payloads were removed from fresh model context while
 preserving original evidence. ingress/catch-up were controlled, not physical owner
 gateway acceptance.
 
-next: finish final content/cleanup qualification, install and qualify the reviewed
-skid wrapped-footer repair under its approved gateway-only boundary, and obtain
-useful claude execution when the configured profile's account quota permits it; the owner selected explicit unavailable status for this delivery.
-the installed v0.24.2 gateway can miss an ordinary idle codex terminal whose footer
-wraps past three rows; the source repair alone does not close that installed gap.
-keep unavailable boundaries explicit and retain the production handoff below.
+candidate qualification passes on installed skid `v0.24.3`, including the repaired
+wrapped-footer observation, actual scheduled delegation, registered-wait process
+restart, supported result and independent content review. both configured
+claude-work routes exhausted their monthly quota; useful claude execution is
+`NOT_RUN`, explicitly accepted as unavailable by the owner. an earlier safely
+parked [unexplained native defect](native-protocol-diagnostics.md) remains a
+diagnostic follow-up, not a resolved failure.
 
-resolved when: the candidate proof passes and final authorized v2 cutover repeats
+next: qualify the production handoff below at final v2 cutover. obtain useful
+claude execution when its quota permits; retain the explicit unavailable boundary.
+
+resolved when: final authorized v2 cutover repeats
 real owner gateway → main → worker → observation → useful continuation → discord,
 including selected-service restart. preserve original receipts, latest stopped
 intent and effect recovery. production migration/reminder accounting belongs to

@@ -42,6 +42,11 @@ or worker callback service. the current memory completion is a separate pr.
    mutation tools remain local bookkeeping during external-effect uncertainty.
 3. private notes are an ordinary persistent private git repo and directory with
    trusted native tools. no notes service, forced document layout or git cadence.
+   the 2026-11-15 owner refinement selects a new private
+   `NielsdaWheelz/jarvis-notes` repo, initially one brief readme with no import.
+   this is a general workspace for documents, custom helpers, components,
+   visualizations and self-contained interactive files. native authoring/execution
+   belongs to slice 4; hosting/presentation and television integration remain later.
 4. retain uploaded discord and selected email attachments as private r2 originals,
    with stable references and native reading of images, pdfs and supported files.
    use the existing attachment contract's one metadata table. prose belongs in
@@ -59,9 +64,10 @@ or worker callback service. the current memory completion is a separate pr.
    host-rendered argument attachment, exact prose/payload matching, extra
    classifier or notification-policy field. immutable stored arguments and
    recovery remain execution requirements, not a semantic consent proof.
-7. small deliverables are normal prose and repo files through existing access.
+7. small deliverables are normal prose and repo files through existing access,
+   including the workspace's generated code and interactive files.
    defer browser control, new credential handling/brokering, interactive
-   deliverables, credential forms, television/artifact hosting and a separate ui.
+   hosting/presentation, credential forms, television integration and a separate ui.
    existing connector/storage deployment credentials remain operational necessities.
 
 the detailed contracts are [one main](../one-main-events.md),
@@ -128,7 +134,7 @@ this change is documentation only. run static/build/document checks; no source,
 behavioral/live execution, deployment or service resumption is included. future
 implementation uses the focused outcomes in the owning contracts and
 [acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks.
-the owner selected temporary integration/live red/green/refactor for slices 1–3,
+the owner selected temporary integration/live red/green/refactor for slices 1–4,
 with designer and adversarial review per feature/stage, then probe deletion.
 that scoped implementation exception does not restore a standing suite under
 adr 0046 or change memory's separate checks. this specification task runs no

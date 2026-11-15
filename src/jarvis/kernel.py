@@ -18,8 +18,11 @@ from provider_runtime.agent_runtime import (
     AgentRuntime,
     AgentRuntimeConfig,
     CredentialRef,
+    PermissionPolicy,
+    UnsafeConfirmation,
 )
 
+from jarvis.codex_config import canonical_absolute_path
 from jarvis.definitions import (
     QUALIFIED_CODEX_MODELS,
     verify_runtime_dependencies,
@@ -51,6 +54,26 @@ async def resolve_provider_configuration(
         agent_definition_revision=catalog.definition_revision,
         row_fingerprint=row.row_fingerprint,
         native=replace(CODEX_NATIVE_OPTIONS, archive_internal=True),
+    )
+
+
+def main_provider_configuration(
+    isolated_provider: ProviderConfiguration, *, notes_repository: str
+) -> ProviderConfiguration:
+    """Derive main's native authority from the single authenticated selection."""
+    repository = canonical_absolute_path(notes_repository)
+    return replace(
+        isolated_provider,
+        cwd=repository,
+        additional_dirs=(f"{repository}/.git",),
+        policy=PermissionPolicy(
+            filesystem="workspace_write",
+            network="unrestricted",
+            approval="deny",
+            allowed_tools=("*",),
+            unsafe_confirmation=UnsafeConfirmation(("network_unrestricted",)),
+        ),
+        native=replace(isolated_provider.native, builtin_tools=None),
     )
 
 
@@ -114,5 +137,6 @@ __all__ = [
     "KernelRuntime",
     "build_agent_runtime",
     "build_kernel_runtime",
+    "main_provider_configuration",
     "resolve_provider_configuration",
 ]

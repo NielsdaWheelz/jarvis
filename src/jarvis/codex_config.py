@@ -1,4 +1,4 @@
-"""The contained non-secret Codex host mapping needed by cognition only."""
+"""The non-secret Codex host mapping and persistent workspace preflight."""
 
 from __future__ import annotations
 
@@ -39,17 +39,30 @@ class _Profile(_Closed):
 class CodexHostConfig(_Closed):
     """Read-only non-secret host mapping; never credential or worker state."""
 
-    schema_version: Literal[4]
+    schema_version: Literal[5]
     development_user: str
     jarvis_user: str
     client_group: str
     binary: str
     cognition_cwd_parent: str
+    notes_repository: str
     profiles: dict[CodexProfile, _Profile]
 
     @property
     def endpoints(self) -> dict[str, Path]:
         return {key: Path(row.endpoint[7:]) for key, row in self.profiles.items()}
+
+    def verify_notes_repository(self) -> None:
+        repository = Path(self.notes_repository)
+        metadata = repository / ".git"
+        if (
+            not repository.is_dir()
+            or not metadata.is_dir()
+            or metadata.is_symlink()
+            or not os.access(repository, os.R_OK | os.X_OK)
+            or not os.access(metadata, os.R_OK | os.X_OK)
+        ):
+            raise ValueError("notes repository must be an accessible ordinary checkout")
 
     @classmethod
     def load(cls, path: Path) -> CodexHostConfig:
@@ -74,6 +87,7 @@ class CodexHostConfig(_Closed):
         paths = [
             result.binary,
             result.cognition_cwd_parent,
+            result.notes_repository,
         ]
         for row in result.profiles.values():
             if not row.endpoint.startswith("unix:///"):

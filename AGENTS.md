@@ -18,7 +18,7 @@ These instructions govern all work in this repository.
   no buttons, exact-preview requirement, semantic consent framework or new ledger.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
-  handling and interactive deliverables/television. shared memory remains separate
+  handling, interactive hosting and television integration. shared memory remains separate
   and quiet dreaming unchanged. slices 1–3 are source-qualified; slice 3 also has
   temporary-candidate qualification against installed skid. remaining slices and
   installed activation are pending. keep installed baseline
@@ -47,6 +47,15 @@ These instructions govern all work in this repository.
   decision, with useful execution NOT_RUN. the [unexplained native
   defect](docs/issues/native-protocol-diagnostics.md) remains open. production
   acceptance stays at final v2 cutover; do not restore intermediate activation.
+  [slice 4](docs/private-notes-and-rolodex.md) specifies the general private
+  `NielsdaWheelz/jarvis-notes` workspace: documents, helpers, components and
+  visualizations through native files/commands/git. authoring/local execution
+  ships here; hosting, presentation and television integration stay deferred.
+  its source is unimplemented. kernel owns borrowed cwd and native supervision;
+  provider owns mixed tools and effective policy verification. isolated roles
+  retain containment. use separate candidate host/mapping/runtime/checkout for
+  temporary proof; production bootstrap waits for final v2 cutover. the same
+  scoped content/adversarial/red-green-refactor method and probe deletion apply.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

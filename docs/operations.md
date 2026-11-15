@@ -63,8 +63,49 @@ changes. this section supplies no new migration command or deployment authority.
 
 the [implementation plan](implementation-plan.md) owns those handoffs. shared
 memory delivery and quiet dreaming remain unchanged. browser/credential products,
-interactive deliverables, a separate ui, selected dream wakes and work context
+interactive hosting, a separate ui, selected dream wakes and work context
 remain outside this cut; later search and budget contracts are not adopted here.
+
+### private workspace handoff
+
+[slice 4](private-notes-and-rolodex.md) specifies general files/commands/git in
+the new private `NielsdaWheelz/jarvis-notes` checkout, including helpers and visual
+artifacts. its source uses the schema-5 host mapping; integrated qualification and
+production acceptance are separate. final v2 cutover
+bootstraps the persistent checkout and host git access, installs the qualified
+host/application pair and preserves dirty work thereafter. existing authority-
+change pause/stopped checks apply; ordinary release pruning never deletes the repo.
+
+candidate proof uses a separate temporary native unit/endpoint/mapping, checkout,
+database and runtime state. do not use `install-contained-host` to rewrite the
+running production host for that proof. host-account authentication must work
+inside the actual service environment; a developer shell proves no such access.
+hosting, television integration and a separate artifact ui remain deferred.
+
+final bootstrap requires an existing private `NielsdaWheelz/jarvis-notes` remote
+with a `main` branch and a brief readme. creating that remote is a separate final-
+cutover operation, never an installer/runtime action. `codex-host bootstrap-notes`
+uses the same clean host `HOME`/`PATH`/account environment as native startup:
+ordinary ssh authentication must work without forwarded `SSH_AUTH_SOCK`, copied
+credentials or login. it first proves selected-origin existence/access with
+authenticated git, then requires anonymous github api status 404 for the exact
+repository. a public 200, redirect, rate limit or network uncertainty blocks
+bootstrap; git failure alone proves no privacy. this avoids a second api token,
+at the cost of requiring both git and the anonymous visibility check to be
+available during installation.
+
+`install-contained-host` runs bootstrap in a temporary unit derived from the
+same rendered host unit, preserving identity, namespace, instruction masks and
+privilege restrictions before replacing the final mapping/unit. new checkout
+root `/var/lib/jarvis-notes` belongs to the native uid and `codex-clients` with
+mode 02750; only its new `.git` directory gets client traversal/read. existing
+checkout files, dirty state, branch, origin and modes are preserved. ownership,
+mode, origin, privacy or authentication mismatches require explicit repair;
+the installer never pulls, resets, cleans, rewrites origin or recursively changes
+permissions. a failed bootstrap leaves the application/host stopped and
+retains any checkout files for inspection. never delete this directory while
+pruning releases. app preflight needs read/traversal of the root and `.git`
+directories, not access to every git file. native writes may remain mode 0600.
 
 ## Approved production target
 
@@ -115,10 +156,11 @@ the host must provision the jarvis account, `codex-clients` group, the private
 skid client and the empty mode-02750 cognition parent. main and isolated cognition
 use a separate contained personal endpoint; the existing coding server is unchanged.
 install that host from the same immutable application release with
-`deploy/install-contained-host`. supply the explicit non-secret schema-4 mapping
+`deploy/install-contained-host`. supply the explicit non-secret schema-5 mapping
 through `JARVIS_SOURCE_CODEX_HOST_CONFIG`; it names the development account, its
 existing personal account home, exact stock binary, client group and cognition
-parent. the installed mapping is `/etc/jarvis/codex-host.json`. the host unit exposes
+parent and required canonical `notes_repository` path `/var/lib/jarvis-notes`.
+schema 4 is rejected. the installed mapping is `/etc/jarvis/codex-host.json`. the host unit exposes
 that single public file at `/run/jarvis-contained/codex-host.json` through a
 read-only bind; `/etc/jarvis` keeps its private traversal permissions.
 
@@ -549,9 +591,14 @@ remain authoritative; unresolved action/read outcomes retain their barriers.
 provider history is disposable. a sealed original terminal is settled locally
 before current model/plan reconstruction, with current request/publication fences.
 
-set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json`. the schema-4
-root-owned mapping names only the contained personal endpoint and the mode-02750
-cognition parent. no native authentication belongs in jarvis state or environment.
+set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json`. the schema-5
+root-owned mapping names the personal endpoint, mode-02750 disposable cognition
+parent and persistent notes checkout. main gets native workspace writes and
+unrestricted network with approval denied, web disabled and no mcp. `.git` is its
+only additional writable root. compactor/dreamer retain disposable empty read-only
+directories and disabled native/network tools. no native authentication belongs
+in jarvis state or environment. native commands have host account access and no
+connector action/replay guarantees; inspect files/git after interruption.
 main has no arbitrary elapsed cutoff or cumulative model/tool quota. per-operation
 bounds, finite callback queues and owner stop still apply.
 

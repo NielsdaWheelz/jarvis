@@ -47,7 +47,9 @@ remain deferred.
 [adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the next target;
 [slice 1](one-main-events.md#implementation-evidence) and
 [slice 2 source evidence](work-records.md#implementation-evidence) are complete.
-remaining slices and installed activation are pending. the baseline criteria below are
+[slice 3 candidate proof](delegated-follow-through.md#implementation-evidence--2026-11-15)
+is complete with its recorded deferrals. remaining slices and installed activation
+are pending. the baseline criteria below are
 not evidence of v2 completion. its gate, read-only wake, button approval, exact
 human-payload binding and separate schedule requirements are superseded for the
 target. their historical receipts still describe only the artifacts tested.
@@ -79,19 +81,23 @@ use a small set of meaningful implementation checks when that work is authorized
   actual rest outbox are named; production gateway and selected-service restart
   remain final v2 cutover acceptance. useful claude execution remains `NOT_RUN`
   after account limits; the owner selected explicit unavailable status.
-- main creates and reopens a useful native document and reads an inbound image
-  or pdf from its retained private original. report actual native/file outcomes;
+- [slice 4](private-notes-and-rolodex.md#temporary-candidate-proof) proves native
+  documents, reusable helpers/interactive files, actual private git operations,
+  mixed native/callback execution and retained dirty state. its separate temporary
+  host preserves isolated roles and production. hosting/presentation stays deferred.
+- slice 5 reads an inbound image or pdf from its retained private original.
+  report actual native/file outcomes;
   connector receipts do not imply native exactly-once execution. conversational
   stop and operational pause retain their distinct scopes.
 
 slice 1's [source-audited proof plan](one-main-events.md#acceptance-and-redgreenrefactor)
-and slices 2–3's linked contracts own temporary integration/live red/green/refactor,
+and slices 2–4's linked contracts own temporary integration/live red/green/refactor,
 content design and adversarial review, followed by probe deletion. real timed
 producers are slice 2, installed workers slice 3 and external producers slice 6;
 generic input proof
 does not qualify those adapters. the remaining checks belong to their slices;
 there is no additional standing suite. shared-memory acceptance
-above stays unchanged; browser/credential products, interactive deliverables, separate ui,
+above stays unchanged; browser/credential products, interactive hosting, separate ui,
 selected dream wakes and work context are outside this cut. complete-search and
 budget acceptance stays with their later contracts.
 

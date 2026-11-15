@@ -114,8 +114,10 @@ asynchronous skid observation already delivers events without repeated model
 polling. slice 1 removes the old scheduler; outstanding reminders remain private
 cutover obligations until slice 2 accounts for them. unattended activation is
 disabled while the selected slices and those obligations remain incomplete.
-browser and credential products, interactive deliverables and a separate ui are
-deferred. the shared-memory delivery remains separate and unchanged; selected
+slice 4's [private workspace](docs/private-notes-and-rolodex.md) also holds runnable
+helpers, components, charts and self-contained interactive files. browser and
+credential products, interactive hosting/television integration and a separate ui
+are deferred. the shared-memory delivery remains separate and unchanged; selected
 dream wakes and work-informed dreaming are outside this cut. complete searches
 and budget integration retain their later contracts without adoption here.
 

@@ -128,7 +128,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis; one work table, independent timer; installed conversion/activation separate |
 | delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
-| private notes and rolodex | [contract](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
+| private workspace | [slice 4 spec](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
 | event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
 | attachments and durable originals | [contract](attachments-and-durable-originals.md) adopted by 0071; unimplemented | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
 | complete and continuable searches — later | settled [contract](complete-and-continuable-searches.md) retained; adoption/implementation separate, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; deliver only necessary source/attachment references within the selected v2 slices |
@@ -159,7 +159,7 @@ orders.
 | 1 | common main and conversational consent | [source-audited spec](one-main-events.md): common request lifecycle, full plan, atomic conversational consent, scoped stop and recovery; remove gate, component approval and old scheduler; installed worker outcomes are proved in 3 |
 | 2 | todos and scheduled turns | [implementation spec](work-records.md): ordinary CRUD, atomic local receipts, fresh reads, calendar/interval wakes and busy-main publication; accepts queued-late schedules; depends on 1 and converts retained reminder obligations |
 | 3 | skid follow-through | [source and candidate qualified](delegated-follow-through.md#implementation-evidence--2026-11-15): real skid, full-plan continuation/restart/content proof and bounded repairs; depends on 1–2 and matching artifacts; production acceptance at final v2 cutover |
-| 4 | ordinary private repo | notes: minimal kernel/provider native-access handoffs, persistent checkout, native files/git and small file deliverables; isolated memory roles retain their existing posture |
+| 4 | ordinary private repo | [source-audited spec](private-notes-and-rolodex.md): borrowed checkout, mixed native/callback tools, documents/helpers/visuals and native git; isolated memory roles retain containment; separate temporary native-host proof, production at final cutover |
 | 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
 | 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
 
@@ -185,7 +185,8 @@ v2 includes ordinary progress, blocker questions, approvals and completed result
 inside these journeys. it does not add standalone components for them. approval
 meaning is main's judgment; reuse the existing action decision transition, with
 no exact-prose matching or additional consent system. defer browser control, new
-credential handling, interactive deliverables/television and a separate ui.
+credential handling, interactive hosting/television integration and a separate ui;
+slice 4 can already author/run ordinary helpers and self-contained visual files.
 
 ## external specifications and handoffs
 
@@ -201,8 +202,8 @@ facts; writing this roadmap sends no assignment to another agent.
 | skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
 | dev-server | selected cli/collector installation, long claude retention, private routing, client/capture credentials and native mcp configuration; arch deferred | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
-| llm-calling (`provider-runtime` package), notes | native built-ins plus declared callbacks in one session, both declared authority postures and host qualification | [notes public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); bounded handoff prepared here, not handed off or implemented |
-| kernel, notes | frozen application-owned cwd/native configuration, retained checkout lifecycle, native activity alongside host callbacks | [notes public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); bounded handoff prepared here, not handed off or implemented; no llm-tools change |
+| llm-calling (`provider-runtime` package), workspace | mixed built-ins/callbacks, inherited-mcp suppression and actual returned thread-policy verification; preserve other consumers | [slice 4 public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); specified, unimplemented |
+| kernel, workspace | optional borrowed cwd, immutable authority/fingerprint, ownership-aware cleanup and native activity alongside callbacks | [slice 4 public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); specified, unimplemented; no llm-tools change |
 | jarvis deployment owner on dev-server, notes | persistent private checkout, ordinary git authentication, host permissions and hard-cut host mapping | [notes deployment contract](private-notes-and-rolodex.md#public-contracts-and-deployment); source changes stay in jarvis's existing deploy files; operator bootstrap/install remains separate |
 | memory library | existing archive/tree/view/search; add explicit nexus source values and atomic export append/duplicate proof through shared insertion primitives | [core](universal-memory.md), [completion handoff](memory-delivery.md#non-overlapping-implementation-boundaries); uncapped ranked [search amendment](complete-and-continuable-searches.md#uncapped-ranked-memory) remains a separate delivery |
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
@@ -744,16 +745,19 @@ none is a prerequisite for delegation or initial universal memory.
 
 ### private notes repository and rolodex
 
-the [notes contract](private-notes-and-rolodex.md) settles one persistent ordinary
-private github checkout: native read/create/edit/move/delete and search; agent-chosen
-commit/pull/push. advisory folders hold briefs, procedures, research, drafts and
-one prose document per person. no notes service, schema or sync worker.
+the [slice 4 spec](private-notes-and-rolodex.md) settles one persistent ordinary
+private `NielsdaWheelz/jarvis-notes` checkout: native read/create/edit/move/delete,
+search, execution and agent-chosen git. a brief readme starts a general workspace
+for documents, people/context, helpers, components and visual/interactive files.
+no imposed folder tree, notes service, schema, sync worker or hosting integration.
 
 main becomes a trusted native domain; conversational connector consent governs
 connector calls only. this replaces the earlier confined-access direction.
 kernel/provider mixed native-callback support and borrowed cwd lifecycle are
 bounded upstream work, not already supplied by the current pins. adr 0071 adopts
-the authority amendment; qualify the same dedicated host before activation.
+the authority amendment; qualify a separate temporary host/candidate before final
+production cutover. preserve isolated roles, canonical callbacks and internal
+cognition exclusion. no production mapping/unit/bootstrap changes in this slice.
 ordinary git history/relative links have no synchronization or stable-link
 guarantee. memories/work/documents link without mirroring current task state.
 
@@ -843,9 +847,10 @@ automatic external context injection was rejected, not deferred; future push
 would require a new authority design. learned reranking may be reconsidered only
 from measured retrieval failures; keep one current ranking path.
 
-browser control, new credential handling/brokering, interactive deliverables,
-credential-entry forms and television/artifact hosting are explicitly deferred
-from v2. small prose/file outputs use the ordinary repo and existing access.
+browser control, new credential handling/brokering, interactive hosting/presentation,
+credential-entry forms and television integration are explicitly deferred
+from v2. ordinary repo files can already include runnable helpers, components
+and self-contained visualizations; they use existing repository access.
 progress, blockers and completed results are not deferred features: they are
 ordinary main behavior, with no separate subsystem.
 

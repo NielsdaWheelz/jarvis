@@ -297,9 +297,12 @@ no additional model processor for ranking.
 
 `GET /v1/memory/lanes` returns this host's admitted lanes as `pending` or `active`.
 a pending lane authorizes content-free enumeration and stable-prefix head reads,
-not transcript upload. its collector automatically obtains one complete inventory
-of EVERY existing non-internal conversation, including idle/archived ones. empty
-prefixes have null heads; never skip an unfinished item to reach a later head.
+not transcript upload. its collector obtains one complete stable inventory of
+EVERY existing non-internal identity, including idle/archived ones. under
+[adr 0073](decisions/0073-per-conversation-memory-baselines.md), readable stable
+prefixes receive their heads; unreadable or unstable entries retain an explicit
+baseline_error. a null head without an error means a known empty prefix. never
+omit an unreadable identity or skip an unfinished item to reach a later head.
 include provider/lane, codec revision, sample interval and enumeration metadata,
 without text; exclude internal sessions before reading heads.
 
@@ -310,24 +313,33 @@ jarvis. ordinary sync pages and ingest still require an active receipt.
 
 the service validates capture-bearer ownership, current admission, provider and
 contract revision. one transaction commits the lane receipt and all conversation
-baselines. a complete empty lane succeeds; incomplete, failed or oversized
-inventories commit nothing. if already active, return its original receipt
+baselines, including pending entries. a complete empty lane succeeds; incomplete
+identity coverage, ambiguous classification or oversized inventories commit
+nothing. one conversation's head failure does not block healthy conversations.
+if already active, return its original receipt
 without changing any boundary. foreign-owned conversations are reported, never
 reassigned. use the ordinary fenced writer; no additional activation lock.
 
 before-commit failure permits a fresh inventory and therefore a later eventual
 cut. after-commit lost receipts are resolved by fetching lane state or retrying;
-never re-baseline an active lane. if native pagination cannot establish a complete
-inventory while writers run, leave that lane pending with a reported reason until
-a quiet period permits it. the server does not infer completeness from a timestamp.
+never re-baseline an active lane. if native pagination cannot establish complete
+identity coverage, leave the lane pending until a complete inventory is possible.
+an active or changing conversation may instead retain a pending baseline. the
+server does not infer completeness from a timestamp.
 
 new events after each sampled head remain eligible. conversations created after
 the inventory snapshot are captured from their beginning on ordinary discovery.
-existing conversations retain immutable `capture_after_event_id`, including null
-for an empty prefix. native timestamps never filter eligibility. activation is a
-per-conversation cut at the first successful baseline, not a simultaneous fleet
-time or manually chosen operation. pre-cut history remains out of scope; later
-turns may lack its context. incomplete activation is never lazy per-thread capture.
+established conversations retain immutable `capture_after_event_id`, including
+null for a known empty prefix. pending conversations cannot ingest. the collector
+retries their read-only `archive_head` independently of other conversations;
+`POST /v1/memory/sync` accepts a closed `baseline` request with conversation id,
+head, baseline_error and observation time. the first successful observation
+atomically establishes its cut and `captured_from`; repeated resolution returns
+the established receipt unchanged. repeated failures preserve the pending entry.
+native timestamps never filter eligibility. activity before a pending
+conversation's eventual cut remains excluded, even if it occurred after lane
+activation. complete identity coverage prevents an old blocked conversation from
+later masquerading as a new one. no history backfill or reset is authorized.
 
 ## 3. native capture
 
@@ -343,8 +355,10 @@ archive_capabilities(home)
 archive_list(home, page?, with_heads=false)
   -> {conversations: [{native_id, relation?, parent_native_id?, inherited_through?,
        working_directory?, created_at, updated_at, archived, internal,
-       head_event_id?}],
+       head_event_id?, head_error?}],
       next_page?, complete, observed_at}
+archive_head(home, native_id)
+  -> {head_event_id?, observed_at}
 archive_read(home, native_id, after?, from_event_id?)
   -> {events, next?, caught_up, observed_at}
 ```
@@ -368,10 +382,14 @@ archive_read(home, native_id, after?, from_event_id?)
   for `with_heads=true`, completeness additionally guarantees no conversation
   belonging to the inventory snapshot was missed by changing pagination. if the
   provider cannot establish this, return incomplete and leave activation pending
-  until a quiet lane permits a complete inventory.
-  `with_heads` is for activation: every non-internal entry includes its complete
-  stable prefix head, null for an empty prefix; internal entries carry identity
-  and marker only. `relation` is `child` or `fork`. a fork reports its last inherited
+  until complete identity coverage is possible. active conversations need not
+  stop identity enumeration. `with_heads` is for activation: every non-internal
+  entry has either a stable prefix head (null for a proved empty prefix), or a
+  null head plus a closed `head_error`. unreadable, active or changing histories
+  become pending baselines; ambiguous identity or internal classification still
+  fails the inventory. `archive_head` applies the same stable-head read to one
+  identity and raises the same closed errors on failure. internal entries carry
+  identity and marker only. `relation` is `child` or `fork`. a fork reports its last inherited
   event as `inherited_through` when native evidence identifies it. native ancestry
   alone must not automatically exclude that prefix: jarvis must prove that its
   corresponding complete originals are already retained centrally. absent or
@@ -459,11 +477,14 @@ release. no database credentials, inference or durable local state. sweep every
    ordinary capture uses only active lanes. no other home is read.
 2. enumerate and post pages to `POST /v1/memory/sync`. the service creates newly
    discovered conversations and returns ownership, immutable activation boundary,
-   event checkpoint/native digest, capture error and last successful read. report
+   pending baseline error, event checkpoint/native digest, capture error and last successful read. report
    copied conversations as `foreign`. a successful complete listing stamps
    `last_inventory_at`; partial listings never establish absence. paging progress
    is transient and restarts after interruption.
-3. read changed/new conversations, using in-memory native update hints; on restart
+3. retry each pending baseline through `archive_head` before applying update
+   hints; a repaired file need not change the native listing timestamp. resolve
+   successful cuts through sync, then read changed/new conversations using
+   in-memory native update hints; on restart
    all eligible conversations are candidates. revisit every eligible conversation
    initially hourly even if hints show no change. use one bounded quantum per
    conversation before another gets a second. unfinished reads remain eligible.
@@ -510,7 +531,7 @@ reading past an absent checkpoint. repair and explicit retry are in section 8.
   `activation_boundary_lost`, `source_conflict`). no prose or cursor movement.
 
 validate admission, activation, ownership and revision. reject event batches while
-`capture_error` is set. compare the expected checkpoint; mismatch returns `stale_checkpoint`, prompting a fresh central read.
+`baseline_error` or `capture_error` is set. compare the expected checkpoint; mismatch returns `stale_checkpoint`, prompting a fresh central read.
 the reread checkpoint is proof only, omitted from the new-event payload; verify
 its native digest against `source_conversation.checkpoint_native_digest`, which
 does not depend on a source row for the checkpoint event. in one transaction,
@@ -606,8 +627,9 @@ source_conversation
   relation text nullable                # child | fork
   parent_native_id text nullable
   working_directory text nullable       # as first reported
-  captured_from timestamptz             # native sample/discovery or nexus registration
+  captured_from timestamptz             # native sample/discovery, pending resolution, or nexus registration
   capture_after_event_id text nullable  # native head, or nexus message-seq:<boundary>
+  baseline_error text nullable          # pending native baseline; null means established
   checkpoint_event_id text nullable
   checkpoint_native_digest text nullable # independent of retained source rows
   last_read_at timestamptz nullable
@@ -762,7 +784,11 @@ tool result or connector observation. unknown attribution stays `unknown`.
 
 - mutable original-store columns are exactly: `memory_lane.last_inventory_at`;
   `source_conversation`'s `checkpoint_event_id`, `checkpoint_native_digest`, `last_read_at` and `capture_error`;
-  `source_record.embedding` and `memory_log.embedding`. note text, provenance,
+  `source_record.embedding` and `memory_log.embedding`. a pending native row may
+  update only its baseline error, or atomically clear that error and establish
+  `capture_after_event_id`/`captured_from`. while pending, its head, checkpoint,
+  digest, last read and capture error are null. established cuts, including empty
+  cuts, never move or become pending again. note text, provenance,
   synthesis references and canonical leaf links remain immutable. new guard
   triggers following the existing append-only pattern enforce this for all three
   archive tables, `memory_leaf` and the note provenance columns. the application
@@ -1118,7 +1144,8 @@ underscores; jarvis's internal tools use dotted names):
   removes the deliberate promotion of stored content to developer authority; it
   does not make those agents injection-proof.
 - operational status belongs to `jarvis memory status`, not the mcp tool catalog.
-  it reports lane admission/activation, last inventory/read, parked errors, gaps,
+  it reports lane admission/activation, last inventory/read, pending baseline
+  counts and per-conversation reasons, parked errors, gaps,
   capture/compression/embedding backlog and conversation progress without prose;
   compression reports `leaf_count`, `view_through`, missing-node counts and the
   parked node; dreaming reports `dream_through`, eligible backlog and last nightly
@@ -1437,6 +1464,8 @@ lane admission changes remain configuration (section 2).
 an explicit event-bound revision. it never clears a checkpoint, resamples
 activation or skips a blocked event. if native evidence cannot be restored, that
 conversation stays blocked; there is no automated repair framework.
+pending baselines reject `retry-capture`; the collector retries their initial
+head read automatically, without changing any established boundary.
 there is no new-target `retry-extraction`. `jarvis memory retry-compression`
 clears the singleton parked-node diagnostic after fixing its cause. completed
 nodes are reused; missing work is rediscovered on startup. it changes no source,
@@ -1650,7 +1679,7 @@ of unrelated sessions. record revision, commands, results and gaps once;
 | boundary | acceptance |
 | --- | --- |
 | policy | default-deny lanes; independent switches; sharing authorization; external save needs both; main save needs jarvis admit; pending lanes permit only content-free baseline reads; bearer provenance and cognition isolation |
-| activation | complete inventory including idle/archived/empty conversations; receipt and baselines atomic; retry never moves the cut; old prefix absent, later turns captured; automatic online baseline uses bounded sync request, no staging/file/stop; additive metadata changes neither identity nor digest, malformed consumed fields still fail |
+| activation | complete identity inventory including idle/archived/empty conversations; receipt and readable/pending baselines atomic; healthy/new capture proceeds; pending recovery establishes one fresh cut including empty heads; incomplete/ambiguous inventory refuses; retry never moves an established cut; old prefix and recovery gap absent, later turns captured; automatic online baseline uses bounded sync request, no staging/file/stop; additive metadata changes neither identity nor digest, malformed consumed fields still fail |
 | capture | complete-event commits under duplicate/stale/lost-response/crash cases; bounded tool head/tail and context suppression preserve original identity/digest; byte bounds include encoding and complete-open/leaf-zoom admission; rejected oversized events retain their valid preceding prefix and park without unauthorized crop or cursor reset; fair sweeps and outage recovery |
 | compression | contiguous transactional positions without rollback gaps; aligned binary/free nodes; corrected priority and batched persisted frontiers; fixed-cutoff clipping and compactor self-dependency avoidance; bounded serial retries/parking; complete fitting context; explicit repair preserves originals/progress |
 | saves | exact text/provenance, optional unverified id, validation/secret rejection; unpersistable decoded callbacks fail before sql without replacement evidence, while persistable rejected proposals and literal escapes retain their originals; concurrent/retried key gives one original receipt, changed arguments conflict; main/external share append; main crash recovery returns committed receipt even after deadline, proven absence uses original identity; no gate/action; scheduled turns cannot save |
@@ -2141,3 +2170,33 @@ same submission returned the original receipt, then exact search/open passed.
 this proves retry recovery, not an explanation for the first failure.
 temporary rollout probes are removed after final review; existing approved
 capture/retry and completion regression groups remain.
+
+## per-conversation baseline source qualification
+
+2026-11-15, adr 0073. provider [pr 55](https://github.com/NielsdaWheelz/llm-calling/pull/55)
+and memory [pr 5](https://github.com/NielsdaWheelz/universal-memory/pull/5) are merged.
+kernel [pr 27](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/27) adopts the
+provider change on main. the qualified stock-0.160 composition uses immutable
+provider `70178ec8bb5b54304367ad60c0732447084a37c7`, kernel
+`da33773662089a72992c9aec1f938c76d9cb95ab` and library
+`93e02af07fee7e79250fb800835c324f092b5bec`. provider/kernel compatibility artifacts
+are tagged `jarvis-memory-partial-baselines-2026-11-15`; no maintenance branch,
+cognition upgrade or registry dependency change is required.
+
+22 temporary provider protocol/file cases pass on both provider compositions;
+existing suites pass 1,000 and 983 cases. kernel's 176 existing checks pass.
+real-postgres library proof covers atomic mixed inventories, pending write denial,
+later fresh/empty cuts, idempotent resolution and immutable established cuts.
+jarvis's temporary HTTP/collector/postgres journey covers complete/incomplete
+inventories, healthy/empty/pending/foreign identities, new conversations, recovery
+gap exclusion, restart deduplication and v2 wire refusal. a real localhost HTTP
+server plus native claude transcript reader independently proves capture and
+reopening. populated 0008→0008a preserves original rows, cuts, checkpoints and tree;
+runtime-role grants permit only the specified transition. fresh migration also
+passes; current main ends at 0009, the installed-compatible patch at 0008a.
+
+independent provider/library/jarvis reviews pass. frozen static/types/docs/build,
+clean installation and registry audit pass for both jarvis compositions; existing
+capture/completion regressions remain. only new temporary probes are removed
+after final verification. installed acceptance is recorded separately in the
+[rollout plan](implementation-plan.md#per-conversation-capture-amendment).

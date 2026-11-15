@@ -112,8 +112,8 @@ if [[ "$memory_schema" == 0005 ]]; then
     "$previous/.venv/bin/python" "$release/deploy/prepare-memory-cutover" \
     snapshot "$snapshot" </dev/null ||
     refuse "memory snapshot did not validate; leave service stopped"
-elif [[ "$memory_schema" != 0006 && "$memory_schema" != 0007 && "$memory_schema" != 0008 ]]; then
-  refuse "memory cutover requires schema 0005, 0006, 0007 or 0008"
+elif [[ "$memory_schema" != 0006 && "$memory_schema" != 0007 && "$memory_schema" != 0008 && "$memory_schema" != 0008a ]]; then
+  refuse "memory cutover requires schema 0005, 0006, 0007, 0008 or 0008a"
 fi
 
 # Migration rechecks the old sweep and preserved originals under the lock.

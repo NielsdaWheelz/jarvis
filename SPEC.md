@@ -58,6 +58,17 @@ adopted target above governs its implementation; old runtime/runbook claims do
 not constitute v2 acceptance. no code or production activation occurs in this
 documentation change.
 
+accepted native capture amendment (2026-11-15):
+[adr 0073](docs/decisions/0073-per-conversation-memory-baselines.md) permits
+healthy and new conversations to capture while listed unreadable conversations
+retain explicit pending baselines. a complete identity inventory still gates
+lane activation. each pending conversation establishes its future-only cut on
+its first successful later head read; activity before that cut is not imported.
+established cuts never move. this adds one nullable field to the existing
+conversation table and hard-cuts capture to native-archive.v3; memory tools and
+cognition behavior are unchanged. implementation and installed proof remain
+separate from this accepted amendment.
+
 accepted memory completion target (2026-11-14):
 [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the
 [completion contract](docs/memory-delivery.md). finish the existing system and

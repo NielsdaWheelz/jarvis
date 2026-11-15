@@ -592,6 +592,30 @@ check stays visibly blocked; never reset history or broaden authority to pass.
 full load/usefulness evaluation, historical import, backup/restore, nexus release,
 arch activation and unrelated v2 features remain outside this rollout.
 
+#### per-conversation capture amendment
+
+owner-authorized follow-up, 2026-11-15. the macbook codex-work2 daemon has now
+restarted once through its normal profile bootstrap. stock 0.169.0, remote-control
+settings and profile/configuration bytes and inodes are unchanged. all six memory
+tools load; an actual native `memory_open` reopens the synthetic verification note.
+the normal collector is restored. daemon adoption is complete; capture proof
+below remains separate.
+
+| owner | remaining delivery and proof |
+| --- | --- |
+| provider-runtime | native-archive.v3: complete identity inventory with per-entry head errors; one stable `archive_head`; ordinary native reads/event identity unchanged; upstream merge plus immutable stock-0.160-compatible artifact |
+| universal-memory | one nullable baseline_error, atomic initial inventory and one-time resolution, pending ingest denial, explicit status; preserve every established cut/checkpoint/original |
+| jarvis | closed baseline sync request, pending retries independent of native hints; migration 0008a after installed 0008, with unactivated 0009 following it; keep six tools unchanged |
+| integration | merge source into main; build a memory-only patch of installed 3367413, preserving v1 and stock 0.160; qualify fresh migration and populated 0008→0008a separately; replace service and both collectors together |
+| independent review | review each contract and its temporary HTTP/native/postgres proof; verify installed healthy/new capture, pending counts, exact reopening and restart preservation; remove new probes after success |
+
+the installed database is still 0008 and current main contains incomplete v2.
+the patch therefore excludes 0009 and all v2 behavior; immutable release tags
+retain compatible artifacts without standing maintenance branches. an existing
+history's missing head is never an empty cut. permanently unreadable histories
+can remain pending indefinitely; their earlier activity will remain absent even
+if they recover later. this is the owner's accepted coverage trade-off.
+
 ### memory and native-main integration
 
 these tracks share invocation identity, source publication, library pins and

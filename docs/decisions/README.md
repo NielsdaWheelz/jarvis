@@ -94,6 +94,8 @@ pass; installed acceptance remains open, with nexus and arch deferred.
 | [0071](0071-simple-event-driven-v2.md) | simple event-driven v2 | accepted documentation target; one main, scheduled todos, conversational consent, ordinary private repo, private originals and existing skid observation; browser/credential products/interactive deliverables deferred; implementation/activation separate |
 | [0072](0072-native-memory-rollout.md) | native memory rollout | installed jarvis/schema `0008`, v10 service reads, private https, all twelve sdk connections and quiet memory pass; native fleet/restart acceptance in progress; arch later, nexus next release |
 
+| [0073](0073-per-conversation-memory-baselines.md) | per-conversation native capture baselines | accepted healthy/new capture with explicit pending unreadable histories; complete identity inventory and immutable established cuts retained; source qualified; installed qualification pending |
+
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current
 verification requirements.

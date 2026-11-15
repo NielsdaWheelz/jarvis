@@ -41,6 +41,7 @@ from universal_memory.tools import (
     SaveNoteInput,
 )
 from universal_memory.types import (
+    Conversation,
     DateInput,
     Lane,
     LaneReceipt,
@@ -54,6 +55,7 @@ from jarvis.memory_capture import (
     INGEST_REQUEST,
     SYNC_REQUEST,
     Activate,
+    Baseline,
     CaptureError,
     CaptureLane,
     CaptureLanes,
@@ -393,6 +395,16 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
             raise _validation_failure(error) from None
         require_capture(request, value)
         async with memory.database.begin() as connection:
+            if isinstance(value, Baseline):
+                baseline = await memory.library.resolve_baseline(
+                    connection,
+                    value.lane,
+                    value.conversation_id,
+                    value.head_event_id,
+                    value.baseline_error,
+                    value.observed_at,
+                )
+                return JSONResponse(baseline.model_dump(mode="json"))
             if isinstance(value, Activate):
                 receipt = await memory.library.activate_lane(
                     connection, value.lane, value.conversations, value.observed_at
@@ -421,7 +433,15 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
             returned = await memory.library.sync_conversations(
                 connection,
                 value.lane,
-                value.conversations[:BATCH_EVENTS]
+                tuple(
+                    Conversation(
+                        native_id=item.native_id,
+                        relation=item.relation,
+                        parent_native_id=item.parent_native_id,
+                        working_directory=item.working_directory,
+                    )
+                    for item in value.conversations[:BATCH_EVENTS]
+                )
                 if isinstance(value, Activate)
                 else value.conversations,
                 value.observed_at,

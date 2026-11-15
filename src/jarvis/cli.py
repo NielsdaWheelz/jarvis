@@ -817,11 +817,7 @@ async def _action_activation_verdicts(
                 verdict = "incompatible does_not_load"
             else:
                 if stored is not None and archived_worker_action(stored):
-                    verdict = (
-                        "compatible"
-                        if not retired_reports
-                        else "incompatible retired_pending_events"
-                    )
+                    verdict = "compatible"
                 else:
                     verdict = "in_flight"
         elif status == "executing":

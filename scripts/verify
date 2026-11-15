@@ -22,7 +22,12 @@ test -f "${wheels[0]}"
 test -f "${sdists[0]}"
 uv venv --python "$(cat .python-version)" "$install_environment"
 uv pip install --python "$install_environment/bin/python" "${wheels[0]}"
-"$install_environment/bin/python" -c "import jarvis"
+"$install_environment/bin/python" - <<'PY'
+from jarvis.definitions import load_session_manifest, verify_runtime_dependencies
+
+verify_runtime_dependencies()
+load_session_manifest()
+PY
 "$install_environment/bin/jarvis" --help >/dev/null
 uv run pip-audit --local
 echo "static and build checks passed; scoped memory regressions run separately"

@@ -533,9 +533,9 @@ the owner now authorizes immediate macbook daemon refresh and
 healthy/new histories proceed while unreadable or unstable histories stay pending.
 this supersedes the earlier whole-profile capture deferrals. actual model checks for
 [devbox claude-personal](issues/devbox-claude-personal-model-check.md) and
-[macbook claude-personal](issues/macbook-claude-personal-model-check.md) until
-provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
-wait for its provider quota reset. those profiles are installed; preserve every
+[macbook claude-personal](issues/macbook-claude-personal-model-check.md) remain
+deferred until provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
+waits for its provider quota reset. those profiles are installed; preserve every
 established cut. [devbox's missing native sources](issues/devbox-work2-native-source.md)
 remain unresolved. their conversations will establish cuts only after successful
 native recovery; no pre-cut activity is imported or identity omitted.

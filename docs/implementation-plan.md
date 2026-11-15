@@ -548,6 +548,13 @@ established cut. [devbox's missing native sources](issues/devbox-work2-native-so
 remain unresolved. their conversations will establish cuts only after successful
 native recovery; no pre-cut activity is imported or identity omitted.
 
+#### initial rollout evidence
+
+the following records the earlier schema-0008 rollout and its then-current
+deferrals. the [per-conversation amendment](#per-conversation-capture-amendment)
+below owns the subsequent release, macbook activation and remaining dev-server
+live check.
+
 | step / owner | action and completion evidence |
 | --- | --- |
 | 1 / integration lead | source composed with current main and its security fixes; memory adr consolidated as 0070, original worktrees preserved. archive-only provider maintenance, kernel composition and selected target are published with no cognition/model upgrade; source integration is recorded in [jarvis pr 61](https://github.com/NielsdaWheelz/jarvis/pull/61) and [dev-server pr 215](https://github.com/NielsdaWheelz/dev-server/pull/215) |
@@ -636,7 +643,7 @@ tools load; an actual native `memory_open` reopens the synthetic verification no
 the normal collector is restored. daemon adoption is complete; capture proof
 below remains separate.
 
-| owner | remaining delivery and proof |
+| owner | delivery and proof scope |
 | --- | --- |
 | provider-runtime | native-archive.v3: complete identity inventory with per-entry head errors; one stable `archive_head`; ordinary native reads/event identity unchanged; upstream merge plus immutable stock-0.160-compatible artifact |
 | universal-memory | one nullable baseline_error, atomic initial inventory and one-time resolution, pending ingest denial, explicit status; preserve every established cut/checkpoint/original |
@@ -675,8 +682,17 @@ macbook/codex-work2 provenance. capture starts at the beginning of this new
 conversation, with neither baseline nor capture error. the macbook profile activation issue
 is resolved; pending conversations retain the accepted individual policy.
 
-dev-server work2 activation/capture and final installed preservation comparison
-remain pending. restart qualification uses the actual replacement's preserved
+the resumed preservation comparison also passes: all original 11 lane receipts,
+4,811 conversation cuts, 4,820 originals, 26 notes and 4,836 leaves remain exact.
+three prior checkpoints changed without resetting or changing a digest under
+the same id. appended material is allowed; there are no duplicate parts/sequences,
+incomplete events or pending conversations with originals. this snapshot does not
+establish checkpoint ordering by itself.
+
+dev-server work2 activation/capture remains pending; its initial inventory has
+not committed after more than 100 minutes. this is unfinished functional
+acceptance, separate from the deferred performance evaluation. restart
+qualification uses the actual replacement's preserved
 old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
 there is no second full cold-start experiment. the observed
 [cold-start scan delay](issues/memory-cold-start-scan.md) belongs to the deferred

@@ -7,7 +7,7 @@ configured home before reaching later homes. native reads can traverse long
 prefixes to verify event identity and the stored boundary/checkpoint. initial
 activation of a later lane waits behind those reads.
 
-impact: capture and new-lane activation can lag by tens of minutes on the owner's
+impact: capture and new-lane activation can lag by hours on the owner's
 existing corpus. successful reads continue; this is separate from missing native
 files or an invalid capture boundary. activity before a new lane's actual cut is
 still excluded under the future-only contract.
@@ -27,6 +27,10 @@ retaining them as pending now exposes the full cost of the remaining reads.
 the initial head inventory publishes no per-head progress before its atomic
 activation receipt. process activity and absence of retry logs therefore cannot
 establish its current cursor or a reliable completion estimate.
+at 19:55 utc, dev-server work2's first inventory had run for approximately 97
+minutes without a receipt. the same collector process remained alive and a
+separate metadata-only endpoint request succeeded; neither proves scan progress.
+installed dev-server work2 capture acceptance remains open.
 
 reproduce with an ordinary collector restart and content-free lane/read progress
 observations. no broad load experiment was run. investigate native checkpoint

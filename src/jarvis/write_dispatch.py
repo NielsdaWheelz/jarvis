@@ -60,6 +60,8 @@ from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
 from jarvis.native_journal import PostgresNativeJournal
 from jarvis.read_dispatch import ReadDispatchPort, contains_secret
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
+from jarvis.work import WorkStore
+from jarvis.work_tools import WORK_MUTATION_IDS
 from jarvis.write_connectors import (
     GmailUpdateReconciliationBasis,
     GoogleWriteConnector,
@@ -100,6 +102,7 @@ class WriteToolDispatcher:
         journal: PostgresNativeJournal,
         actions: ActionStore,
         google_write: GoogleWriteConnector,
+        work: WorkStore,
         agents: AgentController,
         read: ReadDispatchPort,
         source_conversation_id: str,
@@ -111,6 +114,7 @@ class WriteToolDispatcher:
         self._journal = journal
         self._actions = actions
         self._google_write = google_write
+        self._work = work
         self._agents = agents
         self._read = read
         self._source_conversation_id = source_conversation_id
@@ -245,7 +249,7 @@ class WriteToolDispatcher:
             if selected.status in {"queued", "executing", "uncertain"}:
                 return DispatchSuspended(reference, WaitingFor.system)
             return host_rejected("action_was_cancelled", reference)
-        if blocked:
+        if blocked and binding.spec.id not in WORK_MUTATION_IDS:
             return host_rejected("effect_outcome_unknown")
         if binding.replay_policy not in {
             ReplayPolicy.BilledOnce,
@@ -342,6 +346,7 @@ class WriteToolDispatcher:
                 await ActionRecovery(
                     actions=self._actions,
                     google_write=self._google_write,
+                    work=self._work,
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
                     wait_changed=self._agents.notify_wait_changed,
@@ -438,12 +443,14 @@ class ActionRecovery:
         *,
         actions: ActionStore,
         google_write: GoogleWriteConnector,
+        work: WorkStore,
         plan: FrozenToolPlan,
         source_conversation_id: str,
         wait_changed: Callable[[], None],
     ) -> None:
         self._actions = actions
         self._google_write = google_write
+        self._work = work
         self._plan = plan
         self._source_conversation_id = source_conversation_id
         self._wait_changed = wait_changed
@@ -540,8 +547,11 @@ class ActionRecovery:
                 else:
                     await self._actions.reconcile_agent_receipt(current.id)
                 continue
-            if current.tool_name in AGENT_LOCAL_IDS:
-                if current.result is not None:
+            if current.tool_name in WORK_MUTATION_IDS:
+                if await self._work.recover_mutation(current.id) is not None:
+                    return
+            if current.tool_name in (*AGENT_LOCAL_IDS, *WORK_MUTATION_IDS):
+                if action_replay_result(current) is not None:
                     return
                 if current.status == "executing":
                     if current.attempts >= current.execution_contract.max_attempts:

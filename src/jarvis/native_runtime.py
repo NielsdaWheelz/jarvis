@@ -65,6 +65,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.definitions import RoleDefinitions
+from jarvis.input_framing import host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
 from jarvis.memory_workers import MemoryWorker
@@ -93,50 +94,12 @@ class NativeRunOutcome:
     status: Literal["no_work", "progressed", "blocked", "stopped"]
 
 
-def _host_input(value: StoredMessage) -> HostInput:
-    return HostInput(
-        InputId(str(value.id)),
-        PromptSections(
-            (
-                PromptSection(
-                    PromptSectionKind(
-                        "owner_input" if value.role == "owner" else "host_input"
-                    ),
-                    tuple(
-                        PromptAttribute(PromptAttributeName(name), text)
-                        for name, text in (
-                            ("input_id", str(value.id)),
-                            ("role", value.role),
-                            ("source", value.source),
-                            ("source_timestamp", value.created_at.isoformat()),
-                            (
-                                "observed_at",
-                                str(value.trace.get("observed_at", "unrecorded")),
-                            ),
-                            (
-                                "parent_request_id",
-                                str(value.parent_request_id)
-                                if value.parent_request_id
-                                else "none",
-                            ),
-                            ("request_state", value.request_state or "none"),
-                            ("wait_reason", value.wait_reason or "none"),
-                        )
-                    ),
-                    PromptText(value.text),
-                ),
-            )
-        ),
-        value.created_at,
-    )
-
-
 def _host_inputs(
     values: tuple[StoredMessage, ...],
     receipts: PromptSections,
     omitted_waiting: int,
 ) -> tuple[HostInput, ...]:
-    inputs = tuple(map(_host_input, values))
+    inputs = tuple(map(host_input, values))
     first, *rest = inputs
     context = PromptSection(
         PromptSectionKind("request_context"),

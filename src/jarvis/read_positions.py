@@ -46,6 +46,7 @@ from jarvis.db import (
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
 from jarvis.tool_results import completed_tool_result
+from jarvis.work_tools import WORK_READ_IDS
 
 if TYPE_CHECKING:
     from jarvis.memory_service import MemoryService
@@ -226,6 +227,8 @@ class PostgresReadRecorder:
                 current_input.model_dump(mode="json")
             ) != canonical_json_bytes(arguments):
                 raise ValueError("read arguments changed after callback acceptance")
+            if binding.spec.id in WORK_READ_IDS:
+                return None
             unfinished = set(
                 (
                     await connection.execute(

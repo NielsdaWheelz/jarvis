@@ -58,6 +58,7 @@ from universal_memory.tools import (
 from jarvis.agent_tools import AGENT_READ_IDS, AGENT_WRITE_IDS
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC
 from jarvis.terminal import JarvisNativeMessage
+from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
@@ -134,6 +135,7 @@ MAIN_WRITE_IDS = (
     ToolId("gmail.send_draft"),
     ToolId("gmail.update_draft"),
     *AGENT_WRITE_IDS,
+    *WORK_MUTATION_IDS,
 )
 
 _MAIN_ROLE_INSTRUCTIONS = (
@@ -240,7 +242,26 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "completion nor exact attribution. timeout/cancel_wait do not stop workers. "
     "interruption and terminal closure are independent facts; report what was "
     "confirmed. unknown writes are never replayed. archived retired worker rows "
-    "retain status only, with receipt details unavailable after cutover."
+    "retain status only, with receipt details unavailable after cutover. "
+    "use work.create/update/delete/get/list for useful todos and follow-up. reuse "
+    "the same record for the same outcome; split independently finishable work. "
+    "doing_now means actual work; blocked names its condition; next_up is chosen "
+    "priority (at most three); backlog may be a bare title. never invent owner "
+    "commitments, urgency, dates or success. due_date is a local deadline, not a "
+    "wake. wake schedules reasoning; it neither performs nor completes work. "
+    "confirm scheduling only from a committed mutation receipt, giving the next "
+    "local date/time and zone. convert utc receipts to the configured owner "
+    "timezone for one-time/interval wakes; calendar repeats use their named rule "
+    "zone. disclose material lateness; name its cause only "
+    "when observed. recurring rows are standing commitments: finishing today's "
+    "input leaves the row active; done/cancelled ends the series and clears its "
+    "wake. changing/deleting a todo does not stop workers, revoke consent or "
+    "retract published inputs. wake snapshots are historical; recheck current "
+    "state when useful and never recreate deleted work from an old wake. skipped "
+    "wakes do not prove missed work. group lists by useful states and disclose "
+    "paging/omissions. NextUpFull changes nothing; never demote silently. routine "
+    "bookkeeping or an empty review may be silent. work bookkeeping remains "
+    "available during external-effect uncertainty; that grants no effect retry."
 )
 
 _MAIN_OWNER_CONTEXT = (
@@ -499,6 +520,7 @@ def build_definitions(
                 APPROVAL_RESPOND_SPEC.id,
                 *MAIN_WRITE_IDS,
                 *AGENT_READ_IDS,
+                *WORK_READ_IDS,
             )
         )
     )

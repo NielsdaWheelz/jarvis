@@ -125,7 +125,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | feature | contract / specification work | owner and dependencies |
 | --- | --- | --- |
 | one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified; installed activation pending | jarvis; builds on native main; source adapters remain separate |
-| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos with optional one-time/repeated wakes unimplemented | jarvis; one table and existing timer |
+| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis; one work table, independent timer; installed conversion/activation separate |
 | delegated follow-through (o9) | [contract](delegated-follow-through.md) source behavior implemented with o6; installed skid observation remains slice 3 | jarvis; o6 plus installed skid observation; o7 supplies optional bookkeeping |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | [contract](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
@@ -149,20 +149,22 @@ owns their public interface.
 the documentation baseline landed in pr 60 (`8c0bf36`). for each slice, audit and
 finish its owning spec against current source; hand it to an implementation
 agent; review the diff/evidence, resolve gaps and land the implementation.
-prepare the next spec against that updated system. refine existing feature
-contracts in place rather than introducing parallel work orders.
+specs may be prepared while the preceding slice is implemented, against its
+explicit public contract; audit the landed predecessor before implementing the
+next slice. refine existing feature contracts in place, with no parallel work
+orders.
 
 | order | review unit | completion and dependency |
 | --- | --- | --- |
 | 1 | common main and conversational consent | [source-audited spec](one-main-events.md): common request lifecycle, full plan, atomic conversational consent, scoped stop and recovery; remove gate, component approval and old scheduler; installed worker outcomes are proved in 3 |
-| 2 | todos and scheduled turns | o7: CRUD, optional one-time/repeated wake, atomic publication and conversion of retained reminder obligations; replaces scheduling removed in 1 |
+| 2 | todos and scheduled turns | [implementation spec](work-records.md): ordinary CRUD, atomic local receipts, fresh reads, calendar/interval wakes and busy-main publication; accepts queued-late schedules; depends on 1 and converts retained reminder obligations |
 | 3 | installed skid follow-through | reuse adr 0072's qualified state mount, use current terminal-only start/control/wait and prove installed asynchronous result/restart delivery; depends on 1 and matching artifacts, not a new worker protocol |
 | 4 | ordinary private repo | notes: minimal kernel/provider native-access handoffs, persistent checkout, native files/git and small file deliverables; isolated memory roles retain their existing posture |
 | 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
 | 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
 
 independent investigation of 4's upstream needs and 6's source interfaces may
-proceed alongside earlier units; finalize their specs after prior work lands.
+proceed alongside earlier units; their implementation adopts landed interfaces.
 the owner accepts incomplete intermediate slices. remove replaced paths in their
 own slice; do not retain a compatibility scheduler or make each pr independently
 deployable. keep reminder obligations in the private cutover inventory until 2;
@@ -318,8 +320,9 @@ the [o6 implementation contract](one-main-events.md), adopted by adr 0071, owns
 common input, ordinary conversational consent, lifecycle and stopped cutover.
 source implementation and isolated integration/live qualification are complete;
 the contract records exact evidence. installed worker proof remains slice 3.
-the old scheduler is removed; slice 2 must supply scheduled todos before the
-selected product resumes. this intermediate branch is not the memory rollout release.
+the old scheduler is removed; slice 2 supplies scheduled todos. selected slices
+and retained obligations still govern resumption. this branch is not the
+installed memory rollout release.
 
 owner messages, action results and scheduled wakes receive the same main tools
 and approval rules. background origin alone is not read-only and need not invent
@@ -360,7 +363,8 @@ commitments and things to track; jarvis manages records automatically.
 | backlog | lightweight capture; do not pre-plan everything |
 
 the same state field adds done/cancelled outside the active view. title/content,
-optional due date, next wake/repeat and ordinary identity/timestamps suffice.
+optional due date, next wake/repeat, schedule identity, nominal civil cursor and
+ordinary identity/timestamps suffice.
 due date is a deadline; a wake starts a turn. owners, blockers, estimates and
 refs stay prose. no history, tombstones or separate lifecycle.
 
@@ -368,8 +372,12 @@ reuse an item for the same work; no row for each specialist. changing/deleting
 records does not stop workers or cancel pending effects. completing/cancelling/
 deleting the todo disables its future wakes; already-published inputs remain.
 attention states inform agent judgment. daily review is an ordinary repeating
-todo. [work-state record](issues/work-state-semantics.md) tracks implementation
-evidence; later dreamer work context is outside this cut.
+todo that remains active between runs. admitted schedule changes delayed past
+their time wake late with truthful context. the
+[implementation evidence](work-records.md#implementation-evidence) records source
+qualification; the [installed handoff](issues/work-installed-cutover.md) retains
+reminder conversion and supervised setup. later dreamer work context is outside
+this cut.
 
 exit: automatic CRUD persists across restart; active views obey the four states
 and three-next-up cap; deletion physically removes the row; old callbacks cannot
@@ -832,7 +840,7 @@ intent merely because their implementation is incomplete.
 | --- | --- |
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
 | o6 | [contract](one-main-events.md) source and isolated functional proof complete; selected-slice cutover and installed activation remain |
-| o7 | [work-record contract](work-records.md) adopted by 0071; todo/schedule implementation and focused proof remain |
+| o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](issues/work-installed-cutover.md) remains |
 | o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
 | o9 | [contract](delegated-follow-through.md) content/composition and conversational stop source complete; installed skid proof remains slice 3 |
 | new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; cursor/adapters and same-main proof remain; recurrence belongs to o7, dream wakes deferred |

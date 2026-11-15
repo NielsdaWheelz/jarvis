@@ -53,6 +53,9 @@ as does broader personal acceptance; this delivery adds no backup or history imp
 and host events use one full main plan, with honest attribution and explicit
 request state. main chooses useful work, a response or silence. this describes
 source behavior; installed activation is separate.
+[todos and scheduling](docs/work-records.md#implementation-evidence) adds atomic
+current work records and one timer publishing ordinary main inputs. deadlines
+remain separate from wakes; recurring rows remain active between occurrences.
 originals are permanent; derived memory nodes, views, embeddings and indexes are
 rebuildable. legacy notes and flat summaries remain searchable without backfill
 or invented provenance.
@@ -101,10 +104,10 @@ memory_state
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the product
 contract. slice 1 supplies the common main lifecycle, conversational decisions
-and scoped stop. later slices supply work records/wakes, private native files
+and scoped stop. slice 2 adds work records/wakes; later slices supply private native files
 and inbound attachments. source implementation does not authorize activation.
 
-one future work table will hold current work and optional one-time or repeated
+one work table holds current work and optional one-time or repeated
 wakes; due dates remain separate. ordinary notes and files will live in a private
 native git checkout; inbound originals will live in private r2 storage. existing
 asynchronous skid observation already delivers events without repeated model

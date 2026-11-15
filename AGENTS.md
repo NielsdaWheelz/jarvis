@@ -19,7 +19,7 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling and interactive deliverables/television. shared memory remains separate
-  and quiet dreaming unchanged. slice 1 source is implemented and qualified;
+  and quiet dreaming unchanged. slices 1–2 are implemented and source-qualified;
   remaining slices and installed activation are pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
@@ -30,6 +30,11 @@ These instructions govern all work in this repository.
   used owner-requested temporary integration/live red/green/refactor,
   content design and adversarial review per feature, then deleted those probes.
   this scoped exception leaves the wider testing reset and memory checks intact.
+  [slice 2](docs/work-records.md) implements todos and scheduling in source, with
+  the same scoped temporary proof method. installed conversion/activation remain
+  separate. admitted queued schedules may wake late; recurring
+  rows remain active between occurrences. consume slice 1's landed primitives
+  after auditing the actual predecessor; do not restore the retired scheduler.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

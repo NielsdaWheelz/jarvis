@@ -30,6 +30,8 @@ from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
 from jarvis.read_tools import maps_family
 from jarvis.settings import Settings
+from jarvis.work import WorkStore
+from jarvis.work_tools import work_family
 from jarvis.write_connectors import GoogleWriteConnector
 from jarvis.write_tools import calendar_main_family, gmail_main_family
 
@@ -50,6 +52,7 @@ def build_tool_composition(
     memory: MemoryService,
     actions: ActionStore,
     agents: AgentController,
+    work: WorkStore,
 ) -> ToolComposition:
     calendar_ids_digest = hashlib.sha256(
         canonical_json_bytes(sorted(settings.verified_owner_only_calendar_ids))
@@ -102,6 +105,7 @@ def build_tool_composition(
             ),
             memory_family(memory),
             approval_family(),
+            _bind_write_policy(work_family(work), calendar_ids_digest=None),
         )
     )
     if any(

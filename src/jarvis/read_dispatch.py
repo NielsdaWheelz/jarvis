@@ -37,6 +37,7 @@ from universal_memory.tools import MEMORY_READ_IDS, MEMORY_SAVE_NOTE_SPEC, SaveN
 from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 from jarvis.tool_results import NoTelemetry, completed_tool_result
+from jarvis.work_tools import WORK_READ_IDS
 
 if TYPE_CHECKING:
     from jarvis.memory_service import MemoryService
@@ -184,7 +185,13 @@ class ReadToolDispatcher:
     ) -> DispatchCompleted:
         tool_id = binding.spec.id
         if (
-            tool_id not in (*AUTOMATIC_READ_TOOL_IDS, *AGENT_READ_IDS, *MEMORY_READ_IDS)
+            tool_id
+            not in (
+                *AUTOMATIC_READ_TOOL_IDS,
+                *AGENT_READ_IDS,
+                *MEMORY_READ_IDS,
+                *WORK_READ_IDS,
+            )
             or binding.spec.effect is not ToolEffect.Read
         ):
             raise ToolDispatchDefect(

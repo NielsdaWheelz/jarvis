@@ -15,6 +15,7 @@ from jarvis.agent_tools import (
     AgentStopInput,
     AgentWaitInput,
 )
+from jarvis.work_tools import WorkCreateInput, WorkDeleteInput, WorkUpdateInput
 from jarvis.write_tools import (
     CalendarCreateEventInput,
     CalendarDeleteEventInput,
@@ -36,6 +37,9 @@ def classify_write(
 
     name = str(tool_id)
     if (name, type(value)) in {
+        ("work.create", WorkCreateInput),
+        ("work.update", WorkUpdateInput),
+        ("work.delete", WorkDeleteInput),
         ("agent.start", AgentStartInput),
         ("agent.send", AgentSendInput),
         ("agent.keys", AgentKeysInput),

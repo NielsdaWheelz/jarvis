@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -38,7 +39,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0009"
+APPLICATION_SCHEMA_REVISION = "0010"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -525,6 +526,48 @@ native_input_delivery = Table(
     CheckConstraint(
         "state IN ('prepared', 'sent', 'queued', 'recorded', 'rejected')", name="state"
     ),
+)
+
+
+work = Table(
+    "work",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("title", Text, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("content", Text, nullable=False, server_default=text("''")),
+    Column("due_date", Date),
+    Column("wake_id", UUID(as_uuid=True), ForeignKey("action.id", ondelete="RESTRICT")),
+    Column("wake_at", DateTime(timezone=True)),
+    Column("repeat", JSONB(none_as_null=True)),
+    Column("wake_local_date", Date),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "state IN ('doing_now','blocked','next_up','backlog','done','cancelled')",
+        name="state",
+    ),
+    CheckConstraint(
+        "title ~ '[^[:space:]]' AND octet_length(title) <= 240", name="title"
+    ),
+    CheckConstraint("octet_length(content) <= 8192", name="content"),
+    CheckConstraint(
+        "((wake_id IS NULL AND wake_at IS NULL AND repeat IS NULL "
+        "AND wake_local_date IS NULL) OR (wake_id IS NOT NULL "
+        "AND wake_at IS NOT NULL AND state NOT IN ('done','cancelled') "
+        "AND ((repeat IS NULL AND wake_local_date IS NULL) "
+        "OR (jsonb_typeof(repeat) = 'object' AND "
+        "((repeat->>'type' = 'interval' AND wake_local_date IS NULL) "
+        "OR (repeat->>'type' IN ('daily','weekly','monthly') "
+        "AND wake_local_date IS NOT NULL)))))) IS TRUE",
+        name="schedule",
+    ),
+)
+Index(
+    "ix_work_due",
+    work.c.wake_at,
+    work.c.id,
+    postgresql_where=work.c.wake_at.is_not(None),
 )
 
 

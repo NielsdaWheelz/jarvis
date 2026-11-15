@@ -161,7 +161,7 @@ commands and uncertain effects have no such proof. no text/author heuristic.
 
 ## recurring wakes and tools
 
-[work records](work-records.md#one-time-and-recurring-wakes) owns one-time and
+[work records](work-records.md#recurrence-contract) owns one-time and
 repeating scheduling, date rules, coalescing and atomic due publication. use
 `work.create`, `work.update`, `work.get` and `work.list`. clearing a todo's wake
 stops future publication; done/cancelled/delete also removes its schedule.

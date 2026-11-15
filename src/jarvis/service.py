@@ -25,6 +25,7 @@ from jarvis.discord import (
 from jarvis.memory_service import MemoryService
 from jarvis.messages import InboundInsert, StoredMessage
 from jarvis.native_runtime import NativeRunOutcome
+from jarvis.proactivity import WorkWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
@@ -158,12 +159,15 @@ class JarvisService:
         agent_waits: AgentController,
         dispatch_lane: asyncio.Lock,
         memory: MemoryService,
+        work_timer: WorkWakeTimer,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
         self._memory = memory
+        self._work_timer = work_timer
+        self._work_timer_task: asyncio.Task[None] | None = None
         self._store = store
         self._paused = paused
         self._delivery = delivery
@@ -236,6 +240,7 @@ class JarvisService:
         self.request_delivery()
         await self._memory.publish()
         self._agent_waits.notify_wait_changed()
+        self._work_timer.notify_changed()
         self._work.set()
 
     async def gateway_ready(self) -> CatchUpResult:
@@ -289,6 +294,11 @@ class JarvisService:
         """Run until shutdown, draining serial work and pending delivery."""
 
         await self._runner.recover()
+        self._work_timer.notify_changed()
+        self._work_timer_task = asyncio.create_task(
+            self._run_work_timer(), name="jarvis-work-timer"
+        )
+        self._work_timer_task.add_done_callback(self._timer_stopped)
         self._delivery_task = asyncio.create_task(
             self._deliver(), name="jarvis-delivery"
         )
@@ -323,10 +333,12 @@ class JarvisService:
                     raise RuntimeError("agent wait observer stopped unexpectedly")
                 await self._drain()
         finally:
+            self._work_timer_task.cancel()
             self._agent_wait_cancellation.cancel()
             self._delivery_task.cancel()
             self._dream_timer_task.cancel()
             tasks = [
+                self._work_timer_task,
                 self._agent_wait_task,
                 self._delivery_task,
                 self._dream_timer_task,
@@ -335,11 +347,20 @@ class JarvisService:
             self._agent_wait_task = None
             self._agent_wait_cancellation = None
             self._delivery_task = None
+            self._work_timer_task = None
             self._dream_timer_task = None
             await self._runner.close()
             for result in results:
                 if isinstance(result, Exception):
                     raise result
+
+    def _timer_stopped(self, task: asyncio.Task[None]) -> None:
+        if not task.cancelled():
+            self.request_shutdown()
+
+    async def _run_work_timer(self) -> None:
+        await self._work_timer.run()
+        raise RuntimeError("work timer stopped unexpectedly")
 
     def request_work(self) -> None:
         if (

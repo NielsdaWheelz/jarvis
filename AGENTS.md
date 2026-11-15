@@ -41,8 +41,9 @@ These instructions govern all work in this repository.
   full-plan worker events and conversational stop are already implemented.
   reuse worker v10, existing waits and the qualified live-state mount. the owner
   selected a temporary candidate against installed skid; its source repairs and
-  candidate journeys are qualified. final runtime/deployment inputs equal the
-  qualified artifact; temporary resources are removed. `claude-work` remains unavailable by owner
+  candidate journeys are qualified; temporary resources are removed. subsequent
+  memory-mainline integration retains its own evidence in slice 3.
+  `claude-work` remains unavailable by owner
   decision, with useful execution NOT_RUN. the [unexplained native
   defect](docs/issues/native-protocol-diagnostics.md) remains open. production
   acceptance stays at final v2 cutover; do not restore intermediate activation.
@@ -177,6 +178,13 @@ These instructions govern all work in this repository.
   end-to-end/live red/green/refactor checks, then deletes only its new probes.
   complete functional proof now; broad usefulness/load evaluation and
   backup/restore are deferred. no runtime change is implied by docs.
+- [adr 0073](docs/decisions/0073-per-conversation-memory-baselines.md) permits
+  healthy/new native capture while listed unreadable conversations retain explicit
+  pending baselines. complete identity coverage still gates activation; the first
+  successful later head read establishes a fresh cut, with no gap backfill.
+  established cuts never move. native-archive.v3 hard-cuts collector transport;
+  six memory tools stay unchanged. migration 0008a precedes unactivated 0009;
+  the installed v1 memory patch must not activate incomplete v2 work.
 - [adr 0072](docs/decisions/0072-native-memory-rollout.md) owns the authorized
   native rollout and qualified source amendments: eighteen native lanes plus
   `(devbox, jarvis)`, including each host's distinct `claude-work2` home; migration

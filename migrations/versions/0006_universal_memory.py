@@ -189,7 +189,46 @@ def upgrade() -> None:
                 last_inventory_at=datetime.now(UTC),
             )
         )
-    for statement in guard_statements():
+    # Keep this predecessor independent of later source-conversation fields.
+    op.execute("""
+        CREATE OR REPLACE FUNCTION memory_guard_original() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF TG_OP IN ('DELETE','TRUNCATE') THEN
+            RAISE EXCEPTION 'memory originals are append-only';
+          END IF;
+          IF TG_OP = 'INSERT' THEN
+            IF TG_TABLE_NAME = 'memory_log' THEN
+              IF (NEW.agent_submission IS NULL) = (NEW.synthesis IS NULL) THEN
+                RAISE EXCEPTION 'new notes require exactly one provenance variant';
+              END IF;
+            END IF;
+            RETURN NEW;
+          END IF;
+          IF TG_TABLE_NAME = 'memory_lane' THEN
+            IF (to_jsonb(NEW) - 'last_inventory_at') IS DISTINCT FROM
+               (to_jsonb(OLD) - 'last_inventory_at') THEN
+              RAISE EXCEPTION 'memory lane identity is immutable';
+            END IF;
+          ELSIF TG_TABLE_NAME = 'source_conversation' THEN
+            IF (to_jsonb(NEW) - ARRAY['checkpoint_event_id','checkpoint_native_digest',
+                 'last_read_at','capture_error']) IS DISTINCT FROM
+               (to_jsonb(OLD) - ARRAY['checkpoint_event_id','checkpoint_native_digest',
+                 'last_read_at','capture_error']) THEN
+              RAISE EXCEPTION 'source conversation identity is immutable';
+            END IF;
+          ELSIF TG_TABLE_NAME IN ('source_record','memory_log') THEN
+            IF (to_jsonb(NEW) - 'embedding') IS DISTINCT FROM
+               (to_jsonb(OLD) - 'embedding') THEN
+              RAISE EXCEPTION 'memory original is immutable';
+            END IF;
+          ELSE
+            RAISE EXCEPTION 'memory leaf links are immutable';
+          END IF;
+          RETURN NEW;
+        END $$
+    """)
+    for statement in guard_statements()[1:]:
         op.execute(statement)
     op.execute("""
       CREATE FUNCTION jarvis_guard_memory_eligibility() RETURNS trigger

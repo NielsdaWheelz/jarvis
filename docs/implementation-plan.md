@@ -172,8 +172,8 @@ unattended activation waits for the selected slices and accounted-for commitment
 3 reused existing observation source for its qualified candidate and demonstrated
 repairs. the owner selected real installed workers with a temporary candidate;
 `claude-work` remains unavailable by owner decision; useful execution is NOT_RUN.
-final runtime/deployment inputs equal the qualified artifact; temporary resources
-are removed.
+temporary resources are removed; its evidence distinguishes the live candidate
+from subsequent memory-mainline integration.
 keep production's release/database/control state and intermediate activation
 refusal unchanged. its evidence labels controlled ingress and actual discord
 outbox separately. physical-owner gateway and selected-production restart/complete
@@ -546,15 +546,24 @@ all configured personal/work/work2 profiles may share with jarvis and one anothe
 the owner confirms control of their content. capture starts from new activation
 boundaries, never history import. the existing separate events task owns the subsequent migration;
 its intermediate source is not a deployable release and stays out of this rollout.
-the owner accepts queued [macbook codex-work2 activation](issues/macbook-work2-memory-activation.md)
-until active turns finish and defers the actual model checks for
+the owner now authorizes immediate macbook daemon refresh and
+[per-conversation baselines](decisions/0073-per-conversation-memory-baselines.md):
+healthy/new histories proceed while unreadable or unstable histories stay pending.
+this supersedes the earlier whole-profile capture deferrals. actual model checks for
 [devbox claude-personal](issues/devbox-claude-personal-model-check.md) and
-[macbook claude-personal](issues/macbook-claude-personal-model-check.md) until
-provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
-waits for its provider quota reset. install those profiles now; preserve the strict baseline.
-devbox codex-work2 also installs tools now; its owner-approved
-[capture deferral](issues/devbox-work2-native-source.md) waits for missing native
-source recovery. no affected history is skipped or relabeled.
+[macbook claude-personal](issues/macbook-claude-personal-model-check.md) remain
+deferred until provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
+waits for its provider quota reset. those profiles are installed; preserve every
+established cut. [devbox's missing native sources](issues/devbox-work2-native-source.md)
+remain unresolved. their conversations will establish cuts only after successful
+native recovery; no pre-cut activity is imported or identity omitted.
+
+#### initial rollout evidence
+
+the following records the earlier schema-0008 rollout and its then-current
+deferrals. the [per-conversation amendment](#per-conversation-capture-amendment)
+below owns the subsequent release, macbook activation and remaining dev-server
+live check.
 
 | step / owner | action and completion evidence |
 | --- | --- |
@@ -604,7 +613,8 @@ active configuration digests without replacing unchanged profile files.
 all ten eligible capture cuts are committed; nine native model journeys pass
 save/search/open. three model-waived sdk journeys pass save/exact-open, with search
 also proved on two. five quiet codex daemons now load
-the six-tool catalog; macbook work2's old daemon still awaits idle. both collectors
+the six-tool catalog; macbook work2's daemon was subsequently refreshed as recorded
+below. both collectors
 have restarted once. the final comparison preserves all ten cuts and 4,783 existing
 source identities/cuts, with no checkpoint regression, duplicates or parks. all
 eleven required native conversations are captured and reopened through installed
@@ -633,6 +643,70 @@ bodies. an unavailable lane, unresolved original effect or failed containment
 check stays visibly blocked; never reset history or broaden authority to pass.
 full load/usefulness evaluation, historical import, backup/restore, nexus release,
 arch activation and unrelated v2 features remain outside this rollout.
+
+#### per-conversation capture amendment
+
+owner-authorized follow-up, 2026-11-15. the macbook codex-work2 daemon has now
+restarted once through its normal profile bootstrap. stock 0.169.0, remote-control
+settings and profile/configuration bytes and inodes are unchanged. all six memory
+tools load; an actual native `memory_open` reopens the synthetic verification note.
+the normal collector is restored. daemon adoption is complete; capture proof
+below remains separate.
+
+| owner | delivery and proof scope |
+| --- | --- |
+| provider-runtime | native-archive.v3: complete identity inventory with per-entry head errors; one stable `archive_head`; ordinary native reads/event identity unchanged; upstream merge plus immutable stock-0.160-compatible artifact |
+| universal-memory | one nullable baseline_error, atomic initial inventory and one-time resolution, pending ingest denial, explicit status; preserve every established cut/checkpoint/original |
+| jarvis | closed baseline sync request, pending retries independent of native hints; migration 0008a after installed 0008, with unactivated 0009/0010 following it; six tools unchanged; merged work-record source passes fresh 0→0010, frozen verification and retained capture/completion checks |
+| integration | merge source into main; build a memory-only patch of installed 3367413, preserving v1 and stock 0.160; qualify fresh migration and populated 0008→0008a separately; replace service and both collectors together |
+| independent review | review each contract and its temporary HTTP/native/postgres proof; verify installed healthy/new capture, pending counts, exact reopening and restart preservation; remove new probes after success |
+
+the starting installed database was 0008 and current main contains incomplete v2.
+the patch therefore excludes 0009 and all v2 behavior; immutable release tags
+retain compatible artifacts without standing maintenance branches. an existing
+history's missing head is never an empty cut. permanently unreadable histories
+can remain pending indefinitely; their earlier activity will remain absent even
+if they recover later. this is the owner's accepted coverage trade-off.
+
+installed transition: release `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, tag
+`memory-partial-baselines-2026-11-15-r2`, is active on schema `0008a` with zero
+service restarts. the same-release contained stock-0.160 host qualifies. the
+stopped migration comparison preserves all 11 prior lane receipts, 4,811
+conversation rows, 4,820 originals, 26 notes and 4,836 leaves exactly, including
+all cuts/checkpoints. canonical resume sequence 4 is unchanged; activation
+converts no actions and accepts only the three already-finalized compatible
+worker records. old release 3367413 is pruned; one installed release remains.
+
+both collectors select the same 0fc3d64 revision and authenticate native-archive.v3.
+all thirty protected profile, instruction and private-input files retain exact
+bytes, inodes and modes; no native daemon restart occurs during this replacement.
+an actual native mcp open reopens the known synthetic note with its exact marker.
+containment and both online worker reads pass; arch remains deferred.
+
+macbook work2 activates at 18:49:48 utc with 192 registered conversations:
+188 established and four explicit unavailable baselines. a new normal-wrapper
+codex turn then captures its owner prompt and assistant reply exactly once, each
+as one complete part with one leaf. the actual installed mcp reopens the exact
+77-byte synthetic reply, unclipped, with matching native identity/digest and
+macbook/codex-work2 provenance. capture starts at the beginning of this new
+conversation, with neither baseline nor capture error. the macbook profile activation issue
+is resolved; pending conversations retain the accepted individual policy.
+
+the resumed preservation comparison also passes: all original 11 lane receipts,
+4,811 conversation cuts, 4,820 originals, 26 notes and 4,836 leaves remain exact.
+three prior checkpoints changed without resetting or changing a digest under
+the same id. appended material is allowed; there are no duplicate parts/sequences,
+incomplete events or pending conversations with originals. this snapshot does not
+establish checkpoint ordering by itself.
+
+dev-server work2 activation/capture remains pending; its initial inventory has
+not committed after more than 100 minutes. this is unfinished functional
+acceptance, separate from the deferred performance evaluation. restart
+qualification uses the actual replacement's preserved
+old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
+there is no second full cold-start experiment. the observed
+[cold-start scan delay](issues/memory-cold-start-scan.md) belongs to the deferred
+performance/usefulness follow-up, with correctness requirements unchanged.
 
 ### memory and native-main integration
 

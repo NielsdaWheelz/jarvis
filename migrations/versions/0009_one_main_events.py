@@ -1,7 +1,7 @@
 """Common waking requests and conversational approval receipts.
 
 Revision ID: 0009
-Revises: 0008
+Revises: 0008a
 """
 
 import json
@@ -13,7 +13,7 @@ from sqlalchemy import text
 from jarvis.ownership import DEPLOYMENT_LOCK_KEY
 
 revision = "0009"
-down_revision = "0008"
+down_revision = "0008a"
 branch_labels = None
 depends_on = None
 

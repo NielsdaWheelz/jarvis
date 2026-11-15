@@ -220,14 +220,15 @@ the branch is `feature/delegated-follow-through`, isolated from the owner's dirt
 checkout. source predecessor is merged `31f3dd9`; the owner's current contract
 edits were copied unchanged into the worktree before implementation. operational
 candidate `2d1dbcc53e11cedbb5f6f7b74374e99aa9df1036` contains the final runtime
-source and compatibility manifest. final source, pins, lock, migrations, deployment
-inputs and python version compare exactly to that qualified artifact. later
+source and compatibility manifest. before integration with newer main, source,
+pins, lock, migrations, deployment inputs and python version compared exactly to
+that qualified artifact. later
 candidate `3c8b4c94e2c2a27303941d1de2a17bcdd2227214` corroborated the journey with
 an illustrative main prompt subsequently removed after rubric review.
-the unchanged `uv.lock` sha256 is
+that live candidate's `uv.lock` sha256 is
 `ba15ecdb38dc2cac6bb12ba1eb6bc018b18ac2a923367f004f31392b2f9bf11e`.
 
-| component | qualified identity / boundary |
+| component | historical live-candidate identity / boundary |
 | --- | --- |
 | kernel | `419e5fe3e251e9ffdf506ae88fb7149fac6e1549` |
 | provider-runtime | `adf1b714dec6b2517ba468085674665923c237fc` |
@@ -307,8 +308,8 @@ the same actual due/restart journey passed at `3c8b4c9`: the original deadline a
 watching receipt survived restart, one matched event led to todo completion and a
 delivered source-qualified result, and every worker mutation entered once. the
 generic progress notice above passed the corrected independent content rubric.
-removing the unnecessary main example restores the exact qualified `2d1dbcc`
-runtime, manifest and deployment inputs. independent review accepted that
+removing the unnecessary main example restored the exact qualified `2d1dbcc`
+runtime, manifest and deployment inputs before later mainline integration. independent review accepted that
 comparison without repeating an identical paid journey.
 
 one earlier attempt raised an [unexplained NativeDefect](issues/native-protocol-diagnostics.md)
@@ -387,11 +388,32 @@ cancellation. both task databases, runtime/configuration, diagnostic wrapper,
 temporary probes and inactive release were removed. only the selected production
 release remains. its pid/selection, schema `0008a` and resume sequence 4 compare
 exactly to the pre-update observations. no production authority or memory capture
-policy changed. final `scripts/verify` passes: frozen lock/install, formatting,
+policy changed. pre-integration `scripts/verify` passed: frozen lock/install, formatting,
 lint, types, all 125 documentation files, wheel/sdist build, fresh wheel install
 and registry dependency audit. the three git-only kernel/tools/provider packages
 are outside that registry audit. approved memory regression files are unchanged;
 no temporary per-feature test or review machinery remains.
+
+pre-pr integration incorporated current main `0833cf8` and its accepted adr 0073
+memory baseline work without changing that source or reverting its pins. composed
+pins are kernel `da33773662089a72992c9aec1f938c76d9cb95ab`, provider-runtime
+`70178ec8bb5b54304367ad60c0732447084a37c7` and universal-memory
+`93e02af07fee7e79250fb800835c324f092b5bec`; llm-tools is unchanged. composed
+`uv.lock` sha256 is `7a8c28510d78d8e90c423bb3b3f450a646fccc92509743722bc5d867a1fcd246`.
+independent exact-source review confirms no kernel python change, only provider
+archive changes and memory baseline mechanisms; native cognition, worker control
+and this slice's four runtime/tool files remain unchanged. main's context revision
+is the only manifest difference from current main.
+
+composed qualification passes fresh postgres 16.16 / pgvector 0.8.7 migration
+`0001` through `0008a` to `0010`, asserting the head and baseline column; unchanged
+least-privilege jarvis capture/retry and all three retained library capture/memory
+completion checks; loaded dependency/manifest verification; and `scripts/verify`,
+including all 126 documentation files and fresh packaged dependency verification.
+the separate task databases/container were removed. adversarial review accepted
+this affected-path proof without repeating an unchanged paid worker journey.
+the historical live-candidate versions above remain explicit; this integration
+does not establish another installed candidate or production cutover.
 
 ## explicit costs
 

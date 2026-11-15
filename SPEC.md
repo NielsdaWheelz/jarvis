@@ -11,8 +11,8 @@ audience: product, engineering, design, operations, and future coding agents
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
 2026-11-14 owner decisions. slices 1–2 are implemented and isolated-qualified;
 slice 3 has source and temporary-candidate qualification against installed skid.
-final runtime/deployment inputs equal the qualified artifact; temporary resources
-are removed.
+temporary resources are removed; its evidence distinguishes the live candidate
+from subsequent memory-mainline integration.
 the remaining slices and v2 activation are pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
@@ -76,6 +76,17 @@ the owner-selected implementation method for slices 1–3 is temporary
 end-to-end integration/live red/green/refactor, with content design and adversarial
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.
+
+accepted native capture amendment (2026-11-15):
+[adr 0073](docs/decisions/0073-per-conversation-memory-baselines.md) permits
+healthy and new conversations to capture while listed unreadable conversations
+retain explicit pending baselines. a complete identity inventory still gates
+lane activation. each pending conversation establishes its future-only cut on
+its first successful later head read; activity before that cut is not imported.
+established cuts never move. this adds one nullable field to the existing
+conversation table and hard-cuts capture to native-archive.v3; memory tools and
+cognition behavior are unchanged. implementation and installed proof remain
+separate from this accepted amendment.
 
 accepted memory completion target (2026-11-14):
 [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the
@@ -176,8 +187,9 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   inference/embedding execution, scheduling, dreaming and transports. use the same
   postgres database/transaction for archive append and checkpoint advancement;
   no separate daemon or generalized storage-backend framework.
-- automatic online activation after complete per-conversation baselining; immutable
-  boundaries and complete-event uploads with atomic archive/checkpoint commits.
+- automatic online activation after a complete identity inventory, with stable
+  readable cuts and explicit pending baselines under adr 0073; established
+  boundaries remain immutable and archive/checkpoint commits remain atomic.
   native codecs validate consumed fields and ignore unrelated additive metadata;
   identities/digests exclude that ignored metadata too. unexpected rewrites or
   oversized events park capture for repair. no multipart upload or automatic historical reread.

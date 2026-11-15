@@ -8,8 +8,9 @@ from uuid import UUID
 
 from provider_runtime.agent_runtime.archive import ARCHIVE_CONTRACT_REVISION
 from pydantic import Field, TypeAdapter, model_validator
-from universal_memory.policy import BATCH_EVENTS
+from universal_memory.policy import BATCH_EVENTS, bounded_text
 from universal_memory.types import (
+    BaselineError,
     Closed,
     Conversation,
     ConversationReceipt,
@@ -59,6 +60,24 @@ class Sync(CaptureRequest):
     page: UUID | None = None
 
 
+class Baseline(CaptureRequest):
+    type: Literal["baseline"] = "baseline"
+    conversation_id: UUID
+    head_event_id: str | None
+    baseline_error: BaselineError | None
+    observed_at: datetime
+
+    @model_validator(mode="after")
+    def valid_observation(self) -> Self:
+        if self.observed_at.utcoffset() is None:
+            raise ValueError("baseline observation needs a timezone")
+        if self.head_event_id is not None:
+            bounded_text(self.head_event_id, 256)
+            if self.baseline_error is not None:
+                raise ValueError("an unreadable baseline cannot supply a head")
+        return self
+
+
 class Events(CaptureRequest):
     type: Literal["events"] = "events"
     conversation_id: UUID
@@ -100,9 +119,9 @@ class SyncResult(Closed):
     next_page: UUID | None = None
 
 
-SYNC_REQUEST: TypeAdapter[Annotated[Activate | Sync, Field(discriminator="type")]] = (
-    TypeAdapter(Annotated[Activate | Sync, Field(discriminator="type")])
-)
+SYNC_REQUEST: TypeAdapter[
+    Annotated[Activate | Sync | Baseline, Field(discriminator="type")]
+] = TypeAdapter(Annotated[Activate | Sync | Baseline, Field(discriminator="type")])
 INGEST_REQUEST: TypeAdapter[
     Annotated[Events | CaptureError, Field(discriminator="type")]
 ] = TypeAdapter(Annotated[Events | CaptureError, Field(discriminator="type")])

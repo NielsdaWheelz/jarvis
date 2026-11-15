@@ -23,6 +23,7 @@ from provider_runtime.agent_runtime.archive import (
     ArchiveHome,
     ArchiveMissing,
     archive_capabilities,
+    archive_head,
     archive_list,
     archive_read,
 )
@@ -41,6 +42,7 @@ from universal_memory.types import (
 from jarvis.config import ConfigurationError
 from jarvis.memory_capture import (
     Activate,
+    Baseline,
     CaptureError,
     CaptureLanes,
     Events,
@@ -291,6 +293,7 @@ class Collector:
                         Conversation(
                             native_id=item.native_id,
                             head_event_id=item.head_event_id,
+                            baseline_error=item.head_error,
                             relation=item.relation,
                             parent_native_id=item.parent_native_id,
                             working_directory=item.working_directory,
@@ -366,6 +369,39 @@ class Collector:
                         continue
                     handled.add(receipt.id)
                     key = (lane.account, receipt.native_id)
+                    if receipt.baseline_error is not None:
+                        try:
+                            head = await archive_head(home, receipt.native_id)
+                            head_id, baseline_error, observed_at = (
+                                head.head_event_id,
+                                None,
+                                head.observed_at,
+                            )
+                        except ArchiveError as failure:
+                            head_id, baseline_error, observed_at = (
+                                None,
+                                failure.code,
+                                datetime.now(UTC),
+                            )
+                        try:
+                            baseline = Baseline.model_validate(
+                                {
+                                    "lane": lane,
+                                    "contract_revision": ARCHIVE_CONTRACT_REVISION,
+                                    "conversation_id": receipt.id,
+                                    "head_event_id": head_id,
+                                    "baseline_error": baseline_error,
+                                    "observed_at": observed_at,
+                                }
+                            )
+                            receipt = ConversationReceipt.model_validate_json(
+                                await self._request("/v1/memory/sync", baseline)
+                            )
+                        except (MemoryError, ValidationError):
+                            continue
+                        if receipt.baseline_error is not None:
+                            continue
+                        self._hints.pop(key, None)
                     hint = hints.get(receipt.native_id)
                     previous = self._hints.get(key)
                     if (

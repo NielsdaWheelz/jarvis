@@ -124,10 +124,10 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 
 | feature | contract / specification work | owner and dependencies |
 | --- | --- | --- |
-| one main for every event (o6) | [contract](one-main-events.md) adopted by 0071; full event authority and conversational consent unimplemented | jarvis; builds on native main; source adapters remain separate |
+| one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified; installed activation pending | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos with optional one-time/repeated wakes unimplemented | jarvis; one table and existing timer |
-| delegated follow-through (o9) | [contract](delegated-follow-through.md) adopted by 0071; ordinary agent judgment/semantic stop unimplemented | jarvis; o6 plus installed skid observation; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and isolated-qualified; installed jarvis/native rollout authorized below; nexus activation deferred to its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
+| delegated follow-through (o9) | [contract](delegated-follow-through.md) source behavior implemented with o6; installed skid observation remains slice 3 | jarvis; o6 plus installed skid observation; o7 supplies optional bookkeeping |
+| universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | [contract](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
 | event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
 | attachments and durable originals | [contract](attachments-and-durable-originals.md) adopted by 0071; unimplemented | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
@@ -316,7 +316,10 @@ resumption remain operational work; this plan resumes no stopped service.
 
 the [o6 implementation contract](one-main-events.md), adopted by adr 0071, owns
 common input, ordinary conversational consent, lifecycle and stopped cutover.
-source implementation and installed qualification remain outstanding.
+source implementation and isolated integration/live qualification are complete;
+the contract records exact evidence. installed worker proof remains slice 3.
+the old scheduler is removed; slice 2 must supply scheduled todos before the
+selected product resumes. this intermediate branch is not the memory rollout release.
 
 owner messages, action results and scheduled wakes receive the same main tools
 and approval rules. background origin alone is not read-only and need not invent
@@ -770,12 +773,12 @@ intent merely because their implementation is incomplete.
 | feature or cutover | remaining decision / evidence owner |
 | --- | --- |
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
-| o6 | [contract](one-main-events.md) adopted by 0071; common input/authority, conversational consent and focused implementation proof remain |
+| o6 | [contract](one-main-events.md) source and isolated functional proof complete; selected-slice cutover and installed activation remain |
 | o7 | [work-record contract](work-records.md) adopted by 0071; todo/schedule implementation and focused proof remain |
-| o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; paired installed cutover and external delivery remain |
-| o9 | [contract](delegated-follow-through.md) adopted by 0071; content/composition and chat-stop cutover due |
+| o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
+| o9 | [contract](delegated-follow-through.md) content/composition and conversational stop source complete; installed skid proof remains slice 3 |
 | new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; cursor/adapters and same-main proof remain; recurrence belongs to o7, dream wakes deferred |
-| m1–m5 | core source merged; implement [completion delta](memory-delivery.md), qualify every current functional route, then provision client/capture access and qualify installed fleet/admission/cutover |
+| m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) adopted by 0071; kernel/provider handoffs, persistent checkout and live native/git proof remain |
 | search | owner choices settled in [contract](complete-and-continuable-searches.md); full message text, uncapped ranked memory, library/skid handoffs and cross-turn page/chunk proof remain |
 | attachments | [contract](attachments-and-durable-originals.md) adopted by 0071; table/ingress/tools, private storage/native setup and live file journeys remain |

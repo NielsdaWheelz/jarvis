@@ -1,7 +1,8 @@
 # one main for every event — slice 1 / o6
 
 status: accepted v2 implementation contract under [adr 0071](decisions/0071-simple-event-driven-v2.md),
-2026-11-14; unimplemented. source audit: `8c0bf36`. the
+2026-11-14; source implemented and isolated-qualified, installed activation pending.
+source audit: `8c0bf36`; [implementation evidence](#implementation-evidence) below. the
 [roadmap](implementation-plan.md) owns sequencing. this includes o9's source
 changes; installed skid qualification remains slice 3.
 
@@ -320,7 +321,7 @@ history; no executable old codec.
 
 backfill retained waking state/parents only from canonical action/invocation
 facts. ambiguous settlement is named repair work, not inferred completion.
-inspect the [host settlement defect](issues/host-product-failure-settlement.md).
+ambiguous historical host settlement is parked for named repair.
 preserve reminder purpose/time/source references as private cutover data; slice 2
 converts retained obligations to todos. no temporary reminder table/future schema.
 no unattended activation until selected slices and commitments are accounted for.
@@ -365,18 +366,88 @@ proves only generic framing, never a scheduler.
 
 record source/dependency revisions, red failure, final green, content/adversarial
 review and probe deletion here. run `scripts/verify`; report the existing
-[dependency audit](issues/dependency-audit.md) separately if still failing. delete
-resolved issues only after proof: [host settlement](issues/host-product-failure-settlement.md),
-[progress bytes](issues/native-progress-byte-limit.md),
-[action event context](issues/action-event-context.md),
-[worker outcome recovery](issues/worker-outcome-recovery.md),
-[pause targets](issues/pause-resume-targets.md),
-[worker prompt](issues/worker-prompt-contract.md). this spec task performs no code,
-behavioral/live test, deployment or service resumption.
+[dependency audit](issues/dependency-audit.md) separately if still failing. remove
+resolved issue records only after proof. the original documentation adoption
+performed no code, behavioral/live test, deployment or service resumption; the
+subsequent owner-authorized implementation is recorded below.
 
 specification review: architecture, content design and independent adversarial
 passes completed against the stated source. material findings are incorporated;
 no unresolved product choice remains. this is design review, not runtime proof.
+
+## implementation evidence
+
+qualified source: `b8299b4`, on `feature/one-main-events`, following the source
+audit at `8c0bf36` and memory delivery
+`d66e84057cb2468f23aacf3f359dac49453e0a3a`. the branch was rebased memory-first
+while preserving newer main changes. migration `0008` follows memory's unchanged
+`0007`; fresh `0001`→`0008` and populated `0007`→`0008` upgrades pass. the stopped
+deployment lock rejects a concurrent migration atomically. historical text,
+dates, effect contracts and receipts survive; ambiguous host history is parked.
+
+frozen dependencies:
+
+| dependency | revision |
+| --- | --- |
+| llm-agent-kernel | `8524c8c737bbe56a0993da1421084d0122d08f49` |
+| provider-runtime | `7a2493e5f4da34f6d9a32e2504d8fc6333482385` |
+| llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+| universal-memory | `27d6f1b4e2ddcbc2aa831eb6066f384fccb552ad` |
+
+temporary verification used real postgres 16/pgvector, actual stores, journal,
+runner, dispatch lane and tool executor. deterministic external ports supplied
+failure timing; they are integration evidence, not claims of live provider work.
+nine independent adversarial journeys and the durable/protocol/cutover probes
+pass on the final schema. the retained memory capture/retry regression passes
+unchanged on its own disposable database.
+
+| feature | observed red and final proof |
+| --- | --- |
+| common events | baseline owner priority and host settlement failed; final shared selection, honest framing, strict duplicate identity, full host write authority, appended input and optional silence pass |
+| consent | baseline had no local decision binding/receipt; final atomic decision/receipt rollback and postcommit reply recovery pass, including earlier owner evidence, forged owner rejection, same/conflicting decisions, pause and completed targets |
+| effect recovery | review exposed approved ambiguity waiting behind main and a pause-after-entry recovery spin; final existing one-action reconciliation publishes while main remains active, never repeats without proof, and leaves denied queued entry safely pending |
+| continuation | baseline host paid-read and midturn receipt probes failed; final sibling barriers, unrelated work, new equal-arguments writes, stable appended batches, required-context exclusion, waiting races and nonspinning reported worker waits pass |
+| stop and pause | exact chat stop reaches main; two-request scoped settlement cancels only proven unentered work, entered effects settle once, late events retain stopped-parent facts, repeated pause/resume keeps its own targets |
+| product and content | baseline malformed mixed input consumed host facts and progress admitted excessive utf-8 bytes; final parking/one notice/named repair/cold-seal recovery and exact byte boundaries pass; incomplete irrelevant coverage no longer forces a rewrite |
+| cutover | opaque retired terminal history publishes metadata once without execution; old unfinished contracts block admission; private inventory preserves obligations, history and outbox; retired gate/components/scheduler paths are absent |
+
+the actual contained stock `0.160.0` endpoint passed public containment
+qualification before model discovery under the final provider pin. live runs used
+`gpt-5.6-terra`, reasoning `high`, a separate auth-only task home, runtime state,
+private cognition directories and disposable database/ownership lock. no installed
+service or native fleet history was used.
+
+live owner arithmetic plus an independent host fact produced a useful mixed
+answer and explicit completion. midturn delivery retained unfinished owner work;
+an early silent/empty result exposed an instruction gap, repaired by specifying
+that appended batches add to unfinished requests. unrelated partial fleet
+evidence yielded `42`; material calendar denial yielded an explicit partial
+answer without claiming overall availability. routine host handling could be
+silent. content review judged relevance and evidence, not exact wording.
+
+live connector consent used synthetic mail addressed only to the authenticated
+owner's own account. the first actual run created one draft, then supplied an
+invalid action reference while asking permission. the original seal was retained,
+the request parked, and nothing sent. clearer wait-state instructions and named
+repair reused that original draft. ordinary owner `yes` then committed one local
+decision, one send with one executor entry, and a separate outcome event. gmail
+raw readback matched the stored recipient, subject and body exactly. all requests
+and the outcome completed. ordinary owner `no` separately cancelled a pending
+proposal with zero executor entries and zero connector operations.
+
+actual discord received the canonical question, truthful repair notice and result.
+a separate lost-watermark/restart trial returned the same discord id for the
+same persisted nonce, with one visible message and an empty outbox. no real
+gateway session or production database was started. installed skid remains slice 3;
+real todo timing remains slice 2. this source refuses unattended activation until
+the selected slices and retained commitments are accounted for.
+
+content design and independent adversarial review covered every feature and the
+final source; all concrete source findings are closed. temporary probes were
+deleted after final acceptance; the existing memory regression remains. static,
+types, all 121 documentation checks, build and fresh installation passed.
+`scripts/verify` failed only at its final dependency audit: six pre-existing findings in
+three registry packages. dependency repair is coordinated with memory rollout.
 
 ## explicit costs
 

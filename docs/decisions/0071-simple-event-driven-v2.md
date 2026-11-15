@@ -3,6 +3,10 @@
 status: accepted documentation target, 2026-11-14. source implementation,
 dependency adoption, installed qualification and activation remain separate.
 
+implementation: [slice 1](../one-main-events.md#implementation-evidence) now has
+source and isolated functional proof. the remaining slices and installed
+activation are pending; the intermediate source removes the old scheduler.
+
 ## context
 
 the owner narrowed v2 after the [competitor research](../research/personal-agents-2026-11/README.md).

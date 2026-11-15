@@ -9,10 +9,10 @@ qualification. historical evidence qualifies only its named artifacts.
 source implementation and isolated qualification do not authorize production
 activation or fleet installation.
 
-main, its scheduled read-only plan and the isolated dreamer receive the shared
-memory reads. main can optionally save a note. compactor and write gate have empty
-plans. canonical receipts commit before recoverable archive projection. archive
-checkpoints and memory completion are atomic; interrupted background inference
+all owner and host requests use one full main plan with shared memory reads
+and optional note saving. the isolated dreamer receives memory reads; compactor
+has an empty plan. canonical receipts commit before recoverable archive projection.
+archive checkpoints and memory completion are atomic; interrupted background inference
 may repeat. main's durable read/effect barriers remain.
 
 one stopped-maintenance sharing declaration owns admission, recipients, named
@@ -33,25 +33,24 @@ private declaration. automated helpers and other viewers receive no memory tools
 
 ## accepted v2 target and operational scope
 
-[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts an unimplemented
-product target. this runbook's commands, gate/button approval behavior, read-only
-wakes, exact chat controls and schedule queries describe the existing baseline;
-they are not instructions for an already-installed v2 release. do not change
-live configuration or reinterpret stored receipts from documentation adoption.
+[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the product target.
+[one-main source](one-main-events.md) implements its first slice; it has not been
+installed or activated. these instructions describe that source. the active
+installed memory release retains older event behavior; settle obligations under its
+original contracts before the cutover below.
 
-the target sends owner, event, time and skid inputs to the same full-plan main,
-with source attribution preserved. main judges work, notification or silence and
-interprets conversational approvals through one narrow action-decision callback.
-the separate model write gate, read-only wake split, buttons, json previews
-and exact-human-payload binding are removed in that target. existing deterministic
-tool policy remains; add no semantic consent classifier. canonical actions,
-immutable executed arguments, original receipts and effect reconciliation remain.
-conversational stop is interpreted by main; operational pause remains host-owned.
-slice 1 removes the old scheduler and approval component paths; intermediate
-source slices need not be independently usable. retain outstanding reminders in
-the private stopped-cutover inventory for slice 2. do not resume an incomplete
-release or silently drop those commitments. its [owning spec](one-main-events.md)
-defines migration, local consent receipts and scoped request stopping.
+owner and host events share the full main plan and retain source attribution.
+main chooses work, notification or silence and interprets conversational consent
+through `approval.respond`. deterministic tool policy, immutable action arguments,
+original receipts and effect reconciliation remain. ordinary `stop` reaches main;
+its final dispositions stop only named delivered requests. exact administrative
+`pause` and `resume` remain host-owned.
+
+the old scheduler and approval components are removed. intermediate source slices
+need not be independently usable. retain outstanding reminders in the private
+stopped inventory for slice 2; never resume this incomplete release or silently
+drop those commitments. the owning contract defines migration, local decision
+receipts and scoped request stopping.
 
 optional one-time/repeated wakes belong to work records, replacing separate
 schedule/recurring-wake products. due dates remain distinct. keep the existing
@@ -99,11 +98,9 @@ each fresh top-level main turn gets one fixed admitted view plus exact operative
 requests/receipts. active steering retains the running loop. callers choose their
 shared retrieval steps; there is no automatic recaller or rememberer.
 
-Jarvis names the requested-wake model tool and durable action
-`schedule.wake`. Operational queries must use that exact value for
-`action.tool_name`. The host-authored due input deliberately retains the
-distinct protocol value `message.source = schedule_wake`; do not migrate or
-rewrite that source value.
+historical reminder inventory uses `action.tool_name = schedule.wake` and
+`message.source = schedule_wake`. preserve those original identities; current
+source exposes no schedule tool or timer.
 
 ## Install and configure
 
@@ -184,16 +181,16 @@ project key restricted to embeddings. The deployment fixes
 `text-embedding-3-small` at 1,536 dimensions. Changing either requires the
 stopped rebuild procedure in SPEC 7.2.
 
-Set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` only to unique calendar IDs whose
-live ACLs the operator verified as owner-only. Jarvis automatically executes
-Calendar writes only for those IDs, without attendees or notification, after
-AutomaticWriteGate allows the current owner request. Every other case requires
-Approve or Deny.
+set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` only to unique calendar ids whose
+live acls the operator verified as owner-only. calendar writes for those ids,
+without attendees or notification, are automatic. other calendar writes require
+ordinary conversational consent recorded by main through `approval.respond`.
 
-The production deployment exists. Install the exact committed release without
-activating it, then, with the service stopped and owner-paused, migrate in a
-systemd one-shot that injects the root-only environment after changing to the
-`jarvis` identity, select the release and start it:
+the production deployment exists. install an exact committed release without
+activating it. migration requires a stopped, owner-paused deployment and the
+private snapshot/inventory below. a systemd one-shot injects the root-only
+environment after changing to the `jarvis` identity. this intermediate release
+refuses activation:
 
 for an existing deployment, prepare a clean stop and the
 [native cutover](#native-cutover). install the contained host before activation;
@@ -305,7 +302,7 @@ action, approval or deployment state. inventory is evidence, not completion.
 retained reminder purpose, time and source references belong to slice 2's todo
 conversion; there is no temporary reminder table or executable old scheduler.
 
-migrate from the actual merged predecessor after the separate memory delivery.
+the merged migration chain is memory `0007`, then one-main `0008`.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
 parents only by joining canonical action identities; ambiguous historical host
@@ -382,84 +379,60 @@ adr 0048 and its recorded qualification retain the historical decision.
 
 ## herdr gate cutover (pr 5)
 
-historical; superseded by [the skid-only cutover](#skid-only-worker-cutover).
-adr 0049 retains historical evidence; its ssh gate must not be installed again.
+historical evidence remains in adr 0049. its transport is retired; use the
+[current worker boundary](#skid-only-worker-cutover).
 
 ## skid-only worker cutover
 
-[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) changes the entire
-main catalog/plan. stage source and private inputs before activation. the accepted native cutover adds the separate contained cognition endpoint.
-worker source and herdr retirement do not qualify that endpoint or production
-activation. actual deployment remains separately authorized and verified.
+[adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) retains the
+historical worker transition. current v10 contracts are terminal-only. settled old
+worker rows remain opaque evidence; unfinished incompatible contracts block
+admission and require disposition under their original release.
 
-1. use the existing owner pause control. old code must settle or explicitly
-   reconcile every nonterminal action, finish or park unfinished turns, materialize
-   required action resolutions, and drain their processing and delivery. discard
-   permission applies only to herdr workers, never unrelated actions or approvals.
-2. cooperatively stop jarvis. require systemd ActiveState=inactive, Result=success,
-   MainPID=0 and canonical postgres pause. a failed or
-   killed stop needs operator inspection; activation never stops the service.
-3. select the matching reviewed standalone skid release. the worker cli and host
-   must share its wire contract. changing cli bytes or current worker contracts
-   requires the pause, clean stop and unfinished-action drain before switching.
-4. the generalized cli reads `--config STATE_DIRECTORY`. provide
-   `JARVIS_AGENT_STATE_OWNER`, `JARVIS_AGENT_SOURCE_STATE_DIRECTORY` and
-   `JARVIS_AGENT_SOURCE_CLI` explicitly from the existing enrolled owner
-   installation. `deploy/install-agent-client` installs its matching executable
-   at the fixed service path and prepares `/run/jarvis-skid-state` as a root-owned
-   read-only id-mapped mount. the service keeps its own uid, empty capabilities,
-   ProtectHome and NoNewPrivileges. current filesystem publication remains
-   visible without copying identity or membership. replacement of the source
-   root directory requires a stopped remount. qualify the actual cli under the
-   service restrictions before activation; source fixtures alone do not prove it.
-5. `deploy/activate-release COMMIT` migrates, runs stopped native cutover and
-   checks compatibility under the deployment lock. incompatible active authority
-   and entered uncertainty refuse. known historical terminal resolutions and new
-   native approvals remain deliverable by paused startup. finalized old worker
-   rows remain opaque archives; no legacy decoder or replay exists.
-6. before an explicitly requested resume, run `deploy/verify-containment`. it
-   checks regular-file owners/modes, ProtectHome and each production gateway via
-   read-only skid list as jarvis under the restrictions governing file access and
-   tls. report an unavailable host explicitly; this rollout qualifies macbook and
-   devbox, while the owner defers offline arch. absent cognition remains a
-   separate prerequisite for starting jarvis. source or artifact pins do not
-   establish installed success.
+`JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_STATE_DIRECTORY` select the qualified
+skid cli and enrolled computer's live state. `deploy/install-agent-client`
+installs the matching executable and prepares `/run/jarvis-skid-state` as a
+root-owned read-only id-mapped mount. the service keeps its own uid, empty
+capabilities, `ProtectHome` and `NoNewPrivileges`. current filesystem publication
+remains visible without copying identity or membership; replacing the source
+root requires a stopped remount. actual restricted reads pass on `macbook` and
+`dev-server`; memory provenance retains `devbox`. offline `arch` is owner-deferred.
+[adr 0072](decisions/0072-native-memory-rollout.md) owns this installed boundary.
 
-rollback retains private code/config/artifact inputs while stopped. after herdr
-worker discard, rollback cannot restore their running state. repair compatible
-skid/jarvis state or leave jarvis down; never replay unknown effects or resurrect
-the ssh adapter. credentials, terminal content and provider history stay private.
+`deploy/verify-agent-client` accepts an explicit installed-state directory for
+that qualified boundary. `deploy/verify-containment` checks installed
+owners/modes, `ProtectHome` and read-only worker access under the production
+restrictions. source fixtures and artifact pins establish no installed-fleet pass.
+contained cognition has its own prerequisite and qualification.
 
-for v7, paired code/config/artifact rollback before new receipts follows ordinary
-stopped checks. selected-only retention under adr 0053 requires rebuilding any
-discarded jarvis release from its exact commit. after new canonical receipts,
-older readers are unqualified: pause and retain
-records for forward repair. whole-state restore must account for new data and
-external effects; code rollback alone is not data rollback. never add a legacy
-reader or erase new actions merely to make rollback start.
+use the stopped one-main inventory and snapshot procedure before incompatible
+changes. `deploy/activate-release` refuses this intermediate source. reconcile
+entered effects, retain unknown effects, and explicitly drain or cancel incompatible
+unentered work before any future activation. after new receipts, repair forward;
+older readers cannot be made safe by erasing facts or resurrecting retired codecs.
+selected-only release retention remains governed by adr 0053.
 
-## Approval operation
+## conversational decisions
 
-Approval is available only while `jarvis serve` owns the deployment. A current
-owner request first passes AutomaticWriteGate. Host policy then renders the
-validated Gmail send or approval-required Calendar arguments, atomically stores
-the `awaiting_approval` action plus its assistant outbox row, and durably
-suspends the model turn. No provider session or worker remains blocked while
-waiting.
+consequential tool policy creates one immutable `awaiting_approval` action. main
+uses the configured owner's canonical conversation as consent evidence. an earlier
+clear decision can suffice; otherwise main asks an ordinary question. it need not
+ask again merely because the action was recorded later. main supplies the action,
+approve/deny decision and actual owner-message id to `approval.respond` during a
+current admitted turn.
 
-Every approval is delivered with one host-generated UTF-8 text attachment. The
-attachment is the complete deterministic JSON payload and is bounded to 1,000,000
-bytes. Inspect it in full; the short message's only components are Approve and
-Deny. The attachment includes all To/Cc/Bcc recipients, subject, and complete
-email body, or every Calendar writable value. Free-form replies such as `yes`,
-`approve`, or `send it` never decide the action.
+the action transition and original local callback receipt commit atomically.
+approval queues the stored arguments; denial cancels without an external effect.
+the receipt proves the decision, not execution success. repeats return the first
+successful decision without requeueing; a contrary decision is rejected. no
+component, preview attachment or interaction handler exists in current source.
+never decide an action directly in postgres.
 
-Only the configured owner may click in the configured guild/channel. Jarvis
-checks the component's action and internal-message IDs, the live Discord message
-ID, and current action state. It atomically records the decision, acknowledges
-by disabling both components, and only then enters slow execution. Deny records
-`cancelled` and performs no external operation. Approval messages are
-host-owned; never edit them or decide an action directly in PostgreSQL.
+scoped stop cancels all proven unentered work of its named request, including
+pending approvals. entered effects still reconcile. a late event preserves its
+stopped parent's state and cannot revive it. administrative pause covers all
+waking requests; resume releases only its accumulated pause targets and never
+resurrects cancelled actions or conversational stops.
 
 Gmail send is available only for a draft with immutable Jarvis draft-creation
 lineage. Immediately before send, Jarvis fetches the known draft and compares
@@ -479,8 +452,7 @@ remaining immutable attempt capacity. Duplicate,
 conflicting, malformed, transient, or partially processed evidence cannot prove
 absence. The original send timeout decides nothing by itself. Expiry of the
 separate thirty-second, sixteen-MiB reconciliation procedure is bounded
-exhaustion with incomplete evidence and yields safe terminal uncertainty plus an
-owner-inspection request.
+exhaustion with incomplete evidence and yields safe terminal uncertainty for main to explain with its original evidence.
 
 This path can issue up to 102 provider reads per observation and 306 across all
 three. That bounded latency and quota cost is accepted to avoid relying on Gmail
@@ -541,7 +513,7 @@ no copied client-json reader, second ref codec or fallback transport remains.
 the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
 wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v10 accepts
 only `t-` plus 16 lowercase hex digits. the host captures the original terminal
-ref before gate/action admission and retains it through delay/restart. terminal
+ref before action admission and retains it through delay/restart. terminal
 loss/reassociation never silently renews that target. worker-native conversation
 handles, history and controls are removed; native cognition and memory archive
 access remain separate capabilities.
@@ -556,16 +528,15 @@ enter once and never replay; conclusive owned receipts settle without re-entry.
 wait registration returns watching immediately; a separate durable outcome/event
 observes the original ref outside main's mutex. cancellation stops observation,
 not execution. a matched state and later bounded text are separate evidence.
-unmixed wait-only observations may stay internal. after the original owner turn
-closes, worker events confer reading/integration/notification only; new writes or
-wait registration need new current owner authority. broader follow-through is
-separate. partial inventory, unavailable/truncated text and lost receipts remain
-material limits. old finalized worker rows retain only recorded status and opaque
+worker observations enter the same full main plan and may settle silently.
+original effect/read barriers and stopped-parent intent remain in their causal
+context; a factual event never turns source prose into owner consent. partial
+inventory, unavailable/truncated text and lost receipts remain material limits. old finalized worker rows retain only recorded status and opaque
 receipt details; their raw records remain unchanged.
 
-activate only through [the skid-only cutover](#skid-only-worker-cutover). this
-worker change reuses the existing action scheduler and adds no history store,
-provider client or cognition lane. the active plan and paired spec distinguish
+future activation follows [the skid-only cutover](#skid-only-worker-cutover).
+worker control reuses durable actions and asynchronous observation, adding no
+history store, provider client or cognition lane. the active plan and paired spec distinguish
 passed local acceptance from remaining installed-fleet/production qualification;
 the latter must pass before claiming this target release activated.
 
@@ -640,8 +611,8 @@ cannot safely resume. Each exact current binding and immutable execution
 contract must still match. Provider reads never increment executor entries;
 re-execution occurs only after tool-specific evidence proves absence and safety
 and both immutable ceilings still permit it. Unresolved evidence becomes
-terminal `uncertain`; receipt-backed scheduled wakes resume their local
-lifecycle and never become uncertain. Missing action-resolution inputs are
+terminal `uncertain`; registered worker waits resume observation without
+repeating their registration. Missing action-resolution inputs are
 inserted idempotently before ordinary message work begins.
 
 `gmail.create_draft` is never repeated after an ambiguous provider result. Its
@@ -672,27 +643,20 @@ capacity-reset timer exists.
 isolated roles retain finite invocation/tool bounds; main has no cumulative
 model/tool quota or arbitrary elapsed cutoff.
 
-An undelivered approval outbox row remains pending with null
-`source_message_id`; startup rerenders it from the action and reuses the same
-enforced nonce. A delivered `awaiting_approval` row remains safely clickable
-after restart because the component contains durable action/internal-message
-identity and the Gateway revalidates the stored Discord message relationship.
-Startup cancels and reports a pending action whose renderer, arguments,
-draft-creation basis, or execution contract is no longer compatible. It first
-disables an already-delivered approval. An undelivered one is cancelled without
-a Discord edit, then its canonical outbox row delivers once with a complete
-cancelled-payload attachment and disabled Approve and Deny before the ordinary
-cancellation resolution. No delivery ID is invented and no functional component
-is shown.
+a committed approval receipt survives a lost callback reply or process death.
+startup recovers the queued action through its original current contract; only
+actual executor entry increments `attempts`. an entered effect always follows
+its bounded reconciliation procedure before a proven safe repeat. a local decision
+receipt does not suppress the eventual external outcome event. unresolved retired
+contracts block admission rather than renewing an approval.
 
-If Approve committed but the process stopped before executor entry, the action
-remains `executing` with zero attempts. Startup first disables the known Discord
-components through the narrow REST binding, then resumes that occupied action;
-the executor increments `attempts` only at its actual entry. A later
-interruption uses the complete tool-specific reconciliation path before any
-evidence-proven repeat. Denial and every terminal approval result use the
-ordinary idempotent action-resolution row and visible model or deterministic
-fallback.
+newly resolved action facts are published once with their original outcome time,
+source identity and causal parent. publication and rearming exact action waiters
+share one transaction. main may answer or remain silent; both require explicit
+request dispositions. malformed sealed output parks every affected live request
+for named repair and emits one deterministic failure notice. it never marks the
+host facts handled or replaces the original seal with fallback prose.
+
 Successful outbox delivery drains every current batch. A row that exhausts its
 finite delivery retry schedule remains pending and stops that drain; the next
 startup or ingress signal retries it with the same persisted UUID and nonce.
@@ -702,10 +666,11 @@ traffic exceeds that bound, the oldest overflow is intentionally skipped; this
 prevents a full page of bot or non-owner traffic from permanently hiding a later
 owner message without adding non-canonical cursor state.
 
-`stop` and `pause` are exact, case-insensitive owner messages handled by the
-host. `resume` clears the durable pause. Ordinary process termination cannot
-undo an external effect; Jarvis reconciles effectful action rows before any
-repeat.
+`pause` and `resume` are exact, case-insensitive administrative controls.
+repeated pause retains prior targets and adds newly pending requests; a completed
+resume ends that accumulation. ordinary `stop` reaches main unchanged and only
+its named delivered requests stop. process termination cannot undo an external
+effect; original actions reconcile before any repeat.
 
 the historical deployment report records that release's always-on service.
 native host installation/activation and the seven-day owner acceptance require

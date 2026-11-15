@@ -1,7 +1,9 @@
 # delegated follow-through — o9
 
 status: accepted v2 target under
-[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-14; unimplemented.
+[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-14; source behavior
+implemented and isolated-qualified with [o6](one-main-events.md#implementation-evidence).
+installed skid proof remains slice 3; todo bookkeeping remains slice 2.
 supersedes the proposed work-linked execution/fencing design and affected
 adr 0065 chat-stop rules, together with [o6](one-main-events.md).
 the [roadmap](implementation-plan.md#o9-continuation-and-coordination) owns sequencing.

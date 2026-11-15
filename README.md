@@ -47,23 +47,28 @@ realistic-load
 and usefulness evaluation belongs to a [later pr](docs/issues/memory-usefulness-evaluation.md),
 as does broader personal acceptance; this delivery adds no backup or history import.
 
-## implemented baseline
+## implemented source
 
-this section describes source behavior, not proof of installed activation. the
-accepted v2 target below supersedes affected product contracts when implemented.
-
-jarvis converses naturally in discord, uses connected services, and asks for
-approve or deny before consequential external work. originals are permanent;
-derived nodes, views, embeddings and indexes are rebuildable. legacy notes and
-flat summaries remain searchable without backfill or invented provenance.
+[one-main events](docs/one-main-events.md) implements the first v2 slice. owner
+and host events use one full main plan, with honest attribution and explicit
+request state. main chooses useful work, a response or silence. this describes
+source behavior; installed activation is separate.
+originals are permanent; derived memory nodes, views, embeddings and indexes are
+rebuildable. legacy notes and flat summaries remain searchable without backfill
+or invented provenance.
 
 main uses native declared host callbacks through `llm-agent-kernel`,
-`provider-runtime` and `llm-tools`. public prose progress persists before delivery;
-final dispositions explicitly complete, continue or wait each owner request.
-independent work can continue while an action awaits approval. tools execute
-serially through existing validation, gate, action and read-recorder boundaries.
-new effects still require current owner intent in this baseline; event-wide
-autonomy is accepted but unimplemented v2 work.
+`provider-runtime` and `llm-tools`. public progress persists before delivery;
+final dispositions complete, continue, wait or stop named delivered requests.
+independent work can continue while another request awaits approval. ordinary
+`stop` reaches main; exact administrative pause/resume remains host-owned.
+
+deterministic tool policy distinguishes automatic and consent-needed work.
+main interprets canonical owner conversation and records approve/deny through
+one atomic local callback. the first decision receipt survives retries; it proves
+a decision, not execution success. buttons, preview attachments and the separate
+model write gate are removed. immutable action arguments, serial execution,
+original receipts and causal effect/read barriers remain.
 
 a fresh lease serves each top-level turn. connection or owner loss fences old
 callbacks and recovers original sealed results or fresh reasoning from canonical
@@ -92,26 +97,20 @@ memory_node
 memory_state
 ```
 
-## accepted v2 target
+## remaining v2 target
 
-[adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the next product
-contract; this documentation change implements or activates none of it. owner
-messages, connected events, time and skid results reach the same main with its
-full plan. source material remains attributed evidence, not owner speech. main
-chooses useful work, a response or silence through ordinary judgment.
+[adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the product
+contract. slice 1 supplies the common main lifecycle, conversational decisions
+and scoped stop. later slices supply work records/wakes, private native files
+and inbound attachments. source implementation does not authorize activation.
 
-the target removes the separate write gate and read-only wake plan. main asks
-for and interprets approval conversationally, then uses one narrow decision
-callback to reuse the existing action approval/denial transition. remove buttons,
-json previews and exact-human-payload binding; add no consent classifier.
-the existing simple write policy still distinguishes automatic from consent-needed
-tools. executed arguments remain immutable and effect recovery still distinguishes
-confirmed, failed and uncertain outcomes.
-
-one work table holds current work and optional one-time or repeated wakes;
-due dates remain separate. ordinary notes and files live in a private native git
-checkout; inbound attachment originals live in private r2 storage. existing
-asynchronous skid observation delivers an event without repeated model polling.
+one future work table will hold current work and optional one-time or repeated
+wakes; due dates remain separate. ordinary notes and files will live in a private
+native git checkout; inbound originals will live in private r2 storage. existing
+asynchronous skid observation already delivers events without repeated model
+polling. slice 1 removes the old scheduler; outstanding reminders remain private
+cutover obligations until slice 2 accounts for them. unattended activation is
+disabled while the selected slices and those obligations remain incomplete.
 browser and credential products, interactive deliverables and a separate ui are
 deferred. the shared-memory delivery remains separate and unchanged; selected
 dream wakes and work-informed dreaming are outside this cut. complete searches
@@ -152,8 +151,13 @@ receipts qualify only their named artifacts and boundaries.
   native main retains its recorded functional proof. full static/build/install
   checks and the registry audit pass.
   the [online memory rollout](docs/implementation-plan.md#memory-installed-rollout)
-  passes with named profile deferrals. physical connector and worker observation
-  checks remain separate
+  passes with named profile deferrals. installed physical connector and worker
+  observation checks remain separate.
+- [one-main events](docs/one-main-events.md#implementation-evidence) records slice 1
+  source implementation and its exact qualification artifacts. this intermediate
+  events source is not deployed; selected slices and retained reminder obligations
+  must be accounted for before activation.
+
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server
@@ -194,8 +198,8 @@ temporarily stages one candidate and replaces any abandoned candidate.
 
 ## Explicit non-goals
 
-these describe the implemented v1 scope; adr 0071 adopts the explicitly named
-v2 expansions above, without adopting every later roadmap contract.
+these bound the present product; adr 0071 adopts the named v2 expansions above
+without adopting every later roadmap contract.
 
 - A general multi-user assistant platform
 - A visible society of named agents
@@ -211,10 +215,7 @@ v2 expansions above, without adopting every later roadmap contract.
 
 ## Stated trade-offs
 
-the gate, approval and scheduling descriptions below record baseline behavior;
-adr 0071 owns their accepted replacement, not a claim of current runtime behavior.
-
-These are accepted knowingly, not overlooked.
+these describe current source trade-offs; installed behavior is qualified separately.
 
 - Service shutdown is cooperative: stop new ingress, let admitted operations
   reach their safe stopping point, drain callbacks/workers, then close clients
@@ -223,7 +224,7 @@ These are accepted knowingly, not overlooked.
   systemd deadline or a second interrupt can force termination and crash recovery.
   Shutdown does not stop independently running Codex workers or shared servers.
 - Discord is a third-party processor for every conversation, every quoted
-  memory, every summarized email, and every approval preview.
+  memory, every summarized email, and ordinary consent conversation.
 - The complete raw memory corpus and every semantic-search query are disclosed
   to the embedding processor; see
   [ADR 0008](docs/decisions/0008-embedding-source.md). Ingestion, backfill, and
@@ -240,10 +241,9 @@ These are accepted knowingly, not overlooked.
 - Raw memory grows indefinitely in v1. There is deliberately no deletion,
   redaction, forgetting, or destructive consolidation path; storage and search
   cost grow with use until a later accepted design addresses every durable copy.
-- Every proposed write adds a small isolated AutomaticWriteGate call. It sharply
-  reduces authority laundering from recalled or retrieved text, but it is a
-  model judgment rather than formal proof and can falsely deny or allow
-  adversarially phrased owner text.
+- main interprets conversational consent using canonical owner messages. host code
+  proves owner identity, current admission and the immutable first decision; it
+  does not prove that the model interpreted the owner's meaning correctly.
 - Conversation, approvals, and proactive notices interleave in one Discord
   channel. Multiple channels are deferred until that produces a measured
   problem.
@@ -272,7 +272,8 @@ These are accepted knowingly, not overlooked.
 - main persists typed public progress as prose without completing owner requests.
   final output separately renders an answer, partial result, question, failure
   or silence, with explicit request dispositions. malformed structured output
-  fails locally while original native terminal evidence remains intact.
+  parks affected live requests for repair while original native terminal evidence
+  remains intact; no host input is silently marked handled.
 - Codex session history, compaction, and cache behavior are non-canonical
   optimizations. A changed session-scoped contract or lost session takes a cold
   context bootstrap, and no cost saving is guaranteed. Rotating or discarding
@@ -288,11 +289,12 @@ These are accepted knowingly, not overlooked.
   containment, and reconstruction have one reusable conformance contract instead
   of becoming Jarvis-specific orchestration.
 - A valid answer is not discarded when an ordinary follow-up races with final
-  settlement; the answer is delivered and the follow-up runs next. Stop/pause
-  remains an immediate host preemption path.
+  settlement; the answer is delivered and the follow-up runs next. administrative
+  pause preempts globally; conversational stop settles only named requests and
+  cannot cancel an effect that already entered.
 - native callbacks and approved actions share one actual-dispatch lane. the
-  reader, ingress, consent and outbox remain responsive during reasoning or an
-  isolated gate. serial effects simplify recovery at the cost of throughput.
+  reader, ingress, consent and outbox remain responsive during reasoning. serial
+  effects simplify recovery at the cost of throughput.
 - main publishes native tool declarations and phase-aware structured output.
   genuine isolated roles retain the kernel's serial logical-step wire adapter;
   jarvis duplicates neither provider lowering nor tool schemas.
@@ -324,11 +326,12 @@ These are accepted knowingly, not overlooked.
   ambiguous acknowledgement followed by a sufficiently delayed bounded retry
   can rarely repeat ordinary conversational text. This cannot duplicate an
   approval decision or external action.
-- Discord transport uses `discord.py` for Gateway/interactions and one direct
+- Discord transport uses `discord.py` for Gateway input and one direct
   REST create binding because the qualified client does not expose enforced
   nonces; this small split remains until its public API can replace the binding.
 - Some providers cannot prove whether every timed-out external effect committed.
   Jarvis exhausts provider-specific automatic reconciliation first, then records
-  terminal `uncertain` and asks the owner to inspect rather than retrying blindly.
+  terminal `uncertain` with the original evidence. main explains the limitation;
+  uncertainty never authorizes another executor entry.
 - a one-user system has one accountable human operator. independent agent review
   helps challenge changes; it does not transfer the owner's responsibility.

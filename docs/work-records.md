@@ -370,6 +370,11 @@ main `66f6ce9`. slice 1's actual append, invocation, disposition and recorder
 interfaces were audited before integration. migration `0010` follows `0009`;
 no dependency upgrade, memory change or legacy scheduler route is included.
 
+final integration source `9c7eca4` rebases these changes on main `8fef783`, whose
+only new change is the deferred memory-date issue. source, migrations and pins
+are byte-identical to the qualified `30a8027`; the final documentation check
+covers 124 files.
+
 the unchanged qualified pins are:
 
 | dependency | revision |

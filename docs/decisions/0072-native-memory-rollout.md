@@ -11,10 +11,11 @@ sharing all configured personal/work/work2 profiles and confirms control of thei
 content. macbook/devbox proceed; offline arch is deferred. preserve existing
 canonical data and the separately owned events delivery.
 
-the owner accepts four narrower qualification deferrals: macbook codex-work2
+the owner accepts five narrower qualification deferrals: macbook codex-work2
 installs now but queues automatic activation until its active turns finish;
 both macbook and devbox claude-personal install capture and memory access now,
-with each real model check waiting for provider login; devbox codex-work2 receives memory tools while
+with each real model check waiting for provider login; macbook claude-work2's
+real model check waits for provider quota reset; devbox codex-work2 receives memory tools while
 capture waits for two missing native source rollouts to be recovered. no exception
 changes admission boundaries or permits historical capture. record each separately
 until proved.

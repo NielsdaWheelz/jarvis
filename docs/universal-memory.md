@@ -2135,5 +2135,9 @@ at `d4afbfcec963b1f231fc117675120eff1685e881`. the temporary bridge is pruned.
 these receipts prove installed functional behavior, not the deferred usefulness
 or load study. native model/capture/adoption and restart acceptance remain in
 progress with the explicit [lane exceptions](implementation-plan.md#memory-installed-rollout).
+one devbox claude-personal sdk check ended with an unclassified exception group
+after saving; its retained diagnostics cannot establish the cause. replaying the
+same submission returned the original receipt, then exact search/open passed.
+this proves retry recovery, not an explanation for the first failure.
 temporary rollout probes are removed after final review; existing approved
 capture/retry and completion regression groups remain.

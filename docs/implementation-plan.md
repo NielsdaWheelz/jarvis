@@ -524,7 +524,8 @@ the owner accepts queued [macbook codex-work2 activation](issues/macbook-work2-m
 until active turns finish and defers the actual model checks for
 [devbox claude-personal](issues/devbox-claude-personal-model-check.md) and
 [macbook claude-personal](issues/macbook-claude-personal-model-check.md) until
-provider login. install those profiles now; preserve the strict baseline.
+provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
+waits for its provider quota reset. install those profiles now; preserve the strict baseline.
 devbox codex-work2 also installs tools now; its owner-approved
 [capture deferral](issues/devbox-work2-native-source.md) waits for missing native
 source recovery. no affected history is skipped or relabeled.

@@ -29,6 +29,9 @@ until idle and the actual model checks for
 [devbox claude-personal](devbox-claude-personal-model-check.md) and
 [macbook claude-personal](macbook-claude-personal-model-check.md) after login.
 those exceptions do not qualify the unobserved paths.
+macbook claude-work2's [actual model check](macbook-claude-work2-model-check.md)
+also waits for provider quota under an explicit owner-approved deferral; capture
+and its installed sdk connection remain in scope.
 devbox codex-work2's [capture waits for native source recovery](devbox-work2-native-source.md),
 also explicitly accepted by the owner; its memory tools remain in this rollout.
 

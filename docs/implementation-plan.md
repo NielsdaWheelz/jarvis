@@ -543,13 +543,23 @@ retired terminal-uncertain worker results already have processed resolution
 messages, all paid reads/model decisions are terminal, and eleven unremembered owner rows are ineligible control/stop settlements: the
 exact migration sweep predicate finds zero pending groups. the initial deployment
 lacked cognition-host and memory configuration. the immutable bridge
-`d9968b6b09699cf9c12d05a7b4c51b4443198192` is now selected at `0005`, never resumed.
-all six original table projections remain byte-identical; its new canonical pause
-is the only added message. the separate stock `0.160.0` host, live skid state mount,
-matching cli and private memory configuration are installed. jarvis stays stopped
-while current native-profile archive compatibility is qualified.
-no completed target `0008` transition, activated capture or installed acceptance is
-claimed here. [source evidence](universal-memory.md#native-memory-rollout-source-qualification)
+`d9968b6b09699cf9c12d05a7b4c51b4443198192` remains selected and was never resumed.
+the target `dd212e2cc23e6c3bd18d7b39754eab5dfcf815db` migrated the database to
+`0008`, then activation refused four finalized worker rows as
+`retired_pending_events`. jarvis remains stopped; never run the selected
+pre-memory bridge against this schema. all six original table projections remain
+byte-identical after migration, excluding only the deliberately retired
+`message.remembered_at` column. the separate stock `0.160.0` host is bound to the
+target; live skid state, matching cli, private memory configuration and private
+https `/v1` ingress are installed. current native archive qualification is complete
+for the eligible profiles.
+
+before publication, a no-model probe exposed inherited http mcp authority despite
+the provider's empty-server override. fix and independently qualify that provider
+boundary before installing native memory settings. activation classification and
+[contained mcp isolation](issues/codex-private-process.md) remain blockers; no
+active capture or installed acceptance is claimed.
+[source evidence](universal-memory.md#native-memory-rollout-source-qualification)
 does not waive those transition requirements.
 
 costs: retained shared copies are available across personal/work profiles;

@@ -1977,8 +1977,8 @@ source and restricted task-boundary receipts; installed acceptance remains open.
 | target dependency | exact pin |
 | --- | --- |
 | universal-memory | `11f4220031d56f71d5a732b748a9bbb52c842e0e` |
-| provider-runtime | `97c0475fdd99679c813b12b23b89ea12c9819dff` |
-| llm-agent-kernel | `ba38f12bcec8269fad0b1b3afd48d96fc9983706` |
+| provider-runtime | `adf1b714dec6b2517ba468085674665923c237fc` |
+| llm-agent-kernel | `419e5fe3e251e9ffdf506ae88fb7149fac6e1549` |
 | llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
 
 the source contract now declares eighteen native lanes plus `(devbox, jarvis)`:
@@ -2019,9 +2019,29 @@ suite. the archive's actual formerly failing native read also passes from the
 built wheel. current native inventory completion and installed journeys remain
 separate rollout evidence.
 
-the maintenance kernel changes only its provider composition and five inherited
-registry security revisions; its source, tests and stock 0.160.0 catalogue remain
-unchanged. all 176 nonlive kernel checks pass. the final jarvis lock changes only
+the provider also repairs inherited http mcp containment: the existing startup
+read resolves the exact cwd and explicitly disables every inherited server.
+empty native tables merge rather than erase registrations. actual stock
+`0.160.0` restricted threads expose no tools, report all four synthetic inherited
+servers disabled and make zero http/stdio requests, with no model call. seven
+temporary protocol cases cover exact cwd, malformed-map refusal and unchanged
+ordinary clients. its existing suite still passes. installed thread qualification
+after native profile publication remains required.
+
+stock `0.160.0` also reads account-level instructions despite empty execution
+environments. the contained unit now masks exactly `AGENTS.md` and
+`AGENTS.override.md`. an actual same-user systemd/stock prompt-input probe exposes
+synthetic account instructions before masking and neither default nor override
+afterward, with zero model turns. owner input and unrelated account access remain;
+outside file bytes/modes and an absent override are unchanged. the instruction
+cache starts empty in the fresh host and cannot acquire masked content. creating
+a previously absent override requires stopped host restart before cognition;
+this is not protection against arbitrary concurrent local mutation.
+
+the maintenance kernel changes only its provider composition, five inherited
+registry security revisions and one existing protocol fixture to include the
+real native empty server map; its implementation and stock 0.160.0 catalogue remain
+unchanged. all 176 nonlive kernel checks pass. the jarvis lock changes only
 the two git pins and their dependency metadata, preserving every registry version.
 its full frozen verification passes, as do retained jarvis capture/retry and the
 library's three capture/completion checks against separate disposable databases
@@ -2048,6 +2068,7 @@ and shellcheck pass for the changed deployment scripts.
 | runtime schema grant | four actual installer-excerpt checks pass: `0004` stays read-only; held ownership refuses without a grant; stopped installation changes only the schema-read grant; repetition changes nothing |
 | temporary predecessor | thirteen exact-predecessor checks plus five linux helper checks pass; actual `0004→0005` preserves ten notes/two summaries; the old and new remembering predicates find no eligible groups; malformed/writable host mappings refuse and helper execution leaves all nine tables unchanged |
 | worker v10 | fourteen real cli/postgres checks pass: enrolled `dev-server` replaces worker `devbox`, exact target capture is retained, finalized validated v9 receipts stay opaque/unchanged, and unfinished, malformed or unknown contracts refuse; memory provenance remains `devbox` |
+| archived delivery | 59 real-postgres cases prove exact claim-bound delivered conclusions and all-input settlement distinguish old inline results from owed reports; approval, suspension, missing delivery and later outcomes remain blocked. read-only production source comparison resolves four false blockers without changing original actions; installed activation remains separate |
 
 the snapshot helper also exposed an actual client-version mismatch: postgres
 18.6 produced the 3,399,555-byte archive, while bare `pg_restore` selected 16.16

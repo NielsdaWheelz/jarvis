@@ -232,6 +232,15 @@ release's read-only host qualifier to pass, including exact loaded release,
 stock version and startup catalogue. host installation remains a separate
 explicit stopped-application operation.
 
+the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
+the original coding files remain unchanged. optional absent paths remain absent.
+creating either missing file requires a stopped contained-host restart before
+cognition resumes. native profile publication belongs to this maintenance window.
+after memory settings are installed, qualify an actual restricted thread: the
+effective configuration contains the memory registration, but every inherited
+mcp server must report disabled with zero tools. startup-catalogue qualification
+alone does not establish that thread boundary.
+
 cutover validates original entered work before converting proven unentered
 legacy authority. pending approvals receive fresh consent; queued writes re-enter
 the current gate. unknown effects or paid reads refuse cutover. canonical pause

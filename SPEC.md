@@ -1765,6 +1765,13 @@ each cognition cwd is private, empty, read-only, non-secret and mode `0750`
 beneath the jarvis-owned mode-`02750` cognition parent. the client group permits
 only traversal/read of these directories and connection to the socket. native
 shell/files/Web/network, MCP, subagents and unsolicited approvals are disabled.
+the provider reads effective configuration at the exact cognition cwd and disables
+every inherited mcp server explicitly; an empty native table does not clear them.
+the contained host masks account `AGENTS.md` and `AGENTS.override.md` inside its
+service namespace, preserving the owner's files and ordinary native clients.
+profile configuration changes require stopped contained-host maintenance;
+creating a previously absent instruction file requires a host restart before
+cognition resumes.
 host callbacks execute only the frozen application bindings. no connector,
 Brave, embedding, Discord, database or Google credential reaches native
 cognition or its account home.

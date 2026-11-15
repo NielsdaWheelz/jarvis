@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and memory delivery source; installed activation pending**
+status: **native runtime and memory installed; native fleet acceptance in progress**
 
 date: **2026-11-14**
 
@@ -1769,9 +1769,10 @@ the provider reads effective configuration at the exact cognition cwd and disabl
 every inherited mcp server explicitly; an empty native table does not clear them.
 the contained host masks account `AGENTS.md` and `AGENTS.override.md` inside its
 service namespace, preserving the owner's files and ordinary native clients.
-profile configuration changes require stopped contained-host maintenance;
-creating a previously absent instruction file requires a host restart before
-cognition resumes.
+profile configuration changes require stopped application/contained-host
+maintenance. file masks do not survive outside atomic replacement or cover later
+creation of an absent path; publish first, restart the host, then qualify its
+effective thread before cognition resumes.
 host callbacks execute only the frozen application bindings. no connector,
 Brave, embedding, Discord, database or Google credential reaches native
 cognition or its account home.

@@ -29,8 +29,8 @@ jarvis runs as its existing service uid with `ProtectHome=true` and
 `NoNewPrivileges=true`; the enrolled devbox state belongs to the development
 user with private modes. no worker cli privilege boundary exists. copied state
 would miss later membership updates. the owner deferred this deployment
-integration; [the issue](../issues/skid-installed-state-access.md) records its
-resolution and real service-uid qualification requirements. the retired client
+integration; the later [installed receipt](../universal-memory.md#native-memory-installed-qualification)
+records its qualified read-only boundary under adr 0072. the retired client
 installer refuses before remote changes. no new bridge or global user change.
 
 focused disposable checks exercise the new closed schema, literal cli argv,

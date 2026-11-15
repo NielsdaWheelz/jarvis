@@ -1,6 +1,7 @@
 # adr 0072: native memory rollout
 
-status: accepted implementation scope, 2026-11-14; installed acceptance pending.
+status: accepted implementation scope, 2026-11-14; jarvis installed proof passes,
+native fleet acceptance in progress.
 
 ## authority and decision
 
@@ -10,10 +11,10 @@ sharing all configured personal/work/work2 profiles and confirms control of thei
 content. macbook/devbox proceed; offline arch is deferred. preserve existing
 canonical data and the separately owned events delivery.
 
-the owner accepts three narrower qualification deferrals: macbook codex-work2
+the owner accepts four narrower qualification deferrals: macbook codex-work2
 installs now but queues automatic activation until its active turns finish;
-devbox claude-personal installs capture and memory access now, with its real model
-check waiting for provider login; devbox codex-work2 receives memory tools while
+both macbook and devbox claude-personal install capture and memory access now,
+with each real model check waiting for provider login; devbox codex-work2 receives memory tools while
 capture waits for two missing native source rollouts to be recovered. no exception
 changes admission boundaries or permits historical capture. record each separately
 until proved.

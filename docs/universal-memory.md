@@ -200,9 +200,10 @@ or replace their native compaction. tree compression continues in the background
 historical orientation is bounded; a single long running turn still has provider
 context limits. current authority and effect recovery never depend on summaries.
 
-remaining work includes private provisioning and installed activation. durable attachment originals are a
-separate delivery. section 12 identifies qualified source artifacts; the roadmap
-owns delivery order.
+remaining work includes native fleet acceptance and later arch/nexus provisioning
+and activation. jarvis's installed memory path is qualified. durable attachment
+originals are a separate delivery. section 12 identifies exact source and installed
+receipts; the roadmap owns delivery order.
 
 ## 2. ownership and admission
 
@@ -1017,8 +1018,10 @@ may guide attention, not prove completion; it does not block this delivery.
 ## 6. retrieval
 
 jarvis's service serves streamable-http mcp at `/v1/mcp` and the capture api at
-`/v1/memory/*` on its own port, behind dev-server's tailscale serve handler for
-`/v1` (no funnel), proxied to a loopback listener. postgres stays loopback-only.
+`/v1/memory/*` on its own loopback port, behind dev-server's private tailscale
+serve listener on `8443`. memory owns only `/v1/memory` and `/v1/mcp`, forwarding
+their complete paths and preserving skid's root handler; funnel stays disabled.
+declared origins and native client urls include `:8443`. postgres stays loopback-only.
 the capture routes use fastapi; the official mcp python sdk's streamable-http
 application is mounted beside them. pin a mutually compatible sdk/server release
 and its supported mcp protocol revision when adding these dependencies. the
@@ -2034,9 +2037,12 @@ environments. the contained unit now masks exactly `AGENTS.md` and
 synthetic account instructions before masking and neither default nor override
 afterward, with zero model turns. owner input and unrelated account access remain;
 outside file bytes/modes and an absent override are unchanged. the instruction
-cache starts empty in the fresh host and cannot acquire masked content. creating
-a previously absent override requires stopped host restart before cognition;
-this is not protection against arbitrary concurrent local mutation.
+cache starts empty in the fresh host and cannot acquire masked content. a separate
+actual namespace probe shows that outside atomic replacement makes the new file
+readable; later creation of an absent override is also unmasked. profile publication
+therefore runs with application and contained host stopped, followed by fresh host
+startup and effective-thread qualification before cognition. these mounts provide
+no live local-mutation protection.
 
 the maintenance kernel changes only its provider composition, five inherited
 registry security revisions and one existing protocol fixture to include the
@@ -2103,9 +2109,31 @@ and empty capabilities remain. immutable bridge
 the same boundary. production host startup/containment still requires its own
 receipt.
 
-the [active rollout](implementation-plan.md#memory-installed-rollout) retains the
-production `0004` transition, current native-home archive compatibility, installed
-capture/mcp, cognition and restart proof. none is inferred from these checks.
-nexus waits for its next release; arch, historical import, backup/restore and
-broad usefulness/load evaluation remain deferred. temporary rollout probes remain
-until final review and cleanup; existing approved regression groups are retained.
+the following installed receipts supplement this source proof. the
+[active rollout](implementation-plan.md#memory-installed-rollout) owns remaining
+capture/adoption/restart work and named deferrals.
+
+### native memory installed qualification
+
+2026-11-15 utc, owner-local rollout dated 2026-11-14. selected jarvis and both
+collectors: `a3afcdc353029a8ea82425791cdc68fd42c5f759`, with the four pins above.
+database `0008`; official contained stock `0.160.0`; installed skid `v0.24.2`
+at `d4afbfcec963b1f231fc117675120eff1685e881`. the temporary bridge is pruned.
+
+| installed boundary | observed result |
+| --- | --- |
+| migration and authority | native conversion succeeds; three finalized archived uncertain actions are compatible, zero incompatible or in-flight actions. after owner resume and the new main turn, original projections remain unchanged: 21 actions, 10 notes, 2 summaries, 79 messages, 180 model decisions and 89 read positions; only the retired column and derived embeddings are outside those original projections |
+| containment | same-release service secret/process checks pass. after stopped profile publication and fresh host startup, the actual restricted thread disables the inherited memory server, exposes zero native tools and makes zero model calls in the authority probe |
+| skid state | actual installed cli reads under the restricted jarvis service uid succeed for dev-server/macbook; arch is unavailable and deferred. the read-only live id-map uses the source-qualified atomic-replacement/write-denial boundary; replacing its root inode requires a stopped remount |
+| private ingress | both hosts authenticate over verified https on `8443`; only `/v1/memory` and `/v1/mcp` route to jarvis. skid's root and other handlers are unchanged. all twelve installed sdk clients initialize and list the exact six tools |
+| transport grants and saves | unknown bearers return `401`; capture-to-mcp and client-to-capture return `403`. one synthetic save creates one note/leaf; exact retry preserves identity/time/text, changed text returns typed `submission_conflict` without mutation. devbox reopens the macbook note with its own credential and exact provenance |
+| owner main | actual discord resume and synthetic request complete; response delivered. the fixed historical view includes the pre-existing seed. all five reads and save return success; date/view/zoom/search/open reach the seed, exact open preserves its text, and search observes both lexical and real semantic candidates. main's note uses its original invocation-derived provenance and is externally openable |
+| canonical projection | the new main attempt commits all original call/reply evidence; twelve memory-tool archive records contain references and empty text. all four new canonical messages retain exact text/source time. publication backlog is zero and action count stays 21 |
+| quiet memory | automatic catch-up for the latest nightly occurrence appends one 328-byte attributed synthesis with four exact openable references, consumes seed range `[0,9)`, and creates no waking/host/extra-assistant message. later arrivals remain pending for the next occurrence. persisted nodes exceeding the free-node input bound prove actual serial compactor inference; all output remains within the node bound, with no construction park |
+| private connector environment | source and installed environments omit the retired keyring; the required single secret and key version remain present. the strict private-state installer accepts them; no ciphertext migration is needed |
+
+these receipts prove installed functional behavior, not the deferred usefulness
+or load study. native model/capture/adoption and restart acceptance remain in
+progress with the explicit [lane exceptions](implementation-plan.md#memory-installed-rollout).
+temporary rollout probes are removed after final review; existing approved
+capture/retry and completion regression groups remain.

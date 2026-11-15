@@ -12,11 +12,11 @@ asynchronous wait delivers an event to the same full-plan main, which judges
 follow-through and whether to respond. that target is unimplemented; it adds no
 callback service or repeated model polling.
 
-problem: worker-v9 source and isolated qualification do not establish installed
-jarvis operation. the service uid cannot access skid's live enrolled state under
-current containment; [the access boundary](skid-installed-state-access.md) is
-separately blocked. paired installed fleet and production notification
-qualification remain open. jarvis stays stopped pending that work.
+problem: worker source and isolated qualification do not establish installed
+observation/restart/notification behavior. v10's actual service-uid reads now pass
+through the qualified [live-state boundary](../universal-memory.md#native-memory-installed-qualification)
+on both online hosts. jarvis is owner-resumed; the production observation journey
+remains open and belongs to the coordinated worker/events delivery.
 
 impact: current-source correctness does not prove deployed artifact/configuration
 agreement, service containment or delivered Discord notifications.
@@ -66,8 +66,8 @@ v2 release must separately prove same-main event continuation under adr 0071.
 identify and fix any installed artifact/observer defects found there rather than
 infer that a new observation mechanism is required.
 
-blockers: separately chosen live installed-state access, matching skid
-release/configuration, contained endpoint/application activation and authorized
-external delivery. no copied-state or retired client installer workaround.
-local checks do not assert production repair.
+remaining: installed observation/restart and external delivery under the selected
+worker contract. live state access, matching cli, contained endpoint and owner
+resumption are qualified; no copied-state or retired client installer workaround.
+the memory rollout's read-only worker checks do not qualify worker effects.
 no behavioral suite or general harness is retained.

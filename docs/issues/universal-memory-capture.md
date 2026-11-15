@@ -18,14 +18,17 @@ tools; installed permission behavior is not inferred from that fixture.
 the [installed rollout](../implementation-plan.md#memory-installed-rollout) now
 authorizes macbook/devbox installation and includes each host's distinct
 `claude-work2` account. eighteen native lanes plus jarvis are declared; offline
-arch stays disabled and nexus waits for its next release. the temporary native
-bridge and private service configuration are installed, but target activation and
-fleet capture are not yet proved. advance dev-server's exact collector release
-pin only after final source qualification.
+arch stays disabled and nexus waits for its next release. jarvis and both
+collectors select `a3afcdc353029a8ea82425791cdc68fd42c5f759`; the temporary bridge
+is pruned. authenticated private https on `8443` and all twelve sdk client
+initializations/tool listings pass. native capture baselines and actual model
+journeys remain in progress; configuration alone does not prove either.
 
 the owner separately accepts queued [macbook codex-work2 activation](macbook-work2-memory-activation.md)
-until idle and [devbox claude-personal's model check](devbox-claude-personal-model-check.md)
-after login. those exceptions do not qualify either unobserved path.
+until idle and the actual model checks for
+[devbox claude-personal](devbox-claude-personal-model-check.md) and
+[macbook claude-personal](macbook-claude-personal-model-check.md) after login.
+those exceptions do not qualify the unobserved paths.
 devbox codex-work2's [capture waits for native source recovery](devbox-work2-native-source.md),
 also explicitly accepted by the owner; its memory tools remain in this rollout.
 

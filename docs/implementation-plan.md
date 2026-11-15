@@ -24,8 +24,9 @@ own terminal-only worker control, closed schemas and opaque retired-row loading.
 [adr 0072](decisions/0072-native-memory-rollout.md) advances the binding to v10
 and adopts enrolled `macbook|dev-server|arch` names without aliases; memory's
 `devbox` identity stays unchanged. fourteen actual cli/postgres checks pass.
-the read-only mounted state boundary is source-qualified; installed
-[service-state acceptance](issues/skid-installed-state-access.md) remains open.
+the read-only mounted state boundary and actual installed service-uid reads pass
+on both online hosts; [installed evidence](universal-memory.md#native-memory-installed-qualification)
+does not replace the separate worker observation journey.
 
 ## destination and rules
 
@@ -89,9 +90,9 @@ source handoffs do not need another worker-protocol specification.
 
 the authorized rollout started from stopped/paused production at schema `0004`.
 the current owner's skid `v0.24.2` artifact reads actual live state through the
-restricted task mount; the old fixed service executable is incompatible and
-must be replaced with that selected artifact. matching installation, current
-native-home archive compatibility and installed worker observation remain open.
+installed read-only mount. matching host/application/cli installation and owner
+resumption are complete. native fleet acceptance and installed worker observation
+remain separate work.
 
 pending worker search may inspect only retained terminal history through
 `agent.read`; it cannot promise complete saved conversations or route silently
@@ -102,16 +103,15 @@ its own explicitly selected capability.
 
 | item | owner / remaining result |
 | --- | --- |
-| skid release and fleet cutover (o2) | use the enrolled owner's qualified current cli at the fixed service path and install its read-only live-state mount; preserve existing gateways/membership; [cutover issue](issues/skid-terminal-flags.md) |
-| native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
+| skid release and fleet cutover (o2) | matching cli and read-only live-state mount are installed; qualify launch/control/observation while preserving existing gateways/membership; [cutover issue](issues/skid-terminal-flags.md) |
+| native jarvis activation | same-release host/application, stopped conversion, owner resume and normal memory turn pass; [installed evidence](universal-memory.md#native-memory-installed-qualification). remaining physical google checks stay in their [issue](issues/codex-private-process.md) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
 | current memory artifacts | source dependency fetch/build/audit passes; finish the authorized jarvis/native rollout; nexus image/runtime qualification waits for its next release; [image handoff](issues/nexus-memory-image-qualification.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
 
 these are independent release, repair or policy tasks, not another prerequisite
-mega-pr. preserve [connector cutover](issues/connector-keyring-cutover.md),
-[old qualification-resource disposition](issues/qualification-residue.md) and
+mega-pr. preserve [old qualification-resource disposition](issues/qualification-residue.md) and
 nexus's [historical job disposition](issues/nexus-generation-dispatch-contract.md)
 with their owners. none is resolved merely by merging a new runtime.
 
@@ -379,9 +379,9 @@ durable nonblocking wait/cancel. v10 source and enrolled-label proof are complet
 recorded predecessor only. o6 owns broader event authority; o7 records and o9
 discretionary follow-through remain separate.
 
-remaining: resolve [live installed-state access](issues/skid-installed-state-access.md)
-under the jarvis service uid, install matching artifacts through the existing
-stopped release path, then qualify observation and actual delivery. the old
+remaining: qualify installed observation and actual delivery. the
+[live service-state boundary](universal-memory.md#native-memory-installed-qualification)
+and matching artifacts now pass under the jarvis service uid. the old
 private-client/file-pause installer design is retired. [cli cutover](issues/skid-terminal-flags.md)
 and [wait acceptance](issues/agent-wait.md) own remaining evidence. no worker
 protocol redesign or new table.
@@ -521,20 +521,22 @@ the owner confirms control of their content. capture starts from new activation
 boundaries, never history import. the existing separate events task owns the subsequent migration;
 its intermediate source is not a deployable release and stays out of this rollout.
 the owner accepts queued [macbook codex-work2 activation](issues/macbook-work2-memory-activation.md)
-until active turns finish and defers only [devbox claude-personal's model check](issues/devbox-claude-personal-model-check.md)
-until provider login. install both profiles now; preserve the strict baseline.
+until active turns finish and defers the actual model checks for
+[devbox claude-personal](issues/devbox-claude-personal-model-check.md) and
+[macbook claude-personal](issues/macbook-claude-personal-model-check.md) until
+provider login. install those profiles now; preserve the strict baseline.
 devbox codex-work2 also installs tools now; its owner-approved
 [capture deferral](issues/devbox-work2-native-source.md) waits for missing native
 source recovery. no affected history is skipped or relabeled.
 
 | step / owner | action and completion evidence |
 | --- | --- |
-| 1 / integration lead | source composed with current main and its security fixes; memory adr consolidated as 0070, original worktrees preserved. archive-only provider maintenance and its kernel composition are published; final target publication remains, with no cognition/model upgrade |
+| 1 / integration lead | source composed with current main and its security fixes; memory adr consolidated as 0070, original worktrees preserved. archive-only provider maintenance, kernel composition and selected target are published with no cognition/model upgrade; final source-pr integration follows installed review |
 | 2 / dependency writer | complete: targeted registry repairs, four actual consumer probes and full frozen `scripts/verify` pass with zero reported index findings; no suppression |
-| 3 / native configuration writer | include the existing distinct claude-work2 profile through the shared account contract and existing renderer/collector primitives; eighteen native lanes plus jarvis. privately generate one controller/processor/recipient declaration, unique scoped credentials and per-host bundles. macbook/devbox capture+connect, jarvis capture only, arch disabled, nexus null |
-| 4 / deployment writer | source-qualified: schema `0008`, runtime schema-read grant, validated retired-worker archival handling and exact predecessor empty drain; actual postgres cases preserve old originals and reject unfinished/unknown authority. execute and verify the production transition separately |
-| 5 / service integration | source-qualified: read-only id-mapped live state and actual cli reads under the jarvis identity; atomic synthetic publication and write denial; contained host's single public mapping file bind preserves private directory permissions. same-release installation and stock `0.160.0` containment proof remain |
-| 6 / integration lead | install the qualified immutable bridge/target with existing release locking and selected-plus-one-candidate retention. verify clean stop and original effect/read state. take the existing local cutover snapshot, migrate/import pause/drain, update private settings, and start the target paused. verify containment before owner-authorized resumption |
+| 3 / native configuration writer | installed: the distinct claude-work2 profile uses the shared contract and existing renderer; eighteen native lanes plus jarvis. one private sharing declaration, scoped credentials and per-host bundles enable macbook/devbox capture+connect and jarvis capture only; arch disabled, nexus null |
+| 4 / deployment writer | production transition passes: schema `0008`, runtime schema-read grant, validated retired-worker archival handling and exact predecessor empty drain. original columns remain unchanged after owner resumption; unfinished/unknown authority still rejects |
+| 5 / service integration | installed: read-only id-mapped live state and actual cli reads under jarvis's identity reach both online gateways; source atomic-publication/write-denial proof remains applicable. same-release stock `0.160.0` host, public mapping bind and restricted-thread/service containment pass |
+| 6 / integration lead | installed target with the existing release lock; temporary bridge pruned. canonical pause imported and current authority validated before owner discord resume. actual main reads/save, archive projection and quiet memory work pass. remove the accepted local transition snapshots after final restart/original-state review |
 | 7 / fleet writer + integration lead | apply only the existing memory installer and private `/v1` routing mechanisms on macbook/devbox; do not run unrelated rolling package/daemon maintenance. verify actual loaded mcp configuration and long claude retention, then observe post-boundary synthetic capture, all six tools, denial, outage/restart and exact replay through installed identities |
 | 8 / independent reviewer | review actual release/migration/authority/content receipts, record current status in existing evidence/issues, remove only newly introduced probes and the accepted cutover snapshot, and leave one selected release. report arch/nexus deferrals and any actual blocker explicitly |
 
@@ -543,22 +545,33 @@ retired terminal-uncertain worker results already have processed resolution
 messages, all paid reads/model decisions are terminal, and eleven unremembered owner rows are ineligible control/stop settlements: the
 exact migration sweep predicate finds zero pending groups. the initial deployment
 lacked cognition-host and memory configuration. the immutable bridge
-`d9968b6b09699cf9c12d05a7b4c51b4443198192` remains selected and was never resumed.
-the target `dd212e2cc23e6c3bd18d7b39754eab5dfcf815db` migrated the database to
-`0008`, then activation refused four finalized worker rows as
-`retired_pending_events`. jarvis remains stopped; never run the selected
-pre-memory bridge against this schema. all six original table projections remain
+`d9968b6b09699cf9c12d05a7b4c51b4443198192` was never resumed and is now pruned.
+the first target migrated to `0008` but misclassified four finalized worker
+receipts. the corrected immutable release
+`a3afcdc353029a8ea82425791cdc68fd42c5f759` is selected and owner-resumed:
+activation reports three compatible archived uncertain rows, no incompatible
+authority and no in-flight work. all six original table projections remained
 byte-identical after migration, excluding only the deliberately retired
-`message.remembered_at` column. the separate stock `0.160.0` host is bound to the
-target; live skid state, matching cli, private memory configuration and private
-https `/v1` ingress are installed. current native archive qualification is complete
-for the eligible profiles.
+`message.remembered_at` column.
 
-before publication, a no-model probe exposed inherited http mcp authority despite
-the provider's empty-server override. fix and independently qualify that provider
-boundary before installing native memory settings. activation classification and
-[contained mcp isolation](issues/codex-private-process.md) remain blockers; no
-active capture or installed acceptance is claimed.
+all twelve native profiles and both collectors are installed at that revision.
+the separate stock `0.160.0` host was restarted after profile publication. actual
+restricted-thread qualification sees the installed memory server disabled, with
+zero tools and zero model turns. service secret/process restrictions and actual
+skid reads pass on macbook/devbox; arch remains unavailable and deferred.
+
+private https now uses the existing tailnet listener on `8443`: memory owns only
+`/v1/memory` and `/v1/mcp`; skid's root and other handlers are unchanged. the failed
+`443` memory handler is removed. actual authenticated requests from both hosts
+return `200`, and all twelve installed sdk clients initialize and list the exact
+six tools. one final installer convergence records the selected release and
+active configuration digests without replacing unchanged profile files.
+eligible capture baselines and native model journeys are in progress. the owner
+sent discord resume; the synthetic main journey completes all six memory tools
+with durable receipts and delivered output. automatic quiet dreaming appends one
+attributed synthesis without a wake; serial compaction and original-state
+preservation pass. [installed receipts](universal-memory.md#native-memory-installed-qualification)
+record those results; fleet/restart acceptance remains open.
 [source evidence](universal-memory.md#native-memory-rollout-source-qualification)
 does not waive those transition requirements.
 

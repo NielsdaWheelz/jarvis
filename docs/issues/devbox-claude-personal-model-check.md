@@ -9,7 +9,8 @@ the actual claude model cannot yet demonstrate its loaded memory tools.
 
 evidence: native login inspection reports no provider credential for this profile.
 the owner explicitly chose installation now and deferred only its model check.
-the other eleven macbook/devbox profiles have native credentials.
+macbook's [same profile](macbook-claude-personal-model-check.md) later also reported
+no provider login; its model check has a separate owner-approved deferral.
 
 resolved when: the owner logs into this profile, then a real claude turn uses its
 installed memory connection and produces post-boundary synthetic content which

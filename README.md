@@ -6,9 +6,9 @@ Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and retains admitted history through a shared archive, compressed view, retrieval
 and quiet dreaming.
 
-this repository is specification-first. native cognition and worker orchestration
-are implemented and qualified; production cutover and owner acceptance remain
-separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
+this repository is specification-first. native cognition and shared memory are
+installed and owner-resumed; native fleet acceptance and installed worker
+observation remain separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
 product work, missing specs, external repository handoffs and operational tasks.
 backup and restore remain deferred.
 
@@ -37,10 +37,12 @@ source and isolated functional proof are complete. the
 records the qualified dependency repairs, nineteen native/jarvis lanes and
 service access boundaries. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
 authorizes macbook/devbox installation; arch is deferred and nexus waits for its
-next release. installed acceptance remains open.
+next release. [installed evidence](docs/universal-memory.md#native-memory-installed-qualification)
+records actual jarvis memory use, quiet dreaming and private client access;
+native fleet acceptance remains in progress.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
-production activation and actual fleet installation remain separate. realistic-load
+realistic-load
 and usefulness evaluation belongs to a [later pr](docs/issues/memory-usefulness-evaluation.md),
 as does broader personal acceptance; this delivery adds no backup or history import.
 
@@ -159,9 +161,9 @@ receipts qualify only their named artifacts and boundaries.
   skid cli and live installed computer state (`JARVIS_AGENT_STATE_DIRECTORY`);
   [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the enrolled
   `macbook|dev-server|arch` worker names and a read-only id-mapped state mount.
-  memory provenance still uses `devbox`. source boundary proof passes;
-  [installed service-state acceptance](docs/issues/skid-installed-state-access.md)
-  remains open
+  memory provenance still uses `devbox`.
+  [installed service-state reads](docs/universal-memory.md#native-memory-installed-qualification)
+  pass on both online hosts; worker observation remains separately qualified
 - cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate
   contained stock endpoint and the existing personal host account; its public
   host mapping has a read-only file bind, preserving private directory access

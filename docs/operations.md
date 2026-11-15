@@ -81,8 +81,10 @@ receipts required by the [memory delivery](memory-delivery.md).
 
 the [2026-09-08 deployment report in git history](https://github.com/NielsdaWheelz/jarvis/blob/42f1fa21c3d2f687a3f3fafc9366fea41023e0cb/docs/qualification/2026-09-08-production-deployment.md)
 records that release's housekeeping, host qualification and activation, not current
-readiness. the [contained-cognition activation issue](issues/codex-private-process.md) records
-the later stopped state; no completed seven-day owner acceptance is established.
+readiness. [current installed evidence](universal-memory.md#native-memory-installed-qualification)
+records the native/memory cutover and owner resumption; remaining physical google
+checks have a separate [issue](issues/codex-private-process.md). no completed
+seven-day owner acceptance is established.
 The pending host reboot is explicitly deferred:
 Jarvis does not require it, and a reboot would terminate the owner's current
 tmux sessions and live Codex processes. V1 deliberately has no backup or restore
@@ -154,7 +156,8 @@ remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.
 keep `JARVIS_CONNECTOR_ENCRYPTION_SECRET` and
 `JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION` unchanged. no ciphertext migration is
-needed. track completion in the [environment cutover issue](issues/connector-keyring-cutover.md).
+needed. source and installed environments passed this cutover in the
+[current rollout](universal-memory.md#native-memory-installed-qualification).
 
 the private installer validates `JARVIS_SOURCE_MEMORY_CONFIG` before copying it
 to `/etc/jarvis/memory.json` as jarvis-owned mode 0600. its default is the checked-in
@@ -234,8 +237,11 @@ explicit stopped-application operation.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.
-creating either missing file requires a stopped contained-host restart before
-cognition resumes. native profile publication belongs to this maintenance window.
+an outside atomic replacement exposes the new file to an already-running mount
+namespace; later creation of an absent file is also unmasked. stop the application
+and contained host before profile publication, then restart the same-release host
+and application paused. never treat these file mounts as protection from live
+configuration changes.
 after memory settings are installed, qualify an actual restricted thread: the
 effective configuration contains the memory registration, but every inherited
 mcp server must report disabled with zero tools. startup-catalogue qualification
@@ -268,9 +274,9 @@ account-home access. the earlier copied skid client-file path is retired.
 the [authorized rollout](implementation-plan.md#memory-installed-rollout) qualifies
 a root-managed read-only id-mapped view of the enrolled owner's live skid state.
 the cli must match that installed state contract. preserve source modes and
-ownership; the service receives no mount capability. installed acceptance remains
-in the [access issue](issues/skid-installed-state-access.md) until actual cli and
-service checks pass.
+ownership; the service receives no mount capability. actual installed cli/service
+reads pass on both online hosts; [evidence](universal-memory.md#native-memory-installed-qualification)
+keeps worker observation and offline arch qualification separate.
 
 Do not activate an older release across an incompatible migration. A
 same-schema rollback requires rebuilding with `deploy/install-release <commit>`
@@ -515,14 +521,13 @@ bounds, finite callback queues and owner stop still apply.
 
 peer agent control uses the explicitly configured `JARVIS_AGENT_CLI_PATH` and
 `JARVIS_AGENT_STATE_DIRECTORY`. skid owns installed auth/routing and refresh;
-jarvis retains its personal machine/profile enums. the existing service cannot
-read the enrolled development user's private live state under its containment.
-[service-state access](issues/skid-installed-state-access.md) records the separate
-integration required before installed worker activation. no copied client-json
-reader, second ref codec or fallback transport remains.
+jarvis retains its personal machine/profile enums. the installed service reads
+the enrolled development user's same live state through the qualified read-only
+id-mapped mount. root manages that mount; application permissions remain narrow.
+no copied client-json reader, second ref codec or fallback transport remains.
 
 the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
-wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v9 accepts
+wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v10 accepts
 only `t-` plus 16 lowercase hex digits. the host captures the original terminal
 ref before gate/action admission and retains it through delay/restart. terminal
 loss/reassociation never silently renews that target. worker-native conversation

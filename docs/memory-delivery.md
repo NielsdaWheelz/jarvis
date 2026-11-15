@@ -5,7 +5,9 @@ status: implemented source, 2026-11-14; isolated functional proof passes.
 records the original artifacts and functional proof; the
 [native rollout source qualification](universal-memory.md#native-memory-rollout-source-qualification)
 resolves the audit and extends the native profile contract under adr 0072.
-installed acceptance remains open; nexus waits for its next release.
+the [online installed rollout](universal-memory.md#native-memory-installed-qualification)
+passes with the named profile deferrals. arch remains offline; nexus waits for its
+next release.
 [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md) adopts the scope.
 [SPEC.md](../SPEC.md) is authoritative; [universal memory](universal-memory.md)
 owns unchanged storage, compression, search, note and dream contracts. this file

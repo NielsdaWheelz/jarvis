@@ -1,8 +1,8 @@
 # jarvis specification
 
-status: **native runtime and memory installed; native fleet acceptance in progress**
+status: **native runtime and online memory rollout qualified; named profile deferrals remain**
 
-date: **2026-11-14**
+date: **2026-11-15**
 
 audience: product, engineering, design, operations, and future coding agents
 
@@ -105,13 +105,15 @@ and existing schemas. the owner selected source fixes and isolated qualification
 only and confirmed no real capture activation. one revised native codec replaces
 the old contract; no compatibility reader or production activation is included.
 new repair qualification tests are temporary and deleted after red/green/refactor;
-the existing approved regression groups remain. repair source is isolated and
-unactivated; current live proof and installed limits are recorded in the memory
-integration evidence.
+the existing approved regression groups remain. that october candidate was
+qualified in isolation; current installed proof and explicit deferrals are
+recorded in the memory integration evidence.
 
 accepted universal-memory target (2026-10-01): the consolidated
 [implementation contract](docs/universal-memory.md) defines the current source
-contract; installed activation remains separate.
+contract; source proof alone does not establish installation. the
+[online installed receipts](docs/universal-memory.md#native-memory-installed-qualification)
+now pass with named profile deferrals; nexus and arch remain deferred.
 [adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md)
 records its simplification; [adr 0066](docs/decisions/0066-optchat-memory-adoption.md)
 adds owner-approved automatic orientation over all admitted history when fresh
@@ -123,8 +125,8 @@ search/navigation. source parts and notes are ordinary leaves in one binary tree
 long text needs no private leaf-reduction mechanism. jarvis reconstructs each new
 top-level turn from the view and exact active requests/receipts. native codex,
 claude and nexus chats retain their own context management and access shared memory
-through mcp/api. the core memory source is implemented and isolated qualification
-passes; production activation remains separate. nexus memory access is limited to the owner's chats;
+through mcp/api. the core source and online installed rollout are qualified within
+the named profile deferrals. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
 backend client and tagged note attribution. adr 0070 adds the distinct nexus
 capture source without adding a native lane. the current native rollout includes
@@ -1944,10 +1946,10 @@ when needed, then removed after use; they are not retained as recovery copies.
 routine replacement of a cleanly stopped initialized release preserves canonical
 pause/resume. activation requires deployment ownership, valid native state and
 the current execution-contract checks; it creates no owner control. a retained
-resume preserves startup action recovery; new main/background work waits for
-validated discord catch-up. fresh initialization, pause-required migrations and
-private-configuration/authority changes retain
-their separate canonical-pause prerequisites. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
+resume preserves startup action recovery; new main reasoning and background memory
+work wait for validated discord catch-up. fresh initialization, pause-required migrations and
+private-configuration/authority changes retain their separate canonical-pause
+prerequisites. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
 records this distinction; no force flag or recovery bypass is provided.
 
 Production activation requires the installed PostgreSQL and pgvector identities

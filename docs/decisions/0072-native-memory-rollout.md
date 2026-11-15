@@ -1,7 +1,7 @@
 # adr 0072: native memory rollout
 
-status: accepted implementation scope, 2026-11-14; jarvis installed proof passes,
-native fleet acceptance in progress.
+status: accepted implementation scope, 2026-11-14; online installed qualification
+complete 2026-11-15 with the five named profile deferrals below.
 
 ## authority and decision
 
@@ -59,9 +59,9 @@ retained the owner's approved resume. routine replacement now preserves canonica
 pause/resume. the deployment must be cleanly stopped, hold exclusive deployment
 ownership, validate native state and pass every existing execution-contract check.
 startup fences old native attempts and recovers original sealed evidence. a retained
-resume preserves startup action recovery; new main/background work waits for
-validated discord catch-up. no control is synthesized, and no override flag is
-added. fresh initialization, pause-required migrations and private-configuration/authority
+resume preserves startup action recovery; new main reasoning and background memory
+work wait for validated discord catch-up. no control is synthesized, and no override
+flag is added. fresh initialization, pause-required migrations and private-configuration/authority
 changes retain their separate canonical-pause requirements. this repairs the
 authorized restart without changing memory admission or current owner authority.
 

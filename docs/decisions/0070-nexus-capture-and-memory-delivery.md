@@ -3,7 +3,8 @@
 status: accepted and implemented source, 2026-11-14; isolated functional proof
 recorded in [current evidence](../universal-memory.md#memory-completion-source-qualification).
 the [native rollout source qualification](../universal-memory.md#native-memory-rollout-source-qualification)
-resolves the dependency audit under adr 0072. installed acceptance remains open;
+resolves the dependency audit under adr 0072. online installed qualification passes
+with its named profile deferrals;
 nexus installation is deferred to its next release.
 
 ## authority and evidence

@@ -7,8 +7,9 @@ and retains admitted history through a shared archive, compressed view, retrieva
 and quiet dreaming.
 
 this repository is specification-first. native cognition and shared memory are
-installed and owner-resumed; native fleet acceptance and installed worker
-observation remain separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
+installed and owner-resumed. the online memory rollout is qualified with the
+[named profile deferrals](docs/implementation-plan.md#memory-installed-rollout);
+installed worker observation remains separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
 product work, missing specs, external repository handoffs and operational tasks.
 backup and restore remain deferred.
 
@@ -38,8 +39,8 @@ records the qualified dependency repairs, nineteen native/jarvis lanes and
 service access boundaries. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
 authorizes macbook/devbox installation; arch is deferred and nexus waits for its
 next release. [installed evidence](docs/universal-memory.md#native-memory-installed-qualification)
-records actual jarvis memory use, quiet dreaming and private client access;
-native fleet acceptance remains in progress.
+records actual jarvis memory use, quiet dreaming, native capture, private client
+access and outage/restart recovery, with the named profile deferrals.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
 realistic-load
@@ -147,11 +148,12 @@ temporary integration/live qualification; the broader
 [testing redesign](docs/issues/testing-redesign.md) remains separate. historical
 receipts qualify only their named artifacts and boundaries.
 
-- source status as of 2026-11-14: memory and worker-v10 source checks pass;
+- source status as of 2026-11-15: memory and worker-v10 source checks pass;
   native main retains its recorded functional proof. full static/build/install
   checks and the registry audit pass.
-  [installed rollout](docs/implementation-plan.md#memory-installed-rollout),
-  current native-home capture and physical delivery acceptance remain open
+  the [online memory rollout](docs/implementation-plan.md#memory-installed-rollout)
+  passes with named profile deferrals. physical connector and worker observation
+  checks remain separate
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server

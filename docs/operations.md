@@ -232,8 +232,8 @@ under the existing deployment lock. missing legacy files are correct after this
 cut; the scripts do not require or recreate them. routine replacement preserves
 the recorded pause/resume state. it does not require another owner control merely
 to repair a stopped service. native state and every execution-contract check still
-apply; a retained resume preserves startup action recovery. new main/background
-work waits for validated discord catch-up.
+apply; a retained resume preserves startup action recovery. new main reasoning
+and background memory work wait for validated discord catch-up.
 before migration, activation requires the contained unit active and the selected
 release's read-only host qualifier to pass, including exact loaded release,
 stock version and startup catalogue. host installation remains a separate

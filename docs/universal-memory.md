@@ -1,6 +1,8 @@
 # universal memory: implementation contract
 
-owner-approved source contract, **not deployed**. reconciled with the native
+owner-approved contract; jarvis and the online native fleet are installed and
+qualified with the explicit profile deferrals recorded below.
+reconciled with the native
 runtime and owner-chat client on 2026-10-09; that baseline's source implementation
 and isolated qualification are complete. the 2026-10-13
 [repair evidence](#memory-repair-source-candidate) records that candidate's pins
@@ -11,7 +13,8 @@ that delta is implemented and isolated functional proof passes; see the
 [completion evidence](#memory-completion-source-qualification). the
 [native rollout source qualification](#native-memory-rollout-source-qualification)
 resolves the dependency audit and qualifies adr 0072's source amendments.
-installed acceptance remains open; nexus and arch are deferred.
+the [installed receipts](#native-memory-installed-qualification) qualify the online
+rollout with named profile deferrals; nexus and arch are deferred.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -200,8 +203,8 @@ or replace their native compaction. tree compression continues in the background
 historical orientation is bounded; a single long running turn still has provider
 context limits. current authority and effect recovery never depend on summaries.
 
-remaining work includes native fleet acceptance and later arch/nexus provisioning
-and activation. jarvis's installed memory path is qualified. durable attachment
+remaining work is the named profile deferrals and later arch/nexus provisioning
+and activation. the online memory rollout is qualified. durable attachment
 originals are a separate delivery. section 12 identifies exact source and installed
 receipts; the roadmap owns delivery order.
 
@@ -1737,9 +1740,8 @@ run `scripts/verify` in jarvis/universal-memory and `./scripts/test` for nexus's
 static gates. the retained library groups use a task-owned empty database via
 `MEMORY_TEST_DATABASE_URL`; jarvis's `tests/capture_retry.py` requires an explicit
 `--disposable-database-url`. temporary integration/live helpers are removed after
-final-tree proof. installed capture remains in the bounded
-[capture handoff](issues/universal-memory-capture.md), with controllers/sharing
-and disabled or waived lanes stated explicitly.
+final-tree proof. [installed capture](#native-memory-installed-qualification)
+records controllers/sharing and disabled or waived lanes explicitly.
 
 ### memory repair source candidate
 
@@ -1966,8 +1968,9 @@ new temporary probes/helpers/fixtures are removed after reviewed proof; approved
 regression groups remain. no permanent test framework ships. original resources
 and any explicitly handed-off live host remain with their owners. no private
 fleet configuration, production activation, personal-history admission, discord
-delivery or connector effect ran. [installed capture](issues/universal-memory-capture.md)
-and [nexus private access](issues/nexus-memory-client.md) remain open. load/usefulness,
+delivery or connector effect ran in that source qualification. subsequent
+[installed capture](#native-memory-installed-qualification) is recorded below;
+[nexus private access](issues/nexus-memory-client.md) remains deferred. load/usefulness,
 historical import and backup/restore remain deferred as agreed.
 
 ### native memory rollout source qualification
@@ -1975,7 +1978,7 @@ historical import and backup/restore remain deferred as agreed.
 2026-11-14: [adr 0072](decisions/0072-native-memory-rollout.md) authorizes the
 native rollout. current main and memory source are composed in isolated
 `feature/memory-rollout` worktrees, preserving the original checkouts. these are
-source and restricted task-boundary receipts; installed acceptance remains open.
+source and restricted task-boundary receipts; current installed results follow below.
 
 | target dependency | exact pin |
 | --- | --- |
@@ -2110,13 +2113,30 @@ the same boundary. production host startup/containment still requires its own
 receipt.
 
 the following installed receipts supplement this source proof. the
-[active rollout](implementation-plan.md#memory-installed-rollout) owns remaining
-capture/adoption/restart work and named deferrals.
+[active rollout](implementation-plan.md#memory-installed-rollout) records completion
+and the named deferrals.
+
+the installed restart exposed work entering discord before its initial validated
+catch-up and a paused-only replacement check that blocked repairing the resumed
+service. four temporary composition checks use the real coordinator, gateway and
+loopback http with scripted discord transport: delayed readiness/catch-up, early
+wake retention, shutdown before/during readiness and invalid configuration.
+nineteen real postgres 16/runtime-role checks prove routine activation preserves
+initialized stop/pause/resume, rejects missing or other-scope initialization, and
+retains ownership, native-state and action barriers. only provider-plan composition
+is scripted. the paused migration predicate is unchanged. independent review and
+full `scripts/verify` pass; this does not close the separate
+[pending-login shutdown issue](issues/discord-login-failure-exit.md).
 
 ### native memory installed qualification
 
-2026-11-15 utc, owner-local rollout dated 2026-11-14. selected jarvis and both
-collectors: `a3afcdc353029a8ea82425791cdc68fd42c5f759`, with the four pins above.
+2026-11-15 utc; the owner-local rollout began 2026-11-14. selected jarvis:
+`33674139c82ca5d2d7d0988de0b8ed771f1d4fd4`; both collectors remain at
+`a3afcdc353029a8ea82425791cdc68fd42c5f759`, with the same four pins above.
+the main/native model and quiet-memory receipts were recorded on `a3afcdc`.
+the central startup/activation repair leaves memory and capture contracts unchanged;
+its actual restart is qualified separately. consumers need no matching application
+revision when their public contracts remain unchanged.
 database `0008`; official contained stock `0.160.0`; installed skid `v0.24.2`
 at `d4afbfcec963b1f231fc117675120eff1685e881`. the temporary bridge is pruned.
 
@@ -2131,13 +2151,27 @@ at `d4afbfcec963b1f231fc117675120eff1685e881`. the temporary bridge is pruned.
 | canonical projection | the new main attempt commits all original call/reply evidence; twelve memory-tool archive records contain references and empty text. all four new canonical messages retain exact text/source time. publication backlog is zero and action count stays 21 |
 | quiet memory | automatic catch-up for the latest nightly occurrence appends one 328-byte attributed synthesis with four exact openable references, consumes seed range `[0,9)`, and creates no waking/host/extra-assistant message. later arrivals remain pending for the next occurrence. persisted nodes exceeding the free-node input bound prove actual serial compactor inference; all output remains within the node bound, with no construction park |
 | private connector environment | source and installed environments omit the retired keyring; the required single secret and key version remain present. the strict private-state installer accepts them; no ciphertext migration is needed |
+| native client journeys | nine normal-alias model journeys save/search/open exact synthetic notes with attribution; all six operations succeed collectively. three explicitly model-waived claude profiles pass save/exact-open through their own installed sdk credentials; two also prove search, while macbook claude-personal's seed proof does not. provider login/quota failures are not counted as successful model checks |
+| daemon adoption | five quiet codex daemons are bootstrapped through their normal wrappers after two immediate quiet observations each. native `0.169.0`, remote-control settings and profile/instruction bytes and inodes remain unchanged; global catalogs load six authenticated tools. macbook codex-work2 waits for idle. a global catalog or fresh cli journey does not prove an already-running thread reloaded its connection |
+| application restart | repaired `3367413` activates with the original resume and no synthetic control: three compatible archived uncertain actions, zero incompatible or in-flight authority. actual authenticated https returns `200`, validated discord catch-up completes, main reaches `no_work`, and systemd records zero restarts. same-release containment and actual service-uid skid reads pass again; arch remains unavailable |
+| capture recovery | both unchanged collectors restart once. the final repeatable read snapshot preserves all ten activation timestamps and all 4,783 prior native source identities/cuts; five initialized checkpoints retain their exact id/digest and seven null checkpoints advance. all eleven selected conversations (five per host plus the outage conversation) have each expected owner event once, complete unique parts, exact native id/digest/date/utf-8 hash and observed head; zero parks. both old prefixes, two and ten events, remain excluded. all 39 observed native memory-tool rows contain references and empty prose |
+| original-state comparison | after repaired startup and collector recovery, `target-originals.json` matches all six frozen original table projections at the counts above. it preserves the previously proved migration correspondence and excludes the retired `remembered_at` column; derived embeddings remain outside raw-original hashes. canonical unfinished inputs, active native attempts, entered/pending actions and outbox are zero; the recorded resume remains effective |
+| captured originals through mcp | the installed macbook claude-personal client reopens all five macbook originals, the five earlier devbox originals and the separate outage owner event. exact text hashes, native ids/digests, source dates and full provenance match; every selected part is complete and unclipped with no remaining cursor. earlier devbox own-credential reopening of a macbook note independently proves cross-host direct-note access |
 
 these receipts prove installed functional behavior, not the deferred usefulness
-or load study. native model/capture/adoption and restart acceptance remain in
-progress with the explicit [lane exceptions](implementation-plan.md#memory-installed-rollout).
+or load study. the online rollout passes within the explicit
+[lane exceptions](implementation-plan.md#memory-installed-rollout).
 one devbox claude-personal sdk check ended with an unclassified exception group
 after saving; its retained diagnostics cannot establish the cause. replaying the
 same submission returned the original receipt, then exact search/open passed.
 this proves retry recovery, not an explanation for the first failure.
-temporary rollout probes are removed after final review; existing approved
-capture/retry and completion regression groups remain.
+two claude model journeys are proved from their original retained native tool and
+terminal receipts after a probe decoder failed; their original cli exit statuses
+were not retained. the successful tool evidence does not imply those exit codes.
+temporary rollout probes, fixtures, disposable databases, private qualification
+receipts and accepted transition snapshots were removed after final review. the
+obsolete copied worker-client credential file was byte-identical to its stopped
+snapshot and unreferenced by the current runtime; it was removed too. operational
+credentials, native histories and the canonical private bundle remain. labelled
+synthetic memory records remain append-only. existing approved capture/retry and
+completion regression groups remain.

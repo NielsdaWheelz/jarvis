@@ -165,6 +165,11 @@ These instructions govern all work in this repository.
   through a separate read-only file bind. preserve service identities, home
   restrictions, no-new-privileges and empty capabilities; copy no state or
   credentials. source proof does not establish installed acceptance.
+  routine stopped-release replacement preserves initialized canonical control;
+  activation creates no pause/resume. startup action recovery retains existing
+  authority; main reasoning and background memory wait for validated discord
+  catch-up. separate migration and private-configuration/authority pause
+  requirements remain.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
   owns the implemented next target contract and current qualification record.

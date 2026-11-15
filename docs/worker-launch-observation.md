@@ -1,6 +1,6 @@
 # worker launch and asynchronous observation — o8
 
-status: consolidated accepted contract, updated 2026-11-14. worker v10 adopts
+status: consolidated accepted contract, updated 2026-11-15. worker v10 adopts
 the enrolled `dev-server` label under
 [adr 0072](decisions/0072-native-memory-rollout.md). terminal-only behavior retains
 the v9 source qualification in [adr 0069](decisions/0069-terminal-only-workers.md) and
@@ -28,12 +28,11 @@ their effects.
 
 no new table, worker registry, task/reply packet, exact request-result correlation,
 mandatory coordinator, polling model turn, scheduler or subtree cancellation.
-o7 owns records; [o9](delegated-follow-through.md) owns discretionary follow-through. current source
-requires owner-grounded writes and permits isolated wait-event silence.
-[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts
-[o6](one-main-events.md)'s separate full-capability event target; it remains
-unimplemented. o8's observation transport does not need a new push api or worker
-protocol for that change.
+o7 owns records; [o9](delegated-follow-through.md) owns discretionary follow-through
+and slice 3 qualification. [o6](one-main-events.md)'s full-capability event path
+is implemented in source under [adr 0071](decisions/0071-simple-event-driven-v2.md).
+an admitted owner or host request can ground worker actions; main chooses useful
+continuation, notification or silence. source acceptance is not v2 activation.
 
 ## capability and api
 
@@ -114,17 +113,19 @@ read is independent; retain read failure/truncation. outcome and one ordinary
 cancellation commits its receipt with the original outcome/event; first outcome
 commit wins. no automatic rearm or input replay.
 
-registration may outlive a completed caller, but grants no new write authority.
-after the original owner turn closes, reads/integration/notification only;
-further worker input or new waits require current owner input in current source.
-after o6 cutover, the published result is an ordinary event with main's full
-capabilities; jarvis chooses whether to continue, inspect, notify or do nothing.
+registration may outlive a completed caller. its published result is an ordinary
+event with main's full capabilities; jarvis chooses whether to continue, inspect,
+notify or do nothing. deployment admission and original effect/read recovery
+still apply; worker prose is evidence, never owner consent.
 main need not poll worker sessions to notice completion: this existing host
 watcher supplies the event. an idle observation still does not prove task success.
-startup resumes observation and
-repairs missing events/stranded inputs through existing primitives. in current source, stop/pause/
-quarantine suspend registered observation while its deadline advances; resume may
-timeout. stop cancels unentered authority, not an entered wait or worker.
+startup resumes observation and repairs missing events/stranded inputs through
+existing primitives. administrative pause suspends registered observation while
+its deadline advances; resume may timeout. parked requests are excluded by input
+admission without suspending observation. conversational stop
+does not suspend registered observation or stop a worker. main uses o6's scoped
+request disposition and existing worker controls; later evidence preserves the
+latest owner intent and cannot reopen a stopped parent.
 shutdown cancels read children and joins database settlement before ownership ends.
 
 ## designer's content contract
@@ -154,34 +155,35 @@ and usefulness, not wording; no new runtime critic.
 | jarvis durability/composition | `actions.py`, `write_dispatch.py`, `service.py`, `native_journal.py`, `tool_composition.py`, `write_policy.py`, `definitions.py`, `cli.py`: existing receipts/events/admission; applies designer content |
 | skid release | publish immutable artifacts containing the implemented paired contract; no new worker protocol/source redesign |
 | dev-server consumer | matching published skid pin and desired personal yaml; skid owns installation/services |
-| jarvis deployment | separately resolve live installed-state access under the existing service containment before installed cutover |
+| jarvis deployment | preserve adr 0072's qualified live-state mount and service containment; selected-release activation remains separately scoped |
 | temporary qualification | scoped proof files only; installed artifact/configuration and actual service/discord evidence |
 
 source qualification does not resolve installed deployment. generalized skid
-reads the enrolled owner's live state through adr 0072's root-managed read-only
-id-mapped mount. installation must qualify access under the service uid and
-containment, including atomic membership replacement. no copied identity or
-private jarvis client file is created. canonical pause is checked in postgres;
-the former file-pause installer proposal is superseded.
+reads the enrolled owner's live state through adr 0072's qualified root-managed
+read-only id-mapped mount, including atomic membership-file replacement. preserve
+that boundary; no copied identity or private jarvis client file. canonical control
+is checked in postgres; the former file-pause installer proposal is superseded.
 
 ## cutover and acceptance
 
-1. resolve and qualify the separately owned live-state access boundary before
-   installed jarvis worker use. keep the service stopped until that blocker is
-   resolved; this contract assigns no privilege bridge or copied identity.
-   drain/reconcile predecessor actions and owed outcomes/delivery; pause and stop.
-2. provision runtime environment/secrets and install exact target/contained host
-   without starting jarvis; complete existing preparation/native
-   conversion first. a fresh database needs migration and public
-   `initialize-state` instead of importing predecessor state.
-3. target `check-paused` must pass before changing worker cli/configuration.
-   missing canonical pause, competing owner, unavailable database/qualified
-   release or retired files refuse; preserve current executables on refusal.
-4. install paired artifacts/configuration, run target pre-start activation checks,
-   activate PAUSED, then run `deploy/verify-containment` before explicit owner
-   resume. installed turn journeys require authorized resumed admission.
-   finalized v1–v9 worker bytes stay opaque;
-   unfinished retired state refuses activation. no compatibility decoder.
+the matching cli and live-state access boundary are installed and read-qualified;
+worker mutations and follow-through still need their own evidence.
+[slice 3](delegated-follow-through.md) owns that proof, not a second installation
+workflow.
+
+[operations](operations.md#skid-only-worker-cutover) owns eventual activation.
+the intermediate v2 `activate-release` intentionally refuses. selected-release
+cutover accounts for outstanding effects, approvals, reminders, waits and owed
+delivery before changing incompatible contracts. retain finalized v1–v9 worker
+bytes opaquely; unfinished retired state refuses activation. no compatibility
+decoder or replay of unknown effects.
+
+adr 0072 distinguishes routine stopped-release replacement, which preserves
+canonical pause/resume, from migrations and private-configuration/authority
+changes, which retain their pause requirements. do not synthesize a control or
+silently restore an old installer. startup recovery and validated discord catch-up
+remain mandatory; [todo conversion](issues/work-installed-cutover.md) stays with
+the selected v2 cutover.
 
 rollback requires proof the prior release reads current schema/contracts and
 paired configuration. incompatible conversion or new receipts requires preserving
@@ -191,18 +193,20 @@ restore over them.
 reuse [v9 source qualification](decisions/0069-terminal-only-workers.md) for
 unchanged behavior. v10 additionally qualifies the enrolled label through actual
 cli inventory/target capture and verifies finalized v9 preservation, unfinished
-v9 refusal and strict current labels. installed work still requires the live-state
-access boundary and paused/stopped release qualification.
+v9 refusal and strict current labels. preserve that qualified boundary and keep
+candidate proof separate from selected-production acceptance.
 
-remaining installed live acceptance: configured codex/claude profiles, optional
+remaining worker acceptance, within slice 3's candidate/production split:
+configured codex/claude profiles, optional
 name/cwd/group/prompt and literal input, with provider options owned by the profile;
 partial/refused/unknown effects with no mutation replay;
 original-ref refusal on changed targets; register then serve unrelated owner input;
 restart with original watching receipt and one outcome/event; cancel/match and
 pause/deadline/shutdown; actual ordinary continuation and owner communication under
-the adopted event contract. use synthetic briefs and real installed service,
-jarvis native cognition, terminal cli/gateway and discord boundaries;
-controlled ports do not prove installed behavior. provider archive/memory APIs
+the adopted event contract. slice 3 uses synthetic briefs, real service restrictions,
+jarvis native cognition, installed terminal cli/gateways and the actual discord
+outbox. controlled ingress proves no production gateway behavior; selected-service
+acceptance stays at final v2 cutover. provider archive/memory apis
 remain separate and supply no worker-control fallback.
 
 review each boundary, get green, refactor only demonstrated duplication, rerun
@@ -214,7 +218,7 @@ publication, installation or activation are authorized by this documentation tas
 trade-offs: ordinary conversation gives semantic judgment instead of exact task
 correlation; bounded/non-atomic reads limit evidence; lost acknowledgements can
 remain uncertain; capture plus one read child per active wait costs subprocesses.
-hard cutover requires coordinated downtime and a separately qualified live-state
-access boundary. terminal-only control loses provider-native history and result
+eventual production cutover requires coordinated downtime and preserves the
+qualified live-state access boundary. terminal-only control loses provider-native history and result
 semantics. temporary-test deletion reduces
 retained regression coverage. no new table, framework or shared-library api.

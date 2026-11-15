@@ -433,6 +433,13 @@ root requires a stopped remount. actual restricted reads pass on `macbook` and
 `dev-server`; memory provenance retains `devbox`. offline `arch` is owner-deferred.
 [adr 0072](decisions/0072-native-memory-rollout.md) owns this installed boundary.
 
+[slice 3](delegated-follow-through.md#temporary-qualification-and-acceptance) uses
+a temporary candidate, task database/runtime state and real installed skid under
+service restrictions. production's release, database and canonical control remain
+unchanged. its controlled ingress and actual outbox proof do not close physical
+owner gateway or selected-production restart acceptance; retain those for final
+v2 cutover with the [todo handoff](issues/work-installed-cutover.md).
+
 `deploy/verify-agent-client` accepts an explicit installed-state directory for
 that qualified boundary. `deploy/verify-containment` checks installed
 owners/modes, `ProtectHome` and read-only worker access under the production

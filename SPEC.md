@@ -33,7 +33,9 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   through the same input path; one cursor table owns polling progress. existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
-  is main's judgment; installed skid qualification remains outstanding.
+  is main's judgment. slice 3 qualifies a temporary candidate against installed
+  skid and repairs demonstrated defects; production acceptance remains at final
+  v2 cutover. retain the intermediate activation refusal.
 - [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
   with trusted native tools. [attachments](docs/attachments-and-durable-originals.md)
   retain discord/email original bytes privately in r2, with one metadata table
@@ -65,7 +67,7 @@ their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
 not constitute v2 acceptance. [slice 1's qualification](docs/one-main-events.md#implementation-evidence)
 records its source and isolated live proof; it does not activate the service.
-the owner-selected implementation method for slices 1 and 2 is temporary
+the owner-selected implementation method for slices 1–3 is temporary
 end-to-end integration/live red/green/refactor, with content design and adversarial
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.
@@ -1276,7 +1278,7 @@ pipeline, never a nested agent.
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
 | `agent.list`, `agent.info`, `agent.read` | Main | peer agent read; automatic |
-| `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close`, `agent.wait`, `agent.cancel_wait` | Main | peer agent control; automatic only when grounded in current owner input |
+| `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close`, `agent.wait`, `agent.cancel_wait` | Main | peer agent control; v2 source permits automatic use for admitted owner or host requests |
 | `memory.search`, `memory.open`, `memory.view`, `memory.zoom`, `memory.date` | main, dreamer | Read; automatic |
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
@@ -1318,8 +1320,9 @@ raw text admission does not guarantee fit in skid's 65536-byte serialized body.
 locally predictable initial-input overflow must reject before creation; exact
 captured-body overflow retains created/not_sent with target. never truncate input.
 
-before preparatory capture, every worker write requires current owner input.
-skid resolves `info` to one terminal before gate/action admission. private
+under the implemented v2 source contract, every worker write requires current
+deployment admission and a delivered live owner or host request. skid resolves
+`info` to one terminal before action insertion. private
 immutable `execution_contract.agent_target` contains the original opaque ref,
 short target and normalized identity. canonical model arguments are validated,
 default-completed `model_dump(mode="json")`, then stored/hashed unchanged; capture
@@ -1327,9 +1330,9 @@ is separate. all later execution and recovery use original `--ref`.
 there is no independent registry or
 consumer ref codec. read/info resolve afresh. a short terminal handle can follow
 a current pane, while captured effects/waits retain the original pane/session.
-new observations never renew an existing effect. only short/readable normalized
-facts enter the gate, never worker prose. retain observed profile and terminal
-name as consent context where known; neither supplies target authority.
+new observations never renew an existing effect. retain observed profile and
+terminal name as context where known; neither supplies target authority.
+worker prose remains evidence, never owner consent.
 all worker operations use terminals. provider-native conversation ids, target
 variants, source selectors, status, methods, turns and finalized results are absent.
 
@@ -1392,21 +1395,21 @@ is independent of the matched sample and retains failure/truncation.
 watchers run outside main's mutex, chunk skid waits at 15 seconds under 20-second
 child fences and retain the same ref/deadline across restart. intermediate chunk
 timeouts continue observation without model polling or writes. overall timeout or
-cancellation does not stop the worker or automatically rearm a wait. pause and
-cognitive quarantine suspend observation while the stored deadline continues;
+cancellation does not stop the worker or automatically rearm a wait. administrative
+pause suspends observation while the stored deadline continues; v2 parks affected
+requests without suspending registered observations.
 shutdown cancels only read children and joins database work before ownership
 closes. stranded original inputs are closed without replay even if the event
-committed before the original turn settled. no new write authority is granted by
-an observation; o6/o9 remain separate.
+committed before the original turn settled. under o6, each observation is an
+ordinary host request delivered to main with its full plan. follow-up worker
+input or another wait needs no new owner message. conversational stop preserves
+its named request state and latest owner intent; it does not suspend registered
+observation, interrupt workers or alter grants for future events.
 
-after the original owner turn closes, such observations permit reads/integration/
-notification only. further worker input or fresh wait registration requires new
-current owner authority. agent choice does not widen the gate's authority.
-
-worker implementation is v9. finalized retired worker revisions v1–v8 are
+worker implementation is v10. finalized retired worker revisions v1–v9 are
 classified from the common immutable envelope BEFORE current target decoding.
 retain digest/effect/lineage/state/time checks; archived nested target, arguments
-and results remain opaque and unchanged. unknown revisions and malformed v9
+and results remain opaque and unchanged. unknown revisions and malformed v10
 records receive no archive escape. old nonterminal rows
 block activation. drain effects, interrupted turns, required messages and delivery
 under the old release before coordinated cli/catalog cutover. no legacy receipt

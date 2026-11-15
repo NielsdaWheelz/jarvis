@@ -35,6 +35,12 @@ These instructions govern all work in this repository.
   separate. admitted queued schedules may wake late; recurring
   rows remain active between occurrences. consume slice 1's landed primitives
   after auditing the actual predecessor; do not restore the retired scheduler.
+  [slice 3](docs/delegated-follow-through.md) owns skid follow-through qualification
+  and demonstrated repairs, using the same scoped temporary proof method.
+  full-plan worker events and conversational stop are already implemented.
+  reuse worker v10, existing waits and the qualified live-state mount. the owner
+  selected a temporary candidate against installed skid; production acceptance
+  remains at final v2 cutover. do not restore intermediate activation in slice 3.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

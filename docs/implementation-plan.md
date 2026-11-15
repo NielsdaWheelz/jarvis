@@ -528,15 +528,17 @@ all configured personal/work/work2 profiles may share with jarvis and one anothe
 the owner confirms control of their content. capture starts from new activation
 boundaries, never history import. the existing separate events task owns the subsequent migration;
 its intermediate source is not a deployable release and stays out of this rollout.
-the owner accepts queued [macbook codex-work2 activation](issues/macbook-work2-memory-activation.md)
-until active turns finish and defers the actual model checks for
+the owner now authorizes immediate macbook daemon refresh and
+[per-conversation baselines](decisions/0073-per-conversation-memory-baselines.md):
+healthy/new histories proceed while unreadable or unstable histories stay pending.
+this supersedes the earlier whole-profile capture deferrals. actual model checks for
 [devbox claude-personal](issues/devbox-claude-personal-model-check.md) and
 [macbook claude-personal](issues/macbook-claude-personal-model-check.md) until
 provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
-waits for its provider quota reset. install those profiles now; preserve the strict baseline.
-devbox codex-work2 also installs tools now; its owner-approved
-[capture deferral](issues/devbox-work2-native-source.md) waits for missing native
-source recovery. no affected history is skipped or relabeled.
+wait for its provider quota reset. those profiles are installed; preserve every
+established cut. [devbox's missing native sources](issues/devbox-work2-native-source.md)
+remain unresolved. their conversations will establish cuts only after successful
+native recovery; no pre-cut activity is imported or identity omitted.
 
 | step / owner | action and completion evidence |
 | --- | --- |
@@ -586,7 +588,8 @@ active configuration digests without replacing unchanged profile files.
 all ten eligible capture cuts are committed; nine native model journeys pass
 save/search/open. three model-waived sdk journeys pass save/exact-open, with search
 also proved on two. five quiet codex daemons now load
-the six-tool catalog; macbook work2's old daemon still awaits idle. both collectors
+the six-tool catalog; macbook work2's daemon was subsequently refreshed as recorded
+below. both collectors
 have restarted once. the final comparison preserves all ten cuts and 4,783 existing
 source identities/cuts, with no checkpoint regression, duplicates or parks. all
 eleven required native conversations are captured and reopened through installed
@@ -615,6 +618,30 @@ bodies. an unavailable lane, unresolved original effect or failed containment
 check stays visibly blocked; never reset history or broaden authority to pass.
 full load/usefulness evaluation, historical import, backup/restore, nexus release,
 arch activation and unrelated v2 features remain outside this rollout.
+
+#### per-conversation capture amendment
+
+owner-authorized follow-up, 2026-11-15. the macbook codex-work2 daemon has now
+restarted once through its normal profile bootstrap. stock 0.169.0, remote-control
+settings and profile/configuration bytes and inodes are unchanged. all six memory
+tools load; an actual native `memory_open` reopens the synthetic verification note.
+the normal collector is restored. daemon adoption is complete; capture proof
+below remains separate.
+
+| owner | remaining delivery and proof |
+| --- | --- |
+| provider-runtime | native-archive.v3: complete identity inventory with per-entry head errors; one stable `archive_head`; ordinary native reads/event identity unchanged; upstream merge plus immutable stock-0.160-compatible artifact |
+| universal-memory | one nullable baseline_error, atomic initial inventory and one-time resolution, pending ingest denial, explicit status; preserve every established cut/checkpoint/original |
+| jarvis | closed baseline sync request, pending retries independent of native hints; migration 0008a after installed 0008, with unactivated 0009 following it; keep six tools unchanged |
+| integration | merge source into main; build a memory-only patch of installed 3367413, preserving v1 and stock 0.160; qualify fresh migration and populated 0008→0008a separately; replace service and both collectors together |
+| independent review | review each contract and its temporary HTTP/native/postgres proof; verify installed healthy/new capture, pending counts, exact reopening and restart preservation; remove new probes after success |
+
+the installed database is still 0008 and current main contains incomplete v2.
+the patch therefore excludes 0009 and all v2 behavior; immutable release tags
+retain compatible artifacts without standing maintenance branches. an existing
+history's missing head is never an empty cut. permanently unreadable histories
+can remain pending indefinitely; their earlier activity will remain absent even
+if they recover later. this is the owner's accepted coverage trade-off.
 
 ### memory and native-main integration
 

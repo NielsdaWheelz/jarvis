@@ -354,7 +354,18 @@ migration `0008` follows the unchanged published `0006`/`0007` migrations. it
 adds the configured claude-work2 account and grants the runtime only schema
 identity reads. the memory release accepts existing `0006`, `0007` and `0008`
 installations; unknown revisions refuse. the `0005` predecessor receives that same schema-read
-grant under stopped ownership before its drain. no old migration is rewritten.
+grant under stopped ownership before its drain. that rollout left old migrations
+unchanged. the later adr 0073 amendment adds `0008a` and freezes `0006`'s original
+guard sql so it cannot read the new field before the new migration installs it.
+
+for per-conversation capture, stop both collectors and the application, then use
+the qualified v1 patch's installer/activation scripts, same-release contained host
+and schema `0008a`. its activation accepts both `0008` and `0008a`; current main's
+v2 activation refusal remains intentional. preserve canonical pause/resume and
+all existing cuts. replace both collectors with the same native-archive.v3
+composition before restarting them. `memory status` shows pending baseline counts
+and reasons separately from capture errors. pending histories retry automatically;
+their first readable stable head establishes a cut then, never a historical import.
 
 migration preserves canonical message/note/summary ids, text, dates and legacy
 summary lineage, checking before/after counts and digests. legacy eligibility is

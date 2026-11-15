@@ -94,6 +94,7 @@ with nexus and arch deferred.
 | [0070](0070-nexus-capture-and-memory-delivery.md) | nexus capture and memory delivery | implemented source with isolated functional proof; future-only durable nexus exports and explicit provenance; audit resolved under 0072, nexus installation deferred to its next release; usefulness/load, historical import and backup deferred |
 | [0071](0071-simple-event-driven-v2.md) | simple event-driven v2 | accepted documentation target; one main, scheduled todos, conversational consent, ordinary private repo, private originals and existing skid observation; browser/credential products/interactive deliverables deferred; implementation/activation separate |
 | [0072](0072-native-memory-rollout.md) | native memory rollout | online installed qualification passes: schema `0008`, v10 service reads, twelve sdk connections, nine model journeys, ten capture cuts, quiet memory and outage/restart recovery; five profile deferrals remain, arch later, nexus next release |
+| [0073](0073-per-conversation-memory-baselines.md) | per-conversation native capture baselines | accepted healthy/new capture with explicit pending unreadable histories; complete identity inventory and immutable established cuts retained; source qualified; installed qualification pending |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

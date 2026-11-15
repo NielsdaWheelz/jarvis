@@ -161,6 +161,13 @@ These instructions govern all work in this repository.
   end-to-end/live red/green/refactor checks, then deletes only its new probes.
   complete functional proof now; broad usefulness/load evaluation and
   backup/restore are deferred. no runtime change is implied by docs.
+- [adr 0073](docs/decisions/0073-per-conversation-memory-baselines.md) permits
+  healthy/new native capture while listed unreadable conversations retain explicit
+  pending baselines. complete identity coverage still gates activation; the first
+  successful later head read establishes a fresh cut, with no gap backfill.
+  established cuts never move. native-archive.v3 hard-cuts collector transport;
+  six memory tools stay unchanged. migration 0008a precedes unactivated 0009;
+  the installed v1 memory patch must not activate incomplete v2 work.
 - [adr 0072](docs/decisions/0072-native-memory-rollout.md) owns the authorized
   native rollout and qualified source amendments: eighteen native lanes plus
   `(devbox, jarvis)`, including each host's distinct `claude-work2` home; migration

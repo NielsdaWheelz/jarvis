@@ -66,6 +66,17 @@ end-to-end integration/live red/green/refactor, with content design and adversar
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.
 
+accepted native capture amendment (2026-11-15):
+[adr 0073](docs/decisions/0073-per-conversation-memory-baselines.md) permits
+healthy and new conversations to capture while listed unreadable conversations
+retain explicit pending baselines. a complete identity inventory still gates
+lane activation. each pending conversation establishes its future-only cut on
+its first successful later head read; activity before that cut is not imported.
+established cuts never move. this adds one nullable field to the existing
+conversation table and hard-cuts capture to native-archive.v3; memory tools and
+cognition behavior are unchanged. implementation and installed proof remain
+separate from this accepted amendment.
+
 accepted memory completion target (2026-11-14):
 [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the
 [completion contract](docs/memory-delivery.md). finish the existing system and
@@ -165,8 +176,9 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   inference/embedding execution, scheduling, dreaming and transports. use the same
   postgres database/transaction for archive append and checkpoint advancement;
   no separate daemon or generalized storage-backend framework.
-- automatic online activation after complete per-conversation baselining; immutable
-  boundaries and complete-event uploads with atomic archive/checkpoint commits.
+- automatic online activation after a complete identity inventory, with stable
+  readable cuts and explicit pending baselines under adr 0073; established
+  boundaries remain immutable and archive/checkpoint commits remain atomic.
   native codecs validate consumed fields and ignore unrelated additive metadata;
   identities/digests exclude that ignored metadata too. unexpected rewrites or
   oversized events park capture for repair. no multipart upload or automatic historical reread.

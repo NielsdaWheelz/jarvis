@@ -135,32 +135,65 @@ def bootstrap_notes(config: CodexHostConfig) -> None:
     config.verify_notes_repository()
 
 
+def private_alias(config: CodexHostConfig) -> Path:
+    return config.endpoints["personal"].parent / "exec" / "app-server.sock"
+
+
 def remove_alias(config: CodexHostConfig) -> None:
-    alias = config.endpoints["personal"]
-    try:
-        metadata = alias.lstat()
-    except FileNotFoundError:
-        return
-    if not stat.S_ISLNK(metadata.st_mode):
-        raise RuntimeError("contained host rendezvous must be its socket alias")
-    alias.unlink()
+    _host_identity(config)
+    public = config.endpoints["personal"]
+    for path in (private_alias(config), public):
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            continue
+        if path == public:
+            valid = (
+                stat.S_ISREG(metadata.st_mode)
+                and stat.S_IMODE(metadata.st_mode) == 0
+                and metadata.st_nlink == 1
+                and metadata.st_size == 0
+            )
+        else:
+            valid = stat.S_ISLNK(metadata.st_mode)
+        if (
+            metadata.st_uid != os.geteuid()
+            or metadata.st_gid != os.getegid()
+            or not valid
+        ):
+            raise RuntimeError(
+                "native host cleanup requires its owned alias/placeholder"
+            )
+        path.unlink()
 
 
 def start(config: CodexHostConfig) -> None:
     _host_identity(config)
-    alias = config.endpoints["personal"]
-    directory = alias.parent
-    metadata = directory.stat()
+    public = config.endpoints["personal"]
+    directory = public.parent
+    metadata = directory.lstat()
     if (
-        metadata.st_uid != os.geteuid()
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
         or metadata.st_gid != os.getegid()
-        or stat.S_IMODE(metadata.st_mode) not in (0o700, 0o710)
+        or stat.S_IMODE(metadata.st_mode) != 0o710
     ):
         raise RuntimeError(
             "contained host socket directory has the wrong ownership/mode"
         )
-    directory.chmod(0o700)
+    alias = private_alias(config)
+    execution = alias.parent
+    metadata = execution.lstat()
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != os.getegid()
+        or stat.S_IMODE(metadata.st_mode) not in (0o700, 0o710)
+    ):
+        raise RuntimeError("native exec directory has the wrong ownership/mode")
+    execution.chmod(0o700)
     remove_alias(config)
+    os.close(os.open(public, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0))
     catalog = materialize_codex_containment_catalog(directory)
     environment = host_environment(config)
     version = subprocess.run(
@@ -193,8 +226,9 @@ def start(config: CodexHostConfig) -> None:
 
 async def publish(config: CodexHostConfig) -> None:
     _host_identity(config)
-    alias = config.endpoints["personal"]
-    directory = alias.parent
+    public = config.endpoints["personal"]
+    alias = private_alias(config)
+    execution = alias.parent
     async with asyncio.timeout(15):
         for _ in range(300):
             if alias.is_symlink() and alias.resolve().is_socket():
@@ -204,18 +238,36 @@ async def publish(config: CodexHostConfig) -> None:
             raise TimeoutError("contained host native socket did not become ready")
         target = alias.resolve()
         metadata = target.stat()
+        child = execution / f"codex-daemon-{os.geteuid()}"
+        parent = child.lstat()
+        placeholder = public.lstat()
         if (
-            not target.parent.samefile(directory)
+            not target.parent.samefile(child)
+            or not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or parent.st_gid != os.getegid()
+            or stat.S_IMODE(parent.st_mode) != 0o700
+            or not stat.S_ISSOCK(metadata.st_mode)
             or metadata.st_uid != os.geteuid()
             or metadata.st_gid != os.getegid()
-            or stat.S_IMODE(directory.stat().st_mode) != 0o700
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(execution.stat().st_mode) != 0o700
+            or stat.S_IMODE(public.parent.stat().st_mode) != 0o710
+            or not stat.S_ISREG(placeholder.st_mode)
+            or stat.S_IMODE(placeholder.st_mode) != 0
+            or placeholder.st_uid != os.geteuid()
+            or placeholder.st_gid != os.getegid()
+            or placeholder.st_nlink != 1
+            or placeholder.st_size != 0
         ):
-            raise RuntimeError("native socket escaped the contained host directory")
+            raise RuntimeError("native socket must stay in its private stock directory")
         await qualify_codex_containment_host(target)
+        current = target.stat()
+        if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+            raise RuntimeError("native socket changed during qualification")
         target.chmod(0o660)
-        directory.chmod(0o710)
         alias.unlink()
-        alias.symlink_to(target.name)
+        alias.symlink_to(Path(child.name) / target.name)
 
 
 async def verify(config: CodexHostConfig) -> None:
@@ -224,15 +276,14 @@ async def verify(config: CodexHostConfig) -> None:
     directory = alias.parent
     host_uid = pwd.getpwnam(config.development_user).pw_uid
     client_gid = grp.getgrnam(config.client_group).gr_gid
-    metadata = alias.stat()
+    metadata = alias.lstat()
     parent = directory.stat()
     if (
-        not alias.is_symlink()
-        or os.readlink(alias) != alias.resolve().name
-        or not stat.S_ISSOCK(metadata.st_mode)
+        not stat.S_ISSOCK(metadata.st_mode)
         or metadata.st_uid != host_uid
         or metadata.st_gid != client_gid
         or stat.S_IMODE(metadata.st_mode) != 0o660
+        or metadata.st_nlink != 1
         or parent.st_uid != host_uid
         or parent.st_gid != client_gid
         or stat.S_IMODE(parent.st_mode) != 0o710
@@ -240,9 +291,7 @@ async def verify(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "contained host socket is not published to the configured group"
         )
-    if not os.access(alias, os.W_OK) or os.access(
-        Path(config.profiles["personal"].account_home) / "auth.json", os.R_OK
-    ):
+    if os.access(Path(config.profiles["personal"].account_home) / "auth.json", os.R_OK):
         raise RuntimeError(
             "application needs socket access without account credentials"
         )

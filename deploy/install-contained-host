@@ -74,7 +74,6 @@ release = Path(sys.argv[2])
 unit = (release / "deploy/jarvis-codex-contained.service").read_text()
 for key, value in {
     "@HOST_USER@": config.development_user,
-    "@HOST_UID@": str(host_uid),
     "@RELEASE@": str(release),
     "@ACCOUNT_HOME@": json.dumps(str(account).replace("%", "%%"), ensure_ascii=False),
     "@ACCOUNT_INSTRUCTIONS@": " ".join(
@@ -84,6 +83,10 @@ for key, value in {
 }.items():
     unit = unit.replace(key, value)
 Path(sys.argv[3]).write_text(unit)
+application = (release / "deploy/jarvis.service").read_text().replace(
+    "/opt/jarvis/current", str(release)
+)
+Path(sys.argv[3]).with_name("jarvis.service").write_text(application)
 # Bootstrap uses this same host namespace, identity and restrictions. Only the
 # command, its startup deadline and candidate mapping source differ.
 bootstrap = unit.replace("Type=exec\n", "Type=oneshot\n").replace(
@@ -124,11 +127,13 @@ if sudo -u jarvis test -r "$account_home/auth.json"; then
   exit 1
 fi
 sudo systemd-analyze verify "$remote/jarvis-codex-contained.service"
+sudo systemd-analyze verify "$remote/jarvis.service"
 sudo systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
 if sudo systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
   sudo systemctl stop jarvis-codex-contained.service
 fi
-sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained
+sudo install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
+sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
 sudo install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
 if ! sudo test -e /var/lib/jarvis-notes; then
   sudo install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
@@ -156,6 +161,8 @@ printf 'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -\n' | \
 sudo mv -fT -- "$candidate" /etc/jarvis/codex-host.json
 sudo install -m 0644 -o root -g root \
   "$remote/jarvis-codex-contained.service" /etc/systemd/system/jarvis-codex-contained.service
+sudo install -m 0644 -o root -g root \
+  "$remote/jarvis.service" /etc/systemd/system/jarvis.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now jarvis-codex-contained.service
 sudo systemctl is-active --quiet jarvis-codex-contained.service
@@ -165,6 +172,9 @@ sudo systemd-run --quiet --wait --pipe --collect \
   --property=ProtectHome=true --property=ProtectSystem=strict \
   --property=PrivateTmp=true --property=PrivateDevices=true \
   --property=NoNewPrivileges=true \
+  --property=BindsTo=jarvis-codex-contained.service \
+  --property=After=jarvis-codex-contained.service \
+  --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock \
   "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
   --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
   "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null

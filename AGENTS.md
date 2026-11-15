@@ -62,6 +62,12 @@ These instructions govern all work in this repository.
   rules below; isolated role contracts remain. its temporary integration/live
   checks are the scoped testing exception. adr 0064's worker tools use the same
   native dispatch lane and immutable action capture; no retired thread loop.
+- [adr 0074](docs/decisions/0074-private-native-socket-publication.md) corrects
+  slice 4's native socket publication: private stock directory, ancestor mount,
+  application-only socket file bind and unchanged public endpoint/client grant.
+  host loss stops the application; repair requires a fresh application start and
+  remount. no public control hardlink, proxy or automatic activation. candidate
+  qualification and final production cutover remain separate.
 - adr 0053 retains only the selected deployment release and one temporary
   installation candidate. do not keep rollback or migration releases indefinitely.
 - adr 0046 governs the owner-approved testing reset. all previous test and

@@ -178,6 +178,15 @@ use ordinary host-account git configuration; no runtime repo-creation, login,
 credential-copy or credential-broker service. the selected private origin lives
 in ordinary git configuration, not a duplicate application registry.
 
+[adr 0074](decisions/0074-private-native-socket-publication.md) corrects the host
+publication required by actual native execution. stock's physical daemon directory
+stays private `0700` beneath an ancestor bound as `/tmp`; its private relative alias
+is masked from native commands. systemd binds the one group-accessible socket onto
+an inert public placeholder only inside the application namespace. retain the
+configured endpoint, identities, account masks and other service restrictions.
+host loss stops the application; repair/replacement requires a fresh application
+start and socket remount. no public control hardlink, proxy or new supervisor.
+
 ## designer's content contract
 
 a designer defines/reviews good content for EACH feature below, in existing files,

@@ -49,7 +49,11 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   remain deferred. its kernel/provider contract adds borrowed cwd lifecycle and
   mixed native/callback execution while retaining isolated-role containment.
   qualify with a separate temporary native host; production bootstrap/activation
-  stays at final v2 cutover. [attachments](docs/attachments-and-durable-originals.md)
+  stays at final v2 cutover. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
+  corrects the host boundary demonstrated by real candidate failures: retain
+  stock's private physical socket and expose it only in the application's
+  namespace; host replacement requires application restart/remount.
+  [attachments](docs/attachments-and-durable-originals.md)
   retain discord/email original bytes privately in r2, with one metadata table
   and native image/pdf/file reading. notes' explicit provider/kernel handoff
   precedes native file access; no notes service or extraction framework.
@@ -1795,7 +1799,12 @@ persistence contracts.
 
 the following is the implemented baseline. [slice 4's accepted contract](docs/private-notes-and-rolodex.md#capability-contract)
 replaces main's posture with trusted native workspace access when implemented;
-isolated roles retain containment. source specification is not activation.
+isolated roles retain containment. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
+supersedes the physical socket publication below for that source target: a private
+`0700` reserved directory, ancestor mount, application-only socket file bind and
+coordinated application restart/remount. the configured endpoint and client-group
+grant stay the same. the paragraphs below retain the installed baseline;
+source specification is not activation.
 
 main and isolated cognition attach to the separate personal stock
 `0.160.0` app-server. the provider materializes its complete versioned

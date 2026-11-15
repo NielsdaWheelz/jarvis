@@ -96,7 +96,10 @@ available during installation.
 
 `install-contained-host` runs bootstrap in a temporary unit derived from the
 same rendered host unit, preserving identity, namespace, instruction masks and
-privilege restrictions before replacing the final mapping/unit. new checkout
+privilege restrictions before replacing the final mapping/units. it renders and
+installs both host and application units from the same immutable release; the
+application remains stopped and activation still refuses this intermediate cut.
+new checkout
 root `/var/lib/jarvis-notes` belongs to the native uid and `codex-clients` with
 mode 02750; only its new `.git` directory gets client traversal/read. existing
 checkout files, dirty state, branch, origin and modes are preserved. ownership,
@@ -169,8 +172,32 @@ restricted model catalogue at HOST STARTUP. unsupported versions and missing
 startup policy fail before thread creation. per-thread overrides do not provide
 containment. catalogue updates require explicit qualification; this supersedes
 adr 0042's latest-stable rule for this endpoint only. the native host unit owns
-its private mount namespace and publishes only its relative socket alias at
-`/run/jarvis-contained/app-server.sock`. the worker receives no native credentials.
+its private mount namespace. `/run/jarvis-contained` stays mode 0710;
+its owned `exec` directory stays 0700 and is bound as the ancestor `/tmp` in the
+native namespace. stock creates its physical `codex-daemon-uid` child at 0700;
+never bind that reserved child directly or widen its permissions. after private
+qualification, only the socket becomes 0660. private alias
+`exec/app-server.sock` points relatively to `codex-daemon-uid/hashedsocket`, so
+the root service manager resolves the same inode outside that namespace.
+
+globally `/run/jarvis-contained/app-server.sock` is an empty regular mode-000
+placeholder. it is never a public socket, symlink or hardlink. root-owned
+`jarvis.service` binds only the private socket FILE read-only over that endpoint
+inside the application namespace. native commands see the placeholder and the
+private alias targets stock's masked daemon child; actual native authority proof
+remains required. provider handshake proves application access; `os.access(W_OK)`
+is redundant and may return true even for the read-only socket bind.
+
+application `BindsTo` and `After` depend on the native host. host loss/replacement
+stops the application through its existing graceful SIGINT/settlement path;
+the operator must explicitly restart the application after host recovery to
+mount the new socket inode. there is no automatic application start, proxy,
+root publisher, idmap, `PartOf` or `Upholds`. stopped release/host replacement
+preserves canonical waits, seals and entered effects; inspect original evidence
+and issue an explicit repair wake where needed. never replay native commands.
+bootstrap derives the same host mount layout while that host is stopped and
+creates no active control endpoint. cleanup removes only owned ephemeral aliases
+and placeholder; the notes checkout is untouched. the worker receives no native credentials.
 no change to the shared coding daemon, rpc relay or copied account is involved.
 
 From a clean, committed Jarvis checkout, provision the dedicated database and
@@ -645,6 +672,18 @@ that exposed that retirement is preserved in ADR 0028; do not retry it as a
 supported route or switch Jarvis to API-key authentication.
 
 ## memory operations
+
+outside `jarvis.service`, cognitive operator commands `jarvis check-activation`,
+`jarvis dream` and `jarvis rebuild-memory` (including `--node`) must run in
+root-managed units with the existing application identity/private environment
+and restrictions, `BindsTo=jarvis-codex-contained.service`,
+`After=jarvis-codex-contained.service` and
+`BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock`.
+the global endpoint is only a placeholder; these commands open the native
+channel for catalog selection or isolated inference. capture/status/retry-only
+commands do not open that runtime and need no native socket bind.
+`install-contained-host` and `verify-containment` already give their verification
+units this dependency and file bind. no additional wrapper or cli option is used.
 
 inspect the live service without taking its ownership lock:
 

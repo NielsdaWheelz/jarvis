@@ -20,13 +20,22 @@ todos. [adr 0072's installed boundary](../universal-memory.md#native-memory-inst
 qualifies the matching cli and real service-uid reads through the live read-only
 state mount. none of those results proves the remaining worker journey.
 
-next: use slice 3's temporary candidate, real online workers, native cognition,
-actual outbox and controlled ingress. prove immediate watching plus unrelated
-input, event-driven follow-up without another owner message, original ref/deadline
-and watching receipt across restart, one atomic outcome/event and truthful
-cancellation/timeout/partial-result handling. use focused fault checks for races
-and unknown-effect no-replay. mark controlled/unavailable boundaries explicitly;
-update the owning spec's evidence, not a new report tree.
+candidate evidence: [slice 3](../delegated-follow-through.md#implementation-evidence--2026-11-15)
+records real native/service-uid worker launch, unrelated input while watching,
+original receipt/ref/deadline across a candidate process restart and useful
+event-driven continuation/todo mutation through the actual discord outbox.
+controlled real-postgres race, atomic publication, pause/deadline, park, shutdown,
+watching replay and unknown-effect no-replay checks pass. private worker captures
+and opaque retired callback payloads were removed from fresh model context while
+preserving original evidence. ingress/catch-up were controlled, not physical owner
+gateway acceptance.
+
+next: finish final content/cleanup qualification, install and qualify the reviewed
+skid wrapped-footer repair under its approved gateway-only boundary, and obtain
+useful claude execution when the configured profile's account quota permits it; the owner selected explicit unavailable status for this delivery.
+the installed v0.24.2 gateway can miss an ordinary idle codex terminal whose footer
+wraps past three rows; the source repair alone does not close that installed gap.
+keep unavailable boundaries explicit and retain the production handoff below.
 
 resolved when: the candidate proof passes and final authorized v2 cutover repeats
 real owner gateway → main → worker → observation → useful continuation → discord,

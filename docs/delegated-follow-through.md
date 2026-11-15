@@ -204,8 +204,89 @@ accounted-for effects/reminders, schema conversion and existing control rules;
 then real owner gateway → main → installed worker → observation → useful main
 continuation → discord, including selected-service restart. retain startup
 catch-up and ordinary effect recovery. candidate receipts do not close that work.
-this specification task changes documentation only and runs no behavioral/live
-checks, publication, installation or activation.
+the subsequent owner instruction authorized source implementation and temporary
+integration/live qualification. production activation remains outside this slice.
+
+## implementation evidence — 2026-11-15
+
+candidate qualification remains OPEN: the jarvis composition and focused repairs
+have passing evidence below; the repaired installed skid gateway and useful
+claude execution remain unqualified. neither unavailable boundary is a pass.
+
+the branch is `feature/delegated-follow-through`, isolated from the owner's dirty
+checkout. source predecessor is merged `31f3dd9`; the owner's current contract
+edits were copied unchanged into the worktree before implementation. candidate
+`f559bc10bc96efd8d46bc4bed6f84bef201f4e09` contains the source and tool-copy repairs.
+the unchanged `uv.lock` sha256 is
+`ba15ecdb38dc2cac6bb12ba1eb6bc018b18ac2a923367f004f31392b2f9bf11e`.
+
+| component | qualified identity / boundary |
+| --- | --- |
+| kernel | `419e5fe3e251e9ffdf506ae88fb7149fac6e1549` |
+| provider-runtime | `adf1b714dec6b2517ba468085674665923c237fc` |
+| llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+| universal-memory | `11f4220031d56f71d5a732b748a9bbb52c842e0e` |
+| candidate | inactive immutable release; python 3.12.13, fresh migrated head `0010`; task postgres 16.16 / pgvector 0.8.6 |
+| cognition | existing selected contained stock `0.160.0`, public provider qualification, actual `gpt-5.6-terra`/high; normal unique cognition directories |
+| workers | installed cli/gateways `v0.24.2`, cli source `d4afbfcec963b1f231fc117675120eff1685e881`; worker binding remains v10 |
+| real routes | dev-server/personal codex and macbook/personal codex; macbook/claude-work and dev-server/claude-work reached their account limits before useful execution |
+
+the transient candidate used the real jarvis uid, empty capabilities,
+no-new-privileges, protected home/system, private temporary directory and the
+qualified read-only id-mapped `/run/jarvis-skid-state` mount. task configuration,
+postgres, runtime files and disabled memory admission were separate; no fleet
+state or native credential was copied. the existing selected contained-host
+verifier passed; candidate/selected host launcher and mapping code were identical.
+the selected release has different application library pins, so its verifier is
+not presented as candidate library qualification. candidate native calls used the
+exact pins above against that existing public endpoint.
+
+temporary probes composed the actual service, stores, recorder, native runner,
+timer and rest outbox. a controlled `GatewayPort` exercised normal
+`gateway_ready`/catch-up; no second gateway consumer, memory listener or normal
+`jarvis serve` ran. canonical synthetic ingress is not physical-owner gateway
+acceptance. actual nonce-backed discord delivery and durable watermarks were used.
+production's selected release, control and schema were not changed: the observed predecessor is `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, schema `0008a`, canonical resume sequence 4. final v2 cutover must reconcile that actual predecessor, including its newer memory pins, rather than infer it from source `31f3dd9`. candidate memory admission is disabled; ordinary native-fleet capture policy is unchanged, so disposable worker histories retain their existing capture eligibility.
+
+| feature | red / green evidence |
+| --- | --- |
+| private evidence | real-postgres probes exposed private v10 captures in accepted-action context and opaque retired arguments in both linked and unlinked callback context. the actions module now owns loading, public projection and the shared retired-binding predicate. fresh main gets current public arguments/receipts and historical metadata; original database evidence is unchanged. all three red cases and current receipt/connector-context regressions pass. actual prepared native input in four fresh live attempts also excludes the captured worker refs. |
+| observation and recovery | unchanged adapter passes actual subprocess decoding plus controlled fault receipts; real-postgres/native journal/recorder proves first-commit cancel/match outcomes, one causal event, atomic rollback around settlement/publication/cancellation, idempotent startup repair and original watching replay after settlement. unknown billed-once recovery enters no executor and sends nothing. |
+| pause, park and shutdown | real-postgres integration proves parked requests remain excluded while observation continues; canonical pause cancels the read child while the original deadline advances. resume after expiry emits one timeout without another cli read. shutdown joins a deliberately blocked database settlement before ownership closes. |
+| responsiveness and restart | real native main launched a dev-server codex worker and registered observation, then answered unrelated arithmetic while it was still watching. an actual candidate process stop/restart retained exact arguments, private capture, watching receipt, absolute deadline and one executor entry; it later published one timeout without replaying launch. |
+| intent | actual native scoped stop cancelled only the first todo/request. its worker and registered observation continued; a later event was handled without reviving that goal. separate real-postgres product/journal proof covers completed and stopped parents followed by a new full-plan host action. |
+| scheduled delegation and follow-through | a real one-time todo woke main after its scheduling owner request completed and launched macbook claude-work. account-limit evidence led to explicit blocked state and an honest partial result. a later macbook codex journey timed out while working; main read its evidence, registered another wait, received a matched event, requested a compact supported restatement and completed the todo without another owner input. actual discord received the supported source result; source inspection was not described as runtime verification. |
+| content | independent design/review covered briefs, partial launches, observations, progress, scoped stop and results. a launch-only `running` claim exposed a content gap. two main-instruction trials still overclaimed, so those clauses were removed. the owning start-tool copy now explicitly describes terminal creation/optional brief delivery and no execution observation; common written semantics distinguish dispatch from acceptance/execution/completion. the actual published native copy is verified; fresh-context live acceptance remains open. |
+
+the first synthetic codex inspection used an inactive-release cwd that normal
+candidate replacement pruned. its responsiveness/receipt observations remain
+valid; its report is not complete target-code qualification. subsequent useful
+inspection used stable source paths. this setup error required no product change.
+
+live proof also found a real upstream defect: a wrapped codex status footer at
+80×24 occupies four physical rows, exceeding skid's arbitrary three-row parser
+cap. the completed terminal remained `layout_unknown` and its idle wait timed
+out. [skid pr 203](https://github.com/NielsdaWheelz/skidbladnir/pull/203), source
+`fed8c48435ba5774cfc2dfc640f19202e2d8a2c5`, removes that cap within the existing
+bounded parsed screen and retains composer/padding/overlay guards. an owning-source
+probe on the same guarded linux codex 0.169.0 / tmux 3.8 pane went red→green;
+466 existing and twelve temporary authored captures passed independent review.
+the original corpus is unchanged, new probes are deleted, and post-cleanup
+`scripts/check verify host` and github `verify` pass. an unrelated vercel account
+check is blocked. pr 203 merged at `8bfc9d238c18303051d37f3cd40d8125fd45f7c9` after normal checks. the owner approved merge, signed publication and gateway-only updates. the verified signed v0.24.3 draft has nine assets; its normalized mac terminal runtime differs from the installed artifact, so publication/installation are held pending owning-layer build diagnosis. no runtime comparator bypass or terminal restart is authorized or performed.
+
+the detector is a remote gateway conformance repair under unchanged wire and
+state meanings; jarvis's bindings/decoder/policy remain v10. its definition
+fingerprint does not claim to bind the external gateway executable. exact deployed
+versions and the installed repaired-gateway journey must be recorded separately.
+upstream's gateway-only runtime-identity boundary remains open. the owner selected explicit unavailable status for both claude routes; arch and other profile combinations remain deferred. final production
+gateway/cutover acceptance stays with the existing operations/todo handoff.
+
+all controlled source groups received independent design/red/green/refactor and
+cleanup review. their temporary probes and local postgres resources were deleted;
+the retained `tests/capture_retry.py` passes unchanged on a fresh `0010` database
+(postgres 16.16 / pgvector 0.8.7). final live cleanup and `scripts/verify` are
+recorded after the remaining candidate content journey.
 
 ## explicit costs
 

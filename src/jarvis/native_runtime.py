@@ -54,7 +54,13 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import array
 from universal_memory import MemoryError, render_view
 
-from jarvis.actions import ActionStore, recorded_action_context, recorded_action_result
+from jarvis.actions import (
+    ActionStore,
+    StoredAction,
+    action_context,
+    recorded_action,
+    retired_worker_revision,
+)
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import (
     action,
@@ -786,6 +792,14 @@ async def native_receipt_context(
             .mappings()
             .all()
         )
+        actions: dict[UUID, StoredAction] = {}
+        for identifier in dict.fromkeys(
+            (*action_ids, *(row["action_id"] for row in rows if row["action_id"]))
+        ):
+            stored = await recorded_action(connection, identifier)
+            if stored is None:
+                raise NativeDefect("native context references a missing action")
+            actions[identifier] = stored
         records: list[dict[str, object]] = [
             {
                 "kind": "canonical_request_context",
@@ -818,10 +832,15 @@ async def native_receipt_context(
             for row in seals
         )
         for identifier in action_ids:
-            records.append(await recorded_action_context(connection, identifier))
+            records.append(action_context(actions[identifier]))
         observations: list[tuple[dict[str, object], bool]] = []
         component_text_ids = set(map(str, component_ids))
         for row in rows:
+            stored = actions.get(row["action_id"])
+            if retired_worker_revision(
+                row["tool_id"], row["frozen_contract"]["implementation_revision"]
+            ):
+                continue
             position = row["read_position"] or "native-invocation:" + str(row["id"])
             read = (
                 (
@@ -838,8 +857,8 @@ async def native_receipt_context(
             if row["reply_receipt"] is None:
                 if read is not None:
                     result = read["result"]
-                elif row["action_id"] is not None:
-                    result = await recorded_action_result(connection, row["action_id"])
+                elif stored is not None:
+                    result = action_context(stored).get("recorded_result")
             observations.append(
                 (
                     {

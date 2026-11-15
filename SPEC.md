@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slice 1 implemented in source, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–2 implemented in source, not activated**
 
 date: **2026-11-15**
 
@@ -9,7 +9,7 @@ audience: product, engineering, design, operations, and future coding agents
 ## accepted v2 target
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
-2026-11-14 owner decisions. slice 1 is implemented and qualified in source;
+2026-11-14 owner decisions. slices 1–2 are implemented and isolated-qualified;
 the remaining slices and v2 activation are pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
@@ -24,7 +24,11 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
 - [work](docs/work-records.md) is one mutable todo table with optional deadline
   and independent one-time/repeated wake. the timer publishes the todo's context
   to main; firing never means completion. scheduling lives here, replacing the
-  separate schedule product and proposed recurring-wake table.
+  separate schedule product and proposed recurring-wake table. slice 2 preserves
+  admitted schedules delayed past their time and wakes late; schedule identity
+  and a civil-date cursor live on the same row. recurring rows are standing
+  commitments, not per-occurrence jobs. its three local mutations remain usable
+  bookkeeping during external-effect uncertainty, with normal action receipts.
 - [events](docs/event-sources-and-recurring-work.md) publish email/calendar facts
   through the same input path; one cursor table owns polling progress. existing
   [skid observation](docs/worker-launch-observation.md) already provides the
@@ -61,7 +65,7 @@ their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
 not constitute v2 acceptance. [slice 1's qualification](docs/one-main-events.md#implementation-evidence)
 records its source and isolated live proof; it does not activate the service.
-slice 1's owner-selected implementation method is temporary
+the owner-selected implementation method for slices 1 and 2 is temporary
 end-to-end integration/live red/green/refactor, with content design and adversarial
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.

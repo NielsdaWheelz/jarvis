@@ -66,6 +66,10 @@ use a small set of meaningful implementation checks when that work is authorized
 - current work can carry a one-time or repeated wake, while a due date alone
   creates none. verify the chosen timer/restart contract through the same main
   input path and distinguish changing a record from reversing an entered effect.
+  [slice 2](work-records.md#acceptance-and-hard-cutover) covers atomic CRUD/receipt
+  recovery, fresh reads, civil recurrence, queued-late scheduling and real timer
+  publication while main is busy. completing an occurrence leaves its standing
+  commitment active; explicitly completing that commitment disables recurrence.
 - an existing asynchronous skid wait delivers its result after foreground work
   has ended or the service has restarted. main integrates that evidence without
   repeated model polling; qualify the actual installed route separately from
@@ -76,9 +80,10 @@ use a small set of meaningful implementation checks when that work is authorized
   stop and operational pause retain their distinct scopes.
 
 slice 1's [source-audited proof plan](one-main-events.md#acceptance-and-redgreenrefactor)
-owns its temporary integration/live red/green/refactor, content design and
-adversarial review, followed by probe deletion. real timed producers are slice 2,
-installed workers slice 3 and external producers slice 6; generic input proof
+and slice 2's linked contract own temporary integration/live red/green/refactor,
+content design and adversarial review, followed by probe deletion. real timed
+producers are slice 2, installed workers slice 3 and external producers slice 6;
+generic input proof
 does not qualify those adapters. the remaining checks belong to their slices;
 there is no additional standing suite. shared-memory acceptance
 above stays unchanged; browser/credential products, interactive deliverables, separate ui,

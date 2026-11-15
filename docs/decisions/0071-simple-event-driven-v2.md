@@ -34,6 +34,11 @@ or worker callback service. the current memory completion is a separate pr.
    wake publishes an ordinary event. deadlines remain separate from wake times;
    firing does not complete the todo. no `recurring_wake` table, separate schedule
    product, execution controller or per-occurrence workflow.
+   slice 2's owner refinement accepts schedules delayed past their time in the
+   dispatch queue and wakes late. schedule replacement identity and the next
+   nominal civil date live on that same row. recurring rows are standing
+   commitments; completing one occurrence does not end them. the three work
+   mutation tools remain local bookkeeping during external-effect uncertainty.
 3. private notes are an ordinary persistent private git repo and directory with
    trusted native tools. no notes service, forced document layout or git cadence.
 4. retain uploaded discord and selected email attachments as private r2 originals,
@@ -119,7 +124,7 @@ this change is documentation only. run static/build/document checks; no source,
 behavioral/live execution, deployment or service resumption is included. future
 implementation uses the focused outcomes in the owning contracts and
 [acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks.
-the owner selected temporary integration/live red/green/refactor for slice 1,
+the owner selected temporary integration/live red/green/refactor for slices 1 and 2,
 with designer and adversarial review per feature/stage, then probe deletion.
 that scoped implementation exception does not restore a standing suite under
 adr 0046 or change memory's separate checks. this specification task runs no

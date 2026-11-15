@@ -47,10 +47,10 @@ its final dispositions stop only named delivered requests. exact administrative
 `pause` and `resume` remain host-owned.
 
 the old scheduler and approval components are removed. intermediate source slices
-need not be independently usable. retain outstanding reminders in the private
-stopped inventory for slice 2; never resume this incomplete release or silently
-drop those commitments. the owning contract defines migration, local decision
-receipts and scoped request stopping.
+need not be independently usable. slice 2 implements todos and their timer;
+retain outstanding reminders in the private stopped inventory until supervised
+conversion. selected slices and accounted-for commitments govern activation.
+the owning contracts define migration, local decision receipts and scoped stopping.
 
 optional one-time/repeated wakes belong to work records, replacing separate
 schedule/recurring-wake products. due dates remain distinct. keep the existing
@@ -100,7 +100,8 @@ shared retrieval steps; there is no automatic recaller or rememberer.
 
 historical reminder inventory uses `action.tool_name = schedule.wake` and
 `message.source = schedule_wake`. preserve those original identities; current
-source exposes no schedule tool or timer.
+source exposes no legacy schedule tool or timer. its single work timer publishes
+`work_wake` inputs through the common native path.
 
 ## Install and configure
 
@@ -302,7 +303,9 @@ action, approval or deployment state. inventory is evidence, not completion.
 retained reminder purpose, time and source references belong to slice 2's todo
 conversion; there is no temporary reminder table or executable old scheduler.
 
-the merged migration chain is memory `0008`, then one-main `0009`.
+the merged migration chain is memory `0008`, one-main `0009`, then work `0010`.
+work adds the mutable todo table and its current schedule; it changes no historical
+action or message. runtime admission requires that exact schema head.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
 parents only by joining canonical action identities. native committed products
@@ -310,6 +313,32 @@ and exact canonical inline conclusions preserve proven host completion; ambiguou
 historical settlement or parentage is parked for named repair.
 source times remain original; historical first-observation time remains unknown
 where no canonical evidence exists.
+
+### supervised todo setup
+
+account for each retained reminder in the private cutover inventory before the
+selected v2 release resumes unattended. give main its original purpose, intended
+time and source reference through ordinary conversation. recreate future
+obligations through `work.create`; present overdue obligations as explicit current
+inputs describing their original timing. verify committed receipts/current rows
+against the inventory. retain historical receipts unchanged; do not replay old
+schedule actions or infer completion from their terminal status.
+
+during supervised setup, ask main once to create `review active work`, initially
+backlog, with content `review active work, especially blockers; choose useful
+follow-through.`, no deadline and a daily `09:00` rule in the configured owner
+timezone. choose a future lower bound and verify the committed next local time
+and zone. this is an ordinary todo: restart never installs it, and deleting it
+ends the commitment until deliberately created again.
+
+deadlines alone do not wake main. timer publication leaves recurring rows active
+and advances only their schedule cursor. pause suppresses publication; resume
+coalesces missed occurrences into one latest-due input. an admitted schedule may
+already be overdue by executor entry and then wake late. get/list observations
+are fresh; old wake snapshots and mutation receipts retain their original facts.
+complete/cancel/delete clears future scheduling without retracting published
+inputs or stopping an entered effect. operator failures preserve invalid schedule
+evidence for repair rather than skipping it.
 
 retired local pause/session/admission files must be explicitly dispositioned under
 the original release before current admission. the new runtime neither imports

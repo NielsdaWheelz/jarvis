@@ -1807,6 +1807,32 @@ async def recorded_action_result(
     return action_replay_result(stored)
 
 
+async def recorded_action_context(
+    connection: AsyncConnection, action_id: UUID
+) -> dict[str, object]:
+    """Expose recovery facts to main while keeping execution authority private."""
+    row = (
+        (await connection.execute(select(action).where(action.c.id == action_id)))
+        .mappings()
+        .one()
+    )
+    stored = _stored_action(row)
+    context: dict[str, object] = {
+        "kind": "accepted_action",
+        "action_ref": str(stored.id),
+        "request_ref": str(stored.origin_message_id),
+        "tool_id": str(stored.tool_name),
+        "status": stored.status,
+        "attempts": stored.attempts,
+    }
+    if isinstance(stored.execution_contract, ExecutionContract):
+        context.update(
+            arguments=stored.arguments,
+            recorded_result=action_replay_result(stored),
+        )
+    return context
+
+
 def action_replay_result(stored: StoredAction) -> ToolResult | None:
     """Return the immutable callback result, independently of later host outcomes."""
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
@@ -2369,6 +2395,7 @@ __all__ = [
     "agent_uncertainty_result",
     "archived_worker_action",
     "complete_local_action",
+    "recorded_action_context",
     "recorded_action_result",
     "require_locked_action",
     "retired_worker_action",

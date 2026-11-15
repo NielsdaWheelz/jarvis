@@ -54,7 +54,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import array
 from universal_memory import MemoryError, render_view
 
-from jarvis.actions import ActionStore, recorded_action_result
+from jarvis.actions import ActionStore, recorded_action_context, recorded_action_result
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import (
     action,
@@ -743,18 +743,15 @@ async def native_receipt_context(
             .mappings()
             .all()
         )
-        accepted_actions = (
+        action_ids = tuple(
             (
                 await connection.execute(
-                    select(action)
+                    select(action.c.id)
                     .where(action.c.origin_message_id.in_(component_ids))
                     .order_by(action.c.created_at, action.c.id)
                 )
-            )
-            .mappings()
-            .all()
+            ).scalars()
         )
-        action_ids = tuple(row["id"] for row in accepted_actions)
         recent = (
             select(native_invocation.c.id)
             .join(native_attempt, native_attempt.c.id == native_invocation.c.attempt_id)
@@ -820,22 +817,8 @@ async def native_receipt_context(
             }
             for row in seals
         )
-        for row in accepted_actions:
-            records.append(
-                {
-                    "kind": "accepted_action",
-                    "action_ref": str(row["id"]),
-                    "request_ref": str(row["origin_message_id"]),
-                    "tool_id": row["tool_name"],
-                    "arguments": row["arguments"],
-                    "execution_contract": row["execution_contract"],
-                    "status": row["status"],
-                    "attempts": row["attempts"],
-                    "recorded_result": await recorded_action_result(
-                        connection, row["id"]
-                    ),
-                }
-            )
+        for identifier in action_ids:
+            records.append(await recorded_action_context(connection, identifier))
         observations: list[tuple[dict[str, object], bool]] = []
         component_text_ids = set(map(str, component_ids))
         for row in rows:

@@ -13,7 +13,6 @@ from llm_tools import (
     ToolCatalog,
     ToolEffect,
     ToolFamily,
-    ToolId,
     Unavailable,
     bind_brave_web_search,
     bind_web_read,
@@ -25,11 +24,11 @@ from jarvis.action_requests import bind_action_requests
 from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
+from jarvis.approval_tools import approval_family
 from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadConnector
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
 from jarvis.read_tools import maps_family
-from jarvis.schedule_tools import schedule_family
 from jarvis.settings import Settings
 from jarvis.write_connectors import GoogleWriteConnector
 from jarvis.write_tools import calendar_main_family, gmail_main_family
@@ -51,15 +50,7 @@ def build_tool_composition(
     memory: MemoryService,
     actions: ActionStore,
     agents: AgentController,
-    automatic_write_gate_definition_fingerprint: str,
 ) -> ToolComposition:
-    if (
-        not automatic_write_gate_definition_fingerprint
-        or automatic_write_gate_definition_fingerprint
-        != automatic_write_gate_definition_fingerprint.strip()
-        or len(automatic_write_gate_definition_fingerprint.encode("utf-8")) > 256
-    ):
-        raise ValueError("write-gate definition fingerprint is invalid")
     calendar_ids_digest = hashlib.sha256(
         canonical_json_bytes(sorted(settings.verified_owner_only_calendar_ids))
     ).hexdigest()
@@ -87,26 +78,18 @@ def build_tool_composition(
         api_key=settings.brave_api_key.get_secret_value(),
         base_url="https://api.search.brave.com/res/v1",
     )
-    schedule = schedule_family(actions)
-    if schedule.namespace != "schedule" or tuple(
-        binding.spec.id for binding in schedule.bindings
-    ) != (ToolId("schedule.wake"),):
-        raise RuntimeError("schedule family does not use its canonical identity")
     catalog = ToolCatalog.compose(
         (
             _bind_write_policy(
                 agent_family(agents),
-                gate_fingerprint=automatic_write_gate_definition_fingerprint,
                 calendar_ids_digest=None,
             ),
             _bind_write_policy(
                 gmail_main_family(google_read, google_write),
-                gate_fingerprint=automatic_write_gate_definition_fingerprint,
                 calendar_ids_digest=None,
             ),
             _bind_write_policy(
                 calendar_main_family(google_read, google_write),
-                gate_fingerprint=automatic_write_gate_definition_fingerprint,
                 calendar_ids_digest=calendar_ids_digest,
             ),
             maps_family(maps),
@@ -118,25 +101,20 @@ def build_tool_composition(
                 read=bind_web_read(SafeWebReader()),
             ),
             memory_family(memory),
-            _bind_write_policy(
-                schedule,
-                gate_fingerprint=automatic_write_gate_definition_fingerprint,
-                calendar_ids_digest=None,
-            ),
+            approval_family(),
         )
     )
     if any(
         isinstance(catalog.binding(tool_id).execute, Unavailable)
         for tool_id in catalog.tool_ids
     ):
-        raise RuntimeError("every Slice 6 binding must be available")
+        raise RuntimeError("every application binding must be available")
     return ToolComposition(catalog, google_write)
 
 
 def _bind_write_policy(
     family: ToolFamily,
     *,
-    gate_fingerprint: str,
     calendar_ids_digest: str | None,
 ) -> ToolFamily:
     bindings: list[ToolBinding[object, object, object]] = []
@@ -146,7 +124,7 @@ def _bind_write_policy(
             continue
         inputs = {
             **binding.policy_inputs,
-            "automatic_write_gate_definition_fingerprint": gate_fingerprint,
+            "action_authority": "jarvis.action.v2",
         }
         if calendar_ids_digest is not None:
             inputs["verified_owner_calendar_ids_digest"] = calendar_ids_digest

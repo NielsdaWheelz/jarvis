@@ -9,7 +9,7 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
-- [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the unimplemented
+- [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional
   one-time/repeated wakes; ordinary private repo/native tools; private r2
@@ -19,10 +19,17 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling and interactive deliverables/television. shared memory remains separate
-  and quiet dreaming unchanged. source implementation and installed activation are
-  still pending; keep current baseline claims distinct from the adopted target.
+  and quiet dreaming unchanged. slice 1 source is implemented and qualified;
+  remaining slices and installed activation are pending. keep installed baseline
+  claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
-  schemas and behavior. this documentation task authorizes no code or live work.
+  schemas and behavior.
+  [slice 1](docs/one-main-events.md) owns the source-audited common lifecycle,
+  atomic conversational decision receipt and scoped `stop` disposition. it removes
+  the old scheduler; intermediate slices need not be usable. its implementation
+  used owner-requested temporary integration/live red/green/refactor,
+  content design and adversarial review per feature, then deleted those probes.
+  this scoped exception leaves the wider testing reset and memory checks intact.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

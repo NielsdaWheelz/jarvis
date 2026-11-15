@@ -1,8 +1,8 @@
-"""Deterministic write authority and AutomaticWriteGate projections."""
+"""Deterministic application write classification."""
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
 from llm_tools import ToolId
 
@@ -14,30 +14,12 @@ from jarvis.agent_tools import (
     AgentStartInput,
     AgentStopInput,
     AgentWaitInput,
-    AgentWriteTarget,
-)
-from jarvis.schedule_tools import (
-    ScheduleCancelRequest,
-    ScheduleCreateRequest,
-    ScheduleWakeInput,
-)
-from jarvis.write_gate import (
-    EffectAudience,
-    EffectTarget,
-    OmittedFreeform,
-    WriteEffectDescriptor,
 )
 from jarvis.write_tools import (
     CalendarCreateEventInput,
     CalendarDeleteEventInput,
     CalendarEventSnapshot,
     CalendarUpdateEventInput,
-    CalendarWritableEvent,
-    GmailContent,
-    GmailCreateDraftInput,
-    GmailSendDraftInput,
-    GmailUpdateDraftInput,
-    TimedEventTime,
 )
 
 type WriteAuthority = Literal["automatic", "approval_required", "rejected"]
@@ -64,7 +46,7 @@ def classify_write(
         ("agent.cancel_wait", AgentCancelWaitInput),
     }:
         return "automatic"
-    if name in {"gmail.create_draft", "gmail.update_draft", "schedule.wake"}:
+    if name in {"gmail.create_draft", "gmail.update_draft"}:
         return "automatic"
     if name == "gmail.send_draft":
         return "approval_required"
@@ -101,253 +83,4 @@ def classify_write(
     return "rejected"
 
 
-def write_effect_descriptor(
-    tool_id: ToolId,
-    value: object,
-    *,
-    target: AgentWriteTarget | None = None,
-) -> WriteEffectDescriptor:
-    """Project one strictly validated input into the gate's scalar allowlist."""
-
-    name = str(tool_id)
-    if name == "agent.start" and isinstance(value, AgentStartInput):
-        targets = [
-            EffectTarget(kind="machine", value=value.machine),
-            EffectTarget(kind="profile", value=value.profile),
-        ]
-        for kind, item in (
-            ("terminal_name", value.name),
-            ("cwd", value.cwd),
-            ("group", value.group),
-        ):
-            if item is not None:
-                targets.append(
-                    EffectTarget.model_validate({"kind": kind, "value": item})
-                )
-        return WriteEffectDescriptor(
-            operation="start",
-            targets=tuple(targets),
-            omitted_freeform=()
-            if value.prompt is None
-            else (OmittedFreeform.from_text("worker_input", value.prompt),),
-        )
-    if name == "agent.cancel_wait" and isinstance(value, AgentCancelWaitInput):
-        return WriteEffectDescriptor(
-            operation="cancel",
-            targets=(
-                EffectTarget(kind="target_action_id", value=str(value.action_id)),
-            ),
-        )
-    if name in {
-        "agent.send",
-        "agent.text",
-        "agent.keys",
-        "agent.stop",
-        "agent.close",
-        "agent.wait",
-    } and isinstance(
-        value,
-        AgentSendInput
-        | AgentKeysInput
-        | AgentStopInput
-        | AgentCloseInput
-        | AgentWaitInput,
-    ):
-        if target is None or target.target != value.target:
-            raise ValueError("addressed agent write requires its immutable target")
-        targets = [
-            EffectTarget(kind="machine", value=value.target.machine),
-            EffectTarget(kind="handle", value=value.target.handle),
-            EffectTarget(kind="mode", value="terminal"),
-        ]
-        if target.profile is not None:
-            targets.append(EffectTarget(kind="profile", value=target.profile))
-        if target.name is not None:
-            targets.append(EffectTarget(kind="terminal_name", value=target.name))
-        if isinstance(value, AgentKeysInput):
-            targets.append(EffectTarget(kind="keys", value=",".join(value.keys)))
-        if isinstance(value, AgentWaitInput):
-            targets += [
-                EffectTarget(kind="state", value=value.state),
-                EffectTarget(kind="timeout_seconds", value=str(value.timeout_seconds)),
-            ]
-        return WriteEffectDescriptor(
-            operation=cast(
-                Literal["send", "text", "keys", "stop", "close", "wait"],
-                name.removeprefix("agent."),
-            ),
-            targets=tuple(targets),
-            omitted_freeform=(OmittedFreeform.from_text("worker_input", value.text),)
-            if isinstance(value, AgentSendInput)
-            else (),
-            closure_scope=(
-                "terminal_only" if value.terminal_only else "interrupt_and_terminal"
-            )
-            if isinstance(value, AgentCloseInput)
-            else None,
-        )
-    if name == "gmail.create_draft" and isinstance(value, GmailCreateDraftInput):
-        return _gmail_descriptor("create", value.content)
-    if name == "gmail.update_draft" and isinstance(value, GmailUpdateDraftInput):
-        base = _gmail_descriptor("update", value.replacement)
-        return base.model_copy(
-            update={
-                "targets": (
-                    EffectTarget(kind="draft_id", value=value.draft_id),
-                    *base.targets,
-                ),
-                "omitted_freeform": (
-                    *base.omitted_freeform,
-                    OmittedFreeform.from_text(
-                        "expected_content", value.expected_content_digest
-                    ),
-                ),
-            }
-        )
-    if name == "gmail.send_draft" and isinstance(value, GmailSendDraftInput):
-        base = _gmail_descriptor("send", value.content)
-        return base.model_copy(
-            update={
-                "targets": (
-                    EffectTarget(kind="draft_id", value=value.draft_id),
-                    EffectTarget(kind="thread_id", value=value.thread_id),
-                    *base.targets,
-                ),
-            }
-        )
-    if name == "calendar.create_event" and isinstance(value, CalendarCreateEventInput):
-        return _calendar_descriptor(
-            "create",
-            value.event,
-            calendar_id=value.calendar_id,
-            event_id=None,
-            notify_attendees=value.notify_attendees,
-            has_expected_etag=None,
-        )
-    if name == "calendar.update_event" and isinstance(value, CalendarUpdateEventInput):
-        return _calendar_descriptor(
-            "update",
-            value.replacement,
-            calendar_id=value.expected.calendar_id,
-            event_id=value.expected.event_id,
-            notify_attendees=value.notify_attendees,
-            has_expected_etag=True,
-        )
-    if name == "calendar.delete_event" and isinstance(value, CalendarDeleteEventInput):
-        expected = value.expected
-        return WriteEffectDescriptor(
-            operation="delete",
-            targets=(
-                EffectTarget(kind="calendar_id", value=expected.calendar_id),
-                EffectTarget(kind="event_id", value=expected.event_id),
-            ),
-            audience=tuple(
-                EffectAudience(kind="attendee", address=item.address)
-                for item in expected.writable.attendees
-            ),
-            notify_attendees=value.notify_attendees,
-            has_expected_etag=True,
-        )
-    if name == "schedule.wake" and isinstance(value, ScheduleWakeInput):
-        request = value.request
-        if isinstance(request, ScheduleCreateRequest):
-            return WriteEffectDescriptor(
-                operation="create",
-                execute_after=request.execute_after,
-                omitted_freeform=(
-                    OmittedFreeform.from_text("instruction", request.instruction),
-                ),
-            )
-        assert isinstance(request, ScheduleCancelRequest)
-        return WriteEffectDescriptor(
-            operation="cancel",
-            targets=(
-                EffectTarget(
-                    kind="target_action_id",
-                    value=str(request.target_action_id),
-                ),
-            ),
-        )
-    raise ValueError("validated Write has no gate projection")
-
-
-def _gmail_descriptor(
-    operation: Literal["create", "update", "send"],
-    content: GmailContent,
-) -> WriteEffectDescriptor:
-    targets: list[EffectTarget] = []
-    reply = content.reply_to
-    if reply is not None:
-        targets.extend(
-            (
-                EffectTarget(kind="thread_id", value=reply.thread_id),
-                EffectTarget(kind="reply_message_id", value=reply.parent_message_id),
-            )
-        )
-    audience = (
-        *(EffectAudience(kind="to", address=item.address) for item in content.to),
-        *(EffectAudience(kind="cc", address=item.address) for item in content.cc),
-        *(EffectAudience(kind="bcc", address=item.address) for item in content.bcc),
-    )
-    return WriteEffectDescriptor(
-        operation=operation,
-        targets=tuple(targets),
-        audience=audience,
-        has_reply_target=reply is not None,
-        omitted_freeform=(
-            OmittedFreeform.from_text("subject", content.subject),
-            OmittedFreeform.from_text("body_text", content.body_text),
-        ),
-    )
-
-
-def _calendar_descriptor(
-    operation: Literal["create", "update"],
-    event: CalendarWritableEvent,
-    *,
-    calendar_id: str,
-    event_id: str | None,
-    notify_attendees: bool,
-    has_expected_etag: bool | None,
-) -> WriteEffectDescriptor:
-    targets = [EffectTarget(kind="calendar_id", value=calendar_id)]
-    if event_id is not None:
-        targets.append(EffectTarget(kind="event_id", value=event_id))
-    start = event.start
-    end = event.end
-    time_zone = start.time_zone if isinstance(start, TimedEventTime) else None
-    starts_at = (
-        start.date_time.isoformat()
-        if isinstance(start, TimedEventTime)
-        else start.date.isoformat()
-    )
-    ends_at = (
-        end.date_time.isoformat()
-        if isinstance(end, TimedEventTime)
-        else end.date.isoformat()
-    )
-    omitted = [OmittedFreeform.from_text("summary", event.summary)]
-    if event.description is not None:
-        omitted.append(OmittedFreeform.from_text("description", event.description))
-    if event.location is not None:
-        omitted.append(OmittedFreeform.from_text("location", event.location))
-    return WriteEffectDescriptor(
-        operation=operation,
-        targets=tuple(targets),
-        audience=tuple(
-            EffectAudience(kind="attendee", address=item.address)
-            for item in event.attendees
-        ),
-        starts_at=starts_at,
-        ends_at=ends_at,
-        event_timezone=time_zone,
-        recurrence_count=len(event.recurrence),
-        reminder_count=len(event.reminders),
-        notify_attendees=notify_attendees,
-        use_default_reminders=event.use_default_reminders,
-        has_expected_etag=has_expected_etag,
-        omitted_freeform=tuple(omitted),
-    )
-
-
-__all__ = ["WriteAuthority", "classify_write", "write_effect_descriptor"]
+__all__ = ["WriteAuthority", "classify_write"]

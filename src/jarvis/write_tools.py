@@ -536,9 +536,9 @@ GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     id=ToolId("gmail.send_draft"),
     summary="Send one exact unchanged Gmail draft after owner approval.",
     documentation=PromptDocument(
-        "This consequential communication always requires the host-owned Approve or "
-        "Deny flow. Send only the exact unchanged draft represented by these "
-        "immutable arguments."
+        "sending mail requires owner consent recorded through approval.respond. "
+        "send only the exact unchanged draft represented by these immutable "
+        "arguments."
     ),
     input_type=GmailSendDraftInput,
     success_type=GmailSendDraftSuccess,
@@ -672,7 +672,7 @@ def _binding[InputT, SuccessT, ErrorT](
     policy_inputs: dict[str, object],
     *,
     implementation_revision: str | None = None,
-    authority: str = "automatic-write-gated",
+    authority: str = "automatic",
 ) -> ToolBinding[InputT, SuccessT, ErrorT]:
     async def execute(
         value: InputT, context: ExecutionContext
@@ -686,7 +686,7 @@ def _binding[InputT, SuccessT, ErrorT](
         implementation_revision=(
             implementation_revision or f"jarvis-{str(spec.id).replace('.', '-')}-v1"
         ),
-        policy_epoch=PolicyEpoch("jarvis-write-v1"),
+        policy_epoch=PolicyEpoch("jarvis-write-v2"),
         policy_inputs={
             "action_max_attempts": WRITE_ACTION_MAX_ATTEMPTS,
             "authority": authority,

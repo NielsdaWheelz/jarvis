@@ -774,7 +774,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
             policy_inputs={
                 "cli_path": str(controller.cli_path),
                 "state_directory": str(controller.state_directory),
-                "authority": "current-owner-write-gate",
+                "authority": "delivered-live-request",
                 "automatic_retry": False,
                 "action_max_attempts": 2 if spec.id in AGENT_LOCAL_IDS else 1,
             },

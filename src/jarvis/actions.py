@@ -7,12 +7,11 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated, Literal, cast
+from typing import Annotated, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from llm_tools import (
     BudgetState,
-    FrozenToolPlan,
     InvocationPosition,
     PositionState,
     RecoveryRequired,
@@ -33,6 +32,7 @@ from sqlalchemy import (
     Text,
     and_,
     func,
+    literal,
     or_,
     select,
     text,
@@ -49,6 +49,7 @@ from jarvis.agent_tools import (
     AGENT_WRITE_IDS,
     AgentActionEvidence,
     AgentCancelWaitResult,
+    AgentCloseReceipt,
     AgentError,
     AgentStartInput,
     AgentTargetInput,
@@ -56,21 +57,27 @@ from jarvis.agent_tools import (
     AgentWaitOutcome,
     AgentWaitReceipt,
     AgentWaitState,
+    AgentWriteResult,
     AgentWriteTarget,
+    WireFailure,
+    WireStartResult,
     validate_agent_evidence,
     validate_agent_failure,
     validate_agent_success,
 )
-from jarvis.db import action, message, native_attempt, native_invocation
-from jarvis.messages import (
-    MAX_DISCORD_MESSAGE_CHARACTERS,
-    MAX_TRACE_BYTES,
-    SettlementTrace,
+from jarvis.db import (
+    action,
+    message,
+    native_attempt,
+    native_input_delivery,
+    native_invocation,
 )
-from jarvis.ownership import Database, lock_conversation, memory_is_admitted
-
-if TYPE_CHECKING:
-    from jarvis.schedule_tools import ScheduleTarget
+from jarvis.messages import (
+    append_waking_input,
+    causal_component_ids,
+    rearm_action_waiters,
+)
+from jarvis.ownership import Database, lock_conversation
 
 ActionStatus = Literal[
     "queued",
@@ -122,9 +129,6 @@ class _ExecutionEnvelope(BaseModel):
     through_checkpoint: Annotated[str, Field(min_length=1, max_length=36)]
     model_step_ordinal: Annotated[int, Field(ge=1)]
     input_message_ids: Annotated[tuple[str, ...], Field(min_length=1, max_length=100)]
-    write_gate_supporting_owner_message_ids: Annotated[
-        tuple[str, ...], Field(min_length=1, max_length=100)
-    ]
 
     @field_validator(
         "tool_contract_revision",
@@ -146,10 +150,7 @@ class _ExecutionEnvelope(BaseModel):
     def canonical_checkpoint(cls, value: str) -> str:
         return _canonical_uuid(value, "through checkpoint")
 
-    @field_validator(
-        "input_message_ids",
-        "write_gate_supporting_owner_message_ids",
-    )
+    @field_validator("input_message_ids")
     @classmethod
     def canonical_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         canonical = tuple(_canonical_uuid(value, "message") for value in values)
@@ -166,10 +167,6 @@ class _ExecutionEnvelope(BaseModel):
             raise ValueError("action attempt ceiling disagrees with its replay policy")
         if self.through_checkpoint != self.input_message_ids[-1]:
             raise ValueError("through checkpoint must be the final admitted input")
-        if not set(self.write_gate_supporting_owner_message_ids).issubset(
-            self.input_message_ids
-        ):
-            raise ValueError("write-gate support must be admitted owner input")
         return self
 
     def as_json(self) -> dict[str, object]:
@@ -179,6 +176,7 @@ class _ExecutionEnvelope(BaseModel):
 class ExecutionContract(_ExecutionEnvelope):
     """current execution authority always has the current target schema."""
 
+    schema_version: Literal["jarvis.action.v2"]
     agent_target: AgentWriteTarget | None = None
 
     def as_json(self) -> dict[str, object]:
@@ -186,7 +184,7 @@ class ExecutionContract(_ExecutionEnvelope):
 
 
 class _ArchivedExecutionContract(_ExecutionEnvelope):
-    agent_target: object = None
+    model_config = ConfigDict(extra="allow", frozen=True, hide_input_in_errors=True)
 
 
 def _common_execution_envelope(value: object) -> _ExecutionEnvelope:
@@ -194,7 +192,7 @@ def _common_execution_envelope(value: object) -> _ExecutionEnvelope:
         raise ValueError("stored execution contract must be an object")
     fields = _json_object(cast(dict[str, object], value), "stored execution contract")
     return _ExecutionEnvelope.model_validate(
-        {key: item for key, item in fields.items() if key != "agent_target"}
+        {key: fields[key] for key in _ExecutionEnvelope.model_fields if key in fields}
     )
 
 
@@ -253,32 +251,6 @@ class ResolutionInsert:
     inserted: bool
 
 
-@dataclass(frozen=True, slots=True)
-class ApprovalInsert:
-    action: StoredAction
-    message_id: UUID
-    action_inserted: bool
-    message_inserted: bool
-
-
-@dataclass(frozen=True, slots=True)
-class ApprovalDecision:
-    action: StoredAction
-    applied: bool
-
-
-@dataclass(frozen=True, slots=True)
-class ClaimedSchedule:
-    action: StoredAction
-    waking_message_id: UUID
-    message_inserted: bool
-
-
-@dataclass(frozen=True, slots=True)
-class ScheduleStateChanged:
-    action: StoredAction
-
-
 class ActionStore:
     """Explicit PostgreSQL transactions over the existing action table."""
 
@@ -292,70 +264,20 @@ class ActionStore:
         arguments: Mapping[str, object],
         execution_contract: ExecutionContract,
         origin_message_id: UUID,
-        execute_after: datetime | None = None,
         action_id: UUID | None = None,
         created_at: datetime | None = None,
-        invocation_id: UUID | None = None,
+        invocation_id: UUID,
     ) -> StoredAction:
-        identifier = action_id or uuid4()
-        timestamp = created_at or datetime.now(UTC)
-        _aware(timestamp, "action creation time")
-        if execute_after is not None:
-            _aware(execute_after, "action execute_after")
-        canonical_arguments = _json_object(dict(arguments), "action arguments")
-        _validate_new_action(
+        return await self._insert(
             tool_name,
-            canonical_arguments,
+            arguments,
             execution_contract,
             origin_message_id,
+            "queued",
+            action_id,
+            created_at,
+            invocation_id,
         )
-        values: dict[str, object] = {
-            "id": identifier,
-            "tool_name": str(tool_name),
-            "arguments": canonical_arguments,
-            "execution_contract": execution_contract.as_json(),
-            "status": "queued",
-            "attempts": 0,
-            "execute_after": execute_after,
-            "origin_message_id": origin_message_id,
-            "approval_message_id": None,
-            "created_at": timestamp,
-            "decided_at": None,
-            "completed_at": None,
-        }
-        async with self.engine.begin() as connection:
-            await _lock_new_action(
-                connection, origin_message_id, execution_contract, invocation_id
-            )
-            row = (
-                (
-                    await connection.execute(
-                        postgresql_insert(action)
-                        .values(**values)
-                        .on_conflict_do_nothing(index_elements=(action.c.id,))
-                        .returning(*action.c)
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if row is not None:
-                if invocation_id is not None:
-                    await _link_native_action(connection, invocation_id, identifier)
-                return _stored_action(row)
-            existing = await _locked_action(connection, identifier)
-            if existing is None or _action_identity(existing) != (
-                tool_name,
-                canonical_arguments,
-                execution_contract,
-                origin_message_id,
-                execute_after,
-                timestamp,
-            ):
-                raise ActionPersistenceDefect(
-                    "action identity was reused for a different invocation"
-                )
-            return existing
 
     async def insert_awaiting_approval(
         self,
@@ -364,144 +286,56 @@ class ActionStore:
         arguments: Mapping[str, object],
         execution_contract: ExecutionContract,
         origin_message_id: UUID,
-        approval_text: str,
-        source_conversation_id: str,
         action_id: UUID | None = None,
         created_at: datetime | None = None,
-        invocation_id: UUID | None = None,
-        supersedes_action_id: UUID | None = None,
-    ) -> ApprovalInsert:
-        """Atomically persist one approval action and its outbound message."""
-
-        if not approval_text or len(approval_text) > MAX_DISCORD_MESSAGE_CHARACTERS:
-            raise ValueError("approval message must be non-empty and Discord-bounded")
-        if (
-            not source_conversation_id
-            or source_conversation_id != source_conversation_id.strip()
-        ):
-            raise ValueError("source conversation ID must be non-empty and canonical")
-        identifier = action_id or uuid4()
-        approval_message_id = uuid5(
-            NAMESPACE_URL,
-            f"jarvis-action-approval-v1:{identifier}",
+        invocation_id: UUID,
+    ) -> StoredAction:
+        return await self._insert(
+            tool_name,
+            arguments,
+            execution_contract,
+            origin_message_id,
+            "awaiting_approval",
+            action_id,
+            created_at,
+            invocation_id,
         )
+
+    async def _insert(
+        self,
+        tool_name: ToolId,
+        arguments: Mapping[str, object],
+        execution_contract: ExecutionContract,
+        origin_message_id: UUID,
+        status: Literal["queued", "awaiting_approval"],
+        action_id: UUID | None,
+        created_at: datetime | None,
+        invocation_id: UUID,
+    ) -> StoredAction:
+        identifier = action_id or uuid4()
         timestamp = created_at or datetime.now(UTC)
         _aware(timestamp, "action creation time")
         canonical_arguments = _json_object(dict(arguments), "action arguments")
         _validate_new_action(
-            tool_name,
-            canonical_arguments,
-            execution_contract,
-            origin_message_id,
+            tool_name, canonical_arguments, execution_contract, origin_message_id
         )
-        message_values: dict[str, object] = {
-            "id": approval_message_id,
-            "role": "assistant",
-            "text": approval_text,
-            "source": "discord",
-            "source_conversation_id": source_conversation_id,
-            "source_message_id": None,
-            "created_at": timestamp,
-            "processed_at": timestamp,
-            "processing_attempts": 0,
-            "processing_parked_at": None,
-            "trace": {},
-        }
-        action_values: dict[str, object] = {
-            "id": identifier,
-            "tool_name": str(tool_name),
-            "arguments": canonical_arguments,
-            "execution_contract": execution_contract.as_json(),
-            "status": "awaiting_approval",
-            "attempts": 0,
-            "execute_after": None,
-            "origin_message_id": origin_message_id,
-            "approval_message_id": approval_message_id,
-            "created_at": timestamp,
-            "decided_at": None,
-            "completed_at": None,
-            "supersedes_action_id": supersedes_action_id,
-        }
         async with self.engine.begin() as connection:
             await _lock_new_action(
                 connection, origin_message_id, execution_contract, invocation_id
             )
-            if supersedes_action_id is not None:
-                previous = await _require_locked_action(
-                    connection, supersedes_action_id
-                )
-                if (
-                    previous.status != "cancelled"
-                    or previous.attempts != 0
-                    or previous.result
-                    != {"type": "action_cancelled_v1", "reason_code": "owner_stopped"}
-                    or previous.origin_message_id != origin_message_id
-                    or previous.tool_name != tool_name
-                    or previous.arguments != canonical_arguments
-                    or previous.execution_contract != execution_contract
-                ):
-                    raise ActionPersistenceDefect(
-                        "fresh approval must preserve its stopped unentered action"
-                    )
-            input_ids = tuple(map(UUID, execution_contract.input_message_ids))
-            input_rows = (
-                (
-                    await connection.execute(
-                        select(message)
-                        .where(message.c.id.in_(input_ids))
-                        .order_by(message.c.id)
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            if len(input_rows) != len(input_ids):
-                raise ActionPersistenceDefect(
-                    "approval action lineage references missing input"
-                )
-            inputs = {cast(UUID, row["id"]): row for row in input_rows}
-            if any(
-                row["source_conversation_id"] != source_conversation_id
-                for row in input_rows
-            ):
-                raise ActionPersistenceDefect(
-                    "approval action lineage belongs to a different conversation"
-                )
-            if any(
-                inputs[UUID(value)]["role"] != "owner"
-                for value in execution_contract.write_gate_supporting_owner_message_ids
-            ):
-                raise ActionPersistenceDefect(
-                    "approval action write-gate support is not owner-authored"
-                )
-
-            message_row = (
-                await connection.execute(
-                    postgresql_insert(message)
-                    .values(
-                        **message_values,
-                        memory_admitted=memory_is_admitted(connection),
-                    )
-                    .on_conflict_do_nothing(index_elements=(message.c.id,))
-                    .returning(message.c.id)
-                )
-            ).scalar_one_or_none()
-            message_inserted = message_row is not None
-            if not message_inserted:
-                await _require_approval_message(
-                    connection,
-                    approval_message_id=approval_message_id,
-                    approval_text=approval_text,
-                    source_conversation_id=source_conversation_id,
-                    created_at=timestamp,
-                )
-
-            action_row = (
+            row = (
                 (
                     await connection.execute(
                         postgresql_insert(action)
-                        .values(**action_values)
+                        .values(
+                            id=identifier,
+                            tool_name=str(tool_name),
+                            arguments=canonical_arguments,
+                            execution_contract=execution_contract.as_json(),
+                            status=status,
+                            origin_message_id=origin_message_id,
+                            created_at=timestamp,
+                        )
                         .on_conflict_do_nothing(index_elements=(action.c.id,))
                         .returning(*action.c)
                     )
@@ -509,212 +343,52 @@ class ActionStore:
                 .mappings()
                 .one_or_none()
             )
-            action_inserted = action_row is not None
             stored = (
-                _stored_action(action_row)
-                if action_row is not None
+                _stored_action(row)
+                if row is not None
                 else await _require_locked_action(connection, identifier)
             )
-            if (
-                _action_identity(stored)
-                != (
-                    tool_name,
-                    canonical_arguments,
-                    execution_contract,
-                    origin_message_id,
-                    None,
-                    timestamp,
-                )
-                or stored.approval_message_id != approval_message_id
+            if _action_identity(stored) != (
+                tool_name,
+                canonical_arguments,
+                execution_contract,
+                origin_message_id,
+                None,
+                timestamp,
             ):
                 raise ActionPersistenceDefect(
                     "action identity was reused for a different invocation"
                 )
-            if invocation_id is not None:
-                await _link_native_action(connection, invocation_id, identifier)
-            return ApprovalInsert(
-                action=stored,
-                message_id=approval_message_id,
-                action_inserted=action_inserted,
-                message_inserted=message_inserted,
-            )
-
-    async def pending_approvals(
-        self,
-        *,
-        source_conversation_id: str,
-        limit: int = 100,
-    ) -> tuple[StoredAction, ...]:
-        """Select approval rows whose persistent Discord views need restoring."""
-
-        if type(limit) is not int or limit <= 0:
-            raise ValueError("pending approval limit must be a positive integer")
-        if (
-            not source_conversation_id
-            or source_conversation_id != source_conversation_id.strip()
-        ):
-            raise ValueError("source conversation ID must be non-empty and canonical")
-        async with self.engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .where(
-                            action.c.status == "awaiting_approval",
-                            action.c.origin_message_id.in_(
-                                select(message.c.id).where(
-                                    message.c.source_conversation_id
-                                    == source_conversation_id
-                                )
-                            ),
-                        )
-                        .order_by(action.c.created_at, action.c.id)
-                        .limit(limit)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            stored = tuple(map(_stored_action, rows))
-            for value in stored:
-                assert value.approval_message_id is not None
-                await _require_approval_message(
-                    connection,
-                    approval_message_id=value.approval_message_id,
-                    source_conversation_id=source_conversation_id,
-                )
-        return stored
-
-    async def approved_not_entered(
-        self,
-        *,
-        limit: int = 100,
-    ) -> tuple[StoredAction, ...]:
-        """Select approved actions whose effectful executor was never entered."""
-
-        if type(limit) is not int or limit <= 0:
-            raise ValueError("approved action limit must be a positive integer")
-        async with self.engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .where(
-                            action.c.status == "executing",
-                            action.c.approval_message_id.is_not(None),
-                            action.c.decided_at.is_not(None),
-                            action.c.attempts == 0,
-                        )
-                        .order_by(action.c.decided_at, action.c.id)
-                        .limit(limit)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        return tuple(map(_stored_action, rows))
-
-    async def claim_approval(
-        self,
-        *,
-        action_id: UUID,
-        approval_message_id: UUID,
-        discord_message_id: str,
-        source_conversation_id: str,
-        decided_at: datetime | None = None,
-    ) -> ApprovalDecision:
-        """Atomically move one exactly related pending approval to execution."""
-
-        timestamp = decided_at or datetime.now(UTC)
-        _aware(timestamp, "approval decision time")
-        async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            await _require_approval_interaction(
-                connection,
-                stored=stored,
-                approval_message_id=approval_message_id,
-                discord_message_id=discord_message_id,
-                source_conversation_id=source_conversation_id,
-            )
-            if stored.status != "awaiting_approval":
-                return ApprovalDecision(stored, applied=False)
-            origin_state = await connection.scalar(
-                select(message.c.request_state).where(
-                    message.c.id == stored.origin_message_id
-                )
-            )
-            if origin_state not in {"pending", "waiting"}:
-                return ApprovalDecision(stored, applied=False)
-            stored = await _update_action(
-                connection,
-                action_id,
-                status="executing",
-                decided_at=timestamp,
-            )
-            return ApprovalDecision(stored, applied=True)
-
-    async def deny_approval(
-        self,
-        *,
-        action_id: UUID,
-        approval_message_id: UUID,
-        discord_message_id: str,
-        source_conversation_id: str,
-        decided_at: datetime | None = None,
-    ) -> ApprovalDecision:
-        """Atomically cancel one exactly related pending approval without execution."""
-
-        timestamp = decided_at or datetime.now(UTC)
-        _aware(timestamp, "approval decision time")
-        async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            await _require_approval_interaction(
-                connection,
-                stored=stored,
-                approval_message_id=approval_message_id,
-                discord_message_id=discord_message_id,
-                source_conversation_id=source_conversation_id,
-            )
-            if stored.status != "awaiting_approval":
-                return ApprovalDecision(stored, applied=False)
-            stored = await _update_action(
-                connection,
-                action_id,
-                status="cancelled",
-                decided_at=timestamp,
-                completed_at=timestamp,
-                result={
-                    "type": "approval_denied_v1",
-                    "reason_code": "owner_denied",
-                },
-            )
-            return ApprovalDecision(stored, applied=True)
+            await _link_native_action(connection, invocation_id, identifier)
+            return stored
 
     async def accepted_actions(
-        self, request_id: UUID, attempt_id: UUID
+        self, request_id: UUID
     ) -> tuple[tuple[StoredAction, ...], bool]:
         async with self.engine.connect() as connection:
+            ids = await causal_component_ids(connection, (request_id,))
             rows = (
                 (
                     await connection.execute(
                         select(action)
-                        .where(action.c.origin_message_id == request_id)
-                        .order_by(action.c.created_at.desc(), action.c.id)
+                        .where(action.c.origin_message_id.in_(ids))
+                        .order_by(action.c.created_at, action.c.id)
                     )
                 )
                 .mappings()
                 .all()
             )
-            old = await connection.scalar(
-                select(native_invocation.c.id)
-                .join(action, action.c.id == native_invocation.c.action_id)
-                .where(
-                    action.c.origin_message_id == request_id,
-                    native_invocation.c.attempt_id != attempt_id,
-                )
-                .limit(1)
+        actions = tuple(map(_stored_action, rows))
+        unknown = any(
+            stored.status == "uncertain"
+            or (
+                stored.attempts > 0
+                and stored.status == "executing"
+                and action_replay_result(stored) is None
             )
-        return tuple(map(_stored_action, rows)), old is not None
+            for stored in actions
+        )
+        return actions, unknown
 
     async def get(self, action_id: UUID) -> StoredAction | None:
         async with self.engine.connect() as connection:
@@ -728,43 +402,6 @@ class ActionStore:
                 .one_or_none()
             )
         return None if row is None else _stored_action(row)
-
-    async def get_by_approval_message(
-        self,
-        approval_message_id: UUID,
-    ) -> StoredAction | None:
-        """Resolve one approval outbox row through its unique internal relation."""
-
-        async with self.engine.connect() as connection:
-            row = (
-                (
-                    await connection.execute(
-                        select(action).where(
-                            action.c.approval_message_id == approval_message_id
-                        )
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if row is None:
-                return None
-            stored = _stored_action(row)
-            source_conversation_id = await connection.scalar(
-                select(message.c.source_conversation_id).where(
-                    message.c.id == stored.origin_message_id
-                )
-            )
-            if not isinstance(source_conversation_id, str):
-                raise ActionPersistenceDefect(
-                    "approval action origin message does not exist"
-                )
-            await _require_approval_message(
-                connection,
-                approval_message_id=approval_message_id,
-                source_conversation_id=source_conversation_id,
-            )
-            return stored
 
     async def gmail_draft_creation_action(
         self,
@@ -812,105 +449,34 @@ class ActionStore:
             )
         return None if not rows else cast(UUID, rows[0])
 
-    async def approval_discord_message_id(self, action_id: UUID) -> str:
-        """Return the exact delivered Discord message related to an approval."""
-
-        discord_message_id = await self.approval_discord_message_id_or_none(action_id)
-        if discord_message_id is None:
-            raise ActionPersistenceDefect(
-                "approval message has no canonical Discord delivery ID"
-            )
-        return discord_message_id
-
-    async def approval_discord_message_id_or_none(self, action_id: UUID) -> str | None:
-        """Return a validated delivery ID, or null for an undelivered approval."""
-
-        async with self.engine.connect() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            if stored.approval_message_id is None:
-                raise ActionPersistenceDefect("action has no approval message")
-            origin_conversation_id = await connection.scalar(
-                select(message.c.source_conversation_id).where(
-                    message.c.id == stored.origin_message_id
-                )
-            )
-            if not isinstance(origin_conversation_id, str):
-                raise ActionPersistenceDefect("approval action origin is missing")
-            row = await _require_approval_message(
-                connection,
-                approval_message_id=stored.approval_message_id,
-                source_conversation_id=origin_conversation_id,
-            )
-        discord_message_id = row["source_message_id"]
-        if discord_message_id is None:
-            return None
-        if (
-            not isinstance(discord_message_id, str)
-            or not discord_message_id.isascii()
-            or not discord_message_id.isdecimal()
-            or int(discord_message_id) <= 0
-            or str(int(discord_message_id)) != discord_message_id
-        ):
-            raise ActionPersistenceDefect(
-                "approval message has no canonical Discord delivery ID"
-            )
-        return discord_message_id
-
-    async def executing_schedule_receipts(
-        self, *, limit: int = 100
-    ) -> tuple[StoredAction, ...]:
-        if type(limit) is not int or limit <= 0:
-            raise ValueError("schedule recovery limit must be a positive integer")
-        async with self.engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .where(
-                            action.c.tool_name == "schedule.wake",
-                            action.c.status == "executing",
-                            action.c.result.op("?")("creation_receipt"),
-                            action.c.arguments["arguments"]["request"][
-                                "type"
-                            ].as_string()
-                            == "create",
-                        )
-                        .order_by(action.c.execute_after, action.c.id)
-                        .limit(limit)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        return tuple(map(_stored_action, rows))
-
     async def recovery_candidates(
         self, *, include_queued: bool = True, limit: int = 100
     ) -> tuple[StoredAction, ...]:
-        if type(include_queued) is not bool:
-            raise ValueError("queued recovery selection must be boolean")
-        if type(limit) is not int or limit <= 0:
-            raise ValueError("action recovery limit must be a positive integer")
-        statuses = ("queued", "executing") if include_queued else ("executing",)
         async with self.engine.connect() as connection:
             rows = (
                 (
                     await connection.execute(
                         select(action)
                         .where(
-                            action.c.status.in_(statuses),
-                            ~and_(
-                                action.c.tool_name == "agent.wait",
-                                action.c.result.is_not(None),
-                                action.c.result.op("?")("registration_receipt"),
-                            ),
                             or_(
-                                action.c.tool_name != "schedule.wake",
-                                action.c.result.is_(None),
-                                action.c.arguments["arguments"]["request"][
-                                    "type"
-                                ].as_string()
-                                != "create",
+                                action.c.status == "executing",
+                                and_(
+                                    literal(include_queued),
+                                    action.c.status == "queued",
+                                    action.c.origin_message_id.in_(
+                                        select(message.c.id).where(
+                                            message.c.request_state.in_(
+                                                ("pending", "waiting")
+                                            ),
+                                            message.c.processing_parked_at.is_(None),
+                                        )
+                                    ),
+                                ),
+                            ),
+                            ~(
+                                (action.c.tool_name == "agent.wait")
+                                & action.c.result.is_not(None)
+                                & action.c.result.op("?")("registration_receipt")
                             ),
                         )
                         .order_by(action.c.created_at, action.c.id)
@@ -931,203 +497,62 @@ class ActionStore:
     ) -> tuple[StoredAction, ...]:
         if type(limit) is not int or limit <= 0:
             raise ValueError("action report limit must be a positive integer")
-        if (
-            not source_conversation_id
-            or source_conversation_id != source_conversation_id.strip()
-        ):
-            raise ValueError("source conversation ID must be non-empty and canonical")
-        async with self.engine.connect() as connection:
-            revision = action.c.execution_contract[
-                "implementation_revision"
-            ].as_string()
-            retired = or_(
-                and_(
-                    action.c.tool_name.like("agent.%"),
-                    revision.in_(_RETIRED_AGENT_REVISIONS),
-                ),
-                and_(
-                    action.c.tool_name.like("codex.%"),
-                    revision.in_(_RETIRED_CODEX_REVISIONS),
-                ),
-            )
+        eligible = and_(
+            action.c.origin_message_id.in_(
+                select(message.c.id).where(
+                    message.c.source_conversation_id == source_conversation_id,
+                )
+            ),
+            action.c.status.in_(("succeeded", "failed", "uncertain", "cancelled")),
+            text(
+                "NOT EXISTS (SELECT 1 FROM message AS resolution "
+                "WHERE resolution.source = 'action' AND resolution.source_message_id "
+                "= action.id::text || ':' || action.status)"
+            ),
+            text(
+                "NOT EXISTS (SELECT 1 FROM native_invocation AS invocation "
+                "WHERE invocation.action_id = action.id AND "
+                "invocation.reply_receipt->>'type' = 'tool_result_ref')"
+            ),
+        )
+        revision = action.c.execution_contract["implementation_revision"].as_string()
+        retired_worker = or_(
+            and_(
+                action.c.tool_name.like("agent.%"),
+                revision.in_(_RETIRED_AGENT_REVISIONS),
+            ),
+            and_(
+                action.c.tool_name.like("codex.%"),
+                revision.in_(_RETIRED_CODEX_REVISIONS),
+            ),
+        )
+        if retired_only:
             eligible = and_(
-                action.c.origin_message_id.in_(
-                    select(message.c.id).where(
-                        message.c.source_conversation_id == source_conversation_id
-                    )
-                ),
+                eligible,
                 or_(
-                    and_(
-                        action.c.tool_name == "agent.wait",
-                        action.c.status == "queued",
-                        action.c.result.op("?")("registration_receipt"),
-                    ),
-                    and_(
-                        action.c.status.in_(
-                            (
-                                "succeeded",
-                                "failed",
-                                "uncertain",
-                                "cancelled",
-                            )
-                        ),
-                        or_(
-                            action.c.tool_name != "schedule.wake",
-                            action.c.arguments["arguments"]["request"][
-                                "type"
-                            ].as_string()
-                            != "create",
-                            ~action.c.result.op("?")("creation_receipt"),
-                            and_(
-                                action.c.result["wake_outcome"]["type"].as_string()
-                                == "failed",
-                                action.c.result["wake_outcome"][
-                                    "reason_code"
-                                ].as_string()
-                                == "incompatible_execution_contract",
-                                text(
-                                    "NOT EXISTS ("
-                                    "SELECT 1 FROM message AS wake "
-                                    "WHERE wake.source = 'schedule_wake' "
-                                    "AND wake.source_message_id = "
-                                    "action.id::text)"
-                                ),
-                            ),
-                        ),
-                    ),
-                    (
-                        (action.c.tool_name == "schedule.wake")
-                        & (action.c.status == "queued")
-                        & action.c.result.is_not(None)
-                        & (
-                            action.c.arguments["arguments"]["request"][
-                                "type"
-                            ].as_string()
-                            == "create"
-                        )
-                    ),
-                ),
-                text(
-                    "(NOT EXISTS ("
-                    "SELECT 1 FROM message AS resolution "
-                    "WHERE resolution.source = 'action' "
-                    "AND resolution.source_message_id = "
-                    "action.id::text || ':' || action.status) "
-                    "OR (action.tool_name = 'agent.wait' AND EXISTS ("
-                    "SELECT 1 FROM jsonb_array_elements_text("
-                    "action.execution_contract->'input_message_ids'"
-                    ") AS wait_input(value) JOIN message AS input "
-                    "ON input.id::text = wait_input.value "
-                    "WHERE input.processed_at IS NULL)))"
-                ),
-                text(
-                    "NOT EXISTS (SELECT 1 FROM native_invocation AS invocation "
-                    "WHERE invocation.action_id = action.id "
-                    "AND invocation.reply_receipt->>'type' = 'tool_result_ref')"
+                    action.c.execution_contract["schema_version"].as_string().is_(None),
+                    retired_worker,
                 ),
             )
+        async with self.engine.connect() as connection:
             delivered = await _delivered_archived_actions(
-                connection, source_conversation_id, and_(eligible, retired)
+                connection, source_conversation_id, and_(eligible, retired_worker)
             )
             if delivered:
                 eligible = and_(eligible, action.c.id.not_in(delivered))
-            if retired_only:
-                eligible = and_(
-                    eligible,
-                    action.c.status.in_(
-                        ("succeeded", "failed", "uncertain", "cancelled")
-                    ),
-                    retired,
-                )
-            claim_id = await connection.scalar(
-                select(action.c.execution_contract["claim_id"].as_string())
-                .where(eligible)
-                .order_by(action.c.completed_at.desc(), action.c.id)
-                .limit(1)
-            )
-            if claim_id is None:
-                return ()
             rows = (
                 (
                     await connection.execute(
                         select(action)
-                        .where(
-                            eligible,
-                            action.c.execution_contract["claim_id"].as_string()
-                            == claim_id,
-                        )
-                        .order_by(action.c.completed_at.desc(), action.c.id)
-                        .limit(limit + 1)
+                        .where(eligible)
+                        .order_by(action.c.completed_at, action.c.id)
+                        .limit(limit)
                     )
                 )
                 .mappings()
                 .all()
-            )
-        if len(rows) > limit:
-            raise ActionPersistenceDefect(
-                "one recovered claim exceeds the action report bound"
             )
         return tuple(map(_stored_action, rows))
-
-    async def schedule_target(self, action_id: UUID) -> ScheduleTarget:
-        from jarvis.schedule_tools import (
-            ScheduleCreateRequest,
-            ScheduleTarget,
-            ScheduleWakeInput,
-        )
-
-        stored = await self.get(action_id)
-        if stored is None:
-            return ScheduleTarget(exists=False, is_schedule_create=False, status=None)
-        if str(stored.tool_name) != "schedule.wake":
-            return ScheduleTarget(
-                exists=True,
-                is_schedule_create=False,
-                status=stored.status,
-            )
-        try:
-            request = ScheduleWakeInput.model_validate(stored.payload).request
-        except ValueError as exc:
-            raise ActionPersistenceDefect(
-                "stored schedule arguments are invalid"
-            ) from exc
-        return ScheduleTarget(
-            exists=True,
-            is_schedule_create=isinstance(request, ScheduleCreateRequest),
-            status=stored.status,
-        )
-
-    async def schedule_arguments_digest(self, action_id: UUID) -> str:
-        stored = await self.get(action_id)
-        if stored is None or stored.tool_name != ToolId("schedule.wake"):
-            raise ActionPersistenceDefect("schedule lacks its admitted action")
-        return stored.execution_contract.input_digest
-
-    async def next_due_at(self) -> datetime | None:
-        async with self.engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .where(
-                            action.c.tool_name == "schedule.wake",
-                            action.c.status == "queued",
-                            action.c.execute_after.is_not(None),
-                            action.c.result.is_not(None),
-                        )
-                        .order_by(action.c.execute_after, action.c.id)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        for row in rows:
-            stored = _stored_action(row)
-            if _is_schedule_create(stored):
-                _schedule_result(stored)
-                assert stored.execute_after is not None
-                return stored.execute_after
-        return None
 
     async def stage_gmail_update_basis(
         self,
@@ -1243,13 +668,20 @@ class ActionStore:
             type(actual_external_attempts) is not int
             or actual_external_attempts < 0
             or type(max_external_attempts) is not int
-            or max_external_attempts <= 0
+            or max_external_attempts < 0
         ):
             raise ValueError("external attempt accounting is invalid")
         async with self.engine.begin() as connection:
             stored = await _require_locked_action(connection, action_id)
             if stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
                 raise ActionPersistenceDefect("BilledOnce work is never readmitted")
+            if max_external_attempts == 0 and (
+                stored.tool_name not in AGENT_LOCAL_IDS
+                or action_replay_result(stored) is not None
+            ):
+                raise ActionPersistenceDefect(
+                    "zero-attempt recovery requires an absent local receipt"
+                )
             if stored.status != "executing":
                 raise ActionPersistenceDefect(
                     "only an executing action can be reconciled for repeat"
@@ -1257,10 +689,6 @@ class ActionStore:
             if stored.attempts >= stored.execution_contract.max_attempts:
                 raise ActionPersistenceDefect(
                     "action attempt ceiling forbids another executor entry"
-                )
-            if _is_schedule_create(stored):
-                raise ActionPersistenceDefect(
-                    "local schedule lifecycle cannot use external readmission"
                 )
             cumulative_attempts = (
                 _recovery_external_attempts(stored) + actual_external_attempts
@@ -1280,25 +708,6 @@ class ActionStore:
                     "reconciliation_basis": _reconciliation_basis(stored.result),
                 },
             )
-
-    async def requeue_local_schedule(self, action_id: UUID) -> StoredAction:
-        async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            if str(stored.tool_name) not in {
-                "schedule.wake",
-                "agent.wait",
-                "agent.cancel_wait",
-            }:
-                raise ActionPersistenceDefect("action is not a local schedule")
-            if stored.status != "executing" or stored.result is not None:
-                raise ActionPersistenceDefect(
-                    "local schedule is not safely re-executable"
-                )
-            if stored.attempts >= stored.execution_contract.max_attempts:
-                raise ActionPersistenceDefect(
-                    "local schedule action attempt ceiling is exhausted"
-                )
-            return await _update_action(connection, action_id, status="queued")
 
     async def resolve_reconciliation(
         self,
@@ -1388,294 +797,29 @@ class ActionStore:
                 result=canonical_result,
             )
 
-    async def claim_due_schedule(
+    async def publish_outcomes(
         self,
         *,
-        action_id: UUID,
-        plan: FrozenToolPlan,
+        action_ids: tuple[UUID, ...],
         source_conversation_id: str,
-        now: datetime | None = None,
-    ) -> ClaimedSchedule | None:
-        timestamp = now or datetime.now(UTC)
-        _aware(timestamp, "schedule claim time")
-        if (
-            not source_conversation_id
-            or source_conversation_id != source_conversation_id.strip()
-        ):
-            raise ValueError("source conversation ID must be non-empty and canonical")
-        async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            _require_schedule_creation(stored)
-            if stored.status not in {"queued", "executing"}:
-                raise ActionPersistenceDefect("schedule is no longer queued")
-            if stored.execute_after is None or stored.execute_after > timestamp:
-                raise ActionPersistenceDefect("schedule is not due")
-            _schedule_result(stored)
-            try:
-                _require_current_execution_contract(stored, plan)
-            except ActionPersistenceDefect:
-                await _fail_incompatible_schedule_in_transaction(
-                    connection,
-                    stored=stored,
-                    source_conversation_id=source_conversation_id,
-                    recorded_at=timestamp,
-                )
-                return None
-            request = _schedule_request(stored)
-            instruction = request.get("instruction")
-            requested = request.get("execute_after")
-            if (
-                not isinstance(instruction, str)
-                or not instruction
-                or not isinstance(requested, str)
-                or _iso_datetime(requested, "schedule requested instant")
-                != stored.execute_after
-            ):
-                raise ActionPersistenceDefect("schedule creation arguments are invalid")
-            waking_text = f"Requested reminder at {requested}: {instruction}"
-            waking_id = uuid5(
-                NAMESPACE_URL,
-                f"jarvis-scheduled-wake-v1:{stored.id}",
-            )
-            inserted = (
-                await connection.execute(
-                    postgresql_insert(message)
-                    .values(
-                        id=waking_id,
-                        role="host",
-                        text=waking_text,
-                        source="schedule_wake",
-                        source_conversation_id=source_conversation_id,
-                        source_message_id=str(stored.id),
-                        created_at=timestamp,
-                        processed_at=None,
-                        processing_attempts=0,
-                        processing_parked_at=None,
-                        memory_admitted=memory_is_admitted(connection),
-                        trace={},
-                    )
-                    .on_conflict_do_nothing(constraint="uq_message_source_identity")
-                    .returning(message.c.id)
-                )
-            ).scalar_one_or_none() is not None
-            if not inserted:
-                existing = (
-                    (
-                        await connection.execute(
-                            select(message).where(
-                                message.c.source == "schedule_wake",
-                                message.c.source_message_id == str(stored.id),
-                            )
-                        )
-                    )
-                    .mappings()
-                    .one()
-                )
-                identity = (
-                    existing["id"],
-                    existing["role"],
-                    existing["text"],
-                    existing["source_conversation_id"],
-                )
-                if identity != (
-                    waking_id,
-                    "host",
-                    waking_text,
-                    source_conversation_id,
-                ):
-                    raise ActionPersistenceDefect(
-                        "scheduled-wake identity has different content"
-                    )
-            if stored.status == "queued":
-                stored = await _update_action(
-                    connection,
-                    action_id,
-                    status="executing",
-                )
-            return ClaimedSchedule(stored, waking_id, inserted)
-
-    async def claim_next_due_schedule(
-        self,
-        *,
-        plan: FrozenToolPlan,
-        source_conversation_id: str,
-        now: datetime | None = None,
-    ) -> ClaimedSchedule | ScheduleStateChanged | None:
-        timestamp = now or datetime.now(UTC)
-        _aware(timestamp, "schedule selection time")
-        async with self.engine.connect() as connection:
-            identifiers = tuple(
-                (
-                    await connection.execute(
-                        select(action.c.id)
-                        .where(
-                            action.c.tool_name == "schedule.wake",
-                            action.c.status == "queued",
-                            action.c.execute_after <= timestamp,
-                            action.c.result.is_not(None),
-                        )
-                        .order_by(action.c.execute_after, action.c.id)
-                        .limit(10)
-                    )
-                ).scalars()
-            )
-        for action_id in identifiers:
-            stored = await self.get(action_id)
-            if stored is not None and _is_schedule_create(stored):
-                claimed = await self.claim_due_schedule(
-                    action_id=action_id,
-                    plan=plan,
-                    source_conversation_id=source_conversation_id,
-                    now=timestamp,
-                )
-                if claimed is not None:
-                    return claimed
-                changed = await self.get(action_id)
-                if changed is None or changed.status != "failed":
-                    raise ActionPersistenceDefect(
-                        "due schedule changed without a durable failure"
-                    )
-                return ScheduleStateChanged(changed)
-        return None
-
-    async def fail_incompatible_schedule(
-        self,
-        *,
-        action_id: UUID,
-        source_conversation_id: str,
-        recorded_at: datetime | None = None,
-    ) -> StoredAction:
-        timestamp = recorded_at or datetime.now(UTC)
-        _aware(timestamp, "incompatible schedule failure time")
-        if (
-            not source_conversation_id
-            or source_conversation_id != source_conversation_id.strip()
-        ):
-            raise ValueError("source conversation ID must be non-empty and canonical")
-        async with self.engine.begin() as connection:
-            stored = await _require_locked_action(connection, action_id)
-            return await _fail_incompatible_schedule_in_transaction(
-                connection,
-                stored=stored,
-                source_conversation_id=source_conversation_id,
-                recorded_at=timestamp,
-            )
-
-    async def finish_recovered_origins(
-        self,
-        *,
-        reports: tuple[tuple[UUID, str], ...],
-        source_conversation_id: str,
-        created_at: datetime | None = None,
     ) -> tuple[ResolutionInsert, ...]:
-        """Commit new canonical action facts; they never complete owner intent."""
+        """Publish durable outcomes without settling requests."""
         if (
-            not reports
-            or len(reports) > 100
-            or len({item[0] for item in reports}) != len(reports)
+            not action_ids
+            or len(action_ids) > 100
+            or len(set(action_ids)) != len(action_ids)
         ):
             raise ValueError("action resolution batch must be unique and bounded")
-        timestamp = created_at or datetime.now(UTC)
-        _aware(timestamp, "action resolution time")
         results: list[ResolutionInsert] = []
         async with self.engine.begin() as connection:
             await lock_conversation(connection, source_conversation_id)
-            origins = tuple(
-                (
-                    await connection.execute(
-                        select(action.c.origin_message_id).where(
-                            action.c.id.in_(tuple(item[0] for item in reports))
-                        )
-                    )
-                ).scalars()
-            )
-            await connection.execute(
-                select(message.c.id)
-                .where(message.c.id.in_(origins))
-                .order_by(message.c.id)
-                .with_for_update()
-            )
-            for identifier, content in reports:
+            for identifier in action_ids:
                 stored = await _require_locked_action(connection, identifier)
-                if stored.status not in {
-                    "succeeded",
-                    "failed",
-                    "uncertain",
-                    "cancelled",
-                } and not (
-                    stored.result is not None
-                    and (
-                        _is_schedule_create(stored)
-                        or (
-                            stored.tool_name == ToolId("agent.wait")
-                            and "registration_receipt" in stored.result
-                        )
+                results.append(
+                    await _publish_action_outcome(
+                        connection, stored, source_conversation_id
                     )
-                ):
-                    raise ActionPersistenceDefect("action has no recorded resolution")
-                if (
-                    stored.tool_name == ToolId("agent.wait")
-                    and stored.result is not None
-                    and "registration_receipt" in stored.result
-                ):
-                    # Observation may settle after the caller reads its snapshot.
-                    from jarvis.write_dispatch import action_resolution_text
-
-                    content = action_resolution_text(stored)
-                if not content or len(content.encode()) > _MAX_RESOLUTION_TEXT_BYTES:
-                    raise ValueError("action resolution exceeds its content bound")
-                source_id = f"{identifier}:{stored.status}"
-                message_id = uuid5(
-                    NAMESPACE_URL, f"jarvis-action-resolution-v1:{source_id}"
                 )
-                inserted = (
-                    await connection.execute(
-                        postgresql_insert(message)
-                        .values(
-                            id=message_id,
-                            role="host",
-                            text=content,
-                            source="action",
-                            memory_admitted=memory_is_admitted(connection),
-                            source_conversation_id=source_conversation_id,
-                            source_message_id=source_id,
-                            created_at=timestamp,
-                            trace={
-                                "action_id": str(identifier),
-                                "origin_request_id": str(stored.origin_message_id),
-                                "status": stored.status,
-                            },
-                        )
-                        .on_conflict_do_nothing(constraint="uq_message_source_identity")
-                        .returning(message.c.id)
-                    )
-                ).scalar_one_or_none() is not None
-                if not inserted:
-                    old = (
-                        (
-                            await connection.execute(
-                                select(message).where(message.c.id == message_id)
-                            )
-                        )
-                        .mappings()
-                        .one()
-                    )
-                    if (
-                        old["text"] != content
-                        or old["source_conversation_id"] != source_conversation_id
-                    ):
-                        raise ActionPersistenceDefect(
-                            "action resolution identity changed"
-                        )
-                await connection.execute(
-                    update(message)
-                    .where(
-                        message.c.id == stored.origin_message_id,
-                        message.c.request_state == "waiting",
-                    )
-                    .values(request_state="pending", wait_reason=None)
-                )
-                results.append(ResolutionInsert(message_id, inserted))
         return tuple(results)
 
     async def active_agent_waits(self) -> tuple[StoredAction, ...]:
@@ -1720,7 +864,7 @@ class ActionStore:
                 completed_at=outcome.recorded_at,
                 result=updated.model_dump(mode="json"),
             )
-            await _publish_agent_wait_event(connection, settled, source_conversation_id)
+            await _publish_action_outcome(connection, settled, source_conversation_id)
             return True
 
     async def cancel_agent_wait(
@@ -1780,7 +924,7 @@ class ActionStore:
                 completed_at=now,
                 result=updated.model_dump(mode="json"),
             )
-            await _publish_agent_wait_event(connection, settled, source_conversation_id)
+            await _publish_action_outcome(connection, settled, source_conversation_id)
             receipt = AgentCancelWaitResult(action_id=action_id, outcome="cancelled")
             await _update_action(
                 connection,
@@ -1814,7 +958,7 @@ class ActionStore:
                 .all()
             )
             for row in rows:
-                await _publish_agent_wait_event(
+                await _publish_action_outcome(
                     connection, _stored_action(row), source_conversation_id
                 )
             return len(rows)
@@ -1830,19 +974,15 @@ class ActionPositionRecorder:
         action_id: UUID,
         implementation_revision: str,
         max_external_attempts: int,
-        preclaimed_approval: bool = False,
     ) -> None:
         if not implementation_revision:
             raise ValueError("implementation revision must not be empty")
-        if type(max_external_attempts) is not int or max_external_attempts <= 0:
-            raise ValueError("maximum external attempts must be a positive integer")
-        if type(preclaimed_approval) is not bool:
-            raise ValueError("preclaimed approval marker must be boolean")
+        if type(max_external_attempts) is not int or max_external_attempts < 0:
+            raise ValueError("maximum external attempts must be a nonnegative integer")
         self._store = store
         self._action_id = action_id
         self._implementation_revision = implementation_revision
         self._max_external_attempts = max_external_attempts
-        self._preclaimed_approval = preclaimed_approval
         self._reservation: Reservation | None = None
         self._reservation_accepted: bool | None = None
         self._settlement: Settlement | None = None
@@ -1882,21 +1022,9 @@ class ActionPositionRecorder:
                 False,
                 _recovery_external_attempts(stored),
             )
-        approved_not_entered = (
-            stored.status == "executing"
-            and stored.approval_message_id is not None
-            and stored.decided_at is not None
-            and stored.attempts == 0
-        )
-        if self._preclaimed_approval and not approved_not_entered:
-            raise ValueError("action is not the newly preclaimed approval")
         return PositionState(
             None,
-            stored.status == "uncertain"
-            or (
-                stored.status == "executing"
-                and not (self._preclaimed_approval and approved_not_entered)
-            ),
+            stored.status in {"executing", "uncertain"},
             _recovery_external_attempts(stored),
         )
 
@@ -1943,31 +1071,36 @@ class ActionPositionRecorder:
                     False,
                     _recovery_external_attempts(stored),
                 )
-            approved_not_entered = (
-                self._preclaimed_approval
-                and stored.status == "executing"
-                and stored.approval_message_id is not None
-                and stored.decided_at is not None
-                and stored.attempts == 0
-            )
-            if self._preclaimed_approval and not approved_not_entered:
-                raise ValueError("action is not the newly preclaimed approval")
-            if stored.status in {"executing", "uncertain"} and not (
-                approved_not_entered
-            ):
-                return PositionState(
-                    None,
-                    True,
-                    _recovery_external_attempts(stored),
-                )
-            if stored.status != "queued" and not approved_not_entered:
+            if stored.status in {"executing", "uncertain"}:
+                return PositionState(None, True, _recovery_external_attempts(stored))
+            if stored.status != "queued":
                 raise ValueError("action is not eligible for executor entry")
-            origin_state = await connection.scalar(
-                select(message.c.request_state).where(
-                    message.c.id == stored.origin_message_id
+            origin = (
+                (
+                    await connection.execute(
+                        select(message).where(message.c.id == stored.origin_message_id)
+                    )
                 )
+                .mappings()
+                .one()
             )
-            if origin_state not in {"pending", "waiting"}:
+            paused = await connection.scalar(
+                select(message.c.control_kind)
+                .where(
+                    message.c.source_conversation_id
+                    == origin["source_conversation_id"],
+                    message.c.control_kind.is_not(None),
+                )
+                .order_by(message.c.control_sequence.desc())
+                .limit(1)
+            )
+            if (
+                origin["role"] not in {"owner", "host"}
+                or origin["control_kind"] is not None
+                or origin["request_state"] not in {"pending", "waiting"}
+                or origin["processing_parked_at"] is not None
+                or paused == "pause"
+            ):
                 raise RecoveryRequired(
                     "originating request no longer authorizes action entry"
                 )
@@ -2110,10 +1243,6 @@ class ActionPositionRecorder:
                         mode="json"
                     ),
                 )
-            elif _is_schedule_create(stored) and canonical_result["type"] == "Success":
-                await _store_schedule_creation(connection, stored, canonical_result)
-            elif _is_schedule_cancel(stored) and canonical_result["type"] == "Success":
-                await _store_schedule_cancellation(connection, stored, canonical_result)
             else:
                 await _update_action(
                     connection,
@@ -2180,227 +1309,6 @@ class ActionPositionRecorder:
             raise ValueError("action ID must be the exact invocation position")
 
 
-async def finish_schedule_conclusion(
-    connection: AsyncConnection,
-    *,
-    action_id: UUID,
-    conclusion_message_id: UUID,
-    recorded_at: datetime,
-) -> StoredAction:
-    _aware(recorded_at, "schedule conclusion time")
-    outcome: dict[str, object] = {
-        "type": "concluded",
-        "conclusion_message_id": str(conclusion_message_id),
-        "recorded_at": recorded_at.isoformat(),
-    }
-    stored = await _require_locked_action(connection, action_id)
-    _require_schedule_creation(stored)
-    if stored.status in {"succeeded", "failed"}:
-        existing = _schedule_result(stored)
-        if stored.status != "succeeded" or existing["wake_outcome"] != outcome:
-            raise ActionPersistenceDefect("schedule outcome changed")
-        return stored
-    if stored.status != "executing":
-        raise ActionPersistenceDefect("only a claimed schedule can finish")
-    result = _schedule_result(stored)
-    result["wake_outcome"] = outcome
-    return await _update_action(
-        connection,
-        action_id,
-        status="succeeded",
-        completed_at=recorded_at,
-        result=result,
-    )
-
-
-async def _fail_incompatible_schedule_in_transaction(
-    connection: AsyncConnection,
-    *,
-    stored: StoredAction,
-    source_conversation_id: str,
-    recorded_at: datetime,
-) -> StoredAction:
-    _require_schedule_creation(stored)
-    if stored.status not in {"queued", "executing"}:
-        raise ActionPersistenceDefect(
-            "only an active schedule can fail compatibility validation"
-        )
-    result = _schedule_result(stored)
-    waking = (
-        (
-            await connection.execute(
-                select(message)
-                .where(
-                    message.c.source == "schedule_wake",
-                    message.c.source_message_id == str(stored.id),
-                )
-                .with_for_update()
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    if stored.status == "queued":
-        if waking is not None:
-            raise ActionPersistenceDefect(
-                "queued schedule unexpectedly has a waking message"
-            )
-    else:
-        if waking is None:
-            raise ActionPersistenceDefect(
-                "executing schedule is missing its waking message"
-            )
-        if (
-            waking["role"] != "host"
-            or waking["source_conversation_id"] != source_conversation_id
-            or waking["processed_at"] is not None
-            or waking["processing_parked_at"] is not None
-        ):
-            raise ActionPersistenceDefect(
-                "executing schedule has an incompatible waking message"
-            )
-        request = _schedule_request(stored)
-        requested = request.get("execute_after")
-        instruction = request.get("instruction")
-        if not isinstance(requested, str) or not isinstance(instruction, str):
-            raise ActionPersistenceDefect("schedule creation arguments are invalid")
-        prefix = (
-            f"Reminder at {requested} was not run because its stored execution "
-            "contract is incompatible with this deployment. No stale model or "
-            "tool call was made. Requested instruction: "
-        )
-        available = MAX_DISCORD_MESSAGE_CHARACTERS - len(prefix)
-        if available <= 1:
-            raise AssertionError("incompatible schedule fallback prefix is too long")
-        fallback_text = (
-            prefix + instruction
-            if len(instruction) <= available
-            else prefix + instruction[: available - 1] + "…"
-        )
-        conclusion_id = uuid5(
-            NAMESPACE_URL,
-            f"jarvis-incompatible-scheduled-wake-v1:{stored.id}",
-        )
-        settlement = SettlementTrace(
-            run_id=f"schedule-incompatible:{stored.id}",
-            through_checkpoint=str(waking["id"]),
-            conclusion_kind="conversation",
-            outcome="host_fallback",
-        ).as_json(conclusion_id)
-        if len(canonical_json_bytes({"settlement": settlement})) > MAX_TRACE_BYTES:
-            raise ActionPersistenceDefect(
-                "incompatible schedule settlement exceeds the trace bound"
-            )
-        await connection.execute(
-            postgresql_insert(message).values(
-                id=conclusion_id,
-                role="assistant",
-                text=fallback_text,
-                source="discord",
-                source_conversation_id=source_conversation_id,
-                source_message_id=None,
-                created_at=recorded_at,
-                processed_at=recorded_at,
-                processing_attempts=0,
-                processing_parked_at=None,
-                memory_admitted=memory_is_admitted(connection),
-                trace={},
-            )
-        )
-        await connection.execute(
-            update(message)
-            .where(message.c.id == waking["id"])
-            .values(
-                processed_at=recorded_at,
-                trace=message.c.trace.concat({"settlement": settlement}),
-            )
-        )
-    result["wake_outcome"] = {
-        "type": "failed",
-        "reason_code": "incompatible_execution_contract",
-        "recorded_at": recorded_at.isoformat(),
-    }
-    return await _update_action(
-        connection,
-        stored.id,
-        status="failed",
-        completed_at=recorded_at,
-        result=result,
-    )
-
-
-async def _store_schedule_creation(
-    connection: AsyncConnection,
-    stored: StoredAction,
-    result: ToolResult,
-) -> None:
-    value = _success_value(result)
-    expected = {"type", "action_id", "execute_after", "arguments_digest", "recorded_at"}
-    if set(value) != expected or value.get("type") != "created":
-        raise ValueError("schedule creation returned an invalid receipt")
-    receipt = {key: value[key] for key in expected - {"type"}}
-    if _canonical_uuid_value(receipt["action_id"], "schedule action") != str(stored.id):
-        raise ValueError("schedule receipt has a different action ID")
-    execute_after = _iso_datetime(receipt["execute_after"], "schedule execute_after")
-    _iso_datetime(receipt["recorded_at"], "schedule recorded_at")
-    if stored.execute_after != execute_after:
-        raise ValueError("schedule receipt has a different due time")
-    if receipt["arguments_digest"] != stored.execution_contract.input_digest:
-        raise ValueError("schedule receipt has a different argument digest")
-    await _update_action(
-        connection,
-        stored.id,
-        status="queued",
-        completed_at=None,
-        result={"creation_receipt": receipt, "wake_outcome": None},
-    )
-
-
-async def _store_schedule_cancellation(
-    connection: AsyncConnection,
-    cancellation: StoredAction,
-    result: ToolResult,
-) -> None:
-    value = _success_value(result)
-    expected = {"type", "target_action_id", "recorded_at"}
-    if set(value) != expected or value.get("type") != "cancelled":
-        raise ValueError("schedule cancellation returned an invalid receipt")
-    request = _schedule_request(cancellation)
-    target_id = UUID(
-        _canonical_uuid_value(value["target_action_id"], "schedule target")
-    )
-    if request.get("target_action_id") != str(target_id):
-        raise ValueError("schedule cancellation receipt changed its target")
-    recorded_at = _iso_datetime(value["recorded_at"], "schedule cancellation time")
-    target = await _require_locked_action(connection, target_id)
-    _require_schedule_creation(target)
-    if target.status != "queued":
-        raise ActionPersistenceDefect(
-            "schedule cancellation target is no longer queued"
-        )
-    target_result = _schedule_result(target)
-    target_result["wake_outcome"] = {
-        "type": "cancelled",
-        "cancellation_action_id": str(cancellation.id),
-        "recorded_at": recorded_at.isoformat(),
-    }
-    await _update_action(
-        connection,
-        target.id,
-        status="cancelled",
-        decided_at=recorded_at,
-        completed_at=recorded_at,
-        result=target_result,
-    )
-    await _update_action(
-        connection,
-        cancellation.id,
-        status="succeeded",
-        completed_at=recorded_at,
-        result=result,
-    )
-
-
 async def _locked_action(
     connection: AsyncConnection, action_id: UUID
 ) -> StoredAction | None:
@@ -2421,7 +1329,12 @@ async def _locked_action(
     contract = _common_execution_envelope(origin.execution_contract)
     await connection.execute(
         select(message.c.id)
-        .where(message.c.id.in_(tuple(map(UUID, contract.input_message_ids))))
+        .where(
+            or_(
+                message.c.id.in_(tuple(map(UUID, contract.input_message_ids))),
+                message.c.trace["waiting_action_ids"].contains([str(action_id)]),
+            )
+        )
         .order_by(message.c.id)
         .with_for_update()
     )
@@ -2461,7 +1374,7 @@ async def _lock_new_action(
     connection: AsyncConnection,
     origin_id: UUID,
     contract: ExecutionContract,
-    invocation_id: UUID | None,
+    invocation_id: UUID,
 ) -> None:
     scope = await connection.scalar(
         select(message.c.source_conversation_id).where(message.c.id == origin_id)
@@ -2484,50 +1397,102 @@ async def _lock_new_action(
     origin = next((row for row in inputs if row["id"] == origin_id), None)
     if (
         origin is None
-        or origin["role"] != "owner"
+        or origin["role"] not in {"owner", "host"}
         or origin["request_state"] not in {"pending", "waiting"}
+        or origin["processing_parked_at"] is not None
+        or origin["control_kind"] is not None
     ):
-        raise ActionPersistenceDefect("action origin no longer grants owner intent")
-    if any(row["source_conversation_id"] != scope for row in inputs):
+        raise ActionPersistenceDefect(
+            "action origin is no longer a live waking request"
+        )
+    if len(inputs) != len(contract.input_message_ids) or any(
+        row["source_conversation_id"] != scope for row in inputs
+    ):
         raise ActionPersistenceDefect("action input scope changed")
-    if invocation_id is not None:
-        attempt_id = await connection.scalar(
-            select(native_invocation.c.attempt_id).where(
-                native_invocation.c.id == invocation_id
+    paused = await connection.scalar(
+        select(message.c.control_kind)
+        .where(
+            message.c.source_conversation_id == scope,
+            message.c.control_kind.is_not(None),
+        )
+        .order_by(message.c.control_sequence.desc())
+        .limit(1)
+    )
+    if paused == "pause":
+        raise ActionPersistenceDefect("paused conversation cannot admit actions")
+    component = await causal_component_ids(connection, (origin_id,))
+    unknown = await connection.scalar(
+        select(action.c.id)
+        .where(
+            action.c.origin_message_id.in_(component),
+            or_(
+                action.c.status == "uncertain",
+                and_(
+                    action.c.status == "executing",
+                    action.c.attempts > 0,
+                    ~(
+                        (action.c.tool_name == "agent.wait")
+                        & action.c.result.is_not(None)
+                        & action.c.result.op("?")("registration_receipt")
+                    ),
+                ),
+            ),
+        )
+        .limit(1)
+    )
+    if unknown is not None:
+        raise ActionPersistenceDefect("causal component has an unknown effect")
+    attempt_id = await connection.scalar(
+        select(native_invocation.c.attempt_id).where(
+            native_invocation.c.id == invocation_id
+        )
+    )
+    attempt = (
+        (
+            await connection.execute(
+                select(native_attempt)
+                .where(native_attempt.c.id == attempt_id)
+                .with_for_update()
             )
         )
-        attempt = (
-            (
-                await connection.execute(
-                    select(native_attempt)
-                    .where(native_attempt.c.id == attempt_id)
-                    .with_for_update()
-                )
+        .mappings()
+        .one()
+    )
+    invocation = (
+        (
+            await connection.execute(
+                select(native_invocation)
+                .where(native_invocation.c.id == invocation_id)
+                .with_for_update()
             )
-            .mappings()
-            .one()
         )
-        invocation = (
-            (
-                await connection.execute(
-                    select(native_invocation)
-                    .where(native_invocation.c.id == invocation_id)
-                    .with_for_update()
-                )
-            )
-            .mappings()
-            .one()
+        .mappings()
+        .one()
+    )
+    if (
+        attempt["fenced_at"] is not None
+        or attempt["terminal"] is not None
+        or attempt["product_outcome"] is not None
+        or invocation["request_message_id"] != origin_id
+        or contract.claim_id != str(attempt_id)
+        or contract.model_step_ordinal != invocation["ordinal"]
+        or invocation["validation"] != "accepted"
+        or tuple(invocation["proposal"]["input_ids"]) != contract.input_message_ids
+    ):
+        raise ActionPersistenceDefect(
+            "native callback lost action acceptance authority"
         )
-        if (
-            attempt["fenced_at"] is not None
-            or attempt["product_outcome"] is not None
-            or invocation["request_message_id"] != origin_id
-            or contract.claim_id != str(attempt_id)
-            or contract.model_step_ordinal != invocation["ordinal"]
-        ):
-            raise ActionPersistenceDefect(
-                "native callback lost action acceptance authority"
-            )
+    delivered = await connection.scalar(
+        select(native_input_delivery.c.message_id).where(
+            native_input_delivery.c.attempt_id == attempt_id,
+            native_input_delivery.c.message_id == origin_id,
+            native_input_delivery.c.state.in_(("sent", "queued", "recorded")),
+        )
+    )
+    if delivered is None:
+        raise ActionPersistenceDefect(
+            "action origin was not delivered to its native attempt"
+        )
 
 
 async def _link_native_action(
@@ -2556,79 +1521,6 @@ async def _require_locked_action(
     return stored
 
 
-async def _require_approval_message(
-    connection: AsyncConnection,
-    *,
-    approval_message_id: UUID,
-    source_conversation_id: str,
-    approval_text: str | None = None,
-    created_at: datetime | None = None,
-    discord_message_id: str | None = None,
-) -> RowMapping:
-    row = (
-        (
-            await connection.execute(
-                select(message)
-                .where(message.c.id == approval_message_id)
-                .with_for_update()
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    if row is None:
-        raise ActionPersistenceDefect("approval message does not exist")
-    if (
-        row["role"] != "assistant"
-        or row["source"] != "discord"
-        or row["source_conversation_id"] != source_conversation_id
-        or row["processed_at"] is None
-        or row["processing_attempts"] != 0
-        or row["processing_parked_at"] is not None
-        or row["trace"] != {}
-    ):
-        raise ActionPersistenceDefect("approval message relationship is invalid")
-    if approval_text is not None and (
-        row["text"] != approval_text
-        or row["created_at"] != created_at
-        or row["processed_at"] != created_at
-    ):
-        raise ActionPersistenceDefect("approval message identity has different content")
-    if (
-        discord_message_id is not None
-        and row["source_message_id"] != discord_message_id
-    ):
-        raise ActionPersistenceDefect("approval interaction message does not match")
-    return row
-
-
-async def _require_approval_interaction(
-    connection: AsyncConnection,
-    *,
-    stored: StoredAction,
-    approval_message_id: UUID,
-    discord_message_id: str,
-    source_conversation_id: str,
-) -> None:
-    if not discord_message_id or discord_message_id != discord_message_id.strip():
-        raise ValueError("Discord message ID must be non-empty and canonical")
-    if (
-        not source_conversation_id
-        or source_conversation_id != source_conversation_id.strip()
-    ):
-        raise ValueError("source conversation ID must be non-empty and canonical")
-    if stored.approval_message_id != approval_message_id:
-        raise ActionPersistenceDefect(
-            "approval interaction targets a different message"
-        )
-    await _require_approval_message(
-        connection,
-        approval_message_id=approval_message_id,
-        source_conversation_id=source_conversation_id,
-        discord_message_id=discord_message_id,
-    )
-
-
 async def _update_action(
     connection: AsyncConnection,
     action_id: UUID,
@@ -2651,7 +1543,6 @@ async def _update_action(
 
 def _stored_action(row: RowMapping) -> StoredAction:
     try:
-        envelope = _common_execution_envelope(row["execution_contract"])
         status = cast(ActionStatus, row["status"])
         if status not in {
             "queued",
@@ -2663,10 +1554,14 @@ def _stored_action(row: RowMapping) -> StoredAction:
             "cancelled",
         }:
             raise ValueError("action status is invalid")
-        tool = str(row["tool_name"])
-        if _retired_worker_revision(tool, envelope.implementation_revision):
+        envelope = _common_execution_envelope(row["execution_contract"])
+        if row["execution_contract"].get(
+            "schema_version"
+        ) is None or _retired_worker_revision(
+            str(row["tool_name"]), envelope.implementation_revision
+        ):
             if status not in {"succeeded", "failed", "uncertain", "cancelled"}:
-                raise ValueError("retired worker action must drain before activation")
+                raise ValueError("retired action must drain before activation")
             contract = _ArchivedExecutionContract.model_validate(
                 row["execution_contract"]
             )
@@ -2727,32 +1622,6 @@ def _validate_new_action(
         raise ValueError("origin request differs from the exact ActionRequest")
 
 
-def _require_current_execution_contract(
-    stored: StoredAction, plan: FrozenToolPlan
-) -> None:
-    try:
-        binding = plan.catalog_view.binding(stored.tool_name)
-        plan.grant(stored.tool_name)
-        binding.spec.input_type.model_validate(stored.arguments)
-    except (KeyError, ValueError) as exc:
-        raise ActionPersistenceDefect(
-            "schedule execution contract is no longer selectable"
-        ) from exc
-    contract = stored.execution_contract
-    if (
-        binding.spec.effect is not ToolEffect.Write
-        or binding.spec.tool_contract_revision != contract.tool_contract_revision
-        or binding.implementation_revision != contract.implementation_revision
-        or binding.policy_revision != contract.policy_revision
-        or binding.replay_policy is not contract.replay_policy
-        or plan.plan_revision != contract.plan_revision
-        or raw_input_digest(ParsedJson(stored.arguments)) != contract.input_digest
-    ):
-        raise ActionPersistenceDefect(
-            "schedule execution contract is incompatible with the current plan"
-        )
-
-
 def _validate_stored_action(stored: StoredAction) -> None:
     _validate_new_action(
         stored.tool_name,
@@ -2771,8 +1640,6 @@ def _validate_stored_action(stored: StoredAction) -> None:
         _aware(stored.decided_at, "stored action decision time")
     if stored.completed_at is not None:
         _aware(stored.completed_at, "stored action completion time")
-    if stored.status == "awaiting_approval" and stored.approval_message_id is None:
-        raise ValueError("approval action is missing its message")
     if stored.status == "awaiting_approval" and (
         stored.attempts != 0
         or stored.decided_at is not None
@@ -2787,7 +1654,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
         raise ValueError("decided approval action is missing its decision time")
     if stored.status in {"succeeded", "failed", "uncertain"} and stored.result is None:
         raise ValueError("resolved action is missing its result")
-    if retired_worker_action(stored):
+    if isinstance(stored.execution_contract, _ArchivedExecutionContract):
         return
     worker = str(stored.tool_name).startswith(("agent.", "codex."))
     if worker and (
@@ -2836,11 +1703,6 @@ def _validate_stored_action(stored: StoredAction) -> None:
             and "registration_receipt" in stored.result
         ):
             agent_wait_state(stored)
-        elif _is_schedule_create(stored) and set(stored.result) == {
-            "creation_receipt",
-            "wake_outcome",
-        }:
-            _schedule_result(stored)
         elif stored.status == "uncertain":
             _uncertainty_result(stored, stored.result)
         elif stored.status in {"succeeded", "failed"}:
@@ -2912,13 +1774,18 @@ async def recorded_action_result(
         .mappings()
         .one_or_none()
     )
-    return None if row is None else action_replay_result(_stored_action(row))
+    if row is None:
+        return None
+    stored = _stored_action(row)
+    if isinstance(stored.execution_contract, _ArchivedExecutionContract):
+        return None
+    return action_replay_result(stored)
 
 
 def action_replay_result(stored: StoredAction) -> ToolResult | None:
     """Return the immutable callback result, independently of later host outcomes."""
-    if retired_worker_action(stored):
-        raise ActionPersistenceDefect("archived worker actions cannot replay")
+    if isinstance(stored.execution_contract, _ArchivedExecutionContract):
+        raise ActionPersistenceDefect("archived actions cannot replay")
     if (
         stored.tool_name == ToolId("agent.wait")
         and stored.result is not None
@@ -2929,17 +1796,6 @@ def action_replay_result(stored: StoredAction) -> ToolResult | None:
             "value": agent_wait_state(stored).registration_receipt.model_dump(
                 mode="json"
             ),
-        }
-    if (
-        _is_schedule_create(stored)
-        and stored.result is not None
-        and set(stored.result) == {"creation_receipt", "wake_outcome"}
-    ):
-        schedule = _schedule_result(stored)
-        receipt = cast(dict[str, object], schedule["creation_receipt"])
-        return {
-            "type": "Success",
-            "value": {"receipt": {"type": "created", **receipt}},
         }
     if stored.status in {"succeeded", "failed"} and stored.result is not None:
         return _stored_tool_result(stored)
@@ -3130,20 +1986,14 @@ async def _delivered_archived_actions(
     delivered: list[UUID] = []
     for row in inline:
         stored = _stored_action(row)
-        settlement = SettlementTrace(
-            run_id=row["run_id"],
-            through_checkpoint=stored.execution_contract.through_checkpoint,
-            conclusion_kind="conversation",
-            outcome="answered",
-        )
         identity = json.dumps(
             [
                 source_conversation_id,
-                settlement.run_id,
+                row["run_id"],
                 stored.execution_contract.claim_id,
-                settlement.through_checkpoint,
-                settlement.conclusion_kind,
-                settlement.outcome,
+                stored.execution_contract.through_checkpoint,
+                "conversation",
+                "answered",
                 row["conclusion_digest"],
             ],
             ensure_ascii=False,
@@ -3181,9 +2031,7 @@ def archived_worker_action(stored: StoredAction) -> bool:
 
 def _agent_evidence(stored: StoredAction, value: object) -> None:
     if retired_worker_action(stored):
-        raise ActionPersistenceDefect(
-            "retired worker action must drain before activation"
-        )
+        raise ActionPersistenceDefect("retired action must drain before activation")
     operation = str(stored.tool_name).removeprefix("agent.")
     validate_agent_evidence(operation, value)
 
@@ -3244,146 +2092,175 @@ def agent_wait_state(stored: StoredAction) -> AgentWaitState:
     return state
 
 
-async def _publish_agent_wait_event(
-    connection: AsyncConnection, stored: StoredAction, source_conversation_id: str
-) -> None:
-    from jarvis.write_dispatch import action_resolution_text
-
-    state = agent_wait_state(stored)
-    if state.wait_outcome is None:
-        raise ActionPersistenceDefect("wait event has no outcome")
-    # Only the configured conversation that admitted this wait receives its event.
-    origin = (
-        await connection.execute(
-            select(message.c.source_conversation_id).where(
-                message.c.id == stored.origin_message_id
-            )
+def action_resolution_text(stored: StoredAction) -> str:
+    """Frame the immutable outcome as host evidence, never owner speech."""
+    if not isinstance(stored.execution_contract, ExecutionContract):
+        return (
+            f"historical action {stored.id}; tool: {stored.tool_name}; "
+            f"recorded status: {stored.status}; original receipt retained."
         )
-    ).scalar_one()
-    if origin != source_conversation_id:
-        raise ActionPersistenceDefect("wait event belongs to another conversation")
-    source_id = f"{stored.id}:{stored.status}"
-    await connection.execute(
-        postgresql_insert(message)
-        .values(
-            id=uuid5(NAMESPACE_URL, f"jarvis-action-resolution-v1:{source_id}"),
-            role="host",
-            text=action_resolution_text(stored),
-            source="action",
-            source_conversation_id=source_conversation_id,
-            source_message_id=source_id,
-            created_at=state.wait_outcome.recorded_at,
-            processed_at=None,
-            processing_attempts=0,
-            processing_parked_at=None,
-            memory_admitted=memory_is_admitted(connection),
-            trace={},
-        )
-        .on_conflict_do_nothing(constraint="uq_message_source_identity")
-    )
-
-
-def _schedule_result(stored: StoredAction) -> dict[str, object]:
-    if stored.result is None or set(stored.result) != {
-        "creation_receipt",
-        "wake_outcome",
-    }:
-        raise ActionPersistenceDefect("schedule creation receipt is missing")
-    raw_receipt = stored.result["creation_receipt"]
-    if not isinstance(raw_receipt, dict):
-        raise ActionPersistenceDefect("schedule creation receipt is invalid")
-    receipt = cast(dict[str, object], raw_receipt)
-    if set(receipt) != {
-        "action_id",
-        "execute_after",
-        "arguments_digest",
-        "recorded_at",
-    }:
-        raise ActionPersistenceDefect("schedule creation receipt is invalid")
-    if _canonical_uuid_value(receipt["action_id"], "schedule action") != str(stored.id):
-        raise ActionPersistenceDefect("schedule creation receipt changed action ID")
-    execute_after = _iso_datetime(receipt["execute_after"], "schedule execute_after")
-    _iso_datetime(receipt["recorded_at"], "schedule recorded_at")
-    if stored.execute_after != execute_after:
-        raise ActionPersistenceDefect("schedule creation receipt changed due time")
-    if receipt["arguments_digest"] != stored.execution_contract.input_digest:
-        raise ActionPersistenceDefect("schedule creation receipt changed digest")
-    outcome = stored.result["wake_outcome"]
-    if outcome is not None:
-        if not isinstance(outcome, dict):
-            raise ActionPersistenceDefect("schedule wake outcome is invalid")
-        outcome_type, _ = _wake_outcome(cast(dict[str, object], outcome))
-        expected_status = {
-            "concluded": "succeeded",
-            "cancelled": "cancelled",
-            "failed": "failed",
-        }[outcome_type]
-        if stored.status != expected_status:
-            raise ActionPersistenceDefect("schedule status disagrees with wake outcome")
-    elif stored.status not in {"queued", "executing"}:
-        raise ActionPersistenceDefect("terminal schedule is missing its wake outcome")
-    return _json_object(stored.result, "schedule result")
-
-
-def _wake_outcome(
-    outcome: dict[str, object],
-) -> tuple[Literal["concluded", "cancelled", "failed"], datetime]:
-    outcome_type = outcome.get("type")
-    fields = {
-        "concluded": {"type", "conclusion_message_id", "recorded_at"},
-        "cancelled": {"type", "cancellation_action_id", "recorded_at"},
-        "failed": {"type", "reason_code", "recorded_at"},
+    context: dict[str, object] = {
+        "type": "action_resolution_context_v2",
+        "action_id": str(stored.id),
+        "tool_name": str(stored.tool_name),
+        "arguments": stored.arguments,
+        "status": stored.status,
     }
-    if outcome_type not in fields or set(outcome) != fields[cast(str, outcome_type)]:
-        raise ActionPersistenceDefect("schedule wake outcome shape is invalid")
-    typed = cast(Literal["concluded", "cancelled", "failed"], outcome_type)
-    if typed == "concluded":
-        _canonical_uuid_value(outcome["conclusion_message_id"], "conclusion message")
-    elif typed == "cancelled":
-        _canonical_uuid_value(outcome["cancellation_action_id"], "cancellation action")
+    if (
+        stored.tool_name == ToolId("agent.wait")
+        and stored.result is not None
+        and "registration_receipt" in stored.result
+    ):
+        state = agent_wait_state(stored)
+        context.update(
+            type="agent_wait_event_v1",
+            registration=state.registration_receipt.model_dump(mode="json"),
+            result=None
+            if state.wait_outcome is None
+            else state.wait_outcome.model_dump(mode="json"),
+        )
     else:
-        reason = outcome["reason_code"]
-        if not isinstance(reason, str) or not reason or len(reason) > 64:
-            raise ActionPersistenceDefect("schedule failure reason is invalid")
-    return typed, _iso_datetime(outcome["recorded_at"], "wake outcome time")
-
-
-def _require_schedule_creation(stored: StoredAction) -> None:
-    if not _is_schedule_create(stored):
-        raise ActionPersistenceDefect("action is not a schedule creation")
-
-
-def _is_schedule_create(stored: StoredAction) -> bool:
-    return (
-        str(stored.tool_name) == "schedule.wake"
-        and _schedule_request(stored).get("type") == "create"
+        context["result"] = _safe_resolution_result(stored)
+    return json.dumps(
+        context, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
 
 
-def _is_schedule_cancel(stored: StoredAction) -> bool:
-    return (
-        str(stored.tool_name) == "schedule.wake"
-        and _schedule_request(stored).get("type") == "cancel"
+def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
+    if stored.result is None:
+        raise RuntimeError("resolved action has no durable result")
+    if stored.tool_name in AGENT_WRITE_IDS and "tool_result" in stored.result:
+        result = stored.result["tool_result"]
+        if not isinstance(result, dict):
+            raise RuntimeError("invalid private action receipt")
+        return cast(dict[str, object], result)
+    if (
+        stored.status == "uncertain"
+        and stored.result.get("type") == "agent_uncertainty_v1"
+    ):
+        control = validate_agent_evidence(
+            str(stored.tool_name).removeprefix("agent."), stored.result.get("control")
+        )
+        return {
+            "type": "Failure",
+            "error": {
+                "type": "Unknown",
+                "observed": _compact_agent_observation(control.observed),
+            },
+        }
+    if (
+        stored.tool_name in AGENT_WRITE_IDS
+        and stored.status == "failed"
+        and stored.result.get("type") == "Failure"
+    ):
+        error = stored.result.get("error")
+        if (
+            isinstance(error, dict)
+            and cast(dict[str, object], error).get("type") == "AgentFailure"
+        ):
+            return {
+                "type": "Failure",
+                "error": validate_agent_failure(
+                    str(stored.tool_name).removeprefix("agent."), stored.result["error"]
+                ).model_dump(mode="json"),
+            }
+    if stored.status == "failed" and stored.result.get("type") == "Failure":
+        error = stored.result.get("error")
+        error_type = (
+            cast("dict[str, object]", error).get("type")
+            if isinstance(error, dict)
+            else None
+        )
+        return {
+            "type": "Failure",
+            "error": {
+                "type": error_type
+                if isinstance(error_type, str)
+                and error_type
+                and len(error_type) <= 128
+                and all(
+                    character.isalnum() or character in "_.-"
+                    for character in error_type
+                )
+                else "UnknownFailure"
+            },
+        }
+    if stored.status == "cancelled":
+        reason = stored.result.get("reason_code")
+        return {
+            "type": "action_cancelled_v1",
+            "reason_code": reason
+            if isinstance(reason, str)
+            and reason
+            and len(reason) <= 64
+            and all(character.isalnum() or character in "_.-" for character in reason)
+            else "cancelled",
+        }
+    return stored.result
+
+
+def _compact_agent_observation(
+    value: WireFailure | WireStartResult | AgentWriteResult | AgentCloseReceipt | None,
+) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if isinstance(value, WireStartResult):
+        launch = value
+        target = (
+            None
+            if launch.handle is None
+            else {"machine": launch.label, "handle": launch.handle}
+        )
+        return {
+            "machine": launch.label,
+            "target": target,
+            "captured": launch.target is not None,
+            "creation": launch.creation,
+            "prompt": launch.prompt,
+            "failure": None if launch.failure is None else launch.failure.code,
+        }
+    fields = value.model_dump(mode="json", exclude_none=True)
+    return {
+        key: fields[key]
+        for key in ("code", "dispatch", "method", "outcome", "interrupt", "terminal")
+        if key in fields
+    }
+
+
+async def _publish_action_outcome(
+    connection: AsyncConnection, stored: StoredAction, source_conversation_id: str
+) -> ResolutionInsert:
+    if stored.completed_at is None:
+        raise ActionPersistenceDefect("action has no terminal outcome")
+    timestamp = stored.completed_at
+    if (
+        stored.tool_name == ToolId("agent.wait")
+        and stored.result is not None
+        and "registration_receipt" in stored.result
+    ):
+        state = agent_wait_state(stored)
+        if state.wait_outcome is None:
+            raise ActionPersistenceDefect("wait event has no outcome")
+        timestamp = state.wait_outcome.recorded_at
+    content = action_resolution_text(stored)
+    if not content or len(content.encode()) > _MAX_RESOLUTION_TEXT_BYTES:
+        raise ActionPersistenceDefect("action resolution exceeds its content bound")
+    source_id = f"{stored.id}:{stored.status}"
+    result = await append_waking_input(
+        connection,
+        role="host",
+        text=content,
+        source="action",
+        source_conversation_id=source_conversation_id,
+        source_message_id=source_id,
+        created_at=timestamp,
+        parent_request_id=stored.origin_message_id,
+        action_id=stored.id,
+        message_id=uuid5(NAMESPACE_URL, f"jarvis-action-resolution-v1:{source_id}"),
     )
-
-
-def _schedule_request(stored: StoredAction) -> dict[str, object]:
-    if str(stored.tool_name) != "schedule.wake":
-        return {}
-    request = stored.payload.get("request")
-    if not isinstance(request, dict):
-        raise ActionPersistenceDefect("schedule action request is invalid")
-    return cast(dict[str, object], request)
-
-
-def _success_value(result: ToolResult) -> dict[str, object]:
-    value = result.get("value")
-    if result.get("type") != "Success" or not isinstance(value, dict):
-        raise ValueError("schedule operation requires a Success object")
-    typed_value = cast(dict[str, object], value)
-    if set(typed_value) != {"receipt"} or not isinstance(typed_value["receipt"], dict):
-        raise ValueError("schedule operation returned an invalid receipt wrapper")
-    return cast(dict[str, object], typed_value["receipt"])
+    if result.inserted:
+        await rearm_action_waiters(connection, stored.id)
+    return ResolutionInsert(result.message.id, result.inserted)
 
 
 def _tool_result(value: dict[str, object]) -> ToolResult:
@@ -3424,15 +2301,6 @@ def _canonical_uuid(value: str, name: str) -> str:
     return canonical
 
 
-def _canonical_uuid_value(value: object, name: str) -> str:
-    if not isinstance(value, str):
-        raise ActionPersistenceDefect(f"{name} ID must be a string")
-    try:
-        return _canonical_uuid(value, name)
-    except ValueError as exc:
-        raise ActionPersistenceDefect(f"{name} ID is invalid") from exc
-
-
 def _iso_datetime(value: object, name: str) -> datetime:
     if not isinstance(value, str):
         raise ActionPersistenceDefect(f"{name} must be an RFC3339 string")
@@ -3455,17 +2323,14 @@ __all__ = [
     "ActionPositionRecorder",
     "ActionStatus",
     "ActionStore",
-    "ApprovalDecision",
-    "ApprovalInsert",
-    "ClaimedSchedule",
     "ExecutionContract",
     "ResolutionInsert",
     "StoredAction",
     "TerminalActionStatus",
     "action_replay_result",
+    "action_resolution_text",
     "agent_uncertainty_result",
     "archived_worker_action",
-    "finish_schedule_conclusion",
     "recorded_action_result",
     "retired_worker_action",
 ]

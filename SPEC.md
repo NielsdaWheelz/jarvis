@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified; named profile deferrals remain**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slice 1 implemented in source, not activated**
 
 date: **2026-11-15**
 
@@ -9,14 +9,18 @@ audience: product, engineering, design, operations, and future coding agents
 ## accepted v2 target
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
-2026-11-14 owner decisions. this is an unimplemented target, not a claim about the
-installed service. these contracts supersede conflicting baseline rules below
+2026-11-14 owner decisions. slice 1 is implemented and qualified in source;
+the remaining slices and v2 activation are pending. these contracts supersede
+conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
 
 - [one main](docs/one-main-events.md) handles owner input and every admitted event
   with the same normal capabilities. remove the model write gate, read-only wake
   route and host interpretation of conversational stop. retain operational pause,
-  canonical request/invocation journals and effect/read recovery.
+  canonical request/invocation journals and effect/read recovery. slice 1 adds
+  a scoped `stop` input disposition, common owner/host request state and an atomic
+  local approval-decision receipt; it removes the old scheduler before slice 2
+  supplies scheduled todos. intermediate slices need not be independently usable.
 - [work](docs/work-records.md) is one mutable todo table with optional deadline
   and independent one-time/repeated wake. the timer publishes the todo's context
   to main; firing never means completion. scheduling lives here, replacing the
@@ -55,8 +59,12 @@ complete-search and budget proposals remain separately scoped later work.
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
-not constitute v2 acceptance. no code or production activation occurs in this
-documentation change.
+not constitute v2 acceptance. [slice 1's qualification](docs/one-main-events.md#implementation-evidence)
+records its source and isolated live proof; it does not activate the service.
+slice 1's owner-selected implementation method is temporary
+end-to-end integration/live red/green/refactor, with content design and adversarial
+review per feature, then deletion of those temporary probes. this is a scoped
+exception to adr 0046, not a standing test suite or production activation.
 
 accepted memory completion target (2026-11-14):
 [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the

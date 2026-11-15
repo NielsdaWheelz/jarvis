@@ -184,17 +184,19 @@ only after its receipt commits.
 | c: temporary proofs | new scoped proof files only | end-to-end/live evidence; no production edits |
 
 agree the small store/result interface before parallel edits. implement against
-o6's authority contract; schema work is independent. reuse the existing timer,
-database/action/message primitives. a small recurrence module hides date
-arithmetic; it is not a scheduler service or general automation api.
+o6's authority contract; schema work is independent. adapt the small in-process
+timer pattern and existing database/action/message primitives. slice 1 removes
+the old schedule implementation; this slice supplies its replacement, not a
+parallel scheduler. a small recurrence module hides date arithmetic; it is not
+a scheduler service or general automation api.
 
-at the stopped cutover, inventory every live old `schedule.wake` commitment.
-settle entered work, cancel unentered originals through the old release and keep
-their immutable creation receipts/history. recreate still-future commitments as
-scheduled todos through normal admitted work calls; handle overdue commitments
-as explicit ordinary inputs. verify every inventory entry before unattended
-operation. retire the old schedule tools/decoder; do not run two schedulers or
-silently discard reminders. o6 owns the shared cutover procedure.
+use the private reminder inventory retained at slice 1's stopped cutover; its
+original effects were settled/cancelled there and immutable receipts retained.
+recreate still-future commitments as scheduled todos through normal admitted
+work calls; handle overdue commitments as explicit ordinary inputs. verify every
+inventory entry before unattended
+operation. the old schedule tools/decoder were removed in slice 1; do not restore
+them or silently discard reminders. o6 owns the shared cutover procedure.
 
 temporary proofs use real postgres/native/tool composition with controlled faults:
 crud/restart and active filtering; sparse edits preserve omitted fields and null

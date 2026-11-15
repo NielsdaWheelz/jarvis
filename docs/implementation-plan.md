@@ -704,9 +704,42 @@ not committed after more than 100 minutes. this is unfinished functional
 acceptance, separate from the deferred performance evaluation. restart
 qualification uses the actual replacement's preserved
 old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
-there is no second full cold-start experiment. the observed
-[cold-start scan delay](issues/memory-cold-start-scan.md) belongs to the deferred
-performance/usefulness follow-up, with correctness requirements unchanged.
+there is no second full cold-start experiment in that baseline qualification.
+the owner subsequently reopened the observed
+[cold-start scan delay](issues/memory-cold-start-scan.md) as the functional repair
+below; broader performance/usefulness evaluation remains deferred.
+
+#### native capture read repair
+
+owner-authorized investigation and completion, 2026-11-15. dev-server work2's
+first inventory took about 3 hours 41 minutes. it established 190 modern native
+boundaries and retained 21 unavailable baselines. the collector then reread the
+excluded prefixes; a new completed synthetic conversation was still undiscovered
+an hour later. the one-item native paging cost, serial sweep and hourly hint
+expiry explain why this is unfinished functional delivery, not a passed load test.
+
+repair the responsible provider reader first: batch modern native items within
+the existing response bounds, shrinking an oversized page at the same opaque
+cursor until it fits or reaches the existing single-item refusal. retain forward
+normalization, full-prefix validation, exact native identities, checkpoint checks
+and unfinished-item semantics. legacy full-turn paging stays unchanged. this
+reduces repeated native lineage resolution and round trips; full-prefix decoding,
+small-item-page limits and fresh-baseline costs remain explicit limitations.
+no scheduler framework, new cache/table, historical import or runtime upgrade is
+included. adversarial review rejected reverse traversal because an oversized
+later item could otherwise park a readable prefix before an unfinished barrier.
+
+| owner | non-overlapping work |
+| --- | --- |
+| provider-runtime | temporary red/green protocol and native proof; bounded forward native item pages; upstream merge and qualified stock-0.160-compatible artifact |
+| composition | kernel provider pins; jarvis pins/fingerprints/session manifest/lock in current main and the installed memory-only composition; frozen checks; dev-server collector pin |
+| integration | update this contract and cold-start issue; install the qualified composition through existing workflows, preserving schema 0008a, canonical control, cuts and originals; no v2 activation |
+| independent review | adversarial design/code/proof review, including compound boundaries, missing/changed checkpoints, unfinished-before-malformed suffixes, exact codec equivalence, oversized-page recovery and total rpc reduction |
+| live qualification | finish the already-created dev-server synthetic; after repair, measure a fresh normal turn through discovery, archive and exact mcp opening; compare preserved state and retain pending histories explicitly |
+
+use the existing temporary proof method, then delete new probes after green.
+add collector scheduling work only if the repaired reader's actual normal
+journey still exposes a concrete delay; do not hide it by extending revisit time.
 
 ### memory and native-main integration
 

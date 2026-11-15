@@ -1,6 +1,6 @@
 # memory collector cold-start latency
 
-status: observed during the 2026-11-15 rollout; follow-up after functional delivery.
+status: owner requested investigation and completion on 2026-11-15; repair in progress.
 
 problem: a restarted stateless collector revisits eligible conversations in each
 configured home before reaching later homes. native reads can traverse long
@@ -32,12 +32,37 @@ minutes without a receipt. the same collector process remained alive and a
 separate metadata-only endpoint request succeeded; neither proves scan progress.
 installed dev-server work2 capture acceptance remains open.
 
+investigation: the first inventory committed at 21:59:08 utc, about 3 hours
+41 minutes after it began: 190 established boundaries, all modern native ids,
+and 21 unavailable baselines. there were no legacy heads in that group. the
+normal synthetic turn finished at 21:59:32; at 23:01 it was still undiscovered.
+the collector was still in its first sweep, rereading excluded prefixes to prove
+empty tails. discovery sync pages are interleaved with content reads, homes are
+serial, and a sweep exceeding one hour expires earlier hints before the next pass.
+
+for this modern format, each one-item rpc resolves native rollout lineage before
+reading indexed items. the provider repeats that cost across the entire old
+prefix even when its exact boundary is already established. upstream codex
+defines completed native items as immutable; only legacy identities require a
+prefix hash chain. adversarial review nevertheless rejected reverse traversal:
+a later oversized native item could prevent reaching an earlier unfinished
+barrier and prematurely park its otherwise-readable prefix.
+
+the scoped repair batches forward native item pages under the unchanged bounds.
+an oversized multi-item response retries the same cursor with a smaller page;
+only a single-item overflow keeps the existing refusal. this preserves full
+prefix validation and forward unfinished-item semantics. it reduces round trips
+and repeated native lineage resolution; it does not eliminate prefix decoding
+or promise fast fresh-baseline proof. the
+[active plan](../implementation-plan.md#native-capture-read-repair) owns delivery.
+
 reproduce with an ordinary collector restart and content-free lane/read progress
-observations. no broad load experiment was run. investigate native checkpoint
-navigation and home scheduling in the deferred performance/usefulness pass;
-first define the acceptable capture delay. preserve complete identity coverage,
+observations. no broad load experiment was run. record native terminal→discovery
+and discovery→archive/open separately. preserve complete identity coverage,
 native event/digest verification, immutable cuts and exactly-once ingestion.
 do not skip histories, weaken provenance or add a second collector to hide delay.
 
-resolved when: the agreed cold-start bound is demonstrated across the configured
-homes, including a newly admitted later lane, with the capture invariants intact.
+resolved when: the repaired normal journey and cold restart demonstrate useful
+discovery/capture latency with the capture invariants intact. report remaining
+fresh-baseline and large-new-backlog costs separately; one passing small turn
+does not resolve those broader limits.

@@ -34,7 +34,6 @@ def _host_identity(config: CodexHostConfig) -> None:
 def host_environment(config: CodexHostConfig) -> dict[str, str]:
     return {
         "CODEX_HOME": config.profiles["personal"].account_home,
-        "CODEX_EXEC_SERVER_URL": "none",
         "HOME": pwd.getpwuid(os.geteuid()).pw_dir,
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "LANG": "C.UTF-8",

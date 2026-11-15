@@ -220,6 +220,7 @@ class JarvisService:
         self._agent_wait_task: asyncio.Task[None] | None = None
         self._agent_wait_cancellation: CancellationToken | None = None
         self._dream_due = False
+        self._startup_ready = False
 
     def bind_gateway(self, gateway: GatewayPort) -> None:
         """Resolve the one callback cycle between the service and Gateway."""
@@ -322,6 +323,7 @@ class JarvisService:
             source_conversation_id=source_conversation_id
         )
         result = await self._require_gateway().catch_up(after)
+        self._startup_ready = True
         self._work.set()
         return result
 
@@ -476,6 +478,8 @@ class JarvisService:
                 self._delivery_work.set()
 
     async def _drain(self) -> None:
+        if not self._startup_ready:
+            return
         while not self._shutdown.is_set():
             inactive = (
                 await self._paused.is_paused() or await self._store.circuit_is_open()

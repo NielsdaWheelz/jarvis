@@ -153,8 +153,8 @@ main_pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
 [[ "$main_pid" =~ ^[1-9][0-9]*$ ]]
 prune_releases
 printf 'Activated Jarvis release: %s\n' "$commit"
-printf 'jarvis.service started paused; startup recovery runs before ingress, and no owner request is processed until resume\n'
-printf 'owner resume is a separate step after deploy/verify-containment passes\n'
+printf 'jarvis.service started; canonical pause/resume state governs owner request processing\n'
+printf 'initial owner resume is a separate step after deploy/verify-containment passes\n'
 if [[ "$memory_schema" == 0005 ]]; then
   printf 'delete the private cutover snapshot after acceptance: %s\n' "$snapshot"
 fi

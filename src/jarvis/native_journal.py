@@ -707,7 +707,47 @@ class PostgresNativeJournal:
                 .mappings()
                 .one()
             )
+            if (
+                invocation["frozen_contract"]
+                != {
+                    "plan_revision": self.plan.plan_revision,
+                    "tool_contract_revision": binding.spec.tool_contract_revision,
+                    "implementation_revision": binding.implementation_revision,
+                    "policy_revision": binding.policy_revision,
+                    "effect": ToolEffect.Write.value,
+                }
+                or invocation["tool_id"] != "approval.respond"
+                or invocation["validation"] != "accepted"
+                or invocation["proposal"]["arguments"]
+                != arguments.model_dump(mode="json")
+            ):
+                raise NativeDefect(
+                    "local decision differs from its admitted invocation"
+                )
             input_ids = tuple(map(UUID, invocation["proposal"]["input_ids"]))
+            if invocation["reply_receipt"] is None:
+                live = await connection.scalar(
+                    select(message.c.id)
+                    .join(
+                        native_input_delivery,
+                        native_input_delivery.c.message_id == message.c.id,
+                    )
+                    .where(
+                        native_input_delivery.c.attempt_id == invocation["attempt_id"],
+                        native_input_delivery.c.state.in_(
+                            ("sent", "queued", "recorded")
+                        ),
+                        message.c.id.in_(input_ids),
+                        message.c.source_conversation_id == self.owner.scope_id,
+                        message.c.role.in_(("owner", "host")),
+                        message.c.control_kind.is_(None),
+                        message.c.request_state.in_(("pending", "waiting")),
+                        message.c.processing_parked_at.is_(None),
+                    )
+                    .limit(1)
+                )
+                if live is None:
+                    return host_rejected("approval_owner_required")
             target = (
                 (
                     await connection.execute(
@@ -732,9 +772,7 @@ class PostgresNativeJournal:
                 .mappings()
                 .all()
             )
-            attempt = await _locked_attempt(
-                connection, self.owner, str(invocation["attempt_id"])
-            )
+            await _locked_attempt(connection, self.owner, str(invocation["attempt_id"]))
             invocation = (
                 (
                     await connection.execute(
@@ -746,48 +784,11 @@ class PostgresNativeJournal:
                 .mappings()
                 .one()
             )
-            if (
-                invocation["frozen_contract"]
-                != {
-                    "plan_revision": self.plan.plan_revision,
-                    "tool_contract_revision": binding.spec.tool_contract_revision,
-                    "implementation_revision": binding.implementation_revision,
-                    "policy_revision": binding.policy_revision,
-                    "effect": ToolEffect.Write.value,
-                }
-                or invocation["tool_id"] != "approval.respond"
-                or invocation["validation"] != "accepted"
-                or invocation["proposal"]["arguments"]
-                != arguments.model_dump(mode="json")
-            ):
-                raise NativeDefect(
-                    "local decision differs from its admitted invocation"
-                )
             if invocation["reply_receipt"] is not None:
                 reply = await self._reply(connection, invocation)
                 if reply is None or not isinstance(reply.result, DispatchCompleted):
                     raise NativeDefect("local decision has an invalid original receipt")
                 return reply.result
-            delivered = set(
-                (
-                    await connection.execute(
-                        select(native_input_delivery.c.message_id).where(
-                            native_input_delivery.c.attempt_id == attempt["id"],
-                            native_input_delivery.c.state.in_(
-                                ("sent", "queued", "recorded")
-                            ),
-                        )
-                    )
-                ).scalars()
-            )
-            live = any(
-                item["id"] in delivered
-                and item["id"] in input_ids
-                and item["request_state"] in {"pending", "waiting"}
-                and item["processing_parked_at"] is None
-                and item["source_conversation_id"] == self.owner.scope_id
-                for item in inputs
-            )
             owner_message = next(
                 (
                     item
@@ -797,8 +798,7 @@ class PostgresNativeJournal:
                 None,
             )
             if (
-                not live
-                or owner_message is None
+                owner_message is None
                 or owner_message["role"] != "owner"
                 or owner_message["source_conversation_id"] != self.owner.scope_id
             ):

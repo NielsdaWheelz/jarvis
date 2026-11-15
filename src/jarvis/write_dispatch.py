@@ -535,7 +535,8 @@ class ActionRecovery:
                 if current.status == "queued" and current.attempts == 0:
                     if not allow_queued_execution:
                         return
-                    await self._execute(current.id, binding)
+                    if not await self._execute(current.id, binding):
+                        return
                 else:
                     await self._actions.reconcile_agent_receipt(current.id)
                 continue
@@ -560,12 +561,14 @@ class ActionRecovery:
                     )
                 if not allow_queued_execution:
                     return
-                await self._execute(current.id, binding)
+                if not await self._execute(current.id, binding):
+                    return
                 continue
             if current.status == "queued":
                 if not allow_queued_execution:
                     return
-                await self._execute(current.id, binding)
+                if not await self._execute(current.id, binding):
+                    return
                 continue
             if current.recovered_external_attempts == 0:
                 if current.attempts >= current.execution_contract.max_attempts:
@@ -679,8 +682,9 @@ class ActionRecovery:
 
     async def _execute(
         self, action_id: UUID, binding: ToolBinding[Any, Any, Any]
-    ) -> None:
-        await execute_recorded_action(
+    ) -> bool:
+        """Return false when current admission leaves the action queued."""
+        result = await execute_recorded_action(
             self._actions,
             action_id=action_id,
             binding=binding,
@@ -688,6 +692,10 @@ class ActionRecovery:
             budgets=ExactToolBudgetFactory().create(self._plan),
         )
         self._wait_changed()
+        return (
+            not isinstance(result, DispatchSuspended)
+            or (await self._require(action_id)).status != "queued"
+        )
 
     async def _reconcile(
         self,

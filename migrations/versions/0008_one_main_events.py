@@ -1,7 +1,7 @@
 """Common waking requests and conversational approval receipts.
 
-Revision ID: 0007_one_main_events
-Revises: 0006
+Revision ID: 0008
+Revises: 0007
 """
 
 from alembic import op
@@ -9,8 +9,8 @@ from sqlalchemy import text
 
 from jarvis.ownership import DEPLOYMENT_LOCK_KEY
 
-revision = "0007_one_main_events"
-down_revision = "0006"
+revision = "0008"
+down_revision = "0007"
 branch_labels = None
 depends_on = None
 

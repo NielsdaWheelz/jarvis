@@ -3,8 +3,11 @@
 owner-approved source contract, **not deployed**. reconciled with the native
 runtime and owner-chat client on 2026-10-09; that baseline's source implementation
 and isolated qualification are complete. the 2026-10-13
-[repair evidence](#memory-repair-source-candidate) records current pins and open
-qualification. production activation remains separate.
+[repair evidence](#memory-repair-source-candidate) records that candidate's pins
+and open qualification. [adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md)
+adopts the 2026-11-14 [completion contract](memory-delivery.md): future-only nexus
+capture, compactor content repair and current functional integration/live proof.
+that delta is specified, not implemented. production activation remains separate.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -18,7 +21,8 @@ native codex/claude/nexus chats keep their own context management. tool-result
 archive text uses a permanent 30,000-character head/tail cap. the core memory
 contracts are settled here. nexus access is limited to the owner's chats;
 [adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles its distinct client,
-account attribution and processor grants. its bounded
+account attribution and processor grants; adr 0068 adds capture without extending
+the sixteen native/jarvis lanes. its bounded
 [consumer handoff](issues/nexus-memory-client.md) separates source integration from
 private provisioning. earlier adrs retain the rationale. section 12 records
 current evidence and remaining work; delivery order lives in the
@@ -34,9 +38,9 @@ marked otherwise. the capture latency is a SHOULD target.
 
 ## 1. outcome and scope
 
-one memory library hosted on devbox serves jarvis and connected native clients,
-including codex/claude profiles and nexus. client access does not imply a new native
-capture codec or bypass lane admission. retained conversation evidence in
+one memory library hosted on devbox serves jarvis, codex/claude profiles and nexus.
+native capture and nexus's distinct source retain separate admission/transport
+contracts; client access alone authorizes neither. retained conversation evidence in
 `source_record` and its chronological summary tree carry conversational memory. explicit and preserved
 notes in `memory_log` retain their append/attribution contracts. new dream
 syntheses are attributed notes in that same store and enter the shared tree;
@@ -48,6 +52,10 @@ recall.
 
 - one stateless collector per machine uploads new events while conversations are
   active. native history is the local durable source; no spool or local database.
+- nexus commits a future-only terminal snapshot and temporary pending export
+  with its canonical turn. retry delivers it after outages/deletion; verified
+  central acknowledgement permits removal. no edit/version/delete sync or old
+  history import. exact source/schema/api rules live in [memory delivery](memory-delivery.md).
 - chronological compression replaces the selective rememberer. public leaves are
   bounded source parts or explicit notes; one binary tree and persisted views
   supply orientation and navigation. associative dreaming starts
@@ -187,22 +195,23 @@ or replace their native compaction. tree compression continues in the background
 historical orientation is bounded; a single long running turn still has provider
 context limits. current authority and effect recovery never depend on summaries.
 
-the remaining operational work is private provisioning and installed activation.
-durable attachment originals are a separate delivery. section 12 identifies
-qualified source artifacts; the roadmap owns delivery order.
+remaining work includes the completion delta, current functional qualification,
+private provisioning and installed activation. durable attachment originals are a
+separate delivery. section 12 identifies qualified source artifacts; the roadmap
+owns delivery order.
 
 ## 2. ownership and admission
 
 | concept / owner | contract |
 | --- | --- |
 | lane | declared native home identified by `(machine, account)`, never a path; fifteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work}) plus `(devbox, jarvis)` |
-| nexus client | one optional `nexus-owner` backend client for a configured viewer; distinct from capture lanes, chat-only reads/notes, no automatic capture |
-| conversation | native `(provider, native_id)` or jarvis's one ongoing configured-channel conversation; first reporting lane owns capture |
+| nexus client/source | one optional `nexus-owner` backend client for a configured viewer; librarian reads/notes and separately admitted durable source capture; no native lane or automated-helper tool grant |
+| conversation | native `(provider, native_id)` with first-report lane ownership, jarvis's configured-channel conversation, or nexus's configured owner transcript with explicit source identity |
 | event / part | complete persisted native item, never a streaming delta / one central text chunk of at most 8,000 utf-8 bytes |
 | public leaf | one bounded source part or explicit note, with its canonical source reference; event identity survives splitting |
-| checkpoint | last fully accounted-for native event id and independently retained native digest; activation boundary is separate and immutable |
+| checkpoint | native last accounted-for event/digest, or nexus last complete export/envelope digest; activation boundary is separate and immutable |
 | provider-runtime | read-only native enumeration/codecs, stable identities, internal-session and memory-tool recognition |
-| dev-server | collector units, private port, credentials, profile mcp configuration/instruction, claude retention |
+| dev-server | collector units, private port, credentials, profile mcp configuration/instruction, nexus client/publisher configuration, claude retention |
 | memory library | postgres archive, tree, persisted views, compression tasks/results, navigation/search and memory-local progress; no jarvis imports or service-specific authority |
 | jarvis | admission, collectors/native publication, inference/embedding execution, scheduling, dreaming, mcp/http and operational integration; hosts the library |
 | kernel / llm-tools | bounded model protocol, transient or durable decisions as selected by host, tool execution/recorder contracts |
@@ -211,8 +220,10 @@ qualified source artifacts; the roadmap owns delivery order.
 [adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles nexus's distinct
 owner-chat client and note attribution. the optional `nexus_client` declaration
 contains `client="nexus-owner"`, canonical `owner_user_id`, controller/sharing
-authorization, `admit`, `connect` and its own `bearer_sha256`. defaults deny; the
-sixteen capture lanes do not expand. `admit` permits nexus notes only. recipients
+authorization, `admit`, `connect`, `capture`, client `bearer_sha256` and nullable
+upload-only `capture_bearer_sha256`. defaults deny; the sixteen capture lanes do
+not expand. notes require `admit && connect`; capture requires `admit && capture`.
+reads require `connect`. the two credentials have disjoint scopes. recipients
 may include `nexus-owner`; `processors.nexus_model_processors` is a bounded list
 of existing nexus processor-chain labels, empty by default and covered by the
 same declaration digest. nexus grants tools only for completely declared selected
@@ -582,14 +593,15 @@ memory_lane
 
 source_conversation
   id uuid primary key
-  provider text                         # codex | claude | jarvis
+  provider text                         # codex | claude | jarvis | nexus
   native_id text
-  machine text, account text            # foreign key to memory_lane; first-report owner
+  machine text nullable, account text nullable # native/jarvis lane foreign key
+  capture_id uuid nullable              # nexus only; immutable registered source
   relation text nullable                # child | fork
   parent_native_id text nullable
   working_directory text nullable       # as first reported
-  captured_from timestamptz             # diagnostic: head sample, else first discovery
-  capture_after_event_id text nullable  # immutable activation head; null = beginning
+  captured_from timestamptz             # native sample/discovery or nexus registration
+  capture_after_event_id text nullable  # native head, or nexus message-seq:<boundary>
   checkpoint_event_id text nullable
   checkpoint_native_digest text nullable # independent of retained source rows
   last_read_at timestamptz nullable
@@ -642,6 +654,14 @@ native_attempt +=
   memory_admitted boolean not null default false
 ```
 
+adr 0068 adds the nexus source variant to this existing table, no seventh memory
+table. enforce disjoint shapes: native/jarvis retains its matching lane and null
+`capture_id`; nexus has owner uuid as `native_id`, capture id, null native lane,
+relation, parent and cwd. nexus checkpoints are `export:<n>` plus envelope digest.
+its exact registration, projection and atomic duplicate proof are specified in
+[memory delivery](memory-delivery.md#nexus-wire-and-central-archive). the separate
+pending export table belongs to nexus's database, never jarvis.
+
 `memory_leaf` is canonical: allocate consecutive positions by advancing
 `memory_state.leaf_count` in the SAME transaction as source/checkpoint or note
 append. use the existing single writer; no postgres sequence, whose rollback gaps
@@ -685,8 +705,9 @@ one closed tagged variant from adr 0067:
 tags are required; no untagged compatibility reader exists. `submission_id` is a
 canonical uuid, caller-supplied for mcp and host-derived for main. optional
 `native_conversation_id` is null or a nonblank string of at most 256 utf-8 bytes;
-it is a caller-reported association, not archive evidence. nexus uses its host-known
-chat uuid; native provider/machine/account provenance fields stay null for nexus
+it is a caller-reported association, not archive evidence. current nexus uses its
+account-owned transcript id, `Call.principal`, and submission id `Call.id`;
+native provider/machine/account provenance fields stay null for nexus
 notes. no open metadata bag, extra table, source row or conversation row is created.
 for a synthesis note, `agent_submission` is null and `synthesis` is exactly
 `{seed_start, seed_end, references}`. the host stamps the consumed half-open
@@ -706,6 +727,10 @@ do not certify factual truth or imply that every original was read.
 | `memory_reference` | tool name, at most 100 record/range references, nonnegative `omitted_reference_count`, optional submission uuid for `memory_save_note` or internal `memory.save_note` |
 | `gap` | reason `unreadable` or `unsupported` |
 | `revision` | reason `branch` |
+
+adr 0068 permits the closed `nexus` source attribute on its projected kinds,
+including suppressed memory references. its exact fields and source mapping live
+in the completion contract; native events cannot supply it.
 
 every kind's closed attributes also permits an optional `inherited_origin` object,
 exactly `{native_conversation_id, native_event_id, native_digest}`, using the
@@ -1001,13 +1026,18 @@ the library does not host http, authenticate lanes or import jarvis tool/role
 types. preserve atomic capture/checkpoint commits through one database transaction,
 not separate library and host commits. the library may remain postgres-specific.
 
-credentials: one capture bearer per host, one client bearer per connected native
-lane and one separately scoped nexus-owner backend bearer,
-installed through an environment variable referenced by that profile's mcp
-configuration. bearers are random 256-bit values with the prefix `jmem_`, which
+credentials: one native capture bearer per host, one client bearer per connected
+native lane, and separate nexus-owner client and capture bearers. native client
+bearers use environment variables referenced by their profile's mcp configuration;
+native collectors receive their host credential. nexus uses the separate backend
+client/publisher files in the completion contract, never a native profile.
+bearers are random 256-bit values with the prefix `jmem_`, which
 the secret matcher recognizes. the service stores sha-256
-hashes, compares in constant time and binds each bearer to its machine, and each
-client bearer to its native lane or distinct nexus client. admitted native lanes
+hashes and compares in constant time. native capture binds its machine; native
+clients bind their lane. nexus client/capture bind their configured owner and
+disjoint scopes. nexus capture binds
+only its configured owner and three source routes in the completion contract;
+the publisher receives no read/save credential. admitted native lanes
 permit baseline listing/activation;
 ordinary sync/ingest additionally require the activation receipt. client reads
 require `connect`; client saves require `connect` and `admit`. an unknown or
@@ -1178,15 +1208,16 @@ retrieval mode.
 ### caller responsibilities and grants
 
 - nexus exposes shared memory reads and optional explicit saves only to the
-  owner's chat operations, including sends, reruns and regenerations. metadata,
+  owner's librarian sends and new retries of failed/cancelled turns. metadata,
   dossier and other automated helpers receive no shared-memory tools. enforce
   this through the existing operation-selected tool plans for both provider
   functions and native callbacks. [adr 0067](decisions/0067-nexus-owner-chat-memory.md)
   binds one configured viewer, a distinct backend client and fully declared
-  processor chains; handlers recheck principal authority. source qualification is
-  complete; private provisioning remains in the [consumer handoff](issues/nexus-memory-client.md);
-  other nexus accounts receive no access. this choice does not specify automatic capture of
-  nexus application conversations.
+  processor chains; handlers recheck principal authority. october qualification
+  does not qualify current librarian routes; [consumer handoff](issues/nexus-memory-client.md)
+  owns the remaining checks/provisioning. other accounts receive no access.
+  adr 0068 separately admits host-owned future-only capture; this grants no
+  background model tools and changes no native-client context management.
 - main's full and scheduled-wake read-only plans include view/zoom/date/search/open over all
   three stores. its full plan also includes `memory.save_note`; scheduled turns
   cannot save. main searches when past context would materially help, including
@@ -1328,8 +1359,9 @@ including failed saves. never republish their prose as new source evidence.
 ## 7. content contract
 
 central wording belongs in `definitions.py` and shared tool descriptions, never
-copied into client configuration. use one content-design pass for all schemas;
-these examples define quality without a separate designer/reviewer per feature.
+copied into client configuration. keep this one shared contract; adr 0068's scoped
+delivery assigns each feature a designer for concrete schema examples and an
+independent adversarial reviewer. no runtime critic or permanent review framework.
 
 | feature | good output / forbidden inference |
 | --- | --- |
@@ -1598,9 +1630,11 @@ seam. this contract owns behavior and file boundaries; it is not a second roadma
 
 ## 11. acceptance and verification
 
-use focused red/green/refactor checks, then one review of failure boundaries and
-content examples. no mandatory designer/reviewer choreography per feature or
-standing qualification system. native/provider behavior needs a focused live
+use the completion contract's per-feature designer, independent adversarial
+review and temporary red/green/refactor integration/live checks. remove only new
+temporary probes after proof; preserve existing authorized groups. broader
+usefulness/load evaluation follows in a later pr; no standing qualification
+system. native/provider behavior needs a focused live
 check with synthetic, test-owned conversations. no private fixtures or interruption
 of unrelated sessions. record revision, commands, results and gaps once;
 **not run is never pass.**
@@ -1633,7 +1667,10 @@ behavioral or live tests.
 ## 12. integration evidence
 
 the following is the 2026-10-09 delivery baseline. it does not qualify the later
-[memory repair candidate](#memory-repair-source-candidate).
+[memory repair candidate](#memory-repair-source-candidate), current nexus or
+[completion target](memory-delivery.md). references below to retired chat routes,
+private build secrets and equal consumer pins describe that historical artifact,
+not present deployment requirements. current nexus uses public dependency fetch.
 
 source work uses isolated branches/worktrees. no production activation, fleet
 apply, private credential installation or owner resumption has run. the standalone
@@ -1777,7 +1814,7 @@ product documents are preserved byte for byte in local commits.
 remaining acceptance is explicit in
 [live inference/cache/native persistence](issues/memory-live-qualification.md),
 [canonical nexus rows/routes](issues/nexus-memory-live-qualification.md) and
-[clean image/secret qualification](issues/nexus-memory-image-qualification.md).
+[current clean image qualification](issues/nexus-memory-image-qualification.md).
 the memory library is now public; jarvis's hosted verification fetches its exact
 git pin without a private-dependency credential.
 synthetic proof does not waive those requirements. dev-server retains its prior
@@ -1800,3 +1837,23 @@ fixtures, helper environments and build outputs are deleted after the final
 available checks; unfinished live cases must be regenerated from the repair
 contract on their qualification host. existing approved regression groups remain.
 prs retain the exact reviewed commits; no permanent repair harness ships.
+
+### 2026-11-14 completion specification
+
+[adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md) and
+[memory delivery](memory-delivery.md) specify the remaining functional delivery
+and future-only nexus capture. source inspection used current nexus
+`8a16a039a351df267b3d61f8a1efd8bb951e9e2f`; its librarian routes, canonical
+terminal fold, tool-call identity, public builds and dependency composition differ
+from october's qualified artifact. three independent source/architecture/content
+reviews found and resolved snapshot freshness, receipt-field retention, periodic
+overlap, retry-order and documentation inconsistencies. this is design evidence,
+not implementation or live acceptance.
+
+the documentation-only pass ran `scripts/verify`: lock/sync, whitespace,
+formatting, lint, types, documentation links, wheel/sdist build and fresh
+installation/import/cli smoke passed. the final dependency audit failed with
+19 reported vulnerabilities across four packages, already tracked in
+[dependency audit](issues/dependency-audit.md). no dependency change or audit
+suppression was made. behavioral/live checks were not run; no runtime code,
+schema, credentials, installed service or capture admission changed.

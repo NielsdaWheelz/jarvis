@@ -1,39 +1,36 @@
 # universal memory installed capture
 
-status: source boundary implemented and qualified; installed fleet admission
-remains separate, 2026-10-09.
+status: open. native source and isolated proof exist; current artifacts, installed
+fleet receipts and future-only nexus capture remain to complete under
+[memory delivery](../memory-delivery.md).
 
-problem: the task's provider and collector branches are not an installed capture
-receipt for every declared home. admitting a lane before its installed provider,
-retention and sharing declaration are verified could miss history or admit
-jarvis's internal cognition.
+problem: a source codec/collector or connected mcp client is not evidence that an
+installed admitted home captures complete future events. current nexus capture is
+new work, independent of its existing shared-memory tool connection.
 
-evidence: provider-runtime `d9550d9c53af3d7b608250d9a0db131d78dccf64`
-implements public read-only inventory, heads and complete events, native
-identity/digest, unfiltered fork reads, internal marking and content-free memory
-tool recognition. isolated live codex 0.160.0 checks proved ordinary persistence,
-restart reads and exclusion of internally marked ephemeral cognition. claude
-2.1.289 transcript and fork mappings are qualified; successful live claude work
-was blocked by expired oauth and explicitly waived by the owner. it is not a
-successful live-provider receipt.
+historical evidence (2026-10-09/13): native codecs, collector/http/postgres,
+baselines, atomic complete-event/checkpoint commits, direct fork coverage/all-copy
+progress, inclusive retry, suppression and parking were qualified on named
+artifacts. codex 0.160.0 ordinary persistence/restart/isolation passed; claude
+2.1.289 mappings passed but successful live claude inference was owner-waived
+after expired oauth. later attachment/stable-prefix source fixes still need actual
+current native persistence proof. no fleet apply or real-history activation was
+recorded by those receipts.
 
-actual postgres and authenticated loopback checks prove collector baselines,
-complete-event/checkpoint atomicity, direct original coverage and all-copy
-progress, inclusive checkpoint verification, changed-history/nul parking,
-memory-tool suppression, restart and fair bounded collection. dev-server's source
-handoff supplies one private declaration, scoped credentials, profile mcp
-configuration, collectors and long claude retention. no fleet apply or production
-activation ran.
+dev-server's release pin remained `c62647a285457e0f61668947f50ab9274aa9bdaf` at
+this review. it is not the current jarvis/nexus dependency composition. native
+lane admission/connection and long claude retention must be verified per installed
+home. `claude-work2` is outside the existing native capture lane set; do not call
+an omitted or unqualified home captured.
 
-resolve through the existing bounded deployment handoff: pin the composed source
-artifacts, verify configured native mappings and retention on each admitted home,
-install the common controller/sharing declaration, then observe online activation
-and subsequent capture. omitted or unqualified lanes remain disabled. the
-devbox codex-personal lane requires the qualified internal marking before
-admission. preserve any explicit live waiver in the installed receipt; never
-describe a partial fleet as universal.
+resolved when: qualify exact selected source/locks, advance the collector artifact
+pin, install declarations/credentials/routing, and observe each admitted native
+home establish its activation boundary then capture post-boundary content and use
+the loaded mcp endpoint. record denied/omitted/waived lanes explicitly. prove
+outage/restart recovery without moving boundaries or importing history.
 
-use [capture](../universal-memory.md#3-native-capture) and
-[operations](../operations.md#memory-operations). no resumed-thread reader,
-legacy fallback, automatic historical reread, transitive omission ledger or
-recurring fleet qualification framework is required.
+nexus must independently capture new admitted owner-librarian runs through durable
+pending exports of approved content, survive transcript deletion until central
+acknowledgement and retry without duplicate originals. remove acknowledged exports;
+add no later revision/delete sync. keep helper/other-viewer tool grants denied.
+source, installation, capture activation and owner resumption remain distinct.

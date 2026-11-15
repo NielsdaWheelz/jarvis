@@ -1,12 +1,28 @@
 # nexus memory live qualification
 
-status: open, 2026-10-13. tracked in [the owning issue](https://github.com/NielsdaWheelz/nexus-web/issues/570).
+status: open, reconciled 2026-11-14. historical [issue 570](https://github.com/NielsdaWheelz/nexus-web/issues/570)
+tracks the earlier client qualification; [memory delivery](../memory-delivery.md)
+owns the current scope. no new checks are claimed here.
 
-actual loopback mcp/postgres now proves uncertain committed saves under lost
-response/outer deadline, one-note exact-id replay, conflict and revocation.
-canonical nexus tool-row completion and authenticated routes remain unqualified.
+problem: october controlled client/socket/postgres evidence does not qualify
+current authenticated librarian admission, canonical generation/tool rows or
+future-only automatic capture. retired rerun/regenerate routes are not targets.
 
-actual-sdk/portable-dispatch proof does not establish canonical nexus tool rows or authenticated send/rerun/regenerate. resolved when disposable postgres-backed admission/dispatch proves typed failure plus continuation, uncertain committed saves/exact retries, and owner/processor grants across both transports.
+historical evidence: 2026-10-13 loopback mcp/postgres proved committed-save
+uncertainty under lost reply/outer deadline, one-note exact-id replay, conflicting
+reuse and revocation. actual-sdk/portable-dispatch cases also passed. these checks
+neither qualify current provider chains nor establish installed private access.
 
-contract: [memory repairs](../memory-repairs.md). existing controlled evidence is
-in [the memory integration record](../universal-memory.md#memory-repair-source-candidate).
+resolved when: disposable real-stack librarian send and failed/cancelled retry
+prove canonical tool completion and continuation on typed outages; all five reads
+and optional save execute through the actual current provider/native routes.
+verify configured owner/full-chain grants, read-only saves denied, revocation,
+other-viewer/helper exclusion, exact `call.id` save retry and new-intent retry
+identity. missing success receipt must not become a saved claim.
+
+capture must prove future-only new-run eligibility, exact approved durable content,
+pending-export survival after source deletion/outage/restart, central idempotent
+commit/lost-ack replay and export deletion only after acknowledgement. later source
+edits/deletions cause no central revision/remove sync. record actual route/pin
+identities and blockers; synthetic provider responses are not live receipts.
+new probes are temporary and removed after scoped review/refactor/final proof.

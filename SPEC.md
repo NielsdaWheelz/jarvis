@@ -1,10 +1,27 @@
 # Jarvis v1 specification
 
-status: **native runtime and universal-memory source; frozen domain baseline**
+status: **native runtime and universal-memory source; memory completion target**
 
-date: **2026-10-09**
+date: **2026-11-14**
 
 Audience: product, engineering, design, operations, and future coding agents
+
+accepted memory completion target (2026-11-14):
+[adr 0068](docs/decisions/0068-nexus-capture-and-memory-delivery.md) adopts the
+[completion contract](docs/memory-delivery.md). finish the existing system and
+prove every supported api/mcp and actual jarvis/native/nexus composition. add
+future-only capture of the configured nexus owner's durable librarian turns:
+eligibility at admission, immutable pending export at terminal commit, atomic
+central archive/leaf/progress before acknowledgement. source deletion does not
+erase pending or captured evidence. no edit/version/delete synchronization,
+historical import, backup/restore or broad usefulness/load evaluation in this
+delivery. one new nexus table; no new jarvis table or native lane. extend the
+existing source schema with explicit nexus provenance and separately scoped
+capture credentials. each feature gets content design, adversarial review and
+temporary red/green/refactor integration/live proof; delete those new probes,
+preserve existing approved checks. this supersedes affected no-capture, schema,
+retired nexus-route and review wording below. docs only; implementation and
+production activation remain distinct.
 
 accepted native-agent cutover (2026-10-02):
 [adr 0065](docs/decisions/0065-native-agent-supervision.md) adopts the shared
@@ -48,7 +65,8 @@ through mcp/api. the core memory source is implemented and isolated qualificatio
 passes; production activation remains separate. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
 backend client and tagged note attribution, preserving sixteen capture lanes.
-the qualified client source and remaining private provisioning are in the
+adr 0068 adds the distinct nexus capture source without changing those lanes.
+the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
 context replacement.

@@ -27,13 +27,17 @@ owns native decoding and dev-server owns collectors/profile configuration.
 canonical requests and receipts commit before recoverable memory projection.
 each new top-level jarvis turn gets a fixed admitted view plus exact operative
 requests/receipts. its active loop and compatible steering stay together. native
-codex/claude/nexus chats manage their own context and choose shared reads; nexus's
-[owner-chat consumer contract](docs/decisions/0067-nexus-owner-chat-memory.md)
-is accepted; its source integration and private provisioning remain in progress.
+codex/claude/nexus chats manage their own context and choose shared reads. the
+[current memory delivery](docs/memory-delivery.md) adds future-only automatic
+capture of the configured owner's nexus librarian runs and completes the live
+jarvis/native/nexus integration paths. durable pending exports survive transcript
+deletion until central acknowledgement; capture adds no revision or deletion sync.
+source implementation, qualification and installed activation remain distinct.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
-production activation, actual fleet installation and seven-day owner acceptance
-remain separate.
+production activation and actual fleet installation remain separate. realistic-load
+and usefulness evaluation belongs to a [later pr](docs/issues/memory-usefulness-evaluation.md),
+as does broader personal acceptance; this delivery adds no backup or history import.
 
 ## current product
 
@@ -82,7 +86,8 @@ memory_state
 2. [Architecture](docs/architecture.md) — runtime, component, data, and tool
    boundaries.
 3. [memory](docs/universal-memory.md) — archive, tree/view, retrieval, admission,
-   dreaming, schema and atomic completion contracts.
+   dreaming, schema and atomic completion contracts; [current delivery](docs/memory-delivery.md)
+   owns nexus capture and remaining integration qualification.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
 5. [Roadmap and implementation plan](docs/implementation-plan.md) — the single
@@ -274,6 +279,5 @@ These are accepted knowingly, not overlooked.
 - Some providers cannot prove whether every timed-out external effect committed.
   Jarvis exhausts provider-specific automatic reconciliation first, then records
   terminal `uncertain` and asks the owner to inspect rather than retrying blindly.
-- A one-user system has no second reviewer. The owner is simultaneously the
-  builder, the auditor, and the beneficiary, which instrumentation mitigates and
-  nothing removes.
+- a one-user system has one accountable human operator. independent agent review
+  helps challenge changes; it does not transfer the owner's responsibility.

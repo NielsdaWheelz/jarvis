@@ -30,8 +30,14 @@ These instructions govern all work in this repository.
   by new admitted archive material and retained optional explicit notes.
   [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds one distinct
   nexus-owner backend client for a configured authenticated viewer's chat
-  send/rerun/regenerate operations and tagged native/nexus note provenance.
-  it preserves the sixteen capture lanes and adds no nexus conversation capture.
+  operations and tagged native/nexus note provenance.
+  [adr 0068](docs/decisions/0068-nexus-capture-and-memory-delivery.md) adds
+  future-only nexus capture, specified in [memory delivery](docs/memory-delivery.md):
+  immutable terminal exports survive source deletion until acknowledged; no
+  edit/delete synchronization or historical import. one source-owned nexus table,
+  explicit central nexus provenance, no new jarvis table or native lane.
+  current nexus uses librarian send and failed/cancelled retry, not the retired
+  rerun/regenerate routes. notes use `Call.id` and `Call.principal`.
   declare complete nexus processor chains before granting tools; other viewers
   and automated helpers receive none. private provisioning is separate.
   dreaming is required in the first delivery. it quietly appends attributed
@@ -82,8 +88,8 @@ These instructions govern all work in this repository.
   dedicated browser/export is deferred. product/schema/integration contracts are
   complete for the core; nexus access is chats only, excluding automated helpers.
   nexus account/client integration still needs its
-  [consumer handoff](docs/issues/nexus-memory-client.md). implementation and
-  qualification remain. one serial tool-free
+  [consumer handoff](docs/issues/nexus-memory-client.md). core/repair source exists;
+  completion, nexus capture and current live qualification remain. one serial tool-free
   compactor uses existing inference; no jobs table or extra daemon.
   ordinary implementation details do not require another preference interview.
   it supersedes affected baseline rules below when implemented: six memory tables
@@ -126,7 +132,11 @@ These instructions govern all work in this repository.
 - once that memory target is implemented, retain two small regression groups:
   capture/retry and memory completion. no standing per-feature review machinery
   or restoration of the retired suite;
-  the wider testing redesign remains open. no runtime change is implied by docs.
+  the wider testing redesign remains open. adr 0068's scoped delivery uses a
+  content designer and independent adversarial review per feature, temporary
+  end-to-end/live red/green/refactor checks, then deletes only its new probes.
+  complete functional proof now; broad usefulness/load evaluation and
+  backup/restore are deferred. no runtime change is implied by docs.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
   owns the implemented next target contract and current qualification record.

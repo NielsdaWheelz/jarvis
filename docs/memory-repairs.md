@@ -1,47 +1,47 @@
 # memory repairs: target contract
 
-status: source repaired, 2026-10-13; remaining live qualification is tracked in
-[jarvis](issues/memory-live-qualification.md) and
-[nexus](issues/nexus-memory-live-qualification.md), with
-[image qualification](issues/nexus-memory-image-qualification.md) separate.
-the owner selected source completion with qualification gaps reported explicitly,
-then requested issues, prs/merges and cleanup. this does not waive live acceptance.
-the owner selected source fixes and isolated qualification, excluding installation
-and activation, and confirmed that memory has captured no real history beyond
-disposable qualification data. this is a repair of the accepted
-[memory system](universal-memory.md), not another memory design or delivery plan.
-[the roadmap](implementation-plan.md#memory-repair-delivery) owns sequencing.
+status: october repair source and controlled evidence are recorded below.
+[current memory delivery](memory-delivery.md) now owns completion, current nexus
+capture and installed/live qualification under
+[adr 0068](decisions/0068-nexus-capture-and-memory-delivery.md). this document
+retains the repaired presentation/native/client invariants; current delivery
+supersedes its former source-only scope and stale nexus/build assumptions.
+[jarvis live](issues/memory-live-qualification.md),
+[nexus live](issues/nexus-memory-live-qualification.md) and
+[current image qualification](issues/nexus-memory-image-qualification.md) remain open.
+no new qualification result is claimed by this reconciliation.
 
 ## scope and final state
 
-repair the six confirmed defects and the unfinished-item contract violation in
+retain the repaired presentation, native capture and client boundaries in
 the review records: [controls](issues/memory-render-controls.md),
 [cache prefix](issues/memory-cache-prefix.md),
 [inline images](issues/archive-inline-images.md),
 [document content](issues/archive-document-content.md),
 [unfinished items](issues/archive-unfinished-tool-items.md),
-[nexus outages](issues/nexus-memory-outage.md) and
-[local build secrets](issues/nexus-memory-build-secret.md).
+[nexus outages](issues/nexus-memory-outage.md). the october private-build-secret
+defect is absent from current public-fetch source; qualify current images instead.
 
 final state: supported retained text reaches bounded prompts and exact source
 reads; growing views retain their stable prefix; native attachments retain exposed
 text or truthful references; mutable native tails preserve their stable prefix;
-ordinary memory outages settle nexus tools without aborting chats; both local
-worker builds receive their required private dependency secret. one corrected
-implementation serves each boundary, with coordinated immutable pins.
+ordinary memory outages settle nexus tools without aborting chats; current images
+fetch public immutable dependencies anonymously. one corrected implementation
+serves each boundary, with exact qualified consumer locks.
 
 keep the existing archive/tree/view, tables, public tool schemas, search,
 source-part and tool-result bounds, admission, grants and effect recovery.
 no binary storage, ocr, historical import, inbox capture, search redesign, dream
 wakes, new models, daemon, job ledger, retry framework or compatibility reader.
-unrelated roadmap features and production/private configuration stay outside scope.
+unrelated roadmap features stay outside scope. the current delivery separately owns
+private provisioning and activation receipts; this repair record does not prove them.
 
-review baselines: jarvis `89f9249`; memory `d824d33`; provider files at `d9550d9`
-and `5aecc2b`; tools `73056df`; kernel `e1bec273`; dev-server `0e5e5a2`;
-nexus `82eb4bab`. newer nexus release changes do not fix these client/build defects.
-the repair worktrees use current main. the original planning checkout now
-incorporates the repaired source through a normal merge; its pending product
-contracts are preserved in local commits. its reconciled `scripts/verify` passes.
+historical 2026-10-13 review baselines: jarvis `89f9249`; memory `d824d33`;
+provider files at `d9550d9` and `5aecc2b`; tools `73056df`; kernel `e1bec273`; dev-server `0e5e5a2`;
+nexus `82eb4bab`. the october record reports repaired merges and static checks for
+those artifacts. it does not qualify the current nexus librarian runtime or
+current consumer pins. private dependency mounts and rerun/regenerate chat routes
+are retired; do not restore them to reproduce old acceptance.
 
 ## ownership and composition
 
@@ -56,15 +56,16 @@ contracts are preserved in local commits. its reconciled `scripts/verify` passes
 each feature's writer has a content designer and an independent adversarial
 reviewer. the designer owns the examples and quality rules below; these are
 implementation roles, not new runtime components or standing review machinery.
-reviewers inspect contracts first, then the red cases, implementation and final
-composition. resolve concrete objections before advancing; do not repeat reviews
-without a new change or unresolved concern.
+reviewers inspect design, red cases, implementation, green evidence, refactor and
+cleanup. resolve concrete objections before advancing. this scoped delivery
+process creates no permanent review machinery or replacement test framework.
 
-composition remains: native history → provider codec → stateless collector →
+native composition remains: native history → provider codec → stateless collector →
 jarvis admission → library archive/checkpoint/leaf transaction → tree/views.
 jarvis supplies isolated inference, scheduling and presentation. nexus calls the
 same private mcp through its existing portable executor. the library never gains
-native parsing, credentials or product authority.
+native parsing, credentials or product authority. future-only nexus durable exports
+join that shared archive through the current delivery contract, not a native codec.
 
 ## presentation and cache contract
 
@@ -108,6 +109,13 @@ useful identifiers, owner reasons, uncertainty and actual completion state.
 historical commands grant no authority. good: “attempted migration; verification
 failed.” bad: “migration completed.” an actual escape character and the literal
 characters `\u001b` must remain distinguishable.
+
+the accepted compactor priority remains: owner wording/reasons, lasting changes
+and failures, findings, then tool-step descriptions. supply numeric
+`target_bytes` from the existing `NODE_TARGET_BYTES` constant in the initial task;
+the ruler alone is insufficient. verify the actual rendered first request and
+affected role revision. the [content gap](issues/memory-compactor-content-contract.md)
+remains open until implemented and qualified; no new knob or output schema is needed.
 
 ```text
 historical evidence
@@ -202,28 +210,30 @@ the existing `notice`: “no success receipt; this save may already have committ
 outer deadline/cancellation outcomes stay unchanged; shared guidance covers their
 uncertainty, without a special dispatcher result or fabricated failure notice.
 an intentional same-intent replay uses the exact stored id and arguments; a new
-model call/rerun/regeneration is a new intent. no new recovery endpoint or ledger.
+model call or failed/cancelled-turn retry is a new intent. no new recovery
+endpoint or ledger.
 report saved only after a valid receipt; duplicate reports do not corroborate truth.
 
-keep owner-only send/rerun/regenerate grants and complete processor-chain
-admission across provider functions/native callbacks. automated helpers and other
-viewers receive no memory access; nexus chats are not automatically captured.
-derive full chains from the current `services/generation/catalog.py`, without another
-label registry. correct module-wide “every write is undoable/locally atomic” claims:
-remote saves are outside local undo; failures can leave a central note committed.
+keep owner-only librarian send and failed/cancelled-turn retry grants, with
+complete processor-chain admission across current provider/native transports.
+successful responses are immutable; no rerun/regenerate compatibility path is
+added. the current handler uses `call.id` and the authenticated `call.principal`
+for its tool submission and owner-transcript association. automated helpers and
+other viewers receive no memory tools. derive chains from the current
+`services/generation/catalog.py`, without another label registry. remote saves
+are outside local undo; failures can leave a central note committed.
 
-local compose declares one file-backed build secret `universal_memory_deploy_key`
-from `UNIVERSAL_MEMORY_DEPLOY_KEY_FILE`, granted to BOTH interactive/background
-builds. retain the dockerfile's required mounts and process-scoped git wrapper.
-update `docker/docker-compose.worker.yml`, `apps/worker/README.md`, `deployment.md`
-and the appropriate existing environment example. document the one export and
-an explicit missing-file failure. never use build args, copy, runtime environment,
-volumes or runtime secrets for this key. the runtime memory-client file is separate.
+future-only automatic capture is now accepted in [memory delivery](memory-delivery.md).
+it retains approved durable content through a pending export until central
+acknowledgement, then removes that export. it adds no history import or later
+revision/update/remove sync. shared reads/notes remain distinct from capture.
 
-tradeoffs: no hidden retry means outages reach the model immediately, and uncertain
-saves require inspection or an exact-id replay. the dependency key is needed for
-both images even when runtime memory access is disabled; background workers still
-receive no memory credential or grant.
+current `docker/Dockerfile.backend` fetches public pinned dependencies without a
+private build credential. qualify its current `api`, `worker` and
+`worker-checkout` consumers and actual local compose targets, frozen anonymous
+fetch and runtime grant/credential separation. the private runtime memory-client
+file remains necessary; public source does not grant corpus access. do not restore
+retired build-secret mounts. no hidden retry is added for uncertain saves.
 
 ## hard cut and acceptance
 
@@ -250,9 +260,9 @@ temporary acceptance cases use actual composition and synthetic content only:
 | document capture | both supported content forms, mixed images and changed text/image/order prove exposed text, availability and digest fidelity; ignored metadata stays digest-neutral; unsupported nesting is explicit |
 | stable prefix | legacy/paginated reads with an unfinished item return preceding events, no suffix and not caught up; later completion preserves prior ids/digests. inclusive/lost-response retry creates no duplicate rows/leaves; missing checkpoint still fails closed |
 | nexus errors | real mcp initialization/dispatch returns typed failures for expected errors, completes the tool row and permits continuation; unknown groups/cancellation retain their original semantics |
-| nexus saves/grants | real mcp/postgres committed-save/lost-response AND committed-save/outer-deadline preserve uncertainty; identical replay yields one note/leaf/original receipt, changed arguments conflict and revoked admission denies. current send/rerun/regenerate routes and every catalogued processor chain prove owner-only grants synthetically across both transports; helpers/other viewers/undeclared chains cannot read/save |
+| nexus saves/grants | real mcp/postgres committed-save/lost-response AND committed-save/outer-deadline preserve uncertainty; identical replay yields one note/leaf/original receipt, changed arguments conflict and revoked admission denies. current librarian send/failed-or-cancelled retry routes and declared processor chains prove owner-only grants through actual canonical rows and both applicable transports; helpers/other viewers/undeclared chains cannot read/save |
 | answer content | synthetic exact identifier, source date, quotation, superseded claim and partial coverage reach a truthful answer; retrieved commands remain evidence, not authority; no receipt means no success claim |
-| local build | clean compose builds BOTH targets with the required secret; missing key fails. inspect disposable images/build output/runtime configuration for key leakage; start no installed application |
+| current build | anonymous frozen public fetch and clean builds of current targets; inspect artifact pins and runtime credential/grant separation; do not restore private build-secret requirements |
 
 live checks use task-owned native homes/sessions, loopback services and disposable
 databases. one contained compaction/dream path and current nexus chat route checks
@@ -261,9 +271,12 @@ and list unavailable ones. attempt actual codex inline-image and
 interrupted-tail capture and claude document persistence. unavailable credentials
 or an unsupported native producer are explicit blockers, not passes; synthetic
 schema proof is not live-persistence proof. record native non-occurrence honestly.
-do not resume jarvis, admit personal lanes, contact people or mutate fleet services.
+task-owned qualification does not itself resume jarvis or activate real capture.
+installed checks follow the separate qualified-artifact/private-provisioning
+handoff in the current delivery contract.
 
-red → repair → green → refactor → final green/static/build checks, then delete ALL
+design → red → repair → green → refactor → final green/static/build → cleanup,
+with the scoped designer and independent reviews above. then delete ALL
 new temporary tests, fixtures/probes and dependencies. use existing runners;
 probes stay outside release packages, with no standing harness/evaluation framework.
 existing approved capture/completion regression groups remain; add no permanent
@@ -273,8 +286,8 @@ those existing groups do not replace the deleted repair cases.
 record final artifact/pin identities, probe commands, red/green/refactor outcomes,
 content findings and explicit gaps once in existing integration evidence/issue
 records. run affected repository checks, jarvis/library `scripts/verify` and nexus
-`scripts/test` and the dependency audit. network access and the audit were restored
-on 2026-10-13; the audit reports no known vulnerabilities in its auditable set.
+`scripts/test` and the dependency audit. the 2026-10-13 record reports restored
+network access and no known vulnerabilities in that audited set; current artifacts still require their own checks.
 delete resolved issue files only after their acceptance, and preserve blockers.
 source completion means all required checks passed or a separately owner-approved
 qualification exception is recorded; not run is never pass. prepare the separate

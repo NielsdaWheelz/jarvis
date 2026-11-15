@@ -32,6 +32,16 @@ A5's old role/evaluation criteria with the consolidated focused acceptance.
 source, live provider, fleet installation and production results remain distinct;
 none establishes the seven-day personal acceptance by implication.
 
+[current memory delivery](memory-delivery.md) extends the scoped exception to
+future-only nexus capture and completion of all current api/mcp, jarvis,
+native-client and nexus live paths. each feature has a content designer and
+independent adversarial review at design, red, green, refactor and cleanup.
+new temporary checks are deleted after final proof; existing approved groups
+remain. no new checks have run merely because this contract changed.
+[usefulness and realistic-load evaluation](issues/memory-usefulness-evaluation.md)
+belongs to a later pr, not this integration acceptance. backup/restore and import
+remain deferred.
+
 ## native cutover acceptance
 
 [adr 0065](decisions/0065-native-agent-supervision.md) replaces retired main
@@ -312,9 +322,21 @@ prove the package boundary through actual jarvis composition, including canonica
 receipt survival under projection failure, admitted post-cutover eligibility,
 fresh top-level views and active steering, exact main-save replay under revocation,
 quiet atomic dreaming, shared search accounting and unchanged paid-read/effect
-barriers. dev-server's loaded collectors/native clients and nexus's chats-only
-consumer require separate concrete receipts. no automated nexus helper inherits
-the owner's corpus.
+barriers. dev-server's loaded collectors/native clients and nexus's actual
+owner-librarian send/failed-or-cancelled retry routes require concrete live receipts
+for the current declared provider chains and tool transports. all five reads and
+optional save must pass through the real canonical executor. expected outages
+settle typed tool failures and permit continuation; uncertain saves retain their
+original identity and do not claim success without a receipt.
+
+nexus capture must retain the approved durable question/answer, saved excerpts
+and persisted tool receipts for new admitted runs, without importing prior runs.
+prove its pending export survives transcript deletion, outage and restart; central
+lost acknowledgements and replay create no duplicate originals; cleanup follows
+central acknowledgement. there is no revision/update/remove synchronization.
+no automated nexus helper or different viewer inherits the owner's memory tools.
+clean-build current targets from anonymous public dependency pins and inspect
+runtime grants. retired secret-mount builds are not the acceptance target.
 
 ## A6. Automatic actions and approval
 
@@ -494,6 +516,10 @@ These criteria are **live** where they call Gmail or Discord.
       not a pass for this graceful-shutdown criterion.
 
 ## A8. End-to-end memory scenario
+
+the scenario below retains product intent. current delivery uses the bounded live
+journeys in [memory delivery](memory-delivery.md); realistic-load/usefulness scoring
+and seven-day acceptance remain separate.
 
 required scenario:
 

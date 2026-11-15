@@ -636,12 +636,43 @@ below remains separate.
 | integration | merge source into main; build a memory-only patch of installed 3367413, preserving v1 and stock 0.160; qualify fresh migration and populated 0008→0008a separately; replace service and both collectors together |
 | independent review | review each contract and its temporary HTTP/native/postgres proof; verify installed healthy/new capture, pending counts, exact reopening and restart preservation; remove new probes after success |
 
-the installed database is still 0008 and current main contains incomplete v2.
+the starting installed database was 0008 and current main contains incomplete v2.
 the patch therefore excludes 0009 and all v2 behavior; immutable release tags
 retain compatible artifacts without standing maintenance branches. an existing
 history's missing head is never an empty cut. permanently unreadable histories
 can remain pending indefinitely; their earlier activity will remain absent even
 if they recover later. this is the owner's accepted coverage trade-off.
+
+installed transition: release `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, tag
+`memory-partial-baselines-2026-11-15-r2`, is active on schema `0008a` with zero
+service restarts. the same-release contained stock-0.160 host qualifies. the
+stopped migration comparison preserves all 11 prior lane receipts, 4,811
+conversation rows, 4,820 originals, 26 notes and 4,836 leaves exactly, including
+all cuts/checkpoints. canonical resume sequence 4 is unchanged; activation
+converts no actions and accepts only the three already-finalized compatible
+worker records. old release 3367413 is pruned; one installed release remains.
+
+both collectors select the same 0fc3d64 revision and authenticate native-archive.v3.
+all thirty protected profile, instruction and private-input files retain exact
+bytes, inodes and modes; no native daemon restart occurs during this replacement.
+an actual native mcp open reopens the known synthetic note with its exact marker.
+containment and both online worker reads pass; arch remains deferred.
+
+macbook work2 activates at 18:49:48 utc with 192 registered conversations:
+188 established and four explicit unavailable baselines. a new normal-wrapper
+codex turn then captures its owner prompt and assistant reply exactly once, each
+as one complete part with one leaf. the actual installed mcp reopens the exact
+77-byte synthetic reply, unclipped, with matching native identity/digest and
+macbook/codex-work2 provenance. capture starts at the beginning of this new
+conversation, with neither baseline nor capture error. the macbook profile activation issue
+is resolved; pending conversations retain the accepted individual policy.
+
+dev-server work2 activation/capture and final installed preservation comparison
+remain pending. restart qualification uses the actual replacement's preserved
+old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
+there is no second full cold-start experiment. the observed
+[cold-start scan delay](issues/memory-cold-start-scan.md) belongs to the deferred
+performance/usefulness follow-up, with correctness requirements unchanged.
 
 ### memory and native-main integration
 

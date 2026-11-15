@@ -302,11 +302,12 @@ action, approval or deployment state. inventory is evidence, not completion.
 retained reminder purpose, time and source references belong to slice 2's todo
 conversion; there is no temporary reminder table or executable old scheduler.
 
-the merged migration chain is memory `0007`, then one-main `0008`.
+the merged migration chain is memory `0008`, then one-main `0009`.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
-parents only by joining canonical action identities; ambiguous historical host
-settlement or parentage is parked for named repair, never inferred complete.
+parents only by joining canonical action identities. native committed products
+and exact canonical inline conclusions preserve proven host completion; ambiguous
+historical settlement or parentage is parked for named repair.
 source times remain original; historical first-observation time remains unknown
 where no canonical evidence exists.
 
@@ -319,6 +320,10 @@ resume only releases its own accumulated pause targets. ordinary chat `stop`
 reaches main and affects only its explicitly named delivered requests.
 
 ## universal memory cutover
+
+this transition completed under the memory release; its selected production
+schema is `0008`. the following records that release's procedure. events `0009`
+is a separate stopped migration and remains uninstalled.
 
 the existing `0004` installation first uses an immutable temporary native
 predecessor to reach `0005` and import its canonical pause. it is never resumed.
@@ -347,8 +352,8 @@ existing or recursively copied artifact.
 
 migration `0008` follows the unchanged published `0006`/`0007` migrations. it
 adds the configured claude-work2 account and grants the runtime only schema
-identity reads. activation accepts existing `0006`, `0007` and `0008` installations;
-unknown revisions refuse. the `0005` predecessor receives that same schema-read
+identity reads. the memory release accepts existing `0006`, `0007` and `0008`
+installations; unknown revisions refuse. the `0005` predecessor receives that same schema-read
 grant under stopped ownership before its drain. no old migration is rewritten.
 
 migration preserves canonical message/note/summary ids, text, dates and legacy

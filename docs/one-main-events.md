@@ -1,7 +1,7 @@
 # one main for every event — slice 1 / o6
 
 status: accepted v2 implementation contract under [adr 0071](decisions/0071-simple-event-driven-v2.md),
-2026-11-14; source implemented and isolated-qualified, installed activation pending.
+2026-11-15; source implemented and isolated-qualified, installed activation pending.
 source audit: `8c0bf36`; [implementation evidence](#implementation-evidence) below. the
 [roadmap](implementation-plan.md) owns sequencing. this includes o9's source
 changes; installed skid qualification remains slice 3.
@@ -286,8 +286,8 @@ finals including labels; reject oversize, never crop. remove origin-required
 notices and unconditional calendar/fleet incompleteness rewrites of answered or
 silent output; retain typed coverage receipts and truthful-answer instructions.
 main judges relevance. remove stale `c-` worker guidance: current skid is
-terminal-only v9. small deliverables here are prose; repo files/access arrive in
-later slices. no cards, notification subsystem or runtime content critic.
+terminal-only v10 with enrolled host names. small deliverables here are prose;
+repo files/access arrive in later slices. no cards, notification subsystem or runtime content critic.
 
 ## non-overlapping implementation boundaries
 
@@ -365,9 +365,8 @@ actual todo timing/busy-main publication stays slice 2. fabricated time input
 proves only generic framing, never a scheduler.
 
 record source/dependency revisions, red failure, final green, content/adversarial
-review and probe deletion here. run `scripts/verify`; report the existing
-[dependency audit](issues/dependency-audit.md) separately if still failing. remove
-resolved issue records only after proof. the original documentation adoption
+review and probe deletion here. run `scripts/verify`; report any dependency audit
+failure separately. remove resolved issue records only after proof. the original documentation adoption
 performed no code, behavioral/live test, deployment or service resumption; the
 subsequent owner-authorized implementation is recorded below.
 
@@ -377,15 +376,15 @@ no unresolved product choice remains. this is design review, not runtime proof.
 
 ## implementation evidence
 
-qualified source: `b8299b4`, on `feature/one-main-events`, following the source
-audit at `8c0bf36` and memory delivery
+initial qualification, 2026-11-14: source `b8299b4`, on
+`feature/one-main-events`, following the source audit at `8c0bf36` and memory delivery
 `d66e84057cb2468f23aacf3f359dac49453e0a3a`. the branch was rebased memory-first
 while preserving newer main changes. migration `0008` follows memory's unchanged
 `0007`; fresh `0001`→`0008` and populated `0007`→`0008` upgrades pass. the stopped
 deployment lock rejects a concurrent migration atomically. historical text,
 dates, effect contracts and receipts survive; ambiguous host history is parked.
 
-frozen dependencies:
+initial qualification dependencies (the live evidence below uses these revisions):
 
 | dependency | revision |
 | --- | --- |
@@ -398,7 +397,7 @@ temporary verification used real postgres 16/pgvector, actual stores, journal,
 runner, dispatch lane and tool executor. deterministic external ports supplied
 failure timing; they are integration evidence, not claims of live provider work.
 nine independent adversarial journeys and the durable/protocol/cutover probes
-pass on the final schema. the retained memory capture/retry regression passes
+pass on that schema. the retained memory capture/retry regression passes
 unchanged on its own disposable database.
 
 | feature | observed red and final proof |
@@ -412,8 +411,8 @@ unchanged on its own disposable database.
 | cutover | opaque retired terminal history publishes metadata once without execution; old unfinished contracts block admission; private inventory preserves obligations, history and outbox; retired gate/components/scheduler paths are absent |
 
 the actual contained stock `0.160.0` endpoint passed public containment
-qualification before model discovery under the final provider pin. live runs used
-`gpt-5.6-terra`, reasoning `high`, a separate auth-only task home, runtime state,
+qualification before model discovery under the initial provider pin above.
+live runs used `gpt-5.6-terra`, reasoning `high`, a separate auth-only task home, runtime state,
 private cognition directories and disposable database/ownership lock. no installed
 service or native fleet history was used.
 
@@ -447,7 +446,60 @@ final source; all concrete source findings are closed. temporary probes were
 deleted after final acceptance; the existing memory regression remains. static,
 types, all 121 documentation checks, build and fresh installation passed.
 `scripts/verify` failed only at its final dependency audit: six pre-existing findings in
-three registry packages. dependency repair is coordinated with memory rollout.
+three registry packages. the subsequent memory rollout resolved those findings
+before its merge `50611a3`; the initial run is not retroactively counted as green.
+
+### final memory integration, 2026-11-15
+
+source `c1e1966` rebases events on memory merge
+`50611a308cc94ce664d9bdc4917429b986b37462`. events migration `0009` follows
+memory `0008`; published migrations `0006`–`0008`, memory implementation, lockfile
+and retained capture/retry regression remain unchanged from that merge.
+
+| dependency | final integration revision |
+| --- | --- |
+| llm-agent-kernel | `419e5fe3e251e9ffdf506ae88fb7149fac6e1549` |
+| provider-runtime | `adf1b714dec6b2517ba468085674665923c237fc` |
+| llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+| universal-memory | `11f4220031d56f71d5a732b748a9bbb52c842e0e` |
+
+focused real-postgres integration first reproduced a rebase defect: host-state
+backfill cleared the completion timestamp used to prove an old inline worker
+result was already delivered. migration `0009` now preserves positively verified
+canonical conclusions before parking ambiguous history. its historical proof is
+frozen locally instead of importing a mutable runtime codec. the adjacent forged
+conclusion stays parked. fresh `0001`→`0009` and populated `0008`→`0009` pass;
+five original action contracts/arguments/results and twelve original message
+identities/text/source dates/settlement traces remain unchanged. stopped-lock
+rejection, runtime schema-read permission and the claude-work2 account check pass.
+opaque retired v9 results publish metadata once, unknown effects retain their
+barrier, and unfinished retired contracts block admission. the existing memory
+capture/retry regression passes unchanged on a separate fresh database.
+
+actual service/store/gateway integration preserves initialized canonical resume,
+rejects missing control, and keeps recovery/outbox delivery available before
+readiness. failed channel validation, failed catch-up and in-flight catch-up admit
+zero new main, compactor or dreamer runs. caught-up pause governs the first drain;
+ordinary resume releases all three. external transport and cognition ports were
+deterministic. independent adversarial review accepted these proofs and the final
+composition; no new live provider or production gateway was used. the earlier
+paid live evidence retains its original revisions above.
+
+production remains on the qualified memory release and schema `0008`. events
+activation stays refused until the selected v2 slices and reminder obligations
+are ready. the short refusal replaces deployment machinery for this intermediate
+slice; memory's qualified activation implementation remains in merge `50611a3`.
+its reachable initialized-control and gateway-readiness contracts remain intact.
+the worker contract remains v10 with `dev-server`; memory provenance remains
+`devbox`.
+nexus, arch and named memory profile deferrals are unchanged.
+
+full `scripts/verify` passes: formatting/lint, types, 123 documentation files,
+build, fresh installation and zero registry audit findings. pinned git dependencies
+retain their source qualification; the registry audit does not cover them.
+temporary integration probes and the task-owned postgres container, databases
+and volume were deleted after acceptance. the original dirty checkouts and all
+production services, ownership and data remain untouched.
 
 ## explicit costs
 

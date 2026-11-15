@@ -2,7 +2,6 @@
 
 status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slice 1 implemented in source, not activated**
 
-
 date: **2026-11-15**
 
 audience: product, engineering, design, operations, and future coding agents

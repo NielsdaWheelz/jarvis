@@ -1,8 +1,14 @@
 # complete and continuable searches
 
-status: owner choices settled, 2026-10-09; docs only. adopt in spec/an adr before
-implementation, including the memory-search amendment below. the
+status: later proposal, reconciled 2026-11-14 with the terminal-only worker
+contract. the 2026-10-09 search choices remain subject to spec/adr adoption,
+including the memory-search amendment below. the
 [roadmap](implementation-plan.md#complete-and-continuable-searches) owns sequencing.
+
+[adr 0071](decisions/0071-simple-event-driven-v2.md) retains this as later scoped
+work, outside the selected v2 cut. necessary complete attachment manifests and
+reopenable source references may ship with attachments/event adapters; they do
+not require or imply this whole search overhaul or its memory-ranking amendment.
 
 ## target and boundaries
 
@@ -15,8 +21,11 @@ provider limits and permissions remain. no automatic exhaustive scan.
 all historical gmail messages and their full available textual bodies are in
 scope, including body text behind `attachmentId`. binary attachment content,
 pdf/image interpretation and durable originals stay in the attachment feature.
-calendar, places, web, shared memory, work and available worker history follow the
-same principle. native notes use ordinary commands; no notes search service.
+calendar, places, web, shared memory, work and available retained terminal text
+follow the same principle. [adr 0069](decisions/0069-terminal-only-workers.md)
+removes worker-native history/control; this proposal does not restore them.
+independent provider archives and admitted memory retain their own APIs and
+scope. native notes use ordinary commands; no notes search service.
 
 main chooses scope, depth, further queries, merging, deduplication and resumption.
 use ordinary context/work/notes for query, cursor, completed-item progress and
@@ -98,7 +107,7 @@ carry normalized-selector digest and original provider token; no cursor rows.
 | `web.search` | add `search_id: UUID`, page size 1–20/cursor; llm-tools maps page offsets 0–9 and exposes provider continuation uncertainty/limit |
 | `web.read` | existing url plus offset/max bytes/expected digest → chunks of complete supported extracted text; retain original destination/media/evidence checks |
 | `work.list`, `work.get` | reuse [o7](work-records.md)'s unbounded sequence of bounded offset pages/current full record; changing work can shift offsets; no snapshot promise |
-| `agent.list`, `agent.read` | add paging/text continuation through the bounded skid handoff below; preserve unavailable peers, target/source/output evidence |
+| `agent.list`, `agent.read` | add terminal inventory/text continuation through the bounded skid handoff below; preserve unavailable peers and terminal target/source/output evidence; no native-history selector |
 | `memory.search`, `memory_search` | same shared ranked API amended below; existing view/zoom/open already navigate/page retained originals |
 
 snapshot views preserve current exact normalized fields and strict write-sized
@@ -241,17 +250,18 @@ receipts; never clear or redispatch an unknown slot. no extra ledger/quota.
 
 skid adds `list --page-size/--cursor` and `read --cursor` with existing max-bytes.
 new wire facts use existing camel-case style: `nextCursor`, `observedAt`, and
-read source digest/native position plus text range. preserve wire omission rather
+terminal-output digest plus text range. preserve wire omission rather
 than null for absent optional fields; model schemas retain nullable cursor inputs.
 retire read's terminal clipping flag as the continuation signal: normal unread
 pages and genuine missing-history limitations are distinct.
 inventory filtering/paging happens before transport fencing; deterministic
-machine/handle order, live collection. native history reuses provider-owned
-archive/history codecs and event/within-event continuation under a retained-prefix
-boundary; no second transcript parser, resume/load or central-memory routing.
-latest reads page the captured output revision; newer output needs a fresh read.
-terminal reads page available retained/visible text with offsets/digest; changed
-anchors fail explicitly. buffer exhaustion is not lifetime-history completeness.
+machine/handle order, live collection. reads page the captured terminal output
+revision; newer output needs a fresh read. page available retained/visible text
+with offsets/digest; changed anchors fail explicitly. buffer exhaustion is not
+lifetime-history completeness. no conversation discovery, native transcript
+parser, provider-native result/read/control or archive fallback belongs in skid.
+existing provider archive and memory APIs remain independent; this worker
+pagination handoff neither changes nor proxies them.
 keep target capture, writes, waits and operational controls unchanged.
 
 ## designer's content rules
@@ -260,7 +270,7 @@ results make scope, available continuation and material omissions intelligible.
 ids support tools; prose supports decisions. snippets are previews, estimates
 are estimates, ranked hits are candidates. distinguish enumerated, fetched and
 actually examined material. provide useful progress for long requested scans;
-silence/notice remains [o6](one-main-events.md)'s policy.
+communication or silence remains ordinary main judgment under [o6](one-main-events.md).
 account for main's own work mutations: advancing an offset after completing or
 deleting preceding rows can skip items. retain seen identities and restart from
 zero when needed, or gather identities before changing membership/order. this is
@@ -280,8 +290,8 @@ originals answer the question.` no compulsory wording/report template or critic.
 | jarvis composition/presentation | `definitions.py`, `tool_composition.py`, `read_dispatch.py`, `read_positions.py`, `terminal.py`, `native_runtime.py`, `session-compatibility.json`, exact dependency pins: grants, freshness, original receipts, content and retired calendar aggregate tracking |
 | memory library | shared public retrieval/schema module and postgres query implementation: uncapped ranking/query contexts; jarvis internal and mcp adapters consume one api |
 | llm-tools | `web/contracts.py`, `web/brave.py`, `web/tools.py`, `web/reader.py`: portable web paging/chunks; consolidate repeated utf-8 slicing/envelope-fitting primitives where genuinely shared |
-| skid + provider-runtime | skid `internal/agentcli/run.go`, `fleetclient/`, `gateway/`, `agentcontrol/`, necessary sessions/tmux read paths; provider `agent_runtime/archive.py` and existing native codecs: retained history pages without duplicate parser/store |
-| deployment | dev-server publishes/pins/installs the matching helper/gateway/cli through existing fleet machinery; jarvis consumes qualified library pins |
+| skid | existing cli/gateway/terminal read owners: page inventory before transport fencing and continue retained terminal text; no provider archive dependency or native-history parser |
+| deployment | skid publishes/installs matching artifacts; dev-server consumes its release/configuration; jarvis consumes qualified pins and separately resolves service access to live installed state |
 | temporary proofs / designer | scoped integration/live files only; boundary/content evidence, no production edits by proof writer |
 
 agree public contracts first. external units own transport/mechanisms; jarvis owns
@@ -297,9 +307,10 @@ fallback provider, alternate ranking or old/new tool path.
 temporary red/green integration plus controlled synthetic live journeys prove:
 
 1. more than 20 gmail hits/50 thread members, 50 calendars/1,500 events, 10
-   places/web hits, 100 memory candidates and 32-kib worker output stay reachable;
+   places/web hits, 100 memory candidates and 32-kib retained terminal output stay reachable;
    provider ceilings/empty pages with tokens are honest. unchanged fixtures have
-   no missing/duplicated identities. include older mail, spam/trash and work pages.
+   no missing/duplicated identities. include older mail, spam/trash and work pages;
+   terminal paging never substitutes provider history for missing scrollback.
 2. last text suffix after 16/64 kib, >2-mib valid email, oversized headers and
    many external text parts, including named text/empty root ids, are readable;
    no separate binary attachment fetch/output. escaped/multibyte

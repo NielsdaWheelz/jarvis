@@ -1,10 +1,79 @@
-# Jarvis v1 specification
+# jarvis specification
 
-status: **native runtime and universal-memory source; frozen domain baseline**
+status: **native runtime and universal-memory source; accepted memory and v2 targets**
 
-date: **2026-10-09**
+date: **2026-11-14**
 
-Audience: product, engineering, design, operations, and future coding agents
+audience: product, engineering, design, operations, and future coding agents
+
+## accepted v2 target
+
+[adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
+2026-11-14 owner decisions. this is an unimplemented target, not a claim about the
+installed service. these contracts supersede conflicting baseline rules below
+for their v2 slices; unchanged contracts and the separate memory delivery remain.
+
+- [one main](docs/one-main-events.md) handles owner input and every admitted event
+  with the same normal capabilities. remove the model write gate, read-only wake
+  route and host interpretation of conversational stop. retain operational pause,
+  canonical request/invocation journals and effect/read recovery.
+- [work](docs/work-records.md) is one mutable todo table with optional deadline
+  and independent one-time/repeated wake. the timer publishes the todo's context
+  to main; firing never means completion. scheduling lives here, replacing the
+  separate schedule product and proposed recurring-wake table.
+- [events](docs/event-sources-and-recurring-work.md) publish email/calendar facts
+  through the same input path; one cursor table owns polling progress. existing
+  [skid observation](docs/worker-launch-observation.md) already provides the
+  asynchronous result path. [follow-through](docs/delegated-follow-through.md)
+  is main's judgment; installed skid qualification remains outstanding.
+- [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
+  with trusted native tools. [attachments](docs/attachments-and-durable-originals.md)
+  retain discord/email original bytes privately in r2, with one metadata table
+  and native image/pdf/file reading. notes' explicit provider/kernel handoff
+  precedes native file access; no notes service or extraction framework.
+- approvals are [ordinary conversation](docs/one-main-events.md#conversational-approvals).
+  main interprets consent and records it through the existing action transition;
+  clear prior consent needs no repeated question. retire mandatory buttons,
+  exact-payload previews and free-text rejection. add no semantic matching engine
+  or separate approval ledger. stored execution arguments remain immutable and
+  unknown effects remain non-retryable without the existing recovery proof.
+- progress, blockers, results and notification/silence are ordinary agent
+  behavior. add no notification-policy field, completion dashboard or workflow
+  controller. small deliverables are prose and repo files through existing access.
+- browser control, new credential products, interactive mini-apps/television,
+  credential-entry forms and a separate ui are deferred. existing connector and
+  storage credentials remain deployment configuration.
+
+the adopted schema additions are `work`, `event_cursor` and `attachment`, plus
+o6's causal message reference and contract changes; there is no `recurring_wake`
+table. detailed fields/tools, migration and acceptance belong to the linked
+contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
+shared memory stays in its separate pr: no capture, dreaming or memory-schema
+change is implied, and selected dream-triggered turns remain deferred. existing
+complete-search and budget proposals remain separately scoped later work.
+
+the following accepted memory/native sections and numbered v1 baseline describe
+their respective contracts and implemented history. where v2 conflicts, the
+adopted target above governs its implementation; old runtime/runbook claims do
+not constitute v2 acceptance. no code or production activation occurs in this
+documentation change.
+
+accepted memory completion target (2026-11-14):
+[adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the
+[completion contract](docs/memory-delivery.md). finish the existing system and
+prove every supported api/mcp and actual jarvis/native/nexus composition. add
+future-only capture of the configured nexus owner's durable librarian turns:
+eligibility at admission, immutable pending export at terminal commit, atomic
+central archive/leaf/progress before acknowledgement. source deletion does not
+erase pending or captured evidence. no edit/version/delete synchronization,
+historical import, backup/restore or broad usefulness/load evaluation in this
+delivery. one new nexus table; no new jarvis table or native lane. extend the
+existing source schema with explicit nexus provenance and separately scoped
+capture credentials. each feature gets content design, adversarial review and
+temporary red/green/refactor integration/live proof; delete those new probes,
+preserve existing approved checks. this supersedes affected no-capture, schema,
+retired nexus-route and review wording below. docs only; implementation and
+production activation remain distinct.
 
 accepted native-agent cutover (2026-10-02):
 [adr 0065](docs/decisions/0065-native-agent-supervision.md) adopts the shared
@@ -48,7 +117,8 @@ through mcp/api. the core memory source is implemented and isolated qualificatio
 passes; production activation remains separate. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
 backend client and tagged note attribution, preserving sixteen capture lanes.
-the qualified client source and remaining private provisioning are in the
+adr 0070 adds the distinct nexus capture source without changing those lanes.
+the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
 context replacement.

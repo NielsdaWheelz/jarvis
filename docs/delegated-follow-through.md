@@ -1,8 +1,9 @@
 # delegated follow-through — o9
 
-status: owner direction settled, 2026-10-06; docs only. supersedes the proposed
-work-linked execution/fencing design. adopt with [o6](one-main-events.md) in
-spec/an adr superseding affected adr 0065 chat-stop rules before implementation.
+status: accepted v2 target under
+[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-14; unimplemented.
+supersedes the proposed work-linked execution/fencing design and affected
+adr 0065 chat-stop rules, together with [o6](one-main-events.md).
 the [roadmap](implementation-plan.md#o9-continuation-and-coordination) owns sequencing.
 
 ## target and boundaries
@@ -23,30 +24,46 @@ bookkeeping; [o8](worker-launch-observation.md) owns workers/observation. reuse
 those contracts. email ingress, recurrence, memory and deployment redesign stay
 with their existing owners.
 
+skid is the delegate executor. its existing asynchronous wait already publishes
+a durable result event to jarvis. qualify that installed path and repair any
+demonstrated gap; do not add a new push api or require main to keep reading worker
+sessions just to discover completion. a result event starts or steers ordinary
+main, which may inspect the result when useful.
+
+the executor follows [adr 0069](decisions/0069-terminal-only-workers.md): targets
+are terminal handles, reads expose retained terminal text, and writes prove
+terminal dispatch rather than provider admission. no worker-native history or
+control is restored by v2. installed jarvis use still needs the separately owned
+[live-state access boundary](issues/skid-installed-state-access.md).
+
 ## behavior and existing api
 
 - substantial work normally gets one coordinator; simple work may use a worker
   or main directly. research/inspection count. jarvis chooses the method.
-  existing preferences: `gpt-6-astra`/`xhigh` for coordination,
-  `gpt-6-sol`/`xhigh` for individual work; preferences, not enforced assignments.
+  choose among configured profiles; their commands own provider/model/effort
+  options. `agent.start` has no model/effort override fields.
 - use existing `agent.*` tools and freeform conversation. inspect when useful,
   register bounded `agent.wait` when observation helps, integrate later evidence
   and choose the next useful action. no mandatory procedure or report packet.
 - use `work.*` to retain useful outcomes, next steps, blockers and references.
   one record per useful owner outcome, not per specialist. record updates are
-  bookkeeping. choose finite `schedule.wake` follow-ups when useful under o6.
-- submission, dispatched bytes and idle/done worker state do not prove the owner
+  bookkeeping. give a todo a one-time or repeating wake when useful; the timer
+  starts another ordinary turn under o6, with context in the todo and its references.
+- submission, dispatched bytes and observed terminal idle do not prove the owner
   outcome. evaluate evidence before reporting success or marking a todo done.
 - `stop`, including scope expressed in ordinary language, is normal owner input.
   honor the latest owner intent across later events and fresh threads. main
-  interprets scope, chooses existing interruption/wait/schedule/record actions,
+  interprets scope, chooses existing interruption/wait actions and work mutations,
   and dispositions requests through the existing native output. no automatic
   work cancellation or hidden stop marker follows from the word.
 
-schemas stay `ActionRequest`, short `{machine,handle}` targets with existing private
-capture, original wait/schedule receipts, o7 records and `JarvisNativeMessage`/`InputOutcome`. every origin uses
+schemas stay `ActionRequest`, short `{machine,handle}` terminal targets (`t-` plus
+16 lowercase hex digits) with existing private
+capture, original worker/wait receipts, o7 work-mutation receipts and
+`JarvisNativeMessage`/`InputOutcome`. retired schedule receipts remain historical
+evidence; scheduled todos use o7. every origin uses
 o6's full frozen main plan and ordinary dispatch. work can proceed without a todo.
-retain exact connector Approve/Deny, trusted worker independence, deployment
+retain ordinary conversational connector consent, trusted worker independence, deployment
 ownership, protocol validation and original effect/read recovery. fresh events
 do not acquire reduced grants from a historical conversational stop.
 
@@ -54,8 +71,9 @@ do not acquire reduced grants from a historical conversational stop.
 
 briefs state outcome, relevant context, actual scope and useful evidence; leave
 procedure to the worker. progress adds a finding, changed direction or blocker.
-results identify the outcome, supporting evidence and material limits. requested
-results/blockers need notice; routine observations follow o6's quiet policy.
+results identify the outcome, supporting evidence and material limits. main
+decides when a finding, blocker or result is worth telling the owner. no separate
+progress, blocker, approval or completed-result component is added.
 
 brief: `inspect the expired-session failure. explain the cause and responsible layer; no code changes. include evidence; use helpers if useful.`
 
@@ -81,7 +99,7 @@ new-control handling; historical controls/receipts remain evidence. no fallback
 keyword route, work controller or duplicate continuation loop. o6 removes origin
 restrictions; do not implement another authority policy in o9.
 
-adopt the reconciled o6/o9 contracts together, rotate affected main/session
+implement the adopted o6/o9 contracts together, rotate affected main/session
 revisions, then use the existing stopped release cutover. canonical requests,
 original receipts and entered-effect recovery survive; no worker protocol upgrade.
 
@@ -92,7 +110,9 @@ show exact chat `stop` bypasses main today. green uses real postgres/native
 composition to prove its original text reaches main, including during a pending
 worker observation, without word-triggered cancellation or fabricated completion.
 
-live contained-main/installed-worker/discord journeys prove: useful delegation
+the roadmap's installed skid slice owns the following live proof; the earlier
+source/native-composition pr does not claim it passed. live
+contained-main/installed-worker/discord journeys prove: useful delegation
 from owner and non-owner events; unrelated input remains responsive; later
 observations integrate and prompt useful continuation/bookkeeping when useful;
 valid do-nothing/silent choices on ambient events pass. ordinary stop
@@ -106,7 +126,8 @@ and run `scripts/verify`. no code or behavioral/live execution in this doc task.
 
 cost: stopping depends on main responding, interpreting correctly and its tools
 working; it is not an out-of-band fence. interrupting a coordinator proves no
-descendant cancellation or reversal of effects. the current catalog cannot cancel
-generic pending approvals: owner Deny remains available; do not claim stop prose
-cancelled them. bookkeeping is not a durable execution stop. temporary test
+descendant cancellation or reversal of effects. main may interpret an owner's stop
+as denial of a pending action and record that decision through o6's callback,
+referencing the actual owner message. stop prose alone does not cancel it.
+bookkeeping is not a durable execution stop. temporary test
 deletion leaves less retained regression coverage.

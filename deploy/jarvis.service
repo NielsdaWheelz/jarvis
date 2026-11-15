@@ -2,6 +2,7 @@
 Description=Jarvis single-channel assistant
 After=network-online.target postgresql.service
 Wants=network-online.target
+RequiresMountsFor=/run/jarvis-skid-state
 StartLimitIntervalSec=900
 StartLimitBurst=3
 

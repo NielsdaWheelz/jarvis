@@ -1,16 +1,17 @@
 # skid worker client cutover
 
-updated: 2026-10-21. terminal-only worker v9 implements
-[adr 0069](../decisions/0069-terminal-only-workers.md). paired installed
-fleet and production service acceptance remain `NOT_RUN`.
+updated: 2026-11-14. terminal-only worker v10 implements
+[adr 0069](../decisions/0069-terminal-only-workers.md), amended by
+[adr 0072](../decisions/0072-native-memory-rollout.md). installed service-uid reads
+pass; production launch/control/observation acceptance remains separate.
 [o8 contract](../worker-launch-observation.md) owns remaining delivery and acceptance.
 
-problem: terminal-only targets, closed wire schemas and worker v9 require one
-coordinated stopped cutover. the jarvis service cannot read the enrolled owner's
-live skid state under its existing uid and containment; the client installer
-refuses. the [service-state issue](skid-installed-state-access.md) owns that
-separate deployment decision. current dev-server does not read file-based pause
-state or install a private jarvis client.
+problem: terminal-only targets and closed wire schemas require matching installed
+artifacts and actual launch/control proof. the coordinated stopped cutover now
+installs skid `v0.24.2` and its live read-only state mount; restricted service-uid
+reads succeed on macbook/dev-server. [installed receipts](../universal-memory.md#native-memory-installed-qualification)
+do not qualify provider launch or uncertain-effect recovery. current dev-server
+does not read file-based pause state or install a private jarvis client.
 
 impact: mixed readers can reject valid receipts after effects or refuse ordinary
 terminal input. local source qualification does not establish installed behavior.
@@ -46,17 +47,18 @@ stay opaque after common immutable checks; unfinished retired rows block startup
 no compatibility reader, ref codec, account registry or fallback is added.
 
 current evidence: [adr 0069](../decisions/0069-terminal-only-workers.md) records
-reviewed v9 source/integration proof. `deploy/install-agent-client` explicitly
-refuses live-state access; `dev-server/lib/skidbladnir.sh` delegates ordinary
-installation/application to skid. the earlier file-pause installer requirement is
-superseded, not remaining implementation work.
+reviewed v9 source/integration proof; adr 0072 adds v10 label/state qualification.
+`deploy/install-agent-client` now installs the exact cli and root-managed live
+mount under the stopped deployment lock. `dev-server/lib/skidbladnir.sh` delegates
+ordinary installation/application to skid. the earlier file-pause installer
+requirement is superseded, not remaining implementation work.
 
 resolved when: authorized installed-service checks prove both provider launches,
 current terminal schemas/flags, short discovery, literal input, partial evidence,
 original targeting across delay/restart and zero mutation replay. preserve
 shared provider ownership, account settings and containment. first qualify the
-chosen service-state boundary under the owning issue; no copied stale state,
+chosen service-state boundary under its owning contract; no copied stale state,
 privilege bridge, fallback or deployment change is assigned here.
 
-blockers: service-state access decision and qualification, paired release/install,
-production cognition and authorized activation.
+remaining: production provider launch/control/observation through the qualified
+installed boundary. offline arch stays explicitly deferred.

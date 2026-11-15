@@ -1,13 +1,20 @@
 # universal memory: implementation contract
 
-owner-approved source contract, **not deployed**. reconciled with the native
+owner-approved contract; jarvis and the online native fleet are installed and
+qualified with the explicit profile deferrals recorded below.
+reconciled with the native
 runtime and owner-chat client on 2026-10-09; that baseline's source implementation
 and isolated qualification are complete. the 2026-10-13
 [repair evidence](#memory-repair-source-candidate) records that candidate's pins
-and open qualification. [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md)
+and then-open qualification. [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md)
 adopts the 2026-11-14 [completion contract](memory-delivery.md): future-only nexus
 capture, compactor content repair and current functional integration/live proof.
-that delta is specified, not implemented. production activation remains separate.
+that delta is implemented and isolated functional proof passes; see the
+[completion evidence](#memory-completion-source-qualification). the
+[native rollout source qualification](#native-memory-rollout-source-qualification)
+resolves the dependency audit and qualifies adr 0072's source amendments.
+the [installed receipts](#native-memory-installed-qualification) qualify the online
+rollout with named profile deferrals; nexus and arch are deferred.
 [SPEC.md](../SPEC.md) adopts this current contract; implementers need not reconstruct
 the amendment history. [adr 0063](decisions/0063-simplify-memory-policy-and-retrieval.md)
 records the simplification; [adr 0066](decisions/0066-optchat-memory-adoption.md)
@@ -21,8 +28,9 @@ native codex/claude/nexus chats keep their own context management. tool-result
 archive text uses a permanent 30,000-character head/tail cap. the core memory
 contracts are settled here. nexus access is limited to the owner's chats;
 [adr 0067](decisions/0067-nexus-owner-chat-memory.md) settles its distinct client,
-account attribution and processor grants; adr 0070 adds capture without extending
-the sixteen native/jarvis lanes. its bounded
+account attribution and processor grants; adr 0070 adds capture without adding
+a native lane. the current native rollout includes eighteen native lanes plus
+jarvis, including each host's separate `claude-work2` account. the bounded nexus
 [consumer handoff](issues/nexus-memory-client.md) separates source integration from
 private provisioning. earlier adrs retain the rationale. section 12 records
 current evidence and remaining work; delivery order lives in the
@@ -195,16 +203,16 @@ or replace their native compaction. tree compression continues in the background
 historical orientation is bounded; a single long running turn still has provider
 context limits. current authority and effect recovery never depend on summaries.
 
-remaining work includes the completion delta, current functional qualification,
-private provisioning and installed activation. durable attachment originals are a
-separate delivery. section 12 identifies qualified source artifacts; the roadmap
-owns delivery order.
+remaining work is the named profile deferrals and later arch/nexus provisioning
+and activation. the online memory rollout is qualified. durable attachment
+originals are a separate delivery. section 12 identifies exact source and installed
+receipts; the roadmap owns delivery order.
 
 ## 2. ownership and admission
 
 | concept / owner | contract |
 | --- | --- |
-| lane | declared native home identified by `(machine, account)`, never a path; fifteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work}) plus `(devbox, jarvis)` |
+| lane | declared native home identified by `(machine, account)`, never a path; eighteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work, claude-work2}) plus `(devbox, jarvis)` |
 | nexus client/source | one optional `nexus-owner` backend client for a configured viewer; librarian reads/notes and separately admitted durable source capture; no native lane or automated-helper tool grant |
 | conversation | native `(provider, native_id)` with first-report lane ownership, jarvis's configured-channel conversation, or nexus's configured owner transcript with explicit source identity |
 | event / part | complete persisted native item, never a streaming delta / one central text chunk of at most 8,000 utf-8 bytes |
@@ -221,8 +229,9 @@ owns delivery order.
 owner-chat client and note attribution. the optional `nexus_client` declaration
 contains `client="nexus-owner"`, canonical `owner_user_id`, controller/sharing
 authorization, `admit`, `connect`, `capture`, client `bearer_sha256` and nullable
-upload-only `capture_bearer_sha256`. defaults deny; the sixteen capture lanes do
-not expand. notes require `admit && connect`; capture requires `admit && capture`.
+upload-only `capture_bearer_sha256`. defaults deny; nexus adds no lane to the
+nineteen native/jarvis lanes. notes require `admit && connect`; capture requires
+`admit && capture`.
 reads require `connect`. the two credentials have disjoint scopes. recipients
 may include `nexus-owner`; `processors.nexus_model_processors` is a bounded list
 of existing nexus processor-chain labels, empty by default and covered by the
@@ -1012,8 +1021,10 @@ may guide attention, not prove completion; it does not block this delivery.
 ## 6. retrieval
 
 jarvis's service serves streamable-http mcp at `/v1/mcp` and the capture api at
-`/v1/memory/*` on its own port, behind dev-server's tailscale serve handler for
-`/v1` (no funnel), proxied to a loopback listener. postgres stays loopback-only.
+`/v1/memory/*` on its own loopback port, behind dev-server's private tailscale
+serve listener on `8443`. memory owns only `/v1/memory` and `/v1/mcp`, forwarding
+their complete paths and preserving skid's root handler; funnel stays disabled.
+declared origins and native client urls include `:8443`. postgres stays loopback-only.
 the capture routes use fastapi; the official mcp python sdk's streamable-http
 application is mounted beside them. pin a mutually compatible sdk/server release
 and its supported mcp protocol revision when adding these dependencies. the
@@ -1729,9 +1740,8 @@ run `scripts/verify` in jarvis/universal-memory and `./scripts/test` for nexus's
 static gates. the retained library groups use a task-owned empty database via
 `MEMORY_TEST_DATABASE_URL`; jarvis's `tests/capture_retry.py` requires an explicit
 `--disposable-database-url`. temporary integration/live helpers are removed after
-final-tree proof. installed capture remains in the bounded
-[capture handoff](issues/universal-memory-capture.md), with controllers/sharing
-and disabled or waived lanes stated explicitly.
+final-tree proof. [installed capture](#native-memory-installed-qualification)
+records controllers/sharing and disabled or waived lanes explicitly.
 
 ### memory repair source candidate
 
@@ -1811,10 +1821,10 @@ credential state are removed. the original jarvis checkout incorporates the
 repair through normal merges and also passes frozen `scripts/verify`; five pending
 product documents are preserved byte for byte in local commits.
 
-remaining acceptance is explicit in
-[live inference/cache/native persistence](issues/memory-live-qualification.md),
-[canonical nexus rows/routes](issues/nexus-memory-live-qualification.md) and
-[current clean image qualification](issues/nexus-memory-image-qualification.md).
+the then-open live inference/native persistence and canonical nexus route checks
+are resolved by the [current evidence](#memory-completion-source-qualification).
+[target-host image qualification](issues/nexus-memory-image-qualification.md)
+remains separate.
 the memory library is now public; jarvis's hosted verification fetches its exact
 git pin without a private-dependency credential.
 synthetic proof does not waive those requirements. dev-server retains its prior
@@ -1838,23 +1848,330 @@ available checks; unfinished live cases must be regenerated from the repair
 contract on their qualification host. existing approved regression groups remain.
 prs retain the exact reviewed commits; no permanent repair harness ships.
 
-### 2026-11-14 completion specification
+### memory completion source qualification
 
-[adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md) and
-[memory delivery](memory-delivery.md) specify the remaining functional delivery
-and future-only nexus capture. source inspection used current nexus
-`8a16a039a351df267b3d61f8a1efd8bb951e9e2f`; its librarian routes, canonical
-terminal fold, tool-call identity, public builds and dependency composition differ
-from october's qualified artifact. three independent source/architecture/content
-reviews found and resolved snapshot freshness, receipt-field retention, periodic
-overlap, retry-order and documentation inconsistencies. this is design evidence,
-not implementation or live acceptance.
+2026-11-14 local date: [adr 0070](decisions/0070-nexus-capture-and-memory-delivery.md)
+and [memory delivery](memory-delivery.md) are implemented in isolated
+`feature/memory-delivery` worktrees. original checkouts and personal histories
+are untouched. this is source/isolated qualification, not installed activation.
+the delivery commit owns jarvis's code, four immutable pins and compatibility
+manifest; dev-server's release pin names that exact jarvis commit.
 
-the documentation-only pass at `ce6f488` ran `scripts/verify`: lock/sync, whitespace,
-formatting, lint, types, documentation links, wheel/sdist build and fresh
-installation/import/cli smoke passed. the final dependency audit failed with
-19 reported vulnerabilities across four packages. the
-[dependency audit issue](issues/dependency-audit.md) separates that historical
-scan from current-main verification. no dependency change or audit
-suppression was made. behavioral/live checks were not run; no runtime code,
-schema, credentials, installed service or capture admission changed.
+| artifact | immutable source |
+| --- | --- |
+| universal-memory, both consumers | `27d6f1b4e2ddcbc2aa831eb6066f384fccb552ad` |
+| jarvis provider-runtime | `7a2493e5f4da34f6d9a32e2504d8fc6333482385` |
+| jarvis kernel | `8524c8c737bbe56a0993da1421084d0122d08f49` |
+| llm-tools, both consumers | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+| nexus application | `12f74c865eb289e186ff33b310f8d34a28c9220d` |
+| nexus provider-runtime | `adf5a5a44783f67fc4a8950b2ae499a98bb657c4` |
+| nexus kernel | `e5c46d397758d6a0e504a091f5c0e809ebdeab9a` |
+| dev-server configuration source | `ec0dc3a32054df3a4539cee6bb82a3d7543c4f92`; later release-pin-only handoff selects jarvis |
+
+the library owns the closed nexus envelope and transactional append. jarvis adds
+three authenticated source routes and migration `0007` after `0006`, without a
+new table or native lane. nexus adds `memory_exports` in migration `0346`, stamps
+future eligibility at admission and freezes the export in its canonical terminal
+transaction. its existing scheduler publishes the durable prefix and deletes
+only exactly acknowledged exports. disconnected capture retains owner metadata;
+client and upload credentials remain disjoint.
+
+independent design, red/green, refactor and cleanup reviews covered each writer's
+boundary. reviews caught stale terminal snapshots, overlap cleanup, lost save
+receipts, digest timestamp spelling, source bookkeeping in summaries and prompt
+ambiguities. the fixes use existing transactions, insertion/rendering primitives,
+job scheduling and dispatchers; no compatibility path or new workflow layer.
+
+functional evidence, using disposable pg16/pgvector and the current nexus pg15
+schema, real loopback http/mcp, authenticated native persistence and paid models:
+
+| boundary | observed result |
+| --- | --- |
+| library / central capture | eight temporary postgres cases and all three retained regressions pass; fresh `0→0007` and populated `0006→0007` agree with installed library schema, preserve originals/digests and enforce stopped migration/runtime grants; capture middleware rejects wrong scope/admission before parsing; writes bind the parsed owner before their transaction and commit archive/leaves/checkpoint before acknowledgement |
+| export durability | exact old replay returns its original receipt after later progress; changed run/sequence/digest rejects, including timestamp spelling; transaction faults leave no partial turn; five deleted-source exports project sixteen logical events; commit/lost reply, local cleanup crash and overlapping publishers converge without duplicates |
+| nexus source | current successful, error/partial and queued-cancelled turns; saved excerpts/receipts without refetch; fresh raw-sql tool settlement; retry lineage and out-of-order terminal settlement; pre-cut admitted turn excluded; deletion/outage/restart preserves pending content; malformed/oversize head parks without losing the terminal or advancing the source |
+| mcp / retrieval | actual sdk initialize/list/call covers all six operations; original/source/note/synthesis provenance, two-page exact opening and eight near-limit control/unicode notes; exact save replay, changed intent, nul and permission rejection; frozen two-page view survives append, fresh view advances, evicted cursor rejects; actual embedding indexing/search returns three lexical and three semantic candidates with zero missing embeddings in the bounded dream corpus |
+| jarvis main | actual `NativeRunner`, `_compose_main`, journals and dispatchers: canonical request→projection→ready fixed view→fresh turn; model save/search/open plus all five read dispatches; one note/leaf/original receipt, no gate/action; scheduled and dream plans cannot save; next fresh turn sees the note and exact current request; retained capture/retry proves recoverable failed projection and fencing |
+| compactor | rendered first request contains the priority and numeric 512-byte target; actual model keeps the owner's monday correction/reason, identifier and failed verification; raw prose seals into the node; controls/unicode traverse actual presentation/readiness without changing originals; stable historical content precedes volatile task/clock; provider cache counters observed, with no hit-rate claim |
+| dreamer | actual nonempty synthesis distinguishes restored table count from failed controls, explicit rejection from mere non-assent, and uses both exact supplied references; open/zoom recovers its originals; note/leaf/cursor commit atomically, no action/message/wake; current-owner loss after a real terminal rejects commit; controlled rollback, future-reference rejection, empty success, fixed cutoff, older sampling, nightly marker and no self-seeding pass |
+| nexus tools | full asgi authentication with real signed task token/jwks; send/cancel/retry routes and canonical rows; paid provider-function and native-callback journeys cover all six tools; owner/complete-chain/read-only/helper exclusions; initialization/call auth, rate limit, unavailable, malformed response, cancellation and defect semantics; lost committed-save response and actual outer deadline remain unknown until exact original `Call.id` receipt replay |
+
+jarvis live inference used stock codex `0.160.0`, model `gpt-5.6-terra/high`,
+library `27d6f1b`, kernel `3e083ef` and provider `22aee34`. final kernel/provider
+pins change only metadata and one additional claude archive bookkeeping kind;
+inference/session code is identical. final frozen artifact replay qualifies that
+codec change without buying duplicate inference. nexus keeps its current
+stock `0.165.0` composition and used `gpt-6-luna` through both actual routes.
+no consumer was downgraded to force equal pins.
+
+current codex `0.169.0` and claude `2.1.325` (`sonnet 5.5`) produced real persisted
+task conversations, image/document references and loaded memory mcp calls.
+baseline exclusion, collector restart after lost committed acknowledgement,
+incomplete copied tail, changed-history parking and diagnostic-only retry pass.
+actual fork metadata retains uncertain inherited copies; controlled exact origin
+proof separately qualifies direct coverage/all-copy progress. missing or transitive
+proof retains eligible copies; changed existing identity rejects atomically. no naturally persisted interrupted tool tail was observed;
+its stable-prefix behavior is proved with controlled native-artifact faults.
+
+current codex list responses omit internal/fork fields. the archive reader now
+reads authoritative content-free thread metadata before body access, at the cost
+of one metadata rpc per thread per inventory pass. four explicit claude request/cache/tool-name
+bookkeeping kinds are excluded; real tool calls/results remain. actual codex and
+claude memory calls archive blank references, with no recalled/query/note prose
+echo. nexus native sessions are marked internal before generation and excluded
+from native capture.
+
+fleet rendering passed six temporary subprocess cases against actual frozen
+jarvis/nexus validators, including rotation, modes, disabled capture, invalid
+input preservation and all fifteen disposable native profile configurations.
+codex's actual cli writes/reads nine profiles; claude's writer handles six.
+actual codex/claude mcp loading is additionally proved in two task homes.
+codex's restrictive test home required explicit permission for its two model-used
+`memory_view` and `memory_save_note` tools; this does not prove every installed
+home's permission posture.
+
+anonymous no-cache `docker buildx bake --set '*.platform=linux/arm64' --no-cache
+--load` builds of current nexus api/worker/worker-checkout pass. actual image
+inspection proves locked packages, non-root runtime and current schema/source
+where embedded; worker-checkout deliberately receives application source by
+mount. scans of 51 raw/decompressed layer files, output and environment find no
+task memory credentials. actual compose grants the client only to api/interactive
+and upload only to background; helpers/native hosts receive neither.
+
+| linux/arm64 image | local image id |
+| --- | --- |
+| api | `sha256:58a8e50c271fcdf858ffe34282a0e116d50be5eb0286816b7b5279fa5026246c` |
+| worker | `sha256:f1c6722f420df3d2610c8ed927edeb71c22442c8edd89473f98fe7c9c51d8e1b` |
+| worker-checkout | `sha256:ab1dd2d2f2cc07ee0d362cd8648be505b87e24987a8768a95c1053b123e5583b` |
+
+the local amd64 attempt failed with `exec format error`; no emulation was
+installed and no remote docker service started. target-platform build/runtime
+proof remains in the [image handoff](issues/nexus-memory-image-qualification.md).
+an earlier disposable nexus fixture had an incorrect processor label and helper
+cwd; its native closure stayed honestly uncertain. fresh correctly composed
+current-image runs supplied the successful receipts; no failed turn was replayed
+or relabelled complete.
+
+final commands: library `scripts/verify` and its three retained postgres cases
+pass; nexus `env -u PYTHONPATH ./scripts/test` passes; provider non-live pytest
+passes 983 with one existing absent-sdk-case skip because the sdk extra is installed
+(40 live cases deselected), kernel
+passes 176 (two live cases deselected); both pass formatting/lint/types/build.
+jarvis `scripts/verify` passed lock/sync, static/types/docs, source/wheel build and
+fresh wheel import/cli checks, then reported 19 pre-existing audit findings in
+four packages. that dated failure was subsequently resolved by the
+[native rollout source qualification](#native-memory-rollout-source-qualification);
+it is not the current audit result. git-only package security is not established
+by that index audit.
+
+new temporary probes/helpers/fixtures are removed after reviewed proof; approved
+regression groups remain. no permanent test framework ships. original resources
+and any explicitly handed-off live host remain with their owners. no private
+fleet configuration, production activation, personal-history admission, discord
+delivery or connector effect ran in that source qualification. subsequent
+[installed capture](#native-memory-installed-qualification) is recorded below;
+[nexus private access](issues/nexus-memory-client.md) remains deferred. load/usefulness,
+historical import and backup/restore remain deferred as agreed.
+
+### native memory rollout source qualification
+
+2026-11-14: [adr 0072](decisions/0072-native-memory-rollout.md) authorizes the
+native rollout. current main and memory source are composed in isolated
+`feature/memory-rollout` worktrees, preserving the original checkouts. these are
+source and restricted task-boundary receipts; current installed results follow below.
+
+| target dependency | exact pin |
+| --- | --- |
+| universal-memory | `11f4220031d56f71d5a732b748a9bbb52c842e0e` |
+| provider-runtime | `adf1b714dec6b2517ba468085674665923c237fc` |
+| llm-agent-kernel | `419e5fe3e251e9ffdf506ae88fb7149fac6e1549` |
+| llm-tools | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` |
+
+the source contract now declares eighteen native lanes plus `(devbox, jarvis)`:
+each host has three codex and three claude accounts, including its existing
+distinct `claude-work2` home. the selected declaration admits twelve native
+clients on macbook/devbox and capture-only jarvis; arch is disabled and nexus
+is null. migration `0008` extends the account constraint and grants runtime
+schema inspection without adding a table or rewriting originals. this does not
+qualify every installed native home.
+
+the archive maintenance pin reads current native formats without upgrading the
+contained cognition runtime. codex inventories require both the all-provider and
+configured-provider native views: the former supplies the unrestricted provider
+contract, while the latter preserves additional native identities omitted by the
+database-backed view, including three on macbook. both must finish; neither
+is a fallback. canonical metadata/history select originals, same-scope duplicates
+collapse by native identity, and cross-scope contradictions still block activation.
+both complete observations remain required. observed unions contain 317 personal
+and 1,202 work identities on macbook; listing paths never choose source content.
+
+legacy codex uses one full native turn per page; paginated history uses one item
+per item page. measured aggregate responses of 6,039,580 and 8,821,663 bytes reduce
+to unchanged ordered evidence within existing 4-mib frame/event limits. this costs
+extra local calls and legacy history reconstruction, lengthening initial inventory.
+claude raw file records allow 8 mib to validate an excluded 4,268,702-byte request
+log; event and cognition limits stay unchanged. the larger temporary allocation is
+explicit. no record is silently skipped, truncated or imported to get a baseline.
+
+claude workflow children use `workflow/<run>/<agent>` identity and retained native
+parent metadata across relocation; disjoint direct/workflow streams stay distinct.
+known bookkeeping is excluded, fork-context references retain their exact empty-body
+attribution, and optional prompt context remains digest-distinct from explicit null.
+54 temporary protocol cases pass, including previous identity/digest parity,
+bounded rejection, cursor cycles and required-view failures. the provider's 983
+existing nonlive checks pass with one expected sdk-present skip; a separate clean
+base-wheel check proves sdk absence. paid/live tests are not inferred from that
+suite. the archive's actual formerly failing native read also passes from the
+built wheel. current native inventory completion and installed journeys remain
+separate rollout evidence.
+
+the provider also repairs inherited http mcp containment: the existing startup
+read resolves the exact cwd and explicitly disables every inherited server.
+empty native tables merge rather than erase registrations. actual stock
+`0.160.0` restricted threads expose no tools, report all four synthetic inherited
+servers disabled and make zero http/stdio requests, with no model call. seven
+temporary protocol cases cover exact cwd, malformed-map refusal and unchanged
+ordinary clients. its existing suite still passes. installed thread qualification
+after native profile publication remains required.
+
+stock `0.160.0` also reads account-level instructions despite empty execution
+environments. the contained unit now masks exactly `AGENTS.md` and
+`AGENTS.override.md`. an actual same-user systemd/stock prompt-input probe exposes
+synthetic account instructions before masking and neither default nor override
+afterward, with zero model turns. owner input and unrelated account access remain;
+outside file bytes/modes and an absent override are unchanged. the instruction
+cache starts empty in the fresh host and cannot acquire masked content. a separate
+actual namespace probe shows that outside atomic replacement makes the new file
+readable; later creation of an absent override is also unmasked. profile publication
+therefore runs with application and contained host stopped, followed by fresh host
+startup and effective-thread qualification before cognition. these mounts provide
+no live local-mutation protection.
+
+the maintenance kernel changes only its provider composition, five inherited
+registry security revisions and one existing protocol fixture to include the
+real native empty server map; its implementation and stock 0.160.0 catalogue remain
+unchanged. all 176 nonlive kernel checks pass. the jarvis lock changes only
+the two git pins and their dependency metadata, preserving every registry version.
+its full frozen verification passes, as do retained jarvis capture/retry and the
+library's three capture/completion checks against separate disposable databases
+at the final schema. no temporary feature test is added to the standing suite.
+
+the merged main supplied `filelock 4.2.4` and reduced the earlier nineteen audit
+findings to six. targeted compatible updates to `msgpack 1.2.3`,
+`opentelemetry-api 1.45.2` and `pyasn1 0.6.5` remove the remaining findings.
+four real-consumer probes pass: requests/cachecontrol file persistence; bounded
+malformed-msgpack rejection; actual mcp/provider trace propagation and malformed
+trace rejection; and asn.1/google-auth certificate/signature handling. valid
+behavior remains intact; malformed-input handling tightens. no suppression,
+provider/model upgrade or blanket registry refresh was used.
+
+full target `scripts/verify` passes frozen lock/sync, formatting/lint/types,
+documentation links, source/wheel build, fresh wheel import/cli and the network
+audit. the audit reports no known vulnerabilities in its auditable set; its
+existing git-only kernel/tools/provider exclusions remain. targeted shell syntax
+and shellcheck pass for the changed deployment scripts.
+
+| stopped-state boundary | observed source result |
+| --- | --- |
+| target cutover | fifteen real-postgres checks pass: runtime schema `0008`, preserved terminal v2/v3 uncertainty, refusal of unfinished/unknown authority, bad digest and unknown paid reads, and exact accepted/rejected installer schema heads |
+| runtime schema grant | four actual installer-excerpt checks pass: `0004` stays read-only; held ownership refuses without a grant; stopped installation changes only the schema-read grant; repetition changes nothing |
+| temporary predecessor | thirteen exact-predecessor checks plus five linux helper checks pass; actual `0004→0005` preserves ten notes/two summaries; the old and new remembering predicates find no eligible groups; malformed/writable host mappings refuse and helper execution leaves all nine tables unchanged |
+| worker v10 | fourteen real cli/postgres checks pass: enrolled `dev-server` replaces worker `devbox`, exact target capture is retained, finalized validated v9 receipts stay opaque/unchanged, and unfinished, malformed or unknown contracts refuse; memory provenance remains `devbox` |
+| archived delivery | 59 real-postgres cases prove exact claim-bound delivered conclusions and all-input settlement distinguish old inline results from owed reports; approval, suspension, missing delivery and later outcomes remain blocked. read-only production source comparison resolves four false blockers without changing original actions; installed activation remains separate |
+
+the snapshot helper also exposed an actual client-version mismatch: postgres
+18.6 produced the 3,399,555-byte archive, while bare `pg_restore` selected 16.16
+and rejected it. forwarding the same database environment selects 18.6 and
+lists that archive successfully. this check mutates no database and does not
+establish a completed production restore or migration.
+
+on the target's linux 6.8/ext4, util-linux 2.39.3 and systemd 255, private task mounts
+prove the read-only id-mapped state boundary: original owner/modes stay unchanged;
+jarvis sees its own uid/gid with `0700` directories and `0600` files; actual skid
+private-file reads pass with home restriction, no-new-privileges and zero effective
+capabilities. writes, unlink, chmod and creation refuse; atomic file and nested
+directory replacements remain visible. replacing the state-root inode requires
+a stopped remount. no credential/state copy, daemon or application privilege
+wrapper was added.
+
+the old fixed service cli rejects the live fleet state. the enrolled owner's
+`v0.24.2`, source `d4afbfcec963b1f231fc117675120eff1685e881`, is the qualified
+replacement (sha256 `472a1899dd13b863397cb5b00ed871e0a6a313ba6b958fe87a68974516aad68e`).
+through the restricted task view it reports dev-server/macbook successfully and
+arch `unavailable`; the actual jarvis `WireInventory` decoder and shared installer
+verifier accept those results. the installer holds the existing stopped-deploy
+lock, checks the candidate before replacement, and makes the mount a service
+prerequisite. this is not an installed service receipt.
+
+the contained host's actual config loader initially could not traverse private
+`/etc/jarvis`. its single public mapping now has a read-only file bind inside the
+host namespace. actual `niels:codex-clients` loading passes while the original path
+stays inaccessible, root ownership is preserved and writes refuse; no-new-privileges
+and empty capabilities remain. immutable bridge
+`d9968b6b09699cf9c12d05a7b4c51b4443198192` contains that unit fix; target source uses
+the same boundary. production host startup/containment still requires its own
+receipt.
+
+the following installed receipts supplement this source proof. the
+[active rollout](implementation-plan.md#memory-installed-rollout) records completion
+and the named deferrals.
+
+the installed restart exposed work entering discord before its initial validated
+catch-up and a paused-only replacement check that blocked repairing the resumed
+service. four temporary composition checks use the real coordinator, gateway and
+loopback http with scripted discord transport: delayed readiness/catch-up, early
+wake retention, shutdown before/during readiness and invalid configuration.
+nineteen real postgres 16/runtime-role checks prove routine activation preserves
+initialized stop/pause/resume, rejects missing or other-scope initialization, and
+retains ownership, native-state and action barriers. only provider-plan composition
+is scripted. the paused migration predicate is unchanged. independent review and
+full `scripts/verify` pass; this does not close the separate
+[pending-login shutdown issue](issues/discord-login-failure-exit.md).
+
+### native memory installed qualification
+
+2026-11-15 utc; the owner-local rollout began 2026-11-14. selected jarvis:
+`33674139c82ca5d2d7d0988de0b8ed771f1d4fd4`; both collectors remain at
+`a3afcdc353029a8ea82425791cdc68fd42c5f759`, with the same four pins above.
+the main/native model and quiet-memory receipts were recorded on `a3afcdc`.
+the central startup/activation repair leaves memory and capture contracts unchanged;
+its actual restart is qualified separately. consumers need no matching application
+revision when their public contracts remain unchanged.
+database `0008`; official contained stock `0.160.0`; installed skid `v0.24.2`
+at `d4afbfcec963b1f231fc117675120eff1685e881`. the temporary bridge is pruned.
+
+| installed boundary | observed result |
+| --- | --- |
+| migration and authority | native conversion succeeds; three finalized archived uncertain actions are compatible, zero incompatible or in-flight actions. after owner resume and the new main turn, original projections remain unchanged: 21 actions, 10 notes, 2 summaries, 79 messages, 180 model decisions and 89 read positions; only the retired column and derived embeddings are outside those original projections |
+| containment | same-release service secret/process checks pass. after stopped profile publication and fresh host startup, the actual restricted thread disables the inherited memory server, exposes zero native tools and makes zero model calls in the authority probe |
+| skid state | actual installed cli reads under the restricted jarvis service uid succeed for dev-server/macbook; arch is unavailable and deferred. the read-only live id-map uses the source-qualified atomic-replacement/write-denial boundary; replacing its root inode requires a stopped remount |
+| private ingress | both hosts authenticate over verified https on `8443`; only `/v1/memory` and `/v1/mcp` route to jarvis. skid's root and other handlers are unchanged. all twelve installed sdk clients initialize and list the exact six tools |
+| transport grants and saves | unknown bearers return `401`; capture-to-mcp and client-to-capture return `403`. one synthetic save creates one note/leaf; exact retry preserves identity/time/text, changed text returns typed `submission_conflict` without mutation. devbox reopens the macbook note with its own credential and exact provenance |
+| owner main | actual discord resume and synthetic request complete; response delivered. the fixed historical view includes the pre-existing seed. all five reads and save return success; date/view/zoom/search/open reach the seed, exact open preserves its text, and search observes both lexical and real semantic candidates. main's note uses its original invocation-derived provenance and is externally openable |
+| canonical projection | the new main attempt commits all original call/reply evidence; twelve memory-tool archive records contain references and empty text. all four new canonical messages retain exact text/source time. publication backlog is zero and action count stays 21 |
+| quiet memory | automatic catch-up for the latest nightly occurrence appends one 328-byte attributed synthesis with four exact openable references, consumes seed range `[0,9)`, and creates no waking/host/extra-assistant message. later arrivals remain pending for the next occurrence. persisted nodes exceeding the free-node input bound prove actual serial compactor inference; all output remains within the node bound, with no construction park |
+| private connector environment | source and installed environments omit the retired keyring; the required single secret and key version remain present. the strict private-state installer accepts them; no ciphertext migration is needed |
+| native client journeys | nine normal-alias model journeys save/search/open exact synthetic notes with attribution; all six operations succeed collectively. three explicitly model-waived claude profiles pass save/exact-open through their own installed sdk credentials; two also prove search, while macbook claude-personal's seed proof does not. provider login/quota failures are not counted as successful model checks |
+| daemon adoption | five quiet codex daemons are bootstrapped through their normal wrappers after two immediate quiet observations each. native `0.169.0`, remote-control settings and profile/instruction bytes and inodes remain unchanged; global catalogs load six authenticated tools. macbook codex-work2 waits for idle. a global catalog or fresh cli journey does not prove an already-running thread reloaded its connection |
+| application restart | repaired `3367413` activates with the original resume and no synthetic control: three compatible archived uncertain actions, zero incompatible or in-flight authority. actual authenticated https returns `200`, validated discord catch-up completes, main reaches `no_work`, and systemd records zero restarts. same-release containment and actual service-uid skid reads pass again; arch remains unavailable |
+| capture recovery | both unchanged collectors restart once. the final repeatable read snapshot preserves all ten activation timestamps and all 4,783 prior native source identities/cuts; five initialized checkpoints retain their exact id/digest and seven null checkpoints advance. all eleven selected conversations (five per host plus the outage conversation) have each expected owner event once, complete unique parts, exact native id/digest/date/utf-8 hash and observed head; zero parks. both old prefixes, two and ten events, remain excluded. all 39 observed native memory-tool rows contain references and empty prose |
+| original-state comparison | after repaired startup and collector recovery, `target-originals.json` matches all six frozen original table projections at the counts above. it preserves the previously proved migration correspondence and excludes the retired `remembered_at` column; derived embeddings remain outside raw-original hashes. canonical unfinished inputs, active native attempts, entered/pending actions and outbox are zero; the recorded resume remains effective |
+| captured originals through mcp | the installed macbook claude-personal client reopens all five macbook originals, the five earlier devbox originals and the separate outage owner event. exact text hashes, native ids/digests, source dates and full provenance match; every selected part is complete and unclipped with no remaining cursor. earlier devbox own-credential reopening of a macbook note independently proves cross-host direct-note access |
+
+these receipts prove installed functional behavior, not the deferred usefulness
+or load study. the online rollout passes within the explicit
+[lane exceptions](implementation-plan.md#memory-installed-rollout).
+one devbox claude-personal sdk check ended with an unclassified exception group
+after saving; its retained diagnostics cannot establish the cause. replaying the
+same submission returned the original receipt, then exact search/open passed.
+this proves retry recovery, not an explanation for the first failure.
+two claude model journeys are proved from their original retained native tool and
+terminal receipts after a probe decoder failed; their original cli exit statuses
+were not retained. the successful tool evidence does not imply those exit codes.
+temporary rollout probes, fixtures, disposable databases, private qualification
+receipts and accepted transition snapshots were removed after final review. the
+obsolete copied worker-client credential file was byte-identical to its stopped
+snapshot and unreferenced by the current runtime; it was removed too. operational
+credentials, native histories and the canonical private bundle remain. labelled
+synthetic memory records remain append-only. existing approved capture/retry and
+completion regression groups remain.

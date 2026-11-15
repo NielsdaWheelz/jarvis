@@ -735,7 +735,11 @@ async def check_activation(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
-            await _require_paused(database, settings)
+            require_native_files(settings.runtime_state_directory)
+            scope = str(settings.discord.channel_id)
+            await require_native_data(database, conversation_id=scope)
+            if await MessageStore(database).current_control(scope) is None:
+                raise StartupDefect("activation requires initialized canonical control")
             actions = ActionStore(database)
             agent_runtime = build_agent_runtime(
                 provider_state_root=settings.runtime_state_directory,
@@ -758,7 +762,7 @@ async def check_activation(
                     return await _action_activation_verdicts(
                         actions,
                         plan,
-                        source_conversation_id=str(settings.discord.channel_id),
+                        source_conversation_id=scope,
                     )
             finally:
                 await agent_runtime.close()
@@ -817,11 +821,7 @@ async def _action_activation_verdicts(
                 verdict = "incompatible does_not_load"
             else:
                 if stored is not None and archived_worker_action(stored):
-                    verdict = (
-                        "compatible"
-                        if not retired_reports
-                        else "incompatible retired_pending_events"
-                    )
+                    verdict = "compatible"
                 else:
                     verdict = "in_flight"
         elif status == "executing":
@@ -976,6 +976,14 @@ async def memory_status(settings: Settings) -> dict[str, object]:
                 channel_id=settings.discord.channel_id,
             )
             declared = {(lane.machine, lane.account): lane for lane in config.lanes}
+            registration = None
+            if config.nexus_client is not None:
+                async with engine.connect() as connection:
+                    state = await memory.library.nexus_capture_state(
+                        connection, config.nexus_client.owner_user_id
+                    )
+                if state.registration is not None:
+                    registration = state.registration.model_dump(mode="json")
             return {
                 "memory": await memory.library.status(),
                 "publication_backlog": len(await memory.pending_publication()),
@@ -985,6 +993,9 @@ async def memory_status(settings: Settings) -> dict[str, object]:
                     "admit": config.nexus_admitted_owner is not None,
                     "connect": config.nexus_client is not None
                     and config.nexus_client.connect,
+                    "capture": config.nexus_client is not None
+                    and config.nexus_client.capture,
+                    "registration": registration,
                     "processors": list(config.processors.nexus_model_processors),
                 },
                 "lanes": [

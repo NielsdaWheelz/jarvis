@@ -6,9 +6,10 @@ Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
 and retains admitted history through a shared archive, compressed view, retrieval
 and quiet dreaming.
 
-this repository is specification-first. native cognition and worker orchestration
-are implemented and qualified; production cutover and owner acceptance remain
-separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
+this repository is specification-first. native cognition and shared memory are
+installed and owner-resumed. the online memory rollout is qualified with the
+[named profile deferrals](docs/implementation-plan.md#memory-installed-rollout);
+installed worker observation remains separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
 product work, missing specs, external repository handoffs and operational tasks.
 backup and restore remain deferred.
 
@@ -32,10 +33,17 @@ codex/claude/nexus chats manage their own context and choose shared reads. the
 capture of the configured owner's nexus librarian runs and completes the live
 jarvis/native/nexus integration paths. durable pending exports survive transcript
 deletion until central acknowledgement; capture adds no revision or deletion sync.
-source implementation, qualification and installed activation remain distinct.
+source and isolated functional proof are complete. the
+[latest source evidence](docs/universal-memory.md#native-memory-rollout-source-qualification)
+records the qualified dependency repairs, nineteen native/jarvis lanes and
+service access boundaries. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
+authorizes macbook/devbox installation; arch is deferred and nexus waits for its
+next release. [installed evidence](docs/universal-memory.md#native-memory-installed-qualification)
+records actual jarvis memory use, quiet dreaming, native capture, private client
+access and outage/restart recovery, with the named profile deferrals.
 optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
-production activation and actual fleet installation remain separate. realistic-load
+realistic-load
 and usefulness evaluation belongs to a [later pr](docs/issues/memory-usefulness-evaluation.md),
 as does broader personal acceptance; this delivery adds no backup or history import.
 
@@ -116,7 +124,7 @@ and budget integration retain their later contracts without adoption here.
    boundaries.
 3. [memory](docs/universal-memory.md) — archive, tree/view, retrieval, admission,
    dreaming, schema and atomic completion contracts; [current delivery](docs/memory-delivery.md)
-   owns nexus capture and remaining integration qualification.
+   owns implemented nexus capture and the remaining installed handoff.
 4. [Acceptance](docs/acceptance.md) — the definition of done, and the single
    completion predicate for v1.
 5. [Roadmap and implementation plan](docs/implementation-plan.md) — the single
@@ -140,9 +148,12 @@ temporary integration/live qualification; the broader
 [testing redesign](docs/issues/testing-redesign.md) remains separate. historical
 receipts qualify only their named artifacts and boundaries.
 
-- status as of 2026-10-04: native main and worker-v7 composition merged in pr 49;
-  exact artifact qualification is recorded in the integration handoff; production
-  systemd activation and physical google/discord integration remain unrun
+- source status as of 2026-11-15: memory and worker-v10 source checks pass;
+  native main retains its recorded functional proof. full static/build/install
+  checks and the registry audit pass.
+  the [online memory rollout](docs/implementation-plan.md#memory-installed-rollout)
+  passes with named profile deferrals. physical connector and worker observation
+  checks remain separate
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server
@@ -150,15 +161,19 @@ receipts qualify only their named artifacts and boundaries.
   through `provider-runtime` and host tools through `llm-tools`
 - worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
   skid cli and live installed computer state (`JARVIS_AGENT_STATE_DIRECTORY`);
-  macbook/devbox/arch remain personal tool enums. [service-state access](docs/issues/skid-installed-state-access.md)
-  blocks installed worker cutover pending separate deployment integration
+  [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the enrolled
+  `macbook|dev-server|arch` worker names and a read-only id-mapped state mount.
+  memory provenance still uses `devbox`.
+  [installed service-state reads](docs/universal-memory.md#native-memory-installed-qualification)
+  pass on both online hosts; worker observation remains separately qualified
 - cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate
-  contained stock endpoint and the existing personal host account
+  contained stock endpoint and the existing personal host account; its public
+  host mapping has a read-only file bind, preserving private directory access
 
 ## Development and verification
 
 Development uses the CPython 3.12.13 pin in `.python-version`; supported runtimes
-are 3.12.13 or later in the 3.12 series. with `uv` 0.11.28 installed, run:
+are 3.12.13 or later in the 3.12 series. with the qualified `uv` 0.13.4 installed, run:
 
 ```sh
 scripts/verify

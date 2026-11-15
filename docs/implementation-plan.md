@@ -1,6 +1,6 @@
 # jarvis: roadmap and implementation plan
 
-updated 2026-11-14; simple event-driven v2 adopted by
+updated 2026-11-15; simple event-driven v2 adopted by
 [adr 0071](decisions/0071-simple-event-driven-v2.md). shared memory remains a
 separate delivery. notes, searches, events, attachments and budget have focused
 contracts; the selected v2 cut and later work are distinguished below.
@@ -20,13 +20,13 @@ qualification reports and completed cleanup logs live in git history.
 ## terminal-only worker cutover — source implemented and isolated-qualified
 
 [adr 0069](decisions/0069-terminal-only-workers.md) and the linked skid spec
-own implemented v9 terminal-only worker control, closed schemas and opaque
-retired-row loading. existing v8 generalized-client source is composed before this removal;
-no private client-json path returns. 13 distinct disposable checks plus engineering verification pass; independent
-review and deletion are recorded in the adr.
-installed cutover remains separate and blocked by
-[service-state access](issues/skid-installed-state-access.md). source checks
-cannot establish installed service or delivery acceptance.
+own terminal-only worker control, closed schemas and opaque retired-row loading.
+[adr 0072](decisions/0072-native-memory-rollout.md) advances the binding to v10
+and adopts enrolled `macbook|dev-server|arch` names without aliases; memory's
+`devbox` identity stays unchanged. fourteen actual cli/postgres checks pass.
+the read-only mounted state boundary and actual installed service-uid reads pass
+on both online hosts; [installed evidence](universal-memory.md#native-memory-installed-qualification)
+does not replace the separate worker observation journey.
 
 ## destination and rules
 
@@ -56,19 +56,19 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 ## current position
 
-the native cutover has nine application tables: the original six plus three
-native journal tables. accepted universal memory adds six; the later work
+the source has fifteen application tables: the native nine plus six memory
+tables. migration `0008` adds no table. the later work
 slice adds one including scheduling, events add one cursor table and attachments
 add one. there is no separate recurring-wake table. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
-source refresh 2026-10-13: this checkout incorporates merged memory repair
-source and exact dependency pins, preserving pending product contracts in local
-commits. that dated source refresh recorded `scripts/verify` passing; the current
-[dependency audit issue](issues/dependency-audit.md) records the later failure.
-remaining repair qualification is in the
-[integration evidence](universal-memory.md#memory-repair-source-candidate);
-installation and activation remain separate.
+source refresh 2026-11-14: memory delivery and current main are composed, retaining
+the existing provider/kernel/tools pins and adopting the shared claude-work2
+account contract. targeted registry fixes resolve the later dependency audit;
+full `scripts/verify` passes. [current source evidence](universal-memory.md#native-memory-rollout-source-qualification)
+records the exact pins, migration/worker checks and restricted service-boundary
+proof. the [online installed rollout](universal-memory.md#native-memory-installed-qualification)
+now passes with its named profile deferrals; broader product acceptance remains separate.
 
 the native provider/kernel/tools work is merged. jarvis [pr 49](https://github.com/NielsdaWheelz/jarvis/pull/49)
 merges native main and worker-v7 composition. [adr 0065](decisions/0065-native-agent-supervision.md)
@@ -85,14 +85,15 @@ options/input and concise controls. jarvis [adr 0064](decisions/0064-simple-work
 introduced immutable captured targets and asynchronous wait/cancel. current
 [adr 0068](decisions/0068-generalized-skid-consumer.md) uses live installed state
 and profile-owned provider options; [adr 0069](decisions/0069-terminal-only-workers.md)
-owns terminal-only worker v9 and its isolated source proof. those completed
+owns terminal-only worker control; adr 0072 adds v10 and enrolled host names.
+those completed
 source handoffs do not need another worker-protocol specification.
 
-production activation remains separate. the last recorded jarvis state is stopped
-and paused; this reconciliation inspected no running service. dev-server's exact
-release-pin file owns the selected published skid version. v9 source and signed
-fixture proof do not change that installed generation. matching release/pin,
-service-state access and installed worker observation remain operational cutover.
+the authorized rollout started from stopped/paused production at schema `0004`.
+the current owner's skid `v0.24.2` artifact reads actual live state through the
+installed read-only mount. matching host/application/cli installation and owner
+resumption and online memory acceptance are complete within the named profile
+deferrals. installed worker observation remains separate work.
 
 pending worker search may inspect only retained terminal history through
 `agent.read`; it cannot promise complete saved conversations or route silently
@@ -103,16 +104,15 @@ its own explicitly selected capability.
 
 | item | owner / remaining result |
 | --- | --- |
-| skid release and fleet cutover (o2) | skid publishes the immutable orchestration generation; dev-server pins/installs matching gateways and cli; jarvis consumes matching live installed state after its service-access boundary is resolved; [cutover issue](issues/skid-terminal-flags.md) |
-| native jarvis activation | jarvis deployment owner installs the same-release contained host/application, performs [stopped state conversion](issues/admission-journal-cutover.md), verifies physical integration and records explicit owner resumption; [activation issue](issues/codex-private-process.md), [native cutover](operations.md#native-cutover) |
+| skid release and fleet cutover (o2) | matching cli and read-only live-state mount are installed; qualify launch/control/observation while preserving existing gateways/membership; [cutover issue](issues/skid-terminal-flags.md) |
+| native jarvis activation | same-release host/application, stopped conversion, owner resume and normal memory turn pass; [installed evidence](universal-memory.md#native-memory-installed-qualification). remaining physical google checks stay in their [issue](issues/codex-private-process.md) |
 | installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
-| current memory artifacts | qualify current public dependency fetch and clean anonymous nexus image targets; retired private-build-secret provisioning is removed; [image handoff](issues/nexus-memory-image-qualification.md) |
+| current memory artifacts | source dependency fetch/build/audit and online installed rollout pass with named profile deferrals; nexus image/runtime qualification waits for its next release; [image handoff](issues/nexus-memory-image-qualification.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
 
 these are independent release, repair or policy tasks, not another prerequisite
-mega-pr. preserve [connector cutover](issues/connector-keyring-cutover.md),
-[old qualification-resource disposition](issues/qualification-residue.md) and
+mega-pr. preserve [old qualification-resource disposition](issues/qualification-residue.md) and
 nexus's [historical job disposition](issues/nexus-generation-dispatch-contract.md)
 with their owners. none is resolved merely by merging a new runtime.
 
@@ -127,7 +127,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | one main for every event (o6) | [contract](one-main-events.md) adopted by 0071; full event authority and conversational consent unimplemented | jarvis; builds on native main; source adapters remain separate |
 | useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos with optional one-time/repeated wakes unimplemented | jarvis; one table and existing timer |
 | delegated follow-through (o9) | [contract](delegated-follow-through.md) adopted by 0071; ordinary agent judgment/semantic stop unimplemented | jarvis; o6 plus installed skid observation; o7 supplies optional bookkeeping |
-| universal memory (m1–m5) | core/repair source implemented; accepted [completion contract](memory-delivery.md) adds future-only nexus capture, compactor content repair and all current functional integration/live proof; installed activation separate | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
+| universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and isolated-qualified; installed jarvis/native rollout authorized below; nexus activation deferred to its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private notes and rolodex | [contract](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native-access handoff; ordinary private checkout, agent-chosen git, prose people records |
 | event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
 | attachments and durable originals | [contract](attachments-and-durable-originals.md) adopted by 0071; unimplemented | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
@@ -155,7 +155,7 @@ contracts in place rather than introducing parallel work orders.
 | --- | --- | --- |
 | 1 | common main and conversational consent | o6/o9 source/native composition: every current event gets the same plan; remove model gate, source restrictions, component approval and chat-stop interception; installed worker-dependent outcomes are proved in 3 |
 | 2 | todos and scheduled turns | o7: CRUD, optional one-time/repeated wake, atomic publication and reminder cutover; compose with 1 before replacing the old schedule path |
-| 3 | installed skid follow-through | resolve the existing service-state access boundary, use current terminal-only start/control/wait and prove installed asynchronous result/restart delivery; depends on 1 and matching artifacts, not a new worker protocol |
+| 3 | installed skid follow-through | reuse adr 0072's qualified state mount, use current terminal-only start/control/wait and prove installed asynchronous result/restart delivery; depends on 1 and matching artifacts, not a new worker protocol |
 | 4 | ordinary private repo | notes: minimal kernel/provider native-access handoffs, persistent checkout, native files/git and small file deliverables; isolated memory roles retain their existing posture |
 | 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
 | 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
@@ -186,9 +186,9 @@ facts; writing this roadmap sends no assignment to another agent.
 
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
-| skid | publish the terminal-only generation and its immutable artifact | [paired contract](https://github.com/NielsdaWheelz/skidbladnir/blob/2c2401e8b354cbcf7b8d97dbf22679ed5fad4504/docs/terminal-only-control.md), [worker v9](decisions/0069-terminal-only-workers.md); source implemented, release handoff due |
+| skid / jarvis deployment owner | install the enrolled owner's exact current cli at the fixed service path | [terminal-only contract](decisions/0069-terminal-only-workers.md), [rollout amendment](decisions/0072-native-memory-rollout.md); v0.24.2 task-mount reads and v10 source decoding pass; installed proof remains |
 | skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
-| dev-server | pin/install that skid generation; long claude retention; memory collector units on all three hosts, private routing, client/capture credentials and generated codex/claude profile mcp configuration/instruction | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
+| dev-server | selected cli/collector installation, long claude retention, private routing, client/capture credentials and native mcp configuration; arch deferred | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
 | llm-calling (`provider-runtime` package), notes | native built-ins plus declared callbacks in one session, both declared authority postures and host qualification | [notes public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); bounded handoff prepared here, not handed off or implemented |
 | kernel, notes | frozen application-owned cwd/native configuration, retained checkout lifecycle, native activity alongside host callbacks | [notes public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); bounded handoff prepared here, not handed off or implemented; no llm-tools change |
@@ -198,12 +198,14 @@ facts; writing this roadmap sends no assignment to another agent.
 | llm-tools, search | portable web-search paging/provider boundaries and complete supported extracted-text chunks, retaining web safety | [search surface contract](complete-and-continuable-searches.md#exact-surface-changes); bounded handoff prepared, not handed off/implemented; no kernel redesign |
 | budget-app | broaden existing write authority to all bookkeeping, reuse shared planner calculation through an api, and support independent originals up to 100 mib through private r2 | [budget api handoff](budget-integration.md#budget-api-handoff); fresh `7b7a9c2` source audit complete; bounded handoff prepared, not assigned or implemented |
 | budget deployment owner and dev-server | budget private bucket/cors/storage secrets; jarvis configured budget origin/owner/read/write credentials and native cache access | [budget delivery](budget-integration.md#nonoverlapping-delivery-and-hard-cutover); provisioning and installed qualification remain separate |
-| nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); accepted adr 0070 target, source implementation and current-route qualification remain |
+| nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); adr 0070 source and isolated current-route qualification complete; nexus release deferred |
 
-existing memory qualification describes the 2026-10-09 baseline and
-[2026-10-13 repair source](universal-memory.md#memory-repair-source-candidate).
-it does not qualify current nexus, the new capture target or installed clients.
-dev-server additionally owns the new capture declaration/publisher credential.
+the [completion evidence](universal-memory.md#memory-completion-source-qualification)
+qualifies the implemented nexus capture and isolated native/jarvis journeys.
+the [latest source evidence](universal-memory.md#native-memory-rollout-source-qualification)
+adds registry, profile and deployment-boundary repairs. neither establishes
+installed client acceptance. dev-server owns native private configuration;
+nexus credentials/publication wait for its next release.
 
 downstream jarvis code consumes the published public surfaces and qualified pins;
 the external agents do not own jarvis authority, work state or continuation.
@@ -216,13 +218,14 @@ one mcp server lives inside jarvis. dev-server configures native codex/claude
 clients and installs the capture collectors; it does not implement another memory
 server. nexus's application agents require their own client bindings, distinct
 from developer agents working in the nexus repository. adr 0070 explicitly adds
-its distinct account-owned capture source; the sixteen native/jarvis lanes remain.
+its distinct account-owned capture source; adr 0072 declares nineteen native/jarvis
+lanes, including each host's separate claude-work2 home.
 
 ## orchestration delivery
 
 ### o1–o2: fleet launch
 
-o1 is implemented. current worker v9 start accepts machine/profile and optional
+o1 is implemented. current worker v10 start accepts machine/profile and optional
 name/cwd/group/freeform initial prompt. the configured profile command owns
 provider/account/model/effort; creation has no model/effort overrides. jarvis
 chooses an available machine/profile. preserve one launch configuration owner,
@@ -372,14 +375,14 @@ task completion; missed recurrence coalesces. no workflow controller is added.
 [contract](worker-launch-observation.md) consolidates current
 [adr 0069](decisions/0069-terminal-only-workers.md): optional launch input,
 terminal targets with immutable capture, bounded terminal inspection/control and
-durable nonblocking wait/cancel. v9 isolated source proof is complete; earlier
+durable nonblocking wait/cancel. v10 source and enrolled-label proof are complete; earlier
 [native qualification](native-agent-integration.md#qualification) describes its
 recorded predecessor only. o6 owns broader event authority; o7 records and o9
 discretionary follow-through remain separate.
 
-remaining: resolve [live installed-state access](issues/skid-installed-state-access.md)
-under the jarvis service uid, install matching artifacts through the existing
-stopped release path, then qualify observation and actual delivery. the old
+remaining: qualify installed observation and actual delivery. the
+[live service-state boundary](universal-memory.md#native-memory-installed-qualification)
+and matching artifacts now pass under the jarvis service uid. the old
 private-client/file-pause installer design is retired. [cli cutover](issues/skid-terminal-flags.md)
 and [wait acceptance](issues/agent-wait.md) own remaining evidence. no worker
 protocol redesign or new table.
@@ -458,7 +461,7 @@ m1–m5 source boundaries and isolated checks are complete for the 2026-10-09
 baseline, including first-delivery dreaming and nexus's owner-chat consumer. the
 [integration evidence](universal-memory.md#12-integration-evidence) owns exact
 pins and qualification; the [repair record](universal-memory.md#memory-repair-source-candidate)
-owns the later repairs. the completion delta remains unimplemented. actual fleet
+owns the later repairs. the completion delta and isolated functional proof are complete. actual fleet
 install/admission, private client/capture credentials and production cutover
 remain operational handoffs.
 
@@ -499,14 +502,113 @@ separate. preserve owner changes and current consumer dependency compositions.
    including the durable export failure matrix. complete static/build/audit gates.
    independently review cleanup, then delete only new temporary probes/helpers.
    record exact artifacts, commands, results and gaps in existing evidence/issues.
-5. prepare the exact fleet/client/image handoff. installation and production
-   activation stay separately authorized; each selected installed host/client
+5. prepare the exact fleet/client/image handoff. adr 0072 authorizes the current
+   jarvis/native rollout; nexus waits for its next release. each selected installed host/client
    must pass its live smoke before claiming universal delivery. broader
    [usefulness/load evaluation](issues/memory-usefulness-evaluation.md) is a later pr.
 
 no production v1 capture exists; use clean task-owned v2 qualification state.
 discovering real old capture blocks cutover rather than authorizing reset/backfill.
 the contract states encoding cost, uncertain-save and deleted-test tradeoffs.
+
+### memory installed rollout
+
+owner-authorized execution, 2026-11-14; online qualification complete 2026-11-15
+within the named profile deferrals. scope: repair the dependency audit, integrate
+qualified source and install/verify jarvis plus macbook/devbox native memory.
+nexus code is preserved but its images, migration, credentials, publication and
+activation wait for the next nexus release. [arch is offline and explicitly deferred](issues/arch-memory-activation.md).
+all configured personal/work/work2 profiles may share with jarvis and one another;
+the owner confirms control of their content. capture starts from new activation
+boundaries, never history import. the existing separate events task owns the subsequent migration;
+its intermediate source is not a deployable release and stays out of this rollout.
+the owner accepts queued [macbook codex-work2 activation](issues/macbook-work2-memory-activation.md)
+until active turns finish and defers the actual model checks for
+[devbox claude-personal](issues/devbox-claude-personal-model-check.md) and
+[macbook claude-personal](issues/macbook-claude-personal-model-check.md) until
+provider login. [macbook claude-work2's model check](issues/macbook-claude-work2-model-check.md)
+waits for its provider quota reset. install those profiles now; preserve the strict baseline.
+devbox codex-work2 also installs tools now; its owner-approved
+[capture deferral](issues/devbox-work2-native-source.md) waits for missing native
+source recovery. no affected history is skipped or relabeled.
+
+| step / owner | action and completion evidence |
+| --- | --- |
+| 1 / integration lead | source composed with current main and its security fixes; memory adr consolidated as 0070, original worktrees preserved. archive-only provider maintenance, kernel composition and selected target are published with no cognition/model upgrade; source integration is recorded in [jarvis pr 61](https://github.com/NielsdaWheelz/jarvis/pull/61) and [dev-server pr 215](https://github.com/NielsdaWheelz/dev-server/pull/215) |
+| 2 / dependency writer | complete: targeted registry repairs, four actual consumer probes and full frozen `scripts/verify` pass with zero reported index findings; no suppression |
+| 3 / native configuration writer | installed: the distinct claude-work2 profile uses the shared contract and existing renderer; eighteen native lanes plus jarvis. one private sharing declaration, scoped credentials and per-host bundles enable macbook/devbox capture+connect and jarvis capture only; arch disabled, nexus null |
+| 4 / deployment writer | production transition passes: schema `0008`, runtime schema-read grant, validated retired-worker archival handling and exact predecessor empty drain. original columns remain unchanged after owner resumption; unfinished/unknown authority still rejects |
+| 5 / service integration | installed: read-only id-mapped live state and actual cli reads under jarvis's identity reach both online gateways; source atomic-publication/write-denial proof remains applicable. same-release stock `0.160.0` host, public mapping bind and restricted-thread/service containment pass |
+| 6 / integration lead | installed target with the existing release lock; temporary bridge pruned. canonical pause imported before owner discord resume. actual main reads/save, archive projection and quiet memory pass. repaired unpaused restart and the final six-table original-state comparison pass; one selected release remains |
+| 7 / fleet writer + integration lead | complete within named deferrals: existing installers/private routing, all twelve sdk connections, nine model journeys, five quiet daemon adoptions and all ten eligible capture cuts. all eleven selected originals, all six tools collectively, grant denial, exact replay and outage/restart recovery pass; claude retention is installed on all six online homes |
+| 8 / independent reviewer | complete: source and installed boundaries independently reviewed; temporary probes/fixtures, accepted transition snapshots and the obsolete copied worker-client credential removed after preserved-data proof. existing regression groups and operational credentials remain. arch/nexus and the five profile exceptions remain explicitly deferred |
+
+the recorded starting snapshot is stopped/paused on `0004`; three
+retired terminal-uncertain worker results already have processed resolution
+messages, all paid reads/model decisions are terminal, and eleven unremembered owner rows are ineligible control/stop settlements: the
+exact migration sweep predicate finds zero pending groups. the initial deployment
+lacked cognition-host and memory configuration. the immutable bridge
+`d9968b6b09699cf9c12d05a7b4c51b4443198192` was never resumed and is now pruned.
+the first target migrated to `0008` but misclassified four finalized worker
+receipts. the corrected immutable release
+`a3afcdc353029a8ea82425791cdc68fd42c5f759` passed initial activation and owner resume:
+activation reports three compatible archived uncertain rows, no incompatible
+authority and no in-flight work. all six original table projections remained
+byte-identical after migration, excluding only the deliberately retired
+`message.remembered_at` column.
+
+all twelve native profiles and both collectors are installed at that revision.
+the selected central release is now `33674139c82ca5d2d7d0988de0b8ed771f1d4fd4`:
+the actual unpaused restart exposed a discord-readiness race and the canonical-pause
+replacement deadlock. the repaired release requires initialized canonical control
+and preserves it; it retains all native/ownership/action checks. actual gateway
+catch-up, authenticated https and same-release containment pass with zero restarts.
+four startup-composition and nineteen real-postgres activation checks passed, were
+independently reviewed, and their temporary probes/fixtures were deleted. the
+collectors retain the exact qualified artifact through unchanged public contracts.
+the separate stock `0.160.0` host was restarted after profile publication. actual
+restricted-thread qualification sees the installed memory server disabled, with
+zero tools and zero model turns. service secret/process restrictions and actual
+skid reads pass on macbook/devbox; arch remains unavailable and deferred.
+
+private https now uses the existing tailnet listener on `8443`: memory owns only
+`/v1/memory` and `/v1/mcp`; skid's root and other handlers are unchanged. the failed
+`443` memory handler is removed. actual authenticated requests from both hosts
+return `200`, and all twelve installed sdk clients initialize and list the exact
+six tools. one final installer convergence records the selected release and
+active configuration digests without replacing unchanged profile files.
+all ten eligible capture cuts are committed; nine native model journeys pass
+save/search/open. three model-waived sdk journeys pass save/exact-open, with search
+also proved on two. five quiet codex daemons now load
+the six-tool catalog; macbook work2's old daemon still awaits idle. both collectors
+have restarted once. the final comparison preserves all ten cuts and 4,783 existing
+source identities/cuts, with no checkpoint regression, duplicates or parks. all
+eleven required native conversations are captured and reopened through installed
+mcp; both pre-cut prefixes stay excluded and all 39 memory-tool archive records
+remain reference-only. the owner
+sent discord resume; the synthetic main journey completes all six memory tools
+with durable receipts and delivered output. automatic quiet dreaming appends one
+attributed synthesis without a wake; serial compaction and original-state
+preservation pass. [installed receipts](universal-memory.md#native-memory-installed-qualification)
+record those results and the unchanged original-table projections after recovery.
+[source evidence](universal-memory.md#native-memory-rollout-source-qualification)
+does not waive those transition requirements.
+
+costs: retained shared copies are available across personal/work profiles;
+claude's existing 36,500-day retention consumes disk. id-mapping relies on the
+qualified linux kernel/filesystem/mount implementation but avoids privilege or
+permission changes to the source account. a temporary migration predecessor and
+local transition snapshots are needed for this existing deployment; this adds no ongoing
+backup service. dependency security fixes tighten malformed-input handling.
+new tests are temporary by owner choice; existing approved regressions remain.
+
+acceptance is observed installed behavior on macbook/devbox, not merely clean
+builds. record the exact selected release, lock, migration head, host/catalogue,
+active lane boundaries and loaded client results without credentials or private
+bodies. an unavailable lane, unresolved original effect or failed containment
+check stays visibly blocked; never reset history or broaden authority to pass.
+full load/usefulness evaluation, historical import, backup/restore, nexus release,
+arch activation and unrelated v2 features remain outside this rollout.
 
 ### memory and native-main integration
 
@@ -667,7 +769,7 @@ intent merely because their implementation is incomplete.
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
 | o6 | [contract](one-main-events.md) adopted by 0071; common input/authority, conversational consent and focused implementation proof remain |
 | o7 | [work-record contract](work-records.md) adopted by 0071; todo/schedule implementation and focused proof remain |
-| o8 | [contract](worker-launch-observation.md) and adr 0069 own terminal-only v9; source qualified; separate service-state access decision, paired installed cutover and external delivery remain |
+| o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; paired installed cutover and external delivery remain |
 | o9 | [contract](delegated-follow-through.md) adopted by 0071; content/composition and chat-stop cutover due |
 | new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; cursor/adapters and same-main proof remain; recurrence belongs to o7, dream wakes deferred |
 | m1–m5 | core source merged; implement [completion delta](memory-delivery.md), qualify every current functional route, then provision client/capture access and qualify installed fleet/admission/cutover |

@@ -52,8 +52,9 @@ composition, physical provider/network/service and external delivery remain
 as `check_activation`; no fake cognition lifecycle is counted as acceptance.
 
 installed cutover remains separate. drain old actions/waits/required events
-under their owning release; the existing [service-state access blocker](../issues/skid-installed-state-access.md)
-is outside this assignment. no privilege bridge, copied stale credentials or
+under their owning release; service-state access was outside this assignment and
+is now [qualified separately](../universal-memory.md#native-memory-installed-qualification).
+no privilege bridge, copied stale credentials or
 silent activation is added.
 
 accepted costs: saved-history and native-result/control/identity capability is

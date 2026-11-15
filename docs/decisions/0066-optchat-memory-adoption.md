@@ -1,8 +1,9 @@
 # adr 0066: optchat memory adoption
 
-status: accepted scoped implementation target, 2026-10-04; amended 2026-10-08.
-product and implementation contracts settled; delivery/qualification remain.
-no memory implementation or behavioral/live acceptance is established.
+status: accepted 2026-10-04, amended 2026-10-08; implemented source with isolated
+functional proof, updated 2026-11-14. [current evidence](../universal-memory.md#memory-completion-source-qualification)
+records exact artifacts and limits. installed activation and pre-existing audit
+findings remain open; historical decision text below is preserved.
 
 authority: the owner requested case-by-case decisions on adopting the supplied
 optchat design and immediate specification updates after each choice. the owner

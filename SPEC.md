@@ -1,8 +1,8 @@
 # jarvis specification
 
-status: **native runtime and universal-memory source; accepted memory and v2 targets**
+status: **native runtime and online memory rollout qualified; named profile deferrals remain**
 
-date: **2026-11-14**
+date: **2026-11-15**
 
 audience: product, engineering, design, operations, and future coding agents
 
@@ -72,8 +72,17 @@ existing source schema with explicit nexus provenance and separately scoped
 capture credentials. each feature gets content design, adversarial review and
 temporary red/green/refactor integration/live proof; delete those new probes,
 preserve existing approved checks. this supersedes affected no-capture, schema,
-retired nexus-route and review wording below. docs only; implementation and
-production activation remain distinct.
+retired nexus-route and review wording below. the owner subsequently authorized
+source implementation and temporary integration/live checks. that source is now
+implemented and isolated functional proof passes; see the
+[current evidence](docs/universal-memory.md#memory-completion-source-qualification).
+the subsequent owner instruction authorizes dependency repair, source integration
+and installed jarvis/native-fleet rollout. nexus deployment is deferred to its
+next release; macbook and devbox proceed now, arch later. the owner authorizes
+sharing across all configured personal/work/work2 profiles and controls their
+content. [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the native profile
+and service-state boundary; [the rollout plan](docs/implementation-plan.md#memory-installed-rollout)
+owns sequence and receipts. installed success is not inferred from source proof.
 
 accepted native-agent cutover (2026-10-02):
 [adr 0065](docs/decisions/0065-native-agent-supervision.md) adopts the shared
@@ -96,12 +105,15 @@ and existing schemas. the owner selected source fixes and isolated qualification
 only and confirmed no real capture activation. one revised native codec replaces
 the old contract; no compatibility reader or production activation is included.
 new repair qualification tests are temporary and deleted after red/green/refactor;
-the existing approved regression groups remain. repair source is isolated and
-unactivated; blocked qualification is recorded in the memory integration evidence.
+the existing approved regression groups remain. that october candidate was
+qualified in isolation; current installed proof and explicit deferrals are
+recorded in the memory integration evidence.
 
 accepted universal-memory target (2026-10-01): the consolidated
 [implementation contract](docs/universal-memory.md) defines the current source
-contract; installed activation remains separate.
+contract; source proof alone does not establish installation. the
+[online installed receipts](docs/universal-memory.md#native-memory-installed-qualification)
+now pass with named profile deferrals; nexus and arch remain deferred.
 [adr 0063](docs/decisions/0063-simplify-memory-policy-and-retrieval.md)
 records its simplification; [adr 0066](docs/decisions/0066-optchat-memory-adoption.md)
 adds owner-approved automatic orientation over all admitted history when fresh
@@ -113,11 +125,13 @@ search/navigation. source parts and notes are ordinary leaves in one binary tree
 long text needs no private leaf-reduction mechanism. jarvis reconstructs each new
 top-level turn from the view and exact active requests/receipts. native codex,
 claude and nexus chats retain their own context management and access shared memory
-through mcp/api. the core memory source is implemented and isolated qualification
-passes; production activation remains separate. nexus memory access is limited to the owner's chats;
+through mcp/api. the core source and online installed rollout are qualified within
+the named profile deferrals. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
-backend client and tagged note attribution, preserving sixteen capture lanes.
-adr 0070 adds the distinct nexus capture source without changing those lanes.
+backend client and tagged note attribution. adr 0070 adds the distinct nexus
+capture source without adding a native lane. the current native rollout includes
+`claude-work2` on each host: eighteen native lanes plus `(devbox, jarvis)`.
+the shared library account contract owns that fixed vocabulary.
 the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
@@ -1256,8 +1270,9 @@ pipeline, never a nested agent.
 
 worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
 amended by [adr 0068](docs/decisions/0068-generalized-skid-consumer.md) and
-[adr 0069](docs/decisions/0069-terminal-only-workers.md).
-all model inputs and outputs are closed. machines are `macbook|devbox|arch`;
+[adr 0069](docs/decisions/0069-terminal-only-workers.md) and
+[adr 0072](docs/decisions/0072-native-memory-rollout.md).
+all model inputs and outputs are closed. machines are `macbook|dev-server|arch`;
 profiles are `personal|work|work2|claude-work`. addressed inputs contain
 `target:{machine,handle}`: `t-` plus 16 lowercase hexadecimal characters.
 names are labels. no opaque ref or raw provider/process identity is model-facing.
@@ -1752,6 +1767,14 @@ each cognition cwd is private, empty, read-only, non-secret and mode `0750`
 beneath the jarvis-owned mode-`02750` cognition parent. the client group permits
 only traversal/read of these directories and connection to the socket. native
 shell/files/Web/network, MCP, subagents and unsolicited approvals are disabled.
+the provider reads effective configuration at the exact cognition cwd and disables
+every inherited mcp server explicitly; an empty native table does not clear them.
+the contained host masks account `AGENTS.md` and `AGENTS.override.md` inside its
+service namespace, preserving the owner's files and ordinary native clients.
+profile configuration changes require stopped application/contained-host
+maintenance. file masks do not survive outside atomic replacement or cover later
+creation of an absent path; publish first, restart the host, then qualify its
+effective thread before cognition resumes.
 host callbacks execute only the frozen application bindings. no connector,
 Brave, embedding, Discord, database or Google credential reaches native
 cognition or its account home.
@@ -1919,6 +1942,15 @@ activation and explicit pruning serialize through `/opt/jarvis/.deploy.lock`.
 activation removes old releases only after its existing startup checks pass.
 rollback and one-time migration releases are rebuilt from their exact commits
 when needed, then removed after use; they are not retained as recovery copies.
+
+routine replacement of a cleanly stopped initialized release preserves canonical
+pause/resume. activation requires deployment ownership, valid native state and
+the current execution-contract checks; it creates no owner control. a retained
+resume preserves startup action recovery; new main reasoning and background memory
+work wait for validated discord catch-up. fresh initialization, pause-required migrations and
+private-configuration/authority changes retain their separate canonical-pause
+prerequisites. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
+records this distinction; no force flag or recovery bypass is provided.
 
 Production activation requires the installed PostgreSQL and pgvector identities
 to be recorded and qualified against the release. It does not require a host

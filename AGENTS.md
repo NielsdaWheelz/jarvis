@@ -102,11 +102,14 @@ These instructions govern all work in this repository.
   dedicated browser/export is deferred. product/schema/integration contracts are
   complete for the core; nexus access is chats only, excluding automated helpers.
   nexus account/client integration still needs its
-  [consumer handoff](docs/issues/nexus-memory-client.md). core/repair source exists;
-  completion, nexus capture and current live qualification remain. one serial tool-free
+  [consumer handoff](docs/issues/nexus-memory-client.md). completion and nexus capture
+  source are implemented with isolated functional proof; installed acceptance
+  remains open. the qualified registry fixes and full verification pass are in
+  [rollout source evidence](docs/universal-memory.md#native-memory-rollout-source-qualification).
+  one serial tool-free
   compactor uses existing inference; no jobs table or extra daemon.
   ordinary implementation details do not require another preference interview.
-  it supersedes affected baseline rules below when implemented: six memory tables
+  it supersedes affected baseline source rules below: six memory tables
   after the native nine, adding `memory_leaf`, `memory_node`, `memory_state` to
   the three archive tables; automatic
   activation and whole-event capture, chronological compression replacing the
@@ -116,7 +119,7 @@ These instructions govern all work in this repository.
   projection; immutable message/attempt eligibility bits exclude old or unadmitted
   material. fresh top-level leases preserve entered-effect dispatchers. historical
   import/provenance remain deferred.
-- for the accepted, unimplemented universal-memory target, preserve atomic
+- for the implemented universal-memory source contract, preserve atomic
   archive/checkpoint and synthesis-note/reference/tree-position/consumed-seed
   completion commits. extraction bookmarks are
   retired; compactor nodes/views persist while interrupted inference may repeat.
@@ -143,7 +146,7 @@ These instructions govern all work in this repository.
   narrow local-write `read_position` recovery. this exact write bypasses the
   gate/action rules; no scheduled/background grant or native cognition mcp.
   archive memory-tool prose as content-free references to prevent feedback.
-- once that memory target is implemented, retain two small regression groups:
+- retain the two approved small regression groups:
   capture/retry and memory completion. no standing per-feature review machinery
   or restoration of the retired suite;
   the wider testing redesign remains open. adr 0070's scoped delivery uses a
@@ -151,20 +154,40 @@ These instructions govern all work in this repository.
   end-to-end/live red/green/refactor checks, then deletes only its new probes.
   complete functional proof now; broad usefulness/load evaluation and
   backup/restore are deferred. no runtime change is implied by docs.
+- [adr 0072](docs/decisions/0072-native-memory-rollout.md) owns the authorized
+  native rollout and qualified source amendments: eighteen native lanes plus
+  `(devbox, jarvis)`, including each host's distinct `claude-work2` home; migration
+  `0008` adds the account check and runtime schema-read grant, not a table.
+  macbook/devbox proceed; arch and the next nexus release remain deferred.
+  the root-managed read-only id-mapped skid state mount preserves original
+  ownership/modes and atomic file publication. replacing its root directory
+  requires stopped remount. the contained host reads only its public mapping
+  through a separate read-only file bind. preserve service identities, home
+  restrictions, no-new-privileges and empty capabilities; copy no state or
+  credentials. source proof does not establish installed acceptance.
+  routine stopped-release replacement preserves initialized canonical control;
+  activation creates no pause/resume. startup action recovery retains existing
+  authority; main reasoning and background memory wait for validated discord
+  catch-up. separate migration and private-configuration/authority pause
+  requirements remain.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
   owns the implemented next target contract and current qualification record.
   the owner explicitly authorized source implementation and temporary
-  integration/live checks; installed cutover remains separate. both use
+  integration/live checks; installed proof remains separate. both use
   the skid cli. [adr 0068](docs/decisions/0068-generalized-skid-consumer.md)
   replaces private three-peer config with live installed computer state and removes
-  creation model/effort overrides. installed service-state access is separately
-  blocked; do not add a privilege bridge or copy stale state. adr 0052 supersedes the worker
+  creation model/effort overrides. adr 0072 supplies the qualified operating-system
+  access boundary; installed proof remains separate. do not add a privilege-bearing
+  application wrapper or copy stale state. adr 0052 supersedes the worker
   transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049. cognition uses adr 0065's separate contained stock
   endpoint; its production activation is separate from worker fleet installation.
 - [adr 0069](docs/decisions/0069-terminal-only-workers.md) supersedes worker-native
-  conversation control/identity and makes worker v9 terminal-only. keep separate
+  conversation control/identity and makes worker control terminal-only. adr 0072
+  advances the shared binding to v10 and hard-cuts the worker vocabulary to
+  `macbook|dev-server|arch`; memory's `devbox` identity is unchanged. finalized
+  validated v9 actions stay opaque; unfinished v9 work blocks activation. keep separate
   native cognition and archive/memory libraries. classify finalized known retired
   worker contracts before decoding their nested target; never execute archives.
 - preserve captured target kind/ref and independent interruption/closure facts

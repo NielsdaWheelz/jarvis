@@ -71,13 +71,21 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from jarvis.db import normalize_database_url
+from jarvis.ownership import DEPLOYMENT_LOCK_KEY
 
 try:
     engine = create_engine(
         normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     )
-    with engine.connect() as connection:
+    with engine.begin() as connection:
         version = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        if version == "0005":
+            if not connection.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:key)"),
+                {"key": DEPLOYMENT_LOCK_KEY},
+            ):
+                raise SystemExit("schema preparation requires a stopped deployment")
+            connection.execute(text("GRANT SELECT ON alembic_version TO jarvis_runtime"))
     engine.dispose()
 except (KeyError, SQLAlchemyError, ValueError):
     raise SystemExit("schema inspection failed") from None
@@ -104,8 +112,8 @@ if [[ "$memory_schema" == 0005 ]]; then
     "$previous/.venv/bin/python" "$release/deploy/prepare-memory-cutover" \
     snapshot "$snapshot" </dev/null ||
     refuse "memory snapshot did not validate; leave service stopped"
-elif [[ "$memory_schema" != 0006 ]]; then
-  refuse "memory cutover requires schema 0005 or the implemented target 0006"
+elif [[ "$memory_schema" != 0006 && "$memory_schema" != 0007 && "$memory_schema" != 0008 ]]; then
+  refuse "memory cutover requires schema 0005, 0006, 0007 or 0008"
 fi
 
 # Migration rechecks the old sweep and preserved originals under the lock.
@@ -145,8 +153,8 @@ main_pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
 [[ "$main_pid" =~ ^[1-9][0-9]*$ ]]
 prune_releases
 printf 'Activated Jarvis release: %s\n' "$commit"
-printf 'jarvis.service started paused; startup recovery runs before ingress, and no owner request is processed until resume\n'
-printf 'owner resume is a separate step after deploy/verify-containment passes\n'
+printf 'jarvis.service started; canonical pause/resume state governs owner request processing\n'
+printf 'initial owner resume is a separate step after deploy/verify-containment passes\n'
 if [[ "$memory_schema" == 0005 ]]; then
   printf 'delete the private cutover snapshot after acceptance: %s\n' "$snapshot"
 fi

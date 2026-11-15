@@ -75,6 +75,10 @@ for key, value in {
     "@HOST_UID@": str(host_uid),
     "@RELEASE@": str(release),
     "@ACCOUNT_HOME@": json.dumps(str(account).replace("%", "%%"), ensure_ascii=False),
+    "@ACCOUNT_INSTRUCTIONS@": " ".join(
+        json.dumps(f"-{account / name}".replace("%", "%%"), ensure_ascii=False)
+        for name in ("AGENTS.override.md", "AGENTS.md")
+    ),
 }.items():
     unit = unit.replace(key, value)
 Path(sys.argv[3]).write_text(unit)

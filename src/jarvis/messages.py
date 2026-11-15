@@ -421,7 +421,7 @@ class MessageStore:
             )
         return tuple(map(_stored_message, rows))
 
-    async def paused(self, source_conversation_id: str) -> bool:
+    async def current_control(self, source_conversation_id: str) -> str | None:
         async with self._engine.connect() as connection:
             kind = await connection.scalar(
                 select(message.c.control_kind)
@@ -432,7 +432,10 @@ class MessageStore:
                 .order_by(message.c.control_sequence.desc())
                 .limit(1)
             )
-        return kind in {"stop", "pause"}
+        return kind
+
+    async def paused(self, source_conversation_id: str) -> bool:
+        return await self.current_control(source_conversation_id) in {"stop", "pause"}
 
     async def message_by_id(self, message_id: UUID) -> StoredMessage | None:
         async with self._engine.connect() as connection:

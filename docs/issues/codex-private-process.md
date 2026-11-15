@@ -1,36 +1,23 @@
-# activate contained codex cognition
+# remaining contained-host connector qualification
 
-status: native source and frozen installed qualification are complete and merged;
-production activation remains unrecorded. [adr 0065](../decisions/0065-native-agent-supervision.md)
-supersedes the historical shared-process direction with the separate contained
-stock endpoint. updated 2026-10-04; no running service was inspected here.
+status: native host, owner resumption and main memory journey pass, 2026-11-14;
+this issue retains only the earlier physical google-integration acceptance.
 
-problem: the last recorded deployed release required the removed
-`/etc/codex-shared/profiles.json` broker and failed before discord ingress. no
-subsequent production migration/activation receipt closes that observation.
+problem: the new installed release's normal memory turn proves subscription-backed
+cognition and actual discord delivery, but does not call gmail/calendar/maps.
+existing connector qualification and unchanged configuration do not substitute
+for a current physical connector receipt.
 
-impact: useful deployed conversation and physical integration are not established.
-the last recorded state is disabled, stopped and durably paused. contained-host
-qualification is complete; actual systemd/application activation remains.
+evidence: [installed memory qualification](../universal-memory.md#native-memory-installed-qualification)
+records release `a3afcdc353029a8ea82425791cdc68fd42c5f759`, schema `0008`, the
+separate stock `0.160.0` host, canonical owner resume and successful normal main
+turn. inherited http mcp is explicitly disabled; account instruction masking,
+service containment and actual installed zero-native-tool thread checks pass.
+the original worker receipts remain unchanged, and repaired activation has no
+incompatible authority. no contained-host or memory blocker remains here.
 
-evidence: 2026-09-29 deployed release `39d9c9c` failed in `CodexHostConfig.load`
-with FileNotFoundError. no pending actions, unfinished decisions or old resolution
-processing/delivery remained. the owner explicitly permits downtime.
-
-direction: install the separately contained stock 0.160.0 endpoint under the
-existing personal host account using `deploy/install-contained-host`, the provider
-catalogue prerequisite and same-release application checks. preserve unrelated
-coding hosts and account credentials. do not restore the retired broker.
-
-resolved when: the same-release host/application is installed, stopped legacy
-state conversion succeeds, deployed cognition and physical google/discord
-integration pass their relevant checks, and explicit owner resumption is recorded.
-use the [native cutover](../operations.md#native-cutover); do not reopen completed
-library qualification or restore retired broker/capacity machinery.
-
-universal-memory dependency: archive codecs read native history without using
-worker-control servers. jarvis cognition persists in the devbox codex-personal
-home, so that capture lane stays unadmitted until internal-session exclusion is
-qualified. the native cutover changes the cognition endpoint, not the owner's
-fleet servers or the future memory collector scope. see the
-[native capture issue](universal-memory-capture.md).
+resolved when: the owning connector/events delivery records a normal installed
+read through the existing google bindings and intended private identity, without
+printing private bodies or changing effects. preserve the existing credentials
+and model/provider composition. do not reopen contained-host qualification or
+restore the retired broker.

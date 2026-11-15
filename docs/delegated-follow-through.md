@@ -33,8 +33,9 @@ main, which may inspect the result when useful.
 the executor follows [adr 0069](decisions/0069-terminal-only-workers.md): targets
 are terminal handles, reads expose retained terminal text, and writes prove
 terminal dispatch rather than provider admission. no worker-native history or
-control is restored by v2. installed jarvis use still needs the separately owned
-[live-state access boundary](issues/skid-installed-state-access.md).
+control is restored by v2. the installed
+[live-state access boundary](universal-memory.md#native-memory-installed-qualification)
+now passes; result observation and full-plan follow-through need their own proof.
 
 ## behavior and existing api
 

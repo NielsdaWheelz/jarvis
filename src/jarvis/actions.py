@@ -27,7 +27,17 @@ from llm_tools import (
 )
 from llm_tools.execution import ParsedJson
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import RowMapping, and_, or_, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    RowMapping,
+    Text,
+    and_,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -86,6 +96,7 @@ _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v6",
     "jarvis-agent-control-v7",
     "jarvis-agent-control-v8",
+    "jarvis-agent-control-v9",
 )
 _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
 
@@ -926,6 +937,19 @@ class ActionStore:
         ):
             raise ValueError("source conversation ID must be non-empty and canonical")
         async with self.engine.connect() as connection:
+            revision = action.c.execution_contract[
+                "implementation_revision"
+            ].as_string()
+            retired = or_(
+                and_(
+                    action.c.tool_name.like("agent.%"),
+                    revision.in_(_RETIRED_AGENT_REVISIONS),
+                ),
+                and_(
+                    action.c.tool_name.like("codex.%"),
+                    revision.in_(_RETIRED_CODEX_REVISIONS),
+                ),
+            )
             eligible = and_(
                 action.c.origin_message_id.in_(
                     select(message.c.id).where(
@@ -1002,25 +1026,18 @@ class ActionStore:
                     "AND invocation.reply_receipt->>'type' = 'tool_result_ref')"
                 ),
             )
+            delivered = await _delivered_archived_actions(
+                connection, source_conversation_id, and_(eligible, retired)
+            )
+            if delivered:
+                eligible = and_(eligible, action.c.id.not_in(delivered))
             if retired_only:
-                revision = action.c.execution_contract[
-                    "implementation_revision"
-                ].as_string()
                 eligible = and_(
                     eligible,
                     action.c.status.in_(
                         ("succeeded", "failed", "uncertain", "cancelled")
                     ),
-                    or_(
-                        and_(
-                            action.c.tool_name.like("agent.%"),
-                            revision.in_(_RETIRED_AGENT_REVISIONS),
-                        ),
-                        and_(
-                            action.c.tool_name.like("codex.%"),
-                            revision.in_(_RETIRED_CODEX_REVISIONS),
-                        ),
-                    ),
+                    retired,
                 )
             claim_id = await connection.scalar(
                 select(action.c.execution_contract["claim_id"].as_string())
@@ -3047,6 +3064,97 @@ def _agent_receipt_resolution(
             "control": control.model_dump(mode="json", exclude_none=True),
         },
     )
+
+
+async def _delivered_archived_actions(
+    connection: AsyncConnection,
+    source_conversation_id: str,
+    candidates: ColumnElement[bool],
+) -> tuple[UUID, ...]:
+    # Archived inline results predate native_invocation. Their canonical
+    # conclusion identity binds the original claim and exact delivered
+    # text; input completion alone does not prove receipt delivery. This
+    # checks host settlement metadata, never retired worker payloads.
+    origin = message.alias("origin")
+    conclusion = message.alias("conclusion")
+    inline = (
+        await connection.execute(
+            select(
+                action,
+                origin.c.trace["settlement"]["run_id"].as_string().label("run_id"),
+                conclusion.c.id.label("conclusion_id"),
+                func.encode(
+                    func.sha256(func.convert_to(conclusion.c.text, "UTF8")),
+                    "hex",
+                ).label("conclusion_digest"),
+            )
+            .select_from(
+                action.join(origin, origin.c.id == action.c.origin_message_id).join(
+                    conclusion,
+                    conclusion.c.id.cast(Text)
+                    == origin.c.trace["settlement"][
+                        "conclusion_message_id"
+                    ].as_string(),
+                )
+            )
+            .where(
+                candidates,
+                action.c.status.in_(("succeeded", "failed")),
+                action.c.approval_message_id.is_(None),
+                origin.c.trace["settlement"]["conclusion_kind"].as_string()
+                == "conversation",
+                origin.c.trace["settlement"]["outcome"].as_string() == "answered",
+                origin.c.trace["settlement"]["through_checkpoint"].as_string()
+                == action.c.execution_contract["through_checkpoint"].as_string(),
+                func.jsonb_typeof(origin.c.trace["settlement"]["run_id"]) == "string",
+                conclusion.c.role == "assistant",
+                conclusion.c.source == "discord",
+                conclusion.c.source_conversation_id == source_conversation_id,
+                conclusion.c.source_message_id.is_not(None),
+                conclusion.c.processed_at == conclusion.c.created_at,
+                action.c.completed_at <= conclusion.c.created_at,
+                text(
+                    "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+                    "action.execution_contract->'input_message_ids') "
+                    "AS captured(value) "
+                    "LEFT JOIN message AS input ON input.id::text = captured.value "
+                    "WHERE input.id IS NULL OR input.role NOT IN ('owner', 'host') "
+                    "OR input.source_conversation_id <> origin.source_conversation_id "
+                    "OR input.processed_at IS DISTINCT FROM conclusion.created_at "
+                    "OR input.trace->'settlement' "
+                    "IS DISTINCT FROM origin.trace->'settlement')"
+                ),
+            )
+        )
+    ).mappings()
+    delivered: list[UUID] = []
+    for row in inline:
+        stored = _stored_action(row)
+        settlement = SettlementTrace(
+            run_id=row["run_id"],
+            through_checkpoint=stored.execution_contract.through_checkpoint,
+            conclusion_kind="conversation",
+            outcome="answered",
+        )
+        identity = json.dumps(
+            [
+                source_conversation_id,
+                settlement.run_id,
+                stored.execution_contract.claim_id,
+                settlement.through_checkpoint,
+                settlement.conclusion_kind,
+                settlement.outcome,
+                row["conclusion_digest"],
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        if (
+            uuid5(NAMESPACE_URL, f"jarvis-conclusion-v1:{identity}")
+            == row["conclusion_id"]
+        ):
+            delivered.append(stored.id)
+    return tuple(delivered)
 
 
 def _retired_worker_revision(tool: str, revision: str) -> bool:

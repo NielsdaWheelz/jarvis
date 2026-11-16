@@ -466,5 +466,37 @@ production wipe command; the real finite operation needs the stopped inventory
 and disposition of the three historical retired-worker uncertainties.
 production
 journey and fresh reset are not yet claimed. the historical native issue remains
-OPEN. production still selects `b6cf4b32d32f2b01291d47291a206d4fc744fce4`, schema
-`0008a`; no production service/configuration/history mutation has occurred here.
+OPEN. at that recorded source-qualification boundary, production selected
+`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, schema `0008a`; production
+service/configuration/history changes had not yet occurred.
+
+### bootstrap metadata permission repair
+
+installed source `9632d8c55acd87fa98c8f458ca107e40e6dca5ca` cloned the private
+notes origin, then failed setting its new `.git` directory to `02750` with
+`PermissionError: EPERM`. the checkout root was `niels:codex-clients:02750`;
+`.git` inherited `02700` under the unit's `0077` umask. the unit's existing
+`RestrictSUIDSGID=true` rejects explicit SGID chmod even for directories, as
+[systemd documents](https://www.freedesktop.org/software/systemd/man/255/systemd.exec.html#RestrictSUIDSGID=).
+
+one source line changes the new metadata-directory mode to `0750`: application
+preflight needs group read/traversal, not SGID or group write. native commands
+already run with the client group. host restrictions and existing-checkout
+permissions remain unchanged; retrying an existing checkout never repairs modes.
+the existing checkout is checked separately; any selected operator correction
+must name the exact directory. no automatic existing-state repair is added.
+
+a root-executed restricted transient systemd unit reproduced the actual boundary
+with the host uid/client gid, `NoNewPrivileges`, empty capabilities,
+`RestrictSUIDSGID=true` and umask `0077`. actual `bootstrap_notes` and real local
+git clone reached `EPERM` with the original source and inherited `.git` mode
+`02700`; the repaired source completed a fresh clone at `0750`. a dirty existing
+checkout then retained every file byte and mode on retry. actual application uid
+read/traversal passed and metadata-directory write was denied. origin/privacy
+reads were controlled locally; this is not a fresh production bootstrap receipt.
+old/new source sha256 values are
+`ef439fb3acdca2215097681fac36957ba5987ce9e36b9ce32de0e189a514efb7` and
+`70b4003e3f1ea3a8a98fdbe0e8c07f0fd0ba611ab9ca098a78b90bab7227901c`.
+independent adversarial review covers the one-line fix and these exact outcomes;
+private receipts remain under `source-evidence/bootstrap-mode`. only this
+boundary changes; schemas, roles, pins and the host unit are unchanged.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -29,10 +30,13 @@ from llm_tools import (
     ToolEffect,
     ToolId,
     ToolResult,
+    WebSearchInput,
+    WebSearchSourceOperation,
     canonical_json_bytes,
     raw_input_digest,
     validate_tool_input,
 )
+from llm_tools.schema import JsonObject
 from sqlalchemy import RowMapping, select, update
 from sqlalchemy.dialects.postgresql import insert
 
@@ -59,14 +63,32 @@ FRESH_READ_IDS = (
     WORK_READ_IDS
     | EVENT_READ_IDS
     | ATTACHMENT_READ_IDS
-    | {ToolId("gmail.list_thread_messages"), ToolId("gmail.list_attachments")}
+    | {
+        ToolId("gmail.search"),
+        ToolId("gmail.list_thread_messages"),
+        ToolId("gmail.list_attachments"),
+        ToolId("gmail.read_message"),
+        ToolId("calendar.list_calendars"),
+        ToolId("calendar.read_calendar"),
+        ToolId("calendar.list_events"),
+        ToolId("calendar.get_event"),
+        ToolId("web.read"),
+    }
 )
 
 
 class PostgresReadRecorder:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        web_source_operation: Callable[[WebSearchInput], JsonObject | None]
+        | None = None,
+    ) -> None:
         self._database = database
         self._reserved: dict[InvocationPosition, tuple[Reservation, bool]] = {}
+        self._web_source_operation = web_source_operation
+        self._web_operations: dict[InvocationPosition, JsonObject | None] = {}
 
     @property
     def durable(self) -> bool:
@@ -238,6 +260,55 @@ class PostgresReadRecorder:
                 current_input.model_dump(mode="json")
             ) != canonical_json_bytes(arguments):
                 raise ValueError("read arguments changed after callback acceptance")
+            is_search = binding.spec.id == ToolId("web.search")
+            operation: JsonObject | None = None
+            if is_search:
+                if self._web_source_operation is None:
+                    raise ValueError("web search requires its bound source operation")
+                try:
+                    operation = self._web_source_operation(
+                        cast(WebSearchInput, current_input)
+                    )
+                except ValueError:
+                    return completed_tool_result(
+                        {"type": "Failure", "error": {"type": "InvalidCursor"}}
+                    )
+                self._web_operations[lineage.position] = operation
+                original = (
+                    (
+                        await connection.execute(
+                            select(read_position)
+                            .where(read_position.c.position == str(lineage.position))
+                            .with_for_update()
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if original is not None:
+                    expected = {
+                        "tool_id": str(binding.spec.id),
+                        "tool_contract_revision": binding.spec.tool_contract_revision,
+                        "policy_revision": binding.policy_revision,
+                        "plan_revision": plan.plan_revision,
+                        "input_digest": raw_input_digest(ParsedJson(arguments)),
+                        "replay_policy": binding.replay_policy.value,
+                        "web_source_operation": operation,
+                    }
+                    if original["contract"] != expected:
+                        raise ValueError("original web search contract changed")
+                    if original["state"] == "completed":
+                        return completed_tool_result(original["result"])
+                    if operation is None and original["state"] in {
+                        "dispatched",
+                        "uncertain",
+                    }:
+                        # This exact stored contract proves no network was possible.
+                        await connection.execute(
+                            update(read_position)
+                            .where(read_position.c.position == str(lineage.position))
+                            .values(state="prepared", updated_at=datetime.now(UTC))
+                        )
             if binding.spec.id in FRESH_READ_IDS:
                 return None
             unfinished = set(
@@ -281,15 +352,17 @@ class PostgresReadRecorder:
             )
             completed: DispatchCompleted | None = None
             for invocation in rows:
-                prior_arguments = invocation["proposal"]["arguments"]
-                if invocation["frozen_contract"] == contract:
-                    prior_input = validate_tool_input(binding, prior_arguments)
-                    prior_arguments = prior_input.model_dump(mode="json")
-                if canonical_json_bytes(prior_arguments) != canonical_json_bytes(
-                    arguments
-                ) or not component.intersection(
+                if not component.intersection(
                     map(UUID, invocation["proposal"]["input_ids"])
                 ):
+                    continue
+                prior_arguments = invocation["proposal"]["arguments"]
+                if not is_search and invocation["frozen_contract"] == contract:
+                    prior_input = validate_tool_input(binding, prior_arguments)
+                    prior_arguments = prior_input.model_dump(mode="json")
+                if not is_search and canonical_json_bytes(
+                    prior_arguments
+                ) != canonical_json_bytes(arguments):
                     continue
                 position = invocation["read_position"] or "native-invocation:" + str(
                     invocation["id"]
@@ -306,6 +379,23 @@ class PostgresReadRecorder:
                     .one_or_none()
                 )
                 if row is None or row["state"] == "prepared":
+                    continue
+                if is_search:
+                    if row["state"] == "completed":
+                        continue
+                    if "web_source_operation" not in row["contract"]:
+                        return _paid_read_barrier(
+                            position, "paid_read_contract_changed"
+                        )
+                    previous = row["contract"]["web_source_operation"]
+                    if previous is not None:
+                        previous = WebSearchSourceOperation.model_validate(
+                            previous
+                        ).model_dump(mode="json")
+                        if previous == operation:
+                            return _paid_read_barrier(
+                                position, "paid_read_outcome_unknown"
+                            )
                     continue
                 if row["state"] in {"dispatched", "uncertain"} and (
                     row["contract"].get("replay_policy")
@@ -410,7 +500,7 @@ class PostgresReadRecorder:
         input_digest: str,
         replay_policy: ReplayPolicy,
     ) -> PositionState:
-        contract = {
+        contract: dict[str, Any] = {
             "tool_id": str(tool_id),
             "tool_contract_revision": tool_contract_revision,
             "policy_revision": policy_revision,
@@ -418,6 +508,12 @@ class PostgresReadRecorder:
             "input_digest": input_digest,
             "replay_policy": replay_policy.value,
         }
+        if tool_id == ToolId("web.search"):
+            if position not in self._web_operations:
+                raise ValueError(
+                    "web source operation was not staged for this invocation"
+                )
+            contract["web_source_operation"] = self._web_operations[position]
         async with self._database.begin() as connection:
             await connection.execute(
                 insert(read_position)
@@ -624,4 +720,11 @@ def _state(row: RowMapping) -> PositionState:
     return PositionState(
         cast(ToolResult | None, row["result"]),
         row["state"] in {"dispatched", "uncertain"},
+    )
+
+
+def _paid_read_barrier(position: str, code: str) -> DispatchCompleted:
+    return completed_tool_result(
+        {"type": "Failure", "error": {"type": "HostRejected", "code": code}},
+        HostRef(position),
     )

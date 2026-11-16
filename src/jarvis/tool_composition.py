@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import cast
 
 import boto3  # pyright: ignore[reportMissingTypeStubs]
@@ -18,11 +19,15 @@ from llm_tools import (
     ToolEffect,
     ToolFamily,
     Unavailable,
+    WebSearchInput,
+    WebSearchPolicy,
     bind_brave_web_search,
     bind_web_read,
     canonical_json_bytes,
     web_family,
+    web_search_source_operation,
 )
+from llm_tools.schema import JsonObject
 from sqlalchemy import text
 
 from jarvis.action_requests import bind_action_requests
@@ -58,6 +63,8 @@ class ToolComposition:
     google_write: GoogleWriteConnector
     event_poller: EventPoller
     attachments: AttachmentStore
+    google_read: GoogleReadConnector
+    web_source_operation: Callable[[WebSearchInput], JsonObject | None]
 
 
 def build_tool_composition(
@@ -95,10 +102,11 @@ def build_tool_composition(
         client=maps_http,
         api_key=settings.maps_api_key.get_secret_value(),
     )
+    search_policy = WebSearchPolicy()
     brave = BraveSearchProvider(
         brave_http,
         api_key=settings.brave_api_key.get_secret_value(),
-        base_url="https://api.search.brave.com/res/v1",
+        policy=search_policy,
     )
     catalog = ToolCatalog.compose(
         (
@@ -118,6 +126,7 @@ def build_tool_composition(
             web_family(
                 search=bind_brave_web_search(
                     brave,
+                    policy=search_policy,
                     operation_deadline_seconds=12.0,
                 ),
                 read=bind_web_read(SafeWebReader()),
@@ -144,7 +153,14 @@ def build_tool_composition(
         admitted=event_admitted,
     )
     events.notify_changed = event_poller.notify_changed
-    return ToolComposition(catalog, google_write, event_poller, attachments)
+    return ToolComposition(
+        catalog,
+        google_write,
+        event_poller,
+        attachments,
+        google_read,
+        partial(web_search_source_operation, policy=search_policy),
+    )
 
 
 def google_tokens(settings: Settings, http: httpx.AsyncClient) -> GoogleTokenManager:

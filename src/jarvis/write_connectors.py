@@ -407,6 +407,9 @@ def _calendar_snapshot(
     status = _string(payload, "status")
     if status not in {"confirmed", "tentative"}:
         raise ValueError("Calendar event type is unsupported")
+    attendees_omitted = payload.get("attendeesOmitted", False)
+    if type(attendees_omitted) is not bool or attendees_omitted:
+        raise ValueError("Calendar attendee observation is incomplete")
     attendees_value = payload.get("attendees", [])
     if not isinstance(attendees_value, list):
         raise ValueError("Calendar attendees are malformed")

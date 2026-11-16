@@ -5,19 +5,20 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import codecs
 import hashlib
 import json
 import math
 import re
 import secrets
 import tempfile
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from email import message_from_string, policy
+from email import policy
 from email.parser import Parser
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import quote
@@ -26,11 +27,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from llm_tools import canonical_json_bytes
-from pydantic import ValidationError
+from llm_tools import BoundaryFailure, ExecutionContext, canonical_json_bytes
+from llm_tools.content import html_visible_text
+from llm_tools.schema import JsonObject
+from pydantic import TypeAdapter, ValidationError
 
 from jarvis._atomic_json import read_private_json, replace_private_json
-from jarvis._thread_io import joined_thread
+from jarvis._thread_io import finish_entered, joined_thread
+from jarvis.google_content import GoogleCursor, GoogleProjection
 from jarvis.read_tools import (
     ATTACHMENT_CONNECT_SECONDS,
     ATTACHMENT_EXTERNAL_JSON_BYTES,
@@ -38,36 +42,35 @@ from jarvis.read_tools import (
     ATTACHMENT_MESSAGE_JSON_BYTES,
     ATTACHMENT_OPERATION_SECONDS,
     CALENDAR_API_BASE_URL,
-    CALENDAR_EVENT_CONCURRENCY,
-    CALENDAR_EVENT_DEADLINE_SECONDS,
-    CALENDAR_EVENT_PAGE_SIZE,
+    CALENDAR_EVENT_PROJECTION,
+    CALENDAR_METADATA_PROJECTION,
     GMAIL_API_BASE_URL,
-    MAX_CALENDAR_EVENT_PAGE_REQUESTS,
-    MAX_CALENDAR_EVENTS,
-    MAX_CALENDAR_LIST_ENTRIES,
-    MAX_CALENDAR_SUCCESS_BYTES,
+    GOOGLE_DECODED_PROJECTION,
+    GOOGLE_MESSAGE_PROJECTION,
+    GOOGLE_OUTPUT_BYTES,
+    GOOGLE_PAGE_SECONDS,
+    GOOGLE_READABLE_PROJECTION,
+    GOOGLE_TEXT_SECONDS,
     PLACE_DETAILS_FIELD_MASK,
     PLACES_API_BASE_URL,
     PLACES_SEARCH_FIELD_MASK,
     ROUTES_API_URL,
     ROUTES_FIELD_MASK,
     AllDayEventTime,
-    CalendarCancelledEvent,
-    CalendarCoverage,
-    CalendarCoverageReason,
-    CalendarEventReadFailure,
+    CalendarEventSnapshot,
     CalendarGetEventInput,
+    CalendarGetEventSnapshotSuccess,
     CalendarGetEventSuccess,
+    CalendarGetEventTextSuccess,
     CalendarListCalendarsInput,
     CalendarListCalendarsSuccess,
     CalendarListCancelledEvent,
     CalendarListEventsInput,
     CalendarListEventsSuccess,
     CalendarListNormalEvent,
-    CalendarNormalEvent,
-    CalendarObservedWritableEvent,
-    CalendarParticipant,
-    CalendarReference,
+    CalendarPreview,
+    CalendarReadCalendarInput,
+    CalendarReadCalendarSuccess,
     ConnectorFailure,
     Coordinates,
     GmailAttachment,
@@ -75,13 +78,11 @@ from jarvis.read_tools import (
     GmailListAttachmentsSuccess,
     GmailListThreadMessagesInput,
     GmailListThreadMessagesSuccess,
-    GmailMessage,
-    GmailReadThreadInput,
-    GmailReadThreadSuccess,
+    GmailMessageReference,
+    GmailReadMessageInput,
+    GmailReadMessageSuccess,
     GmailSearchInput,
     GmailSearchSuccess,
-    GmailThreadHit,
-    Mailbox,
     MapsDirectionsInput,
     MapsDirectionsSuccess,
     MapsGetPlaceInput,
@@ -122,13 +123,6 @@ _MAX_TOKEN_ENVELOPE_CHARS = (
     len(_TOKEN_ENVELOPE_PREFIX) + (4 * _MAX_TOKEN_CIPHERTEXT_BYTES + 2) // 3
 )
 _TokenField = Literal["access_token", "refresh_token"]
-type _CalendarFailureType = Literal[
-    "CalendarNotFound",
-    "InvalidRange",
-    "RateLimited",
-    "ProviderUnavailable",
-    "ProviderResponseTooLarge",
-]
 
 
 class GoogleCredentialDefect(RuntimeError):
@@ -157,20 +151,6 @@ class _ProviderTooLarge(ValueError):
 
 class OriginalTooLarge(_ProviderTooLarge):
     """The selected decoded original exceeds its admitted byte bound."""
-
-
-class _InertHtml(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(data)
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
-        if tag in {"br", "div", "li", "p", "tr"}:
-            self.parts.append("\n")
 
 
 def _b64decode(value: str) -> bytes:
@@ -515,6 +495,120 @@ class GoogleReadConnector:
         self._client = client
         self._tokens = tokens
         self._now = now
+        self._read_account: str | None = None
+        self._projection: GoogleProjection | None = None
+
+    async def aclose(self) -> None:
+        if self._projection is not None:
+            projection, self._projection = self._projection, None
+            await joined_thread(projection.file.close)
+
+    @asynccontextmanager
+    async def _operation(
+        self,
+        seconds: float,
+        maximum_attempts: int,
+        context: ExecutionContext | None,
+    ) -> AsyncIterator[_GoogleOperation]:
+        operation = _GoogleOperation(self, seconds, maximum_attempts, context)
+        try:
+            async with asyncio.timeout(seconds):
+                yield operation
+        except asyncio.CancelledError:
+            if (
+                context is not None
+                and context.deadline is not None
+                and not context.cancellation.cancelled
+                and asyncio.get_running_loop().time() >= context.deadline
+            ):
+                raise BoundaryFailure(
+                    "DeadlineExceeded", actual_attempts=operation.attempts
+                ) from None
+            raise
+        except ConnectorFailure as exc:
+            raise ConnectorFailure(exc.code, attempts=operation.attempts) from None
+        except TimeoutError:
+            raise BoundaryFailure(
+                "DeadlineExceeded", actual_attempts=operation.attempts
+            ) from None
+        except (OSError, MemoryError, RecursionError):
+            raise ConnectorFailure(
+                "resource_unavailable", attempts=operation.attempts
+            ) from None
+        except (TypeError, ValueError, UnicodeError):
+            raise ConnectorFailure(
+                "invalid_content", attempts=operation.attempts
+            ) from None
+
+    async def _account(self, operation: _GoogleOperation) -> str:
+        payload = await operation.get(
+            f"{GMAIL_API_BASE_URL}/users/me/profile",
+            params={"fields": "emailAddress,historyId"},
+        )
+        account = google_profile(payload).account
+        if self._read_account is None:
+            self._read_account = account
+        elif self._read_account != account:
+            raise ConnectorFailure("account_changed", attempts=operation.attempts)
+        return account
+
+    async def _save_projection(
+        self,
+        key: tuple[str, ...],
+        source: JsonObject,
+        projection: str,
+        value: object,
+        *,
+        text: bool = False,
+    ) -> GoogleProjection:
+        await self.aclose()
+        entered = asyncio.create_task(
+            asyncio.to_thread(
+                GoogleProjection.create,
+                key,
+                source,
+                projection,
+                self._observed_at(),
+                value,
+                text=text,
+            )
+        )
+        try:
+            created = await asyncio.shield(entered)
+        except asyncio.CancelledError as cancellation:
+            try:
+                created = await finish_entered(entered)
+            except BaseException:
+                raise cancellation from None
+            await joined_thread(created.file.close)
+            raise cancellation
+        self._projection = created
+        return created
+
+    async def _chunk(
+        self,
+        projection: GoogleProjection,
+        offset: int,
+        maximum: int,
+        expected_digest: str | None,
+        operation: _GoogleOperation,
+        *,
+        nested: bool = False,
+    ) -> JsonObject:
+        if expected_digest is not None and projection.digest != expected_digest:
+            raise ConnectorFailure("source_changed", attempts=operation.attempts)
+        try:
+            return await joined_thread(
+                projection.chunk,
+                offset,
+                maximum,
+                nested=nested,
+                max_output_bytes=operation.output_bytes,
+            )
+        except ValueError:
+            raise BoundaryFailure(
+                "InvalidInput", actual_attempts=operation.attempts
+            ) from None
 
     async def gmail_profile(
         self,
@@ -542,107 +636,194 @@ class GoogleReadConnector:
         return profile.account, attempts
 
     async def gmail_search(
-        self, value: GmailSearchInput
+        self,
+        value: GmailSearchInput,
+        *,
+        context: ExecutionContext | None = None,
     ) -> ReadResponse[GmailSearchSuccess]:
-        if not value.query.strip():
-            raise ConnectorFailure("invalid_query", attempts=0)
-        payload, attempts = await self.get_json(
-            f"{GMAIL_API_BASE_URL}/users/me/threads",
-            params={
-                "includeSpamTrash": "false",
-                "maxResults": value.max_results,
-                "q": value.query,
-            },
-            invalid_request="invalid_query",
-        )
-        try:
-            raw_threads = provider_array(payload.get("threads", []), "Gmail threads")
-            hits: list[GmailThreadHit] = []
-            truncated = _has_next_page(payload) or len(raw_threads) > value.max_results
-            for raw in raw_threads[: value.max_results]:
-                item = provider_object(raw, "Gmail thread")
-                snippet, shortened = _truncate(
-                    _optional_string(item, "snippet", ""), 1_000
-                )
-                hits.append(
-                    GmailThreadHit(
-                        thread_id=provider_text(provider_string(item, "id"), 1_024),
-                        snippet=snippet,
-                    )
-                )
-                truncated = truncated or shortened
-            result = GmailSearchSuccess(
-                threads=tuple(hits),
-                truncated=truncated,
-                observed_at=self._observed_at(),
+        async with self._operation(GOOGLE_PAGE_SECONDS, 4, context) as operation:
+            account = await self._account(operation)
+            scope = {
+                "query": value.query,
+                "include_spam_trash": value.include_spam_trash,
+            }
+            cursor = _google_cursor(
+                value.cursor, "gmail.search", account, scope, value.page_size
             )
-        except _ProviderTooLarge as exc:
-            raise ConnectorFailure(
-                "provider_response_too_large", attempts=attempts
-            ) from exc
-        except (TypeError, ValueError, ValidationError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
-        return ReadResponse(result, attempts)
+            params: dict[str, str | int | list[str]] = {
+                "includeSpamTrash": str(value.include_spam_trash).lower(),
+                "maxResults": value.page_size,
+            }
+            if value.query is not None:
+                params["q"] = value.query
+            if cursor.provider_page_token is not None:
+                params["pageToken"] = cursor.provider_page_token
+            payload = await operation.get(
+                f"{GMAIL_API_BASE_URL}/users/me/messages",
+                params=params,
+                invalid_request="invalid_cursor" if value.cursor else "invalid_query",
+                max_response_bytes=None,
+            )
+            messages = [
+                GmailMessageReference(
+                    message_id=provider_text(
+                        provider_string(provider_object(item, "Gmail message"), "id"),
+                        1_024,
+                    ),
+                    thread_id=provider_text(
+                        provider_string(
+                            provider_object(item, "Gmail message"), "threadId"
+                        ),
+                        1_024,
+                    ),
+                ).model_dump(mode="json")
+                for item in provider_array(
+                    payload.get("messages", []), "Gmail messages"
+                )
+            ]
+            estimate = payload.get("resultSizeEstimate")
+            if estimate is not None and (
+                type(estimate) is not int or not 0 <= estimate <= 2**53 - 1
+            ):
+                raise ValueError("Gmail estimate is malformed")
+            result = await joined_thread(
+                _google_page,
+                cursor,
+                messages,
+                _next_page_token(payload),
+                {
+                    "account": account,
+                    "query": value.query,
+                    "include_spam_trash": value.include_spam_trash,
+                    "result_size_estimate": estimate,
+                    "observed_at": _rfc3339(self._observed_at()),
+                },
+                "messages",
+                maximum_output_bytes=operation.output_bytes,
+            )
+            return ReadResponse(
+                GmailSearchSuccess.model_validate(result), operation.attempts
+            )
 
-    async def gmail_read_thread(
-        self, value: GmailReadThreadInput
-    ) -> ReadResponse[GmailReadThreadSuccess]:
-        path = quote(value.thread_id, safe="")
-        account, profile_attempts = await self.gmail_account()
-        try:
-            payload, attempts = await self.get_json(
-                f"{GMAIL_API_BASE_URL}/users/me/threads/{path}",
-                params={"format": "full"},
-                not_found="thread_not_found",
+    async def gmail_read_message(
+        self,
+        value: GmailReadMessageInput,
+        *,
+        context: ExecutionContext | None = None,
+    ) -> ReadResponse[GmailReadMessageSuccess]:
+        async with self._operation(GOOGLE_TEXT_SECONDS, 6, context) as operation:
+            account = await self._account(operation)
+            key = (
+                account,
+                "gmail",
+                value.message_id,
+                value.section,
+                value.part_id or "",
+                value.text_view or "",
             )
-        except ConnectorFailure as exc:
-            raise ConnectorFailure(
-                exc.code, attempts=profile_attempts + exc.attempts
-            ) from None
-        attempts += profile_attempts
-        try:
-            thread_id = provider_text(provider_string(payload, "id"), 1_024)
-            if thread_id != value.thread_id:
-                raise ValueError("Gmail returned a different thread")
-            raw_messages = provider_array(payload.get("messages", []), "Gmail messages")
-            ordered = sorted(raw_messages, key=_gmail_internal_millis)
-            selected = ordered[-value.max_messages :]
-            messages: list[GmailMessage] = []
-            aggregate = 0
-            root_truncated = len(ordered) > len(selected)
-            for raw in selected:
-                message, attachment_cap = await joined_thread(
-                    _gmail_message, raw, account
+            projection = self._projection
+            if (
+                value.expected_digest is None
+                or projection is None
+                or projection.key != key
+            ):
+                payload = await operation.get(
+                    f"{GMAIL_API_BASE_URL}/users/me/messages/"
+                    f"{quote(value.message_id, safe='')}",
+                    params={"format": "full"},
+                    not_found="message_not_found",
+                    max_response_bytes=None,
                 )
-                if message.thread_id != thread_id:
-                    raise ValueError("Gmail message has a different thread")
-                remaining = max(0, 65_536 - aggregate)
-                bounded, aggregate_cut = _truncate(message.body_text, remaining)
-                if aggregate_cut:
-                    message = message.model_copy(
-                        update={"body_text": bounded, "body_truncated": True}
+                if provider_string(payload, "id") != value.message_id:
+                    raise ValueError("Gmail returned a different message")
+                thread_id = provider_text(provider_string(payload, "threadId"), 1_024)
+                root = provider_object(payload.get("payload"), "Gmail payload")
+                parts = await joined_thread(gmail_parts, root, attachment_policy=False)
+                source: JsonObject = {
+                    "account": account,
+                    "message_id": value.message_id,
+                    "thread_id": thread_id,
+                    "section": value.section,
+                    "part_id": value.part_id,
+                    "text_view": value.text_view,
+                }
+                if value.section == "message":
+                    content = await joined_thread(_gmail_metadata, payload, parts)
+                    projection = await self._save_projection(
+                        key, source, GOOGLE_MESSAGE_PROJECTION, content
                     )
-                aggregate += len(message.body_text.encode())
-                messages.append(message)
-                root_truncated = (
-                    root_truncated or attachment_cap or message.body_truncated
-                )
-            result = GmailReadThreadSuccess(
-                thread_id=thread_id,
-                messages=tuple(messages),
-                truncated=root_truncated,
-                observed_at=self._observed_at(),
+                else:
+                    part = next(
+                        (part for part in parts if part.part_id == value.part_id), None
+                    )
+                    if part is None:
+                        raise BoundaryFailure(
+                            "InvalidInput", actual_attempts=operation.attempts
+                        )
+                    if part.reason in {"unsupported_type", "unsupported_charset"}:
+                        raise ConnectorFailure(
+                            "unsupported_content", attempts=operation.attempts
+                        )
+                    if part.reason is not None or part.content_kind == "unavailable":
+                        raise ConnectorFailure(
+                            "invalid_content", attempts=operation.attempts
+                        )
+                    if part.content_kind not in {"text", "empty"} or not _textual_media(
+                        part.media_type
+                    ):
+                        raise ConnectorFailure(
+                            "unsupported_content", attempts=operation.attempts
+                        )
+                    data = part.data
+                    if part.external_id is not None:
+                        body = await operation.get(
+                            f"{GMAIL_API_BASE_URL}/users/me/messages/"
+                            f"{quote(value.message_id, safe='')}/attachments/"
+                            f"{quote(part.external_id, safe='')}",
+                            not_found="message_not_found",
+                            max_response_bytes=None,
+                        )
+                        data = body.get("data")
+                        if not isinstance(data, str):
+                            raise ValueError("Gmail external text data is malformed")
+                    if data is None:
+                        if part.content_kind != "empty":
+                            raise ConnectorFailure(
+                                "invalid_content", attempts=operation.attempts
+                            )
+                        data = ""
+                    decoded = await joined_thread(_gmail_text, part, data)
+                    if value.text_view == "readable" and part.media_type in {
+                        "text/html",
+                        "application/xhtml+xml",
+                    }:
+                        decoded, _title = await joined_thread(
+                            html_visible_text, decoded
+                        )
+                    revision = (
+                        GOOGLE_DECODED_PROJECTION
+                        if value.text_view == "decoded"
+                        else GOOGLE_READABLE_PROJECTION
+                    )
+                    projection = await self._save_projection(
+                        key, source, revision, decoded, text=True
+                    )
+            chunk = await self._chunk(
+                projection,
+                value.offset,
+                value.max_bytes,
+                value.expected_digest,
+                operation,
             )
-        except _ProviderTooLarge as exc:
-            raise ConnectorFailure(
-                "provider_response_too_large", attempts=attempts
-            ) from exc
-        except (TypeError, ValueError, ValidationError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
-        return ReadResponse(result, attempts)
+            return ReadResponse(
+                GmailReadMessageSuccess.model_validate(chunk), operation.attempts
+            )
 
     async def gmail_list_thread_messages(
-        self, value: GmailListThreadMessagesInput
+        self,
+        value: GmailListThreadMessagesInput,
+        *,
+        context: ExecutionContext | None = None,
     ) -> ReadResponse[GmailListThreadMessagesSuccess]:
         account, attempts = await self.gmail_account()
         try:
@@ -729,7 +910,10 @@ class GoogleReadConnector:
             raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
 
     async def gmail_list_attachments(
-        self, value: GmailListAttachmentsInput
+        self,
+        value: GmailListAttachmentsInput,
+        *,
+        context: ExecutionContext | None = None,
     ) -> ReadResponse[GmailListAttachmentsSuccess]:
         response = await self.gmail_attachment_message(value.message_id)
         original = response.value
@@ -784,334 +968,260 @@ class GoogleReadConnector:
         return ReadResponse(value, attempts)
 
     async def calendar_list_calendars(
-        self, value: CalendarListCalendarsInput
+        self,
+        value: CalendarListCalendarsInput,
+        *,
+        context: ExecutionContext | None = None,
     ) -> ReadResponse[CalendarListCalendarsSuccess]:
-        del value
-        payload, attempts = await self.get_json(
-            f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
-            params={
-                "maxResults": 50,
+        async with self._operation(GOOGLE_PAGE_SECONDS, 4, context) as operation:
+            account = await self._account(operation)
+            scope = {
+                "show_deleted": False,
+                "show_hidden": True,
+                "min_access_role": "reader",
+            }
+            cursor = _google_cursor(
+                value.cursor, "calendar.list_calendars", account, scope, value.page_size
+            )
+            params: dict[str, str | int | list[str]] = {
+                "maxResults": value.page_size,
                 "minAccessRole": "reader",
                 "showDeleted": "false",
                 "showHidden": "true",
-            },
-        )
-        try:
-            calendars, truncated = _calendar_references(payload)
-            result = CalendarListCalendarsSuccess(
-                calendars=calendars,
-                truncated=truncated,
-                observed_at=self._observed_at(),
+            }
+            if cursor.provider_page_token is not None:
+                params["pageToken"] = cursor.provider_page_token
+            payload = await operation.get(
+                f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
+                params=params,
+                invalid_request="invalid_cursor" if value.cursor else None,
+                max_response_bytes=None,
             )
-        except _ProviderTooLarge as exc:
-            raise ConnectorFailure(
-                "provider_response_too_large", attempts=attempts
-            ) from exc
-        except (TypeError, ValueError, ValidationError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
-        return ReadResponse(result, attempts)
+            calendars = await joined_thread(
+                lambda: [
+                    _calendar_preview(provider_object(raw, "Calendar list entry"))
+                    for raw in provider_array(payload.get("items", []), "Calendar list")
+                    if not _provider_boolean(
+                        provider_object(raw, "Calendar list entry"),
+                        "deleted",
+                        default=False,
+                    )
+                ]
+            )
+            result = await joined_thread(
+                _google_page,
+                cursor,
+                calendars,
+                _next_page_token(payload),
+                {
+                    "account": account,
+                    "observed_at": _rfc3339(self._observed_at()),
+                },
+                "calendars",
+                maximum_output_bytes=operation.output_bytes,
+            )
+            return ReadResponse(
+                CalendarListCalendarsSuccess.model_validate(result), operation.attempts
+            )
+
+    async def calendar_read_calendar(
+        self,
+        value: CalendarReadCalendarInput,
+        *,
+        context: ExecutionContext | None = None,
+    ) -> ReadResponse[CalendarReadCalendarSuccess]:
+        async with self._operation(GOOGLE_TEXT_SECONDS, 4, context) as operation:
+            account = await self._account(operation)
+            key = (account, "calendar", value.calendar_id)
+            projection = self._projection
+            if (
+                value.expected_digest is None
+                or projection is None
+                or projection.key != key
+            ):
+                payload = await operation.get(
+                    f"{CALENDAR_API_BASE_URL}/users/me/calendarList/"
+                    f"{quote(value.calendar_id, safe='')}",
+                    not_found="calendar_not_found",
+                    max_response_bytes=None,
+                )
+                if provider_string(payload, "id") != value.calendar_id:
+                    raise ValueError("Calendar returned a different calendar")
+                projected = await joined_thread(_calendar_metadata, payload)
+                projection = await self._save_projection(
+                    key,
+                    {"account": account, "calendar_id": value.calendar_id},
+                    CALENDAR_METADATA_PROJECTION,
+                    projected,
+                )
+            chunk = await self._chunk(
+                projection,
+                value.offset,
+                value.max_bytes,
+                value.expected_digest,
+                operation,
+            )
+            return ReadResponse(
+                CalendarReadCalendarSuccess.model_validate(chunk), operation.attempts
+            )
 
     async def calendar_list_events(
-        self, value: CalendarListEventsInput
+        self,
+        value: CalendarListEventsInput,
+        *,
+        context: ExecutionContext | None = None,
     ) -> ReadResponse[CalendarListEventsSuccess]:
-        try:
-            time_min = value.time_min.astimezone(UTC)
-            time_max = value.time_max.astimezone(UTC)
-        except (OverflowError, ValueError):
-            raise ConnectorFailure("invalid_range", attempts=0) from None
-        if time_min >= time_max:
-            raise ConnectorFailure("invalid_range", attempts=0)
-
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + CALENDAR_EVENT_DEADLINE_SECONDS
-        attempts = 0
-
-        def attempted() -> None:
-            nonlocal attempts
-            attempts += 1
-
-        try:
-            list_payload, _ = await asyncio.wait_for(
-                self.get_json(
-                    f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
-                    params={
-                        "maxResults": 50,
-                        "minAccessRole": "reader",
-                        "showDeleted": "false",
-                        "showHidden": "true",
-                    },
-                    attempt_started=attempted,
-                ),
-                timeout=max(0.0, deadline - loop.time()),
+        async with self._operation(GOOGLE_PAGE_SECONDS, 4, context) as operation:
+            account = await self._account(operation)
+            scope = {
+                "calendar_id": value.calendar_id,
+                "time_min": _rfc3339(value.time_min),
+                "time_max": _rfc3339(value.time_max),
+                "time_zone": value.time_zone,
+                "single_events": True,
+                "show_deleted": True,
+                "order_by": "startTime",
+            }
+            cursor = _google_cursor(
+                value.cursor, "calendar.list_events", account, scope, value.page_size
             )
-        except TimeoutError:
-            result = CalendarListEventsSuccess(
-                calendars=(),
-                events=(),
-                failures=(),
-                coverage=CalendarCoverage(
-                    complete=False,
-                    reasons=("deadline",),
-                    calendars_discovered=0,
-                    calendars_completed=0,
-                    matched_events=None,
-                ),
-                observed_at=self._observed_at(),
+            params: dict[str, str | int | list[str]] = {
+                "maxResults": value.page_size,
+                "timeMin": _rfc3339(value.time_min),
+                "timeMax": _rfc3339(value.time_max),
+                "timeZone": value.time_zone,
+                "singleEvents": "true",
+                "showDeleted": "true",
+                "orderBy": "startTime",
+            }
+            if cursor.provider_page_token is not None:
+                params["pageToken"] = cursor.provider_page_token
+            payload = await operation.get(
+                f"{CALENDAR_API_BASE_URL}/calendars/"
+                f"{quote(value.calendar_id, safe='')}/events",
+                params=params,
+                not_found="calendar_not_found",
+                invalid_request="invalid_cursor" if value.cursor else "invalid_range",
+                max_response_bytes=None,
             )
-            return ReadResponse(result, attempts)
-        try:
-            calendars, calendars_truncated = _calendar_references(list_payload)
-        except _ProviderTooLarge as exc:
-            raise ConnectorFailure(
-                "provider_response_too_large", attempts=attempts
-            ) from exc
-        except (TypeError, ValueError, ValidationError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
-
-        semaphore = asyncio.Semaphore(CALENDAR_EVENT_CONCURRENCY)
-
-        async def read_page(
-            calendar: CalendarReference, page_token: str | None
-        ) -> tuple[
-            tuple[CalendarListNormalEvent | CalendarListCancelledEvent, ...],
-            CalendarEventReadFailure | None,
-            str | None,
-        ]:
-            async with semaphore:
-                page_attempts = 0
-
-                def page_attempted() -> None:
-                    nonlocal page_attempts
-                    page_attempts += 1
-                    attempted()
-
-                try:
-                    params: dict[str, str | int] = {
-                        "maxResults": CALENDAR_EVENT_PAGE_SIZE,
-                        "orderBy": "startTime",
-                        "showDeleted": "true",
-                        "singleEvents": "true",
-                        "timeMax": _rfc3339(time_max),
-                        "timeMin": _rfc3339(time_min),
-                        "timeZone": value.time_zone,
-                    }
-                    if page_token is not None:
-                        params["pageToken"] = page_token
-                    payload, _ = await self.get_json(
-                        f"{CALENDAR_API_BASE_URL}/calendars/"
-                        f"{quote(calendar.calendar_id, safe='')}/events",
-                        params=params,
-                        not_found="calendar_not_found",
-                        invalid_request="invalid_range",
-                        attempt_started=page_attempted,
+            events = await joined_thread(
+                lambda: [
+                    _calendar_list_event(value.calendar_id, item).model_dump(
+                        mode="json"
                     )
-                    items = provider_array(payload.get("items", []), "Calendar events")
-                    if len(items) > CALENDAR_EVENT_PAGE_SIZE:
-                        raise _ProviderTooLarge
-                    return (
-                        tuple(
-                            _calendar_list_event(calendar.calendar_id, item)
-                            for item in items
-                        ),
-                        None,
-                        _next_page_token(payload),
+                    for item in provider_array(
+                        payload.get("items", []), "Calendar events"
                     )
-                except _ProviderTooLarge:
-                    return (
-                        (),
-                        CalendarEventReadFailure(
-                            calendar_id=calendar.calendar_id,
-                            error="ProviderResponseTooLarge",
-                        ),
-                        None,
-                    )
-                except ConnectorFailure as exc:
-                    for _ in range(max(0, exc.attempts - page_attempts)):
-                        attempted()
-                    return (
-                        (),
-                        CalendarEventReadFailure(
-                            calendar_id=calendar.calendar_id,
-                            error=_calendar_failure_type(exc.code),
-                        ),
-                        None,
-                    )
-                except (TypeError, ValueError, ValidationError):
-                    return (
-                        (),
-                        CalendarEventReadFailure(
-                            calendar_id=calendar.calendar_id,
-                            error="ProviderUnavailable",
-                        ),
-                        None,
-                    )
-
-        all_events: list[CalendarListNormalEvent | CalendarListCancelledEvent] = []
-        failures: dict[str, CalendarEventReadFailure] = {}
-        completed: set[str] = set()
-        pending_pages: list[tuple[CalendarReference, str | None]] = [
-            (calendar, None)
-            for calendar in sorted(calendars, key=lambda item: item.calendar_id)
-        ]
-        page_requests = 0
-        deadline_reached = False
-        page_limit_reached = False
-
-        while pending_pages:
-            if loop.time() >= deadline:
-                deadline_reached = True
-                break
-            remaining_requests = MAX_CALENDAR_EVENT_PAGE_REQUESTS - page_requests
-            if remaining_requests <= 0:
-                page_limit_reached = True
-                break
-            batch = pending_pages[:remaining_requests]
-            if len(batch) != len(pending_pages):
-                page_limit_reached = True
-            page_requests += len(batch)
-            tasks = [
-                asyncio.create_task(read_page(calendar, page_token))
-                for calendar, page_token in batch
-            ]
-            try:
-                done, waiting = await asyncio.wait(
-                    tasks,
-                    timeout=max(0.0, deadline - loop.time()),
-                )
-            except asyncio.CancelledError:
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                raise
-            if waiting:
-                for task in waiting:
-                    task.cancel()
-                await asyncio.gather(*waiting, return_exceptions=True)
-                deadline_reached = True
-
-            next_round: list[tuple[CalendarReference, str | None]] = []
-            for (calendar, _), task in zip(batch, tasks, strict=True):
-                if task not in done:
-                    continue
-                events, failure, page_token = task.result()
-                all_events.extend(events)
-                if failure is not None:
-                    failures[calendar.calendar_id] = failure
-                elif page_token is None:
-                    completed.add(calendar.calendar_id)
-                else:
-                    next_round.append((calendar, page_token))
-            if loop.time() >= deadline:
-                deadline_reached = True
-            if deadline_reached or page_limit_reached:
-                break
-            pending_pages = next_round
-
-        try:
-            all_events.sort(
-                key=lambda event: _calendar_list_event_sort_key(event, value.time_zone)
+                ]
             )
-            reasons: set[CalendarCoverageReason] = set()
-            if calendars_truncated:
-                reasons.add("calendar_limit")
-            if failures:
-                reasons.add("calendar_failure")
-            if page_limit_reached:
-                reasons.add("event_page_limit")
-            if deadline_reached:
-                reasons.add("deadline")
-            pages_exhausted = (
-                not failures
-                and not page_limit_reached
-                and not deadline_reached
-                and len(completed) == len(calendars)
+            result = await joined_thread(
+                _google_page,
+                cursor,
+                events,
+                _next_page_token(payload),
+                {
+                    "account": account,
+                    "calendar_id": value.calendar_id,
+                    "time_min": _rfc3339(value.time_min),
+                    "time_max": _rfc3339(value.time_max),
+                    "time_zone": value.time_zone,
+                    "observed_at": _rfc3339(self._observed_at()),
+                },
+                "events",
+                maximum_output_bytes=operation.output_bytes,
             )
-            matched_events = len(all_events) if pages_exhausted else None
-            if len(all_events) > MAX_CALENDAR_EVENTS:
-                reasons.add("event_limit")
-            selected_events = tuple(all_events[:MAX_CALENDAR_EVENTS])
-            observed_at = self._observed_at()
-            ordered_failures = tuple(
-                failures[calendar_id] for calendar_id in sorted(failures)
+            return ReadResponse(
+                CalendarListEventsSuccess.model_validate(result), operation.attempts
             )
-
-            def success(
-                events: tuple[
-                    CalendarListNormalEvent | CalendarListCancelledEvent, ...
-                ],
-                coverage_reasons: set[CalendarCoverageReason],
-            ) -> CalendarListEventsSuccess:
-                return CalendarListEventsSuccess(
-                    calendars=calendars,
-                    events=events,
-                    failures=ordered_failures,
-                    coverage=CalendarCoverage(
-                        complete=not coverage_reasons,
-                        reasons=tuple(sorted(coverage_reasons)),
-                        calendars_discovered=len(calendars),
-                        calendars_completed=len(completed),
-                        matched_events=matched_events,
-                    ),
-                    observed_at=observed_at,
-                )
-
-            result = success(selected_events, reasons)
-            envelope = {"type": "Success", "value": result.model_dump(mode="json")}
-            if len(canonical_json_bytes(envelope)) > MAX_CALENDAR_SUCCESS_BYTES:
-                reasons.add("output_byte_limit")
-                lower = 0
-                upper = len(selected_events)
-                fitting: CalendarListEventsSuccess | None = None
-                while lower <= upper:
-                    event_count = (lower + upper) // 2
-                    candidate = success(selected_events[:event_count], reasons)
-                    envelope = {
-                        "type": "Success",
-                        "value": candidate.model_dump(mode="json"),
-                    }
-                    if (
-                        len(canonical_json_bytes(envelope))
-                        <= MAX_CALENDAR_SUCCESS_BYTES
-                    ):
-                        fitting = candidate
-                        lower = event_count + 1
-                    else:
-                        upper = event_count - 1
-                if fitting is None:
-                    raise _ProviderTooLarge
-                result = fitting
-        except _ProviderTooLarge as exc:
-            raise ConnectorFailure(
-                "provider_response_too_large", attempts=attempts
-            ) from exc
-        except (TypeError, ValueError, ValidationError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
-        return ReadResponse(result, attempts)
 
     async def calendar_get_event(
-        self, value: CalendarGetEventInput
+        self,
+        value: CalendarGetEventInput,
+        *,
+        context: ExecutionContext | None = None,
     ) -> ReadResponse[CalendarGetEventSuccess]:
-        calendar_id = quote(value.calendar_id, safe="")
-        event_id = quote(value.event_id, safe="")
-        payload, attempts = await self.get_json(
-            f"{CALENDAR_API_BASE_URL}/calendars/{calendar_id}/events/{event_id}",
-            not_found="event_not_found",
+        seconds = (
+            GOOGLE_PAGE_SECONDS
+            if value.projection == "snapshot"
+            else GOOGLE_TEXT_SECONDS
         )
-        try:
-            event = _calendar_event(value.calendar_id, payload)
-            if event.event_id != value.event_id:
-                raise ValueError("Calendar returned a different event")
-            result = CalendarGetEventSuccess(
-                event=event,
-                observed_at=self._observed_at(),
+        async with self._operation(seconds, 4, context) as operation:
+            account = await self._account(operation)
+            key = (account, "event", value.calendar_id, value.event_id)
+            projection = self._projection
+            if (
+                value.projection == "snapshot"
+                or value.expected_digest is None
+                or projection is None
+                or projection.key != key
+            ):
+                payload = await operation.get(
+                    f"{CALENDAR_API_BASE_URL}/calendars/"
+                    f"{quote(value.calendar_id, safe='')}/events/"
+                    f"{quote(value.event_id, safe='')}",
+                    not_found="event_not_found",
+                    max_response_bytes=None,
+                )
+                if provider_string(payload, "id") != value.event_id:
+                    raise ValueError("Calendar returned a different event")
+                if value.projection == "snapshot":
+                    omitted = payload.get("attendeesOmitted", False)
+                    if type(omitted) is not bool:
+                        raise ValueError("Calendar attendee completeness is malformed")
+                    if omitted:
+                        raise ConnectorFailure(
+                            "snapshot_incomplete", attempts=operation.attempts
+                        )
+                full = await joined_thread(
+                    _calendar_event_projection, value.calendar_id, payload
+                )
+                if value.projection == "snapshot":
+                    try:
+                        event = TypeAdapter[CalendarEventSnapshot](
+                            CalendarEventSnapshot
+                        ).validate_python(full["event"])
+                        result = CalendarGetEventSnapshotSuccess(
+                            event=event, observed_at=self._observed_at()
+                        )
+                        if (
+                            len(
+                                canonical_json_bytes(
+                                    {
+                                        "type": "Success",
+                                        "value": result.model_dump(mode="json"),
+                                    }
+                                )
+                            )
+                            > operation.output_bytes
+                        ):
+                            raise _ProviderTooLarge
+                    except (ValidationError, _ProviderTooLarge):
+                        raise ConnectorFailure(
+                            "snapshot_too_large", attempts=operation.attempts
+                        ) from None
+                    return ReadResponse(result, operation.attempts)
+                projection = await self._save_projection(
+                    key,
+                    {
+                        "account": account,
+                        "calendar_id": value.calendar_id,
+                        "event_id": value.event_id,
+                    },
+                    CALENDAR_EVENT_PROJECTION,
+                    full,
+                )
+            assert value.offset is not None and value.max_bytes is not None
+            chunk = await self._chunk(
+                projection,
+                value.offset,
+                value.max_bytes,
+                value.expected_digest,
+                operation,
+                nested=True,
             )
-        except _ProviderTooLarge as exc:
-            raise ConnectorFailure(
-                "provider_response_too_large", attempts=attempts
-            ) from exc
-        except (TypeError, ValueError, ValidationError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
-        return ReadResponse(result, attempts)
+            return ReadResponse(
+                CalendarGetEventTextSuccess.model_validate(chunk), operation.attempts
+            )
 
     async def get_json(
         self,
@@ -1122,7 +1232,7 @@ class GoogleReadConnector:
         invalid_request: str | None = None,
         attempt_started: Callable[[], None] | None = None,
         before_request: Callable[[], Awaitable[None]] | None = None,
-        max_response_bytes: int = MAX_PROVIDER_BODY_BYTES,
+        max_response_bytes: int | None = MAX_PROVIDER_BODY_BYTES,
         deadline_seconds: float = 8.0,
     ) -> tuple[dict[str, object], int]:
         token, refresh_attempts = await self._tokens.access_token(
@@ -1149,6 +1259,7 @@ class GoogleReadConnector:
                         connect=ATTACHMENT_CONNECT_SECONDS
                         if deadline_seconds > 8.0
                         else 3.0,
+                        read=min(deadline_seconds, 60.0),
                     ),
                 ) as response,
             ):
@@ -1218,6 +1329,459 @@ class GoogleReadConnector:
         return value.astimezone(UTC)
 
 
+class _GoogleOperation:
+    """One request's shared deadline, cancellation and actual HTTP-entry count."""
+
+    def __init__(
+        self,
+        connector: GoogleReadConnector,
+        seconds: float,
+        maximum_attempts: int,
+        context: ExecutionContext | None,
+    ) -> None:
+        self.connector = connector
+        self.deadline = asyncio.get_running_loop().time() + (
+            seconds
+            if context is None
+            else min(seconds, context.grant.limits.deadline_seconds)
+        )
+        if context is not None and context.deadline is not None:
+            self.deadline = min(self.deadline, context.deadline)
+        self.maximum_attempts = (
+            maximum_attempts
+            if context is None
+            else min(maximum_attempts, context.grant.limits.max_attempts)
+        )
+        self.output_bytes = (
+            GOOGLE_OUTPUT_BYTES
+            if context is None
+            else min(GOOGLE_OUTPUT_BYTES, context.grant.limits.max_output_bytes)
+        )
+        self.context = context
+        self.attempts = 0
+
+    async def check(self) -> None:
+        if self.context is not None and self.context.cancellation.cancelled:
+            raise asyncio.CancelledError
+        if asyncio.get_running_loop().time() >= self.deadline:
+            raise TimeoutError
+
+    def entered(self) -> None:
+        if self.attempts >= self.maximum_attempts:
+            raise BoundaryFailure("BudgetExceeded", actual_attempts=self.attempts)
+        self.attempts += 1
+
+    async def get(
+        self,
+        url: str,
+        *,
+        params: Mapping[str, str | int | list[str]] | None = None,
+        not_found: str | None = None,
+        invalid_request: str | None = None,
+        max_response_bytes: int | None = MAX_PROVIDER_BODY_BYTES,
+    ) -> dict[str, object]:
+        for authentication_attempt in range(2):
+            await self.check()
+            try:
+                payload, _attempts = await self.connector.get_json(
+                    url,
+                    params=params,
+                    not_found=not_found,
+                    invalid_request=invalid_request,
+                    attempt_started=self.entered,
+                    before_request=self.check,
+                    max_response_bytes=max_response_bytes,
+                    deadline_seconds=self.deadline - asyncio.get_running_loop().time(),
+                )
+                return payload
+            except GoogleReadFailure as exc:
+                if exc.status != 401 or authentication_attempt:
+                    if exc.status == 410 and invalid_request == "invalid_cursor":
+                        raise ConnectorFailure(
+                            "invalid_cursor", attempts=self.attempts
+                        ) from None
+                    raise
+            except ConnectorFailure:
+                await self.check()
+                raise
+        raise AssertionError("authentication loop must terminate")
+
+
+def _google_cursor(
+    value: str | None,
+    tool: str,
+    account: str,
+    scope: Mapping[str, object],
+    page_size: int,
+) -> GoogleCursor:
+    digest = hashlib.sha256(canonical_json_bytes(scope)).hexdigest()
+    if value is None:
+        return GoogleCursor(
+            version=1,
+            tool=tool,
+            account=account,
+            scope_digest=digest,
+            page_size=page_size,
+            provider_page_token=None,
+            item_offset=0,
+            page_digest=None,
+        )
+    try:
+        cursor = GoogleCursor.decode(value)
+    except ValueError:
+        raise ConnectorFailure("invalid_cursor", attempts=0) from None
+    if cursor.account != account:
+        raise ConnectorFailure("account_changed", attempts=0)
+    if (
+        cursor.tool != tool
+        or cursor.scope_digest != digest
+        or cursor.page_size != page_size
+    ):
+        raise ConnectorFailure("invalid_cursor", attempts=0)
+    return cursor
+
+
+def _google_page(
+    cursor: GoogleCursor,
+    items: list[dict[str, Any]],
+    next_token: str | None,
+    fields: dict[str, Any],
+    item_field: str,
+    maximum_output_bytes: int = GOOGLE_OUTPUT_BYTES,
+) -> dict[str, Any]:
+    if next_token is not None and next_token == cursor.provider_page_token:
+        raise ValueError("provider page token did not advance")
+    digest = hashlib.sha256(
+        canonical_json_bytes(
+            {
+                "items": items,
+                "next_provider_page_token": next_token,
+                "metadata": {
+                    key: value for key, value in fields.items() if key != "observed_at"
+                },
+            }
+        )
+    ).hexdigest()
+    if cursor.page_digest is not None and cursor.page_digest != digest:
+        raise ConnectorFailure("source_changed", attempts=0)
+    if cursor.item_offset > len(items):
+        raise ConnectorFailure("invalid_cursor", attempts=0)
+    if cursor.item_offset and cursor.item_offset == len(items):
+        raise ConnectorFailure("invalid_cursor", attempts=0)
+    best: tuple[int, str | None] | None = None
+    item_bytes = 0
+    for end in range(cursor.item_offset, len(items) + 1):
+        count = end - cursor.item_offset
+        if count:
+            item_bytes += len(canonical_json_bytes(items[end - 1])) + (
+                1 if count > 1 else 0
+            )
+        elif items:
+            continue
+        try:
+            if end < len(items):
+                continuation = cursor.model_copy(
+                    update={"item_offset": end, "page_digest": digest}
+                ).encode()
+            elif next_token is not None:
+                continuation = cursor.model_copy(
+                    update={
+                        "provider_page_token": next_token,
+                        "item_offset": 0,
+                        "page_digest": None,
+                    }
+                ).encode()
+            else:
+                continuation = None
+        except ValueError:
+            continue
+        candidate: dict[str, Any] = {
+            **fields,
+            item_field: [],
+            "next_cursor": continuation,
+        }
+        if (
+            len(canonical_json_bytes({"type": "Success", "value": candidate}))
+            + item_bytes
+            <= maximum_output_bytes
+        ):
+            best = end, continuation
+    if best is None:
+        raise ConnectorFailure("resource_unavailable", attempts=0)
+    end, continuation = best
+    return {
+        **fields,
+        item_field: items[cursor.item_offset : end],
+        "next_cursor": continuation,
+    }
+
+
+def _calendar_metadata(item: Mapping[str, object]) -> dict[str, object]:
+    display_name = item.get("summaryOverride", item.get("summary"))
+    time_zone = item.get("timeZone")
+    if display_name is not None and not isinstance(display_name, str):
+        raise ValueError("Calendar display name is malformed")
+    if time_zone is not None:
+        if not isinstance(time_zone, str):
+            raise ValueError("Calendar time zone is malformed")
+        provider_text(time_zone, 255)
+        ZoneInfo(time_zone)
+    access = provider_string(item, "accessRole")
+    if access not in {"reader", "writerWithoutPrivateAccess", "writer", "owner"}:
+        raise ValueError("Calendar access role is malformed")
+    return {
+        "calendar_id": provider_text(provider_string(item, "id"), 1_024),
+        "display_name": display_name,
+        "time_zone": time_zone,
+        "access_role": access,
+        "primary": _provider_boolean(item, "primary", default=False),
+        "hidden": _provider_boolean(item, "hidden", default=False),
+        "selected": _provider_boolean(item, "selected", default=False),
+    }
+
+
+def _calendar_preview(item: Mapping[str, object]) -> dict[str, Any]:
+    full = _calendar_metadata(item)
+    label = full.pop("display_name")
+    preview, shortened = (
+        _truncate(label, 1_024) if isinstance(label, str) else (None, False)
+    )
+    return CalendarPreview.model_validate(
+        {
+            **full,
+            "display_name_preview": preview,
+            "display_name_truncated": shortened,
+        }
+    ).model_dump(mode="json")
+
+
+def _participant_projection(value: object) -> dict[str, object]:
+    participant = provider_object(value, "Calendar participant")
+    name, address = participant.get("displayName"), participant.get("email")
+    if name is not None and not isinstance(name, str):
+        raise ValueError("Calendar participant name is malformed")
+    if address is not None and (not isinstance(address, str) or not address):
+        raise ValueError("Calendar participant address is malformed")
+    return {"name": name, "address": address}
+
+
+def _calendar_event_projection(
+    calendar_id: str, event: Mapping[str, object]
+) -> dict[str, object]:
+    omitted = event.get("attendeesOmitted", False)
+    if type(omitted) is not bool:
+        raise ValueError("Calendar attendee completeness is malformed")
+    identity: dict[str, object] = {
+        "calendar_id": provider_text(calendar_id, 1_024),
+        "event_id": provider_text(provider_string(event, "id"), 1_024),
+    }
+    status = event.get("status")
+    if status == "cancelled":
+        updated = event.get("updated")
+        if updated is not None and not isinstance(updated, str):
+            raise ValueError("Calendar updated timestamp is malformed")
+        return {
+            "event": {
+                **identity,
+                "type": "cancelled",
+                "etag": provider_string(event, "etag")
+                if event.get("etag") is not None
+                else None,
+                "updated_at": parse_google_instant(updated).isoformat()
+                if isinstance(updated, str)
+                else None,
+            },
+            "attendees_omitted": omitted,
+        }
+    if status not in {"confirmed", "tentative"}:
+        raise ValueError("Calendar status is malformed")
+    unspecified = _provider_boolean(event, "endTimeUnspecified", default=False)
+    reminders = provider_object(event.get("reminders", {}), "Calendar reminders")
+    recurrence = provider_array(event.get("recurrence", []), "Calendar recurrence")
+    if any(not isinstance(item, str) for item in recurrence):
+        raise ValueError("Calendar recurrence is malformed")
+    description, location = event.get("description"), event.get("location")
+    if any(
+        item is not None and not isinstance(item, str)
+        for item in (description, location)
+    ):
+        raise ValueError("Calendar description/location is malformed")
+    organizer = event.get("organizer")
+    return {
+        "event": {
+            **identity,
+            "type": "event",
+            "etag": provider_string(event, "etag"),
+            "status": status,
+            "writable": {
+                "summary": _optional_string(event, "summary", ""),
+                "description": description,
+                "location": location,
+                "start": parse_calendar_time(event.get("start")).model_dump(
+                    mode="json"
+                ),
+                "end": (
+                    {"type": "unspecified"}
+                    if unspecified
+                    else parse_calendar_time(event.get("end")).model_dump(mode="json")
+                ),
+                "recurrence": recurrence,
+                "attendees": [
+                    _participant_projection(item)
+                    for item in provider_array(
+                        event.get("attendees", []), "Calendar attendees"
+                    )
+                ],
+                "use_default_reminders": _provider_boolean(
+                    reminders, "useDefault", default=False
+                ),
+                "reminders": [
+                    _reminder(item).model_dump(mode="json")
+                    for item in provider_array(
+                        reminders.get("overrides", []), "Calendar reminders"
+                    )
+                ],
+            },
+            "organizer": None
+            if organizer is None
+            else _participant_projection(organizer),
+            "updated_at": parse_google_instant(
+                provider_string(event, "updated")
+            ).isoformat(),
+        },
+        "attendees_omitted": omitted,
+    }
+
+
+def _raw_gmail_headers(part: Mapping[str, object]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for raw in provider_array(part.get("headers", []), "Gmail headers"):
+        header = provider_object(raw, "Gmail header")
+        name, value = header.get("name"), header.get("value")
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise ValueError("Gmail header is malformed")
+        result.append({"name": name, "value": value})
+    return result
+
+
+def _unfold_header(value: str) -> str:
+    unfolded = re.sub(r"\r\n(?=[ \t])", "", value)
+    if "\r" in unfolded or "\n" in unfolded:
+        raise ValueError("header contains invalid line breaks")
+    return unfolded
+
+
+def _reply_to(headers: list[dict[str, str]]) -> dict[str, object]:
+    values = [
+        header["value"] for header in headers if header["name"].lower() == "reply-to"
+    ]
+    if not values:
+        return {"status": "absent", "addresses": [], "reason": None}
+    if len(values) > 1:
+        return {"status": "invalid", "addresses": [], "reason": "duplicate"}
+    if not values[0].strip():
+        return {"status": "invalid", "addresses": [], "reason": "empty"}
+    try:
+        unfolded = _unfold_header(values[0])
+        parsed: Any = Parser(policy=policy.default).parsestr(
+            f"Reply-To: {unfolded}\n\n"
+        )["Reply-To"]
+        if parsed is None or parsed.defects or not parsed.addresses:
+            raise ValueError("routing header is malformed")
+        addresses: list[dict[str, str | None]] = []
+        for address in parsed.addresses:
+            if not address.username or not address.domain:
+                raise ValueError("routing address is incomplete")
+            addresses.append(
+                {"name": address.display_name or None, "address": address.addr_spec}
+            )
+        return {"status": "valid", "addresses": addresses, "reason": None}
+    except (ValueError, TypeError, AttributeError, IndexError, RecursionError):
+        return {"status": "invalid", "addresses": [], "reason": "parse_error"}
+
+
+def _gmail_metadata(
+    message: Mapping[str, object], parts: tuple[GmailPart, ...]
+) -> dict[str, object]:
+    root = provider_object(message.get("payload"), "Gmail payload")
+    headers = _raw_gmail_headers(root)
+    return {
+        "message_id": provider_text(provider_string(message, "id"), 1_024),
+        "thread_id": provider_text(provider_string(message, "threadId"), 1_024),
+        "internal_at": (
+            (
+                datetime(1970, 1, 1, tzinfo=UTC)
+                + timedelta(milliseconds=_gmail_internal_millis(message))
+            ).isoformat()
+        ),
+        "headers": headers,
+        "reply_to_addresses": _reply_to(headers),
+        "parts": [
+            {
+                "part_id": part.part_id,
+                "filename": part.filename,
+                "media_type": part.media_type,
+                "charset": part.charset,
+                "advertised_size": part.advertised_size,
+                "is_file": part.is_file,
+                "content_kind": part.content_kind,
+                "reason": part.reason,
+            }
+            for part in parts
+        ],
+    }
+
+
+def _textual_media(media: str | None) -> bool:
+    return media is not None and (
+        media.startswith("text/")
+        or media in {"application/json", "application/xml", "application/xhtml+xml"}
+    )
+
+
+def _gmail_text(part: GmailPart, data: str) -> str:
+    decoded = decode_gmail_body(data, maximum=None)
+    encoding = part.charset
+    if part.media_type in {"application/xml", "application/xhtml+xml", "text/xml"}:
+        # RFC 7303: a BOM takes precedence over MIME charset and XML declaration.
+        if decoded.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+            encoding = "utf-32"
+        elif decoded.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+            encoding = "utf-16"
+        elif decoded.startswith(codecs.BOM_UTF8):
+            encoding = "utf-8-sig"
+        elif encoding is None:
+            if decoded.startswith(b"\x00\x00\x00<"):
+                encoding = "utf-32-be"
+            elif decoded.startswith(b"<\x00\x00\x00"):
+                encoding = "utf-32-le"
+            elif decoded.startswith(b"\x00<\x00?"):
+                encoding = "utf-16-be"
+            elif decoded.startswith(b"<\x00?\x00"):
+                encoding = "utf-16-le"
+            else:
+                declaration = re.match(
+                    rb"<\?xml\s+[^>]*encoding\s*=\s*['\"]([^'\"]+)['\"]", decoded
+                )
+                encoding = (
+                    declaration.group(1).decode("ascii") if declaration else "utf-8"
+                )
+    elif part.media_type == "application/json":
+        encoding = "utf-8"
+    elif encoding is None:
+        encoding = "us-ascii"
+    try:
+        codec = codecs.lookup(encoding)
+    except LookupError:
+        raise ConnectorFailure("unsupported_content", attempts=0) from None
+    try:
+        return decoded.decode(codec.name, errors="strict")
+    except LookupError:
+        raise ConnectorFailure("unsupported_content", attempts=0) from None
+    except (UnicodeError, ValueError, TypeError):
+        raise ConnectorFailure("invalid_content", attempts=0) from None
+
+
 class MapsReadConnector:
     def __init__(
         self,
@@ -1233,7 +1797,7 @@ class MapsReadConnector:
         self._now = now
 
     async def search_places(
-        self, value: MapsSearchPlacesInput
+        self, value: MapsSearchPlacesInput, *, context: ExecutionContext | None = None
     ) -> ReadResponse[MapsSearchPlacesSuccess]:
         if not value.query.strip():
             raise ConnectorFailure("invalid_query", attempts=0)
@@ -1273,7 +1837,7 @@ class MapsReadConnector:
         return ReadResponse(result, 1)
 
     async def get_place(
-        self, value: MapsGetPlaceInput
+        self, value: MapsGetPlaceInput, *, context: ExecutionContext | None = None
     ) -> ReadResponse[MapsGetPlaceSuccess]:
         payload = await self._request(
             "GET",
@@ -1294,7 +1858,7 @@ class MapsReadConnector:
         return ReadResponse(result, 1)
 
     async def directions(
-        self, value: MapsDirectionsInput
+        self, value: MapsDirectionsInput, *, context: ExecutionContext | None = None
     ) -> ReadResponse[MapsDirectionsSuccess]:
         now = self._observed_at()
         departure: datetime | None = None
@@ -1409,14 +1973,17 @@ class MapsReadConnector:
 
 
 async def _json_body(
-    response: httpx.Response, *, attempts: int, maximum: int = MAX_PROVIDER_BODY_BYTES
+    response: httpx.Response,
+    *,
+    attempts: int,
+    maximum: int | None = MAX_PROVIDER_BODY_BYTES,
 ) -> dict[str, object]:
     try:
         with tempfile.TemporaryFile() as body:
             count = 0
             async for chunk in response.aiter_bytes(chunk_size=1_024 * 1_024):
                 count += len(chunk)
-                if count > maximum:
+                if maximum is not None and count > maximum:
                     raise ConnectorFailure(
                         "provider_response_too_large", attempts=attempts
                     )
@@ -1486,10 +2053,6 @@ async def _google_forbidden(
     )
 
 
-def _has_next_page(value: Mapping[str, object]) -> bool:
-    return _next_page_token(value) is not None
-
-
 def _next_page_token(value: Mapping[str, object]) -> str | None:
     token = value.get("nextPageToken")
     if token is None:
@@ -1504,58 +2067,6 @@ def _provider_boolean(value: Mapping[str, object], key: str, *, default: bool) -
     if type(result) is not bool:
         raise ValueError(f"provider field {key} is malformed")
     return result
-
-
-def _calendar_references(
-    payload: Mapping[str, object],
-) -> tuple[tuple[CalendarReference, ...], bool]:
-    items = provider_array(payload.get("items", []), "Calendar list")
-    truncated = _has_next_page(payload) or len(items) > MAX_CALENDAR_LIST_ENTRIES
-    calendars: list[CalendarReference] = []
-    seen: set[str] = set()
-    for raw in items[:MAX_CALENDAR_LIST_ENTRIES]:
-        item = provider_object(raw, "Calendar list entry")
-        calendar_id = provider_text(provider_string(item, "id"), 1_024)
-        if calendar_id in seen:
-            raise ValueError("Calendar list contains a duplicate identity")
-        seen.add(calendar_id)
-        display_name = item.get("summaryOverride", item.get("summary"))
-        if display_name is not None and not isinstance(display_name, str):
-            raise ValueError("Calendar display name is malformed")
-        time_zone = item.get("timeZone")
-        if time_zone is not None and not isinstance(time_zone, str):
-            raise ValueError("Calendar time zone is malformed")
-        calendars.append(
-            CalendarReference(
-                calendar_id=calendar_id,
-                display_name=(
-                    provider_text(display_name, 1_024)
-                    if isinstance(display_name, str)
-                    else None
-                ),
-                time_zone=(
-                    provider_text(time_zone, 255)
-                    if isinstance(time_zone, str)
-                    else None
-                ),
-                access_role=cast("Any", provider_string(item, "accessRole")),
-                primary=_provider_boolean(item, "primary", default=False),
-                hidden=_provider_boolean(item, "hidden", default=False),
-                selected=_provider_boolean(item, "selected", default=False),
-            )
-        )
-    return tuple(calendars), truncated
-
-
-def _calendar_failure_type(code: str) -> _CalendarFailureType:
-    failures: dict[str, _CalendarFailureType] = {
-        "calendar_not_found": "CalendarNotFound",
-        "invalid_range": "InvalidRange",
-        "rate_limited": "RateLimited",
-        "provider_unavailable": "ProviderUnavailable",
-        "provider_response_too_large": "ProviderResponseTooLarge",
-    }
-    return failures.get(code, "ProviderUnavailable")
 
 
 def provider_string(value: Mapping[str, object], key: str) -> str:
@@ -1650,88 +2161,18 @@ def _gmail_internal_millis(value: object) -> int:
     return millis
 
 
-def _gmail_message(value: object, account: str) -> tuple[GmailMessage, bool]:
-    message = provider_object(value, "Gmail message")
-    payload = provider_object(message.get("payload"), "Gmail payload")
-    headers = provider_array(payload.get("headers", []), "Gmail headers")
-    by_name: dict[str, list[str]] = {}
-    for header in headers:
-        header_value_map = provider_object(header, "Gmail header")
-        name = header_value_map.get("name")
-        header_value = header_value_map.get("value")
-        if not isinstance(name, str) or not isinstance(header_value, str):
-            raise ValueError("Gmail header is malformed")
-        by_name.setdefault(name.lower(), []).append(header_value)
-    plain: list[str] = []
-    html_parts: list[str] = []
-    parts = gmail_parts(payload)
-    original = GmailOriginalMessage(
-        account,
-        provider_text(provider_string(message, "id"), 1_024),
-        provider_text(provider_string(message, "threadId"), 1_024),
-        parts,
-    )
-    attachments = original.files
-    external_body = False
-    for part in parts:
-        if part.is_file:
-            continue
-        if part.external_id is not None:
-            external_body = True
-        elif part.data is not None and part.media_type in {"text/plain", "text/html"}:
-            try:
-                text = decode_gmail_body(part.data).decode(part.charset)
-            except (UnicodeError, LookupError, binascii.Error) as exc:
-                raise ValueError("Gmail MIME body is malformed") from exc
-            (plain if part.media_type == "text/plain" else html_parts).append(text)
-    source = "\n".join(plain)
-    if not plain and html_parts:
-        parser = _InertHtml()
-        parser.feed("\n".join(html_parts))
-        parser.close()
-        source = "".join(parser.parts)
-    text, text_truncated = _truncate(source, 16_384)
-    sender_values = _mailboxes(", ".join(by_name.get("from", [])))
-    if len(sender_values) > 1:
-        raise _ProviderTooLarge
-    subject = _single_header(by_name, "subject") or ""
-    rfc822_message_id = _single_header(by_name, "message-id")
-    return (
-        GmailMessage(
-            message_id=provider_text(provider_string(message, "id"), 1_024),
-            thread_id=provider_text(provider_string(message, "threadId"), 1_024),
-            rfc822_message_id=(
-                provider_text(rfc822_message_id, 998)
-                if rfc822_message_id is not None
-                else None
-            ),
-            sender=sender_values[0] if sender_values else None,
-            to=_mailboxes(", ".join(by_name.get("to", []))),
-            cc=_mailboxes(", ".join(by_name.get("cc", []))),
-            bcc=_mailboxes(", ".join(by_name.get("bcc", []))),
-            subject=provider_text(subject, 998),
-            internal_at=datetime(1970, 1, 1, tzinfo=UTC)
-            + timedelta(milliseconds=_gmail_internal_millis(message)),
-            body_text=text,
-            body_truncated=text_truncated or external_body,
-            attachments=tuple(part.descriptor for part in attachments[:50]),
-            attachments_total=len(attachments),
-            attachments_digest=original.digest,
-        ),
-        len(attachments) > 50,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class GmailPart:
     part_id: str
-    filename: str
-    media_type: str
-    charset: str
+    filename: str | None
+    media_type: str | None
+    charset: str | None
     advertised_size: int | None
     external_id: str | None
     data: str | None
     is_file: bool
+    content_kind: str = "binary"
+    reason: str | None = None
 
     @property
     def descriptor(self) -> GmailAttachment:
@@ -1783,8 +2224,10 @@ class GmailOriginalMessage:
         ).hexdigest()
 
 
-def decode_gmail_body(data: str) -> bytes:
-    if len(data) > (ATTACHMENT_MAX_BYTES + 2) // 3 * 4:
+def decode_gmail_body(
+    data: str, *, maximum: int | None = ATTACHMENT_MAX_BYTES
+) -> bytes:
+    if maximum is not None and len(data) > (maximum + 2) // 3 * 4:
         raise OriginalTooLarge
     try:
         decoded = base64.b64decode(
@@ -1794,221 +2237,172 @@ def decode_gmail_body(data: str) -> bytes:
         )
     except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
         raise ValueError("Gmail MIME data is malformed") from exc
-    if len(decoded) > ATTACHMENT_MAX_BYTES:
+    if maximum is not None and len(decoded) > maximum:
         raise OriginalTooLarge
     return decoded
 
 
-def gmail_parts(payload: Mapping[str, object]) -> tuple[GmailPart, ...]:
+def gmail_parts(
+    payload: Mapping[str, object], *, attachment_policy: bool = True
+) -> tuple[GmailPart, ...]:
     result: list[GmailPart] = []
     seen: set[str] = set()
-    visited = 0
-
-    def walk(part: Mapping[str, object], depth: int) -> None:
-        nonlocal visited
-        visited += 1
-        if depth > 20 or visited > 500:
+    pending = [(payload, 0)]
+    while pending:
+        part, depth = pending.pop()
+        if attachment_policy and (depth > 20 or len(seen) >= 500):
             raise _ProviderTooLarge
         identifier = part.get("partId")
         if not isinstance(identifier, str) or (not identifier and depth != 0):
             raise ValueError("Gmail part ID is malformed")
-        provider_text(identifier, 1_024) if identifier else None
+        if identifier:
+            provider_text(identifier, 1_024)
         if identifier in seen:
             raise ValueError("Gmail part IDs are duplicated")
         seen.add(identifier)
-        mime = provider_string(part, "mimeType")
-        filename = part.get("filename", "")
-        if not isinstance(filename, str):
-            raise ValueError("Gmail filename is malformed")
-        media_type, charset, disposition = _gmail_content_headers(part, mime)
         children = provider_array(part.get("parts", []), "Gmail MIME children")
         if children:
-            for child in children:
-                walk(provider_object(child, "Gmail MIME child"), depth + 1)
-            return
-        body = provider_object(part.get("body", {}), "Gmail MIME body")
-        size = body.get("size")
-        if size is not None and (type(size) is not int or size < 0 or size > 2**63 - 1):
-            raise ValueError("Gmail size is malformed")
-        external_id = body.get("attachmentId")
-        if external_id is not None:
-            if not isinstance(external_id, str):
-                raise ValueError("Gmail attachment ID is malformed")
-            provider_text(external_id, 1_024)
-        data = body.get("data")
-        if data is not None and not isinstance(data, str):
-            raise ValueError("Gmail MIME data is malformed")
-        is_file = (
-            bool(filename)
-            or disposition == "attachment"
-            or (
-                media_type not in {"text/plain", "text/html"}
-                and (data is not None or external_id is not None)
+            pending.extend(
+                (provider_object(child, "Gmail MIME child"), depth + 1)
+                for child in reversed(children)
             )
-        )
-        result.append(
-            GmailPart(
-                identifier,
-                filename,
-                media_type,
-                charset,
-                size,
-                external_id,
-                data,
-                is_file,
-            )
-        )
-
-    walk(payload, 0)
+            continue
+        result.append(_gmail_leaf(part, identifier, attachment_policy))
     return tuple(result)
 
 
+def _gmail_leaf(
+    part: Mapping[str, object], identifier: str, attachment_policy: bool
+) -> GmailPart:
+    raw_filename = part.get("filename", "" if attachment_policy else None)
+    filename = raw_filename if isinstance(raw_filename, str) else None
+    invalid = raw_filename is not None and filename is None
+    media, charset, disposition = None, None, None
+    try:
+        mime = provider_string(part, "mimeType")
+        media, charset, disposition = _gmail_content_headers(
+            part, mime, attachment_policy=attachment_policy
+        )
+    except (ValueError, _ProviderTooLarge):
+        if attachment_policy:
+            raise
+        invalid = True
+    raw_body = part.get("body", {})
+    if not isinstance(raw_body, dict):
+        invalid = True
+        raw_body = {}
+    body = cast("dict[str,object]", raw_body)
+    raw_size = body.get("size")
+    size = (
+        raw_size
+        if type(raw_size) is int
+        and 0 <= raw_size <= (2**63 - 1 if attachment_policy else 2**53 - 1)
+        else None
+    )
+    invalid = invalid or (raw_size is not None and size is None)
+    raw_external = body.get("attachmentId")
+    external = (
+        raw_external
+        if isinstance(raw_external, str) and 0 < len(raw_external.encode()) <= 1_024
+        else None
+    )
+    invalid = invalid or (raw_external is not None and external is None)
+    raw_data = body.get("data")
+    data = raw_data if isinstance(raw_data, str) else None
+    invalid = invalid or (raw_data is not None and data is None)
+    if attachment_policy and invalid:
+        raise ValueError("Gmail leaf metadata is malformed")
+    is_file = (
+        bool(filename)
+        or disposition == "attachment"
+        or (
+            media not in {"text/plain", "text/html"}
+            and (data is not None or external is not None)
+        )
+    )
+    kind, reason = "binary", None
+    if invalid:
+        kind, reason = "unavailable", "invalid_metadata"
+    elif data is None and external is None:
+        kind, reason = ("empty", None) if size == 0 else ("unavailable", "missing_body")
+    elif _textual_media(media):
+        kind = "empty" if data == "" and external is None else "text"
+        if charset is not None:
+            try:
+                b"".decode(charset)
+            except LookupError:
+                kind, reason = "unsupported", "unsupported_charset"
+    return GmailPart(
+        identifier,
+        filename,
+        media,
+        charset,
+        size,
+        external,
+        data,
+        is_file,
+        kind,
+        reason,
+    )
+
+
 def _gmail_content_headers(
-    part: Mapping[str, object], provider_media_type: str
-) -> tuple[str, str, str | None]:
-    if len(provider_media_type.encode()) > 255:
-        raise _ProviderTooLarge
-    attachment_media_type(provider_media_type)
-    headers = provider_array(part.get("headers", []), "Gmail MIME headers")
-    content_types: list[str] = []
-    dispositions: list[str] = []
-    for value in headers:
-        header = provider_object(value, "Gmail MIME header")
-        name = header.get("name")
-        header_value = header.get("value")
-        if not isinstance(name, str) or not isinstance(header_value, str):
-            raise ValueError("Gmail MIME header is malformed")
-        if name.lower() == "content-type":
-            content_types.append(provider_text(header_value, 1_024))
-        if name.lower() == "content-disposition":
-            dispositions.append(provider_text(header_value, 1_024))
+    part: Mapping[str, object],
+    provider_media_type: str,
+    *,
+    attachment_policy: bool = True,
+) -> tuple[str, str | None, str | None]:
+    if attachment_policy:
+        provider_text(provider_media_type, 255)
+        attachment_media_type(provider_media_type)
+    elif (
+        re.fullmatch(
+            r"[!#$%&'*+.^_`|~0-9A-Za-z-]+/[!#$%&'*+.^_`|~0-9A-Za-z-]+",
+            provider_media_type,
+        )
+        is None
+    ):
+        raise ValueError("Gmail media type is malformed")
+    headers = _raw_gmail_headers(part)
+    content_types = [
+        header["value"]
+        for header in headers
+        if header["name"].lower() == "content-type"
+    ]
+    dispositions = [
+        header["value"]
+        for header in headers
+        if header["name"].lower() == "content-disposition"
+    ]
     if len(content_types) > 1 or len(dispositions) > 1:
-        raise _ProviderTooLarge
+        raise ValueError("Gmail content metadata is duplicated")
     raw = content_types[0] if content_types else provider_media_type
-    parsed = message_from_string(f"Content-Type: {raw}\n\n")
+    if attachment_policy:
+        provider_text(raw, 1_024)
+        for value in dispositions:
+            provider_text(value, 1_024)
+    raw = _unfold_header(raw)
+    parsed: Any = Parser(policy=policy.default).parsestr(f"Content-Type: {raw}\n\n")
+    header = parsed["Content-Type"]
+    if header is None or header.defects:
+        raise ValueError("Gmail content type is malformed")
     media_type = provider_media_type.lower()
-    if content_types and parsed.get_content_type().lower() != media_type:
+    if parsed.get_content_type().lower() != media_type:
         raise ValueError("Gmail MIME content type is inconsistent")
-    charset = parsed.get_content_charset() or "utf-8"
+    charset = parsed.get_content_charset()
     disposition = None
     if dispositions:
-        disposition_message = message_from_string(
-            f"Content-Disposition: {dispositions[0]}\n\n"
+        disposition_header = _unfold_header(dispositions[0])
+        parsed_disposition: Any = Parser(policy=policy.default).parsestr(
+            f"Content-Disposition: {disposition_header}\n\n"
         )
-        disposition = disposition_message.get_content_disposition()
+        header = parsed_disposition["Content-Disposition"]
+        if header is None or header.defects:
+            raise ValueError("Gmail disposition is malformed")
+        disposition = parsed_disposition.get_content_disposition()
         if disposition is not None and disposition != "inline":
             disposition = "attachment"
     return media_type, charset, disposition
-
-
-def _single_header(headers: Mapping[str, list[str]], name: str) -> str | None:
-    values = headers.get(name, [])
-    if len(values) > 1:
-        raise _ProviderTooLarge
-    return values[0] if values else None
-
-
-def _mailboxes(value: str) -> tuple[Mailbox, ...]:
-    if not value:
-        return ()
-    if "\r" in value or "\n" in value:
-        raise ValueError("mailbox header is malformed")
-    try:
-        header: Any = Parser(policy=policy.default).parsestr(f"To: {value}\n\n")["To"]
-        if header is None or header.defects:
-            raise ValueError("mailbox header is malformed")
-        addresses = header.addresses
-    except Exception:
-        raise ValueError("mailbox header is malformed") from None
-    if len(addresses) > 50:
-        raise _ProviderTooLarge
-    mailboxes: list[Mailbox] = []
-    for item in addresses:
-        name = item.display_name
-        address = item.addr_spec
-        if not address:
-            raise ValueError("mailbox address is absent")
-        mailboxes.append(
-            Mailbox(
-                name=provider_text(name, 320) if name else None,
-                address=provider_text(address, 320),
-            )
-        )
-    return tuple(mailboxes)
-
-
-def _calendar_event(
-    calendar_id: str, value: object
-) -> CalendarNormalEvent | CalendarCancelledEvent:
-    event = provider_object(value, "Calendar event")
-    event_id = provider_text(provider_string(event, "id"), 1_024)
-    calendar = provider_text(calendar_id, 1_024)
-    status = event.get("status")
-    if status == "cancelled":
-        updated = event.get("updated")
-        if updated is not None and not isinstance(updated, str):
-            raise ValueError("Calendar updated timestamp is malformed")
-        return CalendarCancelledEvent(
-            calendar_id=calendar,
-            event_id=event_id,
-            etag=_exact_optional(event, "etag", 1_024),
-            updated_at=parse_google_instant(updated)
-            if isinstance(updated, str)
-            else None,
-        )
-    if status not in {"confirmed", "tentative"}:
-        raise ValueError("Calendar status is malformed")
-    unspecified_end = event.get("endTimeUnspecified", False)
-    if type(unspecified_end) is not bool:
-        raise ValueError("Calendar end-time state is malformed")
-    reminders = provider_object(event.get("reminders", {}), "Calendar reminders")
-    overrides = provider_array(reminders.get("overrides", []), "Calendar reminders")
-    if len(overrides) > 10:
-        raise _ProviderTooLarge
-    attendees = provider_array(event.get("attendees", []), "Calendar attendees")
-    attendees_omitted = event.get("attendeesOmitted", False)
-    if type(attendees_omitted) is not bool:
-        raise ValueError("Calendar attendeesOmitted is malformed")
-    if attendees_omitted:
-        raise _ProviderTooLarge
-    if len(attendees) > 50:
-        raise _ProviderTooLarge
-    recurrence = provider_array(event.get("recurrence", []), "Calendar recurrence")
-    if len(recurrence) > 20:
-        raise _ProviderTooLarge
-    use_default = reminders.get("useDefault", False)
-    if type(use_default) is not bool:
-        raise ValueError("Calendar default-reminder state is malformed")
-    organizer = event.get("organizer")
-    if organizer is not None and not isinstance(organizer, dict):
-        raise ValueError("Calendar organizer is malformed")
-    return CalendarNormalEvent(
-        calendar_id=calendar,
-        event_id=event_id,
-        etag=provider_text(provider_string(event, "etag"), 1_024),
-        status=cast("Any", status),
-        writable=CalendarObservedWritableEvent(
-            summary=provider_text(_optional_string(event, "summary", ""), 1_024),
-            description=_exact_optional(event, "description", 16_384),
-            location=_exact_optional(event, "location", 4_096),
-            start=parse_calendar_time(event.get("start")),
-            end=(
-                UnspecifiedEventEnd()
-                if unspecified_end
-                else parse_calendar_time(event.get("end"))
-            ),
-            recurrence=tuple(_exact_string(item, 1_024) for item in recurrence),
-            attendees=tuple(_calendar_participant(item) for item in attendees),
-            use_default_reminders=use_default,
-            reminders=tuple(_reminder(item) for item in overrides),
-        ),
-        organizer=(
-            _calendar_participant(cast("dict[str, object]", organizer))
-            if isinstance(organizer, dict)
-            else None
-        ),
-        updated_at=parse_google_instant(provider_string(event, "updated")),
-    )
 
 
 def _calendar_list_event(
@@ -2028,36 +2422,29 @@ def _calendar_list_event(
     unspecified_end = event.get("endTimeUnspecified", False)
     if type(unspecified_end) is not bool:
         raise ValueError("Calendar end-time state is malformed")
+    summary, summary_truncated = _truncate(
+        _optional_string(event, "summary", ""), 1_024
+    )
+    location, location_truncated = (
+        (None, False)
+        if event.get("location") is None
+        else _truncate(_optional_string(event, "location", ""), 4_096)
+    )
     return CalendarListNormalEvent(
         calendar_id=calendar,
         event_id=event_id,
         status=cast("Any", status),
-        summary=provider_text(_optional_string(event, "summary", ""), 1_024),
+        summary_preview=summary,
+        summary_truncated=summary_truncated,
         start=parse_calendar_time(event.get("start")),
         end=(
             UnspecifiedEventEnd()
             if unspecified_end
             else parse_calendar_time(event.get("end"))
         ),
-        location=_exact_optional(event, "location", 4_096),
+        location_preview=location,
+        location_truncated=location_truncated,
     )
-
-
-def _calendar_list_event_sort_key(
-    event: CalendarListNormalEvent | CalendarListCancelledEvent, time_zone: str
-) -> tuple[datetime, str, str]:
-    if isinstance(event, CalendarListCancelledEvent):
-        return datetime.max.replace(tzinfo=UTC), event.calendar_id, event.event_id
-    start = event.start
-    if isinstance(start, TimedEventTime):
-        instant = start.date_time.astimezone(UTC)
-    else:
-        instant = datetime.combine(
-            start.date,
-            datetime.min.time(),
-            tzinfo=ZoneInfo(time_zone),
-        ).astimezone(UTC)
-    return instant, event.calendar_id, event.event_id
 
 
 def parse_calendar_time(value: object) -> TimedEventTime | AllDayEventTime:
@@ -2111,20 +2498,6 @@ def _localize_calendar_time(value: datetime, zone: ZoneInfo) -> datetime:
     if second.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == value:
         return second
     raise ValueError("Calendar wall time does not exist in its time zone")
-
-
-def _calendar_participant(value: object) -> CalendarParticipant:
-    participant = provider_object(value, "Calendar participant")
-    name = participant.get("displayName")
-    address = participant.get("email")
-    if name is not None and not isinstance(name, str):
-        raise ValueError("Calendar participant name is malformed")
-    if address is not None and not isinstance(address, str):
-        raise ValueError("Calendar participant address is malformed")
-    return CalendarParticipant(
-        name=provider_text(name, 320) if isinstance(name, str) else None,
-        address=provider_text(address, 320) if isinstance(address, str) else None,
-    )
 
 
 def _reminder(value: object) -> Reminder:

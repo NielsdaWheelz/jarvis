@@ -495,6 +495,7 @@ async def _serve(
                         maps_http=maps_http,
                         brave_http=brave_http,
                     )
+                    clients.push_async_callback(composition.google_read.aclose)
                     await composition.attachments.reset_cache()
                     kernel_runtime = build_kernel_runtime(
                         runtime=agent_runtime,
@@ -538,7 +539,12 @@ async def _serve(
                                 agents=agents,
                                 read=ReadToolDispatcher(
                                     host_secrets=settings.host_secrets,
-                                    recorder=PostgresReadRecorder(database),
+                                    recorder=PostgresReadRecorder(
+                                        database,
+                                        web_source_operation=(
+                                            composition.web_source_operation
+                                        ),
+                                    ),
                                     memory=memory,
                                     cutoff=checkpoint.memory_cutoff,
                                 ),

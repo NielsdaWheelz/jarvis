@@ -9,14 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from jarvis.action_requests import CanonicalUuid
 
-type CalendarCoverageReason = Literal[
-    "calendar_limit",
-    "calendar_failure",
-    "event_page_limit",
-    "event_limit",
-    "output_byte_limit",
-    "deadline",
-]
 type TerminalOutcome = Literal[
     "answered",
     "partial",
@@ -224,7 +216,6 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
 
 __all__ = [
     "PROGRESS_MAX_BYTES",
-    "CalendarCoverageReason",
     "JarvisNativeMessage",
     "JarvisTerminal",
     "Progress",

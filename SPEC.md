@@ -99,9 +99,10 @@ the adopted schema additions are `work`, `event_cursor` and `attachment`, plus
 o6's causal message reference and contract changes; there is no `recurring_wake`
 table. detailed fields/tools, migration and acceptance belong to the linked
 contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
-the current source has seventeen application tables: the native nine, six memory
-tables, `work` and `attachment`. migration `0011` adds attachments after `0010`;
-the event cursor remains a later slice.
+this owner-approved source stack has eighteen application tables: the native
+nine, six memory tables, `work`, `attachment` and `event_cursor`. migration `0011`
+adds attachments and `0012` adds event sources; `0013` changes only read-result
+storage. event qualification and production activation remain separate.
 shared memory retains its separate delivery and recorded qualification/deferrals:
 no capture, dreaming or memory-schema change is implied, and selected
 dream-triggered turns remain deferred. budget and the broader search proposal
@@ -124,6 +125,10 @@ is specified; f2/f3 still need their own specs:
   web search uses disposable pages and explicit stale-cursor recovery; new
   observations retain normalized unknown-paid-read barriers. its contract owns
   the replacement schemas, resource boundaries and temporary qualification.
+  the read-result column uses postgres `json` to retain valid source nul text
+  losslessly; migration `0013` preserves existing values under stopped ownership.
+  native input journals retain their existing `jsonb` nul rejection. no table,
+  codec or authority change is added; downgrade requires forward repair.
 - repair discord startup/stop resilience and the demonstrated native failures
   after retaining sufficient content-free diagnostics and reproducing the cause.
   qualify actual prompt/tool composition and a useful combined journey; reuse
@@ -2099,12 +2104,14 @@ controls.
 
 ## 9. Persistence
 
-the current source owns seventeen application tables: the native nine, six
-standalone memory tables, `work` and `attachment`, at migration `0011`.
+this source stack owns eighteen application tables: the native nine, six
+standalone memory tables, `work`, `attachment` and `event_cursor`, at migration
+`0013`; its last migration changes only the read-result representation.
 the six archive/tree table columns are defined once in
 [the memory schema](docs/universal-memory.md#4-schema-and-invariants);
 [work](docs/work-records.md) and
-[attachments](docs/attachments-and-durable-originals.md) own their schemas.
+[attachments](docs/attachments-and-durable-originals.md), plus
+[event sources](docs/event-sources-and-recurring-work.md), own their schemas.
 the baseline native tables retain the following columns.
 
 ```text

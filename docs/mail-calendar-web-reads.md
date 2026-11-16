@@ -1,7 +1,8 @@
 # complete mail/calendar/web reads
 
 status: f1 implementation contract under [adr 0075](decisions/0075-v2-completion-and-subscription-model.md).
-docs only, 2026-11-16; implementation and qualification pending. the
+source implemented and controlled-qualified, 2026-11-16; separate live candidate
+qualification remains pending. the
 [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence; this document
 owns f1's interfaces and acceptance. no production activation.
 
@@ -10,6 +11,11 @@ source audit: jarvis `bbfeb47`, including landed slice 5; event candidate
 actual merged successor before implementation. llm-tools web is pinned at
 `8989f3a`. the [older search proposal](complete-and-continuable-searches.md) is
 reference only; its selected-domain schemas are superseded here.
+
+implementation-base refinement, 2026-11-16: the owner explicitly authorized
+stacking f1 on the audited, unmerged event branch `945dc62` instead of waiting
+for its merge. its separate candidate qualification remains pending; f1 does
+not modify that candidate or infer its acceptance.
 
 ## goal, boundaries and decisions
 
@@ -358,6 +364,21 @@ are tag-only `InvalidCursor`, `AccountChanged`, `SourceChanged`,
 reuse existing types.
 invalid caller ranges/field combinations use existing input rejection.
 never log credentials, message bodies, raw exceptions or cursor payloads.
+
+physical storage refinement: `read_position.result` uses postgres `json`, which
+losslessly retains valid json strings containing escaped nul. `jsonb` cannot
+store those strings; rejecting or altering decoded source text would violate
+the complete-text contract. migration `0013` casts existing results under the
+existing stopped-deployment lock; fields, tables, privileges and result values
+stay the same. contracts and native input journals retain `jsonb` and their
+existing nul-input rejection. result reads select the whole value. new results
+may be unrepresentable in the predecessor, so this migration requires forward
+repair rather than downgrade.
+
+the executor supplies its absolute monotonic deadline on the immutable dispatch
+context and uses that same cutoff. google reports its actual entered attempts
+when that deadline elapses; independent cancellation before it still propagates.
+an unset cancellation token alone never proves a deadline.
 
 ## ownership, removal and implementation order
 

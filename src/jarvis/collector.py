@@ -9,7 +9,7 @@ import logging
 import os
 import time
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Self
@@ -101,10 +101,23 @@ class CollectorConfig(Closed):
             raise ConfigurationError("invalid native collector mapping") from None
 
 
+@dataclass(frozen=True, slots=True)
+class _Candidate:
+    lane: Lane
+    home: ArchiveHome
+    receipt: ConversationReceipt
+    hint: datetime | None
+    changed: bool
+    age: float
+
+
 class Collector:
     def __init__(self, config: CollectorConfig, client: httpx.AsyncClient) -> None:
         self.config, self.client = config, client
+        # Metadata hint, first-seen/last-attempt scheduling age, proved caught-up.
         self._hints: dict[tuple[str, str], tuple[datetime | None, float, bool]] = {}
+        self._prefer_recent = True
+        self._activation_index = 0
 
     async def _request(self, path: str, value: Closed | None = None) -> bytes:
         body = (
@@ -258,7 +271,77 @@ class Collector:
         _LOG.warning(
             "memory capture parked %s %s %s", lane.machine, lane.account, reason
         )
-        return True
+        return False
+
+    async def _discover(
+        self, lane: Lane, home: ArchiveHome
+    ) -> tuple[dict[UUID, ConversationReceipt], dict[str, datetime]]:
+        inventory = await archive_list(home)
+        hints = {
+            item.native_id: item.updated_at
+            for item in inventory.conversations
+            if not item.internal
+        }
+        conversations = tuple(
+            Conversation(
+                native_id=item.native_id,
+                relation=item.relation,
+                parent_native_id=item.parent_native_id,
+                working_directory=item.working_directory,
+            )
+            for item in inventory.conversations
+            if not item.internal
+        )
+        receipts: dict[UUID, ConversationReceipt] = {}
+        offset = 0
+        page: UUID | None = None
+        while True:
+            next_conversations = conversations[offset : offset + BATCH_EVENTS]
+            offset += len(next_conversations)
+            sync = Sync(
+                lane=lane,
+                contract_revision=ARCHIVE_CONTRACT_REVISION,
+                conversations=next_conversations,
+                observed_at=inventory.observed_at,
+                complete=inventory.complete and offset == len(conversations),
+                page=page,
+            )
+            result = SyncResult.model_validate_json(
+                await self._request("/v1/memory/sync", sync)
+            )
+            receipts.update((receipt.id, receipt) for receipt in result.conversations)
+            page = result.next_page
+            if page is None and offset == len(conversations):
+                return receipts, hints
+
+    async def _activate(self, lane: Lane, home: ArchiveHome) -> None:
+        started = datetime.now(UTC)
+        capability = await archive_capabilities(home)
+        inventory = await archive_list(home, with_heads=True)
+        if not inventory.complete:
+            _LOG.info("memory activation pending %s %s", lane.machine, lane.account)
+            return
+        activation = Activate(
+            lane=lane,
+            contract_revision=ARCHIVE_CONTRACT_REVISION,
+            conversations=tuple(
+                Conversation(
+                    native_id=item.native_id,
+                    head_event_id=item.head_event_id,
+                    baseline_error=item.head_error,
+                    relation=item.relation,
+                    parent_native_id=item.parent_native_id,
+                    working_directory=item.working_directory,
+                )
+                for item in inventory.conversations
+                if not item.internal
+            ),
+            sample_started_at=started,
+            observed_at=inventory.observed_at,
+            provider_version=capability.provider_version,
+            complete=True,
+        )
+        await self._request("/v1/memory/sync", activation)
 
     async def sweep(self) -> None:
         remote = CaptureLanes.model_validate_json(
@@ -266,6 +349,9 @@ class Collector:
         )
         if remote.contract_revision != ARCHIVE_CONTRACT_REVISION:
             raise MemoryError("unsupported")
+        candidates: list[_Candidate] = []
+        activations: list[tuple[Lane, ArchiveHome]] = []
+        first_seen = time.monotonic()
         for declared in remote.lanes:
             lane = declared.lane
             if lane.machine != self.config.machine:
@@ -277,41 +363,11 @@ class Collector:
             home = ArchiveHome(
                 native_home.provider, native_home.state_root, native_home.codex_endpoint
             )
+            if declared.status == "pending":
+                activations.append((lane, home))
+                continue
             try:
-                if declared.status == "pending":
-                    started = datetime.now(UTC)
-                    capability = await archive_capabilities(home)
-                    inventory = await archive_list(home, with_heads=True)
-                    if not inventory.complete:
-                        _LOG.info(
-                            "memory activation pending %s %s",
-                            lane.machine,
-                            lane.account,
-                        )
-                        continue
-                    conversations = tuple(
-                        Conversation(
-                            native_id=item.native_id,
-                            head_event_id=item.head_event_id,
-                            baseline_error=item.head_error,
-                            relation=item.relation,
-                            parent_native_id=item.parent_native_id,
-                            working_directory=item.working_directory,
-                        )
-                        for item in inventory.conversations
-                        if not item.internal
-                    )
-                    activation = Activate(
-                        lane=lane,
-                        contract_revision=ARCHIVE_CONTRACT_REVISION,
-                        conversations=conversations,
-                        sample_started_at=started,
-                        observed_at=inventory.observed_at,
-                        provider_version=capability.provider_version,
-                        complete=True,
-                    )
-                    await self._request("/v1/memory/sync", activation)
-                inventory = await archive_list(home)
+                receipts, hints = await self._discover(lane, home)
             except (ArchiveError, MemoryError, ValidationError) as error:
                 code = (
                     error.code
@@ -325,100 +381,120 @@ class Collector:
                     code,
                 )
                 continue
-            hints = {
-                item.native_id: item.updated_at
-                for item in inventory.conversations
-                if not item.internal
-            }
-            conversations = tuple(
-                Conversation(
-                    native_id=item.native_id,
-                    relation=item.relation,
-                    parent_native_id=item.parent_native_id,
-                    working_directory=item.working_directory,
+            for receipt in receipts.values():
+                key = (lane.account, receipt.native_id)
+                if receipt.foreign or receipt.capture_error is not None:
+                    self._hints.pop(key, None)
+                    continue
+                hint = hints.get(receipt.native_id)
+                previous = self._hints.get(key)
+                changed = previous is None or previous[0] != hint
+                if previous is None:
+                    previous = (hint, first_seen, False)
+                    self._hints[key] = previous
+                if (
+                    receipt.baseline_error is None
+                    and not changed
+                    and previous[2]
+                    and time.monotonic() - previous[1] < REVISIT_SECONDS
+                ):
+                    continue
+                candidates.append(
+                    _Candidate(lane, home, receipt, hint, changed, previous[1])
                 )
-                for item in inventory.conversations
-                if not item.internal
+
+        # Discovery is never trapped behind old history. Each serial operation
+        # finishes before yielding; its central receipt remains the only cursor.
+        deadline = time.monotonic() + SWEEP_SECONDS
+        recent = iter(
+            sorted(
+                (item for item in candidates if item.receipt.baseline_error is None),
+                key=lambda item: (
+                    not item.changed,
+                    -item.hint.timestamp() if item.hint is not None else float("inf"),
+                    item.receipt.id,
+                ),
             )
-            handled: set[UUID] = set()
-            offset = 0
-            page: UUID | None = None
-            while True:
-                next_conversations = conversations[offset : offset + BATCH_EVENTS]
-                offset += len(next_conversations)
-                sync = Sync(
-                    lane=lane,
-                    contract_revision=ARCHIVE_CONTRACT_REVISION,
-                    conversations=next_conversations,
-                    observed_at=inventory.observed_at,
-                    complete=inventory.complete and offset == len(conversations),
-                    page=page,
+        )
+        waiting = iter(sorted(candidates, key=lambda item: (item.age, item.receipt.id)))
+        handled: set[UUID] = set()
+        while True:
+            preferred, other = (
+                (recent, waiting) if self._prefer_recent else (waiting, recent)
+            )
+            candidate = next(
+                (item for item in preferred if item.receipt.id not in handled), None
+            )
+            if candidate is None:
+                candidate = next(
+                    (item for item in other if item.receipt.id not in handled), None
                 )
-                try:
-                    result = SyncResult.model_validate_json(
-                        await self._request("/v1/memory/sync", sync)
-                    )
-                except (MemoryError, ValidationError):
-                    break
-                for receipt in result.conversations:
-                    if (
-                        receipt.id in handled
-                        or receipt.foreign
-                        or receipt.capture_error is not None
-                    ):
-                        continue
-                    handled.add(receipt.id)
-                    key = (lane.account, receipt.native_id)
-                    if receipt.baseline_error is not None:
-                        try:
-                            head = await archive_head(home, receipt.native_id)
-                            head_id, baseline_error, observed_at = (
-                                head.head_event_id,
-                                None,
-                                head.observed_at,
-                            )
-                        except ArchiveError as failure:
-                            head_id, baseline_error, observed_at = (
-                                None,
-                                failure.code,
-                                datetime.now(UTC),
-                            )
-                        try:
-                            baseline = Baseline.model_validate(
-                                {
-                                    "lane": lane,
-                                    "contract_revision": ARCHIVE_CONTRACT_REVISION,
-                                    "conversation_id": receipt.id,
-                                    "head_event_id": head_id,
-                                    "baseline_error": baseline_error,
-                                    "observed_at": observed_at,
-                                }
-                            )
-                            receipt = ConversationReceipt.model_validate_json(
-                                await self._request("/v1/memory/sync", baseline)
-                            )
-                        except (MemoryError, ValidationError):
-                            continue
-                        if receipt.baseline_error is not None:
-                            continue
-                        self._hints.pop(key, None)
-                    hint = hints.get(receipt.native_id)
-                    previous = self._hints.get(key)
-                    if (
-                        previous is not None
-                        and previous[0] == hint
-                        and previous[2]
-                        and time.monotonic() - previous[1] < REVISIT_SECONDS
-                    ):
-                        continue
+            if candidate is None:
+                break
+            handled.add(candidate.receipt.id)
+            self._prefer_recent = not self._prefer_recent
+            lane, home, receipt = candidate.lane, candidate.home, candidate.receipt
+            caught_up = False
+            try:
+                if receipt.baseline_error is not None:
                     try:
-                        caught_up = await self._read(lane, home, receipt)
-                    except (MemoryError, ValidationError):
-                        continue
-                    self._hints[key] = hint, time.monotonic(), caught_up
-                page = result.next_page
-                if page is None and offset == len(conversations):
-                    break
+                        head = await archive_head(home, receipt.native_id)
+                        head_id, baseline_error, observed_at = (
+                            head.head_event_id,
+                            None,
+                            head.observed_at,
+                        )
+                    except ArchiveError as failure:
+                        head_id, baseline_error, observed_at = (
+                            None,
+                            failure.code,
+                            datetime.now(UTC),
+                        )
+                    baseline = Baseline.model_validate(
+                        {
+                            "lane": lane,
+                            "contract_revision": ARCHIVE_CONTRACT_REVISION,
+                            "conversation_id": receipt.id,
+                            "head_event_id": head_id,
+                            "baseline_error": baseline_error,
+                            "observed_at": observed_at,
+                        }
+                    )
+                    ConversationReceipt.model_validate_json(
+                        await self._request("/v1/memory/sync", baseline)
+                    )
+                else:
+                    caught_up = await self._read(lane, home, receipt)
+            except (MemoryError, ValidationError):
+                pass
+            finally:
+                self._hints[(lane.account, receipt.native_id)] = (
+                    candidate.hint,
+                    time.monotonic(),
+                    caught_up,
+                )
+            if time.monotonic() >= deadline:
+                break
+
+        # A fresh lane still requires an indivisible complete head inventory.
+        # Give active capture a slice between attempts, including failed ones.
+        if activations:
+            lane, home = activations[self._activation_index % len(activations)]
+            self._activation_index += 1
+            try:
+                await self._activate(lane, home)
+            except (ArchiveError, MemoryError, ValidationError) as error:
+                code = (
+                    error.code
+                    if isinstance(error, ArchiveError | MemoryError)
+                    else "unsupported"
+                )
+                _LOG.warning(
+                    "memory activation blocked %s %s %s",
+                    lane.machine,
+                    lane.account,
+                    code,
+                )
 
     async def run(self) -> None:
         while True:

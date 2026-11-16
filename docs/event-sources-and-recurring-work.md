@@ -1,11 +1,12 @@
 # email/calendar events
 
-status: slice 6 implementation contract under [adr 0071](decisions/0071-simple-event-driven-v2.md),
-source-audited against main `d93b84d`, 2026-11-15; implementation and qualification
-in progress on `feature/event-sources`. the
-[roadmap](implementation-plan.md) owns sequence. attachment implementation is
-concurrent; audit its actual merge before integrating shared files. no production
-activation, provider-account operations or behavioral proof in this doc task.
+status: source and separate candidate qualified under
+[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-16.
+qualified application artifact: `05b0023e277882b3aeda58ceb7857102d09cb96c`.
+landed attachment predecessor: `bbfeb47d1e74dc32a8827501a4ffc963bbf52d6a`.
+[implementation evidence](#implementation-evidence) distinguishes real provider,
+controlled fault and native proof. the [roadmap](implementation-plan.md) owns
+sequence; production activation remains at final v2 cutover.
 
 ## target and settled scope
 
@@ -34,7 +35,10 @@ mail bodies or attachment bytes during polling. shared memory projects ordinary
 host-message metadata through its existing path; no capture-engine/schema change,
 mailbox archive, dream wake, search overhaul or budget work.
 
-## source audit and parallel handoff
+## source audit and integration boundary
+
+this was the preimplementation audit at `d93b84d`. final qualification consumes
+landed attachment source `ad6c48e` through merge `bbfeb47`, with one migration head.
 
 | boundary | implement here |
 | --- | --- |
@@ -45,14 +49,12 @@ mailbox archive, dream wake, search overhaul or budget work.
 | shared token manager has concurrent-refresh/stale-invalidation risk | serialize refresh only; invalidate only the rejected token; source finding repaired and qualified below |
 | old success receipts lack account-qualified echo evidence | add verified `account` to new send/create/update successes; never infer it for old receipts |
 
-slice 5's in-flight source has `0011_attachments`, `gmail_account` and
-`FRESH_READ_IDS`; these are unqualified until its merge. consume the landed
-versions. factor one shared profile read/parse returning `{account, history_id}`
-from the same response, preserving attachment callers' account view. one token
-manager/client composition serves foreground tools, attachments and polling.
-expected event migration is `0012_event_sources` after landed `0011`; no parallel
-migration head. specification/source work can proceed now; integrated proof
-must use the actual combined tree. production cutover stays a separate final step.
+slice 5 supplies landed `0011_attachments`, `gmail_account` and `FRESH_READ_IDS`.
+one shared profile read/parse returns `{account, history_id}` from the same
+response, preserving attachment callers' account view. one token manager/client
+composition serves foreground tools, attachments and polling. `0012_event_sources`
+follows actual `0011`; there is no parallel migration head. final integrated proof
+uses the combined source tree. production cutover stays separate.
 
 ## cursor schema and ownership
 
@@ -482,99 +484,136 @@ at that documentation-only checkpoint the token-refresh issue was open; no code,
 provider-account operations or production state changed in that task. the
 implementation evidence below supersedes its NOT_RUN/open status.
 
+## implementation evidence
 
-## implementation evidence — 2026-11-16, qualification in progress
-
-source starts at `d93b84d` on `feature/event-sources`, in the separate
-`jarvis-event-sources-implementation` worktree. the owner supplied the revised
-uncommitted contract from `jarvis-events-docs`; that worktree is untouched.
-source is implemented; combined attachment/native qualification remains OPEN.
-no production release, endpoint, schema or activation change is claimed.
+source and bounded separate-candidate acceptance passed on 2026-11-16.
+application code is `05b0023e277882b3aeda58ceb7857102d09cb96c`; later closeout
+edits change documentation only. the initial source audit used `d93b84d` and the
+owner's revised contract in the separate `jarvis-events-docs` worktree, which was
+preserved. the landed attachment predecessor is `bbfeb47` (pr 73), including
+application source `ad6c48e`; source integration is `fd1ab06`, landed-document
+integration `e704715`. administrative transport is hard-cut at `945dc62`.
 
 three native coding agents owned persistence/contracts, google adapters and
-composition respectively. an independent persistent skid reviewer examined each
-stage; coding agents also cross-reviewed the responsible boundaries. initial
-missing-module reds were scaffolds, not acceptance evidence. behavioral red
-observations included concurrent double refresh, unsafe common-failure decoding,
-shutdown cancellation of entered publication and malformed migration sql.
-independent source/protocol review additionally found and repaired lost first
-profile cuts, reused inventory scan ids, wrong echo field paths, quota/empty
-subject/selector errors, admission cancellation, stale publication clocks,
-duplicate inventory ids and dropped retry deadlines. the owner resolved the
-recovery-account certainty conflict through the amendment above; no false
-uncertainty remains for that qualifier.
+composition. an independent skid reviewer and peer reviews challenged each stage
+and the final source/candidate evidence. temporary integration/live probes were
+removed after their checks passed; the approved capture/retry check is retained.
+initial missing-module reds were scaffolds, not behavioral acceptance. meaningful
+reds and repairs included double refresh, invalid common-failure decoding,
+shutdown cancellation, actual migration syntax, inventory/progress faults and
+integration-specific attachment transport limits.
 
-| boundary | current evidence |
+the separate candidate used python 3.12.13, postgres 16.12 (debian), vector 0.8.1,
+schema `0012`, stock 0.160.0, and actual personal subscription cognition
+`gpt-5.6-terra/high`. exact unchanged pins:
+
+- kernel `9f5f951272536d51567995cbd693d1239ad59eb9`.
+- provider `ea9f82025632926a7c7e47d6333fb9346f6ee86c`.
+- tools `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57`.
+- memory `93e02af07fee7e79250fb800835c324f092b5bec`.
+
+all 239 tracked candidate files matched the qualified git artifact before final
+native execution. its database, runtime, schema-5 mapping, endpoint, contained
+host, cognition directory, local notes checkout and cache were separate from
+production. all candidate memory admission was false. no gateway/fleet activation
+or production archive ingestion was performed. the scratch notes checkout proves
+an ordinary candidate cwd, not permanent private-remote bootstrap; that remains
+in the existing private-workspace cutover issue. unused r2 dependency settings
+were synthetic, with zero storage attempts and no created bucket/credential.
+
+| boundary | passing proof |
 | --- | --- |
-| source atomicity and schema | real postgres 16/vector 0.8.1, actual deployment ownership, atomic facts/progress and rollback; stable dedup/source dates, partial and complete inventory/removal, invalid-zone peer isolation, pause/shutdown and an event expiring while waiting for the conversation lock. actual `0012.upgrade` ddl executed inside a rolled-back private schema. full landed `0011→0012` remains pending; direct metadata creation does not qualify that chain |
-| local tools | actual native journals, callback/read recorder/action admission and dispatch: disable/new enable/old callback replay, re-arm preserving progress and health, same-attempt and fresh-attempt status freshness with exact old callback replay. simulated before/after-mutation crash states recover with external attempts zero and lifetime entry ceiling two; common exhaustion is published. independent executing-unknown and terminal-uncertain causal components permit local disable while rejecting another connector write through both gates. controlled native submission evidence is not live native or a process-kill claim |
-| mail/provider faults | actual poller/http transport and owned postgres: a large excluded prefix, restart, completed-prefix failure, missing metadata, imported source date, appended page suffix, prefix mismatch and source lookup before refetch; history expiry/gap/recovery. exact metadata-only selectors and repeated headers, empty subject, request-local 401, late stale-token rejection, concurrent refresh/rotated state, 403/429/503 classification and later retry deadlines |
-| calendar/provider faults | hidden readable inventory, malformed historical baseline discard through fixed-selector pages, last-page sync installation, 410 gap/reset, separate child failure, id-only cancellation and exact attention endpoint, known/unknown end, late/ended events, foreign-zone all-day/multi-day/recurrence, title edit/move/return dedup, fold/gap, owner midnight and strict query enclosure. qualified connector receipt echo suppression and nullable recovered-receipt non-suppression; attention stays independent |
-| actual poll run loop | earliest eligible deadline, blocked family versus healthy peers, later Retry-After prevents early request, admission before reads/refresh, provider-read cancellation and owned admission sql shield/join. existing canonical service startup/catch-up, responsive ingress, supervision and publication-safe shutdown use controlled dependency ports |
-| real google | actual existing authorization, profile/history, complete hidden-calendar inventory and selected private owner calendar quiet baseline. one synthetic event create/edit/cancel became immutable canonical revisions; real upcoming query at controlled exact 15-minute time produced attention. fixture deleted. no mail bodies/files fetched; no mailbox mutation; synthetic candidate memory admission false |
-| approved memory regression | retained `tests/capture_retry.py` passed against task postgres; expected injected publication failures remain recoverable |
+| schema and source storage | actual `0001→0011`, populated canonical message/immutable attachment manifest/pending original/work rows, then actual `0011→0012`. complete `row_to_json` snapshots unchanged; source columns and actual runtime-role cursor crud checked. owned transactions prove atomic facts/progress, dedup/source dates, partial/completed inventories, withdrawal/re-add, invalid-zone peer isolation, post-lock attention expiry, pause and shutdown fences |
+| local tools and recovery | actual native journals, read recorder, action admission/dispatch and atomic mutation receipts. old disable/enable callbacks cannot reapply after newer actions; re-arm preserves progress/error episode. same-attempt and new-attempt status reads are fresh; exact old callbacks replay original status. simulated before/after-mutation crash states recover within two lifetime entries and zero external attempts; common exhaustion publishes safely. independent executing-unknown and terminal-uncertain causal components allow local disable while both gates reject another external write. these are canonical crash-state simulations, not process-kill proof |
+| mail and credentials | actual poller/owned postgres with controlled http: large excluded prefix, restart, partial failure/timeout, archived/normal mail and every excluded label, empty subject, missing metadata, old source dates, appended page suffix/prefix mismatch and canonical lookup before refetch. history expiry/gap/recovery; metadata-only fields and repeated header selectors. concurrent refresh/rotated state/stale rejection; one request-local 401 retry, persistent 401 block, 403 quota versus scope, refresh 429 and 503/later retry deadlines |
+| calendars and attention | hidden/readable full inventory, partial removal, withdrawal/re-add and peers. malformed historical baseline rows discarded through fixed-selector paging; last-page sync installation, sparse cancellation and 410 gap/reset. exact attention endpoint, known/unknown end, late/ended events, foreign-zone all-day/multi-day/recurrence, title/move/return dedup, fold/gap, owner midnight and strict enclosing query bounds. actual connector qualified receipts suppress exact echoes; all three proved recovered null-account receipts remain successful and cannot suppress. attention is independent |
+| actual polling/service lifecycle | earliest eligible deadline below 60 seconds, blocked root versus healthy children, later Retry-After prevents early request, admission before reads/refresh, provider-read cancellation with owned admission sql shield/join. controlled service ports exercise actual catch-up readiness, responsive ingress, failure supervision and entered-publication-safe shutdown |
+| real google | existing authorization, actual profile/history, complete hidden-calendar inventory and selected private owner-calendar quiet baseline. one synthetic event create/edit/cancel produced immutable canonical revisions; a real upcoming query at controlled exact 15-minute time produced attention. repeated on the combined `0012` tree. fixture deleted; no mailbox mutation, mail body or attachment fetch. provider faults above are controlled, not live google failures |
+| actual native controls/content | real `_compose_main`, runner, journals and local callbacks: status/configure/status receipt and fresh disabled state; owner/source inputs settle separately. source-only newsletter completes silently with no assistant row, callback, action or native tool. the shared-calendar frozen counterexample reports correct UTC instants, current interval and late notice, with no attendance inference. these direct host cases use controlled canonical ingress |
+| actual combined source/main | real service, composed poller, `EventStore`, native main, journals and `WorkWakeTimer`; controlled google/discord and canonical worker ingress. held source http admits independent owner and worker input, the exact real timer wake, then a 400-day-old email fact steers active main. independent owner answer is `323`; source facts complete independently. native metadata contains only the requested `sleep 7`; no external communication/approval/attachment callback or storage access |
 
-local temporary databases are separate schemas/databases in task-owned
-`jarvis-events-proof-pg`, loopback port 61340. probes remain until final combined
-qualification, then will be deleted as requested. google and controlled faults
-above are deliberately distinct. exact final artifact/pins, native candidate,
-combined outcomes and cleanup will be recorded here before completion.
+final pipeline work action `a51b64cd-2272-49c3-94e7-c9407be67dfb` succeeded with
+one entry. immutable receipt `09:58:39.415687Z` precedes its exact scheduled instant
+`10:00:25.202483Z`. title/content/id match the retained `doing_now` row and wake
+`d323be1e-baa0-4a6f-b142-dd5192569a0c`; firing clears the one-time wake, not the todo.
+initial confirmation correctly reports `02:00:25.202483 PST` for that UTC instant.
+metadata entered at `10:00:22.241470Z`, owner input committed at `.247464Z`, worker
+input at `.252429Z`, and the exact timer wake was observed at `10:00:25.213743Z`.
+metadata released at `.213755Z`, after 2.972 seconds, below the provider bound.
+this uses real elapsed time: no clock patch or wake mutation. the earlier
+five-second fixture proposal expired before admission and correctly failed
+`not_future_at_admission`; it is not claimed successful. reused synthetic delivery
+ids also correctly failed uniqueness before that fixture was repaired.
 
+the first full native composition correctly refused 17,130 system bytes against
+16,384. feature guidance was shortened without changing the earlier authority,
+lifecycle, worker, memory or owner text. two actual model-content variants still
+mislabelled UTC digits as new york time. the final rule requires observed timed
+instants to retain UTC or be converted with native `zoneinfo`; payload/parser and
+frozen `09:51:14.952540+00:00→10:21:14.952540+00:00`/`America/New_York` example were
+unchanged. final output correctly says `09:51–10:21 UTC`, in progress at `09:55 UTC`,
+late attention and no accepted/intended/actual attendance evidence. this is a
+passing bounded counterexample, not a universal model timezone guarantee.
 
-combined-source update: `fd1ab065132482589308d2ad51da955e6feb2b49`
-integrates final attachment application artifact
-`ad6c48eadd61d730228213d65c2cdec178373a9b`. landed predecessor is
-`bbfeb47d1e74dc32a8827501a4ffc963bbf52d6a` (pr 73), whose documentation
-is adopted at `e704715`. all attachment modules, actual migration `0011`,
-deployment files and lock pins retain their predecessor behavior. one shared
-`get_json` retains attachment byte/deadline/connect bounds while polling keeps
-its narrow defaults; the fresh-read set contains all work/event/attachment/mail
-members. the additional large-original transport proof passed.
+full catalogue construction and actual session requests fit 16,337/16,384 system
+bytes, zero developer bytes and 3,802/32,768 output-schema bytes. all 46 tools and
+unchanged isolated grants were checked. transparent temporary taps verified the
+exact clause/system at `NewSession` and linked prepared turns to the same public
+session references. system sha256 is
+`14e551d02a95d917d697becba820e04a8d16ff4accca574a25738dd35b63d572`;
+definition fingerprint is
+`d2298de731b4d395de0904f180603916aeae38cd0a248237d8ecb8015d32312b`.
+calendar session `01a1e3c8-27ce-7651-8d1d-709e5626f479`, pipeline sessions
+`01a1e3cb-2b02-7941-b4ca-dddc02e42b88` and
+`01a1e3cc-f482-7981-a648-165d586f68a2`, and final silence session
+`01a1e3d1-f263-7d11-adb0-95152763b794` carry that same proof. all nonreasoning native
+tool metadata was observed, with zero omitted records, truncated fields or omitted
+arguments. no prompt, reasoning, credential or input text was added by the tap.
+the dependency identity accessor correction affected only verification code; no
+package, pin or application source changed.
 
-the actual fresh chain `0001→0011`, populated canonical message/immutable
-attachment manifest/pending original/work rows, then `0011→0012` passed. complete
-`row_to_json` snapshots were unchanged; source columns and actual runtime-role
-cursor crud were checked. core source and native-journal/local-tool probes passed
-on that fully migrated database. real google profile/history/inventory and the
-create/edit/cancel/attention fixture journey passed again on the combined `0012`
-tree; fixture deleted. the retained capture/retry regression also passed there.
+all eight administrative entrypoints now use the operator workstation's existing
+separately keyed `dev-server-deploy` alias, noninteractive ssh/scp without agent
+forwarding, `sudo -n`, and the existing unprivileged niels builder. retired target
+and builder overrides cannot select another route. actual-entrypoint interceptors
+exercise success, all eight authentication failures and all three private-transfer
+failures without executing remote mutations or fallback. bash syntax/shellcheck,
+independent exact-diff review and live read-only authority checks passed. niels has
+no sudo/system-docker access; its rootless engine stays separate. no key was copied
+or developer privilege restored.
 
-the first separate native candidate exposed an actual composition defect before
-admitting any request: rendered system instructions were 17,130 bytes against
-16,384. the repair shortens only attachment/work/events/workspace guidance;
-earlier authority/lifecycle/worker/memory prose and owner context remain verbatim.
-independent content review repaired lost causal qualifiers and publication
-certainty. full 46-tool catalogue construction now passes at 16,184 system bytes,
-zero developer bytes and 3,802/32,768 output-schema bytes, with unchanged isolated
-role grants. no bound was increased. the actual native rerun remains pending.
+`jarvis-events-proof.service` and `jarvis-events-contained.service` stopped with
+main/control pids zero before their transient units were removed and systemd
+reloaded. cleanup removed and checked the task resources:
 
-candidate setup's initial cache-path renderer retained a nonexistent production
-path and systemd refused its namespace before application startup. the renderer
-and candidate unit now grant only task runtime/cognition/cache paths; no product
-containment bypass was added. its notes cwd is a private local scratch git
-checkout, matching slice 5's event-unrelated boundary; the permanent selected
-remote is not provisioned and its bootstrap remains at final v2 cutover under the
-existing private-workspace issue. unused r2 dependency settings are synthetic;
-no bucket/credential is created and harnesses prohibit attachment calls/storage
-requests. host authorization expired before the native rerun; see the temporary
-[remaining qualification](issues/event-source-native-qualification.md).
+| resource | removed scope |
+| --- | --- |
+| source/config | `/opt/jarvis-events-candidate`, `/etc/jarvis-events-candidate.json`, `/etc/jarvis-events-candidate.env`, `/etc/jarvis-events-memory.json` |
+| runtime/private scratch | `/var/lib/jarvis/runtime-events-candidate`, `/var/lib/jarvis-events-notes`, `/var/cache/jarvis-events-candidate` |
+| native sockets/cognition | `/run/jarvis-events-cognition`, `/run/jarvis-events-contained` |
+| staging | `/tmp/jarvis-events-fixtures-945dc62`, candidate tarballs and uploaded task setup/probe/fixture files |
+| postgres | remote rootless `jarvis-events-candidate-pg` and local `jarvis-events-proof-pg`, including their anonymous volumes; both names checked absent |
 
+no production release, endpoint, service, state, schema or activation changed:
+exact before/after comparison preserves release
+`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, application pid `590939`, native-host pid
+`590542`, runtime user/group `jarvis`, schema `0008a`, both unit hashes and the mapping hash.
+private notes bootstrap, live discord/skid/fleet and installed v2 acceptance remain
+separate; [event installed cutover](issues/event-sources-installed-cutover.md) records
+that explicit follow-up. production activation remains refused in this intermediate
+release. ordinary provider-owned internal cognition history follows its existing
+retention/exclusion rules; no account history or unrelated user resource was deleted.
 
-reviewed prompt repair artifact: `f6cf29c`. `scripts/verify` passed from a clean
-committed-artifact worktree: frozen lock/sync, formatting/lint, strict typing,
-documentation, wheel/sdist build, fresh wheel installation/import/manifest/cli,
-and dependency audit. audit reported no known vulnerabilities for auditable
-packages; git-only kernel/tools/provider packages retain the audit's explicit
-not-on-pypi limitation. this is static/package evidence, not native acceptance.
-the new temporary behavioral probes remain until actual candidate completion;
-final post-deletion verification is still required. server authorization remains
-pending, so neither native rerun nor complete candidate cleanup is claimed.
+final post-probe-deletion `scripts/verify` passed: frozen lock/sync, formatting,
+lint, types, documentation, sdist/wheel build, isolated wheel installation,
+dependency identity/session-manifest imports and cli startup. the existing
+approved capture/retry check also passed on the combined migrated database and
+was retained. the audit found no known vulnerabilities in auditable packages;
+the three git-only kernel/tools/provider packages were explicitly unauditable
+because they are absent from pypi. no hosted-ci or installed-v2 result is implied.
 
-
-administration correction: the apparent expired authorization was the deliberate
-separation of development and production administration. niels remains
-unprivileged. the existing separately keyed `dev-server-deploy` connection works
-from the operator workstation with `sudo -n`; it replaces the old administrative
-route, without key copying, developer sudo or runtime redesign. the remaining
-candidate qualification now resumes through that connection. source/deployment
-instructions record the same hard cut; developer docker remains rootless.
+final independent read-only closeout found no blocking source, content or candidate
+finding and accepted the bounded artifact/evidence above. all four repository
+probes and 45 exact local task proof/staging/log files were removed and checked
+absent; the approved capture/retry check and unrelated resources/history remain.
+only documentation changed after the qualified application artifact.

@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–5 source-qualified; f1 source/candidate qualified; v2 not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1 source/candidate qualified; v2 not activated**
 
 date: **2026-11-16**
 
@@ -17,7 +17,9 @@ from subsequent memory-mainline integration. slice 5 implements attachments and
 has separate private-storage/native-host candidate qualification; its
 [evidence](docs/attachments-and-durable-originals.md#implementation-evidence)
 owns the exact journeys and resource disposition.
-the remaining slices and v2 activation are pending. these contracts supersede
+slice 6 has source and separate native/source candidate qualification; its
+[event evidence](docs/event-sources-and-recurring-work.md#implementation-evidence)
+owns real versus controlled proof. installed v2 activation remains pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
 
@@ -43,8 +45,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   it reuses slice 5's shared connector primitives after their merge. source metadata
   enters ordinary canonical host history/memory; no automatic body/file archive.
   shared refresh concurrency and account-qualified new write receipts belong at
-  the existing connector boundary. source is implemented; combined migration/native
-  candidate qualification remains pending.
+  the existing connector boundary. source and combined migration/native
+  candidate are qualified; production activation remains separate.
   existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
@@ -102,7 +104,7 @@ contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
 this owner-approved source stack has eighteen application tables: the native
 nine, six memory tables, `work`, `attachment` and `event_cursor`. migration `0011`
 adds attachments and `0012` adds event sources; `0013` changes only read-result
-storage. event qualification and production activation remain separate.
+storage. production activation remains separate.
 shared memory retains its separate delivery and recorded qualification/deferrals:
 no capture, dreaming or memory-schema change is implied, and selected
 dream-triggered turns remain deferred. budget and the broader search proposal
@@ -1284,7 +1286,7 @@ definition fingerprint. secret bytes, clock and current inputs do not. schema-v3
 session compatibility has no predecessor exceptions; schema-4 host mapping is a
 separate operational contract.
 
-the shared `llm-agent-kernel-native-agent-v3` base instruction permits prose in
+the shared `llm-agent-kernel-native-agent-v4` base instruction permits prose in
 the application's required commentary format and reserves input dispositions
 for final output. its revision and digest automatically rotate the definition
 fingerprint; jarvis neither copies its text nor supplies a manual base revision.

@@ -134,7 +134,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) adopted by 0071; source/candidate qualified, production deferred | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
-| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source implemented on the owner-approved f1 stack at `945dc62`, combined qualification pending; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
+| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined candidate qualified; production deferred; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
 | attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
 | mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; production activation separate; wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
 | reliability and integrated acceptance | [finishing pr f2](#v2-finishing-prs) accepted; spec pending | jarvis lifecycle/journals and demonstrated upstream defects; final combined proof follows f1/f3 and slices 5–6 |
@@ -963,8 +963,8 @@ owns closed progress/payload/tool schemas, resumable gmail prefixes, fixed calen
 sync queries, shared-token repair and account-qualified echo receipts. consume
 attachment's actual merged profile/fresh-read helpers; do not overwrite its work.
 three temporary integration/live journeys get designer/adversarial review,
-red/green/refactor and probe deletion. source is implemented; combined
-migration/native candidate qualification remains pending;
+red/green/refactor and probe deletion. source and the separate combined
+migration/native candidate are qualified;
 final production activation is separate.
 
 trusted internal producers can use the same append with actual source identity.
@@ -1068,7 +1068,7 @@ intent merely because their implementation is incomplete.
 | o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](issues/work-installed-cutover.md) remains |
 | o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
 | o9 | [evidence](delegated-follow-through.md#implementation-evidence--2026-11-15) qualifies source and temporary candidate against installed skid, with `claude-work` explicitly unavailable by owner decision; production acceptance stays at final v2 cutover |
-| new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; source implemented, combined migration/native proof pending; recurrence belongs to o7, dream wakes deferred |
+| new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined migration/native candidate qualified; installed cutover deferred; recurrence belongs to o7, dream wakes deferred |
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
 | f1 reads | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; page/chunk/freshness/recovery/native proof passes; production cutover separate; broader [search proposal](complete-and-continuable-searches.md) stays deferred |

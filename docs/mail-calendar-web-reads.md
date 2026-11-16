@@ -14,8 +14,9 @@ reference only; its selected-domain schemas are superseded here.
 
 implementation-base refinement, 2026-11-16: the owner explicitly authorized
 stacking f1 on the audited, unmerged event branch `945dc62` instead of waiting
-for its merge. its separate candidate qualification remains pending; f1 does
-not modify that candidate or infer its acceptance.
+for its merge. event candidate qualification was pending at that base; its
+subsequent [qualification](event-sources-and-recurring-work.md#implementation-evidence)
+retains its own artifacts and scope. f1's separate candidate evidence follows below.
 
 ## goal, boundaries and decisions
 
@@ -512,12 +513,28 @@ no second paid model run or replacement fixture was used.
 teardown is verified: all six task units, their processes/mounts, the candidate
 source/runtime/cache/cognition/empty checkout, private configuration and receipts,
 task database, remote setup files and local probes/test container are removed.
-source branches/worktrees and existing approved tests remain. the inactive-unit
+existing approved tests remain. the inactive-unit
 reset step initially returned nonzero; resetting only the actually failed task
 unit completed cleanup, followed by independent absence checks.
 
-the dependency task refs are published for immutable fetches; no upstream or
-jarvis main-branch merge is claimed. source branches/worktrees remain reviewable.
+the upstream source is merged in [llm-tools pr 28](https://github.com/NielsdaWheelz/llm-tools/pull/28),
+[kernel pr 30](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/30) and
+[memory pr 6](https://github.com/NielsdaWheelz/universal-memory/pull/6). the exact
+qualified pins above remain unchanged and reachable through their main histories.
+jarvis delivery and branch disposition belong to its pull request; this evidence
+qualifies source and candidate artifacts, without production activation.
+
+after candidate qualification, event-source main `f2ef8db` (pr 74, head `b11a15c`)
+was integrated. both feature contracts retain their own exact candidate evidence.
+its timezone guidance is compressed to: “date_time is utc; convert via native
+zoneinfo before another zone label.” only that added guidance changed; tool
+handlers, dependency pins and the 16,384-byte system limit remain unchanged.
+the complete native system composition measures 16,359 bytes with the 19-byte
+owner-zone example and 16,372 with the longest locally installed iana key
+(32 bytes). the linux host's longest installed key is 30 bytes; tested
+`posix/` and `right/` aliases are absent on both hosts. semantic review and local
+composition checks cover this merged prompt; the paid candidate above used the
+original `0ee42e4` prompt and was not rerun for this prose-only integration.
 the dependency audit reports no known vulnerabilities in catalogued packages;
 three vcs-only libraries cannot be assessed through pypi's audit catalogue.
 

@@ -290,6 +290,7 @@ _MAIN_ROLE_INSTRUCTIONS = (
     " granting no retry. email/calendar inputs are metadata: polling read no "
     "body/attachment. inspect exact references when useful. visibility proves no "
     "calendar attendance; changes show current snapshots, never prior values. "
+    "date_time is utc; convert via native zoneinfo before another zone label. "
     "attention can arrive late: distinguish due time from host now. events.status"
     " reads health; events.configure enables/disables/re-arms repaired sources. "
     "disabling retains progress/published work and cancels no request, approval, "

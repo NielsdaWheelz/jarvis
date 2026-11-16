@@ -9,12 +9,13 @@ original rollouts, codex's native jsonl transcript segments.
 `missing source rollout`. the child files and parent metadata exist; the two
 advertised original files do not.
 
-impact: the old whole-lane baseline blocks capture. adr 0073 is now installed,
-but dev-server's first complete head inventory is still running. after activation,
-these unreadable conversations remain pending; other unstable heads can also be
-pending. healthy and new independent chats can then capture. their identities
-stay recorded. later recovery establishes a fresh cut then, excluding earlier
-activity. a new fork may inherit the broken lineage.
+impact: the former whole-lane block is removed. the installed 0008a/v3 lane
+activated at 21:59:08 utc with 190 established cuts and these 21 explicit pending
+baselines. healthy and new independent conversations capture; normal model
+turns have passed exact two-event capture and actual native mcp reopening.
+the unreadable conversations remain unable to ingest. later recovery establishes
+a fresh cut then, excluding earlier activity. a new fork may inherit broken
+lineage. successful healthy capture does not resolve the missing originals.
 
 evidence: metadata/path checks found neither source in the six online codex homes,
 including sessions and archived sessions. the other online native endpoints cannot

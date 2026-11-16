@@ -562,8 +562,8 @@ native recovery; no pre-cut activity is imported or identity omitted.
 
 the following records the earlier schema-0008 rollout and its then-current
 deferrals. the [per-conversation amendment](#per-conversation-capture-amendment)
-below owns the subsequent release, macbook activation and remaining dev-server
-live check.
+below owns the subsequent releases, both online activations and completed
+normal capture checks.
 
 | step / owner | action and completion evidence |
 | --- | --- |
@@ -668,8 +668,8 @@ history's missing head is never an empty cut. permanently unreadable histories
 can remain pending indefinitely; their earlier activity will remain absent even
 if they recover later. this is the owner's accepted coverage trade-off.
 
-installed transition: release `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, tag
-`memory-partial-baselines-2026-11-15-r2`, is active on schema `0008a` with zero
+earlier installed transition: release `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, tag
+`memory-partial-baselines-2026-11-15-r2`, activated on schema `0008a` with zero
 service restarts. the same-release contained stock-0.160 host qualifies. the
 stopped migration comparison preserves all 11 prior lane receipts, 4,811
 conversation rows, 4,820 originals, 26 notes and 4,836 leaves exactly, including
@@ -677,7 +677,7 @@ all cuts/checkpoints. canonical resume sequence 4 is unchanged; activation
 converts no actions and accepts only the three already-finalized compatible
 worker records. old release 3367413 is pruned; one installed release remains.
 
-both collectors select the same 0fc3d64 revision and authenticate native-archive.v3.
+both collectors then selected the same 0fc3d64 revision and authenticate native-archive.v3.
 all thirty protected profile, instruction and private-input files retain exact
 bytes, inodes and modes; no native daemon restart occurs during this replacement.
 an actual native mcp open reopens the known synthetic note with its exact marker.
@@ -702,7 +702,7 @@ establish checkpoint ordering by itself.
 at the earlier source merge, dev-server work2's initial inventory had not
 committed after more than 100 minutes. its eventual activation and subsequent
 capture-delay repair are recorded below; its normal model→capture→mcp journey
-has now passed, with scheduling latency still under repair. restart
+has now passed; the scheduling repair and fresh measurements follow below. restart
 qualification uses the actual replacement's preserved
 old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
 there is no second full cold-start experiment in that baseline qualification.
@@ -795,7 +795,24 @@ repairs: head recovery gets one quantum with the recovery gap excluded; explicit
 retry works with an unchanged native hint. restart preserves exact cuts,
 checkpoints and originals without duplicates. independent source/test/contract
 review passes. the new probes and disposable databases are removed after this
-evidence; installed replacement and fresh latency proof remain pending.
+evidence; installed replacement and fresh latency proof are complete.
+
+jarvis pr 69 and dev-server pr 218 are merged. central and both online collectors
+run b6cf4b3 on unchanged schema 0008a and stock cognition 0.160; no v2 activation.
+normal fresh work2 turns on macbook/dev-server reach stored archive receipts in
+67.49/64.63 seconds after model completion, with exact native mcp opening and
+shared search. preserved-state comparisons pass before/after replacement and
+after live capture. all selected source changes are merged; compatible artifacts
+remain immutable tags, without maintenance branches. the owning
+[installed evidence](universal-memory.md#installed-collector-repair-qualification)
+records observation bounds, original preservation and cleanup.
+
+no further implementation is outstanding for this online rollout. 21 dev-server
+missing-source histories and [two unresolved macbook baselines](issues/macbook-work2-pending-baselines.md)
+remain explicit coverage gaps under the approved healthy/new policy. arch, nexus,
+three claude model checks and the other named deferrals remain outside completion;
+initial baseline/long-operation latency remains documented, with no broader load
+claim.
 
 ### memory and native-main integration
 

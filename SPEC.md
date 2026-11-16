@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–5 source-qualified, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified, not activated**
 
 date: **2026-11-16**
 
@@ -17,7 +17,9 @@ from subsequent memory-mainline integration. slice 5 implements attachments and
 has separate private-storage/native-host candidate qualification; its
 [evidence](docs/attachments-and-durable-originals.md#implementation-evidence)
 owns the exact journeys and resource disposition.
-the remaining slices and v2 activation are pending. these contracts supersede
+slice 6 has source and separate native/source candidate qualification; its
+[event evidence](docs/event-sources-and-recurring-work.md#implementation-evidence)
+owns real versus controlled proof. installed v2 activation remains pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
 
@@ -43,8 +45,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   it reuses slice 5's shared connector primitives after their merge. source metadata
   enters ordinary canonical host history/memory; no automatic body/file archive.
   shared refresh concurrency and account-qualified new write receipts belong at
-  the existing connector boundary. source is implemented; combined migration/native
-  candidate qualification remains pending.
+  the existing connector boundary. source and combined migration/native
+  candidate are qualified; production activation remains separate.
   existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
@@ -99,9 +101,9 @@ the adopted schema additions are `work`, `event_cursor` and `attachment`, plus
 o6's causal message reference and contract changes; there is no `recurring_wake`
 table. detailed fields/tools, migration and acceptance belong to the linked
 contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
-the current source has seventeen application tables: the native nine, six memory
-tables, `work` and `attachment`. migration `0011` adds attachments after `0010`;
-the event cursor remains a later slice.
+the current source has eighteen application tables: the native nine, six memory
+tables, `work`, `attachment` and `event_cursor`. migration `0011` adds attachments
+after `0010`; `0012` adds event-source progress.
 shared memory stays in its separate pr: no capture, dreaming or memory-schema
 change is implied, and selected dream-triggered turns remain deferred. existing
 complete-search and budget proposals remain separately scoped later work.

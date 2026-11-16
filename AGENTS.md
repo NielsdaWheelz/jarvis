@@ -19,11 +19,11 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling, interactive hosting and television integration. shared memory remains separate
-  and quiet dreaming unchanged. slices 1–5 are source-qualified; slices 3–4 have
+  and quiet dreaming unchanged. slices 1–6 are source-qualified; slices 3–4 have
   temporary-candidate qualification against installed skid and a separate native
   host respectively. slice 5 has separate private-storage/native-host candidate
-  qualification. remaining slices and
-  installed activation are pending. keep installed baseline
+  qualification. slice 6 has separate native/source candidate qualification;
+  installed activation remains pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
   schemas and behavior.
@@ -75,7 +75,9 @@ These instructions govern all work in this repository.
   pause. definite local cache-cleanup failure is failed partial deletion, distinct
   from an unknown remote effect. manual-cleanup facts preserve original failed or
   uncertain action receipts. production activation remains at final cutover.
-  [slice 6](docs/event-sources-and-recurring-work.md) is source-implemented; combined qualification is pending. one cursor table/poll task publishes mail/calendar facts through
+  [slice 6](docs/event-sources-and-recurring-work.md#implementation-evidence) has
+  source and separate candidate qualification. one cursor table/poll task
+  publishes mail/calendar facts through
   ordinary main admission. preserve partial gmail progress, fixed sync selectors,
   quiet baselines and truthful coverage gaps. source controls use existing atomic
   local receipts; status is fresh. reuse attachment's landed profile/fresh-read

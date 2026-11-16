@@ -280,11 +280,11 @@ qualification continued into 2026-11-16 utc. this is neither hosted ci nor
 production activation. the original checkout and its owner-authored documentation
 changes were preserved; work used separate `feature/private-workspace` worktrees.
 
-### exact source and environment
+### initial full candidate source and environment
 
 | artifact | qualified identity |
 | --- | --- |
-| jarvis runtime/deployment candidate | `a649e58f33bfb4c4fb680e81488a907e3eb27cbe`; this branch's later changes record evidence and handoff |
+| jarvis runtime/deployment candidate | `a649e58f33bfb4c4fb680e81488a907e3eb27cbe`; the subsequent compatible integration below has its own final pins |
 | kernel | `b7218b9b59c0a58c0da548307320af9377486ed9` |
 | provider-runtime | `d69c7c69a2ce60e46cfaf296d12e4535b21456c5` |
 | unchanged llm-tools / memory library | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` / `93e02af07fee7e79250fb800835c324f092b5bec` |
@@ -450,6 +450,68 @@ pypi-auditable. local upstream checks used darwin arm64; candidate and disposabl
 postgres proof used actual linux x86_64. no hosted ci or broad provider/model
 matrix is claimed. the [installed handoff](issues/private-workspace-installed-cutover.md)
 and pre-existing native protocol issue are the remaining explicit boundaries.
+
+### compatible memory mainline integration
+
+main advanced to `b5df0ec4a1e756691307e63435234598023fa5b3` during qualification.
+its native archive paging and collector fairness repairs were merged rather than
+regressed by the workspace dependency pins. jarvis integration candidate
+`a72b29e55b8c31fea526dd55b7c6ce96a8668385` has parents `edb3b79` and that exact
+mainline. the adopted collector is byte-identical to mainline. only collector
+code and dependency guards/manifest/lock change from the completed workspace
+source; workspace behavior and native-role revisions remain unchanged.
+
+| final artifact | identity |
+| --- | --- |
+| provider | `ea9f82025632926a7c7e47d6333fb9346f6ee86c`, combining workspace `d69c7c6` with exact compatible paging `6582551ec87af440c53f30ce7357d7a90c32e549` |
+| kernel | `9f5f951272536d51567995cbd693d1239ad59eb9`, combining workspace with compatible bridge `42e7ecdef3fc2a16fddef8a450456cfa503b1d3e` and final provider pin |
+| jarvis lock sha256 | `6407b1908ae1144358203468413481e2f590cd9e2c1ec5159917a4d93b8576f4` |
+| kernel lock sha256 | `a0022c587a8a65c723811451d1d2e3898d76ff6d440ac5f15c487b85e6ceea00` |
+| provider lock sha256 | unchanged `bd54d94422ecf1093e9af2b37dbefcdf01eddfcd822ada7fb2ee9ce2e17ac459` |
+
+source/adversarial audit proved provider native transport, policy, catalogue,
+events, types, runtime and manifests byte-identical to `d69c7c6`; only its archive
+reader and archive documentation changed. kernel production/test blobs remain
+byte-identical to `b7218b9`. moving upstream mains with newer runtime/model
+contracts were excluded deliberately; this composition retains stock `0.160.0`.
+no compatibility shim, duplicate archive reader or restored temporary test.
+
+an affected-boundary live proof used a new separate native host/unit/mapping,
+ordinary local git checkout and application namespace with the same identities
+and restrictions. actual jarvis selection/configuration factories, kernel native
+supervision and provider executed file work plus one declared read callback in
+one turn; an existing transient journal supplied the explicitly temporary host
+boundary. independent native event and external filesystem/git inspection proved
+exact `combined pins verified` plus newline, local commit
+`4c4864325cc924ee170a480daabbf568ce3e6c4f` and clean checkout. borrowed modes
+survived discard. the actual isolated jarvis compactor completed under the frozen
+read-only/disabled policy and its generated cwd disappeared. this is combined
+primitive/configuration proof, not a rerun of product journals, connector effects
+or gateway delivery. those remain qualified at the initial full candidate above.
+no new private remote, child or credential was needed.
+
+the first new probe used an invalid request scope and failed before native
+acquisition; correcting its fixture to `job` is not product red or a runtime
+repair. a native git command also failed before the agent inspected staged state
+and corrected its arguments; that failure is retained rather than counted as
+successful execution. staging reused two generic temporary filenames and
+overwrote their previous contents; the owner explicitly selected their disposal.
+further staging used the task prefix. no production configuration or repository
+file was overwritten.
+
+independent source and affected-boundary review passed. final combined upstream
+checks passed again: kernel 176 retained tests, two paid/live cases deselected;
+provider 983 passed, one expected sdk-present skip and 40 paid cases excluded,
+plus the separate absent-sdk clean-wheel execution. lint, types, build/imports,
+lock checks and audits passed with the same private-git audit limits. the existing
+capture/retry regression passed against another separately migrated disposable
+schema `0010`. final jarvis `scripts/verify` passed after integration probe
+deletion, including frozen install, source/type/docs, build/import and audit checks.
+the second host/unit/mapping/checkout/runtime, disposable database, uploads,
+temporary probe and task-owned managed-python link were removed after review;
+local probes, logs, archives and upstream check artifacts were also deleted.
+full paid feature journeys were not repeated: audited native behavior is unchanged
+and the relevant combined interfaces were exercised. production remains separate.
 
 ## explicit costs
 

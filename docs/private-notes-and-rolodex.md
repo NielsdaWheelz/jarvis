@@ -183,7 +183,9 @@ publication required by actual native execution. stock's physical daemon directo
 stays private `0700` beneath an ancestor bound as `/tmp`; its private relative alias
 is masked from native commands. systemd binds the one group-accessible socket onto
 an inert public placeholder only inside the application namespace. retain the
-configured endpoint, identities, account masks and other service restrictions.
+configured endpoint, identities, account masks and privilege restrictions.
+the native host needs ordinary read-only kernel metadata for its unprivileged
+sandbox; the application keeps its pid-only proc view.
 host loss stops the application; repair/replacement requires a fresh application
 start and socket remount. no public control hardlink, proxy or new supervisor.
 

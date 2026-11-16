@@ -17,6 +17,14 @@ mode. no requested file or git effect ran; both turns retained honest canonical
 configuration waits. an actual isolated compactor still passed after enabling
 the host execution environment.
 
+the next native probe exposed the host's `ProcSubset=pid` restriction: bubblewrap
+could not read `/proc/sys/kernel/overflowuid`. installed bubblewrap reads that
+and `overflowgid` before parsing even `--help`, so stock reported no usable
+launcher despite the required executable and flags being present. the same
+unprivileged no-new-privileges command passed outside the filtered host mount
+namespace, with ordinary proc visibility; that control alone does not qualify
+the corrected service namespace.
+
 stock `rust-v0.160.0` requires its reserved `/tmp/codex-daemon-UID` directory to
 remain owner-only `0700` on every preparation ([directory guard](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/uds/src/daemon_directory.rs)).
 its linux sandbox masks that directory and aliases of its ancestors, and rejects
@@ -37,7 +45,11 @@ socket under `exec` in both the host and service-manager namespaces.
 
 systemd binds only that socket onto the public placeholder inside the application
 namespace. native commands see the placeholder and stock-masked private aliases.
-the application gets the existing one-socket grant. retain account instruction
+the application gets the existing one-socket grant. the native host uses ordinary
+proc visibility so its unprivileged sandbox can read live kernel metadata.
+`ProtectKernelTunables=true` retains read-only kernel settings and
+`ProtectProc=ptraceable` retains process hiding. the application keeps
+`ProcSubset=pid`. retain account instruction
 masks, root-only application secrets, distinct uids, non-dumpability, private
 temporary files, no-new-privileges and empty capabilities. no proxy, copied
 credential, public control hardlink, extra listener or privileged publisher.
@@ -58,7 +70,9 @@ namespace and socket bind. add no automatic application start or new supervisor.
 stopped paired release replacement already owns this operation.
 
 this adds a coordinated restart requirement and may leave jarvis unavailable
-until repair. sessions remain disposable; canonical requests, original callback
+until repair. the trusted native domain can also read additional kernel/system
+metadata; it gains no kernel-setting write grant. sessions remain disposable;
+canonical requests, original callback
 receipts and effect recovery survive. final v2 cutover must install the same
 qualified host/application release and mapping together. candidate proof must
 show application connection, native socket masking, real shell/git, isolated

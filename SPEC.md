@@ -52,7 +52,9 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   stays at final v2 cutover. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
   corrects the host boundary demonstrated by real candidate failures: retain
   stock's private physical socket and expose it only in the application's
-  namespace; host replacement requires application restart/remount.
+  namespace; host replacement requires application restart/remount. the native
+  host retains read-only kernel metadata needed by its unprivileged sandbox;
+  the application retains its pid-only proc view.
   [attachments](docs/attachments-and-durable-originals.md)
   retain discord/email original bytes privately in r2, with one metadata table
   and native image/pdf/file reading. notes' explicit provider/kernel handoff

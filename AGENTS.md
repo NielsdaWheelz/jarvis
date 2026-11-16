@@ -66,7 +66,9 @@ These instructions govern all work in this repository.
   slice 4's native socket publication: private stock directory, ancestor mount,
   application-only socket file bind and unchanged public endpoint/client grant.
   host loss stops the application; repair requires a fresh application start and
-  remount. no public control hardlink, proxy or automatic activation. candidate
+  remount. native sandboxing needs ordinary read-only kernel metadata; the
+  application retains pid-only proc. no public control hardlink, proxy or automatic
+  activation. candidate
   qualification and final production cutover remain separate.
 - adr 0053 retains only the selected deployment release and one temporary
   installation candidate. do not keep rollback or migration releases indefinitely.

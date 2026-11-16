@@ -52,6 +52,9 @@ app_host_dependency="$(sudo systemctl show --property=BindsTo --value jarvis.ser
 [[ " $app_host_dependency " == *" jarvis-codex-contained.service "* ]]
 [[ "$(sudo systemctl show --property=ProtectHome --value jarvis-codex-contained.service)" == read-only ]]
 [[ "$(sudo systemctl show --property=ProtectSystem --value jarvis-codex-contained.service)" == strict ]]
+[[ "$(sudo systemctl show --property=ProcSubset --value jarvis-codex-contained.service)" == all ]]
+[[ "$(sudo systemctl show --property=ProtectProc --value jarvis-codex-contained.service)" == ptraceable ]]
+[[ "$(sudo systemctl show --property=ProtectKernelTunables --value jarvis-codex-contained.service)" == yes ]]
 [[ "$(sudo systemctl show --property=NoNewPrivileges --value jarvis-codex-contained.service)" == yes ]]
 [[ -z "$(sudo systemctl show --property=CapabilityBoundingSet --value jarvis-codex-contained.service)" ]]
 host_write_paths="$(sudo systemctl show --property=ReadWritePaths --value jarvis-codex-contained.service)"

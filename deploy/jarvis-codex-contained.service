@@ -36,7 +36,6 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectProc=ptraceable
-ProcSubset=pid
 ReadWritePaths=/run/jarvis-contained @ACCOUNT_HOME@ /var/lib/jarvis-notes
 NoNewPrivileges=true
 AmbientCapabilities=

@@ -198,6 +198,12 @@ and issue an explicit repair wake where needed. never replay native commands.
 bootstrap derives the same host mount layout while that host is stopped and
 creates no active control endpoint. cleanup removes only owned ephemeral aliases
 and placeholder; the notes checkout is untouched. the worker receives no native credentials.
+
+native host uses default `ProcSubset=all` so installed bwrap can read the kernel's
+overflow uid/gid metadata before sandbox startup; application keeps
+`ProcSubset=pid`. this exposes ordinary additional readonly kernel/system metadata
+to the trusted native domain. `ProtectKernelTunables=true`,
+`ProtectProc=ptraceable`, no-new-privileges and empty capabilities remain.
 no change to the shared coding daemon, rpc relay or copied account is involved.
 
 From a clean, committed Jarvis checkout, provision the dedicated database and

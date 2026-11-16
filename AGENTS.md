@@ -16,16 +16,17 @@ These instructions govern all work in this repository.
   at reasoning `max` through the owner's personal codex subscription and
   `provider-runtime`; no invented wire alias, model substitution or api-key
   generation fallback. current pins/evidence remain unchanged until qualified.
-  [f1](docs/mail-calendar-web-reads.md) specifies read completion; f2/f3 specs
-  remain pending. f1 reuses landed attachment manifests and the merged event
+  [f1](docs/mail-calendar-web-reads.md) implements read completion; f2/f3 specs
+  remain pending. f1 reuses landed attachment manifests and the audited event
   profile/refresh primitives, removes clipped thread/fanout paths, and keeps
   original receipts plus normalized paid-read barriers. the owner selected
   disposable web pages with explicit restart after stale cursors. the roadmap
   owns dependencies. broader search,
   inbox housekeeping, new invitation responses and outgoing files stay deferred.
   preserve existing prompt/personality, native subagents and skid; repair
-  demonstrated gaps rather than add an orchestration framework. this docs update
-  does not authorize implementation or production activation.
+  demonstrated gaps rather than add an orchestration framework. production
+  activation remains separate. f1 source and its separate candidate
+  are qualified; its evidence owns exact artifacts, temporary proof and cleanup.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

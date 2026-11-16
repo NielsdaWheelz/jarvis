@@ -1,8 +1,8 @@
 # complete mail/calendar/web reads
 
 status: f1 implementation contract under [adr 0075](decisions/0075-v2-completion-and-subscription-model.md).
-source implemented and controlled-qualified, 2026-11-16; separate live candidate
-qualification remains pending. the
+source and separate live candidate qualified, 2026-11-16; production activation
+remains separate. the
 [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence; this document
 owns f1's interfaces and acceptance. no production activation.
 
@@ -219,7 +219,8 @@ nonboolean `attendeesOmitted` before constructing its strict snapshot. reuse
 existing unavailable/reconciliation handling; incomplete state must neither
 authorize a mutation nor prove its result. public write schemas and effect
 recovery stay unchanged; bump affected binding revisions. the
-[source issue](issues/calendar-omitted-attendees.md) stays open until proved.
+omission repair is qualified by the controlled write-boundary checks recorded
+below.
 
 main discovers ids and composes calendars; never ask the owner for machine ids.
 retain finite requested intervals, single-event recurrence expansion, cancelled
@@ -440,3 +441,92 @@ adversarial review. run `scripts/verify` and required upstream checks; preserve
 approved memory regression groups. record exact commits, exercised boundaries,
 limitations and cleanup here, then delete only these temporary probes/resources.
 final f2 combined acceptance and stopped production cutover remain separate.
+
+## implementation evidence
+
+source artifact: `0ee42e48a61fe1b42aa488f894f8001c8522d5ea`, on the
+owner-approved `945dc62` event stack. the separate candidate uses python 3.12.13,
+schema `0013` and the artifact's frozen lock. no production activation.
+
+| dependency | exact adopted commit |
+| --- | --- |
+| llm-tools | `662a63a863bfefbc9c4f16025bd82f47262d99d6` |
+| llm-agent-kernel | `fcb6ecfb4088d85f64aafd8689e728058db27b0a` |
+| universal-memory | `b616ee924454f40305c49d3b73e81694819ba1e4` |
+| provider-runtime | `ea9f82025632926a7c7e47d6333fb9346f6ee86c` (unchanged) |
+
+the kernel and memory branches only reconcile their exact tool dependency; the
+kernel's existing dependency canaries were updated for the hard-cut contracts.
+there is no provider/model/runtime cutover. the actual selected cognition remains
+`gpt-5.6-terra/high`; f3 owns its replacement.
+
+| boundary | current evidence |
+| --- | --- |
+| mail | controlled http reaches 100 long exact message references through whole-page suffixes, thread message 51 and text beyond 100 mib. ordered/duplicate/long headers, 80 routing addresses, malformed/absent routing, externally stored alternatives/html, binary-sibling isolation, charset defaults and xml bom precedence pass. attachment limits remain unchanged |
+| google/calendar | controlled one-page calls reach calendar 51, provider page 101 and all 2,500 events in a provider page, including exact envelope suffixes. empty continuing pages, account/scope/page changes and a representable 10-kib provider token pass. long text/etags/attendees remain readable; snapshots retain their limits. civil dates, dst instants, cancelled and unspecified ends pass |
+| omission guard | actual public write-connector reads reject true or malformed omitted-attendee evidence; create/update/delete reconciliation remains uncertain without entering a mutation. complete false evidence remains usable |
+| resources | actual executor tests preserve tightened 0/1/2 attempt limits, 1-kib escaping-heavy chunks and exact eof. cancellation joins entered work and closes its spool. an outer deadline records two actual requests rather than four reserved; independent earlier task cancellation remains cancellation |
+| web | 15 temporary integration probes cover every local suffix, later provider offsets, exact freshness/count/source operation, mixed ordering, omissions, stale zero-io reads and range/envelope boundaries. live public text reassembled 502,941 bytes across 16 chunks with one fetch. full source whitespace, huge json numbers and rejection of nonfinite json syntax pass |
+| recovery/storage | actual postgres/native-dispatch/provider-wire faults prove fresh observations, original result and wire replay after cache eviction, the result-commit/native-reply gap, local cursor crash recovery with zero attempts, changed-batch paid uncertainty barriers and scoped old-contract cutover rejection. `0012→0013` preserves all 26 populated canonical result digests; nul-containing results and native replies reopen exactly |
+| preserved attachments | actual store/family/executor plus task postgres and synthetic object-stream prove exact bytes/hash, cache loss, original replay without io, fresh refetch and stream closure. the absent mac group lookup is controlled; this is not new live r2 or linux namespace qualification |
+| live reads | the frozen separate linux candidate passes 16 real authorized gmail/calendar/brave/public-page calls. useful mail text, complete routing/metadata and body continuations pass. the actual native main completes both owner inputs across 19 callbacks/17 committed reads, follows mail and web continuations, reads the new event in both projections and handles new input while active. one unsent threaded draft and one owner-only no-attendee event succeed, are independently verified against actual provider state and are deleted |
+| existing checks | llm-tools 206 existing tests; kernel 176 existing tests; three approved memory capture/completion regressions; jarvis capture/retry regression; final frozen `scripts/verify`, build/install/provenance and documentation checks pass after teardown/probe deletion. hosted ci is not claimed |
+
+the actual native conclusion passes independent content review: correct reply-to
+selection and original thread, concise acknowledgment of new input, no exposed
+private addresses/subjects/provider ids, honest attachment/source-status scope,
+and a correct calendar-parameter claim citing the same observed official source.
+the steering input is durably recorded before the first native terminal.
+
+in a second actual candidate python process, an empty catalog and no composed
+clients/cache reopen the original committed read through the real native journal.
+its result and wire hashes match, with zero http/model attempts. this proves cold
+receipt reopening, not a second native reasoning turn or physical discord restart.
+
+each feature had schema/content review, genuine red evidence, green checks and
+independent adversarial review before final refactor. repairs include eof fitting,
+malformed provider metadata, folded headers, cancellation-owned spools, frozen
+provider page sizes, xml encoding precedence, exact deadline accounting and
+lossless result storage. final adversarial review passes with no unresolved
+source blocker. temporary probes are removed only after the recorded acceptance and teardown verification.
+
+candidate setup failures were separate: a stale inherited database route,
+required fresh-database vector provisioning, a nonexistent guessed refresh
+parent and an incorrect cognition-directory mode were corrected in task
+configuration before the relevant model/effect entry. the live calendar selector
+failure was the configured `primary` alias; exact canonical discovery and full
+owner-only acl verification repaired only the stopped candidate's allowlist.
+production's later canonical configuration remains an explicit
+[cutover prerequisite](issues/canonical-calendar-configuration.md).
+
+the first native harness exited during its post-run cleanup check: its verifier
+compared json spellings of datetimes despite the existing write contract comparing
+typed instants. only the two equivalent offset spellings differed. the repaired
+verifier retains full provider/acl/etag/field checks, rejects a true instant change
+and conditionally deletes the SAME event. original action/read receipts stay
+unchanged. read-only machine validation of that original run then passes all
+19 callbacks, original reply/output accounting, both continuations, both event
+projections, both completed inputs, steering, port results, cleanup and cold replay.
+no second paid model run or replacement fixture was used.
+
+teardown is verified: all six task units, their processes/mounts, the candidate
+source/runtime/cache/cognition/empty checkout, private configuration and receipts,
+task database, remote setup files and local probes/test container are removed.
+source branches/worktrees and existing approved tests remain. the inactive-unit
+reset step initially returned nonzero; resetting only the actually failed task
+unit completed cleanup, followed by independent absence checks.
+
+the dependency task refs are published for immutable fetches; no upstream or
+jarvis main-branch merge is claimed. source branches/worktrees remain reviewable.
+the dependency audit reports no known vulnerabilities in catalogued packages;
+three vcs-only libraries cannot be assessed through pypi's audit catalogue.
+
+production remained active at pid `590939` throughout teardown. its service,
+release, canonical database/control and configuration were not replaced or
+activated. ordinary shared oauth refresh bookkeeping was retained. no original
+codex history/credentials, skid state or global host journals were deleted.
+no task r2 bucket/object or third-party send/invitation was created.
+f2's combined acceptance, f3 and stopped production activation remain separate.
+the [private notes origin](issues/private-notes-origin.md) remains unavailable;
+this candidate uses its own empty ordinary checkout and claims no private-origin
+bootstrap. the original native diagnostics issue remains open.

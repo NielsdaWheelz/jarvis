@@ -271,12 +271,11 @@ these describe current source trade-offs; installed behavior is qualified separa
   tagged domain variant rather than Google's compatibility end. This preserves
   truth but requires consumers to handle the third observed-end variant; plan/
   session fingerprints prevent reuse with an incompatible get-event contract.
-- Calendar event listing uses host-owned bounded pagination and returns typed
-  completeness rather than a model-selected limit or truncation guess. Its v6
-  result returns at most 1,500 compact overview items in 512 KiB; full details
-  require explicit `calendar.get_event` reads. It may use more Google requests
-  and still reports unusually dense ranges as partial at the fixed
-  page/event/byte/deadline bounds.
+- [mail/calendar/web reads](docs/mail-calendar-web-reads.md) use explicit bounded
+  pages and full-text byte chunks. main chooses calendars and depth; live changes
+  require explicit restart. web search caches one disposable page, and stale
+  local cursors fail without another paid fetch. strict calendar snapshots remain
+  separate from text evidence. deeper reads use more calls and context.
 - main persists typed public progress as prose without completing owner requests.
   final output separately renders an answer, partial result, question, failure
   or silence, with explicit request dispositions. malformed structured output

@@ -382,22 +382,19 @@ requires a concrete parsed end. True produces the unspecified variant and
 discards Google's compatibility end, for every normal event type; start remains
 required. Sparse cancelled events remain separate. The three-branch observed
 projection is deliberately not a future create/update input, which retains the
-unchanged two-branch concrete end and address-required attendees. Calendar
-discovery lists every non-deleted reader-or-better CalendarList entry, including
-hidden entries, with a hard 50-calendar bound. Aggregate event reads page in
-deterministic calendar-ID rounds with concurrency ten, a 250-event provider page,
-100 event-page requests, a 55-second connector deadline inside the 60-second
-executor fence, and 202 total external attempts including discovery and refresh.
-They project compact overview records, merge globally in chronological order,
-and return at most 1,500 whole items inside the 524,288-byte canonical envelope.
-Overview items retain exact IDs, status, summary, start, observed end, and
-location; `calendar.get_event` supplies description, recurrence, people,
-reminders, etag, and update metadata on demand. A typed coverage value reports
-calendar/page/failure/count/byte/deadline incompleteness; exact fields are never
-shortened. Discovery is binding v1, aggregate list is v6, and get remains v2.
-Recomposed catalog/profile/plan/HostTable and Main output/role identities force
-a continuing-session cold bootstrap without changing isolated roles or database
-state.
+unchanged two-branch concrete end and address-required attendees.
+calendar discovery and event listing now follow [f1](mail-calendar-web-reads.md):
+main composes selected calendars through explicit pages, labelled previews and
+complete text reads. there is no aggregate calendar fanout/coverage controller.
+shared google profile/refresh primitives bind each observation to its account.
+portable utf-8/envelope fitting and inert html belong to llm-tools; source-specific
+projections, provider cursors and private google spools belong to jarvis.
+
+original read results commit before native replies; `read_position.result` uses
+postgres json so valid source nul remains lossless. a new callback observes fresh
+state. paid search recovery compares normalized provider operations, and stored
+null operation proof permits only network-free local cursor recovery. cached web
+suffixes never trigger an implicit fetch after eviction.
 
 Google OAuth, Google API, Maps, Brave, and Discord each use a dedicated
 host-owned HTTP client with environment proxy trust and automatic redirects

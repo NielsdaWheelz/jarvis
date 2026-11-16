@@ -22,7 +22,7 @@ from universal_memory.policy import EMBEDDING_DIMENSIONS
 
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError, DiscordSettings
-from jarvis.definitions import QUALIFIED_CODEX_MODELS
+from jarvis.definitions import MAIN_CODEX_MODEL
 
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
 EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
@@ -136,8 +136,8 @@ class Settings(BaseModel):
     @classmethod
     def _qualified_codex_model(cls, value: str) -> str:
         del cls
-        if value not in QUALIFIED_CODEX_MODELS:
-            raise ValueError("Codex model is not a qualified local-account route")
+        if value != MAIN_CODEX_MODEL:
+            raise ValueError(f"JARVIS_CODEX_MODEL must be {MAIN_CODEX_MODEL}")
         return value
 
     @field_validator(

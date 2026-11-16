@@ -135,11 +135,14 @@ memory/maps/fleet search remain later work.
 [finishing prs](docs/implementation-plan.md#v2-finishing-prs):
 [complete mail/calendar/web reads](docs/mail-calendar-web-reads.md#implementation-evidence)
 has source and separate candidate qualification. native/discord reliability and
-integrated acceptance still needs a spec, as does the owner's
-`gpt6astra-max` target (`gpt-6-astra`, reasoning `max`) through his personal codex
-subscription and provider library. current model/runtime pins are unchanged.
+integrated acceptance remain separate.
+[f3](docs/subscription-model-runtime.md#implementation-evidence) qualifies personal-subscription
+`gpt-6-astra/max` for main and `gpt-6.1-sol/xhigh` for memory, plus main-selected
+native-child and per-session skid model/effort. source and the separate candidate
+pass; cognition dependency/runtime pins remain unchanged. installed skid v0.24.4
+is adopted on macbook/dev-server; production jarvis activation belongs to f2.
 no new orchestrator, persona system or inbox housekeeping is included; final
-production cutover follows combined qualification.
+production cutover and acceptance follow f2's owning contract.
 
 ## Authoritative documents
 

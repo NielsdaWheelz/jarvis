@@ -480,6 +480,8 @@ class AgentController:
         for flag, item in (
             ("cwd", value.cwd),
             ("group", value.group),
+            ("model", value.model),
+            ("effort", value.effort),
         ):
             if item is not None:
                 argv += ["--" + flag, item]

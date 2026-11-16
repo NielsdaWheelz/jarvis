@@ -7,6 +7,11 @@ full-plan events, conversational stop and todos already exist. this slice qualif
 their composition and repairs demonstrated defects; it adds no orchestration layer.
 [the roadmap](implementation-plan.md#v2-reviewable-pr-slices) owns sequence.
 
+[f3](subscription-model-runtime.md#implementation-evidence) implements and qualifies
+owner-selected per-session worker model/effort and the v11 cutover through this
+slice's existing follow-through path; this v10 evidence stays
+at its original artifacts and does not qualify that extension.
+
 ## goal, scope and final state
 
 jarvis delegates useful work, remains responsive, receives a later observation and
@@ -37,7 +42,7 @@ and `src/jarvis/agent_tools.py` own exact closed schemas. preserve these surface
 | operation | existing input / meaning |
 | --- | --- |
 | `agent.list`, `agent.info`, `agent.read` | inventory filters; short target; bounded retained terminal text, respectively. fresh reads retain availability, source, scope and truncation. |
-| `agent.start` | required `machine`, `profile`; optional `name`, `cwd`, `group`, `prompt`. profile commands own provider/model/effort; no overrides. |
+| `agent.start` | required `machine`, `profile`; optional `name`, `cwd`, `group`, `prompt`, `model`, `effort`. profiles retain provider/account/executable defaults; f3 owns native per-launch lowering. |
 | `agent.send`, `agent.text`, `agent.keys` | target plus literal text or allowed keys. send is guarded input; text/keys are deliberate terminal interaction, not an automatic refusal bypass. |
 | `agent.wait` | target; `state=idle` (`idle/working/needs-input`), `timeout_seconds=300` (1–86400), `maxBytes=16384` (1–32768). registers observation and returns immediately. |
 | `agent.cancel_wait` | wait `action_id`; cancels observation only. |

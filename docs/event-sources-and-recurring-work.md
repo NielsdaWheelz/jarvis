@@ -558,3 +558,14 @@ existing private-workspace issue. unused r2 dependency settings are synthetic;
 no bucket/credential is created and harnesses prohibit attachment calls/storage
 requests. host authorization expired before the native rerun; see the temporary
 [remaining qualification](issues/event-source-native-qualification.md).
+
+
+reviewed prompt repair artifact: `f6cf29c`. `scripts/verify` passed from a clean
+committed-artifact worktree: frozen lock/sync, formatting/lint, strict typing,
+documentation, wheel/sdist build, fresh wheel installation/import/manifest/cli,
+and dependency audit. audit reported no known vulnerabilities for auditable
+packages; git-only kernel/tools/provider packages retain the audit's explicit
+not-on-pypi limitation. this is static/package evidence, not native acceptance.
+the new temporary behavioral probes remain until actual candidate completion;
+final post-deletion verification is still required. server authorization remains
+pending, so neither native rerun nor complete candidate cleanup is claimed.

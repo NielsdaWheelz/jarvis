@@ -5,7 +5,8 @@ status: pending host authorization and remaining actual candidate proof.
 source, controlled source/journal/service proofs, real google fixtures and the
 actual populated `0011→0012` migration pass. the first separate native candidate
 failed before request admission because combined instructions exceeded the fixed
-system bound. the reviewed source repair passes full catalogue construction;
+system bound. the reviewed source repair `f6cf29c` passes full catalogue construction and
+`scripts/verify` on its clean committed artifact;
 actual native rerun is still required, including mixed owner/work/worker/source
 handling through `EventStore` publication and truthful silence/provenance.
 

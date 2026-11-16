@@ -19,8 +19,9 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling, interactive hosting and television integration. shared memory remains separate
-  and quiet dreaming unchanged. slices 1–3 are source-qualified; slice 3 also has
-  temporary-candidate qualification against installed skid. remaining slices and
+  and quiet dreaming unchanged. slices 1–4 are source-qualified; slices 3–4 have
+  temporary-candidate qualification against installed skid and a separate native
+  host respectively. remaining slices and
   installed activation are pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own

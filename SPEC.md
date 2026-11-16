@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–3 source-qualified, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–4 source-qualified, not activated**
 
 date: **2026-11-15**
 
@@ -10,9 +10,10 @@ audience: product, engineering, design, operations, and future coding agents
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
 2026-11-14 owner decisions. slices 1–2 are implemented and isolated-qualified;
-slice 3 has source and temporary-candidate qualification against installed skid.
-temporary resources are removed; its evidence distinguishes the live candidate
-from subsequent memory-mainline integration.
+slice 3 has source and temporary-candidate qualification against installed skid;
+slice 4 has source and separate native-host candidate qualification. temporary
+resources are removed; each contract distinguishes its live candidate from
+subsequent memory-mainline integration.
 the remaining slices and v2 activation are pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.

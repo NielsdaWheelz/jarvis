@@ -189,6 +189,7 @@ class GmailDraftSuccess(_StrictModel):
 
 
 class GmailSendDraftSuccess(_StrictModel):
+    account: Annotated[str | None, Field(min_length=1, max_length=1_024)]
     sent_message_id: Annotated[str, Field(min_length=1, max_length=1_024)]
     thread_id: Annotated[str, Field(min_length=1, max_length=1_024)]
     jarvis_effect_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -300,6 +301,7 @@ class CalendarDeleteEventInput(_StrictModel):
 
 
 class CalendarCreateEventSuccess(_StrictModel):
+    account: Annotated[str | None, Field(min_length=1, max_length=1_024)]
     event: CalendarEventSnapshot
     created_at: AwareDatetime
 
@@ -307,6 +309,7 @@ class CalendarCreateEventSuccess(_StrictModel):
 
 
 class CalendarUpdateEventSuccess(_StrictModel):
+    account: Annotated[str | None, Field(min_length=1, max_length=1_024)]
     event: CalendarEventSnapshot
     updated_at: AwareDatetime
 
@@ -559,7 +562,7 @@ CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
     success_type=CalendarCreateEventSuccess,
     error_type=cast(type[CalendarCreateEventError], CalendarCreateEventError),
     effect=ToolEffect.Write,
-    limits=ToolLimits(262_144, 131_072, 2, 20.0),
+    limits=ToolLimits(262_144, 131_072, 3, 20.0),
 )
 CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
     CalendarUpdateEventInput, CalendarUpdateEventSuccess, CalendarUpdateEventError
@@ -574,7 +577,7 @@ CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
     success_type=CalendarUpdateEventSuccess,
     error_type=cast(type[CalendarUpdateEventError], CalendarUpdateEventError),
     effect=ToolEffect.Write,
-    limits=ToolLimits(524_288, 131_072, 2, 20.0),
+    limits=ToolLimits(524_288, 131_072, 3, 20.0),
 )
 CALENDAR_DELETE_EVENT_SPEC = ToolSpec[
     CalendarDeleteEventInput, CalendarDeleteEventSuccess, CalendarDeleteEventError
@@ -749,7 +752,7 @@ def gmail_write_family(provider: GoogleWriteProvider) -> ToolFamily:
                     "mailbox_search": False,
                     "pre_send_check": "exact-normalized-snapshot",
                 },
-                implementation_revision="jarvis-gmail-send_draft-v1",
+                implementation_revision="jarvis-gmail-send_draft-v2",
                 authority="approval-required",
             ),
         ),
@@ -774,12 +777,13 @@ def calendar_write_family(provider: GoogleWriteProvider) -> ToolFamily:
                         f"{CALENDAR_API_BASE_URL}/calendars/{{calendar_id}}/events"
                     ),
                 },
-                implementation_revision="jarvis-calendar-create_event-v1",
+                implementation_revision="jarvis-calendar-create_event-v2",
             ),
             _binding(
                 CALENDAR_UPDATE_EVENT_SPEC,
                 provider.calendar_update_event,
                 {"conditional": "If-Match expected.etag", "http_method": "PATCH"},
+                implementation_revision="jarvis-calendar-update_event-v2",
             ),
             _binding(
                 CALENDAR_DELETE_EVENT_SPEC,

@@ -34,7 +34,14 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   commitments, not per-occurrence jobs. its three local mutations remain usable
   bookkeeping during external-effect uncertainty, with normal action receipts.
 - [events](docs/event-sources-and-recurring-work.md) publish email/calendar facts
-  through the same input path; one cursor table owns polling progress. existing
+  through the same input path; one cursor table owns polling progress. slice 6's
+  source-audited contract specifies one independent poll task, resumable gmail
+  prefixes, fixed calendar sync queries, approximate attention and source controls.
+  it reuses slice 5's shared connector primitives after their merge. source metadata
+  enters ordinary canonical host history/memory; no automatic body/file archive.
+  shared refresh concurrency and account-qualified new write receipts belong at
+  the existing connector boundary. implementation/candidate proof remain pending.
+  existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
   is main's judgment. slice 3's source repairs and temporary candidate are
@@ -60,6 +67,12 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   retain discord/email original bytes privately in r2, with one metadata table
   and native image/pdf/file reading. notes' explicit provider/kernel handoff
   precedes native file access; no notes service or extraction framework.
+- event receipt amendment (2026-11-16): direct gmail-send/calendar-create/update
+  successes require verified account before effect entry. a proved recovered
+  success may retain `account=null` when qualification is unavailable and cannot
+  suppress an echo. missing echo qualification never makes a proved effect
+  uncertain. preserve existing bounded reconciliation and action schema; add no
+  account recovery journal, inferred identity or effect repeat.
 - approvals are [ordinary conversation](docs/one-main-events.md#conversational-approvals).
   main interprets consent and records it through the existing action transition;
   clear prior consent needs no repeated question. retire mandatory buttons,
@@ -86,7 +99,7 @@ their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
 not constitute v2 acceptance. [slice 1's qualification](docs/one-main-events.md#implementation-evidence)
 records its source and isolated live proof; it does not activate the service.
-the owner-selected implementation method for slices 1–4 is temporary
+the owner-selected implementation method for slices 1–6 is temporary
 end-to-end integration/live red/green/refactor, with content design and adversarial
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.

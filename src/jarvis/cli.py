@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import stat
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -44,6 +44,7 @@ from jarvis.definitions import (
 )
 from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
 from jarvis.embeddings import OpenAIEmbedder
+from jarvis.events import EventStore
 from jarvis.kernel import (
     build_agent_runtime,
     build_kernel_runtime,
@@ -335,6 +336,8 @@ async def _compose_main(
     agent_runtime: AgentRuntime,
     actions: ActionStore,
     work: WorkStore,
+    events: EventStore,
+    event_admitted: Callable[[], Awaitable[bool]],
     memory: MemoryService,
     google_oauth_http: httpx.AsyncClient,
     google_api_http: httpx.AsyncClient,
@@ -364,6 +367,8 @@ async def _compose_main(
         actions=actions,
         agents=agents,
         work=work,
+        events=events,
+        event_admitted=event_admitted,
     )
     definitions = build_definitions(
         catalog=composition.catalog,
@@ -436,6 +441,11 @@ async def _serve(
                     actions = ActionStore(database)
                     work = WorkStore(database, str(settings.discord.channel_id))
                     await work.recompute_calendar_wakes()
+                    events = EventStore(database, str(settings.discord.channel_id))
+
+                    async def event_admitted() -> bool:
+                        return await service.events_admitted()
+
                     agent_runtime = build_agent_runtime(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=host.endpoints,
@@ -446,6 +456,8 @@ async def _serve(
                         agent_runtime=agent_runtime,
                         actions=actions,
                         work=work,
+                        events=events,
+                        event_admitted=event_admitted,
                         memory=memory,
                         google_oauth_http=google_oauth_http,
                         google_api_http=google_api_http,
@@ -489,6 +501,7 @@ async def _serve(
                                 actions=actions,
                                 google_write=composition.google_write,
                                 work=work,
+                                events=events,
                                 agents=agents,
                                 read=ReadToolDispatcher(
                                     host_secrets=settings.host_secrets,
@@ -513,6 +526,7 @@ async def _serve(
                         actions=actions,
                         google_write=composition.google_write,
                         work=work,
+                        events=events,
                         plan=definitions.plans["main"],
                         source_conversation_id=str(settings.discord.channel_id),
                         wait_changed=agents.notify_wait_changed,
@@ -536,7 +550,10 @@ async def _serve(
                         agent_waits=agents,
                         dispatch_lane=dispatch_lane,
                         work_timer=work_timer,
+                        event_poller=composition.event_poller,
                     )
+                    events.publication_allowed = service.events_publication_allowed
+                    events.notify_input = service.request_work
                     if shutdown.is_set():
                         return
                     recovered_actions = await recover_startup_actions(
@@ -660,6 +677,10 @@ async def check_activation(
             )
             try:
                 async with _memory_service(settings, config, database, http) as memory:
+
+                    async def event_admitted() -> bool:
+                        return False
+
                     # No connector dispatches during the activation check.
                     _, definitions, _ = await _compose_main(
                         settings=settings,
@@ -667,6 +688,8 @@ async def check_activation(
                         agent_runtime=agent_runtime,
                         actions=actions,
                         work=WorkStore(database, scope),
+                        events=EventStore(database, scope),
+                        event_admitted=event_admitted,
                         memory=memory,
                         google_oauth_http=http,
                         google_api_http=http,

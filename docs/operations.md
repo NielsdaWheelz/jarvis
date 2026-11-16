@@ -66,6 +66,21 @@ memory delivery and quiet dreaming remain unchanged. browser/credential products
 interactive hosting, a separate ui, selected dream wakes and work context
 remain outside this cut; later search and budget contracts are not adopted here.
 
+### email/calendar source handoff
+
+[slice 6](event-sources-and-recurring-work.md) is specified, not implemented.
+its candidate must consume the actual merged attachment helpers/migration while
+production remains unchanged. final cutover initializes quiet account-scoped
+baselines; expired provider cursors leave explicit unknown coverage. no historical
+mail/calendar reconstruction, push subscription or additional daemon is added.
+
+source polling starts only after validated discord catch-up and respects pause
+and family switches. disabling a family preserves progress and already published
+work. after repairing a blocked source, a fresh `events.configure(enabled=true)`
+re-arms it without clearing its outage until a complete scan succeeds; exact
+action replay never repeats that mutation. daily review is ordinary work data,
+created once during supervised setup, never recreated at startup.
+
 ### private workspace handoff
 
 [slice 4](private-notes-and-rolodex.md) implements general files/commands/git in

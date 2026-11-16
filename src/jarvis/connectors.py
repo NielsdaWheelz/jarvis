@@ -10,7 +10,8 @@ import json
 import math
 import re
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from email import message_from_string, policy
@@ -121,6 +122,22 @@ class GoogleCredentialDefect(RuntimeError):
     """The host-owned Google credential state is invalid or unusable."""
 
 
+class GoogleReadFailure(ConnectorFailure):
+    def __init__(
+        self,
+        code: str,
+        *,
+        attempts: int,
+        status: int,
+        retry_after: str | None = None,
+        grant_unavailable: bool = False,
+    ) -> None:
+        super().__init__(code, attempts=attempts)
+        self.status = status
+        self.retry_after = retry_after
+        self.grant_unavailable = grant_unavailable
+
+
 class _ProviderTooLarge(ValueError):
     pass
 
@@ -165,13 +182,13 @@ def _token_bytes(value: str) -> bytes:
     return encoded
 
 
-def _mapping(value: object, name: str) -> dict[str, object]:
+def provider_object(value: object, name: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"{name} is malformed")
     return cast("dict[str, object]", value)
 
 
-def _array(value: object, name: str) -> list[object]:
+def provider_array(value: object, name: str) -> list[object]:
     if not isinstance(value, list):
         raise ValueError(f"{name} is malformed")
     return cast("list[object]", value)
@@ -216,9 +233,24 @@ class GoogleTokenManager:
         self._access_token: str | None = None
         self._expires_at: datetime | None = None
         self._force_refresh = False
+        self._refresh_lock = asyncio.Lock()
 
     async def access_token(
-        self, *, attempt_started: Callable[[], None] | None = None
+        self,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+        before_request: Callable[[], Awaitable[None]] | None = None,
+    ) -> tuple[str, int]:
+        async with self._refresh_lock:
+            return await self._current_access_token(
+                attempt_started=attempt_started, before_request=before_request
+            )
+
+    async def _current_access_token(
+        self,
+        *,
+        attempt_started: Callable[[], None] | None,
+        before_request: Callable[[], Awaitable[None]] | None,
     ) -> tuple[str, int]:
         now = self._now()
         if now.tzinfo is None:
@@ -234,9 +266,11 @@ class GoogleTokenManager:
         encryption = cast("dict[str, object]", state["encryption"])
         key_version = cast("str", encryption["key_version"])
         try:
-            expires_at = _instant(_required_string(state, "access_token_expires_at"))
+            expires_at = parse_google_instant(
+                provider_string(state, "access_token_expires_at")
+            )
             access_token = self._decrypt(
-                _required_string(state, "access_token_enc"),
+                provider_string(state, "access_token_enc"),
                 field="access_token",
                 key_version=key_version,
             )
@@ -250,7 +284,7 @@ class GoogleTokenManager:
             return access_token, 0
         try:
             refresh_token = self._decrypt(
-                _required_string(state, "refresh_token_enc"),
+                provider_string(state, "refresh_token_enc"),
                 field="refresh_token",
                 key_version=key_version,
             )
@@ -259,6 +293,8 @@ class GoogleTokenManager:
                 "Google credential state is malformed"
             ) from exc
         try:
+            if before_request is not None:
+                await before_request()
             if attempt_started is not None:
                 attempt_started()
             async with (
@@ -278,9 +314,19 @@ class GoogleTokenManager:
                 ) as response,
             ):
                 if response.status_code == 429:
-                    raise ConnectorFailure("rate_limited", attempts=1)
+                    raise GoogleReadFailure(
+                        "rate_limited",
+                        attempts=1,
+                        status=429,
+                        retry_after=response.headers.get("Retry-After"),
+                    )
                 if response.status_code >= 500:
-                    raise ConnectorFailure("provider_unavailable", attempts=1)
+                    raise GoogleReadFailure(
+                        "provider_unavailable",
+                        attempts=1,
+                        status=response.status_code,
+                        retry_after=response.headers.get("Retry-After"),
+                    )
                 if response.status_code != 200:
                     error_payload = await _json_body(response, attempts=1)
                     if error_payload.get("error") in {
@@ -293,7 +339,7 @@ class GoogleTokenManager:
         except (TimeoutError, httpx.HTTPError):
             raise ConnectorFailure("provider_unavailable", attempts=1) from None
         try:
-            token = _required_string(payload, "access_token")
+            token = provider_string(payload, "access_token")
             _token_bytes(token)
             expires_in = payload.get("expires_in")
             if (
@@ -345,10 +391,11 @@ class GoogleTokenManager:
         self._force_refresh = False
         return token, 1
 
-    def invalidate_access_token(self) -> None:
-        self._access_token = None
-        self._expires_at = None
-        self._force_refresh = True
+    def invalidate_access_token(self, rejected_token: str) -> None:
+        if self._access_token == rejected_token:
+            self._access_token = None
+            self._expires_at = None
+            self._force_refresh = True
 
     def _load_state(self) -> Mapping[str, object]:
         try:
@@ -420,6 +467,26 @@ class GoogleTokenManager:
         return f"{_TOKEN_ENVELOPE_PREFIX}{_b64encode(nonce + ciphertext)}"
 
 
+@dataclass(frozen=True, slots=True)
+class GoogleProfile:
+    account: str
+    history_id: str
+
+
+def google_profile(payload: Mapping[str, object]) -> GoogleProfile:
+    account = provider_text(provider_string(payload, "emailAddress"), 1_024)
+    history_id = provider_text(provider_string(payload, "historyId"), 8_192)
+    if (
+        "@" not in account
+        or "\0" in account
+        or any(char.isspace() for char in account)
+        or not history_id.isascii()
+        or not history_id.isdecimal()
+    ):
+        raise ValueError("Google profile identity is malformed")
+    return GoogleProfile(account, history_id)
+
+
 class GoogleReadConnector:
     def __init__(
         self,
@@ -432,12 +499,37 @@ class GoogleReadConnector:
         self._tokens = tokens
         self._now = now
 
+    async def gmail_profile(
+        self,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+        before_request: Callable[[], Awaitable[None]] | None = None,
+    ) -> tuple[GoogleProfile, int]:
+        payload, attempts = await self.get_json(
+            f"{GMAIL_API_BASE_URL}/users/me/profile",
+            params={"fields": "emailAddress,historyId"},
+            attempt_started=attempt_started,
+            before_request=before_request,
+        )
+        try:
+            return google_profile(payload), attempts
+        except ValueError:
+            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+
+    async def gmail_account(
+        self,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+    ) -> tuple[str, int]:
+        profile, attempts = await self.gmail_profile(attempt_started=attempt_started)
+        return profile.account, attempts
+
     async def gmail_search(
         self, value: GmailSearchInput
     ) -> ReadResponse[GmailSearchSuccess]:
         if not value.query.strip():
             raise ConnectorFailure("invalid_query", attempts=0)
-        payload, attempts = await self._get(
+        payload, attempts = await self.get_json(
             f"{GMAIL_API_BASE_URL}/users/me/threads",
             params={
                 "includeSpamTrash": "false",
@@ -447,17 +539,17 @@ class GoogleReadConnector:
             invalid_request="invalid_query",
         )
         try:
-            raw_threads = _array(payload.get("threads", []), "Gmail threads")
+            raw_threads = provider_array(payload.get("threads", []), "Gmail threads")
             hits: list[GmailThreadHit] = []
             truncated = _has_next_page(payload) or len(raw_threads) > value.max_results
             for raw in raw_threads[: value.max_results]:
-                item = _mapping(raw, "Gmail thread")
+                item = provider_object(raw, "Gmail thread")
                 snippet, shortened = _truncate(
                     _optional_string(item, "snippet", ""), 1_000
                 )
                 hits.append(
                     GmailThreadHit(
-                        thread_id=_exact(_required_string(item, "id"), 1_024),
+                        thread_id=provider_text(provider_string(item, "id"), 1_024),
                         snippet=snippet,
                     )
                 )
@@ -479,16 +571,16 @@ class GoogleReadConnector:
         self, value: GmailReadThreadInput
     ) -> ReadResponse[GmailReadThreadSuccess]:
         path = quote(value.thread_id, safe="")
-        payload, attempts = await self._get(
+        payload, attempts = await self.get_json(
             f"{GMAIL_API_BASE_URL}/users/me/threads/{path}",
             params={"format": "full"},
             not_found="thread_not_found",
         )
         try:
-            thread_id = _exact(_required_string(payload, "id"), 1_024)
+            thread_id = provider_text(provider_string(payload, "id"), 1_024)
             if thread_id != value.thread_id:
                 raise ValueError("Gmail returned a different thread")
-            raw_messages = _array(payload.get("messages", []), "Gmail messages")
+            raw_messages = provider_array(payload.get("messages", []), "Gmail messages")
             ordered = sorted(raw_messages, key=_gmail_internal_millis)
             selected = ordered[-value.max_messages :]
             messages: list[GmailMessage] = []
@@ -527,7 +619,7 @@ class GoogleReadConnector:
         self, value: CalendarListCalendarsInput
     ) -> ReadResponse[CalendarListCalendarsSuccess]:
         del value
-        payload, attempts = await self._get(
+        payload, attempts = await self.get_json(
             f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
             params={
                 "maxResults": 50,
@@ -572,7 +664,7 @@ class GoogleReadConnector:
 
         try:
             list_payload, _ = await asyncio.wait_for(
-                self._get(
+                self.get_json(
                     f"{CALENDAR_API_BASE_URL}/users/me/calendarList",
                     params={
                         "maxResults": 50,
@@ -637,7 +729,7 @@ class GoogleReadConnector:
                     }
                     if page_token is not None:
                         params["pageToken"] = page_token
-                    payload, _ = await self._get(
+                    payload, _ = await self.get_json(
                         f"{CALENDAR_API_BASE_URL}/calendars/"
                         f"{quote(calendar.calendar_id, safe='')}/events",
                         params=params,
@@ -645,7 +737,7 @@ class GoogleReadConnector:
                         invalid_request="invalid_range",
                         attempt_started=page_attempted,
                     )
-                    items = _array(payload.get("items", []), "Calendar events")
+                    items = provider_array(payload.get("items", []), "Calendar events")
                     if len(items) > CALENDAR_EVENT_PAGE_SIZE:
                         raise _ProviderTooLarge
                     return (
@@ -833,7 +925,7 @@ class GoogleReadConnector:
     ) -> ReadResponse[CalendarGetEventSuccess]:
         calendar_id = quote(value.calendar_id, safe="")
         event_id = quote(value.event_id, safe="")
-        payload, attempts = await self._get(
+        payload, attempts = await self.get_json(
             f"{CALENDAR_API_BASE_URL}/calendars/{calendar_id}/events/{event_id}",
             not_found="event_not_found",
         )
@@ -853,19 +945,22 @@ class GoogleReadConnector:
             raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
         return ReadResponse(result, attempts)
 
-    async def _get(
+    async def get_json(
         self,
         url: str,
         *,
-        params: Mapping[str, str | int] | None = None,
+        params: Mapping[str, str | int | list[str]] | None = None,
         not_found: str | None = None,
         invalid_request: str | None = None,
         attempt_started: Callable[[], None] | None = None,
+        before_request: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[dict[str, object], int]:
         token, refresh_attempts = await self._tokens.access_token(
-            attempt_started=attempt_started
+            attempt_started=attempt_started, before_request=before_request
         )
         try:
+            if before_request is not None:
+                await before_request()
             if attempt_started is not None:
                 attempt_started()
             async with (
@@ -884,22 +979,55 @@ class GoogleReadConnector:
             ):
                 attempts = refresh_attempts + 1
                 if response.status_code == 404 and not_found is not None:
-                    raise ConnectorFailure(not_found, attempts=attempts)
+                    raise GoogleReadFailure(not_found, attempts=attempts, status=404)
                 if response.status_code == 429:
-                    raise ConnectorFailure("rate_limited", attempts=attempts)
+                    raise GoogleReadFailure(
+                        "rate_limited",
+                        attempts=attempts,
+                        status=429,
+                        retry_after=response.headers.get("Retry-After"),
+                    )
                 if response.status_code == 403:
-                    code = await _google_forbidden_code(response, attempts=attempts)
-                    raise ConnectorFailure(code, attempts=attempts)
+                    code, grant_unavailable = await _google_forbidden(
+                        response, attempts=attempts
+                    )
+                    raise GoogleReadFailure(
+                        code,
+                        attempts=attempts,
+                        status=403,
+                        grant_unavailable=grant_unavailable,
+                        retry_after=response.headers.get("Retry-After"),
+                    )
                 if response.status_code == 401:
-                    self._tokens.invalidate_access_token()
-                    raise ConnectorFailure("provider_unavailable", attempts=attempts)
+                    self._tokens.invalidate_access_token(token)
+                    raise GoogleReadFailure(
+                        "provider_unavailable",
+                        attempts=attempts,
+                        status=response.status_code,
+                        retry_after=response.headers.get("Retry-After"),
+                    )
                 if response.status_code == 400:
-                    raise ConnectorFailure(
-                        invalid_request or "provider_unavailable", attempts=attempts
+                    raise GoogleReadFailure(
+                        invalid_request or "provider_unavailable",
+                        attempts=attempts,
+                        status=400,
+                        retry_after=response.headers.get("Retry-After"),
                     )
                 if response.status_code < 200 or response.status_code >= 300:
-                    raise ConnectorFailure("provider_unavailable", attempts=attempts)
-                payload = await _json_body(response, attempts=attempts)
+                    raise GoogleReadFailure(
+                        "provider_unavailable",
+                        attempts=attempts,
+                        status=response.status_code,
+                        retry_after=response.headers.get("Retry-After"),
+                    )
+                try:
+                    payload = await _json_body(response, attempts=attempts)
+                except ConnectorFailure as exc:
+                    if exc.code == "provider_response_too_large":
+                        raise
+                    raise GoogleReadFailure(
+                        "provider_unavailable", attempts=attempts, status=200
+                    ) from None
         except (TimeoutError, httpx.HTTPError):
             raise ConnectorFailure(
                 "provider_unavailable", attempts=refresh_attempts + 1
@@ -954,7 +1082,7 @@ class MapsReadConnector:
             invalid_request="invalid_query",
         )
         try:
-            raw_places = _array(payload.get("places", []), "Places results")
+            raw_places = provider_array(payload.get("places", []), "Places results")
             if len(raw_places) > value.max_results:
                 raise _ProviderTooLarge
             result = MapsSearchPlacesSuccess(
@@ -1025,18 +1153,18 @@ class MapsReadConnector:
             invalid_request="invalid_location",
         )
         try:
-            raw_routes = _array(payload.get("routes", []), "Routes results")
+            raw_routes = provider_array(payload.get("routes", []), "Routes results")
             if not raw_routes:
                 raise ConnectorFailure("no_route", attempts=1)
             if len(raw_routes) != 1:
                 raise _ProviderTooLarge
-            raw = _mapping(raw_routes[0], "route")
-            warnings = _array(raw.get("warnings", []), "route warnings")
+            raw = provider_object(raw_routes[0], "route")
+            warnings = provider_array(raw.get("warnings", []), "route warnings")
             if len(warnings) > 10:
                 raise _ProviderTooLarge
             route = Route(
                 distance_meters=_bounded_integer(raw.get("distanceMeters", 0)),
-                duration_seconds=_duration(_required_string(raw, "duration")),
+                duration_seconds=_duration(provider_string(raw, "duration")),
                 description=_exact_optional(raw, "description", 1_000),
                 warnings=tuple(_exact_string(item, 1_000) for item in warnings),
             )
@@ -1141,31 +1269,35 @@ def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return value
 
 
-async def _google_forbidden_code(response: httpx.Response, *, attempts: int) -> str:
+async def _google_forbidden(
+    response: httpx.Response, *, attempts: int
+) -> tuple[str, bool]:
     try:
         payload = await _json_body(response, attempts=attempts)
-        error = _mapping(payload.get("error"), "Google error")
-        errors = _array(error.get("errors", []), "Google errors")
+        error = provider_object(payload.get("error"), "Google error")
+        errors = provider_array(error.get("errors", []), "Google errors")
         reasons: set[str] = set()
         for value in errors:
-            reason = _mapping(value, "Google error item").get("reason")
+            reason = provider_object(value, "Google error item").get("reason")
             if not isinstance(reason, str):
-                return "provider_unavailable"
+                return "provider_unavailable", False
             reasons.add(reason)
     except ConnectorFailure as exc:
         if exc.code == "provider_response_too_large":
             raise
-        return "provider_unavailable"
+        return "provider_unavailable", False
     except ValueError:
-        return "provider_unavailable"
+        return "provider_unavailable", False
     if reasons & {
         "dailyLimitExceeded",
         "quotaExceeded",
         "rateLimitExceeded",
         "userRateLimitExceeded",
     }:
-        return "rate_limited"
-    return "provider_unavailable"
+        return "rate_limited", False
+    return "provider_unavailable", bool(
+        reasons & {"insufficientPermissions", "accessNotConfigured"}
+    )
 
 
 def _has_next_page(value: Mapping[str, object]) -> bool:
@@ -1191,13 +1323,13 @@ def _provider_boolean(value: Mapping[str, object], key: str, *, default: bool) -
 def _calendar_references(
     payload: Mapping[str, object],
 ) -> tuple[tuple[CalendarReference, ...], bool]:
-    items = _array(payload.get("items", []), "Calendar list")
+    items = provider_array(payload.get("items", []), "Calendar list")
     truncated = _has_next_page(payload) or len(items) > MAX_CALENDAR_LIST_ENTRIES
     calendars: list[CalendarReference] = []
     seen: set[str] = set()
     for raw in items[:MAX_CALENDAR_LIST_ENTRIES]:
-        item = _mapping(raw, "Calendar list entry")
-        calendar_id = _exact(_required_string(item, "id"), 1_024)
+        item = provider_object(raw, "Calendar list entry")
+        calendar_id = provider_text(provider_string(item, "id"), 1_024)
         if calendar_id in seen:
             raise ValueError("Calendar list contains a duplicate identity")
         seen.add(calendar_id)
@@ -1211,14 +1343,16 @@ def _calendar_references(
             CalendarReference(
                 calendar_id=calendar_id,
                 display_name=(
-                    _exact(display_name, 1_024)
+                    provider_text(display_name, 1_024)
                     if isinstance(display_name, str)
                     else None
                 ),
                 time_zone=(
-                    _exact(time_zone, 255) if isinstance(time_zone, str) else None
+                    provider_text(time_zone, 255)
+                    if isinstance(time_zone, str)
+                    else None
                 ),
-                access_role=cast("Any", _required_string(item, "accessRole")),
+                access_role=cast("Any", provider_string(item, "accessRole")),
                 primary=_provider_boolean(item, "primary", default=False),
                 hidden=_provider_boolean(item, "hidden", default=False),
                 selected=_provider_boolean(item, "selected", default=False),
@@ -1238,7 +1372,7 @@ def _calendar_failure_type(code: str) -> _CalendarFailureType:
     return failures.get(code, "ProviderUnavailable")
 
 
-def _required_string(value: Mapping[str, object], key: str) -> str:
+def provider_string(value: Mapping[str, object], key: str) -> str:
     result = value.get(key)
     if not isinstance(result, str) or not result:
         raise ValueError(f"provider field {key} is missing")
@@ -1252,7 +1386,7 @@ def _optional_string(value: Mapping[str, object], key: str, default: str) -> str
     return result
 
 
-def _exact(value: str, maximum: int) -> str:
+def provider_text(value: str, maximum: int) -> str:
     if len(value.encode()) > maximum:
         raise _ProviderTooLarge
     return value
@@ -1261,7 +1395,7 @@ def _exact(value: str, maximum: int) -> str:
 def _exact_string(value: object, maximum: int) -> str:
     if not isinstance(value, str):
         raise ValueError("provider string is malformed")
-    return _exact(value, maximum)
+    return provider_text(value, maximum)
 
 
 def _exact_optional(value: Mapping[str, object], key: str, maximum: int) -> str | None:
@@ -1283,7 +1417,7 @@ _RFC3339 = re.compile(
 )
 
 
-def _instant(value: str) -> datetime:
+def parse_google_instant(value: str) -> datetime:
     text = _timestamp_text(value)
     if _RFC3339.fullmatch(text) is None:
         raise ValueError("provider timestamp is malformed")
@@ -1314,7 +1448,7 @@ def _timestamp_text(value: str) -> str:
 
 
 def _gmail_internal_millis(value: object) -> int:
-    message = _mapping(value, "Gmail message")
+    message = provider_object(value, "Gmail message")
     raw = message.get("internalDate")
     if (
         not isinstance(raw, str)
@@ -1331,12 +1465,12 @@ def _gmail_internal_millis(value: object) -> int:
 
 
 def _gmail_message(value: object) -> tuple[GmailMessage, bool]:
-    message = _mapping(value, "Gmail message")
-    payload = _mapping(message.get("payload"), "Gmail payload")
-    headers = _array(payload.get("headers", []), "Gmail headers")
+    message = provider_object(value, "Gmail message")
+    payload = provider_object(message.get("payload"), "Gmail payload")
+    headers = provider_array(payload.get("headers", []), "Gmail headers")
     by_name: dict[str, list[str]] = {}
     for header in headers:
-        header_value_map = _mapping(header, "Gmail header")
+        header_value_map = provider_object(header, "Gmail header")
         name = header_value_map.get("name")
         header_value = header_value_map.get("value")
         if not isinstance(name, str) or not isinstance(header_value, str):
@@ -1362,10 +1496,10 @@ def _gmail_message(value: object) -> tuple[GmailMessage, bool]:
     rfc822_message_id = _single_header(by_name, "message-id")
     return (
         GmailMessage(
-            message_id=_exact(_required_string(message, "id"), 1_024),
-            thread_id=_exact(_required_string(message, "threadId"), 1_024),
+            message_id=provider_text(provider_string(message, "id"), 1_024),
+            thread_id=provider_text(provider_string(message, "threadId"), 1_024),
             rfc822_message_id=(
-                _exact(rfc822_message_id, 998)
+                provider_text(rfc822_message_id, 998)
                 if rfc822_message_id is not None
                 else None
             ),
@@ -1373,7 +1507,7 @@ def _gmail_message(value: object) -> tuple[GmailMessage, bool]:
             to=_mailboxes(", ".join(by_name.get("to", []))),
             cc=_mailboxes(", ".join(by_name.get("cc", []))),
             bcc=_mailboxes(", ".join(by_name.get("bcc", []))),
-            subject=_exact(subject, 998),
+            subject=provider_text(subject, 998),
             internal_at=datetime(1970, 1, 1, tzinfo=UTC)
             + timedelta(milliseconds=_gmail_internal_millis(message)),
             body_text=text,
@@ -1402,7 +1536,7 @@ def _walk_gmail_parts(
     filename = part.get("filename", "")
     if not isinstance(mime, str) or not mime or not isinstance(filename, str):
         raise ValueError("Gmail MIME part is malformed")
-    body = _mapping(part.get("body", {}), "Gmail MIME body")
+    body = provider_object(part.get("body", {}), "Gmail MIME body")
     attachment_id = body.get("attachmentId")
     if attachment_id is not None and (
         not isinstance(attachment_id, str) or not attachment_id
@@ -1422,8 +1556,8 @@ def _walk_gmail_parts(
         if len(attachments) < 50:
             attachments.append(
                 GmailAttachment(
-                    filename=_exact(filename, 255),
-                    media_type=_exact(mime, 255),
+                    filename=provider_text(filename, 255),
+                    media_type=provider_text(mime, 255),
                     size_bytes=size,
                 )
             )
@@ -1458,10 +1592,10 @@ def _walk_gmail_parts(
             plain.append(decoded)
         elif media_type == "text/html":
             html_parts.append(decoded)
-    children = _array(part.get("parts", []), "Gmail MIME children")
+    children = provider_array(part.get("parts", []), "Gmail MIME children")
     for child in children:
         child_attachment_cap, child_external_body = _walk_gmail_parts(
-            _mapping(child, "Gmail MIME child"),
+            provider_object(child, "Gmail MIME child"),
             plain,
             html_parts,
             attachments,
@@ -1478,19 +1612,19 @@ def _gmail_content_headers(
 ) -> tuple[str, str, str | None]:
     if len(provider_media_type.encode()) > 255:
         raise _ProviderTooLarge
-    headers = _array(part.get("headers", []), "Gmail MIME headers")
+    headers = provider_array(part.get("headers", []), "Gmail MIME headers")
     content_types: list[str] = []
     dispositions: list[str] = []
     for value in headers:
-        header = _mapping(value, "Gmail MIME header")
+        header = provider_object(value, "Gmail MIME header")
         name = header.get("name")
         header_value = header.get("value")
         if not isinstance(name, str) or not isinstance(header_value, str):
             raise ValueError("Gmail MIME header is malformed")
         if name.lower() == "content-type":
-            content_types.append(_exact(header_value, 1_024))
+            content_types.append(provider_text(header_value, 1_024))
         if name.lower() == "content-disposition":
-            dispositions.append(_exact(header_value, 1_024))
+            dispositions.append(provider_text(header_value, 1_024))
     if len(content_types) > 1 or len(dispositions) > 1:
         raise _ProviderTooLarge
     raw = content_types[0] if content_types else provider_media_type
@@ -1539,8 +1673,8 @@ def _mailboxes(value: str) -> tuple[Mailbox, ...]:
             raise ValueError("mailbox address is absent")
         mailboxes.append(
             Mailbox(
-                name=_exact(name, 320) if name else None,
-                address=_exact(address, 320),
+                name=provider_text(name, 320) if name else None,
+                address=provider_text(address, 320),
             )
         )
     return tuple(mailboxes)
@@ -1549,9 +1683,9 @@ def _mailboxes(value: str) -> tuple[Mailbox, ...]:
 def _calendar_event(
     calendar_id: str, value: object
 ) -> CalendarNormalEvent | CalendarCancelledEvent:
-    event = _mapping(value, "Calendar event")
-    event_id = _exact(_required_string(event, "id"), 1_024)
-    calendar = _exact(calendar_id, 1_024)
+    event = provider_object(value, "Calendar event")
+    event_id = provider_text(provider_string(event, "id"), 1_024)
+    calendar = provider_text(calendar_id, 1_024)
     status = event.get("status")
     if status == "cancelled":
         updated = event.get("updated")
@@ -1561,18 +1695,20 @@ def _calendar_event(
             calendar_id=calendar,
             event_id=event_id,
             etag=_exact_optional(event, "etag", 1_024),
-            updated_at=_instant(updated) if isinstance(updated, str) else None,
+            updated_at=parse_google_instant(updated)
+            if isinstance(updated, str)
+            else None,
         )
     if status not in {"confirmed", "tentative"}:
         raise ValueError("Calendar status is malformed")
     unspecified_end = event.get("endTimeUnspecified", False)
     if type(unspecified_end) is not bool:
         raise ValueError("Calendar end-time state is malformed")
-    reminders = _mapping(event.get("reminders", {}), "Calendar reminders")
-    overrides = _array(reminders.get("overrides", []), "Calendar reminders")
+    reminders = provider_object(event.get("reminders", {}), "Calendar reminders")
+    overrides = provider_array(reminders.get("overrides", []), "Calendar reminders")
     if len(overrides) > 10:
         raise _ProviderTooLarge
-    attendees = _array(event.get("attendees", []), "Calendar attendees")
+    attendees = provider_array(event.get("attendees", []), "Calendar attendees")
     attendees_omitted = event.get("attendeesOmitted", False)
     if type(attendees_omitted) is not bool:
         raise ValueError("Calendar attendeesOmitted is malformed")
@@ -1580,7 +1716,7 @@ def _calendar_event(
         raise _ProviderTooLarge
     if len(attendees) > 50:
         raise _ProviderTooLarge
-    recurrence = _array(event.get("recurrence", []), "Calendar recurrence")
+    recurrence = provider_array(event.get("recurrence", []), "Calendar recurrence")
     if len(recurrence) > 20:
         raise _ProviderTooLarge
     use_default = reminders.get("useDefault", False)
@@ -1592,17 +1728,17 @@ def _calendar_event(
     return CalendarNormalEvent(
         calendar_id=calendar,
         event_id=event_id,
-        etag=_exact(_required_string(event, "etag"), 1_024),
+        etag=provider_text(provider_string(event, "etag"), 1_024),
         status=cast("Any", status),
         writable=CalendarObservedWritableEvent(
-            summary=_exact(_optional_string(event, "summary", ""), 1_024),
+            summary=provider_text(_optional_string(event, "summary", ""), 1_024),
             description=_exact_optional(event, "description", 16_384),
             location=_exact_optional(event, "location", 4_096),
-            start=_calendar_time(event.get("start")),
+            start=parse_calendar_time(event.get("start")),
             end=(
                 UnspecifiedEventEnd()
                 if unspecified_end
-                else _calendar_time(event.get("end"))
+                else parse_calendar_time(event.get("end"))
             ),
             recurrence=tuple(_exact_string(item, 1_024) for item in recurrence),
             attendees=tuple(_calendar_participant(item) for item in attendees),
@@ -1614,16 +1750,16 @@ def _calendar_event(
             if isinstance(organizer, dict)
             else None
         ),
-        updated_at=_instant(_required_string(event, "updated")),
+        updated_at=parse_google_instant(provider_string(event, "updated")),
     )
 
 
 def _calendar_list_event(
     calendar_id: str, value: object
 ) -> CalendarListNormalEvent | CalendarListCancelledEvent:
-    event = _mapping(value, "Calendar event")
-    event_id = _exact(_required_string(event, "id"), 1_024)
-    calendar = _exact(calendar_id, 1_024)
+    event = provider_object(value, "Calendar event")
+    event_id = provider_text(provider_string(event, "id"), 1_024)
+    calendar = provider_text(calendar_id, 1_024)
     status = event.get("status")
     if status == "cancelled":
         return CalendarListCancelledEvent(
@@ -1639,12 +1775,12 @@ def _calendar_list_event(
         calendar_id=calendar,
         event_id=event_id,
         status=cast("Any", status),
-        summary=_exact(_optional_string(event, "summary", ""), 1_024),
-        start=_calendar_time(event.get("start")),
+        summary=provider_text(_optional_string(event, "summary", ""), 1_024),
+        start=parse_calendar_time(event.get("start")),
         end=(
             UnspecifiedEventEnd()
             if unspecified_end
-            else _calendar_time(event.get("end"))
+            else parse_calendar_time(event.get("end"))
         ),
         location=_exact_optional(event, "location", 4_096),
     )
@@ -1667,8 +1803,8 @@ def _calendar_list_event_sort_key(
     return instant, event.calendar_id, event.event_id
 
 
-def _calendar_time(value: object) -> TimedEventTime | AllDayEventTime:
-    event_time = _mapping(value, "Calendar event time")
+def parse_calendar_time(value: object) -> TimedEventTime | AllDayEventTime:
+    event_time = provider_object(value, "Calendar event time")
     has_date = "date" in event_time
     has_date_time = "dateTime" in event_time
     if has_date == has_date_time:
@@ -1680,7 +1816,7 @@ def _calendar_time(value: object) -> TimedEventTime | AllDayEventTime:
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date) is None:
             raise ValueError("Calendar date is malformed")
         return AllDayEventTime(date=date.fromisoformat(raw_date))
-    raw_instant = _required_string(event_time, "dateTime")
+    raw_instant = provider_string(event_time, "dateTime")
     instant_text = _timestamp_text(raw_instant)
     if (
         _RFC3339.fullmatch(instant_text) is None
@@ -1721,7 +1857,7 @@ def _localize_calendar_time(value: datetime, zone: ZoneInfo) -> datetime:
 
 
 def _calendar_participant(value: object) -> CalendarParticipant:
-    participant = _mapping(value, "Calendar participant")
+    participant = provider_object(value, "Calendar participant")
     name = participant.get("displayName")
     address = participant.get("email")
     if name is not None and not isinstance(name, str):
@@ -1729,13 +1865,13 @@ def _calendar_participant(value: object) -> CalendarParticipant:
     if address is not None and not isinstance(address, str):
         raise ValueError("Calendar participant address is malformed")
     return CalendarParticipant(
-        name=_exact(name, 320) if isinstance(name, str) else None,
-        address=_exact(address, 320) if isinstance(address, str) else None,
+        name=provider_text(name, 320) if isinstance(name, str) else None,
+        address=provider_text(address, 320) if isinstance(address, str) else None,
     )
 
 
 def _reminder(value: object) -> Reminder:
-    reminder = _mapping(value, "Calendar reminder")
+    reminder = provider_object(value, "Calendar reminder")
     method = reminder.get("method")
     minutes = reminder.get("minutes")
     if method not in {"email", "popup"} or type(minutes) is not int:
@@ -1751,12 +1887,12 @@ def _reminder(value: object) -> Reminder:
 
 
 def _place(value: object) -> Place:
-    place = _mapping(value, "Place")
-    display = _mapping(place.get("displayName"), "Place display name")
+    place = provider_object(value, "Place")
+    display = provider_object(place.get("displayName"), "Place display name")
     location_value = place.get("location")
     location: Coordinates | None = None
     if location_value is not None:
-        coordinates = _mapping(location_value, "Place location")
+        coordinates = provider_object(location_value, "Place location")
         latitude = coordinates.get("latitude", 0)
         longitude = coordinates.get("longitude", 0)
         if (
@@ -1774,20 +1910,20 @@ def _place(value: object) -> Place:
             latitude=latitude,
             longitude=longitude,
         )
-    types = _array(place.get("types", []), "Place types")
+    types = provider_array(place.get("types", []), "Place types")
     if len(types) > 32:
         raise _ProviderTooLarge
-    links = _mapping(place.get("googleMapsLinks", {}), "Place link")
+    links = provider_object(place.get("googleMapsLinks", {}), "Place link")
     uri = links.get("placeUri", place.get("googleMapsUri"))
     if uri is not None and not isinstance(uri, str):
         raise ValueError("Place link is malformed")
     return Place(
-        place_id=_exact(_required_string(place, "id"), 1_024),
-        display_name=_exact(_required_string(display, "text"), 512),
+        place_id=provider_text(provider_string(place, "id"), 1_024),
+        display_name=provider_text(provider_string(display, "text"), 512),
         formatted_address=_exact_optional(place, "formattedAddress", 1_024),
         location=location,
         types=tuple(_exact_string(item, 128) for item in types),
-        maps_uri=_exact(uri, 4_096) if uri is not None else None,
+        maps_uri=provider_text(uri, 4_096) if uri is not None else None,
     )
 
 

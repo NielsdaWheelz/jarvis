@@ -72,6 +72,7 @@ from jarvis.db import (
     native_input_delivery,
     native_invocation,
 )
+from jarvis.event_tools import EVENT_MUTATION_IDS, validate_event_result
 from jarvis.messages import (
     append_waking_input,
     causal_component_ids,
@@ -672,7 +673,8 @@ class ActionStore:
             if stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
                 raise ActionPersistenceDefect("BilledOnce work is never readmitted")
             if max_external_attempts == 0 and (
-                stored.tool_name not in (*AGENT_LOCAL_IDS, *WORK_MUTATION_IDS)
+                stored.tool_name
+                not in (*AGENT_LOCAL_IDS, *WORK_MUTATION_IDS, *EVENT_MUTATION_IDS)
                 or action_replay_result(stored) is not None
             ):
                 raise ActionPersistenceDefect(
@@ -1437,7 +1439,10 @@ async def _lock_new_action(
         )
         .limit(1)
     )
-    if unknown is not None and tool_name not in WORK_MUTATION_IDS:
+    if unknown is not None and tool_name not in (
+        *WORK_MUTATION_IDS,
+        *EVENT_MUTATION_IDS,
+    ):
         raise ActionPersistenceDefect("causal component has an unknown effect")
     attempt_id = await connection.scalar(
         select(native_invocation.c.attempt_id).where(
@@ -2171,6 +2176,17 @@ def action_resolution_text(stored: StoredAction) -> str:
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
+    if stored.tool_name in EVENT_MUTATION_IDS and stored.status in {
+        "succeeded",
+        "failed",
+    }:
+        result = _stored_tool_result(stored)
+        if (
+            result["type"] == "Success"
+            or result["error"].get("type") == "AccountUnavailable"
+        ):
+            validate_event_result(stored.tool_name, result)
+            return cast(dict[str, object], result)
     if stored.tool_name in WORK_MUTATION_IDS and stored.status in {
         "succeeded",
         "failed",

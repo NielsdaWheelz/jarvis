@@ -21,7 +21,10 @@ from uuid import UUID
 import httpx
 from pydantic import ValidationError
 
-from jarvis.connectors import MAX_PROVIDER_BODY_BYTES
+from jarvis.connectors import (
+    MAX_PROVIDER_BODY_BYTES,
+    google_profile,
+)
 from jarvis.read_tools import (
     CALENDAR_API_BASE_URL,
     GMAIL_API_BASE_URL,
@@ -66,7 +69,7 @@ _GMAIL_SEND_MAX_SECONDS = 30.0
 class GoogleAccessTokens(Protocol):
     async def access_token(self) -> tuple[str, int]: ...
 
-    def invalidate_access_token(self) -> None: ...
+    def invalidate_access_token(self, rejected_token: str) -> None: ...
 
 
 class GmailUpdateBasisStager(Protocol):
@@ -520,6 +523,30 @@ class GoogleWriteConnector:
         self._stage_external_attempts = stage_external_attempts
         self._now = now
         self._sleep = sleep
+        self._verified_account: str | None = None
+
+    async def _account(
+        self,
+        *,
+        action_id: UUID | None = None,
+        attempt_budget: WriteAttemptBudget | None = None,
+    ) -> tuple[str, int]:
+        payload, attempts = await self._request_json(
+            "GET",
+            f"{GMAIL_API_BASE_URL}/users/me/profile",
+            params={"fields": "emailAddress,historyId"},
+            action_id=action_id,
+            attempt_budget=attempt_budget,
+            errors={},
+        )
+        try:
+            account = google_profile(payload).account
+            self._verified_account = account
+            return account, attempts
+        except ValueError:
+            raise WriteConnectorFailure(
+                "provider_unavailable", attempts=attempts
+            ) from None
 
     async def calendar_current_snapshot(
         self, calendar_id: str, event_id: str
@@ -655,12 +682,16 @@ class GoogleWriteConnector:
         effect_id: UUID,
         attempt_budget: WriteAttemptBudget,
     ) -> WriteResponse[GmailSendDraftSuccess]:
+        account, profile_attempts = await self._account(
+            action_id=effect_id, attempt_budget=attempt_budget
+        )
         observed, attempts = await self._get_draft(
             value.draft_id,
             action_id=effect_id,
             attempt_budget=attempt_budget,
-            prior_attempts=0,
+            prior_attempts=profile_attempts,
         )
+        attempts += profile_attempts
         if (
             observed.result.draft_id != value.draft_id
             or observed.result.thread_id != value.thread_id
@@ -686,6 +717,7 @@ class GoogleWriteConnector:
         attempts += used
         try:
             result = GmailSendDraftSuccess(
+                account=account,
                 sent_message_id=_string(payload, "id"),
                 thread_id=_string(payload, "threadId"),
                 jarvis_effect_id=value.jarvis_effect_id,
@@ -706,6 +738,9 @@ class GoogleWriteConnector:
     ) -> WriteResponse[CalendarCreateEventSuccess]:
         if not _valid_event(value.event):
             raise WriteConnectorFailure("invalid_event", attempts=0)
+        account, profile_attempts = await self._account(
+            action_id=effect_id, attempt_budget=attempt_budget
+        )
         event_id = calendar_event_id(effect_id)
         calendar = quote(value.calendar_id, safe="")
         try:
@@ -717,6 +752,7 @@ class GoogleWriteConnector:
                 mutation=True,
                 action_id=effect_id,
                 attempt_budget=attempt_budget,
+                prior_attempts=profile_attempts,
                 errors={
                     400: "invalid_event",
                     404: "calendar_not_found",
@@ -736,10 +772,12 @@ class GoogleWriteConnector:
                 value.event
             ):
                 raise ValueError("Calendar returned a conflicting event")
-            result = CalendarCreateEventSuccess(event=event, created_at=self._now_utc())
+            result = CalendarCreateEventSuccess(
+                account=account, event=event, created_at=self._now_utc()
+            )
         except (TypeError, ValueError, ValidationError) as exc:
             raise TimeoutError("Calendar create needs reconciliation") from exc
-        return WriteResponse(result, attempts)
+        return WriteResponse(result, attempts + profile_attempts)
 
     async def calendar_update_event(
         self,
@@ -749,6 +787,9 @@ class GoogleWriteConnector:
     ) -> WriteResponse[CalendarUpdateEventSuccess]:
         if not _valid_event(value.replacement):
             raise WriteConnectorFailure("invalid_event", attempts=0)
+        account, profile_attempts = await self._account(
+            action_id=effect_id, attempt_budget=attempt_budget
+        )
         expected = value.expected
         calendar = quote(expected.calendar_id, safe="")
         event = quote(expected.event_id, safe="")
@@ -761,6 +802,7 @@ class GoogleWriteConnector:
             mutation=True,
             action_id=effect_id,
             attempt_budget=attempt_budget,
+            prior_attempts=profile_attempts,
             errors={
                 400: "invalid_event",
                 404: "event_not_found",
@@ -777,11 +819,11 @@ class GoogleWriteConnector:
             ):
                 raise ValueError("Calendar returned a conflicting event")
             result = CalendarUpdateEventSuccess(
-                event=observed, updated_at=self._now_utc()
+                account=account, event=observed, updated_at=self._now_utc()
             )
         except (TypeError, ValueError, ValidationError) as exc:
             raise TimeoutError("Calendar update needs reconciliation") from exc
-        return WriteResponse(result, attempts)
+        return WriteResponse(result, attempts + profile_attempts)
 
     async def calendar_delete_event(
         self,
@@ -820,6 +862,7 @@ class GoogleWriteConnector:
         self, value: CalendarCreateEventInput, effect_id: UUID
     ) -> ReconciliationResult[CalendarCreateEventSuccess]:
         event_id = calendar_event_id(effect_id)
+        account = self._verified_account
         observations = await self._calendar_observations(value.calendar_id, event_id)
         if any(
             isinstance(item, CalendarEventSnapshot)
@@ -837,7 +880,7 @@ class GoogleWriteConnector:
                 "succeeded",
                 "exact-event-at-effect-id",
                 CalendarCreateEventSuccess(
-                    event=matches[-1], created_at=self._now_utc()
+                    account=account, event=matches[-1], created_at=self._now_utc()
                 ),
             )
         if len(observations) == len(RECONCILIATION_DELAYS_SECONDS):
@@ -848,6 +891,7 @@ class GoogleWriteConnector:
         self, value: CalendarUpdateEventInput
     ) -> ReconciliationResult[CalendarUpdateEventSuccess]:
         expected = value.expected
+        account = self._verified_account
         observations = await self._calendar_observations(
             expected.calendar_id, expected.event_id
         )
@@ -858,7 +902,9 @@ class GoogleWriteConnector:
                 return ReconciliationResult(
                     "succeeded",
                     "exact-replacement-observed",
-                    CalendarUpdateEventSuccess(event=item, updated_at=self._now_utc()),
+                    CalendarUpdateEventSuccess(
+                        account=account, event=item, updated_at=self._now_utc()
+                    ),
                 )
             if isinstance(item, _CancelledCalendarEvent):
                 return ReconciliationResult("uncertain", "event-was-cancelled")
@@ -1063,6 +1109,7 @@ class GoogleWriteConnector:
     async def reconcile_gmail_send(
         self, value: GmailSendDraftInput
     ) -> ReconciliationResult[GmailSendDraftSuccess]:
+        account = self._verified_account
         expected_digest = gmail_content_digest(value.content)
         byte_budget = _ResponseByteBudget(_GMAIL_SEND_MAX_BYTES)
         safe_absence_observations = 0
@@ -1132,6 +1179,7 @@ class GoogleWriteConnector:
                                 "succeeded",
                                 "one-exact-message-in-known-thread",
                                 GmailSendDraftSuccess(
+                                    account=account,
                                     sent_message_id=match.message_id,
                                     thread_id=match.thread_id,
                                     jarvis_effect_id=match.jarvis_effect_id,
@@ -1588,7 +1636,7 @@ class GoogleWriteConnector:
                 if code is not None:
                     raise WriteConnectorFailure(code, attempts=reported_attempts)
                 if response.status_code == 401:
-                    self._tokens.invalidate_access_token()
+                    self._tokens.invalidate_access_token(token)
                     raise WriteConnectorFailure(
                         "provider_unavailable", attempts=reported_attempts
                     )

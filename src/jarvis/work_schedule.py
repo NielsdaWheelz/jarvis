@@ -135,8 +135,12 @@ def _zone(rule: CalendarRule) -> ZoneInfo:
 
 def resolve_occurrence(rule: CalendarRule, local_date: date) -> datetime:
     """Resolve the nominal date under installed zone rules, never move its cursor."""
-    zone = _zone(rule)
-    local = datetime.combine(local_date, time.fromisoformat(rule.at))
+    return resolve_civil(local_date, time.fromisoformat(rule.at), _zone(rule))
+
+
+def resolve_civil(local_date: date, at: time, zone: ZoneInfo) -> datetime:
+    """Choose the earlier fold and shift gaps forward by the offset change."""
+    local = datetime.combine(local_date, at)
     try:
         candidates = [
             local.replace(tzinfo=zone, fold=fold).astimezone(UTC) for fold in (0, 1)

@@ -58,6 +58,20 @@ These instructions govern all work in this repository.
   retain containment. use separate candidate host/mapping/runtime/checkout for
   temporary proof; production bootstrap waits for final v2 cutover. the same
   scoped content/adversarial/red-green-refactor method and probe deletion apply.
+  [slice 6](docs/event-sources-and-recurring-work.md) is source-audited, not
+  implemented. one cursor table/poll task publishes mail/calendar facts through
+  ordinary main admission. preserve partial gmail progress, fixed sync selectors,
+  quiet baselines and truthful coverage gaps. source controls use existing atomic
+  local receipts; status is fresh. reuse attachment's landed profile/fresh-read
+  helpers, repair shared token concurrency and qualify new echo receipts by account.
+  proved recovered successes may retain null account qualification under the
+  2026-11-16 owner amendment; missing echo qualification never changes effect
+  certainty. direct success still verifies account before entry, and null receipts
+  cannot suppress echoes.
+  event metadata uses ordinary canonical memory projection; no body archive,
+  memory schema change or recurring-work implementation. daily review remains
+  work data. use the same scoped temporary proof/review method; production cutover
+  stays separate and all shared files require integration against slice 5's merge.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity

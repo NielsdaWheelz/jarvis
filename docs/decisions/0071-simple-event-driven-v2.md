@@ -30,6 +30,12 @@ or worker callback service. the current memory completion is a separate pr.
    slice 1 refines this into one owner/host lifecycle, a causal message reference
    for recovery, a `stop` disposition for named delivered requests and an atomic
    local decision receipt in the existing native journal. no new table or role.
+   slice 6's source audit specifies mail/calendar producers: one independent poll
+   task and cursor table, bounded resumable gmail prefixes, fixed calendar sync
+   selectors and approximate attention. source metadata is ordinary host history;
+   bodies/files require deliberate reads. controls reuse local action receipts;
+   shared connector refresh and account-qualified echo evidence stay at their
+   owning layer. candidate qualification is separate from final production cutover.
 2. work records are the existing proposed todo table. optional one-time/repeated
    wake data lives on that row; its content holds context and references. a due
    wake publishes an ordinary event. deadlines remain separate from wake times;
@@ -134,8 +140,15 @@ this change is documentation only. run static/build/document checks; no source,
 behavioral/live execution, deployment or service resumption is included. future
 implementation uses the focused outcomes in the owning contracts and
 [acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks.
-the owner selected temporary integration/live red/green/refactor for slices 1–4,
+the owner selected temporary integration/live red/green/refactor for slices 1–6,
 with designer and adversarial review per feature/stage, then probe deletion.
 that scoped implementation exception does not restore a standing suite under
 adr 0046 or change memory's separate checks. this specification task runs no
 behavioral/live work and authorizes no source change or activation.
+
+owner receipt amendment, 2026-11-16: direct gmail-send/calendar-create/update
+successes require verified account before effect entry. exact effect recovery may
+return success with null account qualification; these receipts cannot suppress
+echoes. the missing qualifier never makes a proved effect uncertain. preserve
+existing bounded reconciliation and action schema, with no new durable account
+recovery mechanism or repeat of an effect. the event contract owns proof.

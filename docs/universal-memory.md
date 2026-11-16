@@ -144,6 +144,9 @@ target: discovered changes commit within 60 seconds while their dependencies are
 available. metadata misses wait for the initially hourly revisit. compaction runs
 serially when idle or required by a waiting turn; no compression latency or
 complete fleet capture is promised.
+live qualification records native completion, discovery, archive commit and exact
+readback separately. a short discovery-to-commit interval does not excuse a long
+undiscovered interval; do not present either measurement as the other.
 
 prerequisite: [claude transcript retention](issues/claude-transcript-retention.md).
 [deferred work](implementation-plan.md#deferred-from-universal-memory): historical import
@@ -437,6 +440,17 @@ archive_read(home, native_id, after?, from_event_id?)
   native lineage and complete central coverage proof above, during central ingest.
   inheritance never changes the native read's activation/checkpoint starting
   boundary or removes its inclusive checkpoint verification.
+- modern codex item paging remains forward and preserves full-prefix validation.
+  request at most 100 native items per page under the unchanged 4-mib response
+  and structural bounds. if a multi-item response exceeds those bounds, close
+  its failed connection and retry the same opaque cursor with fewer items, down
+  to one. a failed page emits nothing and advances no position. a single-item
+  overflow retains the existing error. normalize each successful page in native
+  order and stop at an unfinished item before validating later item bodies.
+  identities, digests, checkpoint checks and capture boundaries are unchanged;
+  there is no aggregate-history reader or larger-response escape path. legacy
+  full-turn pages remain unchanged. this reduces native round trips; it does not
+  eliminate full-prefix decoding or bound elapsed fresh-baseline time.
 - an event whose native parent is not the preceding event, as after a claude
   rewind, is preceded by a `revision` event with reason `branch`. abandoned
   branches stay archived.
@@ -473,28 +487,53 @@ archive_read(home, native_id, after?, from_event_id?)
 
 one supervised collector per host runs as the owner (launchd on macbook, systemd
 user units on arch/devbox). use a jarvis package entry point pinned to the central
-release. no database credentials, inference or durable local state. sweep every
-30 seconds without overlap; a long sweep delays the next one.
+release. no database credentials, inference, concurrent capture workers or durable
+local state. discovery cycles do not overlap; the shared nominal interval and
+content-slice budget are 30 seconds.
 
-1. fetch `GET /v1/memory/lanes`; activate pending admitted lanes as above.
-   ordinary capture uses only active lanes. no other home is read.
-2. enumerate and post pages to `POST /v1/memory/sync`. the service creates newly
-   discovered conversations and returns ownership, immutable activation boundary,
-   pending baseline error, event checkpoint/native digest, capture error and last successful read. report
-   copied conversations as `foreign`. a successful complete listing stamps
-   `last_inventory_at`; partial listings never establish absence. paging progress
-   is transient and restarts after interruption.
-3. retry each pending baseline through `archive_head` before applying update
-   hints; a repaired file need not change the native listing timestamp. resolve
-   successful cuts through sync, then read changed/new conversations using
-   in-memory native update hints; on restart
-   all eligible conversations are candidates. revisit every eligible conversation
-   initially hourly even if hints show no change. use one bounded quantum per
-   conversation before another gets a second. unfinished reads remain eligible.
-   parked conversations await repair; they cannot starve the others.
-4. read inclusively from the stored checkpoint, or exclusively after activation
-   before the first commit. verify the checkpoint's native digest. upload complete
-   events in order. an empty caught-up request verifies the checkpoint too.
+1. fetch `GET /v1/memory/lanes` and validate admission and the contract revision.
+   ordinary discovery/capture uses only active lanes; no unadmitted home is read.
+2. perform metadata enumeration and all ordinary `POST /v1/memory/sync` pages
+   for every active home BEFORE any conversation content read or head repair.
+   collect fresh validated central receipts for this cycle. receipts contain
+   ownership, immutable cut, pending baseline error, checkpoint/digest, capture
+   error and last successful read. copied conversations remain `foreign`; only
+   complete listings stamp `last_inventory_at`. incomplete/failed listings never
+   establish absence. one unavailable home does not suppress other active homes.
+3. start a 30-second content slice after discovery. alternate a ready candidate
+   with recent native activity and the globally oldest waiting candidate,
+   including pending baselines. keep the alternation across cycles. scheduling
+   age starts at first discovery and advances after every attempt, including
+   failure; metadata changes never reset it. native dates and hints choose work,
+   never eligibility. later arrivals cannot repeatedly displace older work in
+   the fairness slots. use at most one operation per conversation in this cycle;
+   rebuild candidates from fresh receipts on the next cycle. this supersedes
+   draining the whole fleet before a conversation can receive another quantum.
+4. a pending baseline's operation is `archive_head` plus its canonical sync
+   transition. it remains eligible regardless of unchanged native hints. a
+   successful repair consumes this quantum; capture starts on a later cycle from
+   the returned canonical cut. ready conversations use native update hints and
+   the initially hourly revisit; on restart all eligible conversations are
+   candidates. only an actual caught-up read permits unchanged-hint suppression.
+   discard hints for parked/foreign rows. parking is not caught-up success and
+   must not suppress a later explicit operator retry.
+5. read inclusively from the stored checkpoint, or exclusively after activation
+   before the first commit. verify its native digest and upload complete events
+   in order. an empty caught-up request verifies the checkpoint too. finish the
+   current operation even if the slice expires; never cancel a read to pretend
+   progress, reset a boundary or manufacture `caught_up`.
+6. after active work, attempt at most one pending lane's existing atomic
+   activation. rotate across pending lanes and advance even on failure. this
+   remains an indivisible full head inventory, outside the content slice; it
+   must not run before active-home discovery. no incremental activation scheme
+   or new checkpoint is introduced.
+
+the trade-off is more frequent metadata work and slower background sweep
+completion in exchange for prompt discovery and fair capture of recent activity.
+one native operation, metadata enumeration or initial activation can still take
+longer than 30 seconds; this is cooperative scheduling, not a hard elapsed-time
+guarantee. keep pending/parked work explicit and report measured discovery and
+capture delays separately.
 
 normalize whole events with the existing unmistakable-secret matcher (private
 keys/known token prefixes), extended with `jmem_`. share this matcher with note
@@ -2239,3 +2278,93 @@ the packaged session manifest. retained capture/retry and all three library
 capture/completion checks pass after the main integration. only new temporary probes are removed
 after final verification. installed acceptance is recorded separately in the
 [rollout plan](implementation-plan.md#per-conversation-capture-amendment).
+
+### collector discovery and fairness source qualification
+
+2026-11-15: the normal installed journey after bounded native paging still took
+roughly seven minutes on dev-server and thirteen on macbook. the cause was
+content reads delaying later homes' discovery. the collector contract above now
+separates all active metadata sync from a cooperative content slice, alternates
+recent activity with oldest waiting work, and never treats parking as caught up.
+
+both frozen compositions pass all required static/build checks and retained
+capture/retry. twelve temporary scheduling cases pass; two real authenticated
+http/runtime-role postgres/native-file journeys fail on the predecessor and pass
+on this repair. they prove head-only recovery, exclusion of the recovery gap,
+unchanged-hint operator retry, and exact cut/checkpoint/original preservation
+across collector restart. independent code, test and contract review passes.
+new probes and disposable databases are removed after qualification. no schema,
+api, binding revision, provider/kernel pin or capture boundary changes. installed
+replacement and fresh ordinary capture latency are qualified below.
+
+### installed collector repair qualification
+
+source [jarvis pr 69](https://github.com/NielsdaWheelz/jarvis/pull/69) and
+[dev-server pr 218](https://github.com/NielsdaWheelz/dev-server/pull/218) are merged.
+central and both online collectors select
+`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, immutable tag
+`memory-collector-fairness-2026-11-15`. provider `6582551`, kernel `42e7ecd`,
+universal-memory `93e02af`, stock cognition 0.160 and schema 0008a are unchanged.
+v2 stays unactivated; no standing maintenance branch remains.
+
+the stopped-to-running comparison preserves all 13 lanes, 5,262 conversations,
+12,706 originals, 28 notes and 12,724 leaves exactly, including cuts and
+checkpoints: snapshot hash
+`52669688d23993112067e667cdb40f5f86ea8a2a951690f3b8fac59af17e2760`.
+canonical resume sequence 4 persists; no action is converted and the three
+finalized compatible worker records remain opaque. the same-release contained
+host, containment and both online gateway reads pass. jarvis is active with zero
+restarts. the old selected release is pruned. an actual mcp read reopens the
+prior exact 77-byte synthetic original with its original identity and digest.
+
+collectors start at 2026-11-16 00:13:02 utc on macbook and 00:13:12 on dev-server,
+with six active lanes each and authenticated v3/exact dependency checks passing.
+only the collector launch changes. all six native mcp entries are already exact;
+instruction/private configuration files and all ten original private inputs are
+preserved. one macbook claude-work2 native configuration has a separate publication
+93 seconds before its installer begins; its writer is unidentified, its owned
+memory entry is still exact, and the installer neither rewrites nor rolls it back.
+
+exactly one fresh normal persisted work2 turn per host then passes: model exit 0,
+one owner event and one assistant event, complete unique parts/leaves, exact
+final checkpoint/digest and no baseline/capture error. one installed native mcp
+client opens both captured originals exactly and unclipped; this is not a new
+per-host client qualification. root's actual shared search independently returns each
+expected assistant record. no synthetic launch was repeated.
+
+| host | model completion utc | inventory observation utc | stored archive receipt utc | first committed-read observation utc | model→receipt | assistant record |
+| --- | --- | --- | --- | --- | --- | --- |
+| macbook | 00:14:14.826702 | 00:15:02.733563 | 00:15:22.313590 | 00:15:26.635637 | 67.49 s | `e2a3776f-5bf9-4df1-a657-3f7af22791fa` |
+| dev-server | 00:14:42.487839 | 00:15:31.190852 | 00:15:47.118229 | 00:16:01.232543 | 64.63 s | `eea7df6a-6349-4e32-b187-af6822baf0e9` |
+
+all clocks above are 2026-11-16 utc. inventory timestamps are observations, not
+registration commits; stored archive receipts are not exact wal commit clocks.
+committed visibility is bounded by each receipt and positive read observation.
+thus post-inventory receipt delays are 19.58 and 15.93 seconds, with committed
+visibility observed within 23.91 and 30.05 seconds. exact mcp responses were
+observed by 00:16:01.241 and 00:17:10.187 respectively; these later manual proof
+times are not ingestion latency. no sub-minute end-to-end or fleet load claim
+is made. the prior repaired-paging-only observations were about 792 and 415
+seconds; this qualifies these ordinary post-restart journeys, not a benchmark.
+
+the final snapshot has 13 lanes, 5,264 conversations, 12,816 originals, 28 notes
+and 12,834 leaves, hash
+`cef9cceb3ee4a094fb627b5376782ce1d33fd48bbc48bfef809e79fe911de47a`.
+comparisons against both the stopped predecessor and original pre-rollout state
+pass. two conversations and 110 originals/leaves appended since the stopped
+snapshot; four existing checkpoints changed without a cut reset or changing
+a digest under the same id. opaque changed ids alone do not prove ordering.
+there are no duplicate parts/sequences, incomplete events or originals beneath
+pending baselines. temporary proof code, disposable databases and copied private
+stages are removed after review; native histories and append-only evidence remain.
+
+remaining coverage is explicit: 21 dev-server conversations have proven missing
+native source dependencies; two macbook conversations remain unavailable. both
+macbook primary files exist and grew during metadata observation, which proves
+neither stable-head failure nor complete native lineage. their cause is
+[unresolved](issues/macbook-work2-pending-baselines.md). healthy/new capture
+works; recovered pending conversations still establish fresh cuts without gap
+backfill. arch, nexus activation, the three named claude model checks, historical
+import, backup/restore and broad usefulness/load evaluation retain their approved
+deferrals. indivisible initial inventory and individual read cost remain an
+[explicit limitation](issues/memory-cold-start-scan.md).

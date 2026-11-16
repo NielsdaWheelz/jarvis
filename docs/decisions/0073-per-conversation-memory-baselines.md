@@ -1,6 +1,7 @@
 # adr 0073: per-conversation memory baselines
 
-status: accepted, 2026-11-15; source implementation qualified; installed proof pending.
+status: accepted, 2026-11-15; source and online installed capture qualified.
+remaining unreadable histories and owner-approved profile deferrals stay explicit.
 
 the owner approved capture for healthy and new conversations while unreadable
 existing conversations remain explicitly blocked. this supersedes the
@@ -41,7 +42,7 @@ independent conversations can proceed. status must show these coverage gaps.
 the missing originals' cause is unknown; native lineage can link earlier file
 segments without a user-created fork.
 
-the single installed deployment is on schema 0008. insert memory migration
+the deployment started on schema 0008. insert memory migration
 0008a before the unactivated one-main migration 0009, preserving its identity
 and data effects. qualify a memory-only patch of the installed release and merge
 the same change into current main. do not activate the incomplete v2 slices.

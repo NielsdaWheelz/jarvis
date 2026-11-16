@@ -99,7 +99,16 @@ its first successful later head read; activity before that cut is not imported.
 established cuts never move. this adds one nullable field to the existing
 conversation table and hard-cuts capture to native-archive.v3; memory tools and
 cognition behavior are unchanged. implementation and installed proof remain
-separate from this accepted amendment.
+separate from this accepted amendment. the owner's subsequent request to finish
+verification and investigate installed delay adds discovery-first collection:
+finish active-home metadata sync before content, then alternate recent activity
+and oldest waiting work in a cooperative 30-second slice. one operation per
+conversation per discovery cycle replaces the whole-fleet round requirement;
+failed/parked work cannot become a caught-up hint. rotate one pending-lane
+activation after active work. this changes scheduling, not cuts, event identity,
+checkpoint validation, schema or authority. the consolidated collector contract
+states fairness and elapsed-time limits; source proof remains distinct from live
+capture qualification.
 
 accepted memory completion target (2026-11-14):
 [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the

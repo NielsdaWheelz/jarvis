@@ -1,43 +1,53 @@
-# memory collector cold-start latency
+# memory initial-inventory and long-read latency
 
-status: observed during the 2026-11-15 rollout; follow-up after functional delivery.
+status: ordinary discovery starvation repaired and live-qualified on macbook and
+dev-server, 2026-11-15. indivisible initial inventory and individual native-read
+cost remain documented limitations; broader load evaluation stays deferred.
 
-problem: a restarted stateless collector revisits eligible conversations in each
-configured home before reaching later homes. native reads can traverse long
-prefixes to verify event identity and the stored boundary/checkpoint. initial
-activation of a later lane waits behind those reads.
+problem: full native baseline inventory and a single archive operation can still
+take longer than the collector's cooperative 30-second content slice. paging
+reduces round trips but retains complete prefix/identity validation. initial lane
+activation remains one atomic inventory, with no per-head persisted progress.
 
-impact: capture and new-lane activation can lag by hours on the owner's
-existing corpus. successful reads continue; this is separate from missing native
-files or an invalid capture boundary. activity before a new lane's actual cut is
-still excluded under the future-only contract.
+impact: a slow native operation can delay the next discovery cycle. initial
+activation delays its future-only cut; earlier activity is excluded. this does
+not mean healthy established lanes remain blocked by unreadable conversations.
 
-evidence: after the qualified 0fc3d64 restart, macbook had 2,183 claude-work
-conversations, then further claude/codex homes ahead of codex-work2. at 18:11 utc,
-1,095 claude-work conversations had been revisited; at 18:21 utc the collector
-had reached 217 of 317 codex-personal conversations, with 1,203 codex-work still
-ahead. dev-server likewise traversed earlier homes before its work2 inventory.
-central commits continued and established codex lanes had no parked captures.
-independent provider review found the history/pagination implementation unchanged
-from adf1b71 to 70178ec. each successful baseline reads the history twice;
-paginated native history uses roughly one rpc per item per pass, serially.
-repeated cursors fail and each rpc has a timeout, but the whole inventory has no
-elapsed deadline. unreadable entries previously aborted before later histories;
-retaining them as pending now exposes the full cost of the remaining reads.
-the initial head inventory publishes no per-head progress before its atomic
-activation receipt. process activity and absence of retry logs therefore cannot
-establish its current cursor or a reliable completion estimate.
-at 19:55 utc, dev-server work2's first inventory had run for approximately 97
-minutes without a receipt. the same collector process remained alive and a
-separate metadata-only endpoint request succeeded; neither proves scan progress.
-installed dev-server work2 capture acceptance remains open.
+evidence: before repair, dev-server work2's first inventory took about 3 hours
+41 minutes, establishing 190 boundaries and retaining 21 unavailable baselines.
+a completed normal turn then remained undiscovered for over an hour. the provider
+performed roughly one rpc per item, and the collector read old histories before
+discovering later conversations/homes. macbook had 2,184 old claude-work histories
+ahead of later profiles; hourly hints could expire during the sweep itself.
 
-reproduce with an ordinary collector restart and content-free lane/read progress
-observations. no broad load experiment was run. investigate native checkpoint
-navigation and home scheduling in the deferred performance/usefulness pass;
-first define the acceptable capture delay. preserve complete identity coverage,
-native event/digest verification, immutable cuts and exactly-once ingestion.
-do not skip histories, weaken provenance or add a second collector to hide delay.
+merged provider paging preserves forward barriers and exact digests. reverse
+traversal was rejected because a later oversized item could incorrectly park a
+readable prefix before an unfinished barrier. an isolated stock fixture reduced
+total calls 261→23 without changing events; that is not a fleet latency claim.
+paging alone still yielded approximately 792/415-second model→archive-receipt
+delays for fresh macbook/dev-server turns.
 
-resolved when: the agreed cold-start bound is demonstrated across the configured
-homes, including a newly admitted later lane, with the capture invariants intact.
+installed b6cf4b3 now discovers all active homes before a cooperative content
+slice, alternating recent activity with oldest waiting work. pending head repair
+gets one operation; failed/parked work cannot produce a false caught-up hint.
+one rotating pending-lane activation follows active work. the trade-off is more
+metadata requests and slower background drainage for prompt new discovery.
+12 temporary scheduling cases, two real authenticated http/postgres/native-file
+journeys, retained regressions, full checks and independent review pass.
+
+one fresh normal turn per online host then passes exact capture, checkpoint,
+search and actual native mcp opening. stored archive receipts follow model
+completion by 67.49 seconds on macbook and 64.63 on dev-server; committed visibility
+is observed within 23.91/30.05 seconds of inventory observation. these are
+observation bounds, not exact commit clocks or a sub-minute end-to-end guarantee.
+all old cuts/originals are preserved. see the
+[installed evidence](../universal-memory.md#installed-collector-repair-qualification).
+
+remaining: measure a fresh initial inventory when another approved lane is
+activated, and inspect any concretely observed long single operation. no new
+whole-fleet benchmark, reset, backfill, second collector or weakened validation
+is authorized by this record. resolve this residual issue when the ordinary
+activation/read journey demonstrates acceptable delay with identity coverage,
+immutable cuts and exactly-once ingestion intact, or adopt a specific further
+requirement from observed evidence. one passing small turn does not establish
+large-backlog or fresh-inventory performance.

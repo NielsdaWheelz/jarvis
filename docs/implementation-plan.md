@@ -563,8 +563,8 @@ native recovery; no pre-cut activity is imported or identity omitted.
 
 the following records the earlier schema-0008 rollout and its then-current
 deferrals. the [per-conversation amendment](#per-conversation-capture-amendment)
-below owns the subsequent release, macbook activation and remaining dev-server
-live check.
+below owns the subsequent releases, both online activations and completed
+normal capture checks.
 
 | step / owner | action and completion evidence |
 | --- | --- |
@@ -669,8 +669,8 @@ history's missing head is never an empty cut. permanently unreadable histories
 can remain pending indefinitely; their earlier activity will remain absent even
 if they recover later. this is the owner's accepted coverage trade-off.
 
-installed transition: release `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, tag
-`memory-partial-baselines-2026-11-15-r2`, is active on schema `0008a` with zero
+earlier installed transition: release `0fc3d6444231484f1762c14c83f15d8b166b7fd6`, tag
+`memory-partial-baselines-2026-11-15-r2`, activated on schema `0008a` with zero
 service restarts. the same-release contained stock-0.160 host qualifies. the
 stopped migration comparison preserves all 11 prior lane receipts, 4,811
 conversation rows, 4,820 originals, 26 notes and 4,836 leaves exactly, including
@@ -678,7 +678,7 @@ all cuts/checkpoints. canonical resume sequence 4 is unchanged; activation
 converts no actions and accepts only the three already-finalized compatible
 worker records. old release 3367413 is pruned; one installed release remains.
 
-both collectors select the same 0fc3d64 revision and authenticate native-archive.v3.
+both collectors then selected the same 0fc3d64 revision and authenticate native-archive.v3.
 all thirty protected profile, instruction and private-input files retain exact
 bytes, inodes and modes; no native daemon restart occurs during this replacement.
 an actual native mcp open reopens the known synthetic note with its exact marker.
@@ -700,14 +700,120 @@ the same id. appended material is allowed; there are no duplicate parts/sequence
 incomplete events or pending conversations with originals. this snapshot does not
 establish checkpoint ordering by itself.
 
-dev-server work2 activation/capture remains pending; its initial inventory has
-not committed after more than 100 minutes. this is unfinished functional
-acceptance, separate from the deferred performance evaluation. restart
+at the earlier source merge, dev-server work2's initial inventory had not
+committed after more than 100 minutes. its eventual activation and subsequent
+capture-delay repair are recorded below; its normal model→capture→mcp journey
+has now passed; the scheduling repair and fresh measurements follow below. restart
 qualification uses the actual replacement's preserved
 old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
-there is no second full cold-start experiment. the observed
-[cold-start scan delay](issues/memory-cold-start-scan.md) belongs to the deferred
-performance/usefulness follow-up, with correctness requirements unchanged.
+there is no second full cold-start experiment in that baseline qualification.
+the owner subsequently reopened the observed
+[cold-start scan delay](issues/memory-cold-start-scan.md) as the functional repair
+below; broader performance/usefulness evaluation remains deferred.
+
+#### native capture read repair
+
+owner-authorized investigation and completion, 2026-11-15. dev-server work2's
+first inventory took about 3 hours 41 minutes. it established 190 modern native
+boundaries and retained 21 unavailable baselines. the collector then reread the
+excluded prefixes; a new completed synthetic conversation was still undiscovered
+an hour later. the one-item native paging cost, serial sweep and hourly hint
+expiry explain why this is unfinished functional delivery, not a passed load test.
+
+repair the responsible provider reader first: batch modern native items within
+the existing response bounds, shrinking an oversized page at the same opaque
+cursor until it fits or reaches the existing single-item refusal. retain forward
+normalization, full-prefix validation, exact native identities, checkpoint checks
+and unfinished-item semantics. legacy full-turn paging stays unchanged. this
+reduces repeated native lineage resolution and round trips; full-prefix decoding,
+small-item-page limits and fresh-baseline costs remain explicit limitations.
+no scheduler framework, new cache/table, historical import or runtime upgrade is
+included. adversarial review rejected reverse traversal because an oversized
+later item could otherwise park a readable prefix before an unfinished barrier.
+
+| owner | non-overlapping work |
+| --- | --- |
+| provider-runtime | temporary red/green protocol and native proof; bounded forward native item pages; upstream merge and qualified stock-0.160-compatible artifact |
+| composition | kernel provider pins; jarvis pins/fingerprints/session manifest/lock in current main and the installed memory-only composition; frozen checks; dev-server collector pin |
+| integration | update this contract and cold-start issue; install the qualified composition through existing workflows, preserving schema 0008a, canonical control, cuts and originals; no v2 activation |
+| independent review | adversarial design/code/proof review, including compound boundaries, missing/changed checkpoints, unfinished-before-malformed suffixes, exact codec equivalence, oversized-page recovery and total rpc reduction |
+| live qualification | finish the already-created dev-server synthetic; after repair, measure a fresh normal turn through discovery, archive and exact mcp opening; compare preserved state and retain pending histories explicitly |
+
+use the existing temporary proof method, then delete new probes after green.
+provider [pr 56](https://github.com/NielsdaWheelz/llm-calling/pull/56), kernel
+[pr 28](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/28), jarvis
+[pr 68](https://github.com/NielsdaWheelz/jarvis/pull/68) and dev-server
+[pr 217](https://github.com/NielsdaWheelz/dev-server/pull/217) are merged. installed
+release 5bc88ab uses provider 6582551 and kernel 42e7ecd, preserving stock 0.160,
+schema 0008a and all registry versions. 27 temporary protocol cases per dependency
+composition, full required checks and independent review pass. an isolated real
+stock-0.169 fixture preserved exact events/digests while reducing total calls,
+including initialization/reconnects, from 261 to 23. this is not a fleet latency
+claim. installation preserves all 13 lanes, 5,249 conversations, 11,109 originals,
+28 notes and 11,127 leaves exactly, with canonical resume sequence 4 unchanged.
+
+#### collector discovery and fairness repair
+
+the repaired reader's normal journey exposed the separate scheduling defect.
+collectors restarted at 23:39 utc; fresh normal work2 turns completed at 23:44:53
+on macbook and 23:44:54 on dev-server. neither was registered at 23:46:22. macbook
+was still reading 1,963 of 2,184 old claude-work conversations before later homes;
+dev-server had read 87 of 190 old work2 prefixes. a faster native reader does not
+make discovery independent of a full host sweep.
+
+change only the existing collector and its contract: complete every active home's
+metadata/sync phase first, then alternate recent ready activity and oldest waiting
+work within a cooperative 30-second content slice. retain first-seen/last-attempt
+age and one alternation flag; failures remain eligible and cannot starve older
+work. one operation per conversation per discovery cycle replaces the former
+whole-fleet round requirement. pending-head repair is one operation; capture uses
+its fresh canonical receipt on a later cycle. a permanent park is not caught-up
+success and must not suppress an explicit retry with an unchanged native hint.
+at most one indivisible pending-lane activation follows active work, with a
+rotating index that advances on failure. no concurrent capture, durable queue,
+new schema/api, shortened validation or longer revisit interval is introduced.
+
+trade-offs: more metadata requests and slower background drainage buy prompt
+new/changed discovery; one native operation, listing or activation can still
+exceed the slice. the existing 60-second post-discovery target is not a hard
+wall-clock guarantee. measure terminal→discovery and discovery→capture/open
+separately, and do not hide remaining delay behind the distinction.
+
+implementation owns collector code and deterministic red/green fairness checks;
+an independent reviewer owns real http/postgres/native-file proof and adversarial
+review. root owns this contract and installed replacement. the existing live
+worker owns the three already-created synthetics and subsequent fresh proof;
+never duplicate uncertain launches. preserve all prior cuts/originals through the
+memory-only release and keep v2 unactivated. qualify hot/cold/pending fairness,
+metadata-before-content, failure/retry eligibility and exact checkpoint reuse,
+then delete only the new probes. broader usefulness/load evaluation stays deferred.
+
+source qualification passes in both current-main and installed-compatible
+compositions: 12 temporary scheduling cases, retained capture/retry and full
+`scripts/verify`. an independent real authenticated http/runtime-role postgres/
+native-claude-file probe reproduces two predecessor failures and passes both
+repairs: head recovery gets one quantum with the recovery gap excluded; explicit
+retry works with an unchanged native hint. restart preserves exact cuts,
+checkpoints and originals without duplicates. independent source/test/contract
+review passes. the new probes and disposable databases are removed after this
+evidence; installed replacement and fresh latency proof are complete.
+
+jarvis pr 69 and dev-server pr 218 are merged. central and both online collectors
+run b6cf4b3 on unchanged schema 0008a and stock cognition 0.160; no v2 activation.
+normal fresh work2 turns on macbook/dev-server reach stored archive receipts in
+67.49/64.63 seconds after model completion, with exact native mcp opening and
+shared search. preserved-state comparisons pass before/after replacement and
+after live capture. all selected source changes are merged; compatible artifacts
+remain immutable tags, without maintenance branches. the owning
+[installed evidence](universal-memory.md#installed-collector-repair-qualification)
+records observation bounds, original preservation and cleanup.
+
+no further implementation is outstanding for this online rollout. 21 dev-server
+missing-source histories and [two unresolved macbook baselines](issues/macbook-work2-pending-baselines.md)
+remain explicit coverage gaps under the approved healthy/new policy. arch, nexus,
+three claude model checks and the other named deferrals remain outside completion;
+initial baseline/long-operation latency remains documented, with no broader load
+claim.
 
 ### memory and native-main integration
 

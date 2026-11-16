@@ -130,7 +130,7 @@ DREAMER_KERNEL_LIMITS = KernelLimits(
     max_cooperative_seconds=300.0,
     max_provider_input_tokens=160_000,
     max_provider_output_tokens=16_000,
-    max_new_context_bytes=262_144,
+    max_new_context_bytes=327_680,
 )
 MAIN_TOOL_LIMITS = RunLimits(
     max_calls=None,

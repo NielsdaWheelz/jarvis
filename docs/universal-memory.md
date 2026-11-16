@@ -1069,7 +1069,7 @@ retry loop. main work takes precedence.
 
 use isolated `run_one_shot`, `TransientModelDecisions`, one `as_of` and run-local
 read receipts. retain ten provider turns, two repairs, three no-progress attempts,
-300 cooperative seconds, 160,000 input tokens, 16,000 output tokens and 262,144
+300 cooperative seconds, 160,000 input tokens, 16,000 output tokens and 327,680
 rendered new-context bytes. reads allow eight calls/eight external attempts,
 32,768 aggregate input bytes and one in-flight call. set tool-budget elapsed time
 to 300 seconds, aligned to the isolated run: this clock starts before inference,
@@ -1079,6 +1079,14 @@ aggregate output is at most 512 kib. eight maximum-size replies need not fit.
 the pinned kernel can detect context overflow AFTER a read executes, aborting the
 whole isolated run as a configuration error; seeds stay pending. it does not
 promise graceful read refusal followed by successful completion.
+
+f2's measured composition amendment raises the dreamer's host context capacity
+to 320 kib. its complete host table plus the full 64,000-byte seed, 8,000-byte
+sample and actual role/time/identity framing require 292,817 bytes. the former
+262,144-byte cap could reject a valid initial request before inference. the
+dreamer role contract is v4; shared allocation and all other limits above retain
+their values. this permits up to 65,536 more cumulative rendered context bytes
+under the existing token, turn, tool and elapsed bounds.
 
 promote llm-tools' generic transient recorder into its production surface with
 `durable=False` fixed and consume the qualified pin. never import its test helper
@@ -2201,8 +2209,9 @@ nineteen real postgres 16/runtime-role checks prove routine activation preserves
 initialized stop/pause/resume, rejects missing or other-scope initialization, and
 retains ownership, native-state and action barriers. only provider-plan composition
 is scripted. the paused migration predicate is unchanged. independent review and
-full `scripts/verify` pass; this does not close the separate
-[pending-login shutdown issue](issues/discord-login-failure-exit.md).
+full `scripts/verify` pass; that artifact did not qualify pending-login shutdown.
+the later [f2 repair](runtime-reliability-and-integration.md#implementation-evidence)
+has its own isolated transport/process evidence and separate installed acceptance.
 
 ### native memory installed qualification
 

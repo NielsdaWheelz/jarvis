@@ -30,8 +30,9 @@ non-continuable gmail/calendar reads, clipped web results/text, missing incoming
 `Reply-To` and deliberate mutable reads that can reuse earlier observations.
 main already has no aggregate tool-call/time quota. its prompt already supplies
 the owner's personality/goals and tool guidance; native subagents and skid supply
-delegation. the [native failure](../issues/native-protocol-diagnostics.md) and
-[discord startup issue](../issues/discord-login-failure-exit.md) remain open.
+delegation. the [native failure](../issues/native-protocol-diagnostics.md) remains
+open. [f2's isolated evidence](../runtime-reliability-and-integration.md#implementation-evidence)
+now qualifies the discord startup/stop repair; installed acceptance remains separate.
 
 the owner accepts three separately specified review units. the
 [roadmap](../implementation-plan.md#v2-finishing-prs) alone owns sequencing:

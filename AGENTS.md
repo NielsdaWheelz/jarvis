@@ -364,7 +364,9 @@ These instructions govern all work in this repository.
 - Discord v1 is exactly one configured guild channel. Do not add Discord
   threads, direct messages, channel organization, reactions, broad message
   management, or model-callable Discord tools.
-- Use `discord.py` 2.7.1 for Gateway/interactions and the narrow host-owned
+- Use the exact qualified 2.7.1-derived `discord.py` fork in the dependency lock
+  for Gateway/interactions; [f2](docs/runtime-reliability-and-integration.md#implementation-evidence)
+  owns its lifecycle repairs. use the narrow host-owned
   `httpx` REST v10 Create Message binding for enforced nonces. Do not depend on
   private `discord.py` internals.
 - Reuse the working Gmail, Calendar, Maps, and Discord integrations and their

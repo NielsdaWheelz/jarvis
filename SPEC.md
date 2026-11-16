@@ -167,6 +167,13 @@ integration; f2 now owns the final stopped production cutover and installed proo
 no feature-parity claim follows
 from this scope or from jarvis-only proof.
 
+f2's source transport adopts the exact qualified 2.7.1-derived discord.py fork
+`4c137a2de1c8aa36ac1df19f654afb99856824f2`, with aiohttp 3.14.4 and aiodns 4.0.4.
+its [evidence](docs/runtime-reliability-and-integration.md#implementation-evidence)
+owns the public lifecycle repair, asynchronous DNS, fixed pre-ingress catch-up cut
+and safe failure projection. historical dependency observations below retain their
+original artifacts; installed production acceptance remains separate.
+
 after installed acceptance, the owner selects a one-off fresh reset of configured
 discord history, jarvis history and all central shared history, including other
 agents' admitted material. clear todos/reminders/waits; preserve private repos,
@@ -789,7 +796,8 @@ deduplication:
 In these derivations, `canonical_text(id)` means the lowercase, whitespace-free
 PostgreSQL text representation of the persisted ID.
 
-The qualified `discord.py` 2.7.1 public send API accepts `nonce` but does not
+The qualified `discord.py` 2.7.1 public send API, retained by f2's exact fork,
+accepts `nonce` but does not
 expose `enforce_nonce`. V1 therefore uses one small host-owned `httpx` binding to
 Discord REST v10 for Create Message. Gateway ingress, typing, and component
 interactions remain on `discord.py`; Jarvis does not call private `discord.py`
@@ -1928,8 +1936,9 @@ completion scheduler or application process supervisor.
 - Database: PostgreSQL with full-text search and pgvector.
 - HTTP/schema: FastAPI and Pydantic v2 when a new HTTP surface is needed.
 - Persistence: Psycopg 3, SQLAlchemy 2, and Alembic.
-- Discord: reuse the working single-channel transport; use `discord.py` 2.7.1
-  for Gateway and interactions, and a narrow `httpx` Discord REST v10 Create
+- Discord: reuse the working single-channel transport; use f2's exact qualified
+  2.7.1-derived `discord.py` fork for Gateway and interactions, and a narrow
+  `httpx` Discord REST v10 Create
   Message binding for `enforce_nonce` until a qualified public client API exposes
   it.
 - Google: reuse the working Gmail, Calendar, Maps, OAuth, and client stack.

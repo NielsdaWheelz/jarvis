@@ -43,13 +43,16 @@ These instructions govern all work in this repository.
   and qualified f3. use the real production channel exclusively; no parallel
   gateway/mailbox actor. historical native incidents may remain explicitly OPEN
   if representative reproduction cannot identify them; current reproduced defects
-  require repair. after acceptance the owner requests a completely fresh reset:
-  configured discord/jarvis/all central shared history plus todos/reminders/waits.
-  this is one stopped administrative exception to retention and capture cuts,
-  not a runtime deletion tool. preserve private repos, credentials, real google
-  data and original native/nexus chats; retain recovery evidence, coordinate all
-  stores/source cuts and prove no immediate old-history republication. do not
-  recreate daily-review work. follow f2's exact contract and file disposition.
+  require repair. [adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md)
+  amends order to preliminary fresh reset → real journey → final fresh reset. both
+  clear configured discord/jarvis/all central shared history and todos/reminders/
+  waits under existing stopped controls. preserve private repos, credentials, real
+  google data, original native/nexus chats and original unknown-effect evidence.
+  retain one verified current `0013` recovery artifact; verify its replacement
+  before disposing of the predecessor. these are two administrative exceptions,
+  not a runtime deletion tool. coordinate source cuts and prove no old-history
+  republication; do not recreate daily-review work. large-corpus preparation
+  latency remains unqualified. follow f2's exact contract and file disposition.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

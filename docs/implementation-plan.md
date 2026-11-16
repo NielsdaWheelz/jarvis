@@ -203,7 +203,8 @@ accepted scope under adr 0075; [f1 is source/candidate qualified](mail-calendar-
 under the owner's [role/delegation refinement](decisions/0076-role-models-and-delegated-choices.md).
 [f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
 reliability/deployment proof under the owner's
-[production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
+[production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
+reordered by [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md).
 final source integration is qualified; installed acceptance and reset remain pending.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
 records the exact artifact, pins and temporary candidate. production activation
@@ -213,7 +214,7 @@ these labels preserve the original six slices and do not imply opened prs.
 | unit | scope and owner | contract and status |
 | --- | --- | --- |
 | f1: complete mail/calendar/web reads | jarvis owns complete supported mail/calendar traversal/text, incoming `Reply-To` and fresh deliberate mutable observations; llm-tools owns web search continuation and full supported extracted-text chunks. bounded responses with explicit provider/live-source limits; retain original callback receipts and paid-read barriers. existing writes stay. | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence); source and separate candidate qualified on the audited owner-approved event stack |
-| f2: reliability and installed integration | interruptible discord login/readiness retry, owned asynchronous DNS and clean stop; safe native diagnostics and owning-layer repairs. qualify the actual composition, restore the activation primitive, run the production journey, then the owner's completely fresh history reset. historical irreproducible native incidents may remain explicitly open. | [contract](runtime-reliability-and-integration.md); [isolated discord evidence](runtime-reliability-and-integration.md#implementation-evidence) qualifies that repair; the [historical native issue](issues/native-protocol-diagnostics.md) remains open |
+| f2: reliability and installed integration | interruptible discord login/readiness retry, owned asynchronous DNS and clean stop; safe native diagnostics and owning-layer repairs. qualify the actual composition, restore the activation primitive, perform the preliminary fresh reset, run the production journey, then perform the final reset. historical irreproducible native incidents may remain explicitly open. | [contract](runtime-reliability-and-integration.md); [isolated discord evidence](runtime-reliability-and-integration.md#implementation-evidence) qualifies that repair; the [historical native issue](issues/native-protocol-diagnostics.md) remains open |
 | f3: subscription model/runtime and delegated choices | main `gpt-6-astra/max`; fixed compactor/dreamer `gpt-6.1-sol/xhigh`, through the personal codex subscription and `provider-runtime`. main chooses native-child and per-session skid model/effort. qualify actual catalog keys, auth, effort, runtime/pins and the bounded upstream skid extension; no substitute for fixed-role selections. | [contract and evidence](subscription-model-runtime.md#implementation-evidence); source/candidate qualified with unchanged cognition pins and installed skid v0.24.4 on macbook/dev-server |
 
 specification can proceed in parallel. implement f1 after auditing the merged
@@ -246,19 +247,24 @@ published tools, preserve original effect receipts, and state unrun boundaries.
 no comparative performance claim or standing benchmark framework follows.
 
 after isolated reliability proof and qualified f3 are integrated with f1/slices
-1–6, f2 performs the stopped production cutover and actual installed journey.
+1–6, f2 performs the stopped production cutover, preliminary fresh reset and actual
+installed journey under adr 0078.
 reconcile pending effects/waits and account for reminders; migrate/provision the
 selected release, then prove physical owner ingress/consent and restart continuation
 through existing operations. source success alone does not activate production.
 the owner permits an explicitly open irreproducible historical native issue;
 current demonstrated defects still require repair. no intermediate activation.
 
-after acceptance, perform adr 0077's stopped fresh reset: configured discord,
-jarvis and ALL central shared history, plus todos/reminders/waits. preserve private
-repos, credentials, real google data and original native/nexus chats. coordinate
-the 18 tables/source cuts and attachment disposition; no immediate republication
-of old history or automatic daily-review seed. this is a one-off operator action,
-not a runtime deletion feature. retain concise evidence before deleting fixtures.
+apply adr 0078's existing stopped reset procedure before the journey and again
+after acceptance: configured discord/jarvis/ALL central shared history and todos/
+reminders/waits. preserve private repos, credentials, real google data, original
+native/nexus chats and unknown-effect receipts. retain verified current `0013`
+recovery, replacing predecessors only after verification. coordinate the 18 tables,
+source cuts and attachment disposition; no old-history republication or automatic
+daily-review seed. these are two operator actions, not a runtime deletion feature.
+retain concise evidence before cleanup. fresh-corpus acceptance leaves the
+[39,873-leaf preparation backlog](issues/memory-preparation-backlog.md) unqualified
+for latency and throughput.
 
 trade-offs: deeper retrieval uses more calls/context; provider and per-operation
 limits remain. main `max` and memory `xhigh` can increase latency and subscription
@@ -1094,7 +1100,7 @@ intent merely because their implementation is incomplete.
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
 | f1 reads | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; page/chunk/freshness/recovery/native proof passes; production cutover separate; broader [search proposal](complete-and-continuable-searches.md) stays deferred |
-| f2 reliability/integration | [isolated repairs qualified](runtime-reliability-and-integration.md#implementation-evidence); source integration qualified; selected final stack → stopped production cutover/live journey → authorized fresh history reset |
+| f2 reliability/integration | [isolated repairs qualified](runtime-reliability-and-integration.md#implementation-evidence); source integration qualified; selected final stack → stopped cutover → preliminary fresh reset → real journey → final fresh reset |
 | f3 model/runtime | [qualified](subscription-model-runtime.md#implementation-evidence): main astra/max, memory sol/xhigh, independent native-child/per-session skid choices; source and separate candidate pass; production jarvis activation remains with f2 |
 | attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |

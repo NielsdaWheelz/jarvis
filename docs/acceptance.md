@@ -137,10 +137,12 @@ settlement and original receipt recovery across the model change.
 integrated proof uses the final selected artifacts on the actual production service
 after isolated fault proof and stopped cutover. under adr 0077, an irreproducible
 historical native incident may remain explicitly open; passing journeys do not
-retroactively diagnose it. final acceptance precedes the owner's one-off reset of
-all discord/jarvis/central shared history and commitments, with coordinated source
-cuts and preserved private/source data. no standing suite, benchmark or competitor-
-parity claim follows. no installed proof or deletion has occurred in f2.
+retroactively diagnose it. [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md)
+orders the owner's preliminary reset → real journey → final reset, with coordinated
+source cuts and preserved recovery/unknown-effect evidence and private/source data.
+fresh-corpus proof does not qualify large-backlog preparation latency. no standing
+suite, benchmark or competitor-parity claim follows. final combined acceptance and
+both resets remain pending.
 
 ## native cutover acceptance
 

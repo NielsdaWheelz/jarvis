@@ -25,10 +25,11 @@ has source and separate candidate qualification. [f3](../subscription-model-runt
 has source/candidate qualification under [adr 0076](0076-role-models-and-delegated-choices.md), which selects
 main astra/max, memory sol/xhigh and deliberate native-child/per-session skid choices.
 [f2](../runtime-reliability-and-integration.md) has isolated source proof under
-[adr 0077](0077-production-acceptance-and-fresh-reset.md): reliability repairs,
-actual production cutover/acceptance and the owner's complete fresh history reset.
-source integration is qualified; installed acceptance and reset remain pending; broader search
-remains deferred.
+[adr 0077](0077-production-acceptance-and-fresh-reset.md), reordered by
+[adr 0078](0078-fresh-corpus-first-acceptance.md): reliability repairs, stopped
+cutover, preliminary fresh reset, real production journey and final reset.
+source integration is qualified; combined acceptance and both resets remain
+pending. broader search remains deferred.
 
 [adr 0072](0072-native-memory-rollout.md) owns the qualified native rollout
 amendments and service access boundaries. source checks and the registry audit
@@ -110,9 +111,10 @@ with nexus and arch deferred.
 | [0072](0072-native-memory-rollout.md) | native memory rollout | online installed qualification passes: schema `0008`, v10 service reads, twelve sdk connections, nine model journeys, ten capture cuts, quiet memory and outage/restart recovery; five profile deferrals remain, arch later, nexus next release |
 | [0073](0073-per-conversation-memory-baselines.md) | per-conversation native capture baselines | accepted healthy/new capture with explicit pending unreadable histories; complete identity inventory and immutable established cuts retained; source and online installed capture qualified; unreadable histories remain pending |
 | [0074](0074-private-native-socket-publication.md) | private native socket publication | slice 4 implementation correction; private physical socket plus application-only file bind; coordinated restart/remount; source/candidate qualified, production cutover separate |
-| [0075](0075-v2-completion-and-subscription-model.md) | v2 completion and subscription model | f1/f3 source/candidate qualified; f2 integrated source/isolated repairs qualified, production/reset pending; role choices refined by 0076 and production/reset sequence by 0077 |
+| [0075](0075-v2-completion-and-subscription-model.md) | v2 completion and subscription model | f1/f3 source/candidate qualified; f2 integrated source/isolated repairs qualified, combined acceptance/reset pending; role choices refined by 0076, production/reset scope by 0077 and order by 0078 |
 | [0076](0076-role-models-and-delegated-choices.md) | role models and delegated choices | source/candidate qualified: main astra/max, fixed memory sol/xhigh, deliberate native-child/per-session skid choices and worker v11; installed jarvis activation separate |
-| [0077](0077-production-acceptance-and-fresh-reset.md) | production acceptance and fresh reset | accepted target: f2 repairs and installed journey, explicit historical native unknown permitted, then one-off reset of discord/jarvis/all shared history and commitments; private/source data preserved |
+| [0077](0077-production-acceptance-and-fresh-reset.md) | production acceptance and fresh reset | accepted scope: f2 repairs and installed journey, explicit historical native unknown permitted, finite fresh reset with private/source data preserved; ordering superseded by 0078 |
+| [0078](0078-fresh-corpus-first-acceptance.md) | fresh-corpus-first acceptance | owner-approved preliminary reset → real production journey → final reset; original recovery/uncertainty evidence preserved, large-corpus warm-up latency unqualified |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

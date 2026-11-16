@@ -3,6 +3,11 @@
 status: accepted target, 2026-11-16. owner decisions during f2 specification;
 no implementation, production change or deletion has occurred.
 
+[adr 0078](0078-fresh-corpus-first-acceptance.md) supersedes the reset order below
+and pre-migration full-artifact retention through acceptance: preliminary reset →
+real journey → final reset, retaining verified current recovery. all other
+requirements remain binding; this record retains the original decision.
+
 ## decision
 
 the [f2 contract](../runtime-reliability-and-integration.md) owns reliability

@@ -1,12 +1,14 @@
 # universal memory: implementation contract
 
-one-off target exception: [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md)
-authorizes the owner's complete post-acceptance central-history reset, including
-other agents' admitted originals/notes. [f2](runtime-reliability-and-integration.md#e-post-acceptance-fresh-reset)
+finite target exception: [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md),
+reordered by [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), authorizes
+the owner's preliminary reset → real journey → final reset, clearing central
+history including other agents' admitted originals/notes at both resets.
+[f2](runtime-reliability-and-integration.md#e-fresh-history-resets)
 owns coordinated canonical/archive clearing, fresh native cuts and any active
 nexus-export disposition. preserve original source chats and existing runtime
-append-only guards; add no deletion tool or general reset protocol. this operation
-has not occurred. the normal contract and prior evidence below remain unchanged.
+append-only guards; add no deletion tool or general reset protocol. both resets
+remain pending. the normal contract and prior evidence below remain unchanged.
 
 owner-approved contract; jarvis and the online native fleet are installed and
 qualified with the explicit profile deferrals recorded below.

@@ -71,8 +71,10 @@ and deliberate native-child/per-session skid choices. fixed host roles have no
 fallback; worker v11 uses qualified skid v0.24.4.
 [f2](runtime-reliability-and-integration.md) implements network-only retries,
 safe native diagnostics and stopped deployment preparation with qualified source
-integration. installed proof and the one-off fresh reset under
-[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) remain pending.
+integration. [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md) orders the
+preliminary reset → real production journey → final reset; installed combined
+acceptance and both resets remain pending. original recovery/uncertainty evidence
+and private/source data remain preserved; large-backlog preparation latency is unqualified.
 broader search/budget
 remains separate; f2 now owns stopped production activation after source readiness.
 reuse existing owners, prompt/tool

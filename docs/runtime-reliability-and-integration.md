@@ -2,17 +2,18 @@
 
 status: f2 implementation contract, 2026-11-16, under
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
-[adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
+[adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
+with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md).
 source implementation, integrated composition and isolated fault proof qualified.
-installed acceptance and fresh reset remain NOT_RUN.
+installed acceptance and both fresh resets remain pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
 
 recover from transient discord startup outages without crash loops; stop cleanly
 during login/retry; retain enough safe native-failure evidence to repair the
-responsible layer. prove the assembled product through a useful real production
-journey, then perform the owner-selected fresh history reset.
+responsible layer. perform the preliminary fresh reset, prove the assembled
+product through a useful real production journey, then perform the final reset.
 
 original audit base: jarvis `80af4e4`, landed slices 1–6 and f1, before f3's
 implementation. the integrated source now consumes qualified f3 `001cc8d`
@@ -29,8 +30,11 @@ exact selected artifact/configuration/host pair and genuine owner ingress.
   recipient. tests must inspect outcomes, not merely accept model claims.
 - an irreproducible historical native incident may remain OPEN after diagnostics
   and representative reproduction pass. new demonstrated defects must be fixed.
-- after acceptance, reset discord/jarvis/central shared history and all work/waits.
-  preserve private repos, credentials, real google data and original native chats.
+- reset discord/jarvis/central shared history and all work/waits before the real
+  journey and again after acceptance. preserve private repos, credentials, real
+  google data and original native/nexus chats. the owner selected this order after
+  the [historical preparation backlog](issues/memory-preparation-backlog.md) blocked
+  main; fresh-corpus proof does not qualify that backlog's latency.
 
 non-goals: new features, orchestration/notification systems, standing benchmark or
 test harness, general retry framework, native protocol relaxation, automatic
@@ -272,7 +276,8 @@ qualify activation script refusals and successful selection using controlled
 system/command boundaries before its actual production use. code rollback is not
 database rollback; failed cutover leaves the service stopped for explicit repair.
 
-the installed journey uses harmless synthetic content and bounded real work:
+after the preliminary reset and fresh source cuts in section e, the installed
+journey uses harmless synthetic content and bounded real work:
 
 1. verify the installed artifacts, sole gateway/actor, canonical control and quiet
    google baselines. the owner posts a real task in the configured channel:
@@ -314,13 +319,39 @@ installed-worker capture policy is unchanged, so synthetic worker histories can
 enter shared memory before the later reset. record reality, not a claim of total
 candidate isolation. close relevant installed-cutover issues only on real evidence.
 
-## e. post-acceptance fresh reset
+## e. fresh history resets
 
-this is the owner's one-off administrative operation, not a product capability.
-first retain concise acceptance evidence and one private stopped inventory/
-recovery snapshot. cancel commitments through existing transitions; finish or
-reconcile entered effects and task-owned work. never erase a failed proof or
-nonterminal recovery obligation. preserve unrelated running native terminals.
+adr 0078 authorizes this finite administrative procedure twice: before the real
+journey, then after acceptance. neither reset is a product capability. before the
+first, retain the preliminary observations and stopped `0013` inventory/recovery;
+before the second, retain actual journey outcomes and current recovery evidence.
+use canonical pause to stop pending requests and cancel unentered work, without
+claiming completion. finish/reconcile entered effects and task-owned work and drain
+the outbox before either wipe. never erase a failed proof or nonterminal recovery
+obligation. preserve unrelated running native terminals.
+
+retain one verified current recovery artifact through each wipe. replace the old
+`0008a` cutover artifact with a stopped `0013` snapshot through the unchanged
+snapshot helper before the first reset; similarly replace that artifact with the
+current stopped `0013` state before the final reset. temporarily retain the
+predecessor privately outside the helper's snapshot parent, create the new dump
+and private-state/configuration copies, run helper verification, then dispose of the
+superseded full artifact. retain concise original manifests, hashes and retarget
+receipts, plus exact historical uncertainty rows/receipts outside replaced full
+artifacts. never overwrite or delete the predecessor before its successor verifies.
+this narrowly supersedes pre-migration-artifact retention through acceptance; it
+adds no backup framework or indefinite snapshot retention.
+
+helper verification checks the manifest and selected release receipt, presence of
+the private-state/declaration copy directories and `pg_restore --list` readability.
+it does not qualify a restore or hash every copied private file; record any
+separate operator hashes with the private evidence, without implying helper proof.
+
+the three separately reviewed finalized retired `agent.stop` uncertainties keep
+their exact original private receipts and unknown-effect status. only the reviewed
+finite ids may pass the stopped reset gate; changed/current or unreviewed unknown
+effects remain blockers. retaining an uncertainty never makes its effect known
+or replayable.
 
 quiesce jarvis, memory HTTP writers and native collectors. remove history only
 from the configured discord channel using operator authority; verify permission
@@ -356,7 +387,7 @@ its deletion is separately selected. do not leave undiscoverable orphan blobs or
 silently delete a retained contract/pdf. private notes/source repos stay intact.
 
 restart stateless native collectors through existing complete-inventory/current-
-head activation; old cuts are replaced only for this authorized reset. unavailable
+head activation; old cuts are replaced only for these two authorized resets. unavailable
 conversations retain normal pending-baseline behavior, with no old-prefix import.
 nexus is recorded disabled: verify it and leave it disabled. if it is actually
 active, quiesce its captured runs/publisher and coordinate its source-owned

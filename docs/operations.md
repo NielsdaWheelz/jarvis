@@ -34,15 +34,20 @@ private declaration. automated helpers and other viewers receive no memory tools
 ## accepted v2 target and operational scope
 
 [f2](runtime-reliability-and-integration.md), under
-[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md), now owns
-isolated reliability proof → stopped v2 cutover → real production acceptance →
-one-off fresh history reset. source reliability/deployment repairs and isolated
-proof are recorded in f2; final composition, activation and deletion remain pending.
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) and
+[adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), owns isolated proof →
+stopped v2 cutover → preliminary fresh reset → real production acceptance → final
+fresh reset. source reliability/deployment repairs are recorded in f2; the journey
+and both resets remain pending.
 the real channel/token/mailbox actor is exclusive. an irreproducible historical
 native incident may remain explicitly open; new demonstrated defects require repair.
-the reset clears discord/jarvis/all central shared history and commitments while
+both resets clear discord/jarvis/all central shared history and commitments while
 preserving private repos, credentials, real google data and original native chats.
-its exact source-cut, attachment and recovery constraints are in the f2 contract.
+the exact source-cut, attachment and recovery constraints are in the f2 contract.
+retain one verified current `0013` recovery artifact before each wipe; verify its
+successor before disposing of an older full artifact, retaining original receipt/
+manifest hashes. original reviewed historical uncertainties remain unknown and
+non-replayable. fresh-corpus proof leaves large-backlog preparation latency unqualified.
 
 [adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the product target.
 [one-main source](one-main-events.md) implements its first slice; it has not been
@@ -462,11 +467,14 @@ release; never erase entered/unknown work to pass a check.
 activation selects the release atomically and starts it with canonical control
 unchanged. only a healthy first start permits pruning; a failed start is stopped
 for explicit repair. there is no automatic rollback or authority resume. code
-rollback cannot reverse a migrated database. retain the stopped recovery artifact
-through installed acceptance; source proof does not establish production success.
-f2 owns the exact qualified f3 integration, final production journey and subsequent
-fresh reset. private-configuration/authority changes retain their separate pause
-and stopped-snapshot requirements even when no schema change is needed.
+rollback cannot reverse a migrated database. retain verified current stopped
+recovery through installed acceptance; adr 0078 permits replacing the old full
+artifact only after its successor verifies. source proof does not establish
+production success.
+f2 owns the exact qualified f3 integration and adr 0078's preliminary reset →
+production journey → final reset. private-configuration/authority changes retain
+their separate pause and stopped-snapshot requirements even when no schema change
+is needed.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.
@@ -550,8 +558,8 @@ where no canonical evidence exists.
 
 ### supervised todo setup
 
-adr 0077's selected post-acceptance fresh reset clears every todo/reminder/wait
-and supersedes daily-review creation for that reset. do not recreate one on startup;
+adr 0078's two selected fresh resets clear every todo/reminder/wait
+and supersede daily-review creation for those resets. do not recreate one on startup;
 future ordinary owner work can request it. the original setup procedure below
 remains the source contract outside this one-off decision.
 
@@ -599,8 +607,8 @@ recovery; current source supplies no legacy execution branch.
 
 normal future-only native capture preserves established cuts. unavailable
 conversations retain explicit pending baselines and take a fresh cut on their
-first readable head. ordinary upgrades do not reset those cuts. adr 0077's
-post-acceptance stopped reset is the sole selected exception; the f2 contract owns
+first readable head. ordinary upgrades do not reset those cuts. adr 0078's
+two stopped resets are the sole selected exceptions; the f2 contract owns
 its complete inventory, quiescence, finite wipe and new capture boundaries.
 
 before the target's first start, recovery must restore database, runtime and
@@ -965,8 +973,9 @@ admission file to repair.
 
 ## Data durability and logs
 
-[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) grants only the
-explicit post-acceptance administrative reset in [f2](runtime-reliability-and-integration.md#e-post-acceptance-fresh-reset).
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md), as reordered by
+[adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), grants only the two
+explicit administrative resets in [f2](runtime-reliability-and-integration.md#e-fresh-history-resets).
 it does not add a runtime deletion API or relax ordinary append-only guards.
 private recovery snapshots/manifests remain outside live memory; source cuts and
 pending exports must be coordinated before writers resume. reset work is pending.

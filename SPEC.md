@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 installed, combined acceptance pending**
 
 date: **2026-11-16**
 
@@ -119,7 +119,9 @@ is implemented with source and separate candidate qualification;
 implement and qualify the owner refinement in
 [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md).
 [f2's contract](docs/runtime-reliability-and-integration.md) adopts the owner's
-[adr 0077](docs/decisions/0077-production-acceptance-and-fresh-reset.md) decisions:
+[adr 0077](docs/decisions/0077-production-acceptance-and-fresh-reset.md) decisions,
+with the reset order amended by
+[adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md):
 
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
@@ -160,8 +162,8 @@ f3 source and its separate candidate are qualified with unchanged cognition pins
 skid v0.24.4 is published and adopted on macbook/dev-server. f2's isolated
 reliability/deployment repairs and final source integration pass; installed
 acceptance/reset remain pending. the historical `gpt-5.6-terra/high` qualification
-remains evidence for its original/installed release. production jarvis has not
-changed. the
+remains evidence for its original/installed release. those qualifications alone
+do not establish current installed acceptance. the
 [roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
 integration; f2 now owns the final stopped production cutover and installed proof.
 no feature-parity claim follows
@@ -174,15 +176,18 @@ owns the public lifecycle repair, asynchronous DNS, fixed pre-ingress catch-up c
 and safe failure projection. historical dependency observations below retain their
 original artifacts; installed production acceptance remains separate.
 
-after installed acceptance, the owner selects a one-off fresh reset of configured
-discord history, jarvis history and all central shared history, including other
-agents' admitted material. clear todos/reminders/waits; preserve private repos,
-credentials, real google data and original native/nexus chats. adr 0077 grants only
-this stopped administrative exception to retention/append-only/capture-cut rules.
-finish/disposition entered work, retain private recovery evidence, clear the
-coordinated stores and establish fresh source cuts; no old-history republication,
-automatic daily-review recreation or runtime deletion capability. the f2 contract
-owns the exact inventory, attachment disposition and verification.
+the owner selects a preliminary fresh reset → real production journey → final
+fresh reset under adr 0078. both clear configured discord/jarvis/all central
+shared history, including other agents' admitted material, and todos/reminders/
+waits. preserve private repos, credentials, real google data and original native/
+nexus chats. these are two stopped administrative exceptions to retention and
+capture cuts, not a runtime deletion capability. finish/disposition work first;
+preserve original unknown-effect evidence and a verified current private `0013`
+recovery artifact before each wipe. replace an older recovery artifact only after
+its successor verifies, retaining concise original receipts. establish fresh source
+cuts with no old-history republication or automatic daily-review recreation.
+fresh-corpus acceptance does not qualify the discarded large corpus's preparation
+latency. f2 owns the exact inventory, attachment disposition and verification.
 
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the

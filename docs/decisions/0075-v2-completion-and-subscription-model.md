@@ -17,6 +17,9 @@ final stopped production activation/installed proof and a post-acceptance fresh
 history reset. an irreproducible historical native incident may remain explicitly
 open; new demonstrated defects still require repair. those decisions supersede
 the affected historical sequencing/acceptance statements below.
+[adr 0078](0078-fresh-corpus-first-acceptance.md) subsequently changes only the reset
+order and full recovery-artifact replacement: preliminary reset → real journey →
+final reset, with verified current recovery retained.
 
 f1 owner refinement: web result pages are disposable; eviction/restart requires
 an explicit fresh observation. original paid-read uncertainty is not retry

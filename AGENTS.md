@@ -18,9 +18,10 @@ These instructions govern all work in this repository.
   no buttons, exact-preview requirement, semantic consent framework or new ledger.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
-  handling and interactive deliverables/television. shared memory remains separate
-  and quiet dreaming unchanged. slices 1–3 are source-qualified; slice 3 also has
-  temporary-candidate qualification against installed skid. remaining slices and
+  handling, interactive hosting and television integration. shared memory remains separate
+  and quiet dreaming unchanged. slices 1–4 are source-qualified; slices 3–4 have
+  temporary-candidate qualification against installed skid and a separate native
+  host respectively. remaining slices and
   installed activation are pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
@@ -47,12 +48,30 @@ These instructions govern all work in this repository.
   decision, with useful execution NOT_RUN. the [unexplained native
   defect](docs/issues/native-protocol-diagnostics.md) remains open. production
   acceptance stays at final v2 cutover; do not restore intermediate activation.
+  [slice 4](docs/private-notes-and-rolodex.md) specifies the general private
+  `NielsdaWheelz/jarvis-notes` workspace: documents, helpers, components and
+  visualizations through native files/commands/git. authoring/local execution
+  ships here; hosting, presentation and television integration stay deferred.
+  its source and separate temporary candidate are qualified. kernel owns borrowed
+  cwd and native supervision;
+  provider owns mixed tools and effective policy verification. isolated roles
+  retain containment. use separate candidate host/mapping/runtime/checkout for
+  temporary proof; production bootstrap waits for final v2 cutover. the same
+  scoped content/adversarial/red-green-refactor method and probe deletion apply.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity
   rules below; isolated role contracts remain. its temporary integration/live
   checks are the scoped testing exception. adr 0064's worker tools use the same
   native dispatch lane and immutable action capture; no retired thread loop.
+- [adr 0074](docs/decisions/0074-private-native-socket-publication.md) corrects
+  slice 4's native socket publication: private stock directory, ancestor mount,
+  application-only socket file bind and unchanged public endpoint/client grant.
+  host loss stops the application; repair requires a fresh application start and
+  remount. native sandboxing needs ordinary read-only kernel metadata; the
+  application retains pid-only proc. no public control hardlink, proxy or automatic
+  activation. candidate
+  qualification and final production cutover remain separate.
 - adr 0053 retains only the selected deployment release and one temporary
   installation candidate. do not keep rollback or migration releases indefinitely.
 - adr 0046 governs the owner-approved testing reset. all previous test and

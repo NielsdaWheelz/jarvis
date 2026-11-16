@@ -95,7 +95,7 @@ understanding its consequences is distinct from reopening that choice.
 **a broad computer is an execution domain.** it brings filesystem, network,
 browser-session and process authority. it cannot be treated as just another
 connector when those paths bypass connector policy. the
-[notes contract](../../private-notes-and-rolodex.md#authority-and-composition)
+[workspace contract](../../private-notes-and-rolodex.md#capability-contract)
 already states this consequence explicitly. adding a remote browser later would
 need equally clear ownership, access and effect semantics.
 

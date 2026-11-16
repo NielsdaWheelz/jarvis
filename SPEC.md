@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–3 source-qualified, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–4 source-qualified, not activated**
 
 date: **2026-11-15**
 
@@ -10,9 +10,10 @@ audience: product, engineering, design, operations, and future coding agents
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
 2026-11-14 owner decisions. slices 1–2 are implemented and isolated-qualified;
-slice 3 has source and temporary-candidate qualification against installed skid.
-temporary resources are removed; its evidence distinguishes the live candidate
-from subsequent memory-mainline integration.
+slice 3 has source and temporary-candidate qualification against installed skid;
+slice 4 has source and separate native-host candidate qualification. temporary
+resources are removed; each contract distinguishes its live candidate from
+subsequent memory-mainline integration.
 the remaining slices and v2 activation are pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
@@ -42,7 +43,20 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   defect](docs/issues/native-protocol-diagnostics.md) remains open. production
   acceptance remains at final v2 cutover; retain the intermediate activation refusal.
 - [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
-  with trusted native tools. [attachments](docs/attachments-and-durable-originals.md)
+  with trusted native tools. slice 4 implements a general workspace in the new
+  private `NielsdaWheelz/jarvis-notes` repo: documents, runnable helpers,
+  components, charts and self-contained interactive files. authoring/local
+  execution belongs here; hosting, presentation ui and television integration
+  remain deferred. its kernel/provider contract adds borrowed cwd lifecycle and
+  mixed native/callback execution while retaining isolated-role containment.
+  source and a separate temporary native host are qualified; production bootstrap/activation
+  stays at final v2 cutover. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
+  corrects the host boundary demonstrated by real candidate failures: retain
+  stock's private physical socket and expose it only in the application's
+  namespace; host replacement requires application restart/remount. the native
+  host retains read-only kernel metadata needed by its unprivileged sandbox;
+  the application retains its pid-only proc view.
+  [attachments](docs/attachments-and-durable-originals.md)
   retain discord/email original bytes privately in r2, with one metadata table
   and native image/pdf/file reading. notes' explicit provider/kernel handoff
   precedes native file access; no notes service or extraction framework.
@@ -55,7 +69,7 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
 - progress, blockers, results and notification/silence are ordinary agent
   behavior. add no notification-policy field, completion dashboard or workflow
   controller. small deliverables are prose and repo files through existing access.
-- browser control, new credential products, interactive mini-apps/television,
+- browser control, new credential products, interactive hosting/television,
   credential-entry forms and a separate ui are deferred. existing connector and
   storage credentials remain deployment configuration.
 
@@ -72,7 +86,7 @@ their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
 not constitute v2 acceptance. [slice 1's qualification](docs/one-main-events.md#implementation-evidence)
 records its source and isolated live proof; it does not activate the service.
-the owner-selected implementation method for slices 1–3 is temporary
+the owner-selected implementation method for slices 1–4 is temporary
 end-to-end integration/live red/green/refactor, with content design and adversarial
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.
@@ -1794,6 +1808,15 @@ commentary and final structured output have separate bounded rendering and
 persistence contracts.
 
 ### 7.5 Codex containment
+
+the following is the installed baseline. [slice 4's implemented contract](docs/private-notes-and-rolodex.md#capability-contract)
+replaces main's source posture with trusted native workspace access;
+isolated roles retain containment. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
+supersedes the physical socket publication below for that source target: a private
+`0700` reserved directory, ancestor mount, application-only socket file bind and
+coordinated application restart/remount. the configured endpoint and client-group
+grant stay the same. the paragraphs below retain the installed baseline;
+source specification is not activation.
 
 main and isolated cognition attach to the separate personal stock
 `0.160.0` app-server. the provider materializes its complete versioned

@@ -47,6 +47,7 @@ from jarvis.embeddings import OpenAIEmbedder
 from jarvis.kernel import (
     build_agent_runtime,
     build_kernel_runtime,
+    main_provider_configuration,
     resolve_provider_configuration,
 )
 from jarvis.memory_config import MEMORY_IDENTITIES, MemoryConfig
@@ -162,19 +163,19 @@ async def _isolated_memory_runtime(
             )
             kernel = None
             try:
-                provider = await resolve_provider_configuration(
+                isolated_provider = await resolve_provider_configuration(
                     runtime=runtime,
                     profile_key=settings.codex_profile_key,
                     model_key=settings.codex_model,
                 )
                 compactor_definition, compactor_plan = build_compactor(
                     catalog=catalog,
-                    provider=provider,
+                    provider=isolated_provider,
                     owner_timezone=settings.owner_timezone,
                 )
                 dreamer_definition, dreamer_plan = build_dreamer(
                     catalog=catalog,
-                    provider=provider,
+                    provider=isolated_provider,
                     owner_timezone=settings.owner_timezone,
                 )
                 kernel = build_kernel_runtime(
@@ -239,6 +240,10 @@ def _shared_cognition_directory(path: Path, group: str) -> None:
 def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
+    try:
+        host.verify_notes_repository()
+    except ValueError as exc:
+        raise StartupDefect(str(exc)) from exc
 
 
 async def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
@@ -326,6 +331,7 @@ async def run_service(
 async def _compose_main(
     *,
     settings: Settings,
+    host: CodexHostConfig,
     agent_runtime: AgentRuntime,
     actions: ActionStore,
     work: WorkStore,
@@ -337,7 +343,7 @@ async def _compose_main(
 ) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
     """Compose the release's tools and role plans from the live codex catalog."""
 
-    provider_configuration = await resolve_provider_configuration(
+    isolated_provider = await resolve_provider_configuration(
         runtime=agent_runtime,
         profile_key=settings.codex_profile_key,
         model_key=settings.codex_model,
@@ -361,7 +367,10 @@ async def _compose_main(
     )
     definitions = build_definitions(
         catalog=composition.catalog,
-        provider=provider_configuration,
+        main_provider=main_provider_configuration(
+            isolated_provider, notes_repository=host.notes_repository
+        ),
+        isolated_provider=isolated_provider,
         owner_timezone=settings.owner_timezone,
     )
     return composition, definitions, agents
@@ -433,6 +442,7 @@ async def _serve(
                     )
                     composition, definitions, agents = await _compose_main(
                         settings=settings,
+                        host=host,
                         agent_runtime=agent_runtime,
                         actions=actions,
                         work=work,
@@ -653,6 +663,7 @@ async def check_activation(
                     # No connector dispatches during the activation check.
                     _, definitions, _ = await _compose_main(
                         settings=settings,
+                        host=host,
                         agent_runtime=agent_runtime,
                         actions=actions,
                         work=WorkStore(database, scope),

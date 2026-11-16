@@ -38,6 +38,7 @@ trap cleanup_candidate EXIT HUP INT TERM
 sudo install -m 0644 -o root -g root "$remote/codex-host.json" "$candidate"
 mapfile -t layout < <(sudo "$release/.venv/bin/python" - \
   "$candidate" "$release" "$remote/jarvis-codex-contained.service" <<'PY'
+import grp
 import json
 import pwd
 import re
@@ -54,6 +55,7 @@ if (
     or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", config.development_user)
     or config.endpoints["personal"] != Path("/run/jarvis-contained/app-server.sock")
     or config.cognition_cwd_parent != "/run/jarvis-codex-cognition"
+    or config.notes_repository != "/var/lib/jarvis-notes"
 ):
     raise SystemExit("contained host mapping has an incompatible deployment layout")
 host_uid = pwd.getpwnam(config.development_user).pw_uid
@@ -72,7 +74,6 @@ release = Path(sys.argv[2])
 unit = (release / "deploy/jarvis-codex-contained.service").read_text()
 for key, value in {
     "@HOST_USER@": config.development_user,
-    "@HOST_UID@": str(host_uid),
     "@RELEASE@": str(release),
     "@ACCOUNT_HOME@": json.dumps(str(account).replace("%", "%%"), ensure_ascii=False),
     "@ACCOUNT_INSTRUCTIONS@": " ".join(
@@ -82,6 +83,37 @@ for key, value in {
 }.items():
     unit = unit.replace(key, value)
 Path(sys.argv[3]).write_text(unit)
+application = (release / "deploy/jarvis.service").read_text().replace(
+    "/opt/jarvis/current", str(release)
+)
+Path(sys.argv[3]).with_name("jarvis.service").write_text(application)
+# Bootstrap uses this same host namespace, identity and restrictions. Only the
+# command, its startup deadline and candidate mapping source differ.
+bootstrap = unit.replace("Type=exec\n", "Type=oneshot\n").replace(
+    "Restart=on-failure\n", "Restart=no\n"
+).replace("TimeoutStartSec=20\n", "TimeoutStartSec=180\n")
+bootstrap = bootstrap.replace(
+    f"{release}/deploy/codex-host start\n",
+    f"{release}/deploy/codex-host bootstrap-notes\n",
+).replace(
+    "BindReadOnlyPaths=/etc/jarvis/codex-host.json:",
+    f"BindReadOnlyPaths={sys.argv[1]}:",
+)
+bootstrap = "\n".join(
+    line for line in bootstrap.splitlines()
+    if not line.startswith(("ExecStartPost=", "ExecStopPost="))
+) + "\n"
+Path(sys.argv[3]).with_name("jarvis-notes-bootstrap.service").write_text(bootstrap)
+notes = Path(config.notes_repository)
+if notes.exists() or notes.is_symlink():
+    metadata = notes.lstat()
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != host_uid
+        or metadata.st_gid != grp.getgrnam(config.client_group).gr_gid
+        or stat.S_IMODE(metadata.st_mode) not in (0o750, 0o2750)
+    ):
+        raise SystemExit("existing notes directory needs ownership/mode repair")
 print(config.development_user)
 print(account)
 PY
@@ -95,16 +127,42 @@ if sudo -u jarvis test -r "$account_home/auth.json"; then
   exit 1
 fi
 sudo systemd-analyze verify "$remote/jarvis-codex-contained.service"
+sudo systemd-analyze verify "$remote/jarvis.service"
+sudo systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
 if sudo systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
   sudo systemctl stop jarvis-codex-contained.service
 fi
-sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained
+sudo install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
+sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
 sudo install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
+if ! sudo test -e /var/lib/jarvis-notes; then
+  sudo install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
+fi
+bootstrap_unit=/run/systemd/system/jarvis-notes-bootstrap.service
+[[ ! -e "$bootstrap_unit" && ! -L "$bootstrap_unit" ]]
+cleanup_candidate() {
+  sudo systemctl stop jarvis-notes-bootstrap.service >/dev/null 2>&1 || true
+  sudo rm -f -- "$candidate" "$bootstrap_unit"
+  sudo systemctl daemon-reload
+  cleanup
+}
+trap cleanup_candidate EXIT HUP INT TERM
+sudo install -m 0644 -o root -g root "$remote/jarvis-notes-bootstrap.service" "$bootstrap_unit"
+sudo systemctl daemon-reload
+sudo systemctl start jarvis-notes-bootstrap.service
+sudo systemctl stop jarvis-notes-bootstrap.service
+sudo rm -f -- "$bootstrap_unit"
+sudo -u jarvis test -r /var/lib/jarvis-notes
+sudo -u jarvis test -x /var/lib/jarvis-notes
+sudo -u jarvis test -r /var/lib/jarvis-notes/.git
+sudo -u jarvis test -x /var/lib/jarvis-notes/.git
 printf 'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -\n' | \
   sudo tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
 sudo mv -fT -- "$candidate" /etc/jarvis/codex-host.json
 sudo install -m 0644 -o root -g root \
   "$remote/jarvis-codex-contained.service" /etc/systemd/system/jarvis-codex-contained.service
+sudo install -m 0644 -o root -g root \
+  "$remote/jarvis.service" /etc/systemd/system/jarvis.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now jarvis-codex-contained.service
 sudo systemctl is-active --quiet jarvis-codex-contained.service
@@ -114,6 +172,9 @@ sudo systemd-run --quiet --wait --pipe --collect \
   --property=ProtectHome=true --property=ProtectSystem=strict \
   --property=PrivateTmp=true --property=PrivateDevices=true \
   --property=NoNewPrivileges=true \
+  --property=BindsTo=jarvis-codex-contained.service \
+  --property=After=jarvis-codex-contained.service \
+  --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock \
   "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
   --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
   "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null

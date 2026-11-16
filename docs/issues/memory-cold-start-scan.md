@@ -30,7 +30,7 @@ establish its current cursor or a reliable completion estimate.
 at 19:55 utc, dev-server work2's first inventory had run for approximately 97
 minutes without a receipt. the same collector process remained alive and a
 separate metadata-only endpoint request succeeded; neither proves scan progress.
-installed dev-server work2 capture acceptance remains open.
+that inventory delay is separate from the completed capture proof below.
 
 investigation: the first inventory committed at 21:59:08 utc, about 3 hours
 41 minutes after it began: 190 established boundaries, all modern native ids,
@@ -48,13 +48,39 @@ prefix hash chain. adversarial review nevertheless rejected reverse traversal:
 a later oversized native item could prevent reaching an earlier unfinished
 barrier and prematurely park its otherwise-readable prefix.
 
-the scoped repair batches forward native item pages under the unchanged bounds.
+the first repair batches forward native item pages under unchanged bounds.
 an oversized multi-item response retries the same cursor with a smaller page;
 only a single-item overflow keeps the existing refusal. this preserves full
-prefix validation and forward unfinished-item semantics. it reduces round trips
-and repeated native lineage resolution; it does not eliminate prefix decoding
-or promise fast fresh-baseline proof. the
-[active plan](../implementation-plan.md#native-capture-read-repair) owns delivery.
+prefix validation and forward unfinished-item semantics. it is merged and
+installed in 5bc88ab. the original dev-server synthetic and fresh turns on both
+hosts were captured and opened through actual native mcp with exact markers.
+measured model-terminal to stored archive-receipt delays were about 112 minutes
+for the original turn (spanning investigation/replacement), 6 minutes 55 seconds
+for fresh dev-server activity, and 13 minutes 12 seconds for fresh macbook
+activity. these receipt timestamps are not exact database commit clocks.
+
+that normal journey exposed a second cause: serial content reads still precede
+later homes' discovery. at 23:46 utc macbook had reached 1,963 of 2,184 old
+claude-work conversations before any later home. the collector repair performs
+all active-home metadata sync first, then alternates recent ready activity and
+oldest waiting work in a cooperative 30-second content slice. one conversation
+gets one operation per discovery cycle; pending-head repair cannot immediately
+spend a second capture quantum. failures remain eligible, and a permanent park
+cannot leave a false caught-up hint that suppresses an explicit retry. at most
+one pending-lane atomic activation follows active work, rotating even on failure.
+source qualification passes: 12 temporary scheduling cases, two real authenticated
+http/postgres/native-file journeys, both frozen compositions' retained capture
+regressions and full verification, plus independent adversarial review. installed
+evidence for this second repair remains pending.
+
+this adds metadata requests and delays background drainage; it removes the
+whole-fleet sweep from ordinary discovery's critical path. one native operation,
+metadata enumeration or initial full baseline inventory remains indivisible and
+can exceed the slice. no histories, native identity validation or provenance
+checks are skipped. the [active plan](../implementation-plan.md#native-capture-read-repair)
+owns delivery. full-prefix decoding, initial activation and large new-backlog
+cost remain limits to report separately, not a reason to reopen deferred load
+experiments.
 
 reproduce with an ordinary collector restart and content-free lane/read progress
 observations. no broad load experiment was run. record native terminal→discovery

@@ -699,9 +699,10 @@ the same id. appended material is allowed; there are no duplicate parts/sequence
 incomplete events or pending conversations with originals. this snapshot does not
 establish checkpoint ordering by itself.
 
-dev-server work2 activation/capture remains pending; its initial inventory has
-not committed after more than 100 minutes. this is unfinished functional
-acceptance, separate from the deferred performance evaluation. restart
+at the earlier source merge, dev-server work2's initial inventory had not
+committed after more than 100 minutes. its eventual activation and subsequent
+capture-delay repair are recorded below; its normal model→capture→mcp journey
+has now passed, with scheduling latency still under repair. restart
 qualification uses the actual replacement's preserved
 old cuts plus the exact frozen native/http/postgres proof for new-cut replay;
 there is no second full cold-start experiment in that baseline qualification.
@@ -738,8 +739,63 @@ later item could otherwise park a readable prefix before an unfinished barrier.
 | live qualification | finish the already-created dev-server synthetic; after repair, measure a fresh normal turn through discovery, archive and exact mcp opening; compare preserved state and retain pending histories explicitly |
 
 use the existing temporary proof method, then delete new probes after green.
-add collector scheduling work only if the repaired reader's actual normal
-journey still exposes a concrete delay; do not hide it by extending revisit time.
+provider [pr 56](https://github.com/NielsdaWheelz/llm-calling/pull/56), kernel
+[pr 28](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/28), jarvis
+[pr 68](https://github.com/NielsdaWheelz/jarvis/pull/68) and dev-server
+[pr 217](https://github.com/NielsdaWheelz/dev-server/pull/217) are merged. installed
+release 5bc88ab uses provider 6582551 and kernel 42e7ecd, preserving stock 0.160,
+schema 0008a and all registry versions. 27 temporary protocol cases per dependency
+composition, full required checks and independent review pass. an isolated real
+stock-0.169 fixture preserved exact events/digests while reducing total calls,
+including initialization/reconnects, from 261 to 23. this is not a fleet latency
+claim. installation preserves all 13 lanes, 5,249 conversations, 11,109 originals,
+28 notes and 11,127 leaves exactly, with canonical resume sequence 4 unchanged.
+
+#### collector discovery and fairness repair
+
+the repaired reader's normal journey exposed the separate scheduling defect.
+collectors restarted at 23:39 utc; fresh normal work2 turns completed at 23:44:53
+on macbook and 23:44:54 on dev-server. neither was registered at 23:46:22. macbook
+was still reading 1,963 of 2,184 old claude-work conversations before later homes;
+dev-server had read 87 of 190 old work2 prefixes. a faster native reader does not
+make discovery independent of a full host sweep.
+
+change only the existing collector and its contract: complete every active home's
+metadata/sync phase first, then alternate recent ready activity and oldest waiting
+work within a cooperative 30-second content slice. retain first-seen/last-attempt
+age and one alternation flag; failures remain eligible and cannot starve older
+work. one operation per conversation per discovery cycle replaces the former
+whole-fleet round requirement. pending-head repair is one operation; capture uses
+its fresh canonical receipt on a later cycle. a permanent park is not caught-up
+success and must not suppress an explicit retry with an unchanged native hint.
+at most one indivisible pending-lane activation follows active work, with a
+rotating index that advances on failure. no concurrent capture, durable queue,
+new schema/api, shortened validation or longer revisit interval is introduced.
+
+trade-offs: more metadata requests and slower background drainage buy prompt
+new/changed discovery; one native operation, listing or activation can still
+exceed the slice. the existing 60-second post-discovery target is not a hard
+wall-clock guarantee. measure terminal→discovery and discovery→capture/open
+separately, and do not hide remaining delay behind the distinction.
+
+implementation owns collector code and deterministic red/green fairness checks;
+an independent reviewer owns real http/postgres/native-file proof and adversarial
+review. root owns this contract and installed replacement. the existing live
+worker owns the three already-created synthetics and subsequent fresh proof;
+never duplicate uncertain launches. preserve all prior cuts/originals through the
+memory-only release and keep v2 unactivated. qualify hot/cold/pending fairness,
+metadata-before-content, failure/retry eligibility and exact checkpoint reuse,
+then delete only the new probes. broader usefulness/load evaluation stays deferred.
+
+source qualification passes in both current-main and installed-compatible
+compositions: 12 temporary scheduling cases, retained capture/retry and full
+`scripts/verify`. an independent real authenticated http/runtime-role postgres/
+native-claude-file probe reproduces two predecessor failures and passes both
+repairs: head recovery gets one quantum with the recovery gap excluded; explicit
+retry works with an unchanged native hint. restart preserves exact cuts,
+checkpoints and originals without duplicates. independent source/test/contract
+review passes. the new probes and disposable databases are removed after this
+evidence; installed replacement and fresh latency proof remain pending.
 
 ### memory and native-main integration
 

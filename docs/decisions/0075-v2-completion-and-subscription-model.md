@@ -3,8 +3,8 @@
 status: accepted scope, 2026-11-16. [f1](../mail-calendar-web-reads.md) now owns
 the read-completion schemas and acceptance; [f3](../subscription-model-runtime.md)
 has source and separate candidate qualification. [f2](../runtime-reliability-and-integration.md)
-has isolated reliability/deployment proof; final integration, production acceptance
-and reset remain pending.
+has qualified integrated source and isolated reliability/deployment proof;
+production acceptance and reset remain pending.
 implementation, qualification and production activation remain separate.
 
 [adr 0076](0076-role-models-and-delegated-choices.md) supersedes this adr's original

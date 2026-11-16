@@ -137,7 +137,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined candidate qualified; production deferred; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
 | attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
 | mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; production activation separate; wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
-| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): isolated repairs pass; final source integration pending | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
+| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source and isolated repairs qualified; installed acceptance pending | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
 | subscription model/runtime and delegated choices | [f3 evidence](subscription-model-runtime.md#implementation-evidence) source/candidate qualified | main astra/max, memory sol/xhigh via personal codex; native-child choices and bounded upstream skid launch extension |
 | broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
@@ -204,7 +204,7 @@ under the owner's [role/delegation refinement](decisions/0076-role-models-and-de
 [f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
 reliability/deployment proof under the owner's
 [production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
-final source integration, installed acceptance and reset remain pending.
+final source integration is qualified; installed acceptance and reset remain pending.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
 records the exact artifact, pins and temporary candidate. production activation
 remains separate.
@@ -1094,7 +1094,7 @@ intent merely because their implementation is incomplete.
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
 | f1 reads | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; page/chunk/freshness/recovery/native proof passes; production cutover separate; broader [search proposal](complete-and-continuable-searches.md) stays deferred |
-| f2 reliability/integration | [isolated repairs qualified](runtime-reliability-and-integration.md#implementation-evidence); final source integration pending; qualified final stack → stopped production cutover/live journey → authorized fresh history reset |
+| f2 reliability/integration | [isolated repairs qualified](runtime-reliability-and-integration.md#implementation-evidence); source integration qualified; selected final stack → stopped production cutover/live journey → authorized fresh history reset |
 | f3 model/runtime | [qualified](subscription-model-runtime.md#implementation-evidence): main astra/max, memory sol/xhigh, independent native-child/per-session skid choices; source and separate candidate pass; production jarvis activation remains with f2 |
 | attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |

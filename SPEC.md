@@ -158,7 +158,7 @@ f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
 its implemented source, exact dependency pins and separate live candidate.
 f3 source and its separate candidate are qualified with unchanged cognition pins;
 skid v0.24.4 is published and adopted on macbook/dev-server. f2's isolated
-reliability/deployment repairs pass; final source integration and installed
+reliability/deployment repairs and final source integration pass; installed
 acceptance/reset remain pending. the historical `gpt-5.6-terra/high` qualification
 remains evidence for its original/installed release. production jarvis has not
 changed. the

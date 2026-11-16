@@ -125,7 +125,7 @@ distinct; production activation is pending.
 [f3's evidence](subscription-model-runtime.md#implementation-evidence) qualifies
 fixed subscription roles, delegated selections and recovery in a separate candidate.
 [f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
-reliability/deployment proof; final composition and production proof remain pending.
+reliability/deployment and final source composition proof; production proof remains pending.
 f2 must prove discord outage/process-stop behavior, safe native diagnostics,
 owning-layer repairs for demonstrated defects and
 the combined email → attachment → sourced research/delegation → draft/calendar

@@ -20,8 +20,8 @@ These instructions govern all work in this repository.
   [f1](docs/mail-calendar-web-reads.md) implements read completion;
   [f3](docs/subscription-model-runtime.md#implementation-evidence) is source/candidate
   qualified. [f2](docs/runtime-reliability-and-integration.md) implements isolated
-  reliability/deployment repairs; final integration, installed acceptance and reset
-  remain pending.
+  reliability/deployment repairs with qualified final source integration; installed
+  acceptance and reset remain pending.
   [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md) refines f3:
   astra/max is main only; compactor/dreamer use fixed personal-subscription
   `gpt-6.1-sol/xhigh`. main chooses supported native-child and per-session skid

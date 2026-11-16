@@ -70,8 +70,8 @@ main astra/max, fixed memory sol/xhigh, shared provider/authentication mechanism
 and deliberate native-child/per-session skid choices. fixed host roles have no
 fallback; worker v11 uses qualified skid v0.24.4.
 [f2](runtime-reliability-and-integration.md) implements network-only retries,
-safe native diagnostics and stopped deployment preparation. final source
-integration, installed proof and the one-off fresh reset under
+safe native diagnostics and stopped deployment preparation with qualified source
+integration. installed proof and the one-off fresh reset under
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) remain pending.
 broader search/budget
 remains separate; f2 now owns stopped production activation after source readiness.

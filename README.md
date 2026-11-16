@@ -136,8 +136,8 @@ memory/maps/fleet search remain later work.
 [complete mail/calendar/web reads](docs/mail-calendar-web-reads.md#implementation-evidence)
 has source and separate candidate qualification.
 [f2](docs/runtime-reliability-and-integration.md) implements isolated discord/native
-and stopped-deployment repairs. final source integration precedes its stopped
-production cutover and installed journey, then the owner's fresh reset of
+and stopped-deployment repairs; final source integration is qualified. its stopped
+production cutover and installed journey precede the owner's fresh reset of
 discord/jarvis/all shared history and commitments. private repos, credentials,
 real google data and original native chats are preserved.
 [f3](docs/subscription-model-runtime.md#implementation-evidence) qualifies personal-subscription

@@ -3,8 +3,8 @@
 status: f2 implementation contract, 2026-11-16, under
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
 [adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
-implementation in progress: discord/native/deployment source and isolated fault
-proof pass; final source integration, installed acceptance and reset remain pending.
+source implementation, integrated composition and isolated fault proof qualified.
+installed acceptance and fresh reset remain NOT_RUN.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -14,11 +14,12 @@ during login/retry; retain enough safe native-failure evidence to repair the
 responsible layer. prove the assembled product through a useful real production
 journey, then perform the owner-selected fresh history reset.
 
-audit base: jarvis `80af4e4`, landed slices 1–6 and f1. f3 is specified, not yet
-implemented: main astra/max, memory sol/xhigh, deliberate native-child/per-session
-skid choices. consume its actual qualified successor, not this placeholder state.
-reliability repairs can proceed in parallel; final acceptance waits for the exact
-merged artifact, pins, model selections, worker contract and host pair.
+original audit base: jarvis `80af4e4`, landed slices 1–6 and f1, before f3's
+implementation. the integrated source now consumes qualified f3 `001cc8d`
+(runtime `1fed26c`), with unchanged cognition pins, main astra/max, memory sol/xhigh
+and deliberate native-child/per-session skid choices. f2's measured dreamer
+capacity amendment is recorded below. installed acceptance still requires the
+exact selected artifact/configuration/host pair and genuine owner ingress.
 
 - use production exclusively for final live acceptance after isolated fault proof
   and stopped cutover. no concurrent gateway with its token or autonomous actor
@@ -437,19 +438,33 @@ it is not installed acceptance or a diagnosed historical native cause.
 | linux process stop | fresh frozen CPython 3.12.13 on Linux 6.8/x86-64/glibc 2.39, aiohttp 3.14.4, aiodns 4.0.4, pycares 5.2.1 and the exact installed fork. after two unanswered UDP DNS queries, parent SIGINT to whole-process exit took 1.123 seconds; service cleanup took 1.62 ms. exit 0, no bindings, one worker, no pending tasks, closed client/connector and empty stderr. an earlier five-second total-startup probe expired during 8.74-second cold imports; that setup failure is retained separately from the stop measurement. |
 | safe fatal exits | actual command subprocesses with private markers in Discord/aiohttp/provider failures and causes reproduce the old raw traceback leak and now exit 1 without markers or traceback. SDK child logging is contained through public logging configuration. |
 | native diagnostics | thirteen schema/validator/privacy checks and eleven bounds checks pass. both exact schema byte snapshots remain unchanged. actual kernel, controlled public app-server socket and real postgres prove three faults after an accepted billed-once read: distinct progress violations and a malformed sealed terminal. each fences/parks, rejects stale callbacks and preserves original read/reply bytes across recovery with one executor entry; the terminal retains its original seal. this proves a read callback boundary, not a write fault or historical causation. |
-| composed roles | integrated `45d1135` captures actual kernel session and prepared-turn material through a nonexecuting provider port. main's SDK-joined system is 16,315 bytes for `America/Los_Angeles`, 16,328 for the longest installed IANA name; compactor/dreamer system material is 848 bytes each. developer material is empty; output schemas are 3,802/808/1,623 bytes. all 47 main callback schemas and isolated HostTable schemas match their grants structurally. fixed-cwd comparison preserves main/compactor fingerprints and every role's prepared model/policy/instruction/schema material; only the amended dreamer's fingerprint/revision changes. this is source composition, not a fresh entitlement or effective-runtime observation. |
+| composed roles | clean committed `9184f074be5d9046688cdf66ff97c65dfd6b47ec` captures actual kernel session and prepared-turn material through a nonexecuting provider port. main's SDK-joined system is 16,315 bytes for `America/Los_Angeles`, 16,328 for the longest installed IANA name; compactor/dreamer system material is 848 bytes each. developer material is empty; output schemas are 3,802/808/1,623 bytes. all 47 main callback schemas and isolated HostTable schemas match their grants structurally. fixed-cwd comparison against `45d1135` preserves main/compactor fingerprints and every role's prepared model/policy/instruction/schema material; only the amended dreamer's fingerprint/revision changes. this is source composition, not a fresh entitlement or effective-runtime observation. |
 | dreamer context amendment | real migration `0013`, runtime-role PostgreSQL and public library compaction produce 32 stored nodes bounded at 2,048 bytes, an exact 64,000-byte seed and 8,000-byte older sample. the original 262,144-byte cap stops the actual worker/kernel before any provider session opens. the 327,680-byte/v4 repair prepares exactly 292,817 bytes and completes one controlled inference turn. an independent observer sees the old 36 notes/leaves and cursor 4 until commit, then 37 notes/leaves and cursor 36 together; canonical messages remain the sole paused control. model/policy, other budgets and shared allocation stay fixed. a preliminary typed-only 7.8k-node witness did not satisfy the stored-node bound and was superseded by this public-API proof. actual installed sol/xhigh completion remains part of the production journey. |
 | private workspace origin | the specified private `NielsdaWheelz/jarvis-notes` origin now has an empty main branch at `fdcf2c60d176b94d4b266b104cdcba032ab83de8`. authenticated metadata reports private; anonymous API returns 404; the existing server account reads that exact branch through its existing SSH authentication. production bootstrap remains pending. |
 | stopped administration | twenty exercised command-boundary activation cases plus three usage refusals pass. ten real `0008a` preflights reject operative old obligations before migration while preserving finalized retired uncertainty and stopped/completed native read barriers byte-exact. nine real dump/copy/mode/refusal checks prove snapshot preparation and verification, not restore qualification. two installer checks prove explicit canonical-calendar configuration replaces the hardcoded alias. |
 | reset rehearsal | six real postgres/initializer/collector boundaries prove the finite eighteen-table atomic wipe, interrupted-wipe rollback, unchanged schema/grants/guards, empty singleton defaults and the sole non-memory-admitted paused control. controlled native-source collection proves a fresh cut, quiet old prefix, genuine later capture, retry idempotence and pending baselines. five additional controlled channel/actual catch-up/postgres checks prove finite deletion inventory and fresh channel input. these do not prove Discord operator permission, production deletion or production collector reset. |
+| required checks | final runtime `9184f074` passes `scripts/verify`: frozen lock, formatting/lint, zero typing errors, 140 documentation files, sdist/wheel build and fresh wheel install, runtime dependency/CLI checks and dependency audit. the audit reports no known vulnerabilities for auditable packages; the three owned kernel/tools/provider Git packages are outside PyPI audit coverage. all three retained library regressions from exact `b616ee9` pass with zero skips; Jarvis capture/retry passes against a fresh actual `0013` database. the subsequent host allowance change is covered by the actual worker proof above. |
+| journey preparation | eight controlled transport checks and independent review qualify the disposable operator helper, two-page PDF/correction and actual-owner task/worker briefs. the helper crosschecks Gmail/OpenID identity, follows complete calendar/ACL pages, retains an exclusive send-entry marker and never resends an ambiguous invocation. no authenticated audit, mail send, fixture arrival, genuine owner message or cleanup is inferred from these checks. |
 
 the exact dependency fork adds a maintenance obligation until an official
 equivalent is qualified. asynchronous DNS adds the explicit aiodns/pycares
 dependency instead of abandoning Python runner cleanup. reconnect catch-up may
 rescan one bounded page; canonical deduplication remains unchanged.
 
-temporary probes and private results are retained until final source review and
-cleanup. final f3 integration, complete static/build/memory checks, production
+independent review accepts final source `9184f074`, its original tool-session
+check receipts and scoped source-probe cleanup. the first capture migration
+omitted its required explicit memory declaration; the corrected fixture uses the
+checked-in deny-all declaration. composition setup likewise corrected invalid
+synthetic encryption material. neither setup correction changed product behavior.
+
+accepted source probes, copied test/source trees, isolated Linux runtime and
+source-only databases are removed after review. 87 compact result files and
+exact cleanup inventories remain private; checked-in regressions are preserved.
+live journey/reset helpers and the active reset rehearsal fixtures remain for
+their actual use. the retained rehearsal is explicitly fixture-only, not a
+production wipe command; the real finite operation needs the stopped inventory
+and disposition of the three historical retired-worker uncertainties.
+production
 journey and fresh reset are not yet claimed. the historical native issue remains
 OPEN. production still selects `b6cf4b32d32f2b01291d47291a206d4fc744fce4`, schema
 `0008a`; no production service/configuration/history mutation has occurred here.

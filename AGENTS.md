@@ -51,7 +51,8 @@ These instructions govern all work in this repository.
   `NielsdaWheelz/jarvis-notes` workspace: documents, helpers, components and
   visualizations through native files/commands/git. authoring/local execution
   ships here; hosting, presentation and television integration stay deferred.
-  its source is unimplemented. kernel owns borrowed cwd and native supervision;
+  its source and separate temporary candidate are qualified. kernel owns borrowed
+  cwd and native supervision;
   provider owns mixed tools and effective policy verification. isolated roles
   retain containment. use separate candidate host/mapping/runtime/checkout for
   temporary proof; production bootstrap waits for final v2 cutover. the same

@@ -1,10 +1,14 @@
 # private workspace — slice 4
 
-status: specified 2026-11-15 under [adr 0071](decisions/0071-simple-event-driven-v2.md);
-unimplemented. audited jarvis predecessor `dafb7e0`, kernel `da33773662089a72992c9aec1f938c76d9cb95ab`,
-provider-runtime `70178ec8bb5b54304367ad60c0732447084a37c7`. audit the pinned git
-sources, not a stale local environment. [the roadmap](implementation-plan.md#v2-reviewable-pr-slices)
-owns sequence; production activation stays at final v2 cutover.
+status: source implemented 2026-11-15 under [adr 0071](decisions/0071-simple-event-driven-v2.md)
+and the demonstrated host repair in [adr 0074](decisions/0074-private-native-socket-publication.md).
+[qualification below](#implementation-evidence--2026-11-15) separates source,
+controlled integration and actual temporary candidate evidence. the audited
+jarvis predecessor was `dafb7e0`, kernel `da33773662089a72992c9aec1f938c76d9cb95ab`,
+provider-runtime `70178ec8bb5b54304367ad60c0732447084a37c7`.
+[the roadmap](implementation-plan.md#v2-reviewable-pr-slices) owns sequence;
+[production bootstrap and acceptance](issues/private-workspace-installed-cutover.md)
+remain at final v2 cutover.
 
 ## target and scope
 
@@ -93,9 +97,10 @@ new archive mechanism. interruption remains best effort; detached work may survi
 
 ## public contracts and deployment
 
-current pins reject this target: kernel configuration fixes containment and owns
-every temporary cwd; provider rejects mixed built-ins/callbacks; kernel rejects
-native tool activity. fix those owners, not a jarvis shell wrapper or wire adapter.
+the predecessor pins rejected this target: kernel fixed containment and owned
+every temporary cwd; provider rejected mixed built-ins/callbacks; kernel rejected
+native tool activity. the qualified pins repair those owners; jarvis adds no
+shell wrapper or wire adapter.
 
 ### kernel: configuration and ownership
 
@@ -235,7 +240,9 @@ host os identities. preserve actual service restrictions and original credential
 ownership, copying no credentials. use a task
 checkout/private test remote, postgres, runtime/configuration and controlled
 `GatewayPort`/catch-up. no second production gateway consumer or normal `jarvis serve`.
-production mappings, units, database, checkout and selected release stay unchanged.
+the proof does not modify production mappings, units, database, checkout or
+selected release. independently concurrent production changes must be recorded,
+not reverted or reported as this candidate.
 
 | feature | minimum temporary integration/live proof |
 | --- | --- |
@@ -262,12 +269,194 @@ required checks, including jarvis `scripts/verify`; preserve approved regression
 remove temporary remotes/terminals only when task-owned. no credentials or private
 material in fixtures/evidence. production acceptance remains a final-cutover
 journey under [operations](operations.md), with existing reminder/effect accounting.
-this task writes docs only: no code, behavioral/live tests, repo creation or deployment.
+the owner authorized source implementation and the scoped temporary proof on
+2026-11-15. that authority does not activate the intermediate production release.
+
+## implementation evidence — 2026-11-15
+
+source and separate temporary candidate qualification passed, with independent
+adversarial design/red/green/refactor and content review for each feature.
+qualification continued into 2026-11-16 utc. this is neither hosted ci nor
+production activation. the original checkout and its owner-authored documentation
+changes were preserved; work used separate `feature/private-workspace` worktrees.
+
+### exact source and environment
+
+| artifact | qualified identity |
+| --- | --- |
+| jarvis runtime/deployment candidate | `a649e58f33bfb4c4fb680e81488a907e3eb27cbe`; this branch's later changes record evidence and handoff |
+| kernel | `b7218b9b59c0a58c0da548307320af9377486ed9` |
+| provider-runtime | `d69c7c69a2ce60e46cfaf296d12e4535b21456c5` |
+| unchanged llm-tools / memory library | `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57` / `93e02af07fee7e79250fb800835c324f092b5bec` |
+| jarvis lock sha256 | `977df51a5d0e2130147b670a37fda142986a5bc8c740f11f56b2489e9acb0034` |
+| kernel lock sha256 | `54b5e2e6cd3987c5a90782b5f676714d58dee6939b250ad1e0e1d3b9a50813de` |
+| provider lock sha256 | `bd54d94422ecf1093e9af2b37dbefcdf01eddfcd822ada7fb2ee9ce2e17ac459` |
+| actual native host | linux x86_64, stock `0.160.0`, personal `gpt-5.6-terra` / `high`, existing native uid `1000`, application uid `jarvis`, group `codex-clients` |
+| native binary sha256 | `12eb3e81114588aca3b7998f4f19e8997b056aca08e57a7ca7c8a3ec8c652aad` |
+| runtimes | python `3.12.13`, uv `0.13.4`; bubblewrap `0.9.0`; postgres `16.16`, vector `0.8.6`, candidate schema `0010` |
+| rendered visual check | chrome `157.0.8103.51`, actual local page/filter, no external requests or page errors |
+
+upstream commits are published exact git pins, with matching dependency guards
+and session manifest. kernel removed `cwd_scope`, centralized existing provider
+identity encoding, added one private cwd-ownership fact and advanced native base
+instruction v4. isolated grammar remains strict. provider validates the exact
+initial and ongoing settings; it never substitutes an unchecked configuration.
+jarvis resolves selection once, derives immutable main/isolated configurations,
+rotates main/application identities and uses schema 5 exclusively. no work,
+memory, skid or llm-tools schema/binding change was needed.
+
+### genuine red and owning repairs
+
+- predecessor kernel probes failed on missing `cwd` and `additional_dirs` being
+  `init=False`; native event handling rejected declared activity/denial. controlled
+  public acquisition now preserves borrowed dirty files, modes and `.git` through
+  failure/discard/shutdown; owned disposable directories still disappear.
+- predecessor provider rejected mixed callbacks/built-ins and accepted six
+  independently wrong initial settings. further probes exposed disabled-web,
+  deny-policy automatic-review and permission-item identity misses. all are
+  repaired at the provider boundary; 34 temporary protocol cases passed through
+  the public runtime and a controlled real local websocket peer.
+- actual stock showed that writable-root input must include cwd and `.git`, while
+  canonical returned roots contain `.git` with cwd implicit. an intermediate fix
+  incorrectly changed input too and failed before submission. final input and
+  exact output validation follow the audited stock projection; no subset or
+  widened-root fallback. scratch/network/boolean checks remain exact.
+- schema-4 mapping/composition rejected the target. final temporary jarvis probes
+  passed 2 original cases, 11 composition/bootstrap/environment cases and 11
+  socket/unit/installer cases. bootstrap tests use real local git/files and
+  controlled remote/privacy responses; actual private ssh operations are below.
+- actual native commands first lacked an execution environment because the old
+  host set `CODEX_EXEC_SERVER_URL=none`; removing that one override repaired its
+  owner. the isolated configuration still explicitly disables native execution.
+- actual stock rejected the old public daemon-directory layout. public hardlinks
+  would expose privileged control and were rejected. adr 0074's private physical
+  socket and application-only file bind passed actual linux uid/namespace
+  handshake, ordinary stop, host crash, replacement inode and fresh-app remount.
+  no proxy, privilege wrapper or automatic application activation was added.
+- actual bubblewrap could not read overflowuid/overflowgid under native
+  `ProcSubset=pid`. ordinary read-only kernel metadata repaired that exact
+  prerequisite under unchanged uid, no-new-privileges and empty capabilities.
+  application pid-only proc and native read-only kernel-tunable protection remain.
+  no package, sysctl or apparmor change. a separate network-unshare mechanism
+  attempt was incompatible with the retained address-family allowlist; the
+  requested unrestricted native network passed, and that allowlist was preserved.
+
+fixture setup failures, v1-specific child assumptions and optional shell-mechanism
+experiments are not product red or accepted behavior. actual native errors and
+failed tools remain in their original qualification results.
+
+### actual candidate boundaries and results
+
+candidate source, endpoint/unit/mapping, ordinary checkout/private test remote,
+postgres database/role and runtime were task-owned and separate from production.
+it ran the real settings/composition, kernel/provider, journals, native runner,
+service, action dispatch and recovery under actual application/host identities,
+namespace mounts, home masks, no-new-privileges and empty capabilities. no normal
+`jarvis serve` or second gateway consumer ran. gateway catch-up/outbox delivery
+and google transport were controlled; no real discord/email/calendar write is
+claimed. synthetic task memory admission was false, with an empty memory view.
+no credentials were copied or exposed to native commands.
+
+| feature | observed result and independent verdict |
+| --- | --- |
+| files / orientation / people | actual main authored useful project/reviewer material, searched/read it and committed locally. reviewer rejected an unsupported pronoun; native revision removed it. brief readme links resolve; no invented commitments or taxonomy. pass |
+| revision / deletion | preserved the exact owner-added review line, moved the project file and repaired its readme link. deleted current obsolete draft while its committed original remained readable. no history rewrite. pass |
+| helpers / reuse | actual main wrote a small stdlib csv helper: original total `9`, alpha `5`; a fresh main reused byte-identical code on changed input giving `11` / `4`. review reproduced malformed-quote acceptance and aggregate overflow emitting invalid json; small native artifact revisions added strict csv/error handling and finite aggregates. four expected outputs and six meaningful failures passed independently. no numeric framework. pass |
+| visual | actual native self-contained html uses readable bars, hours, source/assumptions and a filter. review rejected silent per-filter rescaling and a missing label; final fixed `0–5 hours` domain stays visible. actual browser totals `9→5→4→9`, beta width remains `80%` of alpha even alone. no hosting claim. pass |
+| actual private git | exact native host environment, no forwarded ssh agent: real commit/fetch/pull/push/ls-remote matched `6ccc8d3ab9d5b480ca9c0da17a29f293793b8494`. native event start/completion ids prove the operations; independent remote state agrees. private version link was usable during proof; test remote is removed at cleanup. pass |
+| conflict | separate actual owner clone pushed a concurrent change. original local `a6f9b4a` and remote `898a248` produced a real `UU` conflict. after explicit inspected continuation, merge `dff9dcc641b66b3f9049eeae10c10d325e7fd919` retained both parents/status lines and was pushed without reset/clean/force/rebase. original failed attempts/callbacks stayed unchanged. pass with failed turns retained below |
+| failed push | bounded actual ssh connection refusal retained local `14f3a3d` and an untracked dirty marker, with truthful unpushed result. a later ordinary agent-chosen push included that ancestor; local-only was a fact at the failed-push phase, not a perpetual promise. pass |
+| mixed native / callback | one actual main authored an agenda and used declared calendar list/create callbacks with valid progress/final. one action awaited conversational approval with attempts `0` and no post. no native command became an action. pass |
+| consent / entered-effect recovery | ordinary owner approval committed its original `approval.respond` reply. probe exited `73` after the controlled provider retained one post, before its response. fresh-process recovery reconciled the same action to succeeded with attempts `1`, one post total, immutable arguments/contract and all original callback replies. a fresh main completed every owner/host request. actual product recovery, controlled provider effect. pass |
+| authority | actual main had workspace plus `.git`; final isolated compactor had empty disposable read-only cwd, disabled network/built-ins and removed its cwd after success. inherited `jarvis-memory` was explicitly off in both configurations. one actual native command found all public/private/tmp control aliases inaccessible and the global public target regular mode `000`. pass |
+| permission denial | exact startup readback proved `deny`; controlled modern permission requests were denied and malformed/foreign authority failed. the live escalation task made no command or permission request and reported unavailable escalation. this is model refusal, not a live protocol-denial receipt. pass at the stated separate boundaries |
+| exposed native child | actual v2 started activity mapped one agent path to native uuid; loaded public metadata matched parent/depth `1`, checkout, terra/high and `ephemeral=true`, with native source and analytics `subagent`. all four complete collector-equivalent active/archive × default/all-provider inventories omitted parent and child while loaded. [stock source](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/agent/control/spawn.rs) proves inherited policy/mcp/ephemeral configuration. attributed child report retained; independent child terminal completion is not claimed. pass |
+| interruption / restart | first probe cancelled after command output arrived late; it proves late cancellation only. stronger run externally observed new counter `1`, dirty text and absent later marker, then interrupted exactly one observed started/uncompleted native command. control accepted; native terminal sealed cancelled. immediate host restart and fresh direct plus real-product main read the same dirty files, counter `1` and absent later marker without replay. original seals, four callback replies and succeeded action stayed unchanged. no detached-process termination guarantee. pass |
+
+native observations for final git/mixed/reopen journeys were captured by a
+temporary forwarding-only event observer. it yielded the same events and delegated
+submission/control/close unchanged; this was neither a product shell ledger nor
+an alternate runtime. child probe assumptions were hard-cut to the actual stock
+v2 contract. ephemeral child metadata uses `includeTurns=false`; stock rejects
+history reads for those children. no archive mechanism or child controller added.
+
+### retained failures and limits
+
+two conflict qualification attempts fenced after native work. attempt
+`27504691-87c7-4d88-b6f0-7b692a8d3216` retained its local commit; attempt
+`504fc190-b269-477f-ad53-8f700d85b488` left the actual merge conflict. temporary
+content-free diagnostics localized the second to
+`PostgresNativeJournal.record` public-progress validation: pydantic root
+`value_error`. duplicate input ids and nonempty progress dispositions are distinct
+possible validators; exact cause was not retained. neither failed turn is green.
+explicit named operator release and a new owner continuation inspected real state,
+retained both fences and original receipts, and finished without replay. the
+[existing native defect issue](issues/native-protocol-diagnostics.md) stays open;
+this narrows one observed boundary, not slice 3's historical cause. no guessed
+logging feature, fallback prose, validator relaxation or automatic unpark.
+
+this task performed no production deployment or state/configuration mutation.
+production nevertheless changed concurrently: selected release initially
+`0fc3d6444231484f1762c14c83f15d8b166b7fd6`, later observed
+`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, with corresponding host-unit paths and
+application pid change. that observation does not establish who deployed it.
+schema-4 mapping hash remained unchanged, no production notes checkout existed,
+and the later host unit retained the old containment layout. that independently
+changed deployment was preserved. candidate proof is not installed acceptance.
+
+### cleanup and final checks
+
+all temporary candidate resources were removed: native unit/endpoint/mapping,
+checkout, runtime/cognition directories, both task databases, task database role,
+uploaded archives/scripts and the task-owned coding terminal. the global task
+unit is not found/inactive, database/role queries return no rows and fixed task
+paths are absent. github initially refused deletion without `delete_repo`; the
+owner used the existing account settings, and authenticated lookup then returned
+`404`. no new token or broader permission was introduced.
+
+before deliberate checkout deletion, all 99 files (including `.git`), modes,
+owners and head were unchanged across removal of the obsolete task candidate
+source. aggregate snapshot sha256 was
+`39dc9c1bac18134249e6629a591246de1b334ce8878ece04f8f58ff5bd10ae0b`, head
+`ee26bf1e341aae2ce5271be7b6e2d4fe47b8d7b0`. the actual release-pruner deletion
+loop targets only forty-hex directories under `/opt/jarvis/releases`; the
+persistent checkout is outside that tree. the production pruner was not run.
+
+final child-era host stop reached the existing ten-second deadline and systemd
+force-killed stock; it was not a graceful child shutdown. [stock handles sigterm
+and sigint through the same drain path](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server/src/lib.rs), waiting on active turns/admissions and
+bounded internal cleanup. changing signal would not repair that limit. the
+accepted best-effort interruption contract and bounded kill were retained;
+failed-unit bookkeeping was cleared only after recording the timeout. earlier
+idle stop/crash/remount checks remain distinct. three native fork attempts also
+reported missing parent rollout before child creation, as ephemeral history is
+not persisted. successful fresh v2 child creation is separate; this does not
+make all native spawning unavailable or add a product fallback.
+
+after independent review consumed their evidence, task-local probes, logs,
+archives, source cache and qualification environments were removed.
+new temporary probes were deleted; standing regressions and their existing
+controlled-peer fixture maintenance remain. final frozen checks after deletion:
+
+| repository / check | result |
+| --- | --- |
+| kernel | lock/sync, 176 retained tests, formatting/lint, pyright, build, audit, diff check passed; 2 paid/live tests deselected |
+| provider | 983 retained tests passed; 1 expected sdk-present skip; 40 paid tests not run. separate clean base-wheel absent-sdk node: 1 passed, zero skips. formatting/lint, pyright, audit, source/wheel build, base and claude-extra imports passed |
+| jarvis | `scripts/verify` passed: frozen lock/sync, diff/format/lint, pyright, documentation links, wheel/sdist, fresh install/cli/dependency identities and audit |
+| existing capture/retry | unchanged `tests/capture_retry.py` passed against a separately migrated disposable schema `0010`; expected synthetic failed-memory-publication diagnostics, exit zero |
+
+audits reported no known vulnerabilities; private git packages are not
+pypi-auditable. local upstream checks used darwin arm64; candidate and disposable
+postgres proof used actual linux x86_64. no hosted ci or broad provider/model
+matrix is claimed. the [installed handoff](issues/private-workspace-installed-cutover.md)
+and pre-existing native protocol issue are the remaining explicit boundaries.
 
 ## explicit costs
 
 - trusted native commands can act beyond repo content and lack connector-level
   consent, action recovery and exactly-once guarantees; stop may not end detached work.
+  the native host can reach its ten-second drain limit and force-kill; inspect
+  files/git after restart rather than inferring command completion.
 - agent-chosen git leaves dirty/unpushed work without guaranteed off-host backup;
   moves can stale external links, and deletion retains committed history.
 - repo files supply custom tools and interactive artifacts, but no hosting,

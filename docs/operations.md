@@ -68,10 +68,10 @@ remain outside this cut; later search and budget contracts are not adopted here.
 
 ### private workspace handoff
 
-[slice 4](private-notes-and-rolodex.md) specifies general files/commands/git in
+[slice 4](private-notes-and-rolodex.md) implements general files/commands/git in
 the new private `NielsdaWheelz/jarvis-notes` checkout, including helpers and visual
-artifacts. its source uses the schema-5 host mapping; integrated qualification and
-production acceptance are separate. final v2 cutover
+artifacts. source and a separate temporary candidate are qualified with the
+schema-5 mapping; production acceptance remains separate. final v2 cutover
 bootstraps the persistent checkout and host git access, installs the qualified
 host/application pair and preserves dirty work thereafter. existing authority-
 change pause/stopped checks apply; ordinary release pruning never deletes the repo.
@@ -81,6 +81,10 @@ database and runtime state. do not use `install-contained-host` to rewrite the
 running production host for that proof. host-account authentication must work
 inside the actual service environment; a developer shell proves no such access.
 hosting, television integration and a separate artifact ui remain deferred.
+stock drains active child turns/admissions on native-host stop. the existing
+ten-second host deadline may force-kill it; sigint and sigterm share that path.
+inspect checkout/git after restart; neither control acceptance nor bounded stop
+proves every native command or child terminated gracefully.
 
 final bootstrap requires an existing private `NielsdaWheelz/jarvis-notes` remote
 with a `main` branch and a brief readme. creating that remote is a separate final-

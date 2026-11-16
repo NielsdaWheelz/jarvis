@@ -128,7 +128,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis; one work table, independent timer; installed conversion/activation separate |
 | delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
-| private workspace | [slice 4 spec](private-notes-and-rolodex.md) adopted by 0071; unimplemented | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
+| private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) adopted by 0071; source/candidate qualified, production deferred | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
 | event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
 | attachments and durable originals | [contract](attachments-and-durable-originals.md) adopted by 0071; unimplemented | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
 | complete and continuable searches — later | settled [contract](complete-and-continuable-searches.md) retained; adoption/implementation separate, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; deliver only necessary source/attachment references within the selected v2 slices |
@@ -159,7 +159,7 @@ orders.
 | 1 | common main and conversational consent | [source-audited spec](one-main-events.md): common request lifecycle, full plan, atomic conversational consent, scoped stop and recovery; remove gate, component approval and old scheduler; installed worker outcomes are proved in 3 |
 | 2 | todos and scheduled turns | [implementation spec](work-records.md): ordinary CRUD, atomic local receipts, fresh reads, calendar/interval wakes and busy-main publication; accepts queued-late schedules; depends on 1 and converts retained reminder obligations |
 | 3 | skid follow-through | [source and candidate qualified](delegated-follow-through.md#implementation-evidence--2026-11-15): real skid, full-plan continuation/restart/content proof and bounded repairs; depends on 1–2 and matching artifacts; production acceptance at final v2 cutover |
-| 4 | ordinary private repo | [source-audited spec](private-notes-and-rolodex.md): borrowed checkout, mixed native/callback tools, documents/helpers/visuals and native git; isolated memory roles retain containment; separate temporary native-host proof, production at final cutover |
+| 4 | ordinary private repo | [source and candidate qualified](private-notes-and-rolodex.md#implementation-evidence--2026-11-15): borrowed checkout, mixed native/callback tools, documents/helpers/visuals and native git; isolated memory roles retain containment; separate temporary native-host proof, production at final cutover |
 | 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
 | 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
 
@@ -178,8 +178,8 @@ keep production's release/database/control state and intermediate activation
 refusal unchanged. its evidence labels controlled ingress and actual discord
 outbox separately. physical-owner gateway and selected-production restart/complete
 journey remain final-cutover acceptance in the existing worker issues. neither
-source review of 1 nor candidate proof of 3 establishes that production result.
-no implementation, live test or cutover is performed by this documentation update.
+source review of 1 nor candidate proof of 3–4 establishes that production result.
+source and candidate qualification do not authorize intermediate production cutover.
 
 v2 includes ordinary progress, blocker questions, approvals and completed results
 inside these journeys. it does not add standalone components for them. approval
@@ -202,8 +202,8 @@ facts; writing this roadmap sends no assignment to another agent.
 | skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
 | dev-server | selected cli/collector installation, long claude retention, private routing, client/capture credentials and native mcp configuration; arch deferred | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
-| llm-calling (`provider-runtime` package), workspace | mixed built-ins/callbacks, inherited-mcp suppression and actual returned thread-policy verification; preserve other consumers | [slice 4 public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); specified, unimplemented |
-| kernel, workspace | optional borrowed cwd, immutable authority/fingerprint, ownership-aware cleanup and native activity alongside callbacks | [slice 4 public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); specified, unimplemented; no llm-tools change |
+| llm-calling (`provider-runtime` package), workspace | mixed built-ins/callbacks, inherited-mcp suppression and actual returned thread-policy verification; preserve other consumers | [slice 4 public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); implemented at provider `d69c7c6` |
+| kernel, workspace | optional borrowed cwd, immutable authority/fingerprint, ownership-aware cleanup and native activity alongside callbacks | [slice 4 public contract](private-notes-and-rolodex.md#public-contracts-and-deployment); implemented at kernel `b7218b9`; no llm-tools change |
 | jarvis deployment owner on dev-server, notes | persistent private checkout, ordinary git authentication, host permissions and hard-cut host mapping | [notes deployment contract](private-notes-and-rolodex.md#public-contracts-and-deployment); source changes stay in jarvis's existing deploy files; operator bootstrap/install remains separate |
 | memory library | existing archive/tree/view/search; add explicit nexus source values and atomic export append/duplicate proof through shared insertion primitives | [core](universal-memory.md), [completion handoff](memory-delivery.md#non-overlapping-implementation-boundaries); uncapped ranked [search amendment](complete-and-continuable-searches.md#uncapped-ranked-memory) remains a separate delivery |
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
@@ -754,8 +754,8 @@ no imposed folder tree, notes service, schema, sync worker or hosting integratio
 main becomes a trusted native domain; conversational connector consent governs
 connector calls only. this replaces the earlier confined-access direction.
 kernel/provider mixed native-callback support and borrowed cwd lifecycle are
-bounded upstream work, not already supplied by the current pins. adr 0071 adopts
-the authority amendment; qualify a separate temporary host/candidate before final
+implemented upstream work, supplied by the qualified pins recorded in slice 4. adr 0071 adopts
+the authority amendment; separate temporary host/candidate proof precedes final
 production cutover. preserve isolated roles, canonical callbacks and internal
 cognition exclusion. no production mapping/unit/bootstrap changes in this slice.
 ordinary git history/relative links have no synchronization or stable-link

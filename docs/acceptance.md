@@ -81,10 +81,12 @@ use a small set of meaningful implementation checks when that work is authorized
   actual rest outbox are named; production gateway and selected-service restart
   remain final v2 cutover acceptance. useful claude execution remains `NOT_RUN`
   after account limits; the owner selected explicit unavailable status.
-- [slice 4](private-notes-and-rolodex.md#temporary-candidate-proof) proves native
+- [slice 4 evidence](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) qualifies native
   documents, reusable helpers/interactive files, actual private git operations,
   mixed native/callback execution and retained dirty state. its separate temporary
-  host preserves isolated roles and production. hosting/presentation stays deferred.
+  host preserves isolated roles; this task did not modify production. the
+  [installed journey](issues/private-workspace-installed-cutover.md) remains at final
+  cutover. hosting/presentation stays deferred.
 - slice 5 reads an inbound image or pdf from its retained private original.
   report actual native/file outcomes;
   connector receipts do not imply native exactly-once execution. conversational

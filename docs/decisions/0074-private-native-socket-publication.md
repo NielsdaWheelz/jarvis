@@ -1,7 +1,8 @@
 # adr 0074: private native socket publication
 
 status: accepted implementation correction under the owner's slice 4 authorization,
-2026-11-15; candidate qualification pending. production remains unchanged.
+2026-11-15; source and separate temporary candidate qualified. this task did not
+deploy production; activation remains at final v2 cutover.
 
 this supersedes the affected socket publication of adrs 0065/0072 and SPEC 7.5
 for [slice 4](../private-notes-and-rolodex.md). its native capabilities require
@@ -77,3 +78,10 @@ receipts and effect recovery survive. final v2 cutover must install the same
 qualified host/application release and mapping together. candidate proof must
 show application connection, native socket masking, real shell/git, isolated
 containment, host-loss stop and fresh remount before production acceptance.
+
+[the candidate evidence](../private-notes-and-rolodex.md#implementation-evidence--2026-11-15)
+records the actual checks and cleanup. the existing ten-second host stop bound
+may force-kill stock while it drains active children; sigterm and sigint use the
+same drain path. this is distinct from the earlier idle graceful stop and grants
+no child/detached-process termination guarantee. preserve files and inspect state
+after restart; add no shutdown controller or native replay.

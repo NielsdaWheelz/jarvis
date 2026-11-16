@@ -42,13 +42,13 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   defect](docs/issues/native-protocol-diagnostics.md) remains open. production
   acceptance remains at final v2 cutover; retain the intermediate activation refusal.
 - [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
-  with trusted native tools. slice 4 specifies a general workspace in the new
+  with trusted native tools. slice 4 implements a general workspace in the new
   private `NielsdaWheelz/jarvis-notes` repo: documents, runnable helpers,
   components, charts and self-contained interactive files. authoring/local
   execution belongs here; hosting, presentation ui and television integration
   remain deferred. its kernel/provider contract adds borrowed cwd lifecycle and
   mixed native/callback execution while retaining isolated-role containment.
-  qualify with a separate temporary native host; production bootstrap/activation
+  source and a separate temporary native host are qualified; production bootstrap/activation
   stays at final v2 cutover. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
   corrects the host boundary demonstrated by real candidate failures: retain
   stock's private physical socket and expose it only in the application's
@@ -1799,8 +1799,8 @@ persistence contracts.
 
 ### 7.5 Codex containment
 
-the following is the implemented baseline. [slice 4's accepted contract](docs/private-notes-and-rolodex.md#capability-contract)
-replaces main's posture with trusted native workspace access when implemented;
+the following is the installed baseline. [slice 4's implemented contract](docs/private-notes-and-rolodex.md#capability-contract)
+replaces main's source posture with trusted native workspace access;
 isolated roles retain containment. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
 supersedes the physical socket publication below for that source target: a private
 `0700` reserved directory, ancestor mount, application-only socket file bind and

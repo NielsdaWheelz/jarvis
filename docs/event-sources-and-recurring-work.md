@@ -474,12 +474,13 @@ account-qualified new receipts enable safe echo suppression, while unproved echo
 remain visible. source switches leave published work intact; gaps are not historical
 reconstruction. deleting temporary proofs removes their ongoing regression coverage.
 
-specification review, 2026-11-15: independent architecture, provider-protocol and
+historical specification-only review, 2026-11-15: independent architecture, provider-protocol and
 content reviewers challenged the source audit and revised contract; design findings
 are resolved above. `scripts/verify` passed; final documentation links/whitespace
 were rechecked. source implementation and integration/live acceptance are NOT_RUN.
-the token-refresh issue remains open for implementation. no code, provider-account
-operations or production state changed in this task.
+at that documentation-only checkpoint the token-refresh issue was open; no code,
+provider-account operations or production state changed in that task. the
+implementation evidence below supersedes its NOT_RUN/open status.
 
 
 ## implementation evidence — 2026-11-16, qualification in progress

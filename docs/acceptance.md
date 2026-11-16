@@ -96,8 +96,8 @@ use a small set of meaningful implementation checks when that work is authorized
   composition/content. prove excluded-prefix progress, atomic publication,
   source controls during uncertainty, exact attention/echo identities, truthful
   gaps and responsive main. shared credential concurrency gets one controlled
-  connector check; no credential product or production activation. implementation
-  and candidate acceptance remain pending.
+  connector check; no credential product or production activation. source is implemented; combined
+  migration/native candidate acceptance remains pending.
 
 slice 1's [source-audited proof plan](one-main-events.md#acceptance-and-redgreenrefactor)
 and slices 2–6's linked contracts own temporary integration/live red/green/refactor,

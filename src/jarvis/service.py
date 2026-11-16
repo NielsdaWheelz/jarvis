@@ -15,6 +15,7 @@ from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 
 from jarvis.agent_control import AgentController
+from jarvis.attachments import AttachmentStore, DiscordUpload
 from jarvis.discord import (
     CatchUpResult,
     Control,
@@ -129,6 +130,9 @@ class IngressStore(PendingDeliveryStore, DiscordCursorPort, Protocol):
         created_at: datetime,
         message_id: UUID | None = None,
         control_kind: Literal["pause", "resume"] | None = None,
+        uploads: tuple[DiscordUpload, ...] = (),
+        attachment_r2_account: str | None = None,
+        attachment_r2_bucket: str | None = None,
     ) -> InboundInsert: ...
 
 
@@ -162,11 +166,15 @@ class JarvisService:
         memory: MemoryService,
         work_timer: WorkWakeTimer,
         event_poller: EventPoller,
+        attachments: AttachmentStore,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
+        self._attachments = attachments
+        self._attachment_work = asyncio.Event()
+        self._attachment_task: asyncio.Task[None] | None = None
         self._memory = memory
         self._work_timer = work_timer
         self._event_poller = event_poller
@@ -213,24 +221,23 @@ class JarvisService:
         """Persist/deduplicate ingress before applying host control."""
 
         async with self._active_lock:
-            canonical_text = (
-                incoming.control.value
-                if incoming.control is not None
-                else incoming.text
-            )
             inserted = await self._store.insert_waking(
                 role="owner",
-                text=canonical_text,
+                text=incoming.text,
                 source="discord",
                 source_conversation_id=incoming.source_conversation_id,
                 source_message_id=incoming.source_message_id,
                 created_at=incoming.created_at,
+                uploads=incoming.uploads,
+                attachment_r2_account=self._settings.attachment_r2_account_id,
+                attachment_r2_bucket=self._settings.attachment_r2_bucket,
                 control_kind=incoming.control.value
                 if incoming.control is not None
                 else None,
             )
             if not inserted.inserted:
                 return
+            self._attachment_work.set()
 
             active = self._active_cancellation
             background = self._background_cancellation
@@ -309,6 +316,11 @@ class JarvisService:
         """Run until shutdown, draining serial work and pending delivery."""
 
         await self._runner.recover()
+        self._attachment_work.set()
+        self._attachment_task = asyncio.create_task(
+            self._capture_attachments(), name="jarvis-attachment-capture"
+        )
+        self._attachment_task.add_done_callback(self._timer_stopped)
         self._work_timer.notify_changed()
         self._work_timer_task = asyncio.create_task(
             self._run_work_timer(), name="jarvis-work-timer"
@@ -352,6 +364,7 @@ class JarvisService:
                     raise RuntimeError("agent wait observer stopped unexpectedly")
                 await self._drain()
         finally:
+            self.request_shutdown()
             self._work_timer_task.cancel()
             self._agent_wait_cancellation.cancel()
             self._delivery_task.cancel()
@@ -362,6 +375,7 @@ class JarvisService:
                 self._agent_wait_task,
                 self._delivery_task,
                 self._dream_timer_task,
+                self._attachment_task,
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             self._agent_wait_task = None
@@ -370,10 +384,21 @@ class JarvisService:
             self._event_poll_task = None
             self._work_timer_task = None
             self._dream_timer_task = None
+            self._attachment_task = None
             await self._runner.close()
             for result in results:
                 if isinstance(result, Exception):
                     raise result
+
+    async def _capture_attachments(self) -> None:
+        while not self._shutdown.is_set():
+            await self._attachment_work.wait()
+            self._attachment_work.clear()
+            while (
+                not self._shutdown.is_set() and await self._attachments.capture_next()
+            ):
+                await self._memory.publish()
+                self.request_work()
 
     def _timer_stopped(self, task: asyncio.Task[None]) -> None:
         if not task.cancelled():
@@ -399,6 +424,8 @@ class JarvisService:
     def request_shutdown(self) -> None:
         self._shutdown.set()
         self._event_poller.notify_changed()
+        self._attachments.stop_captures()
+        self._attachment_work.set()
         self._work.set()
         if self._active_cancellation is not None:
             self._active_cancellation.cancel()

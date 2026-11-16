@@ -58,8 +58,7 @@ These instructions govern all work in this repository.
   retain containment. use separate candidate host/mapping/runtime/checkout for
   temporary proof; production bootstrap waits for final v2 cutover. the same
   scoped content/adversarial/red-green-refactor method and probe deletion apply.
-  [slice 6](docs/event-sources-and-recurring-work.md) is source-audited, not
-  implemented. one cursor table/poll task publishes mail/calendar facts through
+  [slice 6](docs/event-sources-and-recurring-work.md) is source-implemented; combined qualification is pending. one cursor table/poll task publishes mail/calendar facts through
   ordinary main admission. preserve partial gmail progress, fixed sync selectors,
   quiet baselines and truthful coverage gaps. source controls use existing atomic
   local receipts; status is fresh. reuse attachment's landed profile/fresh-read

@@ -10,6 +10,7 @@ import json
 import math
 import re
 import secrets
+import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -29,7 +30,13 @@ from llm_tools import canonical_json_bytes
 from pydantic import ValidationError
 
 from jarvis._atomic_json import read_private_json, replace_private_json
+from jarvis._thread_io import joined_thread
 from jarvis.read_tools import (
+    ATTACHMENT_CONNECT_SECONDS,
+    ATTACHMENT_EXTERNAL_JSON_BYTES,
+    ATTACHMENT_MAX_BYTES,
+    ATTACHMENT_MESSAGE_JSON_BYTES,
+    ATTACHMENT_OPERATION_SECONDS,
     CALENDAR_API_BASE_URL,
     CALENDAR_EVENT_CONCURRENCY,
     CALENDAR_EVENT_DEADLINE_SECONDS,
@@ -64,6 +71,10 @@ from jarvis.read_tools import (
     ConnectorFailure,
     Coordinates,
     GmailAttachment,
+    GmailListAttachmentsInput,
+    GmailListAttachmentsSuccess,
+    GmailListThreadMessagesInput,
+    GmailListThreadMessagesSuccess,
     GmailMessage,
     GmailReadThreadInput,
     GmailReadThreadSuccess,
@@ -83,6 +94,8 @@ from jarvis.read_tools import (
     Route,
     TimedEventTime,
     UnspecifiedEventEnd,
+    attachment_media_type,
+    display_descriptor,
 )
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -140,6 +153,10 @@ class GoogleReadFailure(ConnectorFailure):
 
 class _ProviderTooLarge(ValueError):
     pass
+
+
+class OriginalTooLarge(_ProviderTooLarge):
+    """The selected decoded original exceeds its admitted byte bound."""
 
 
 class _InertHtml(HTMLParser):
@@ -336,7 +353,7 @@ class GoogleTokenManager:
                         raise GoogleCredentialDefect("Google OAuth grant is unusable")
                     raise ConnectorFailure("provider_unavailable", attempts=1)
                 payload = await _json_body(response, attempts=1)
-        except (TimeoutError, httpx.HTTPError):
+        except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure("provider_unavailable", attempts=1) from None
         try:
             token = provider_string(payload, "access_token")
@@ -571,11 +588,18 @@ class GoogleReadConnector:
         self, value: GmailReadThreadInput
     ) -> ReadResponse[GmailReadThreadSuccess]:
         path = quote(value.thread_id, safe="")
-        payload, attempts = await self.get_json(
-            f"{GMAIL_API_BASE_URL}/users/me/threads/{path}",
-            params={"format": "full"},
-            not_found="thread_not_found",
-        )
+        account, profile_attempts = await self.gmail_account()
+        try:
+            payload, attempts = await self.get_json(
+                f"{GMAIL_API_BASE_URL}/users/me/threads/{path}",
+                params={"format": "full"},
+                not_found="thread_not_found",
+            )
+        except ConnectorFailure as exc:
+            raise ConnectorFailure(
+                exc.code, attempts=profile_attempts + exc.attempts
+            ) from None
+        attempts += profile_attempts
         try:
             thread_id = provider_text(provider_string(payload, "id"), 1_024)
             if thread_id != value.thread_id:
@@ -587,7 +611,9 @@ class GoogleReadConnector:
             aggregate = 0
             root_truncated = len(ordered) > len(selected)
             for raw in selected:
-                message, attachment_cap = _gmail_message(raw)
+                message, attachment_cap = await joined_thread(
+                    _gmail_message, raw, account
+                )
                 if message.thread_id != thread_id:
                     raise ValueError("Gmail message has a different thread")
                 remaining = max(0, 65_536 - aggregate)
@@ -614,6 +640,148 @@ class GoogleReadConnector:
         except (TypeError, ValueError, ValidationError):
             raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
         return ReadResponse(result, attempts)
+
+    async def gmail_list_thread_messages(
+        self, value: GmailListThreadMessagesInput
+    ) -> ReadResponse[GmailListThreadMessagesSuccess]:
+        account, attempts = await self.gmail_account()
+        try:
+            payload, observed = await self.get_json(
+                f"{GMAIL_API_BASE_URL}/users/me/threads/"
+                f"{quote(value.thread_id, safe='')}",
+                params={"format": "minimal", "fields": "id,messages(id)"},
+                not_found="thread_not_found",
+            )
+        except ConnectorFailure as exc:
+            raise ConnectorFailure(exc.code, attempts=attempts + exc.attempts) from None
+        attempts += observed
+        try:
+            if provider_string(payload, "id") != value.thread_id:
+                raise ValueError("Gmail returned a different thread")
+            ids = sorted(
+                provider_text(
+                    provider_string(provider_object(m, "Gmail message"), "id"), 1_024
+                )
+                for m in provider_array(payload.get("messages", []), "Gmail messages")
+            )
+            if len(ids) != len(set(ids)):
+                raise ValueError("Gmail returned duplicate messages")
+            digest = hashlib.sha256(
+                canonical_json_bytes(
+                    {
+                        "account": account,
+                        "thread_id": value.thread_id,
+                        "message_ids": ids,
+                    }
+                )
+            ).hexdigest()
+            if value.expected_digest is not None and value.expected_digest != digest:
+                raise ConnectorFailure("source_changed", attempts=attempts)
+            selected = ids[value.offset : value.offset + value.limit]
+            return ReadResponse(
+                GmailListThreadMessagesSuccess(
+                    thread_id=value.thread_id,
+                    digest=digest,
+                    total=len(ids),
+                    offset=value.offset,
+                    message_ids=tuple(selected),
+                    next_offset=value.offset + len(selected)
+                    if value.offset + len(selected) < len(ids)
+                    else None,
+                    observed_at=self._observed_at(),
+                ),
+                attempts,
+            )
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+
+    async def gmail_attachment_message(
+        self, message_id: str, *, attempt_started: Callable[[], None] | None = None
+    ) -> ReadResponse[GmailOriginalMessage]:
+        account, attempts = await self.gmail_account(attempt_started=attempt_started)
+        try:
+            payload, observed = await self.get_json(
+                f"{GMAIL_API_BASE_URL}/users/me/messages/{quote(message_id, safe='')}",
+                params={"format": "full", "fields": "id,threadId,payload"},
+                not_found="message_not_found",
+                attempt_started=attempt_started,
+                max_response_bytes=ATTACHMENT_MESSAGE_JSON_BYTES,
+                deadline_seconds=ATTACHMENT_OPERATION_SECONDS,
+            )
+        except ConnectorFailure as exc:
+            raise ConnectorFailure(exc.code, attempts=attempts + exc.attempts) from None
+        attempts += observed
+        try:
+            if provider_string(payload, "id") != message_id:
+                raise ValueError("Gmail returned a different message")
+            thread_id = provider_text(provider_string(payload, "threadId"), 1_024)
+            parts = await joined_thread(
+                gmail_parts, provider_object(payload.get("payload"), "Gmail payload")
+            )
+            return ReadResponse(
+                GmailOriginalMessage(account, message_id, thread_id, parts), attempts
+            )
+        except _ProviderTooLarge:
+            raise ConnectorFailure(
+                "provider_response_too_large", attempts=attempts
+            ) from None
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+
+    async def gmail_list_attachments(
+        self, value: GmailListAttachmentsInput
+    ) -> ReadResponse[GmailListAttachmentsSuccess]:
+        response = await self.gmail_attachment_message(value.message_id)
+        original = response.value
+        files = original.files
+        digest = await joined_thread(lambda: original.digest)
+        if value.expected_digest is not None and value.expected_digest != digest:
+            raise ConnectorFailure("source_changed", attempts=response.attempts)
+        selected = files[value.offset : value.offset + value.limit]
+        descriptors = await joined_thread(
+            lambda: tuple(part.descriptor for part in selected)
+        )
+        return ReadResponse(
+            GmailListAttachmentsSuccess(
+                message_id=value.message_id,
+                thread_id=original.thread_id,
+                digest=digest,
+                total=len(files),
+                offset=value.offset,
+                attachments=descriptors,
+                next_offset=value.offset + len(selected)
+                if value.offset + len(selected) < len(files)
+                else None,
+                observed_at=self._observed_at(),
+            ),
+            response.attempts,
+        )
+
+    async def gmail_attachment_body(
+        self,
+        message_id: str,
+        external_id: str,
+        *,
+        attempt_started: Callable[[], None] | None = None,
+    ) -> ReadResponse[bytes]:
+        payload, attempts = await self.get_json(
+            f"{GMAIL_API_BASE_URL}/users/me/messages/{quote(message_id, safe='')}/"
+            f"attachments/{quote(external_id, safe='')}",
+            attempt_started=attempt_started,
+            max_response_bytes=ATTACHMENT_EXTERNAL_JSON_BYTES,
+            deadline_seconds=ATTACHMENT_OPERATION_SECONDS,
+            not_found="message_not_found",
+        )
+        try:
+            data = payload.get("data")
+            if not isinstance(data, str):
+                raise ValueError("Gmail attachment data is malformed")
+            value = await joined_thread(decode_gmail_body, data)
+        except _ProviderTooLarge:
+            raise ConnectorFailure("too_large", attempts=attempts) from None
+        except (TypeError, ValueError):
+            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+        return ReadResponse(value, attempts)
 
     async def calendar_list_calendars(
         self, value: CalendarListCalendarsInput
@@ -954,6 +1122,8 @@ class GoogleReadConnector:
         invalid_request: str | None = None,
         attempt_started: Callable[[], None] | None = None,
         before_request: Callable[[], Awaitable[None]] | None = None,
+        max_response_bytes: int = MAX_PROVIDER_BODY_BYTES,
+        deadline_seconds: float = 8.0,
     ) -> tuple[dict[str, object], int]:
         token, refresh_attempts = await self._tokens.access_token(
             attempt_started=attempt_started, before_request=before_request
@@ -964,7 +1134,7 @@ class GoogleReadConnector:
             if attempt_started is not None:
                 attempt_started()
             async with (
-                asyncio.timeout(8.0),
+                asyncio.timeout(deadline_seconds),
                 self._client.stream(
                     "GET",
                     url,
@@ -974,7 +1144,12 @@ class GoogleReadConnector:
                         "Authorization": f"Bearer {token}",
                     },
                     follow_redirects=False,
-                    timeout=httpx.Timeout(8.0, connect=3.0),
+                    timeout=httpx.Timeout(
+                        deadline_seconds,
+                        connect=ATTACHMENT_CONNECT_SECONDS
+                        if deadline_seconds > 8.0
+                        else 3.0,
+                    ),
                 ) as response,
             ):
                 attempts = refresh_attempts + 1
@@ -1021,14 +1196,16 @@ class GoogleReadConnector:
                         retry_after=response.headers.get("Retry-After"),
                     )
                 try:
-                    payload = await _json_body(response, attempts=attempts)
+                    payload = await _json_body(
+                        response, attempts=attempts, maximum=max_response_bytes
+                    )
                 except ConnectorFailure as exc:
                     if exc.code == "provider_response_too_large":
                         raise
                     raise GoogleReadFailure(
                         "provider_unavailable", attempts=attempts, status=200
                     ) from None
-        except (TimeoutError, httpx.HTTPError):
+        except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure(
                 "provider_unavailable", attempts=refresh_attempts + 1
             ) from None
@@ -1220,7 +1397,7 @@ class MapsReadConnector:
                 if response.status_code < 200 or response.status_code >= 300:
                     raise ConnectorFailure("provider_unavailable", attempts=1)
                 payload = await _json_body(response, attempts=1)
-        except (TimeoutError, httpx.HTTPError):
+        except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure("provider_unavailable", attempts=1) from None
         return payload
 
@@ -1231,19 +1408,28 @@ class MapsReadConnector:
         return value.astimezone(UTC)
 
 
-async def _json_body(response: httpx.Response, *, attempts: int) -> dict[str, object]:
-    body = bytearray()
-    async for chunk in response.aiter_bytes():
-        if len(body) + len(chunk) > MAX_PROVIDER_BODY_BYTES:
-            raise ConnectorFailure("provider_response_too_large", attempts=attempts)
-        body.extend(chunk)
+async def _json_body(
+    response: httpx.Response, *, attempts: int, maximum: int = MAX_PROVIDER_BODY_BYTES
+) -> dict[str, object]:
     try:
-        value: object = json.loads(
-            body,
-            parse_constant=_reject_constant,
-            object_pairs_hook=_strict_object,
-        )
+        with tempfile.TemporaryFile() as body:
+            count = 0
+            async for chunk in response.aiter_bytes(chunk_size=1_024 * 1_024):
+                count += len(chunk)
+                if count > maximum:
+                    raise ConnectorFailure(
+                        "provider_response_too_large", attempts=attempts
+                    )
+                await joined_thread(body.write, chunk)
+            body.seek(0)
+            value: object = await joined_thread(
+                json.load,
+                body,
+                parse_constant=_reject_constant,
+                object_pairs_hook=_strict_object,
+            )
     except (
+        OSError,
         UnicodeDecodeError,
         json.JSONDecodeError,
         RecursionError,
@@ -1464,7 +1650,7 @@ def _gmail_internal_millis(value: object) -> int:
     return millis
 
 
-def _gmail_message(value: object) -> tuple[GmailMessage, bool]:
+def _gmail_message(value: object, account: str) -> tuple[GmailMessage, bool]:
     message = provider_object(value, "Gmail message")
     payload = provider_object(message.get("payload"), "Gmail payload")
     headers = provider_array(payload.get("headers", []), "Gmail headers")
@@ -1478,10 +1664,26 @@ def _gmail_message(value: object) -> tuple[GmailMessage, bool]:
         by_name.setdefault(name.lower(), []).append(header_value)
     plain: list[str] = []
     html_parts: list[str] = []
-    attachments: list[GmailAttachment] = []
-    attachment_cap, external_body = _walk_gmail_parts(
-        payload, plain, html_parts, attachments, depth=0, visited=[0]
+    parts = gmail_parts(payload)
+    original = GmailOriginalMessage(
+        account,
+        provider_text(provider_string(message, "id"), 1_024),
+        provider_text(provider_string(message, "threadId"), 1_024),
+        parts,
     )
+    attachments = original.files
+    external_body = False
+    for part in parts:
+        if part.is_file:
+            continue
+        if part.external_id is not None:
+            external_body = True
+        elif part.data is not None and part.media_type in {"text/plain", "text/html"}:
+            try:
+                text = decode_gmail_body(part.data).decode(part.charset)
+            except (UnicodeError, LookupError, binascii.Error) as exc:
+                raise ValueError("Gmail MIME body is malformed") from exc
+            (plain if part.media_type == "text/plain" else html_parts).append(text)
     source = "\n".join(plain)
     if not plain and html_parts:
         parser = _InertHtml()
@@ -1512,99 +1714,153 @@ def _gmail_message(value: object) -> tuple[GmailMessage, bool]:
             + timedelta(milliseconds=_gmail_internal_millis(message)),
             body_text=text,
             body_truncated=text_truncated or external_body,
-            attachments=tuple(attachments[:50]),
+            attachments=tuple(part.descriptor for part in attachments[:50]),
+            attachments_total=len(attachments),
+            attachments_digest=original.digest,
         ),
-        attachment_cap,
+        len(attachments) > 50,
     )
 
 
-def _walk_gmail_parts(
-    part: Mapping[str, object],
-    plain: list[str],
-    html_parts: list[str],
-    attachments: list[GmailAttachment],
-    *,
-    depth: int,
-    visited: list[int],
-) -> tuple[bool, bool]:
-    visited[0] += 1
-    if depth > 20 or visited[0] > 500:
-        raise _ProviderTooLarge
-    attachment_cap = False
-    external_body = False
-    mime = part.get("mimeType")
-    filename = part.get("filename", "")
-    if not isinstance(mime, str) or not mime or not isinstance(filename, str):
-        raise ValueError("Gmail MIME part is malformed")
-    body = provider_object(part.get("body", {}), "Gmail MIME body")
-    attachment_id = body.get("attachmentId")
-    if attachment_id is not None and (
-        not isinstance(attachment_id, str) or not attachment_id
-    ):
-        raise ValueError("Gmail attachment ID is malformed")
-    media_type, charset, disposition = _gmail_content_headers(part, mime)
-    if (
-        filename
-        or disposition == "attachment"
-        or (attachment_id is not None and media_type not in {"text/plain", "text/html"})
-    ):
-        size = body.get("size")
-        if type(size) is not int or size < 0:
-            raise ValueError("Gmail attachment size is malformed")
-        if size > 26_214_400:
-            raise _ProviderTooLarge
-        if len(attachments) < 50:
-            attachments.append(
-                GmailAttachment(
-                    filename=provider_text(filename, 255),
-                    media_type=provider_text(mime, 255),
-                    size_bytes=size,
-                )
-            )
-        else:
-            attachment_cap = True
-        return attachment_cap, False
-    data = body.get("data")
-    if attachment_id is not None:
-        external_body = True
-        data = None
-    if attachment_id is not None:
-        return attachment_cap, external_body
-    if data is not None:
-        if not isinstance(data, str):
-            raise ValueError("Gmail MIME data is malformed")
-        try:
-            decoded_bytes = base64.b64decode(
-                (data + "=" * (-len(data) % 4)).encode("ascii"),
-                altchars=b"-_",
-                validate=True,
-            )
-            decoded = decoded_bytes.decode(charset)
-        except (
-            UnicodeEncodeError,
-            UnicodeDecodeError,
-            LookupError,
-            binascii.Error,
-            ValueError,
-        ) as exc:
-            raise ValueError("Gmail MIME data is malformed") from exc
-        if media_type == "text/plain":
-            plain.append(decoded)
-        elif media_type == "text/html":
-            html_parts.append(decoded)
-    children = provider_array(part.get("parts", []), "Gmail MIME children")
-    for child in children:
-        child_attachment_cap, child_external_body = _walk_gmail_parts(
-            provider_object(child, "Gmail MIME child"),
-            plain,
-            html_parts,
-            attachments,
-            depth=depth + 1,
-            visited=visited,
+@dataclass(frozen=True, slots=True)
+class GmailPart:
+    part_id: str
+    filename: str
+    media_type: str
+    charset: str
+    advertised_size: int | None
+    external_id: str | None
+    data: str | None
+    is_file: bool
+
+    @property
+    def descriptor(self) -> GmailAttachment:
+        return GmailAttachment.model_validate(
+            {
+                "part_id": self.part_id,
+                **display_descriptor(
+                    self.filename or None, self.media_type, self.advertised_size
+                ),
+            }
         )
-        attachment_cap = attachment_cap or child_attachment_cap
-        external_body = external_body or child_external_body
-    return attachment_cap, external_body
+
+
+@dataclass(frozen=True, slots=True)
+class GmailOriginalMessage:
+    account: str
+    message_id: str
+    thread_id: str
+    parts: tuple[GmailPart, ...]
+
+    @property
+    def files(self) -> tuple[GmailPart, ...]:
+        return tuple(
+            sorted(
+                (part for part in self.parts if part.is_file),
+                key=lambda part: part.part_id,
+            )
+        )
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "account": self.account,
+                    "message_id": self.message_id,
+                    "thread_id": self.thread_id,
+                    "attachments": [
+                        {
+                            "part_id": part.part_id,
+                            "filename": part.filename,
+                            "media_type": part.media_type,
+                            "advertised_size": part.advertised_size,
+                        }
+                        for part in self.files
+                    ],
+                }
+            )
+        ).hexdigest()
+
+
+def decode_gmail_body(data: str) -> bytes:
+    if len(data) > (ATTACHMENT_MAX_BYTES + 2) // 3 * 4:
+        raise OriginalTooLarge
+    try:
+        decoded = base64.b64decode(
+            (data + "=" * (-len(data) % 4)).encode("ascii"),
+            altchars=b"-_",
+            validate=True,
+        )
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise ValueError("Gmail MIME data is malformed") from exc
+    if len(decoded) > ATTACHMENT_MAX_BYTES:
+        raise OriginalTooLarge
+    return decoded
+
+
+def gmail_parts(payload: Mapping[str, object]) -> tuple[GmailPart, ...]:
+    result: list[GmailPart] = []
+    seen: set[str] = set()
+    visited = 0
+
+    def walk(part: Mapping[str, object], depth: int) -> None:
+        nonlocal visited
+        visited += 1
+        if depth > 20 or visited > 500:
+            raise _ProviderTooLarge
+        identifier = part.get("partId")
+        if not isinstance(identifier, str) or (not identifier and depth != 0):
+            raise ValueError("Gmail part ID is malformed")
+        provider_text(identifier, 1_024) if identifier else None
+        if identifier in seen:
+            raise ValueError("Gmail part IDs are duplicated")
+        seen.add(identifier)
+        mime = provider_string(part, "mimeType")
+        filename = part.get("filename", "")
+        if not isinstance(filename, str):
+            raise ValueError("Gmail filename is malformed")
+        media_type, charset, disposition = _gmail_content_headers(part, mime)
+        children = provider_array(part.get("parts", []), "Gmail MIME children")
+        if children:
+            for child in children:
+                walk(provider_object(child, "Gmail MIME child"), depth + 1)
+            return
+        body = provider_object(part.get("body", {}), "Gmail MIME body")
+        size = body.get("size")
+        if size is not None and (type(size) is not int or size < 0 or size > 2**63 - 1):
+            raise ValueError("Gmail size is malformed")
+        external_id = body.get("attachmentId")
+        if external_id is not None:
+            if not isinstance(external_id, str):
+                raise ValueError("Gmail attachment ID is malformed")
+            provider_text(external_id, 1_024)
+        data = body.get("data")
+        if data is not None and not isinstance(data, str):
+            raise ValueError("Gmail MIME data is malformed")
+        is_file = (
+            bool(filename)
+            or disposition == "attachment"
+            or (
+                media_type not in {"text/plain", "text/html"}
+                and (data is not None or external_id is not None)
+            )
+        )
+        result.append(
+            GmailPart(
+                identifier,
+                filename,
+                media_type,
+                charset,
+                size,
+                external_id,
+                data,
+                is_file,
+            )
+        )
+
+    walk(payload, 0)
+    return tuple(result)
 
 
 def _gmail_content_headers(
@@ -1612,6 +1868,7 @@ def _gmail_content_headers(
 ) -> tuple[str, str, str | None]:
     if len(provider_media_type.encode()) > 255:
         raise _ProviderTooLarge
+    attachment_media_type(provider_media_type)
     headers = provider_array(part.get("headers", []), "Gmail MIME headers")
     content_types: list[str] = []
     dispositions: list[str] = []

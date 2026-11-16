@@ -40,7 +40,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   it reuses slice 5's shared connector primitives after their merge. source metadata
   enters ordinary canonical host history/memory; no automatic body/file archive.
   shared refresh concurrency and account-qualified new write receipts belong at
-  the existing connector boundary. implementation/candidate proof remain pending.
+  the existing connector boundary. source is implemented; combined migration/native
+  candidate qualification remains pending.
   existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)

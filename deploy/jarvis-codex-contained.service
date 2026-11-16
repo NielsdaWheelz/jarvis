@@ -25,6 +25,7 @@ RuntimeDirectoryMode=0710
 RuntimeDirectoryPreserve=restart
 BindPaths=/run/jarvis-contained/exec:/tmp
 BindReadOnlyPaths=/etc/jarvis/codex-host.json:/run/jarvis-contained/codex-host.json
+BindReadOnlyPaths=/var/cache/jarvis/attachments
 InaccessiblePaths=@ACCOUNT_INSTRUCTIONS@
 PrivateTmp=true
 PrivateDevices=true

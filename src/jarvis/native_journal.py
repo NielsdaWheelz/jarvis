@@ -59,7 +59,11 @@ from sqlalchemy import RowMapping, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.actions import recorded_action_result
+from jarvis.actions import (
+    attachment_uncertainty_receipt,
+    recorded_action_result,
+    require_locked_action,
+)
 from jarvis.admission import JarvisOwner
 from jarvis.approval_tools import (
     APPROVAL_RESPOND_SPEC,
@@ -544,7 +548,13 @@ class PostgresNativeJournal:
                 else None,
             )
         elif value["type"] == "local_result":
-            dispatch = DispatchCompleted(value["result"], value["wire_text"], None)
+            dispatch = DispatchCompleted(
+                value["result"],
+                value["wire_text"],
+                HostRef(value["host_ref"])
+                if value.get("host_ref") is not None
+                else None,
+            )
         elif value["type"] in {"pending_action", "recovery_required"}:
             dispatch = DispatchSuspended(
                 HostRef(str(row["action_id"])), WaitingFor(value["waiting_for"])
@@ -637,14 +647,33 @@ class PostgresNativeJournal:
                 else:
                     identifier = UUID(reference)
                     recorded = await recorded_action_result(connection, identifier)
+                    if recorded is None:
+                        stored = await require_locked_action(connection, identifier)
+                        if (
+                            row["action_id"] != identifier
+                            or row["tool_id"] != stored.tool_name
+                        ):
+                            raise NativeDefect(
+                                "attachment receipt changed invocation lineage"
+                            )
+                        recorded = await attachment_uncertainty_receipt(
+                            connection, stored
+                        )
+                        if recorded == result.result:
+                            # Current action evidence can advance later; this callback
+                            # keeps its exact original failure and host reference.
+                            value.update(
+                                type="local_result", result=recorded, host_ref=reference
+                            )
                     if recorded != result.result:
                         raise NativeDefect(
                             "replayed action differs from its original recorder result"
                         )
                     links["action_id"] = identifier
-                value.update(
-                    type="tool_result_ref", result_ref=reference, host_ref=reference
-                )
+                if value.get("type") != "local_result":
+                    value.update(
+                        type="tool_result_ref", result_ref=reference, host_ref=reference
+                    )
             else:
                 position = "native-invocation:" + invocation_id
                 recorded = await connection.scalar(

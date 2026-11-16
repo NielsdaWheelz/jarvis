@@ -68,7 +68,7 @@ remain outside this cut; later search and budget contracts are not adopted here.
 
 ### email/calendar source handoff
 
-[slice 6](event-sources-and-recurring-work.md) is specified, not implemented.
+[slice 6](event-sources-and-recurring-work.md) is source-implemented; combined candidate qualification remains pending.
 its candidate must consume the actual merged attachment helpers/migration while
 production remains unchanged. final cutover initializes quiet account-scoped
 baselines; expired provider cursors leave explicit unknown coverage. no historical

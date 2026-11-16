@@ -44,6 +44,10 @@ required = {
     "JARVIS_GOOGLE_OAUTH_CLIENT_ID",
     "JARVIS_GOOGLE_OAUTH_CLIENT_SECRET",
     "JARVIS_MAPS_API_KEY",
+    "JARVIS_ATTACHMENT_R2_ACCOUNT_ID",
+    "JARVIS_ATTACHMENT_R2_BUCKET",
+    "JARVIS_ATTACHMENT_R2_ACCESS_KEY_ID",
+    "JARVIS_ATTACHMENT_R2_SECRET_ACCESS_KEY",
 }
 allowed = required | {"JARVIS_GOOGLE_OAUTH_REDIRECT_URI"}
 raw = source.read_bytes()
@@ -73,6 +77,7 @@ JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
 JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
 JARVIS_AGENT_STATE_DIRECTORY=/run/jarvis-skid-state
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
+JARVIS_ATTACHMENT_CACHE_DIRECTORY=/var/cache/jarvis/attachments
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
 JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
 JARVIS_EMBEDDING_MODEL=text-embedding-3-small
@@ -135,6 +140,8 @@ for file in jarvis.env google-oauth-state.json memory.json; do
 done
 sudo install -d -m 0700 -o jarvis -g jarvis \
   /var/lib/jarvis/connectors
+sudo install -d -m 0750 -o jarvis -g codex-clients \
+  /var/cache/jarvis /var/cache/jarvis/attachments
 sudo install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
 sudo install -m 0600 -o jarvis -g jarvis \
   "$remote/memory.json" /etc/jarvis/memory.json

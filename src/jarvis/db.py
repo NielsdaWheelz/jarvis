@@ -4,6 +4,7 @@ from typing import cast
 
 from pgvector.sqlalchemy import VECTOR  # pyright: ignore[reportMissingTypeStubs]
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -88,7 +89,17 @@ message = Table(
         "role IN ('owner', 'assistant', 'host')",
         name="role",
     ),
-    CheckConstraint("length(text) > 0", name="text_nonempty"),
+    CheckConstraint(
+        "length(text) > 0 OR (role = 'owner' AND source = 'discord' AND "
+        "jarvis_attachment_manifest_valid(trace->'attachment_manifest')) IS TRUE",
+        name="text_nonempty",
+    ),
+    CheckConstraint(
+        "NOT trace ? 'attachment_manifest' OR (role = 'owner' AND "
+        "source = 'discord' AND "
+        "jarvis_attachment_manifest_valid(trace->'attachment_manifest')) IS TRUE",
+        name="attachment_manifest",
+    ),
     CheckConstraint("length(source) > 0", name="source_nonempty"),
     CheckConstraint(
         "length(source_conversation_id) > 0",
@@ -654,6 +665,112 @@ Index(
     event_cursor.c.kind,
     event_cursor.c.resource_id,
     postgresql_where=event_cursor.c.next_poll_at.is_not(None),
+)
+
+
+attachment = Table(
+    "attachment",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("source", JSONB, nullable=False),
+    Column("source_key", Text, nullable=False),
+    Column("r2_account", Text, nullable=False),
+    Column("bucket", Text, nullable=False),
+    Column(
+        "origin_message_id",
+        UUID(as_uuid=True),
+        ForeignKey("message.id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column(
+        "capture_action_id",
+        UUID(as_uuid=True),
+        ForeignKey("action.id", ondelete="RESTRICT"),
+        unique=True,
+    ),
+    Column("filename", Text),
+    Column("media_type", Text),
+    Column("advertised_size", BigInteger),
+    Column("size_bytes", BigInteger),
+    Column("sha256", Text),
+    Column("state", Text, nullable=False),
+    Column("put_entered_at", DateTime(timezone=True)),
+    Column("stored_at", DateTime(timezone=True)),
+    Column("deleted_at", DateTime(timezone=True)),
+    Column(
+        "delete_action_id",
+        UUID(as_uuid=True),
+        ForeignKey("action.id", ondelete="RESTRICT"),
+    ),
+    Column("error", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("jarvis_attachment_source_valid(source)", name="source"),
+    CheckConstraint(
+        "source_key = jarvis_attachment_source_key(source)", name="source_key"
+    ),
+    CheckConstraint("length(r2_account) > 0", name="account"),
+    CheckConstraint("length(bucket) > 0", name="bucket"),
+    CheckConstraint(
+        "media_type IS NULL OR octet_length(media_type) <= 255", name="media_type"
+    ),
+    CheckConstraint(
+        "advertised_size IS NULL OR advertised_size >= 0", name="advertised_size"
+    ),
+    CheckConstraint(
+        "state IN ('pending','ready','failed','deleting','deleted')", name="state"
+    ),
+    CheckConstraint(
+        "error IS NULL OR error IN ('NotFound','TooLarge','ProviderResponseTooLarge',"
+        "'SourceChanged','Unavailable','Pending','CaptureUnresolved','StorageConflict',"
+        "'Deleting','DeleteUnresolved','CacheCleanupFailed','Deleted')",
+        name="error",
+    ),
+    CheckConstraint(
+        "capture_action_id IS NOT NULL OR source->>'kind' = 'discord'", name="capture"
+    ),
+    CheckConstraint(
+        "((size_bytes IS NULL AND sha256 IS NULL) OR (size_bytes BETWEEN 0 AND "
+        "104857600 AND sha256 ~ '^[0-9a-f]{64}$')) IS TRUE",
+        name="bytes",
+    ),
+    CheckConstraint("put_entered_at IS NULL OR size_bytes IS NOT NULL", name="put"),
+    CheckConstraint(
+        "(state IN ('ready','deleting','deleted')) = (stored_at IS NOT NULL) "
+        "AND (stored_at IS NULL OR put_entered_at IS NOT NULL)",
+        name="stored",
+    ),
+    CheckConstraint("(state = 'deleted') = (deleted_at IS NOT NULL)", name="deleted"),
+    CheckConstraint(
+        "(state IN ('deleting','deleted')) = (delete_action_id IS NOT NULL)",
+        name="delete_lineage",
+    ),
+    CheckConstraint(
+        "(state = 'pending' AND (error IS NULL OR "
+        "error IN ('CaptureUnresolved','StorageConflict'))) OR "
+        "(state IN ('ready','deleted') AND error IS NULL) OR "
+        "(state = 'deleting' AND (error IS NULL OR error IN "
+        "('StorageConflict','DeleteUnresolved','CacheCleanupFailed',"
+        "'Unavailable'))) OR "
+        "(state = 'failed' AND error IS NOT NULL AND error IN ('NotFound','TooLarge',"
+        "'ProviderResponseTooLarge','SourceChanged','Unavailable'))",
+        name="outcome",
+    ),
+)
+Index(
+    "uq_attachment_active_source",
+    attachment.c.source_key,
+    unique=True,
+    postgresql_where=attachment.c.state.in_(("pending", "ready", "deleting")),
+)
+Index(
+    "ix_attachment_ingress_pending",
+    attachment.c.created_at,
+    attachment.c.id,
+    postgresql_where=(
+        attachment.c.capture_action_id.is_(None)
+        & (attachment.c.state == "pending")
+        & attachment.c.error.is_(None)
+    ),
 )
 
 

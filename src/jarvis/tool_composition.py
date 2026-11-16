@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import cast
 
+import boto3  # pyright: ignore[reportMissingTypeStubs]
 import httpx
+from botocore.config import Config  # pyright: ignore[reportMissingTypeStubs]
 from llm_tools import (
     BraveSearchProvider,
     SafeWebReader,
@@ -20,19 +23,28 @@ from llm_tools import (
     canonical_json_bytes,
     web_family,
 )
+from sqlalchemy import text
 
 from jarvis.action_requests import bind_action_requests
 from jarvis.actions import ActionStore
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
 from jarvis.approval_tools import approval_family
+from jarvis.attachment_sources import AttachmentSources
+from jarvis.attachment_tools import attachment_family
+from jarvis.attachments import AttachmentStore, S3Client
 from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadConnector
 from jarvis.event_polling import EventPoller
 from jarvis.event_tools import events_family
 from jarvis.events import EventStore
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
-from jarvis.read_tools import maps_family
+from jarvis.ownership import Database
+from jarvis.read_tools import (
+    ATTACHMENT_CONNECT_SECONDS,
+    ATTACHMENT_SOCKET_SECONDS,
+    maps_family,
+)
 from jarvis.settings import Settings
 from jarvis.work import WorkStore
 from jarvis.work_tools import work_family
@@ -45,6 +57,7 @@ class ToolComposition:
     catalog: ToolCatalog
     google_write: GoogleWriteConnector
     event_poller: EventPoller
+    attachments: AttachmentStore
 
 
 def build_tool_composition(
@@ -64,20 +77,19 @@ def build_tool_composition(
     calendar_ids_digest = hashlib.sha256(
         canonical_json_bytes(sorted(settings.verified_owner_only_calendar_ids))
     ).hexdigest()
-    tokens = GoogleTokenManager(
-        state_path=settings.google_oauth_state_path,
-        client=google_oauth_http,
-        client_id=settings.google_oauth_client_id.get_secret_value(),
-        client_secret=settings.google_oauth_client_secret.get_secret_value(),
-        active_key_version=settings.connector_encryption_key_version,
-        single_secret=settings.connector_encryption_secret.get_secret_value(),
-    )
+    tokens = google_tokens(settings, google_oauth_http)
     google_read = GoogleReadConnector(client=google_api_http, tokens=tokens)
     google_write = GoogleWriteConnector(
         client=google_api_http,
         tokens=tokens,
         stage_gmail_update_basis=actions.stage_gmail_update_basis,
         stage_external_attempts=actions.stage_external_attempts,
+    )
+    attachments = build_attachment_store(
+        settings=settings,
+        database=actions.engine,
+        http=google_api_http,
+        google=google_read,
     )
     maps = MapsReadConnector(
         client=maps_http,
@@ -114,6 +126,9 @@ def build_tool_composition(
             approval_family(),
             _bind_write_policy(work_family(work), calendar_ids_digest=None),
             _bind_write_policy(events_family(events), calendar_ids_digest=None),
+            _bind_write_policy(
+                attachment_family(attachments), calendar_ids_digest=None
+            ),
         )
     )
     if any(
@@ -129,7 +144,57 @@ def build_tool_composition(
         admitted=event_admitted,
     )
     events.notify_changed = event_poller.notify_changed
-    return ToolComposition(catalog, google_write, event_poller)
+    return ToolComposition(catalog, google_write, event_poller, attachments)
+
+
+def google_tokens(settings: Settings, http: httpx.AsyncClient) -> GoogleTokenManager:
+    return GoogleTokenManager(
+        state_path=settings.google_oauth_state_path,
+        client=http,
+        client_id=settings.google_oauth_client_id.get_secret_value(),
+        client_secret=settings.google_oauth_client_secret.get_secret_value(),
+        active_key_version=settings.connector_encryption_key_version,
+        single_secret=settings.connector_encryption_secret.get_secret_value(),
+    )
+
+
+def build_attachment_store(
+    *,
+    settings: Settings,
+    database: Database,
+    http: httpx.AsyncClient,
+    google: GoogleReadConnector,
+) -> AttachmentStore:
+    async def require_owner() -> None:
+        async with database.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+
+    s3 = cast(
+        S3Client,
+        boto3.client(  # pyright: ignore[reportUnknownMemberType]
+            "s3",
+            endpoint_url=f"https://{settings.attachment_r2_account_id}.r2.cloudflarestorage.com",
+            region_name="auto",
+            aws_access_key_id=settings.attachment_r2_access_key_id.get_secret_value(),
+            aws_secret_access_key=settings.attachment_r2_secret_access_key.get_secret_value(),
+            config=Config(
+                retries={"total_max_attempts": 1},
+                request_checksum_calculation="when_required",
+                connect_timeout=ATTACHMENT_CONNECT_SECONDS,
+                read_timeout=ATTACHMENT_SOCKET_SECONDS,
+            ),
+        ),
+    )
+    return AttachmentStore(
+        database,
+        str(settings.discord.channel_id),
+        r2_account=settings.attachment_r2_account_id,
+        bucket=settings.attachment_r2_bucket,
+        cache_directory=settings.attachment_cache_directory,
+        s3_client=s3,
+        sources=AttachmentSources(client=http, google=google, discord=settings.discord),
+        mutation_admitted=require_owner,
+    )
 
 
 def _bind_write_policy(
@@ -163,4 +228,9 @@ def _bind_write_policy(
     )
 
 
-__all__ = ["ToolComposition", "build_tool_composition"]
+__all__ = [
+    "ToolComposition",
+    "build_attachment_store",
+    "build_tool_composition",
+    "google_tokens",
+]

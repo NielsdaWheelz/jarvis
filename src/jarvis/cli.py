@@ -35,6 +35,7 @@ from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
+from jarvis.connectors import GoogleReadConnector
 from jarvis.db import create_engine, normalize_database_url
 from jarvis.definitions import (
     RoleDefinitions,
@@ -78,7 +79,12 @@ from jarvis.read_positions import PostgresReadRecorder
 from jarvis.service import JarvisService
 from jarvis.settings import Settings
 from jarvis.state import PausedState
-from jarvis.tool_composition import ToolComposition, build_tool_composition
+from jarvis.tool_composition import (
+    ToolComposition,
+    build_attachment_store,
+    build_tool_composition,
+    google_tokens,
+)
 from jarvis.tool_results import memory_result_size, memory_view_size
 from jarvis.work import WorkStore
 from jarvis.write_dispatch import (
@@ -238,9 +244,34 @@ def _shared_cognition_directory(path: Path, group: str) -> None:
         )
 
 
+def _attachment_cache_layout(settings: Settings, host: CodexHostConfig) -> None:
+    path = settings.attachment_cache_directory
+    try:
+        metadata = path.stat()
+        group_id = grp.getgrnam(host.client_group).gr_gid
+    except (KeyError, OSError) as exc:
+        raise StartupDefect("attachment cache is unavailable") from exc
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o750
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != group_id
+        or path == Path("/")
+        or path.is_relative_to(settings.runtime_state_directory)
+        or settings.runtime_state_directory.is_relative_to(path)
+        or path.is_relative_to(Path(host.notes_repository))
+        or Path(host.notes_repository).is_relative_to(path)
+    ):
+        raise StartupDefect(
+            "attachment cache must be app-owned mode 0750 in the native client group, "
+            "separate from private state and the notes checkout"
+        )
+
+
 def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
+    _attachment_cache_layout(settings, host)
     try:
         host.verify_notes_repository()
     except ValueError as exc:
@@ -464,6 +495,7 @@ async def _serve(
                         maps_http=maps_http,
                         brave_http=brave_http,
                     )
+                    await composition.attachments.reset_cache()
                     kernel_runtime = build_kernel_runtime(
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
@@ -502,6 +534,7 @@ async def _serve(
                                 google_write=composition.google_write,
                                 work=work,
                                 events=events,
+                                attachments=composition.attachments,
                                 agents=agents,
                                 read=ReadToolDispatcher(
                                     host_secrets=settings.host_secrets,
@@ -527,6 +560,7 @@ async def _serve(
                         google_write=composition.google_write,
                         work=work,
                         events=events,
+                        attachments=composition.attachments,
                         plan=definitions.plans["main"],
                         source_conversation_id=str(settings.discord.channel_id),
                         wait_changed=agents.notify_wait_changed,
@@ -551,6 +585,7 @@ async def _serve(
                         dispatch_lane=dispatch_lane,
                         work_timer=work_timer,
                         event_poller=composition.event_poller,
+                        attachments=composition.attachments,
                     )
                     events.publication_allowed = service.events_publication_allowed
                     events.notify_input = service.request_work
@@ -603,6 +638,32 @@ async def _serve(
                     await kernel_runtime.close()
                 elif agent_runtime is not None:
                     await agent_runtime.close()
+    finally:
+        await engine.dispose()
+
+
+async def reconcile_attachment(
+    settings: Settings, attachment_id: UUID, *, after_manual_cleanup: bool
+) -> dict[str, object]:
+    """Observe a stopped original; manual cleanup never proves its old action."""
+    _attachment_cache_layout(settings, settings.codex_host_config)
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with (
+            deployment_ownership(engine) as database,
+            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
+        ):
+            store = build_attachment_store(
+                settings=settings,
+                database=database,
+                http=http,
+                google=GoogleReadConnector(
+                    client=http, tokens=google_tokens(settings, http)
+                ),
+            )
+            return await store.reconcile(
+                attachment_id, after_manual_cleanup=after_manual_cleanup
+            )
     finally:
         await engine.dispose()
 
@@ -1005,6 +1066,11 @@ def _parser() -> argparse.ArgumentParser:
         "cutover-native",
         help="inventory stopped obligations before common-main cutover",
     )
+    attachment = commands.add_parser(
+        "attachment-reconcile", help="observe one stopped original and its cache"
+    )
+    attachment.add_argument("id", type=UUID)
+    attachment.add_argument("--after-manual-cleanup", action="store_true")
     commands.add_parser("dream", help="run one isolated dream while stopped")
     rebuild = commands.add_parser(
         "rebuild-memory", help="refold derived memory while stopped"
@@ -1034,6 +1100,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     parser = _parser()
     arguments = parser.parse_args(argv)
     try:
@@ -1069,6 +1136,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if compatible != len(verdicts):
                 return 1
+        elif arguments.command == "attachment-reconcile":
+            result = asyncio.run(
+                reconcile_attachment(
+                    settings,
+                    arguments.id,
+                    after_manual_cleanup=arguments.after_manual_cleanup,
+                )
+            )
+            print(json.dumps(result, sort_keys=True))
         elif arguments.command == "dream":
             result = asyncio.run(dream_once(settings, host))
             if result is None:

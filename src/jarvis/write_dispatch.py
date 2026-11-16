@@ -57,6 +57,8 @@ from jarvis.agent_tools import (
     AgentTargetInput,
 )
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
+from jarvis.attachment_tools import ATTACHMENT_WRITE_IDS
+from jarvis.attachments import AttachmentStore
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
 from jarvis.native_journal import PostgresNativeJournal
@@ -106,6 +108,7 @@ class WriteToolDispatcher:
         google_write: GoogleWriteConnector,
         work: WorkStore,
         events: EventStore,
+        attachments: AttachmentStore,
         agents: AgentController,
         read: ReadDispatchPort,
         source_conversation_id: str,
@@ -119,6 +122,7 @@ class WriteToolDispatcher:
         self._google_write = google_write
         self._work = work
         self._events = events
+        self._attachments = attachments
         self._agents = agents
         self._read = read
         self._source_conversation_id = source_conversation_id
@@ -352,6 +356,7 @@ class WriteToolDispatcher:
                     google_write=self._google_write,
                     work=self._work,
                     events=self._events,
+                    attachments=self._attachments,
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
                     wait_changed=self._agents.notify_wait_changed,
@@ -450,6 +455,7 @@ class ActionRecovery:
         google_write: GoogleWriteConnector,
         work: WorkStore,
         events: EventStore,
+        attachments: AttachmentStore,
         plan: FrozenToolPlan,
         source_conversation_id: str,
         wait_changed: Callable[[], None],
@@ -458,6 +464,7 @@ class ActionRecovery:
         self._google_write = google_write
         self._work = work
         self._events = events
+        self._attachments = attachments
         self._plan = plan
         self._source_conversation_id = source_conversation_id
         self._wait_changed = wait_changed
@@ -545,6 +552,31 @@ class ActionRecovery:
             current = await self._require(stored.id)
             if current.status in {"succeeded", "failed", "uncertain", "cancelled"}:
                 return
+            if current.tool_name in ATTACHMENT_WRITE_IDS:
+                recovered = await self._attachments.recover_action(current.id)
+                if recovered is not None:
+                    return
+                current = await self._require(current.id)
+                if current.status == "executing":
+                    if current.attempts >= current.execution_contract.max_attempts:
+                        raise RuntimeError(
+                            "attachment recovery left an exhausted entry"
+                        )
+                    if not allow_queued_execution:
+                        return
+                    await self._actions.requeue_after_proved_absence(
+                        current.id,
+                        actual_external_attempts=0,
+                        max_external_attempts=self._plan.grant(
+                            current.tool_name
+                        ).limits.max_attempts,
+                    )
+                    continue
+                if not allow_queued_execution:
+                    return
+                if not await self._execute(current.id, binding):
+                    return
+                continue
             if current.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
                 if current.status == "queued" and current.attempts == 0:
                     if not allow_queued_execution:

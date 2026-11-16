@@ -937,9 +937,11 @@ current financial truth remain distinct; preserve receipts and revisions.
 
 ### deferred from universal memory
 
-separately specify historical imports (pre-activation lanes, legacy codex homes,
+separately specify [historical imports](issues/memory-historical-import.md)
+(pre-activation lanes, legacy codex homes,
 old canonical jarvis messages and old-note lineage), including deduplication,
-provenance, extraction cost and order; nexus historical import; backup/restore;
+provenance, extraction cost and order; nexus historical import;
+[backup/restore](issues/memory-backup-restore.md);
 broader [usefulness/load evaluation](issues/memory-usefulness-evaluation.md); and disabling or
 reconciling native automatic memories. retained native history preserves an import
 opportunity, not proof of capture. preserve existing messages/notes in the meantime.

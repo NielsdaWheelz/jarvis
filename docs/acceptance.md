@@ -121,17 +121,19 @@ budget acceptance stays with their later contracts.
 source and a separate temporary candidate: continuable mail/calendar/web reads,
 full supported text, fresh observations, existing draft/calendar writes and
 original receipt recovery. its local, controlled, live and native checks remain
-distinct; production activation is pending. [f3 is specified](subscription-model-runtime.md#temporary-proof-and-acceptance);
-f2's spec and both proofs remain pending.
+distinct; production activation is pending.
+[f3's evidence](subscription-model-runtime.md#implementation-evidence) qualifies
+fixed subscription roles, delegated selections and recovery in a separate candidate.
+f2's reliability and production proof remain separate.
 f2 must prove discord outage/stop behavior, a reproduced owning-layer native repair and
 the combined email → attachment → sourced research/delegation → draft/calendar
-action → scheduled follow-through → restart journey. f3 must prove the actual
+action → scheduled follow-through → restart journey. f3 proves the actual
 personal codex subscription through `provider-runtime`: exact `gpt-6-astra/max`
 for main/native/callback work, `gpt-6.1-sol/xhigh` for compactor/dreamer, deliberate
 native-child model/effort and per-session skid choices. preserve old sealed-terminal
 settlement and original receipt recovery across the model change.
-integrated proof must use the final selected artifacts. f2/f3 remain planned
-temporary proofs; f1's scoped acceptance creates no standing suite or production
+integrated proof must use the final selected artifacts. f3's temporary proof is
+complete; its and f1's scoped acceptance create no standing suite or production
 activation. no benchmark or competitor-parity claim follows.
 
 ## native cutover acceptance

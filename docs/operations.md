@@ -134,9 +134,9 @@ created once during supervised setup, never recreated at startup.
 
 ### private workspace handoff
 
-[f3](subscription-model-runtime.md) specifies main astra/max, memory sol/xhigh
-and native-child/per-session skid model choices. it is not implemented or installed.
-its candidate must preserve production's runtime and private mapping. the future
+[f3](subscription-model-runtime.md#implementation-evidence) implements and qualifies
+main astra/max, memory sol/xhigh and native-child/per-session skid model choices.
+its separate candidate preserved production's runtime and private mapping. the
 v11 worker cutover settles/cancels pending v10 waits and publishes outcomes with
 the original release; no old watcher, model fallback or effect replay is added.
 
@@ -603,7 +603,7 @@ historical evidence remains in adr 0049. its transport is retired; use the
 ## skid-only worker cutover
 
 [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) retains the
-historical worker transition. current v10 contracts are terminal-only. settled old
+historical worker transition. current v11 contracts are terminal-only. settled old
 worker rows remain opaque evidence; unfinished incompatible contracts block
 admission and require disposition under their original release.
 
@@ -741,16 +741,18 @@ id-mapped mount. root manages that mount; application permissions remain narrow.
 no copied client-json reader, second ref codec or fallback transport remains.
 
 the target-release tools are agent.list/info/start/read/send/text/keys/stop/close/
-wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v10 accepts
+wait/cancel_wait. addressed inputs use short `{machine,handle}`; current v11 accepts
 only `t-` plus 16 lowercase hex digits. the host captures the original terminal
 ref before action admission and retains it through delay/restart. terminal
 loss/reassociation never silently renews that target. worker-native conversation
 handles, history and controls are removed; native cognition and memory archive
 access remain separate capabilities.
 
-terminal send is guarded input for both providers. start accepts name, cwd, group
-and literal optional stdin; the configured
-profile command owns provider options. model/effort launch fields are rejected. creation/input and interruption/closure facts remain
+terminal send is guarded input for both providers. start accepts name, cwd, group,
+literal optional stdin and native model/effort overrides. profiles retain
+provider/account/executable defaults; qualified skid v0.24.4 lowers options only
+for plain forwarding codex/claude commands. absent options preserve defaults;
+unsupported forms refuse before creation. creation/input and interruption/closure facts remain
 independent, including nonzero partial results. terminal written means dispatched;
 it proves neither provider acceptance nor completion. unknown writes
 enter once and never replay; conclusive owned receipts settle without re-entry.

@@ -15,14 +15,17 @@ These instructions govern all work in this repository.
   qualified `gpt6astra-max` model/runtime cutover. use authenticated `gpt-6-astra`
   at reasoning `max` through the owner's personal codex subscription and
   `provider-runtime`; no invented wire alias, model substitution or api-key
-  generation fallback. current pins/evidence remain unchanged until qualified.
+  generation fallback. f3 qualifies the current cognition pins; retain historical
+  evidence under its original identities.
   [f1](docs/mail-calendar-web-reads.md) implements read completion;
-  [f3](docs/subscription-model-runtime.md) is specified; f2's spec remains pending.
+  [f3](docs/subscription-model-runtime.md#implementation-evidence) is source/candidate
+  qualified; f2 owns reliability and final production acceptance separately.
   [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md) refines f3:
   astra/max is main only; compactor/dreamer use fixed personal-subscription
   `gpt-6.1-sol/xhigh`. main chooses supported native-child and per-session skid
-  model/effort; this supersedes adr 0068's override prohibition at the future
-  qualified worker cutover. preserve current source/evidence until implemented.
+  model/effort; f3 implements worker v11 and supersedes adr 0068's override
+  prohibition. retain original evidence with its original artifacts; installed
+  jarvis activation remains separate. skid v0.24.4 is adopted on macbook/dev-server.
   f1 reuses landed attachment manifests and the audited event
   profile/refresh primitives, removes clipped thread/fanout paths, and keeps
   original receipts plus normalized paid-read barriers. the owner selected

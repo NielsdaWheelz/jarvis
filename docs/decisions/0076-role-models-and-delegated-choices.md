@@ -3,6 +3,10 @@
 status: accepted target, 2026-11-16. owner refinement while specifying f3;
 implementation, qualification and production activation remain separate.
 
+[f3's implementation evidence](../subscription-model-runtime.md#implementation-evidence)
+now qualifies source and a separate candidate, with installed skid v0.24.4 on
+macbook/dev-server. production jarvis activation remains separate.
+
 ## decision
 
 - main uses personal-subscription `gpt-6-astra/max` through `provider-runtime`.
@@ -29,10 +33,10 @@ dispatch identities and effort values; no api-key generation route or downgrade.
 worker choices use their native provider's supported identifiers/defaults, not
 jarvis's fixed-role allowlist. existing embedding credentials are unaffected.
 
-the pinned provider/stock source already includes both host-role selections and
-native child overrides. qualify it first; actual personal-route support and useful
-completion remain unproved. installed skid lacks per-session override flags, so
-that choice requires a bounded upstream launch extension and jarvis adoption.
+at decision time, the pinned provider/stock source included both host-role selections
+and native child overrides, while actual personal-route support and useful
+completion were unproved. installed skid lacked per-session override flags, so
+that choice required a bounded upstream launch extension and jarvis adoption.
 arbitrary shell profile commands cannot justify guessed flag injection.
 
 main max and memory xhigh may increase latency/subscription usage; compaction can

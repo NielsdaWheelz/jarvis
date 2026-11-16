@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1 source/candidate qualified; v2 not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 not activated**
 
 date: **2026-11-16**
 
@@ -115,9 +115,10 @@ remain later work; the focused completion below is now selected.
 [adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adopts
 three additional review units. [f1's implementation contract](docs/mail-calendar-web-reads.md)
 is implemented with source and separate candidate qualification;
-[f3's contract](docs/subscription-model-runtime.md) specifies the owner refinement
-in [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md). f2 still
-needs its spec:
+[f3's contract and evidence](docs/subscription-model-runtime.md#implementation-evidence)
+implement and qualify the owner refinement in
+[adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md). f2's
+reliability and final production acceptance remain separate:
 
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
@@ -151,10 +152,10 @@ needs its spec:
 
 f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
 its implemented source, exact dependency pins and separate live candidate.
-f3 is specified; f2's spec and both implementations remain pending. no model/runtime
-cutover is claimed. current
-`gpt-5.6-terra/high` qualification remains historical/current source evidence
-until the new target is qualified. the
+f3 source and its separate candidate are qualified with unchanged cognition pins;
+skid v0.24.4 is published and adopted on macbook/dev-server. the historical
+`gpt-5.6-terra/high` qualification remains evidence for its original/installed
+release. production jarvis has not changed. the
 [roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
 integration; production cutover remains separate. no feature-parity claim follows
 from this scope or from jarvis-only proof.

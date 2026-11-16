@@ -1,6 +1,6 @@
 # worker launch and asynchronous observation — o8
 
-status: consolidated accepted contract, updated 2026-11-15. worker v10 adopts
+status: consolidated accepted contract, updated 2026-11-16. worker v10 adopted
 the enrolled `dev-server` label under
 [adr 0072](decisions/0072-native-memory-rollout.md). terminal-only behavior retains
 the v9 source qualification in [adr 0069](decisions/0069-terminal-only-workers.md) and
@@ -13,10 +13,11 @@ the [terminal-only paired contract](https://github.com/NielsdaWheelz/skidbladnir
 own the current schemas. earlier native-era qualification applies only to its
 recorded source.
 
-next target: [adr 0076](decisions/0076-role-models-and-delegated-choices.md) and
+current source: [adr 0076](decisions/0076-role-models-and-delegated-choices.md) and
 [f3](subscription-model-runtime.md#delegated-model-choices) add per-session skid
-model/effort choices and the v11 hard cut. implementation/qualification remain
-pending; the v10 schemas/evidence below describe the current source. this amendment
+model/effort choices and the v11 hard cut, with
+[source/candidate qualification](subscription-model-runtime.md#implementation-evidence).
+earlier v10 observations retain their original artifacts. this amendment
 supersedes only the launch-override prohibition and affected binding revision;
 terminal-only control, receipts and asynchronous observation remain unchanged.
 
@@ -53,7 +54,7 @@ profiles are `personal`, `work`, `work2`, `claude-work`. names are labels.
 | --- | --- |
 | `agent.list` | machine/group/unassigned filters; group and unassigned exclusive; preserve empty versus partial/unavailable inventory |
 | `agent.info` | target; preserve observed terminal status/unavailability |
-| `agent.start` | machine/profile required; optional name/cwd/group/prompt; the configured profile command owns provider/model/effort options |
+| `agent.start` | machine/profile required; optional name/cwd/group/prompt/model/effort; profiles retain provider/account/executable defaults, and supplied native options select this launch |
 | `agent.read` | target, `maxBytes = 16384`, range 1–32768; preserve terminal source/scope/truncation |
 | `agent.send`, `agent.text`, `agent.keys` | send uses guarded terminal input for either provider; text/keys are deliberate terminal input |
 | `agent.stop`, `agent.close` | stop interrupts the selected terminal; close is terminal-only, `terminal_only = false`; interruption and closure remain separate facts |
@@ -64,7 +65,9 @@ wait states: idle/working/needs-input. prompt/text is nonempty, at most 32768
 utf-8 bytes, no nul, literal stdin. name uses skid's
 existing 1–64 ascii grammar. keys use the existing 1–16-key allowlist. retain
 cwd/group bounds and encoded-body preflight; never crop input to make it fit.
-start has no model/effort fields; unknown overrides reject. there is no worker
+model/effort are absent/null or bounded native identifiers under
+[f3's launch contract](subscription-model-runtime.md#delegated-model-choices).
+there is no worker
 native target, read-source selector, provider admission/result or conversation
 history route. terminal text is limited to retained scrollback or the visible screen.
 

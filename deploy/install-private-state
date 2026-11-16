@@ -25,10 +25,13 @@ trap cleanup EXIT HUP INT TERM
 chmod 0700 "$scratch"
 umask 077
 
-python3 - "$source_environment" "$scratch/jarvis.env" <<'PY'
+uv run --project "$repo_dir" --frozen --no-dev python - \
+  "$source_environment" "$scratch/jarvis.env" <<'PY'
 import pathlib
 import re
 import sys
+
+from jarvis.definitions import MAIN_CODEX_MODEL
 
 source = pathlib.Path(sys.argv[1])
 target = pathlib.Path(sys.argv[2])
@@ -66,13 +69,13 @@ for line in text.splitlines():
 if len(names) != len(set(names)) or set(names) - allowed or required - set(names):
     raise SystemExit("private environment key roster is incompatible")
 
-static = """\
+static = f"""\
 JARVIS_DISCORD_CATCH_UP_LIMIT=100
 JARVIS_DISCORD_REQUEST_TIMEOUT_SECONDS=10
 JARVIS_DISCORD_DELIVERY_RETRY_DELAYS_SECONDS=0.5,2.0
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles
 JARVIS_CODEX_PROFILE_KEY=personal
-JARVIS_CODEX_MODEL=gpt-5.6-terra
+JARVIS_CODEX_MODEL={MAIN_CODEX_MODEL}
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
 JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
 JARVIS_AGENT_STATE_DIRECTORY=/run/jarvis-skid-state

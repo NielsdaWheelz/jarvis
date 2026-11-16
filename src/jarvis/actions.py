@@ -108,6 +108,7 @@ _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v7",
     "jarvis-agent-control-v8",
     "jarvis-agent-control-v9",
+    "jarvis-agent-control-v10",
 )
 _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
 

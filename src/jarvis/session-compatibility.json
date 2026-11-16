@@ -1,5 +1,5 @@
 {
-  "application_session_contract_revision": "jarvis-complete-reads-v1",
+  "application_session_contract_revision": "jarvis-subscription-roles-v1",
   "dependencies": {
     "llm-agent-kernel": "fcb6ecfb4088d85f64aafd8689e728058db27b0a",
     "llm-tools": "662a63a863bfefbc9c4f16025bd82f47262d99d6",
@@ -7,12 +7,13 @@
     "universal-memory": "b616ee924454f40305c49d3b73e81694819ba1e4"
   },
   "qualified_models": [
-    "gpt-5.6-terra"
+    "gpt-6-astra",
+    "gpt-6.1-sol"
   ],
   "role_contract_revisions": {
     "compactor": "jarvis-memory-compactor-v3",
     "dreamer": "jarvis-memory-dreamer-v3",
-    "main": "jarvis-main-complete-reads-v1"
+    "main": "jarvis-main-subscription-roles-v1"
   },
   "schema_version": "jarvis-session-compatibility.v3"
 }

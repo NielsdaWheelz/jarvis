@@ -34,19 +34,35 @@ async def resolve_provider_configuration(
     runtime: AgentRuntime,
     profile_key: str,
     model_key: str,
-    reasoning: str = "high",
 ) -> ProviderConfiguration:
     """Freeze one qualified selection from the owner's authenticated native catalog."""
+    if profile_key != "personal":
+        raise ValueError(
+            "codex model selection requires the personal subscription profile"
+        )
     if model_key not in QUALIFIED_CODEX_MODELS:
-        raise ValueError("model is not a qualified Jarvis route")
+        raise ValueError("select a release-qualified jarvis subscription model key")
+    dispatch_model, reasoning = QUALIFIED_CODEX_MODELS[model_key]
     auth = CredentialRef("local_account", profile_key)
     catalog = await runtime.model_catalog("codex", auth, transport="sdk")
     matches = tuple(row for row in catalog.models if row.key == model_key)
     if len(matches) != 1:
-        raise ValueError("model is absent or ambiguous in the authenticated catalog")
+        raise ValueError(
+            f"personal codex catalog must contain exactly one {model_key} row; "
+            "repair the personal codex endpoint"
+        )
     row = matches[0]
-    if sum(option.key == reasoning for option in row.reasoning) != 1:
-        raise ValueError("reasoning is unsupported in the authenticated model catalog")
+    if row.dispatch_model != dispatch_model:
+        raise ValueError(
+            f"personal codex catalog {model_key} must dispatch {dispatch_model}; "
+            "repair the personal codex endpoint"
+        )
+    options = tuple(option for option in row.reasoning if option.key == reasoning)
+    if len(options) != 1 or options[0].native_wire_value != reasoning:
+        raise ValueError(
+            f"personal codex catalog {model_key} requires exact {reasoning} effort; "
+            "repair the personal codex endpoint"
+        )
     return ProviderConfiguration(
         auth=auth,
         model_key=row.key,
@@ -58,12 +74,12 @@ async def resolve_provider_configuration(
 
 
 def main_provider_configuration(
-    isolated_provider: ProviderConfiguration, *, notes_repository: str
+    base_provider: ProviderConfiguration, *, notes_repository: str
 ) -> ProviderConfiguration:
-    """Derive main's native authority from the single authenticated selection."""
+    """Derive main's native authority from its own authenticated selection."""
     repository = canonical_absolute_path(notes_repository)
     return replace(
-        isolated_provider,
+        base_provider,
         cwd=repository,
         additional_dirs=(f"{repository}/.git",),
         policy=PermissionPolicy(
@@ -73,7 +89,7 @@ def main_provider_configuration(
             allowed_tools=("*",),
             unsafe_confirmation=UnsafeConfirmation(("network_unrestricted",)),
         ),
-        native=replace(isolated_provider.native, builtin_tools=None),
+        native=replace(base_provider.native, builtin_tools=None),
     )
 
 

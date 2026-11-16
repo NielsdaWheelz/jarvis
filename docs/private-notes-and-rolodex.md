@@ -527,3 +527,22 @@ and the relevant combined interfaces were exercised. production remains separate
   main must inspect changing files rather than depend on a frozen content snapshot.
 - separate candidate proof defers production acceptance; deleting temporary tests
   reduces retained regression coverage. no extra framework conceals those limits.
+
+## source delivery and library mainline preservation
+
+merge-time integration preserves the exact qualified jarvis pins above. the
+library mains had independently moved to stock `0.165.0` and typed endpoints;
+workspace changes were ported onto those current contracts without downgrading
+or adding a compatibility path. provider [pr 57](https://github.com/NielsdaWheelz/llm-calling/pull/57)
+and kernel [pr 29](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/29)
+use merge ancestry so `ea9f820` and `9f5f951` remain reachable after task branches
+are deleted. jarvis [pr 72](https://github.com/NielsdaWheelz/jarvis/pull/72) keeps
+its own stock-0.160.0 selection and immutable pins.
+
+a separate bounded current-library proof used offered `gpt-6.1-sol/high`, real
+native file/git plus one callback, strict isolated execution, inherited-mcp
+suppression and the private socket mask. [the provider evidence](https://github.com/NielsdaWheelz/llm-calling/blob/a1ed72f3a94e527a9255988215207c07d7b74a14/docs/native-agent-evidence.md#native-workspace-and-callbacks-on-current-stock)
+records its separate account state, read-only existing authorization, disabled
+refresh and exact limits. it does not activate or requalify jarvis on the newer
+runtime. current-library source/hosted checks and task cleanup remain distinct
+from the final production handoff.

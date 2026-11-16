@@ -87,10 +87,14 @@ use a small set of meaningful implementation checks when that work is authorized
   host preserves isolated roles; this task did not modify production. the
   [installed journey](issues/private-workspace-installed-cutover.md) remains at final
   cutover. hosting/presentation stays deferred.
-- slice 5 reads an inbound image or pdf from its retained private original.
-  report actual native/file outcomes;
-  connector receipts do not imply native exactly-once execution. conversational
-  stop and operational pause retain their distinct scopes.
+- [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence)
+  qualifies source and a separate private-storage/native-host candidate through
+  discord/private storage, exact gmail selection and native image/pdf/docx/csv
+  work. raw caption/host metadata attribution, byte identity/recovery, fresh paths,
+  grounded content and scoped deletion have their named live or controlled proof.
+  production installation and activation remain at final v2 cutover. connector
+  receipts do not imply native exactly-once execution; stop/pause retain their
+  distinct scopes. the evidence owns resource disposition.
 - [slice 6](event-sources-and-recurring-work.md#implementation-boundaries-and-acceptance)
   specifies three temporary journeys for mail/progress, calendar and live
   composition/content. prove excluded-prefix progress, atomic publication,
@@ -139,9 +143,10 @@ existing shared conformance remains. this restores no retired standing suite.
       qualified pinned git revisions, not the user's mutable local worktrees.
 - [ ] **A1.3** A clean checkout can be configured without modifying Ariel,
       `llm-agent-kernel`, `llm-calling`, or `llm-tools`.
-- [ ] **A1.4** migrations produce the fifteen application tables: the native nine
-      and six library-owned memory tables, with exact columns from spec and the
-      memory contract.
+- [ ] **A1.4** migrations produce the seventeen current-source application tables
+      at `0011`: the native nine, six library-owned memory tables, `work` and
+      `attachment`, with exact columns from spec and their owning contracts.
+      this source count does not establish installed v2 activation.
 - [ ] **A1.5** `scripts/verify` runs the frozen-environment, formatting, lint, type,
       documentation-link, dependency-audit and package build/install checks.
       native integration/live acceptance follows the explicit adr 0065 exception;

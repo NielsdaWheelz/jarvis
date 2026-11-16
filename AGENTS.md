@@ -19,9 +19,10 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling, interactive hosting and television integration. shared memory remains separate
-  and quiet dreaming unchanged. slices 1–4 are source-qualified; slices 3–4 have
+  and quiet dreaming unchanged. slices 1–5 are source-qualified; slices 3–4 have
   temporary-candidate qualification against installed skid and a separate native
-  host respectively. remaining slices and
+  host respectively. slice 5 has separate private-storage/native-host candidate
+  qualification. remaining slices and
   installed activation are pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
@@ -58,6 +59,22 @@ These instructions govern all work in this repository.
   retain containment. use separate candidate host/mapping/runtime/checkout for
   temporary proof; production bootstrap waits for final v2 cutover. the same
   scoped content/adversarial/red-green-refactor method and probe deletion apply.
+  [slice 5](docs/attachments-and-durable-originals.md#implementation-evidence)
+  is implemented with separate candidate qualification. migration `0011` adds
+  its one table after `0010`; it has seventeen application tables before the
+  event cursor in `0012`.
+  one private r2 bucket retains automatic owner uploads and
+  main-selected gmail files. raw caption and immutable host manifest remain
+  distinct, including archive projection; no new memory schema. reuse qualified
+  native tools, existing action recovery and fresh-read policy. narrow gmail
+  discovery is included; the full search overhaul stays deferred. one put per
+  original, bounded safe deletes, read-only native cache and explicit uncertainty
+  own the storage boundary. the same temporary proof/review method applies;
+  the contract records resource disposition. `attachment-reconcile` observes one
+  original under exclusive stopped deployment ownership; it requires no canonical
+  pause. definite local cache-cleanup failure is failed partial deletion, distinct
+  from an unknown remote effect. manual-cleanup facts preserve original failed or
+  uncertain action receipts. production activation remains at final cutover.
   [slice 6](docs/event-sources-and-recurring-work.md) is source-implemented; combined qualification is pending. one cursor table/poll task publishes mail/calendar facts through
   ordinary main admission. preserve partial gmail progress, fixed sync selectors,
   quiet baselines and truthful coverage gaps. source controls use existing atomic

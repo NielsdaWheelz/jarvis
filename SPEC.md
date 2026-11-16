@@ -102,9 +102,47 @@ contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
 the current source has seventeen application tables: the native nine, six memory
 tables, `work` and `attachment`. migration `0011` adds attachments after `0010`;
 the event cursor remains a later slice.
-shared memory stays in its separate pr: no capture, dreaming or memory-schema
-change is implied, and selected dream-triggered turns remain deferred. existing
-complete-search and budget proposals remain separately scoped later work.
+shared memory retains its separate delivery and recorded qualification/deferrals:
+no capture, dreaming or memory-schema change is implied, and selected
+dream-triggered turns remain deferred. budget and the broader search proposal
+remain later work; the focused completion below is now selected.
+
+### accepted v2 finishing work
+
+[adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adopts
+three additional review units. [f1's implementation contract](docs/mail-calendar-web-reads.md)
+is specified; f2/f3 still need their own specs:
+
+- complete mail/calendar/web reads through bounded pages/chunks, full supported
+  available text, correct incoming `Reply-To` and fresh deliberate observations.
+  preserve original callback receipts and paid-read barriers. retain existing
+  writes; add no inbox housekeeping, invitation-response tools or outgoing files.
+  memory ranking, maps and worker-history expansion stay deferred. the broader
+  search proposal's schemas are not adopted wholesale. f1 hard-cuts clipped
+  thread reads to the landed message/file manifests plus complete message/part
+  chunks, pages individual calendars, and preserves exact write snapshots.
+  web search uses disposable pages and explicit stale-cursor recovery; new
+  observations retain normalized unknown-paid-read barriers. its contract owns
+  the replacement schemas, resource boundaries and temporary qualification.
+- repair discord startup/stop resilience and the demonstrated native failures
+  after retaining sufficient content-free diagnostics and reproducing the cause.
+  qualify actual prompt/tool composition and a useful combined journey; reuse
+  existing personality, goals, native subagents and skid. no new orchestrator or
+  relaxed recovery/validation.
+- pin the owner's `gpt6astra-max` target: authenticated `gpt-6-astra` dispatch
+  model at reasoning `max`, through the personal codex subscription and the
+  owner's provider library (`provider-runtime` in `llm-calling`). use the actual
+  authenticated catalog key; do not invent a combined alias. one shared cognition
+  selection serves main and isolated memory roles; worker profiles are separate.
+  qualify exact model/effort/authentication and library/native-runtime pins. no
+  model substitution, api-key generation route or silent fallback.
+
+this is accepted scope, not implemented behavior or a dependency/configuration
+change. current `gpt-5.6-terra/high` qualification remains historical/current
+source evidence until the new target is qualified. the
+[roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
+integration; production cutover remains separate. no feature-parity claim follows
+from this scope or from jarvis-only proof.
 
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the

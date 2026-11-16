@@ -1,9 +1,10 @@
 # jarvis: roadmap and implementation plan
 
 updated 2026-11-16; simple event-driven v2 adopted by
-[adr 0071](decisions/0071-simple-event-driven-v2.md). shared memory remains a
-separate delivery. notes, searches, events, attachments and budget have focused
-contracts; the selected v2 cut and later work are distinguished below.
+[adr 0071](decisions/0071-simple-event-driven-v2.md), with three finishing review
+units adopted by [adr 0075](decisions/0075-v2-completion-and-subscription-model.md).
+shared memory remains a separate delivery. the selected scope, pending specs,
+qualified source and later work are distinguished below.
 this is the ONE active feature roadmap and delivery plan. native cognition and
 worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
@@ -12,7 +13,9 @@ runtime change, release, deployment or resumption.
 [SPEC.md](../SPEC.md) remains normative. the
 [universal-memory contract](universal-memory.md) supplies its accepted schemas,
 apis, bounds and acceptance. adr 0071 adopts the selected v2 feature contracts;
-later search, dreamer-context and budget amendments remain separately scoped.
+adr 0075 adds focused mail/calendar/web reads, reliability/integration and the
+subscription model/runtime target. broader search, dreamer context and budget
+remain separately scoped.
 [operations](operations.md) owns deployment and
 repair. [adrs](decisions/README.md) preserve rationale; retired delivery checklists,
 qualification reports and completed cleanup logs live in git history.
@@ -91,8 +94,9 @@ those completed
 source handoffs do not need another worker-protocol specification.
 
 the authorized rollout started from stopped/paused production at schema `0004`.
-the current owner's skid `v0.24.2` artifact reads actual live state through the
-installed read-only mount. matching host/application/cli installation and owner
+the current owner's installed skid `v0.24.3` artifact reads actual live state
+through the read-only mount; slice 3 records the upgrade from `v0.24.2`.
+matching host/application/cli installation and owner
 resumption and online memory acceptance are complete within the named profile
 deferrals. installed worker observation remains separate work.
 
@@ -130,9 +134,12 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) adopted by 0071; source/candidate qualified, production deferred | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
-| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source implemented, combined qualification pending; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
+| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source implemented on the owner-approved f1 stack at `945dc62`, combined qualification pending; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
 | attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
-| complete and continuable searches — later | settled [contract](complete-and-continuable-searches.md) retained; adoption/implementation separate, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; deliver only necessary source/attachment references within the selected v2 slices |
+| mail/calendar/web read completion | [f1 contract](mail-calendar-web-reads.md) specified; implementation/qualification pending; wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
+| reliability and integrated acceptance | [finishing pr f2](#v2-finishing-prs) accepted; spec pending | jarvis lifecycle/journals and demonstrated upstream defects; final combined proof follows f1/f3 and slices 5–6 |
+| subscription model/runtime | [finishing pr f3](#v2-finishing-prs) accepted; spec pending; owner selects `gpt6astra-max` | jarvis, kernel and provider-runtime; personal codex subscription; exact model/runtime qualification |
+| broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
 | budget integration — later | settled [contract](budget-integration.md) retained; full bookkeeping authority and larger originals need separate adoption/implementation | jarvis plus budget-app; existing ledger/api, private object storage and attachment/native-reading prerequisites |
 
@@ -189,6 +196,59 @@ no exact-prose matching or additional consent system. defer browser control, new
 credential handling, interactive hosting/television integration and a separate ui;
 slice 4 can already author/run ordinary helpers and self-contained visual files.
 
+### v2 finishing prs
+
+accepted scope under adr 0075; [f1 is specified](mail-calendar-web-reads.md).
+f2/f3 specs are next, one per review unit.
+no source, configuration or deployment change is performed by this docs update.
+these labels preserve the original six slices and do not imply opened prs.
+
+| unit | scope and owner | spec to write next |
+| --- | --- | --- |
+| f1: complete mail/calendar/web reads | jarvis owns complete supported mail/calendar traversal/text, incoming `Reply-To` and fresh deliberate mutable observations; llm-tools owns web search continuation and full supported extracted-text chunks. bounded responses with explicit provider/live-source limits; retain original callback receipts and paid-read barriers. existing writes stay. | [implementation contract](mail-calendar-web-reads.md); landed attachment manifests reused, disposable web pages selected; audit merged event interfaces before implementation |
+| f2: reliability and integration | jarvis owns interruptible discord startup retry/backoff for transient outages and clean stop; invalid credentials/configuration remain explicit failures. retain content-free native diagnostics, reproduce the failure and repair its owning layer. qualify the assembled product and actual prompt/tool composition. | `docs/runtime-reliability-and-integration.md`; use the existing [discord](issues/discord-login-failure-exit.md) and [native](issues/native-protocol-diagnostics.md) issue records, not a second issue inventory |
+| f3: subscription model/runtime | pin `gpt6astra-max`: authenticated `gpt-6-astra` dispatch model with reasoning `max`, through the owner's personal codex subscription and provider library (`provider-runtime` in `llm-calling`). qualify exact catalog key, auth route, effort, runtime and dependency pins; no substitute model/api-key generation route/fallback. | `docs/subscription-model-runtime.md`; preserve one shared cognition selection for main and isolated memory roles; skid profiles remain independent |
+
+specification can proceed in parallel. implement f1 after auditing the merged
+5–6 interfaces; do not race their google/attachment changes. f2's isolated native
+diagnosis and discord repair can proceed alongside f1/f3; its final integration
+phase waits for all selected artifacts. f3 can investigate/qualify the selected
+subscription model independently; source support does not prove availability on
+the actual authenticated route. unsupported target availability is a blocker,
+not permission to downgrade. one integration owner reconciles shared pins,
+configuration and prompt/catalog changes before final qualification.
+
+each unit gets one spec, with any necessary upstream repository handoffs inside
+that spec. fixes belong to the existing owner; no parallel provider wrapper or
+orchestration framework. f1 owns connector/web read surfaces, f2 service/native
+failure handling, f3 model/auth selection and compatible runtime/pins. f1/f2 own
+any necessary upstream fixes and adoption; coordinate shared pins explicitly.
+preserve existing useful prompt/personality,
+native subagents and skid; change only demonstrated omissions. each spec includes
+proportionate content design, adversarial review and temporary end-to-end/live
+red/green/refactor proof, followed by deletion of its temporary probes.
+
+f2's combined journey must cross real boundaries: incoming email → full message
+and attachment inspection → useful sourced research/delegation → an appropriate
+existing draft/calendar action → scheduled follow-through → restart-safe
+continuation. verify native child results and skid outcome integration rather
+than treating launch/idle as completion. test the exact final model/runtime and
+published tools, preserve original effect receipts, and state unrun boundaries.
+no comparative performance claim or standing benchmark framework follows.
+
+after all three units and slices 5–6 are integrated/qualified, perform the separate
+stopped production cutover: reconcile pending effects/waits and reminder
+obligations, migrate/provision the selected release, then prove physical owner
+ingress and installed continuation through the existing operations runbook.
+source/candidate success does not activate production or close an unresolved
+native issue. no intermediate production activation is added.
+
+trade-offs: deeper retrieval uses more calls/context; provider and per-operation
+limits remain. `max` reasoning can increase latency, including memory-role work.
+the native root-cause repair size is unknown. inbox housekeeping, new invitation
+response tools, outgoing files, browser/credential products, hosted interactive
+deliverables, memory/maps/fleet search expansion and budget stay outside these prs.
+
 ## external specifications and handoffs
 
 jarvis owns product intent and consumer obligations. each external unit gets a
@@ -199,7 +259,7 @@ facts; writing this roadmap sends no assignment to another agent.
 
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
-| skid / jarvis deployment owner | install the enrolled owner's exact current cli at the fixed service path | [terminal-only contract](decisions/0069-terminal-only-workers.md), [rollout amendment](decisions/0072-native-memory-rollout.md); v0.24.2 task-mount reads and v10 source decoding pass; installed proof remains |
+| skid / jarvis deployment owner | qualify selected-production worker journeys against the installed cli and live-state mount | [terminal-only contract](decisions/0069-terminal-only-workers.md), [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15); installed v0.24.3 and temporary-candidate proof pass; final production acceptance remains |
 | skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
 | dev-server | selected cli/collector installation, long claude retention, private routing, client/capture credentials and native mcp configuration; arch deferred | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
@@ -208,7 +268,8 @@ facts; writing this roadmap sends no assignment to another agent.
 | jarvis deployment owner on dev-server, notes | persistent private checkout, ordinary git authentication, host permissions and hard-cut host mapping | [notes deployment contract](private-notes-and-rolodex.md#public-contracts-and-deployment); source changes stay in jarvis's existing deploy files; operator bootstrap/install remains separate |
 | memory library | existing archive/tree/view/search; add explicit nexus source values and atomic export append/duplicate proof through shared insertion primitives | [core](universal-memory.md), [completion handoff](memory-delivery.md#non-overlapping-implementation-boundaries); uncapped ranked [search amendment](complete-and-continuable-searches.md#uncapped-ranked-memory) remains a separate delivery |
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
-| llm-tools, search | portable web-search paging/provider boundaries and complete supported extracted-text chunks, retaining web safety | [search surface contract](complete-and-continuable-searches.md#exact-surface-changes); bounded handoff prepared, not handed off/implemented; no kernel redesign |
+| llm-tools, web reads | portable web-search continuation/provider boundaries and complete supported extracted-text chunks, retaining web safety | [f1 web handoff](mail-calendar-web-reads.md#web-owning-library-handoff) specified; upstream implementation/adoption pending; no kernel redesign |
+| llm-calling (`provider-runtime`), kernel and jarvis model composition | exact personal-subscription `gpt-6-astra`/`max` selection and compatible native/runtime pins | f3 scope accepted; spec, authenticated qualification and adoption pending; preserve other consumers and current historical evidence |
 | budget-app | broaden existing write authority to all bookkeeping, reuse shared planner calculation through an api, and support independent originals up to 100 mib through private r2 | [budget api handoff](budget-integration.md#budget-api-handoff); fresh `7b7a9c2` source audit complete; bounded handoff prepared, not assigned or implemented |
 | budget deployment owner and dev-server | budget private bucket/cors/storage secrets; jarvis configured budget origin/owner/read/write credentials and native cache access | [budget delivery](budget-integration.md#nonoverlapping-delivery-and-hard-cutover); provisioning and installed qualification remain separate |
 | nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); adr 0070 source and isolated current-route qualification complete; nexus release deferred |
@@ -848,7 +909,8 @@ merge order.
 ## subsequent product slices
 
 these have focused contracts. notes, attachments and event sources are adopted
-v2 work; search, dreamer context and budget remain later scoped amendments.
+v2 work. f1 selects only mail/calendar/web read completion; broader search,
+dreamer context and budget remain later scoped amendments.
 none is a prerequisite for delegation or initial universal memory.
 
 ### private notes repository and rolodex
@@ -871,18 +933,20 @@ guarantee. memories/work/documents link without mirroring current task state.
 
 ### complete and continuable searches
 
-the [search contract](complete-and-continuable-searches.md) settles unrestricted
-total traversal through bounded pages/chunks. main may inspect all accessible
-historical mail, including full textual bodies; binary attachment content stays
-with attachments. remove discarded cursors, unrecoverable clipping and application
-candidate/item/page horizons, including memory's top-50-per-mode search ceiling.
+the [earlier proposal](complete-and-continuable-searches.md) remains reference
+material. adr 0075 selects only mail/calendar/web completion for f1: bounded
+continuation, full available supported text, correct reply routing and fresh
+deliberate observations. main composes scope/depth/progress through ordinary
+tools/context; original callback receipts and paid-read barriers remain intact.
+provider limits, live-source changes and unavailable content remain explicit.
+there is no snapshot promise, compulsory exhaustive scan or scan controller.
 
-main composes pages, calendars and progress through ordinary tools/context.
-native notes remain ordinary commands. provider-ranked web/places limits, live
-source changes, indexing gaps and unavailable content remain explicit; no
-snapshot/completeness fiction or scan controller. jarvis owns connector/fresh-read
-composition; llm-tools owns web, memory library owns ranking, skid consumes existing
-provider history. adopt the affected contracts and hard-cut their old schemas.
+the [focused contract](mail-calendar-web-reads.md) replaces clipped thread reads
+with landed manifests and explicit message/part chunks. consume merged event
+profile/refresh interfaces; the older selected-domain schemas are superseded. memory ranking, maps and worker inventory/retained-history expansion
+remain later work. native notes stay ordinary commands. binary originals belong
+to attachments; inbox housekeeping, new invitation responses and outgoing files
+are not part of f1.
 
 ### event sources, suggestions and recurring work
 
@@ -1004,8 +1068,10 @@ intent merely because their implementation is incomplete.
 | o9 | [evidence](delegated-follow-through.md#implementation-evidence--2026-11-15) qualifies source and temporary candidate against installed skid, with `claude-work` explicitly unavailable by owner decision; production acceptance stays at final v2 cutover |
 | new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; source implemented, combined migration/native proof pending; recurrence belongs to o7, dream wakes deferred |
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
-| notes | [contract](private-notes-and-rolodex.md) adopted by 0071; kernel/provider handoffs, persistent checkout and live native/git proof remain |
-| search | owner choices settled in [contract](complete-and-continuable-searches.md); full message text, uncapped ranked memory, library/skid handoffs and cross-turn page/chunk proof remain |
+| notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
+| f1 reads | [contract](mail-calendar-web-reads.md) specified; implementation and cross-turn page/chunk/fresh-read proof pending; broader [search proposal](complete-and-continuable-searches.md) stays deferred |
+| f2 reliability/integration | spec pending; existing native/discord issues remain open; final useful combined journey consumes all selected artifacts |
+| f3 model/runtime | owner selects `gpt6astra-max` via personal codex subscription/provider library; exact authenticated selection, runtime compatibility and live qualification pending |
 | attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |
 

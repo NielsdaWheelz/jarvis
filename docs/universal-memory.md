@@ -487,28 +487,53 @@ archive_read(home, native_id, after?, from_event_id?)
 
 one supervised collector per host runs as the owner (launchd on macbook, systemd
 user units on arch/devbox). use a jarvis package entry point pinned to the central
-release. no database credentials, inference or durable local state. sweep every
-30 seconds without overlap; a long sweep delays the next one.
+release. no database credentials, inference, concurrent capture workers or durable
+local state. discovery cycles do not overlap; the shared nominal interval and
+content-slice budget are 30 seconds.
 
-1. fetch `GET /v1/memory/lanes`; activate pending admitted lanes as above.
-   ordinary capture uses only active lanes. no other home is read.
-2. enumerate and post pages to `POST /v1/memory/sync`. the service creates newly
-   discovered conversations and returns ownership, immutable activation boundary,
-   pending baseline error, event checkpoint/native digest, capture error and last successful read. report
-   copied conversations as `foreign`. a successful complete listing stamps
-   `last_inventory_at`; partial listings never establish absence. paging progress
-   is transient and restarts after interruption.
-3. retry each pending baseline through `archive_head` before applying update
-   hints; a repaired file need not change the native listing timestamp. resolve
-   successful cuts through sync, then read changed/new conversations using
-   in-memory native update hints; on restart
-   all eligible conversations are candidates. revisit every eligible conversation
-   initially hourly even if hints show no change. use one bounded quantum per
-   conversation before another gets a second. unfinished reads remain eligible.
-   parked conversations await repair; they cannot starve the others.
-4. read inclusively from the stored checkpoint, or exclusively after activation
-   before the first commit. verify the checkpoint's native digest. upload complete
-   events in order. an empty caught-up request verifies the checkpoint too.
+1. fetch `GET /v1/memory/lanes` and validate admission and the contract revision.
+   ordinary discovery/capture uses only active lanes; no unadmitted home is read.
+2. perform metadata enumeration and all ordinary `POST /v1/memory/sync` pages
+   for every active home BEFORE any conversation content read or head repair.
+   collect fresh validated central receipts for this cycle. receipts contain
+   ownership, immutable cut, pending baseline error, checkpoint/digest, capture
+   error and last successful read. copied conversations remain `foreign`; only
+   complete listings stamp `last_inventory_at`. incomplete/failed listings never
+   establish absence. one unavailable home does not suppress other active homes.
+3. start a 30-second content slice after discovery. alternate a ready candidate
+   with recent native activity and the globally oldest waiting candidate,
+   including pending baselines. keep the alternation across cycles. scheduling
+   age starts at first discovery and advances after every attempt, including
+   failure; metadata changes never reset it. native dates and hints choose work,
+   never eligibility. later arrivals cannot repeatedly displace older work in
+   the fairness slots. use at most one operation per conversation in this cycle;
+   rebuild candidates from fresh receipts on the next cycle. this supersedes
+   draining the whole fleet before a conversation can receive another quantum.
+4. a pending baseline's operation is `archive_head` plus its canonical sync
+   transition. it remains eligible regardless of unchanged native hints. a
+   successful repair consumes this quantum; capture starts on a later cycle from
+   the returned canonical cut. ready conversations use native update hints and
+   the initially hourly revisit; on restart all eligible conversations are
+   candidates. only an actual caught-up read permits unchanged-hint suppression.
+   discard hints for parked/foreign rows. parking is not caught-up success and
+   must not suppress a later explicit operator retry.
+5. read inclusively from the stored checkpoint, or exclusively after activation
+   before the first commit. verify its native digest and upload complete events
+   in order. an empty caught-up request verifies the checkpoint too. finish the
+   current operation even if the slice expires; never cancel a read to pretend
+   progress, reset a boundary or manufacture `caught_up`.
+6. after active work, attempt at most one pending lane's existing atomic
+   activation. rotate across pending lanes and advance even on failure. this
+   remains an indivisible full head inventory, outside the content slice; it
+   must not run before active-home discovery. no incremental activation scheme
+   or new checkpoint is introduced.
+
+the trade-off is more frequent metadata work and slower background sweep
+completion in exchange for prompt discovery and fair capture of recent activity.
+one native operation, metadata enumeration or initial activation can still take
+longer than 30 seconds; this is cooperative scheduling, not a hard elapsed-time
+guarantee. keep pending/parked work explicit and report measured discovery and
+capture delays separately.
 
 normalize whole events with the existing unmistakable-secret matcher (private
 keys/known token prefixes), extended with `jmem_`. share this matcher with note
@@ -2253,3 +2278,21 @@ the packaged session manifest. retained capture/retry and all three library
 capture/completion checks pass after the main integration. only new temporary probes are removed
 after final verification. installed acceptance is recorded separately in the
 [rollout plan](implementation-plan.md#per-conversation-capture-amendment).
+
+### collector discovery and fairness source qualification
+
+2026-11-15: the normal installed journey after bounded native paging still took
+roughly seven minutes on dev-server and thirteen on macbook. the cause was
+content reads delaying later homes' discovery. the collector contract above now
+separates all active metadata sync from a cooperative content slice, alternates
+recent activity with oldest waiting work, and never treats parking as caught up.
+
+both frozen compositions pass all required static/build checks and retained
+capture/retry. twelve temporary scheduling cases pass; two real authenticated
+http/runtime-role postgres/native-file journeys fail on the predecessor and pass
+on this repair. they prove head-only recovery, exclusion of the recovery gap,
+unchanged-hint operator retry, and exact cut/checkpoint/original preservation
+across collector restart. independent code, test and contract review passes.
+new probes and disposable databases are removed after qualification. no schema,
+api, binding revision, provider/kernel pin or capture boundary changes. installed
+replacement and fresh ordinary capture latency remain separately pending.

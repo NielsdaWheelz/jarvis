@@ -19,11 +19,11 @@ These instructions govern all work in this repository.
   preserve immutable executed arguments and effect recovery. progress/blockers/
   results are agent behavior, not separate features. defer browser, new credential
   handling, interactive hosting and television integration. shared memory remains separate
-  and quiet dreaming unchanged. slices 1–5 are source-qualified; slices 3–4 have
+  and quiet dreaming unchanged. slices 1–6 are source-qualified; slices 3–4 have
   temporary-candidate qualification against installed skid and a separate native
   host respectively. slice 5 has separate private-storage/native-host candidate
-  qualification. remaining slices and
-  installed activation are pending. keep installed baseline
+  qualification. slice 6 has separate native/source candidate qualification;
+  installed activation remains pending. keep installed baseline
   claims distinct from source and the adopted target.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
   schemas and behavior.
@@ -61,7 +61,8 @@ These instructions govern all work in this repository.
   scoped content/adversarial/red-green-refactor method and probe deletion apply.
   [slice 5](docs/attachments-and-durable-originals.md#implementation-evidence)
   is implemented with separate candidate qualification. migration `0011` adds
-  its one table after `0010`; current source has seventeen application tables.
+  its one table after `0010`; it has seventeen application tables before the
+  event cursor in `0012`.
   one private r2 bucket retains automatic owner uploads and
   main-selected gmail files. raw caption and immutable host manifest remain
   distinct, including archive projection; no new memory schema. reuse qualified
@@ -74,6 +75,21 @@ These instructions govern all work in this repository.
   pause. definite local cache-cleanup failure is failed partial deletion, distinct
   from an unknown remote effect. manual-cleanup facts preserve original failed or
   uncertain action receipts. production activation remains at final cutover.
+  [slice 6](docs/event-sources-and-recurring-work.md#implementation-evidence) has
+  source and separate candidate qualification. one cursor table/poll task
+  publishes mail/calendar facts through
+  ordinary main admission. preserve partial gmail progress, fixed sync selectors,
+  quiet baselines and truthful coverage gaps. source controls use existing atomic
+  local receipts; status is fresh. reuse attachment's landed profile/fresh-read
+  helpers, repair shared token concurrency and qualify new echo receipts by account.
+  proved recovered successes may retain null account qualification under the
+  2026-11-16 owner amendment; missing echo qualification never changes effect
+  certainty. direct success still verifies account before entry, and null receipts
+  cannot suppress echoes.
+  event metadata uses ordinary canonical memory projection; no body archive,
+  memory schema change or recurring-work implementation. daily review remains
+  work data. use the same scoped temporary proof/review method; production cutover
+  stays separate and all shared files require integration against slice 5's merge.
 - [adr 0065](docs/decisions/0065-native-agent-supervision.md) owns the current
   native main, request/control journals, owner-permit admission and separate
   contained stock endpoint. it supersedes affected step/session/rolling-capacity
@@ -269,6 +285,17 @@ These instructions govern all work in this repository.
   detailed feature contracts own behavior; do not recreate a separate work order.
   retired plans, cleanup logs and qualification reports live in git history,
   not a duplicate archive tree or new execution gates.
+
+## deployment administration
+
+- run privileged deployment from the operator workstation through the existing,
+  separately keyed `dev-server-deploy` ssh alias and `sudo -n`.
+- `dev-server` selects unprivileged niels development access. never restore sudo
+  or sudo/docker group membership, copy the deployment key onto the server or add
+  a server-agent administrative substitute/fallback.
+- preserve jarvis's existing runtime identity, systemd/native postgres 16 and
+  deployment model. development uses niels's rootless docker; root-controlled
+  system docker is nexus production.
 
 ## V1 constraints
 

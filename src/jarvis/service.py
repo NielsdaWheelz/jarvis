@@ -23,6 +23,7 @@ from jarvis.discord import (
     DeliveryResult,
     DiscordOwnerMessage,
 )
+from jarvis.event_polling import EventPoller
 from jarvis.memory_service import MemoryService
 from jarvis.messages import InboundInsert, StoredMessage
 from jarvis.native_runtime import NativeRunOutcome
@@ -164,6 +165,7 @@ class JarvisService:
         dispatch_lane: asyncio.Lock,
         memory: MemoryService,
         work_timer: WorkWakeTimer,
+        event_poller: EventPoller,
         attachments: AttachmentStore,
         gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -175,6 +177,8 @@ class JarvisService:
         self._attachment_task: asyncio.Task[None] | None = None
         self._memory = memory
         self._work_timer = work_timer
+        self._event_poller = event_poller
+        self._event_poll_task: asyncio.Task[None] | None = None
         self._work_timer_task: asyncio.Task[None] | None = None
         self._store = store
         self._paused = paused
@@ -248,6 +252,7 @@ class JarvisService:
         await self._memory.publish()
         self._agent_waits.notify_wait_changed()
         self._work_timer.notify_changed()
+        self._event_poller.notify_changed()
         self._work.set()
 
     async def gateway_ready(self) -> CatchUpResult:
@@ -259,6 +264,7 @@ class JarvisService:
         )
         result = await self._require_gateway().catch_up(after)
         self._startup_ready = True
+        self._event_poller.notify_changed()
         self._work.set()
         return result
 
@@ -297,6 +303,15 @@ class JarvisService:
     async def _waits_inactive(self) -> bool:
         return await self._paused.is_paused()
 
+    def events_publication_allowed(self) -> bool:
+        return self._startup_ready and not self._shutdown.is_set()
+
+    async def events_admitted(self) -> bool:
+        """Provider work waits for catch-up and current unpaused ownership."""
+        if not self.events_publication_allowed():
+            return False
+        return not await self._paused.is_paused()
+
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
@@ -311,6 +326,10 @@ class JarvisService:
             self._run_work_timer(), name="jarvis-work-timer"
         )
         self._work_timer_task.add_done_callback(self._timer_stopped)
+        self._event_poll_task = asyncio.create_task(
+            self._run_event_poller(), name="jarvis-event-poller"
+        )
+        self._event_poll_task.add_done_callback(self._timer_stopped)
         self._delivery_task = asyncio.create_task(
             self._deliver(), name="jarvis-delivery"
         )
@@ -351,6 +370,7 @@ class JarvisService:
             self._delivery_task.cancel()
             self._dream_timer_task.cancel()
             tasks = [
+                self._event_poll_task,
                 self._work_timer_task,
                 self._agent_wait_task,
                 self._delivery_task,
@@ -361,6 +381,7 @@ class JarvisService:
             self._agent_wait_task = None
             self._agent_wait_cancellation = None
             self._delivery_task = None
+            self._event_poll_task = None
             self._work_timer_task = None
             self._dream_timer_task = None
             self._attachment_task = None
@@ -383,6 +404,11 @@ class JarvisService:
         if not task.cancelled():
             self.request_shutdown()
 
+    async def _run_event_poller(self) -> None:
+        await self._event_poller.run(self._shutdown)
+        if not self._shutdown.is_set():
+            raise RuntimeError("event poller stopped unexpectedly")
+
     async def _run_work_timer(self) -> None:
         await self._work_timer.run()
         raise RuntimeError("work timer stopped unexpectedly")
@@ -397,6 +423,7 @@ class JarvisService:
 
     def request_shutdown(self) -> None:
         self._shutdown.set()
+        self._event_poller.notify_changed()
         self._attachments.stop_captures()
         self._attachment_work.set()
         self._work.set()

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+target=dev-server-deploy
 
-ssh "$target" bash -s <<'REMOTE'
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n bash -s <<'REMOTE'
 set -euo pipefail
 files=(
   /etc/jarvis/database-runtime.env
@@ -11,9 +11,9 @@ files=(
 )
 present=0
 for file in "${files[@]}"; do
-  if sudo test -e "$file"; then
-    sudo test -f "$file"
-    sudo test ! -L "$file"
+  if sudo -n test -e "$file"; then
+    sudo -n test -f "$file"
+    sudo -n test ! -L "$file"
     present=$((present + 1))
   fi
 done
@@ -54,14 +54,14 @@ SQL
     "$runtime_password" >"$scratch/database-runtime.env"
   printf 'JARVIS_MIGRATION_DATABASE_URL=postgresql+psycopg://jarvis_migrator:%s@127.0.0.1:5432/jarvis\n' \
     "$migrator_password" >"$scratch/migration.env"
-  sudo install -m 0600 -o root -g root \
+  sudo -n install -m 0600 -o root -g root \
     "$scratch/database-runtime.env" /etc/jarvis/database-runtime.env
-  sudo install -m 0600 -o root -g root \
+  sudo -n install -m 0600 -o root -g root \
     "$scratch/migration.env" /etc/jarvis/migration.env
 fi
 
-sudo chown root:root "${files[@]}"
-sudo chmod 0600 "${files[@]}"
+sudo -n chown root:root "${files[@]}"
+sudo -n chmod 0600 "${files[@]}"
 
 sudo -n -u postgres psql -Atd jarvis -c "SHOW TimeZone" | grep -Fxq UTC
 sudo -n -u postgres psql -Atd jarvis -c \

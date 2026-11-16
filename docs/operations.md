@@ -80,8 +80,9 @@ and exposes only the app-owned original cache for native read access; bucket pub
 access and expiry remain disabled.
 the native uid receives neither storage credentials nor the app's private state.
 
-the current source has seventeen application tables at migration `0011`; the
-attachment table follows work's `0010`. the application writes the shared
+slice 5 has seventeen application tables at migration `0011`; its attachment
+table follows work's `0010`. the event cursor brings current source to eighteen
+at `0012`. the application writes the shared
 `/var/cache/jarvis/attachments` cache; the native host mounts it read-only. originals
 and their private staging never belong in the notes repo. restart discards the
 app-owned cache contents and rematerializes verified r2 bytes on demand; it does
@@ -114,6 +115,22 @@ authorized new owner work remains possible. deletion removes our original/cache,
 not source mail/discord, scratch copies, open handles, conversation, notes or
 memory. no public links, upload website, extraction service or backup promise is
 added.
+
+### email/calendar source handoff
+
+[slice 6 evidence](event-sources-and-recurring-work.md#implementation-evidence)
+qualifies source and its separate combined candidate against the landed attachment
+helpers/migrations. production remains unchanged; the installed event-source
+cutover is still deferred. final cutover initializes quiet account-scoped
+baselines; expired provider cursors leave explicit unknown coverage. no historical
+mail/calendar reconstruction, push subscription or additional daemon is added.
+
+source polling starts only after validated discord catch-up and respects pause
+and family switches. disabling a family preserves progress and already published
+work. after repairing a blocked source, a fresh `events.configure(enabled=true)`
+re-arms it without clearing its outage until a complete scan succeeds; exact
+action replay never repeats that mutation. daily review is ordinary work data,
+created once during supervised setup, never recreated at startup.
 
 ### private workspace handoff
 
@@ -199,6 +216,25 @@ historical reminder inventory uses `action.tool_name = schedule.wake` and
 `message.source = schedule_wake`. preserve those original identities; current
 source exposes no legacy schedule tool or timer. its single work timer publishes
 `work_wake` inputs through the common native path.
+
+## administrative transport
+
+run deployment entrypoints from the operator workstation, where the separate
+`dev-server-deploy` ssh key already lives. privileged remote operations use
+`ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy 'sudo -n …'`; entrypoints use that
+fixed alias and never fall back to `dev-server` or prompt for a sudo password.
+for an administrative session, open `ssh dev-server-deploy` from that workstation
+and use `sudo -n` for the server commands below. do not run the privileged phase
+from a developer agent on the server, copy the deployment key there, restore
+niels sudo/group membership or install a replacement privileged wrapper.
+
+`dev-server` remains the unprivileged niels development connection. niels may
+build under its ordinary identity when the deployment process explicitly selects
+it; it cannot administer the host. development docker uses niels's separate
+rootless engine. system docker belongs to root-controlled nexus production and
+must not be used for jarvis development fixtures. jarvis remains the existing
+`jarvis` systemd service with native postgres 16, its established runtime identity,
+release directories, locks and private configuration.
 
 ## Install and configure
 

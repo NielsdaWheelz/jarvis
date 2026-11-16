@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+target=dev-server-deploy
 {
 cat "$repo_dir/deploy/agent-client-functions"
 cat <<'REMOTE'
@@ -12,4 +12,4 @@ set -euo pipefail
 verify_agent_client /usr/local/libexec/skidbladnir /run/jarvis-skid-state
 printf 'jarvis agent client boundary passed; cognition health is checked separately.\n'
 REMOTE
-} | ssh "$target" sudo bash -s
+} | ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n bash -s

@@ -1,268 +1,619 @@
-# event sources, suggestions and recurring work
+# email/calendar events
 
-status: accepted v2 target under [adr 0071](decisions/0071-simple-event-driven-v2.md),
-2026-11-14; unimplemented. this extends [o6](one-main-events.md). the
-[roadmap](implementation-plan.md) owns sequencing. shared memory's separate
-delivery and quiet dreaming remain unchanged.
+status: source and separate candidate qualified under
+[adr 0071](decisions/0071-simple-event-driven-v2.md), 2026-11-16.
+qualified application artifact: `05b0023e277882b3aeda58ceb7857102d09cb96c`.
+landed attachment predecessor: `bbfeb47d1e74dc32a8827501a4ffc963bbf52d6a`.
+[implementation evidence](#implementation-evidence) distinguishes real provider,
+controlled fault and native proof. the [roadmap](implementation-plan.md) owns
+sequence; production activation remains at final v2 cutover.
 
-## target and scope
+## target and settled scope
 
-email additions, calendar changes/approaching events, recurring wakes and useful
-internal suggestions become ordinary canonical host inputs to the same main.
-jarvis chooses inspection, action, delegation, bookkeeping, notification or
-nothing. inputs may batch or steer an active turn. source prose is evidence.
+email additions and calendar changes/approaching events become ordinary canonical
+host inputs to [one main](one-main-events.md), including while main is busy.
+main chooses inspection, action, delegation, bookkeeping, notification or silence.
+external prose is evidence, never owner speech or consent.
 
-| settled choice | behavior |
+| choice | behavior |
 | --- | --- |
-| email | new incoming mail, including automatically archived mail; exclude drafts, sent-only mail, spam and trash; label/read changes alone do not wake |
-| calendar | all event-readable calendars, including hidden calendars; changes plus approaching events |
-| calendar attention | timed events approximately 15 minutes before start; all-day events at 09:00 owner-local on their start date; one-minute polling, not exact alarms |
-| recurrence | daily, selected weekdays, monthly and elapsed intervals; coalesce missed runs to one latest occurrence with skipped count |
-| daily work review | an ordinary scheduled todo at 09:00 owner-local; main chooses useful follow-through |
-| suggestions | existing trusted producers may submit useful findings through the same input path; selected dream wakes are deferred |
-| activation/gaps | baseline quietly; report expired-cursor coverage gaps and rebaseline; no historical reconstruction |
+| email | incoming additions, including automatically archived mail; exclude drafts, spam, trash and sent-only mail (`SENT` without `INBOX`); label/read changes alone do not wake |
+| calendars | every event-readable calendar in the account's calendar list, including hidden calendars; readable does not mean owned or attended |
+| attention | timed events about 15 minutes before start; all-day events at 09:00 owner-local on their start date; 60-second polling, no exact-alarm promise |
+| activation | quiet initial mail/change baselines; currently due attention remains eligible; expired cursors produce an explicit gap and a fresh baseline |
+| controls | independent email/calendar family switches; disabling preserves progress and already published work; re-enable catches up while provider history survives |
+| daily review/recurrence | already owned by [work](work-records.md); ordinary scheduled todos, no new recurrence feature |
 
-reuse the current process, deployment lock, google client/auth, timer, o6 waking
-append, native input port, action/read journals and outbox. this feature adds one
-`event_cursor` table. [work records](work-records.md) owns both one-time and
-repeating wakes in its existing todo table; there is no `recurring_wake` table.
-no event bus, workflow controller, mailbox/calendar mirror, push infrastructure,
-new agent or calendar-timer cache.
+one new cursor table, one poll task, two model tools. reuse the process, deployment
+lock, google authorization/client, canonical append, native admission, local action
+receipts and outbox. no event bus, push/webhooks, mailbox/calendar mirror, local
+recurrence expander, notification controller or additional agent.
 
-work deadlines remain bookkeeping, separate from optional wake times. worker
-waits retain their [existing observation path](worker-launch-observation.md).
-attachments, historical imports, dreamer work context and budget integration
-remain separate. source adapters carry reopenable mail/calendar references;
-they need no memory amendment or new skid push api.
+attachments remain [slice 5](attachments-and-durable-originals.md): event inputs
+carry exact mail references; main chooses file discovery/retention. do not fetch
+mail bodies or attachment bytes during polling. shared memory projects ordinary
+host-message metadata through its existing path; no capture-engine/schema change,
+mailbox archive, dream wake, search overhaul or budget work.
 
-## source progress and publication
+## source audit and integration boundary
 
-one new poll task signals the existing input path while main runs. the existing
-timer publishes due wakes independently of slow connector reads and signals due
-polls. rotate due sources after one page; no overlapping scan of the same source.
-one shared 60-second poll default. owner ingress, consent and delivery stay live.
-due selection excludes disabled/blocked streams. source enable/disable and work
-schedule mutations signal timer change. a publisher losing to disable is a no-op.
-scheduled todos use work's own atomic publication, independently of connector reads.
+this was the preimplementation audit at `d93b84d`. final qualification consumes
+landed attachment source `ad6c48e` through merge `bbfeb47`, with one migration head.
 
-add `event_cursor`:
-
-| field | meaning |
+| boundary | implement here |
 | --- | --- |
-| `kind`, `account_id`, `resource_id` | composite primary key; one row per polled stream: `gmail`, `calendar_list`, `calendar_changes`, `calendar_upcoming`; root resource empty, child resource exact calendar id; account is verified `getProfile.emailAddress`, never generic `me` |
-| `enabled` | boolean on family roots only; null on calendar children; initialized true once, never reset at restart |
-| `progress` | closed per-kind json below; cursors only, no bodies or source corpus |
-| `page_size` | persisted provider page count; initially 20, reduced on page-bound failures before restarting the scan |
-| `next_poll_at`, `last_success_at` | utc timestamp; last success nullable |
-| `error` | null or `{episode_id, code, since}`; uuid, bounded host code, utc time; no private prose |
-| `seen_inventory_scan` | nullable uuid on calendar children; supports complete inventory reconciliation |
+| common append and native steering already exist | source adapters and atomic cursor/publication; no second main loop |
+| `WorkWakeTimer` is db-only | leave it unchanged; new poll task owns its own due wait using the same notify/wait pattern |
+| owned database serializes one connection | all provider io outside db transactions, `_active_lock` and `_dispatch_lane` |
+| existing model-facing calendar reads clip/drop required metadata | share scalar parsers/transport; add one narrow event projection, not another full connector or search rewrite |
+| shared token manager has concurrent-refresh/stale-invalidation risk | serialize refresh only; invalidate only the rejected token; source finding repaired and qualified below |
+| old success receipts lack account-qualified echo evidence | add verified `account` to new send/create/update successes; never infer it for old receipts |
 
-gmail progress is `{history_id, page_token}`; calendar-list is `{scan_id,
-page_token}`; changes are `{sync_token, page_token, baselining}`; upcoming is
-`{calendar_zone, scan}`, with scan null or `{as_of, owner_zone, calendar_zone,
-page_token}`. tokens are nullable opaque strings. freeze base token/selectors
-throughout pagination. baseline starts with null sync token; inventory id and
-upcoming clock/zones persist before the first page. continuation is due immediately;
-completed polls schedule the next check 60 seconds later. timestamps are
-`timestamptz`; json times use aware utc values. account changes create a new scope
-and baseline; poll/admit only the current verified account, leaving old scopes
-inactive. never transfer an old account's cursor. freeze page size with selectors;
-reducing it restarts that scan from its committed base, preserving identity dedup.
+slice 5 supplies landed `0011_attachments`, `gmail_account` and `FRESH_READ_IDS`.
+one shared profile read/parse returns `{account, history_id}` from the same
+response, preserving attachment callers' account view. one token manager/client
+composition serves foreground tools, attachments and polling. `0012_event_sources`
+follows actual `0011`; there is no parallel migration head. final integrated proof
+uses the combined source tree. production cutover stays separate.
 
-fetch one complete bounded provider page and any required metadata outside the
-database transaction. then atomically insert its canonical inputs and advance
-its continuation. install a new history/sync checkpoint only after the final
-page. interruption or partial failure retries the original page; google reads may
-repeat. keep only the current page in memory. bound the assembled page, including
-metadata/notices, by the existing 2 mib provider-buffer constant and each whole
-page attempt to 30 seconds; reduce page size rather than clipping a tail. an
-irreducible page failure is explicit unavailability. no cumulative traversal cap.
+## cursor schema and ownership
 
-every provider entry and publication requires current deployment ownership and
-an enabled, unpaused source. publication rechecks the family root under existing
-locks; provider results losing that race cannot publish or advance progress.
-lookup canonical identities before rebuilding a previously published fact:
-duplicate polling preserves the original text/times, rather than reinserting
-fresh metadata under an old id. hash canonical identity tuples for bounded source
-ids; never identify events by prose equality. all inputs route to the configured
-conversation through o6's transaction-level append. put source facts/references
-in canonical host text, not mutable trace. independent email/calendar/suggestion
-events have null parent; an actual causal request may be referenced when known.
-do not invent owner speech or consent. `created_at` uses known provider source
-time, first observation if absent, or intended due time for wakes/attention;
-retain actual observation separately. duplicates freeze both. main chooses
-whether a source fact needs communication; there is no notice-policy field.
+`event_cursor` contains progress only. times are `timestamptz`; json timestamps
+are aware utc; opaque tokens are nullable bounded strings, never logged.
 
-transport/rate failures retain progress and back off from 60 seconds to 15
-minutes. one `event_status` input per outage episode identifies source,
-known gap/error and recovery needed; a recovery event reports restored coverage.
-main can explain a material interruption in ordinary conversation. invalid auth or
-schema blocks that source until repaired. healthy calendars continue. success,
-restart and resume never clear a parked main input.
+| column | contract |
+| --- | --- |
+| `kind`, `account_id`, `resource_id` | composite primary key; kinds `gmail`, `calendar_list`, `calendar_changes`, `calendar_upcoming`; verified profile email; root resource empty, child resource exact calendar id |
+| `enabled` | non-null boolean on family roots (`gmail`, `calendar_list`), null on children; initialize true only for a new account/root |
+| `progress` | closed per-kind json below; no bodies, event cache or exclusion ledger |
+| `next_poll_at` | nullable; null means blocked pending repair/re-arm, never an invisible busy-loop deadline |
+| `last_success_at` | nullable; time of last COMPLETE baseline/scan/checkpoint, not a successful intermediate page |
+| `error` | null or `{episode_id, code, since, retry_count}`; uuid, closed safe code, utc timestamp, saturated count 1..5 |
+| `seen_inventory_scan` | nullable uuid, set only on calendar children; complete-inventory membership proof |
 
-## email and calendar adapters
+closed progress shapes:
 
-gmail starts from `users.getProfile.historyId`. poll `history.list` for
-`messageAdded`; process `messagesAdded`, not the duplicate general message list.
-fetch candidate metadata and apply the settled label exclusions; sent-only means
-`SENT` without `INBOX`. identity is account + message id, including different
-messages with identical text. imported old mail is a newly observed addition,
-not proof of a recent sending date. definitive missing metadata produces an
-explicit unavailable fact; transient failure does not advance the page.
-expired history returns 404: persist the gap notice and a fresh baseline together.
-ordinary downtime catches up only while history remains available.
-[gmail history](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)
-and [profile](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile)
-define this protocol.
+```text
+gmail: {history_id, page_token, consumed, prefix_sha256}
+calendar_list: {scan_id, page_token}
+calendar_changes: {sync_token, page_token}
+calendar_upcoming: {calendar_zone, scan}
+scan: null | {as_of, owner_zone, owner_date, time_min, time_max, page_token}
+```
 
-calendar inventory traverses all pages, stamping children with one scan id. delete
-missing child cursors only after the whole inventory succeeds; canonical history
-remains. publication rechecks the child's existence. new calendars baseline
-quietly. the family switch governs all calendar reads/publication; revoked access
-is explicit.
+null history means mail baseline pending, with no page token/consumed prefix.
+consumed is a strict integer 0..2^53−1, digest null exactly when consumed=0.
+null inventory scan id requires null page token; start a new uuid before its first
+page. null calendar sync token means baselining; its page token may still continue
+that baseline, without a redundant boolean. upcoming zone is an iana
+name, or null only while that resource is unavailable; scan bounds/selectors are
+frozen before the first page, including actual utc query bounds.
+
+use existing exact provider-id bounds (1024 utf-8 bytes), calendar/work zone
+validation and canonical json hashing; tokens have an 8192-byte bound. enforce
+root/child shape, closed progress and nonnegative count constraints. no generic
+workflow/version registry. account is fixed after verification for one running
+composition; stopped private-account replacement follows existing authority/drain
+rules. a different verified account creates a fresh scope; old rows remain inactive.
+
+before profile verification there is no honest account-scoped cursor. report
+`account=null/unverified`, return `AccountUnavailable` for configuration and use
+safe operator diagnostics; never invent a `me` account or fabricate a source event.
+retry transient verification failures with the same bounded backoff; unusable
+credentials require repair/restart. existing operational pause remains available.
+
+## polling and atomic publication
+
+one `EventPoller.run` task starts provider work only after validated discord
+catch-up (`service._startup_ready`), with current deployment ownership and an
+unpaused, enabled family. child eligibility requires both root.enabled and a
+non-null root.next_poll_at, plus its own non-null due deadline. a blocked inventory
+root blocks that family; one blocked child leaves peers eligible.
+select due streams in `(next_poll_at, kind, resource_id)`
+order; fetch one page or bounded gmail prefix, commit, yield, rotate. continuations
+become due now; completed scans become due 60 seconds later. idle waits use the
+existing change-event pattern with a 60-second rescan ceiling. ingress/control,
+configuration and readiness changes wake it. work timers, worker waits and
+outbound delivery remain independent of slow provider reads.
+recheck admission before EVERY provider request, including metadata/refresh calls:
+an entered read may settle after pause/disable, but no subsequent request starts.
+surface unexpected poll-task exit through existing service supervision.
+
+provider requests retain existing 8-second transport bounds and 2-mib decoded
+response limit; a poll quantum has a 30-second elapsed bound. use fixed 20-item
+provider pages and at most 20 gmail candidates per quantum. do not retain a page
+across processes or hold a transaction during a fetch. no traversal-length cap.
+calendar sync query parameters, including page size, remain fixed for a token's
+lifetime; do not shrink a page beneath an existing token. an irreducible response
+is explicit blocked unavailability, not a clipped page or silently advanced cursor.
+
+publication takes the existing conversation lock, then family/root/child rows in
+stable order. recheck ownership, pause, enable state, child existence and expected
+progress before committing observations and progress together. a stale/disabled
+result commits neither. an off/on cycle may resume still-valid old progress; no
+new generation counter is required. shutdown cancels uncommitted reads; committed
+facts/progress survive. no new publication after ownership loss.
+
+lookup canonical identities before re-fetching/re-rendering already published
+facts. duplicates preserve original text/source/observation times. canonical
+source ids are sha-256 of the tuples below using the existing serializer; their
+namespace is the `message.source`. use `append_waking_input` with `role=host`,
+configured conversation and null parent. known causal suggestions may use an
+eligible ordinary request parent; controls cannot be parents.
+
+| source | identity tuple |
+| --- | --- |
+| `email_event` | account, message id |
+| `calendar_event` | account, calendar id, event id, tagged `{kind:etag,value}`; sparse cancellation without etag uses `{kind:sync_base,value}` from the fixed starting sync token |
+| `calendar_attention` | account, calendar id, logical occurrence, actual start; include owner zone for all-day attention |
+| `event_status` | stream identity + tagged phase; outage/recovered use episode id, removed uses completed scan id + calendar id, gap uses expired base-token digest |
+
+no text-equality or semantic deduplication. no revision on a sparse cancellation
+means no promise of deduplication across different sync bases. independent facts
+may batch/steer main; they do not require a response. publication signals ordinary
+main work and the existing memory projector. source inputs never clear parked
+requests or settle unrelated work.
+
+## provider contracts
+
+### gmail
+
+initial profile `historyId` becomes a quiet baseline. `history.list` uses
+`historyTypes=messageAdded`, no label filter, fixed base `startHistoryId` and page
+token. read `messagesAdded`, not the duplicate generic `messages` field. request
+only history ids, added message ids/thread ids and continuation/high-water fields.
+[gmail history](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list).
+
+`maxResults` counts history RECORDS, not messages. flatten each page into ordered
+`(history_id, message_id)` candidates: numeric history order, lexical message order
+within each record, duplicate pairs collapsed. validate the stored consumed prefix
+against its sha-256 before resuming. mismatch resets only this page's prefix;
+retain the committed base cursor and source deduplication, never skip guessed
+positions. digest the identity prefix, not response high-water or page-token bytes.
+
+for each new candidate fetch metadata only: id, thread id, label ids, internal date
+and From/Subject headers. apply current label exclusions; raw sender/subject are
+bounded previews, not strict address-parser admission gates. a definitive 404
+produces an unavailable-addition fact, without claiming it was eligible incoming
+mail. failure/timeout leaves that unfinished candidate unconsumed. commit any
+earlier completed prefix and the failure/backoff together in an owned transaction;
+do not let an outer timeout discard useful prefix progress.
+
+atomically publish-or-exclude a completed candidate prefix and update consumed/
+digest, including excluded candidates. commit completed progress before rotating;
+an interrupted unfinished candidate repeats its read. only after the entire page
+is classified advance its page token and clear prefix state. only the final page
+installs returned historyId. this prevents a long excluded prefix from starving
+valid mail without adding an inbox mirror or per-message read ledger.
+
+imported old mail is a newly observed addition, not evidence of recent sending.
+label changes after observation do not rewrite it. expired history (404 on the
+history endpoint) atomically publishes a gap and resets baseline progress; obtain
+a fresh profile next. lost historical additions are not reconstructed.
+
+### calendar inventory and changes
+
+inventory fully pages `calendarList.list(showHidden=true, showDeleted=false,
+minAccessRole=reader)`; do not filter selected/primary calendars. request exact id,
+access role and timezone with `fields=nextPageToken,items(id,accessRole,timeZone)`.
+use the provider's read-access selector; do not reject a returned read-capable role
+merely because an older model-facing enum omitted it.
+full scans are intentional: incremental list sync can
+omit property/access changes. stamp/create both child streams per valid calendar.
+only a completed inventory may remove unseen children, atomically with a truthful
+`no longer in readable inventory` fact; do not assert specifically revoked access.
+partial/failed scans remove nothing. unknown resource-local zone/schema problems
+block the affected child; malformed inventory identity blocks that inventory page.
+[calendar inventory](https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/list).
 
 changes use `events.list(singleEvents=false, showDeleted=true,
-showHiddenInvitations=true)` without time bounds, and one sync token per calendar.
-discard initial baseline events; change capture begins when its final sync token
-commits. incremental results are latest-state observations, not a mutation audit.
-identity is account/calendar/event/etag; sparse cancellations without a revision
-also bind the fixed starting sync token. preserve missing source times/fields;
-never invent an etag or fetch a deleted event as a prerequisite. 410 produces an
-explicit gap and a fresh baseline. sync tokens cannot use the upcoming time
-filters. [calendar sync](https://developers.google.com/workspace/calendar/api/guides/sync)
-and [event list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)
-own the provider constraints.
+showHiddenInvitations=true)` without time filters/orderBy, with fixed selectors
+through baseline and incremental sync. baseline validates the response envelope
+and tokens, then discards rows WITHOUT normal event/time projection; irrelevant
+historical data must not block future-only activation. install nextSyncToken only
+on the last page. incremental results are latest snapshots, not every
+intermediate mutation. preserve cancelled records with missing fields; never fetch
+a deleted event as a prerequisite. expired sync (410) atomically publishes a gap,
+clears only that stream's token/page and starts a quiet baseline; canonical facts
+stay immutable. [calendar synchronization](https://developers.google.com/workspace/calendar/api/guides/sync).
 
-upcoming uses `singleEvents=true, showDeleted=false, showHiddenInvitations=true`.
-freeze owner date/zone and each calendar's zone. query the union window of ongoing/
-next-15-minute timed events and that owner date interpreted in the calendar zone:
-`timeMin=min(as_of, calendar-midnight(date))`,
-`timeMax=max(as_of+15m, calendar-midnight(date+1))`. round bounds outward to seconds,
-then filter exactly: timed attention is start minus 15m, due now, with known real
-end still future at admission; all-day attention is 09:00 owner-local on actual start
-date, still that date at admission in the frozen owner zone. skip cancelled items.
-this includes foreign-zone all-day
-events; multi-day ones do not repeat daily. preserve unknown real ends.
+share one narrow projection for changes/attention: id, etag, status, updated,
+summary/location previews, start, real end, recurrence parent/original start and
+event type; calendar id/name/zone establish provenance. list response `summary`
+provides the calendar name without storing a calendar mirror. reuse scalar/time
+parsers, not full write snapshots or clipped model list results. omit attendee
+inventories; calendar `self` is not proof of owner attendance. sparse cancellations
+can contain id alone; noncancelled malformed identity/time fails that child.
+[event semantics](https://developers.google.com/workspace/calendar/api/v3/reference/events).
 
-attention identity is logical occurrence + actual start: one-off event id, or
-recurring parent/original start, plus current start instant/date. moves can produce
-a new approaching input; title/attendee edits alone cannot. include frozen owner
-zone for all-day identity; returning to an already-noticed start stays deduplicated.
-edits/cancellations after publication remain new change facts; old inputs stay fixed.
-[event semantics](https://developers.google.com/workspace/calendar/api/v3/reference/events)
-define recurring identity and sparse cancellations. no local google recurrence
-expander or replay of already-ended appointments.
+both event list calls request only
+`fields=summary,timeZone,nextPageToken,nextSyncToken,items(id,etag,status,updated,summary,location,start,end,endTimeUnspecified,recurringEventId,originalStartTime,eventType)`.
+the mask stays fixed through sync baselines/incremental pages. projecting only
+after fetching full events would still transfer descriptions and attendee lists.
 
-suppress only proven self-echoes: an exact committed gmail sent-message id, or a
-calendar change matching the exact resulting revision in a successful connector
-receipt. do not suppress later edits or upcoming attention for that event.
-calendar deletes lack an after-revision; retain ambiguous tombstones. native
-commands and uncertain effects have no such proof. no text/author heuristic.
+### approaching events
 
-## recurring wakes and tools
+use `singleEvents=true, showDeleted=false, showHiddenInvitations=true`. freeze
+scan clock, owner date/zone, calendar zone and exact query bounds. the candidate
+window is the union of ongoing/next-15-minute timed events and the owner date
+interpreted in the calendar zone:
 
-[work records](work-records.md#recurrence-contract) owns one-time and
-repeating scheduling, date rules, coalescing and atomic due publication. use
-`work.create`, `work.update`, `work.get` and `work.list`. clearing a todo's wake
-stops future publication; done/cancelled/delete also removes its schedule.
-previously published inputs remain ordinary main work. there is no additional
-schedule table, schedule inspection api or recurring-work controller.
+```text
+lower = min(as_of, calendar_midnight(owner_date))
+upper = max(as_of + 15m, calendar_midnight(owner_date + 1))
+timeMin = floor lower to whole seconds - 1 second
+timeMax = floor upper to whole seconds + 1 second
+```
 
-this source feature adds only:
+query bounds strictly enclose the window: both provider bounds are exclusive and
+ignore milliseconds. the extra lower second also admits an unspecified-end event
+exactly at start; final filters reject ended events. filter at PUBLICATION time,
+not the frozen scan time:
 
-| tool | input / result |
+- timed: `start−15m <= now`; admit before/at start, or later only when a known real
+  end is still future. `endTimeUnspecified`'s compatibility end is not a real end.
+- all-day: actual start date equals today's date in the frozen owner zone and
+  resolved 09:00 <= now. multi-day events do not repeat daily. reuse work's fold/
+  gap resolver through one shared helper; no second civil-time algorithm.
+- skip cancellations/ended events. timezone configuration/inventory changes discard
+  an unfinished upcoming scan; preserve already published facts. a scan crossing
+  owner midnight cannot publish yesterday's all-day attention.
+
+logical occurrence is one-off event id, or recurrence parent plus original start.
+use tagged all-day dates or utc instants, never iCalUID alone. include actual start
+in identity: a move may produce new attention; title edits cannot; returning to
+an already noticed start stays deduplicated. later cancellation/change is another
+fact, never a rewrite of old attention. [query boundaries](https://developers.google.com/workspace/calendar/api/v3/reference/events/list).
+
+### proven self-echoes
+
+suppress only a committed successful connector receipt matching verified account
+and exact sent message id, or account/calendar/event/resulting etag. add `account`
+to NEW `GmailSendDraftSuccess`, `CalendarCreateEventSuccess` and
+`CalendarUpdateEventSuccess`, using shared verified identity before effect entry.
+owner amendment, 2026-11-16: a recovered success whose effect is proved may use
+`account=null` when account qualification is unavailable. this is still success;
+missing echo qualification never makes a proved effect uncertain. direct
+successes still require verification before effect entry. null-account receipts
+cannot suppress echoes. retain existing bounded effect reconciliation; do not
+repeat an effect, infer account or add durable recovery state for this qualifier.
+model arguments/consent/action schema stay unchanged; rotate affected bindings.
+old unqualified receipts remain historical evidence and cannot suppress; no
+backfill, compatibility decoder or echo ledger. deletes lack an after-revision;
+native commands, unknown outcomes and racing uncommitted receipts provide no
+proof. preserve those facts and all approaching attention; do not wait for a
+pending action merely to suppress its possible echo.
+
+## failures, controls and capability contract
+
+safe source failure codes: `TransportUnavailable`, `RateLimited`, `AuthUnavailable`,
+`Forbidden`, `InvalidResponse`, `ResponseTooLarge`, `CursorExpired`.
+transient failures retain progress and back off 60, 120, 240, 480, then 900 seconds;
+honor a later valid provider retry deadline. one outage fact opens an episode;
+repeat failures update its code/count without repeated outage messages. only a
+complete scan/baseline clears it and publishes recovery. recovery means current
+polling resumed; previously announced gaps remain unreconstructed.
+
+auth/grant failure blocks the affected family root (shared unusable credentials
+block both); forbidden/malformed child data blocks that stream, leaving healthy
+calendars eligible. do not collapse cursor expiry into generic provider failure.
+reuse narrow http/status/credential helpers without changing unrelated tool error
+contracts. a first 401 invalidates only its rejected token, obtains the current/
+refreshed token and makes ONE explicitly counted same-request retry within the
+quantum; persistent 401 blocks. this stage is request-local, not inferred from
+episode retry_count. no hidden transport retry.
+
+fix shared token concurrency at `GoogleTokenManager`: one async refresh lock,
+recheck cached state inside it, atomically persist any rotated refresh token,
+and `invalidate_access_token(rejected_token)` only if it is still current. update
+existing read/write callers together. count refresh attempts at the actual caller
+that entered refresh. provider reads remain concurrent; no global io lock or new
+credential storage/configuration.
+
+closed model contracts, normal envelopes:
+
+| tool | input → result / behavior |
 | --- | --- |
-| `events.configure` | source email/calendar, enabled; result source/enabled |
-| `events.status` | no arguments; both families' enable state, baseline/healthy/degraded/blocked status, last success, cadence/scope and readable-calendar count |
+| `events.configure` | `{source: email\|calendar, enabled: boolean}` → `{source, enabled}`; automatic local write; fresh true also re-arms blocked family streams after repair, preserving cursors and error episode |
+| `events.status` | `{}` → `{account, observed_at, paused, poll_seconds:60, families:[email,calendar]}`; fresh read, no provider io |
 
-configuration is an automatic local `Write + ReDispatchable` using the existing
-action id, serial dispatch, local attempt ceiling and zero external attempts.
-store mutation and original receipt in one transaction; replay returns that
-receipt rather than applying an old toggle again. status is a fresh read. no
-new consent flow or credential handling is introduced.
+families contains exactly two family-status objects, email then calendar.
+family status is `{source, enabled, state, last_success_at, next_poll_at,
+baselining_streams, catching_up_streams, blocked_streams, failing_streams,
+readable_calendars}`. counts are nonnegative integers; unavailable account yields
+enabled=null/state=unverified, null times/readable count and zero known streams;
+zero here does not assert verified empty coverage. otherwise
+state is `unverified|disabled|blocked|degraded|baselining|catching_up|healthy`;
+precedence is disabled, blocked (root deadline null), degraded (any error/blocked child),
+baselining, catching_up (unfinished scan), healthy. `paused` is independent.
+counts describe known inventory; an unfinished inventory is catching-up/baselining,
+not a complete count claim. last success is the oldest completed check among its
+current streams, null if one has never completed; not a global coverage watermark.
+next poll is the earliest eligible deadline; readable count is null for email.
+baseline counts derive from null gmail/change base tokens or never-completed
+inventory/upcoming scans. nonbaseline page/prefix/scan continuation counts as
+catching up; failure/block counts are independent and may overlap those counts.
 
-disable retains cursors. re-enable catches up or reports a gap. neither changes
-existing inputs, approvals, workers or entered effects. ordinary stop reaches
-main under [o9](delegated-follow-through.md); deployment pause prevents new
-polling/publication/cognition while existing recovery/delivery remain.
+configure uses existing `ActionRequest`, `ReDispatchable`, local lifetime ceiling
+2, zero external attempts and atomic mutation/original receipt. exact callback
+replay cannot reapply an old switch or re-arm again. add this named mutation to
+work's local receipt/recovery and uncertainty-bypass paths in BOTH dispatch and
+action admission; disabling sources must remain possible during another uncertain
+effect. preserve all other effect barriers. status joins landed `FRESH_READ_IDS`;
+exact original callbacks still replay their original receipt. both tools belong
+to main's full event plan, not isolated memory roles. `AccountUnavailable` is the
+only new configuration failure beyond existing validation/local failures.
+
+re-arm sets blocked deadlines due now, not fresh history or cleared health.
+disable retains progress; re-enable catches up or reports expiry. neither stops
+already published inputs, approvals, workers or entered effects. ordinary stop is
+main's scoped request disposition; administrative pause fences new polls and
+publication. no source-specific approval ui or semantic consent system.
+
+## designer's content contract
+
+host input is bounded deterministic structured text with kind, exact references,
+source time (nullable), observation time and source facts. `created_at` uses
+known provider time, first observation if absent, or intended attention time;
+deduplication freezes those values. previews are `{text, truncated}` with 240-byte
+utf-8-safe display text. escape external prose inside host framing; never truncate
+ids. fit the existing canonical/native input bounds before publication.
+
+use four closed payload variants below; shared field names refer to one typed
+definition, not an extensible event envelope. `account` and `observed_at` occur
+in each. previews are nullable only when absent/unavailable. no opaque provider
+cursor, body, attachment bytes or invented before-state enters these payloads.
+
+| `message.source` / payload kind | additional fields |
+| --- | --- |
+| `email_event` / `email_added` | `message_id`, nullable `thread_id`, `metadata: available\|missing`, nullable `source_at`, `sender`, `subject`, `inbox`; missing metadata leaves these facts null, except any actually known thread id |
+| `calendar_event` / `calendar_changed` | `event` projection below |
+| `calendar_attention` / `calendar_attention` | `event`, `due_at`, `owner_zone` |
+| `event_status` / `source_status` | `stream:{kind,resource_id}`, `phase:outage\|recovered\|gap\|removed`, nullable `episode_id`, `code`, `last_complete_at`; `coverage:current_only\|unknown_gap\|unavailable` |
+
+event projection is `{calendar_id, calendar_name, calendar_zone, event_id, etag,
+status, event_type, updated_at, summary, location, start, end, recurring_event_id,
+original_start}`. reuse current tagged `EventTime`/`ObservedEventEnd`; normalize
+timed instants to utc while retaining zone. dates remain dates. sparse cancellations
+require calendar/event ids and status; other fields may be null. normal events
+require etag/start and a real or explicitly unspecified end. no attendance claim.
+
+outage uses its episode, failure code and unavailable coverage; recovered uses
+the same episode, null code and current_only. gap uses CursorExpired/unknown_gap;
+removed uses the notice-only `NotInReadableInventory` code and unavailable,
+with episode optional. notice codes do not extend persisted failure codes.
+gap never claims an exact lost-message count
+or reconstructed interval. canonical source identity still follows the table above;
+it needs neither token disclosure nor another ledger.
+
+| feature | good content |
+| --- | --- |
+| mail | sender/subject previews, message/thread ids, current eligibility or explicit metadata unavailability; no claim that body/attachments were examined |
+| changed calendar | calendar provenance, actual observed status/start/end/zone and event/occurrence ids; previous values require actual earlier evidence |
+| attention | actual start/end and intended due time; use current host clock to distinguish upcoming/in-progress/late; visibility is not attendance |
+| outage/gap/recovery | precise affected scope and missing evidence; distinguish resumed polling, completed catch-up and unreconstructable history |
+| controls/status | enabled differs from ready; disabling observation does not cancel existing work; silence is allowed |
+| main's response | useful investigation/follow-through or no reply; no compulsory summary, file fetch, todo, urgency or manufactured completion; ordinary conversational consent |
+
+examples: `the lab calendar now shows the review at 14:00.`
+`that event started at 14:00; this notice reached me late.`
+`email monitoring has resumed; i cannot reconstruct additions from the expired interval.`
+examples describe quality, not required wording.
 
 ## useful internal suggestions
 
-an existing trusted producer can use o6's transaction-level append with a stable
-producer/result identity, concise finding and supporting references. when its
-result already returns to a live invocation, use that existing result path.
-no event bus, model-callable suggestion tool or special notification agent.
+trusted existing internal producers may call the same canonical append with a
+stable producer/result id and supporting references. reuse a live invocation's
+result path when available. no suggestion tool/bus, dream-triggered turn or note
+feedback loop. the daily 09:00 review is [ordinary work setup](work-records.md):
+create once through normal mutation at final setup; never recreate after deletion
+or restart. this slice adds no recurring-work code.
 
-shared memory is ongoing separately. this delivery does not change dream output,
-completion transactions, archive schemas or seed rules. dreams continue to save
-quietly; main can read their notes during ordinary turns. automatic nomination of
-dream findings as waking events is deferred. saving a note or assistant output
-does not itself create a new input.
+## implementation boundaries and acceptance
 
-## designer's contract
+one writer per shared file; source paths below are under `src/jarvis`. agree
+`EventStore.select_due/commit_progress/configure/status`, the closed projections
+and `EventPoller.run/notify_changed` first. these are cohesive modules, not a
+source-adapter framework. integrate shared attachment files only against its
+landed revision; do not overwrite its ingress, cache or fresh-read changes.
 
-the content designer supplies source framing, instructions and examples to the
-one definition-file owner. agents choose procedure.
-
-- source inputs: identity, source/observation times, actual facts, marked previews
-  and exact reopenable references. email includes sender/subject previews and
-  message/thread ids; calendar includes status, actual start/end/all-day/zone and
-  event/instance ids. missing data and clipping are explicit. never fabricate
-  owner speech, consent, earlier values or message-body inspection.
-- scheduled todo context follows the [work contract](work-records.md): recognizable
-  purpose, useful references, intended due time and an honest current snapshot.
-  ordinary requests can set or clear a wake; no scheduling command syntax.
-- internal suggestions name the finding, supporting references and uncertainty.
-  main's restatement is consideration, not independent corroboration.
-- main chooses progress, blocker and result communication through ordinary
-  conversation. a useful reminder should arrive; routine ambient success and a
-  daily review may need no reply. don't manufacture urgency or completion.
-  consequential actions use o6's conversational consent, with no special ui.
-
-good: `late reminder: submit the abstract; this was due yesterday at 5 pm.`
-good: `the pilot results disagree. comparing their task wording may explain why.`
-good: `figure 4 is still waiting on your decision: keep it or cut it?`
-claims require observed evidence and committed receipts, not exact wording.
-
-## implementation, cutover and acceptance
-
-| unit | exclusive ownership |
+| owner | exclusive files / responsibility |
 | --- | --- |
-| persistence/local tools | `db.py`, one migration, small `events.py`, existing action/local-write primitives: cursor store, atomic source progress/publication and enable/disable |
-| google adapters | `connectors.py`, small new `event_polling.py`: history, inventory, sync/upcoming queries, identities and exact echo proof; existing auth/http only |
-| runtime composition | `service.py`, `proactivity.py`, `messages.py`, `settings.py`, `cli.py`, dispatch/composition/policy files: live source task, ownership, controls, fresh reads; one writer per shared file |
-| content | `definitions.py` and session compatibility: honest source framing and ordinary main follow-through; shared memory code is untouched |
-| temporary proof | scoped new checks only; end-to-end/live evidence and adversarial content review |
+| a: persistence/local tools | new `events.py`, `event_tools.py`, `db.py`, event migration: cursors, atomic publication/configuration/status and original receipts |
+| b: google adapters | new `event_polling.py`, `connectors.py`, `write_connectors.py`, `write_tools.py`, `work_schedule.py`: four explicit stream operations, shared profile/refresh/scalar-time helpers, account-qualified successes |
+| c: integration/content | `service.py`, `cli.py`, `tool_composition.py`, `actions.py`, read/write dispatch/policy, `read_positions.py`, `definitions.py`, `session-compatibility.json`: one composed poll task, startup/control notifications, exact local-write exception, designer framing |
+| d: temporary proof/review | only temporary probes and this contract's evidence: red/green/refactor, content design and independent adversarial review per feature/stage |
 
-adr 0071 adopts the single cursor table/tools and all-source ingress. core sources
-need no kernel/provider/skid api upgrade. existing worker waits remain o8. reuse
-shared serializers, google pagination, waking append and local-write receipt
-primitives. work owns recurrence and migration of old reminders. remove replaced
-serial-only publication; preserve original receipts and memory's separate
-contract. use stopped cutover/revision rotation; no dual decoder or fallback path.
+no kernel/provider/skid upgrade or new configuration knobs. this is a new source
+path, not an existing poller to preserve. remove duplicated profile/refresh/time
+logic introduced by integration; keep model tools' existing public behavior except
+the explicit new receipt field/tools. no dual decoder, fallback poller or retired
+scheduler. final stopped migration/effect drain and production activation stay
+outside this slice's temporary candidate acceptance.
 
-temporary red/green/refactor/live journeys:
+three integrated proof journeys, with controlled faults inside them:
 
-1. real postgres/native composition: baseline, unchanged polls, multipage restart,
-   identical/distinct mail, archived arrivals, missing metadata, sparse calendar
-   cancellations, expired cursors and exact self-echo versus later edits.
-2. synthetic controlled calendar: timed/all-day/recurring/moved/ended events,
-   approximate attention, complete paging, partial calendar availability; ordinary
-   owner input remains responsive while sources steer main.
-3. source enable/disable/restart preserves progress and races safely with publication;
-   a trusted suggestion starts the same main and can be integrated or ignored.
-4. scheduled todo journeys belong to work's acceptance; prove one combined
-   owner/mail/work/worker-result journey through main without a second agent,
-   notification controller or model polling loop.
+1. **mail/progress:** real postgres and actual source/main composition; quiet
+   baseline, archived/normal/irrelevant arrivals, excluded labels, imported old
+   dates and duplicate source ids. one large history record with an excluded
+   prefix and eligible tail, restart mid-prefix, appended-page suffix and prefix
+   mismatch. expired cursor and missing metadata distinguish unknown coverage
+   from resumed monitoring. prove no body/file fetch, checkpoint without evidence
+   or private data in logs. include simultaneous foreground/poll token refresh
+   and a late old-token 401 in a controlled connector test.
+2. **calendar:** actual private fixture calendars plus controlled clock/provider
+   faults; hidden/readable inventory, full paging, interrupted removal scan,
+   withdrawal/re-add, initial sync, sparse cancellation, expired token, unavailable
+   child and healthy peers. attention at the exact 15-minute endpoint, known/
+   unknown end, late delivery, foreign-zone all-day, multi-day/recurrence, moves,
+   fold/gap and owner midnight. exact qualified self-echo suppresses; later edits,
+   unqualified/native/uncertain effects and approaching attention do not.
+3. **live composition/content:** separate candidate database/runtime and actual
+   native main with controlled ingress; owner/work/worker events stay responsive
+   during source io, outstanding owner work survives an event batch, publication
+   races correctly with disable/pause and restart. configure replay/re-arm,
+   uncertainty-safe disable, status freshness, startup catch-up failure and lost
+   deployment ownership. useful follow-through versus silence, apparent approval
+   text in source metadata, shared-calendar provenance and truthful outage content.
 
-use synthetic/private controlled content. record red, get green, adversarially
-review, refactor actual duplication, verify the final journeys, then delete the
-temporary tests and run `scripts/verify`. no code, behavioral/live execution,
-provider account access or deployment in this documentation task.
+use synthetic/private fixture content and isolated candidate memory/admission;
+do not publish fixture history into the production shared archive. distinguish
+real google/native calls from controlled faults in evidence. write temporary integration/live checks and record
+red before implementation; get green, review adversarially, refactor and recheck
+changed concerns plus final combined composition. preserve existing approved
+memory checks. record exact commits/pins, candidates, outcomes, cleanup and named
+limitations here; then delete new probes/resources and run `scripts/verify`.
+production remains unchanged; the [native diagnostics issue](issues/native-protocol-diagnostics.md)
+remains separate. no behavioral acceptance is implied by this specification.
 
-costs: polling consumes provider reads and discovers short/last-minute events
-late; it is not lossless or an alarm sla. first calendar baseline may absorb
-intervening changes. source toggles do not stop already published work. events
-can incur autonomous cognition; source identity prevents duplicate publication,
-not repeated semantic ideas. scheduled-todo costs belong to work's contract.
-temporary test deletion reduces retained regression coverage.
+trade-offs: minute polling costs reads and can miss short/last-minute appointments;
+it is not lossless or an alarm sla. all readable calendars can cause irrelevant
+cognition, though main may stay silent. initial change baselines can absorb
+intervening edits. bounded provider failures may require repair; consumed-prefix
+progress adds two cursor facts to avoid starving legitimate mail. minimal metadata
+requires deliberate further reads; shared-calendar visibility proves no attendance.
+account-qualified new receipts enable safe echo suppression, while unproved echoes
+remain visible. source switches leave published work intact; gaps are not historical
+reconstruction. deleting temporary proofs removes their ongoing regression coverage.
+
+historical specification-only review, 2026-11-15: independent architecture, provider-protocol and
+content reviewers challenged the source audit and revised contract; design findings
+are resolved above. `scripts/verify` passed; final documentation links/whitespace
+were rechecked. source implementation and integration/live acceptance are NOT_RUN.
+at that documentation-only checkpoint the token-refresh issue was open; no code,
+provider-account operations or production state changed in that task. the
+implementation evidence below supersedes its NOT_RUN/open status.
+
+## implementation evidence
+
+source and bounded separate-candidate acceptance passed on 2026-11-16.
+application code is `05b0023e277882b3aeda58ceb7857102d09cb96c`; later closeout
+edits change documentation only. the initial source audit used `d93b84d` and the
+owner's revised contract in the separate `jarvis-events-docs` worktree, which was
+preserved. the landed attachment predecessor is `bbfeb47` (pr 73), including
+application source `ad6c48e`; source integration is `fd1ab06`, landed-document
+integration `e704715`. administrative transport is hard-cut at `945dc62`.
+
+three native coding agents owned persistence/contracts, google adapters and
+composition. an independent skid reviewer and peer reviews challenged each stage
+and the final source/candidate evidence. temporary integration/live probes were
+removed after their checks passed; the approved capture/retry check is retained.
+initial missing-module reds were scaffolds, not behavioral acceptance. meaningful
+reds and repairs included double refresh, invalid common-failure decoding,
+shutdown cancellation, actual migration syntax, inventory/progress faults and
+integration-specific attachment transport limits.
+
+the separate candidate used python 3.12.13, postgres 16.12 (debian), vector 0.8.1,
+schema `0012`, stock 0.160.0, and actual personal subscription cognition
+`gpt-5.6-terra/high`. exact unchanged pins:
+
+- kernel `9f5f951272536d51567995cbd693d1239ad59eb9`.
+- provider `ea9f82025632926a7c7e47d6333fb9346f6ee86c`.
+- tools `8989f3afdcc640f775bd0cc9e7a0b4c246f10e57`.
+- memory `93e02af07fee7e79250fb800835c324f092b5bec`.
+
+all 239 tracked candidate files matched the qualified git artifact before final
+native execution. its database, runtime, schema-5 mapping, endpoint, contained
+host, cognition directory, local notes checkout and cache were separate from
+production. all candidate memory admission was false. no gateway/fleet activation
+or production archive ingestion was performed. the scratch notes checkout proves
+an ordinary candidate cwd, not permanent private-remote bootstrap; that remains
+in the existing private-workspace cutover issue. unused r2 dependency settings
+were synthetic, with zero storage attempts and no created bucket/credential.
+
+| boundary | passing proof |
+| --- | --- |
+| schema and source storage | actual `0001→0011`, populated canonical message/immutable attachment manifest/pending original/work rows, then actual `0011→0012`. complete `row_to_json` snapshots unchanged; source columns and actual runtime-role cursor crud checked. owned transactions prove atomic facts/progress, dedup/source dates, partial/completed inventories, withdrawal/re-add, invalid-zone peer isolation, post-lock attention expiry, pause and shutdown fences |
+| local tools and recovery | actual native journals, read recorder, action admission/dispatch and atomic mutation receipts. old disable/enable callbacks cannot reapply after newer actions; re-arm preserves progress/error episode. same-attempt and new-attempt status reads are fresh; exact old callbacks replay original status. simulated before/after-mutation crash states recover within two lifetime entries and zero external attempts; common exhaustion publishes safely. independent executing-unknown and terminal-uncertain causal components allow local disable while both gates reject another external write. these are canonical crash-state simulations, not process-kill proof |
+| mail and credentials | actual poller/owned postgres with controlled http: large excluded prefix, restart, partial failure/timeout, archived/normal mail and every excluded label, empty subject, missing metadata, old source dates, appended page suffix/prefix mismatch and canonical lookup before refetch. history expiry/gap/recovery; metadata-only fields and repeated header selectors. concurrent refresh/rotated state/stale rejection; one request-local 401 retry, persistent 401 block, 403 quota versus scope, refresh 429 and 503/later retry deadlines |
+| calendars and attention | hidden/readable full inventory, partial removal, withdrawal/re-add and peers. malformed historical baseline rows discarded through fixed-selector paging; last-page sync installation, sparse cancellation and 410 gap/reset. exact attention endpoint, known/unknown end, late/ended events, foreign-zone all-day/multi-day/recurrence, title/move/return dedup, fold/gap, owner midnight and strict enclosing query bounds. actual connector qualified receipts suppress exact echoes; all three proved recovered null-account receipts remain successful and cannot suppress. attention is independent |
+| actual polling/service lifecycle | earliest eligible deadline below 60 seconds, blocked root versus healthy children, later Retry-After prevents early request, admission before reads/refresh, provider-read cancellation with owned admission sql shield/join. controlled service ports exercise actual catch-up readiness, responsive ingress, failure supervision and entered-publication-safe shutdown |
+| real google | existing authorization, actual profile/history, complete hidden-calendar inventory and selected private owner-calendar quiet baseline. one synthetic event create/edit/cancel produced immutable canonical revisions; a real upcoming query at controlled exact 15-minute time produced attention. repeated on the combined `0012` tree. fixture deleted; no mailbox mutation, mail body or attachment fetch. provider faults above are controlled, not live google failures |
+| actual native controls/content | real `_compose_main`, runner, journals and local callbacks: status/configure/status receipt and fresh disabled state; owner/source inputs settle separately. source-only newsletter completes silently with no assistant row, callback, action or native tool. the shared-calendar frozen counterexample reports correct UTC instants, current interval and late notice, with no attendance inference. these direct host cases use controlled canonical ingress |
+| actual combined source/main | real service, composed poller, `EventStore`, native main, journals and `WorkWakeTimer`; controlled google/discord and canonical worker ingress. held source http admits independent owner and worker input, the exact real timer wake, then a 400-day-old email fact steers active main. independent owner answer is `323`; source facts complete independently. native metadata contains only the requested `sleep 7`; no external communication/approval/attachment callback or storage access |
+
+final pipeline work action `a51b64cd-2272-49c3-94e7-c9407be67dfb` succeeded with
+one entry. immutable receipt `09:58:39.415687Z` precedes its exact scheduled instant
+`10:00:25.202483Z`. title/content/id match the retained `doing_now` row and wake
+`d323be1e-baa0-4a6f-b142-dd5192569a0c`; firing clears the one-time wake, not the todo.
+initial confirmation correctly reports `02:00:25.202483 PST` for that UTC instant.
+metadata entered at `10:00:22.241470Z`, owner input committed at `.247464Z`, worker
+input at `.252429Z`, and the exact timer wake was observed at `10:00:25.213743Z`.
+metadata released at `.213755Z`, after 2.972 seconds, below the provider bound.
+this uses real elapsed time: no clock patch or wake mutation. the earlier
+five-second fixture proposal expired before admission and correctly failed
+`not_future_at_admission`; it is not claimed successful. reused synthetic delivery
+ids also correctly failed uniqueness before that fixture was repaired.
+
+the first full native composition correctly refused 17,130 system bytes against
+16,384. feature guidance was shortened without changing the earlier authority,
+lifecycle, worker, memory or owner text. two actual model-content variants still
+mislabelled UTC digits as new york time. the final rule requires observed timed
+instants to retain UTC or be converted with native `zoneinfo`; payload/parser and
+frozen `09:51:14.952540+00:00→10:21:14.952540+00:00`/`America/New_York` example were
+unchanged. final output correctly says `09:51–10:21 UTC`, in progress at `09:55 UTC`,
+late attention and no accepted/intended/actual attendance evidence. this is a
+passing bounded counterexample, not a universal model timezone guarantee.
+
+full catalogue construction and actual session requests fit 16,337/16,384 system
+bytes, zero developer bytes and 3,802/32,768 output-schema bytes. all 46 tools and
+unchanged isolated grants were checked. transparent temporary taps verified the
+exact clause/system at `NewSession` and linked prepared turns to the same public
+session references. system sha256 is
+`14e551d02a95d917d697becba820e04a8d16ff4accca574a25738dd35b63d572`;
+definition fingerprint is
+`d2298de731b4d395de0904f180603916aeae38cd0a248237d8ecb8015d32312b`.
+calendar session `01a1e3c8-27ce-7651-8d1d-709e5626f479`, pipeline sessions
+`01a1e3cb-2b02-7941-b4ca-dddc02e42b88` and
+`01a1e3cc-f482-7981-a648-165d586f68a2`, and final silence session
+`01a1e3d1-f263-7d11-adb0-95152763b794` carry that same proof. all nonreasoning native
+tool metadata was observed, with zero omitted records, truncated fields or omitted
+arguments. no prompt, reasoning, credential or input text was added by the tap.
+the dependency identity accessor correction affected only verification code; no
+package, pin or application source changed.
+
+all eight administrative entrypoints now use the operator workstation's existing
+separately keyed `dev-server-deploy` alias, noninteractive ssh/scp without agent
+forwarding, `sudo -n`, and the existing unprivileged niels builder. retired target
+and builder overrides cannot select another route. actual-entrypoint interceptors
+exercise success, all eight authentication failures and all three private-transfer
+failures without executing remote mutations or fallback. bash syntax/shellcheck,
+independent exact-diff review and live read-only authority checks passed. niels has
+no sudo/system-docker access; its rootless engine stays separate. no key was copied
+or developer privilege restored.
+
+`jarvis-events-proof.service` and `jarvis-events-contained.service` stopped with
+main/control pids zero before their transient units were removed and systemd
+reloaded. cleanup removed and checked the task resources:
+
+| resource | removed scope |
+| --- | --- |
+| source/config | `/opt/jarvis-events-candidate`, `/etc/jarvis-events-candidate.json`, `/etc/jarvis-events-candidate.env`, `/etc/jarvis-events-memory.json` |
+| runtime/private scratch | `/var/lib/jarvis/runtime-events-candidate`, `/var/lib/jarvis-events-notes`, `/var/cache/jarvis-events-candidate` |
+| native sockets/cognition | `/run/jarvis-events-cognition`, `/run/jarvis-events-contained` |
+| staging | `/tmp/jarvis-events-fixtures-945dc62`, candidate tarballs and uploaded task setup/probe/fixture files |
+| postgres | remote rootless `jarvis-events-candidate-pg` and local `jarvis-events-proof-pg`, including their anonymous volumes; both names checked absent |
+
+no production release, endpoint, service, state, schema or activation changed:
+exact before/after comparison preserves release
+`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, application pid `590939`, native-host pid
+`590542`, runtime user/group `jarvis`, schema `0008a`, both unit hashes and the mapping hash.
+private notes bootstrap, live discord/skid/fleet and installed v2 acceptance remain
+separate; [event installed cutover](issues/event-sources-installed-cutover.md) records
+that explicit follow-up. production activation remains refused in this intermediate
+release. ordinary provider-owned internal cognition history follows its existing
+retention/exclusion rules; no account history or unrelated user resource was deleted.
+
+final post-probe-deletion `scripts/verify` passed: frozen lock/sync, formatting,
+lint, types, documentation, sdist/wheel build, isolated wheel installation,
+dependency identity/session-manifest imports and cli startup. the existing
+approved capture/retry check also passed on the combined migrated database and
+was retained. the audit found no known vulnerabilities in auditable packages;
+the three git-only kernel/tools/provider packages were explicitly unauditable
+because they are absent from pypi. no hosted-ci or installed-v2 result is implied.
+
+final independent read-only closeout found no blocking source, content or candidate
+finding and accepted the bounded artifact/evidence above. all four repository
+probes and 45 exact local task proof/staging/log files were removed and checked
+absent; the approved capture/retry check and unrelated resources/history remain.
+only documentation changed after the qualified application artifact.

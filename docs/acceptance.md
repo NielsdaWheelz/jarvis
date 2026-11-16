@@ -95,9 +95,17 @@ use a small set of meaningful implementation checks when that work is authorized
   production installation and activation remain at final v2 cutover. connector
   receipts do not imply native exactly-once execution; stop/pause retain their
   distinct scopes. the evidence owns resource disposition.
+- [slice 6](event-sources-and-recurring-work.md#implementation-boundaries-and-acceptance)
+  specifies three temporary journeys for mail/progress, calendar and live
+  composition/content. prove excluded-prefix progress, atomic publication,
+  source controls during uncertainty, exact attention/echo identities, truthful
+  gaps and responsive main. shared credential concurrency gets one controlled
+  connector check; no credential product or production activation. source and separate combined
+  migration/native candidate are qualified in its owning evidence; installed
+  activation remains separate.
 
 slice 1's [source-audited proof plan](one-main-events.md#acceptance-and-redgreenrefactor)
-and slices 2–5's linked contracts own temporary integration/live red/green/refactor,
+and slices 2–6's linked contracts own temporary integration/live red/green/refactor,
 content design and adversarial review, followed by probe deletion. real timed
 producers are slice 2, installed workers slice 3 and external producers slice 6;
 generic input proof

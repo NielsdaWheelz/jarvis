@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+target=dev-server-deploy
 commit="${1:-}"
 source_mapping="${JARVIS_SOURCE_CODEX_HOST_CONFIG:?supply the provisioned non-secret personal host mapping}"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
@@ -12,10 +12,10 @@ fi
   printf 'missing or unsafe contained host mapping source\n' >&2
   exit 1
 }
-remote="$(ssh "$target" mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
+remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
 case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
-scp -q "$source_mapping" "$target:$remote/codex-host.json"
-ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$remote" <<'REMOTE'
+scp -q -o BatchMode=yes -o ForwardAgent=no "$source_mapping" "$target:$remote/codex-host.json"
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$remote" <<'REMOTE'
 set -euo pipefail
 commit="$1"
 remote="$2"
@@ -24,19 +24,19 @@ case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
 cleanup() { rm -rf -- "$remote"; }
 trap cleanup EXIT HUP INT TERM
 release="/opt/jarvis/releases/$commit"
-sudo test -f "$release/RELEASE.json"
+sudo -n test -f "$release/RELEASE.json"
 [[ -f "$remote/codex-host.json" && ! -L "$remote/codex-host.json" ]]
 
 # host and mapping changes require a cleanly stopped application. existing native
 # attempts are recovered by the application after its next activation.
-[[ "$(sudo systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
-[[ "$(sudo systemctl show --property=Result --value jarvis.service)" == success ]]
-[[ "$(sudo systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
-candidate="$(sudo mktemp /etc/jarvis/.codex-host.XXXXXX)"
-cleanup_candidate() { sudo rm -f -- "$candidate"; cleanup; }
+[[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+[[ "$(sudo -n systemctl show --property=Result --value jarvis.service)" == success ]]
+[[ "$(sudo -n systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+candidate="$(sudo -n mktemp /etc/jarvis/.codex-host.XXXXXX)"
+cleanup_candidate() { sudo -n rm -f -- "$candidate"; cleanup; }
 trap cleanup_candidate EXIT HUP INT TERM
-sudo install -m 0644 -o root -g root "$remote/codex-host.json" "$candidate"
-mapfile -t layout < <(sudo "$release/.venv/bin/python" - \
+sudo -n install -m 0644 -o root -g root "$remote/codex-host.json" "$candidate"
+mapfile -t layout < <(sudo -n "$release/.venv/bin/python" - \
   "$candidate" "$release" "$remote/jarvis-codex-contained.service" <<'PY'
 import grp
 import json
@@ -121,54 +121,54 @@ PY
 [[ "${#layout[@]}" == 2 ]]
 host_user="${layout[0]}"
 account_home="${layout[1]}"
-sudo -u "$host_user" test -r "$account_home/auth.json"
-if sudo -u jarvis test -r "$account_home/auth.json"; then
+sudo -n -u "$host_user" test -r "$account_home/auth.json"
+if sudo -n -u jarvis test -r "$account_home/auth.json"; then
   printf 'application can read the native host account; installation refused\n' >&2
   exit 1
 fi
-sudo systemd-analyze verify "$remote/jarvis-codex-contained.service"
-sudo systemd-analyze verify "$remote/jarvis.service"
-sudo systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
-if sudo systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
-  sudo systemctl stop jarvis-codex-contained.service
+sudo -n systemd-analyze verify "$remote/jarvis-codex-contained.service"
+sudo -n systemd-analyze verify "$remote/jarvis.service"
+sudo -n systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
+if sudo -n systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
+  sudo -n systemctl stop jarvis-codex-contained.service
 fi
-sudo install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
-sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
-sudo install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
-sudo install -d -m 0750 -o jarvis -g codex-clients \
+sudo -n install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
+sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
+sudo -n install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
+sudo -n install -d -m 0750 -o jarvis -g codex-clients \
   /var/cache/jarvis /var/cache/jarvis/attachments
-if ! sudo test -e /var/lib/jarvis-notes; then
-  sudo install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
+if ! sudo -n test -e /var/lib/jarvis-notes; then
+  sudo -n install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
 fi
 bootstrap_unit=/run/systemd/system/jarvis-notes-bootstrap.service
 [[ ! -e "$bootstrap_unit" && ! -L "$bootstrap_unit" ]]
 cleanup_candidate() {
-  sudo systemctl stop jarvis-notes-bootstrap.service >/dev/null 2>&1 || true
-  sudo rm -f -- "$candidate" "$bootstrap_unit"
-  sudo systemctl daemon-reload
+  sudo -n systemctl stop jarvis-notes-bootstrap.service >/dev/null 2>&1 || true
+  sudo -n rm -f -- "$candidate" "$bootstrap_unit"
+  sudo -n systemctl daemon-reload
   cleanup
 }
 trap cleanup_candidate EXIT HUP INT TERM
-sudo install -m 0644 -o root -g root "$remote/jarvis-notes-bootstrap.service" "$bootstrap_unit"
-sudo systemctl daemon-reload
-sudo systemctl start jarvis-notes-bootstrap.service
-sudo systemctl stop jarvis-notes-bootstrap.service
-sudo rm -f -- "$bootstrap_unit"
-sudo -u jarvis test -r /var/lib/jarvis-notes
-sudo -u jarvis test -x /var/lib/jarvis-notes
-sudo -u jarvis test -r /var/lib/jarvis-notes/.git
-sudo -u jarvis test -x /var/lib/jarvis-notes/.git
+sudo -n install -m 0644 -o root -g root "$remote/jarvis-notes-bootstrap.service" "$bootstrap_unit"
+sudo -n systemctl daemon-reload
+sudo -n systemctl start jarvis-notes-bootstrap.service
+sudo -n systemctl stop jarvis-notes-bootstrap.service
+sudo -n rm -f -- "$bootstrap_unit"
+sudo -n -u jarvis test -r /var/lib/jarvis-notes
+sudo -n -u jarvis test -x /var/lib/jarvis-notes
+sudo -n -u jarvis test -r /var/lib/jarvis-notes/.git
+sudo -n -u jarvis test -x /var/lib/jarvis-notes/.git
 printf 'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -\n' | \
-  sudo tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
-sudo mv -fT -- "$candidate" /etc/jarvis/codex-host.json
-sudo install -m 0644 -o root -g root \
+  sudo -n tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
+sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
+sudo -n install -m 0644 -o root -g root \
   "$remote/jarvis-codex-contained.service" /etc/systemd/system/jarvis-codex-contained.service
-sudo install -m 0644 -o root -g root \
+sudo -n install -m 0644 -o root -g root \
   "$remote/jarvis.service" /etc/systemd/system/jarvis.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now jarvis-codex-contained.service
-sudo systemctl is-active --quiet jarvis-codex-contained.service
-sudo systemd-run --quiet --wait --pipe --collect \
+sudo -n systemctl daemon-reload
+sudo -n systemctl enable --now jarvis-codex-contained.service
+sudo -n systemctl is-active --quiet jarvis-codex-contained.service
+sudo -n systemd-run --quiet --wait --pipe --collect \
   --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
   --property=SupplementaryGroups=codex-clients \
   --property=ProtectHome=true --property=ProtectSystem=strict \

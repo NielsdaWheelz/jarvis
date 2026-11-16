@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import cast
 
@@ -33,6 +34,9 @@ from jarvis.attachment_sources import AttachmentSources
 from jarvis.attachment_tools import attachment_family
 from jarvis.attachments import AttachmentStore, S3Client
 from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadConnector
+from jarvis.event_polling import EventPoller
+from jarvis.event_tools import events_family
+from jarvis.events import EventStore
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
 from jarvis.ownership import Database
@@ -52,6 +56,7 @@ from jarvis.write_tools import calendar_main_family, gmail_main_family
 class ToolComposition:
     catalog: ToolCatalog
     google_write: GoogleWriteConnector
+    event_poller: EventPoller
     attachments: AttachmentStore
 
 
@@ -66,6 +71,8 @@ def build_tool_composition(
     actions: ActionStore,
     agents: AgentController,
     work: WorkStore,
+    events: EventStore,
+    event_admitted: Callable[[], Awaitable[bool]],
 ) -> ToolComposition:
     calendar_ids_digest = hashlib.sha256(
         canonical_json_bytes(sorted(settings.verified_owner_only_calendar_ids))
@@ -118,6 +125,7 @@ def build_tool_composition(
             memory_family(memory),
             approval_family(),
             _bind_write_policy(work_family(work), calendar_ids_digest=None),
+            _bind_write_policy(events_family(events), calendar_ids_digest=None),
             _bind_write_policy(
                 attachment_family(attachments), calendar_ids_digest=None
             ),
@@ -128,7 +136,15 @@ def build_tool_composition(
         for tool_id in catalog.tool_ids
     ):
         raise RuntimeError("every application binding must be available")
-    return ToolComposition(catalog, google_write, attachments)
+    event_poller = EventPoller(
+        store=events,
+        client=google_api_http,
+        tokens=tokens,
+        owner_zone=settings.owner_timezone,
+        admitted=event_admitted,
+    )
+    events.notify_changed = event_poller.notify_changed
+    return ToolComposition(catalog, google_write, event_poller, attachments)
 
 
 def google_tokens(settings: Settings, http: httpx.AsyncClient) -> GoogleTokenManager:

@@ -40,7 +40,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0011"
+APPLICATION_SCHEMA_REVISION = "0012"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -579,6 +579,92 @@ Index(
     work.c.wake_at,
     work.c.id,
     postgresql_where=work.c.wake_at.is_not(None),
+)
+
+
+# Source progress is independent of conversation history and stores no provider content.
+event_cursor = Table(
+    "event_cursor",
+    metadata,
+    Column("kind", Text, primary_key=True),
+    Column("account_id", Text, primary_key=True),
+    Column("resource_id", Text, primary_key=True),
+    Column("enabled", Boolean),
+    Column("progress", JSONB, nullable=False),
+    Column("next_poll_at", DateTime(timezone=True)),
+    Column("last_success_at", DateTime(timezone=True)),
+    Column("error", JSONB(none_as_null=True)),
+    Column("seen_inventory_scan", UUID(as_uuid=True)),
+    CheckConstraint(
+        "kind IN ('gmail','calendar_list','calendar_changes','calendar_upcoming')",
+        name="kind",
+    ),
+    CheckConstraint(
+        "octet_length(account_id) BETWEEN 1 AND 1024 AND "
+        "octet_length(resource_id) <= 1024",
+        name="identity",
+    ),
+    CheckConstraint(
+        "((kind IN ('gmail','calendar_list') AND resource_id = '' AND "
+        "enabled IS NOT NULL AND seen_inventory_scan IS NULL) OR (kind IN "
+        "('calendar_changes','calendar_upcoming') AND resource_id <> '' "
+        "AND enabled IS NULL AND seen_inventory_scan IS NOT NULL)) IS TRUE",
+        name="scope",
+    ),
+    CheckConstraint(
+        "(jsonb_typeof(progress) = 'object' AND CASE kind WHEN 'gmail' THEN "
+        "progress ?& "
+        "ARRAY['history_id','page_token','consumed','prefix_sha256'] AND "
+        "progress - "
+        "ARRAY['history_id','page_token','consumed','prefix_sha256'] = "
+        "'{}'::jsonb AND jsonb_typeof(progress->'consumed')='number' AND "
+        "(progress->>'consumed')::numeric BETWEEN 0 AND 9007199254740991 "
+        "AND (progress->>'consumed')::numeric = "
+        "trunc((progress->>'consumed')::numeric) AND "
+        "((progress->>'consumed')::numeric = 0) = "
+        "(progress->'prefix_sha256' = 'null'::jsonb) AND "
+        "(progress->'prefix_sha256' = 'null'::jsonb OR "
+        "progress->>'prefix_sha256' ~ '^[0-9a-f]{64}$') AND "
+        "(progress->'history_id' <> 'null'::jsonb OR "
+        "(progress->'page_token'='null'::jsonb AND "
+        "(progress->>'consumed')::numeric=0)) WHEN 'calendar_list' THEN "
+        "progress ?& ARRAY['scan_id','page_token'] AND progress - "
+        "ARRAY['scan_id','page_token'] = '{}'::jsonb AND "
+        "(progress->'scan_id' <> 'null'::jsonb OR "
+        "progress->'page_token'='null'::jsonb) WHEN 'calendar_changes' "
+        "THEN progress ?& ARRAY['sync_token','page_token'] AND progress - "
+        "ARRAY['sync_token','page_token'] = '{}'::jsonb WHEN "
+        "'calendar_upcoming' THEN progress ?& "
+        "ARRAY['calendar_zone','scan'] AND progress - "
+        "ARRAY['calendar_zone','scan'] = '{}'::jsonb AND (progress->'scan' "
+        "= 'null'::jsonb OR (jsonb_typeof(progress->'scan')='object' AND "
+        "progress->'scan' ?& "
+        "ARRAY['as_of','owner_zone','owner_date','time_min','time_max','page_token'] "
+        "AND (progress->'scan') - "
+        "ARRAY['as_of','owner_zone','owner_date','time_min','time_max','page_token'] "
+        "= '{}'::jsonb)) ELSE false END) IS TRUE",
+        name="progress",
+    ),
+    CheckConstraint(
+        "(error IS NULL OR (jsonb_typeof(error)='object' AND error ?& "
+        "ARRAY['episode_id','code','since','retry_count'] AND error - "
+        "ARRAY['episode_id','code','since','retry_count'] = '{}'::jsonb "
+        "AND error->>'code' IN "
+        "('TransportUnavailable','RateLimited','AuthUnavailable','Forbidden',"
+        "'InvalidResponse','ResponseTooLarge','CursorExpired') "
+        "AND jsonb_typeof(error->'retry_count')='number' AND "
+        "(error->>'retry_count')::numeric BETWEEN 1 AND 5 AND "
+        "(error->>'retry_count')::numeric = "
+        "trunc((error->>'retry_count')::numeric))) IS TRUE",
+        name="error",
+    ),
+)
+Index(
+    "ix_event_cursor_due",
+    event_cursor.c.next_poll_at,
+    event_cursor.c.kind,
+    event_cursor.c.resource_id,
+    postgresql_where=event_cursor.c.next_poll_at.is_not(None),
 )
 
 

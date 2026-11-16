@@ -44,6 +44,7 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
+from jarvis.event_tools import EVENT_READ_IDS
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
 from jarvis.tool_results import completed_tool_result
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
 # New callbacks observe current files/pages; exact native callbacks still replay.
 FRESH_READ_IDS = (
     WORK_READ_IDS
+    | EVENT_READ_IDS
     | ATTACHMENT_READ_IDS
     | {ToolId("gmail.list_thread_messages"), ToolId("gmail.list_attachments")}
 )

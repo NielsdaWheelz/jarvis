@@ -68,8 +68,8 @@ host_pid="$(sudo -n systemctl show --property=MainPID --value jarvis-codex-conta
 cache_mount_options="$(sudo -n nsenter --target "$host_pid" --mount \
   findmnt --target "$cache" --noheadings --output VFS-OPTIONS)"
 [[ ",$cache_mount_options," == *,ro,* ]]
-sudo -n -u jarvis test ! -w /var/lib/jarvis-notes
-sudo -n -u jarvis test ! -w /var/lib/jarvis-notes/.git
+sudo -n -u jarvis -g codex-clients test ! -w /var/lib/jarvis-notes
+sudo -n -u jarvis -g codex-clients test ! -w /var/lib/jarvis-notes/.git
 release="$(sudo -n readlink -f /opt/jarvis/current)"
 [[ "$release" =~ ^/opt/jarvis/releases/[0-9a-f]{40}$ ]]
 # qualify the public native startup contract through the same uid, group and

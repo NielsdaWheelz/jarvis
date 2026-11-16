@@ -500,3 +500,28 @@ old/new source sha256 values are
 independent adversarial review covers the one-line fix and these exact outcomes;
 private receipts remain under `source-evidence/bootstrap-mode`. only this
 boundary changes; schemas, roles, pins and the host unit are unchanged.
+
+### installer service-group permission checks
+
+installed `7eaf262c4e57790532d333032bdeac0bae82f838` completed notes bootstrap,
+then stopped at the installer's bare `sudo -u jarvis` read check. the application
+account has primary group `jarvis` without global `codex-clients` membership;
+`jarvis.service` supplies that client group through `SupplementaryGroups`.
+the directory permissions were correct for the service identity. the installer
+was checking a different group set.
+
+four installer notes/metadata read/traversal checks now explicitly select
+`codex-clients`. the two matching containment no-write checks use the same group,
+so group-write access cannot produce a false pass. for these filesystem checks,
+selecting the client group as primary tests the same access grant as the service's
+supplementary group. no account membership, runtime identity, unit restriction or
+checkout permission changes.
+
+the operator's read-only check reproduced the bare-user refusal and passed all
+four read/traversal checks plus both no-write checks with the explicit group.
+a retained, owned fixture's metadata directory was temporarily changed from
+`0750` to `0770`: the bare-user no-write check falsely passed, while the explicit
+group check correctly refused. the fixture returned to `0750`; production
+permissions were untouched by this proof. independent adversarial review and
+private receipts under `source-evidence/installer-service-group` qualify this
+boundary. this is not a completed installation or production acceptance claim.

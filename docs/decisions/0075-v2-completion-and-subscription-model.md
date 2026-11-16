@@ -1,8 +1,14 @@
 # adr 0075: v2 completion and subscription model
 
 status: accepted scope, 2026-11-16. [f1](../mail-calendar-web-reads.md) now owns
-the read-completion schemas and acceptance; f2/f3 specs remain pending.
+the read-completion schemas and acceptance; [f3](../subscription-model-runtime.md)
+is specified; f2's spec remains pending.
 implementation, qualification and production activation remain separate.
+
+[adr 0076](0076-role-models-and-delegated-choices.md) supersedes this adr's original
+shared main/memory model decision: main astra/max, memory sol/xhigh, with deliberate
+native-child and per-session skid model/effort choices. the original decision
+below remains its historical rationale; other finishing scope is unchanged.
 
 f1 owner refinement: web result pages are disposable; eviction/restart requires
 an explicit fresh observation. original paid-read uncertainty is not retry

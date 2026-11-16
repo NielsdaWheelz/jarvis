@@ -63,7 +63,11 @@ outside this cut. [adr 0075](decisions/0075-v2-completion-and-subscription-model
 adds focused mail/calendar/web read completion, native/discord reliability and
 an independently qualified `gpt-6-astra`/`max` personal-subscription target through
 the existing provider library. [f1](mail-calendar-web-reads.md#implementation-evidence)
-has source and separate candidate qualification; f2/f3 specs remain pending.
+has source and separate candidate qualification. [f3](subscription-model-runtime.md)
+is specified under [adr 0076](decisions/0076-role-models-and-delegated-choices.md):
+main astra/max, fixed memory sol/xhigh, shared provider/authentication mechanisms,
+and deliberate native-child/per-session skid choices. f2's spec and both
+implementations remain pending.
 broader search/budget
 and production activation remain separate. reuse existing owners, prompt/tool
 publication and delegation; this adds no framework or model-routing service.

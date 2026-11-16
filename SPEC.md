@@ -114,8 +114,10 @@ remain later work; the focused completion below is now selected.
 
 [adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adopts
 three additional review units. [f1's implementation contract](docs/mail-calendar-web-reads.md)
-is implemented with source and separate candidate qualification; f2/f3 still
-need their own specs:
+is implemented with source and separate candidate qualification;
+[f3's contract](docs/subscription-model-runtime.md) specifies the owner refinement
+in [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md). f2 still
+needs its spec:
 
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
@@ -140,14 +142,17 @@ need their own specs:
 - pin the owner's `gpt6astra-max` target: authenticated `gpt-6-astra` dispatch
   model at reasoning `max`, through the personal codex subscription and the
   owner's provider library (`provider-runtime` in `llm-calling`). use the actual
-  authenticated catalog key; do not invent a combined alias. one shared cognition
-  selection serves main and isolated memory roles; worker profiles are separate.
-  qualify exact model/effort/authentication and library/native-runtime pins. no
-  model substitution, api-key generation route or silent fallback.
+  authenticated catalog key; do not invent a combined alias. this fixed target is
+  for main. compactor/dreamer use fixed personal-subscription `gpt-6.1-sol/xhigh`.
+  main chooses supported model/effort for native children and skid workers; f3
+  adds per-session skid choices while profiles retain provider/account defaults.
+  qualify exact model/effort/authentication, delegated choices and library/native-
+  runtime pins. no substitution or api-key generation fallback for fixed roles.
 
 f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
 its implemented source, exact dependency pins and separate live candidate.
-f2/f3 remain accepted scope; no model/runtime cutover is claimed. current
+f3 is specified; f2's spec and both implementations remain pending. no model/runtime
+cutover is claimed. current
 `gpt-5.6-terra/high` qualification remains historical/current source evidence
 until the new target is qualified. the
 [roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final

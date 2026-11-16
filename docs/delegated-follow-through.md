@@ -7,6 +7,11 @@ full-plan events, conversational stop and todos already exist. this slice qualif
 their composition and repairs demonstrated defects; it adds no orchestration layer.
 [the roadmap](implementation-plan.md#v2-reviewable-pr-slices) owns sequence.
 
+[f3](subscription-model-runtime.md#delegated-model-choices) separately specifies
+owner-selected per-session worker model/effort and the v11 cutover. its future
+qualification consumes this slice's follow-through path; this v10 evidence stays
+at its original artifacts and does not qualify that extension.
+
 ## goal, scope and final state
 
 jarvis delegates useful work, remains responsive, receives a later observation and

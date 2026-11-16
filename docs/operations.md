@@ -134,6 +134,12 @@ created once during supervised setup, never recreated at startup.
 
 ### private workspace handoff
 
+[f3](subscription-model-runtime.md) specifies main astra/max, memory sol/xhigh
+and native-child/per-session skid model choices. it is not implemented or installed.
+its candidate must preserve production's runtime and private mapping. the future
+v11 worker cutover settles/cancels pending v10 waits and publishes outcomes with
+the original release; no old watcher, model fallback or effect replay is added.
+
 [slice 4](private-notes-and-rolodex.md) implements general files/commands/git in
 the new private `NielsdaWheelz/jarvis-notes` checkout, including helpers and visual
 artifacts. source and a separate temporary candidate are qualified with the

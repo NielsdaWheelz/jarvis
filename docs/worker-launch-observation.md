@@ -13,6 +13,13 @@ the [terminal-only paired contract](https://github.com/NielsdaWheelz/skidbladnir
 own the current schemas. earlier native-era qualification applies only to its
 recorded source.
 
+next target: [adr 0076](decisions/0076-role-models-and-delegated-choices.md) and
+[f3](subscription-model-runtime.md#delegated-model-choices) add per-session skid
+model/effort choices and the v11 hard cut. implementation/qualification remain
+pending; the v10 schemas/evidence below describe the current source. this amendment
+supersedes only the launch-override prohibition and affected binding revision;
+terminal-only control, receipts and asynchronous observation remain unchanged.
+
 ## goal and boundaries
 
 launch configured worker profiles with optional initial terminal input,

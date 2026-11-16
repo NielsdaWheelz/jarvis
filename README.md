@@ -135,9 +135,11 @@ memory/maps/fleet search remain later work.
 [finishing prs](docs/implementation-plan.md#v2-finishing-prs):
 [complete mail/calendar/web reads](docs/mail-calendar-web-reads.md#implementation-evidence)
 has source and separate candidate qualification. native/discord reliability and
-integrated acceptance still needs a spec, as does the owner's
-`gpt6astra-max` target (`gpt-6-astra`, reasoning `max`) through his personal codex
-subscription and provider library. current model/runtime pins are unchanged.
+integrated acceptance still needs a spec.
+[f3](docs/subscription-model-runtime.md) specifies personal-subscription
+`gpt-6-astra/max` for main and `gpt-6.1-sol/xhigh` for memory, plus main-selected
+native-child and per-session skid model/effort. current model/runtime pins remain
+unchanged; implementation and qualification are pending.
 no new orchestrator, persona system or inbox housekeeping is included; final
 production cutover follows combined qualification.
 

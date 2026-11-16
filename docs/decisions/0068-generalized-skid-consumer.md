@@ -9,6 +9,11 @@
 
 ## decision
 
+target amendment: [adr 0076](0076-role-models-and-delegated-choices.md) selects
+per-session model/effort overrides under the [f3 contract](../subscription-model-runtime.md).
+it supersedes only the override prohibition at that future qualified cutover.
+the implemented v10 source and prior qualification below are unchanged.
+
 consume the matching skid cli with fixed `--config STATE_DIRECTORY` and `--json`,
 argv without a shell and literal input through stdin. configure the absolute
 state directory through `JARVIS_AGENT_STATE_DIRECTORY`; skid owns its installed

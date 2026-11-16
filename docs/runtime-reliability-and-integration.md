@@ -3,7 +3,8 @@
 status: f2 implementation contract, 2026-11-16, under
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
 [adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
-specification only; implementation, installed acceptance and reset NOT_RUN.
+implementation in progress: discord/native/deployment source and isolated fault
+proof pass; final source integration, installed acceptance and reset remain pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -411,3 +412,33 @@ still needs repair. safe diagnostics deliberately omit payloads. an unreproduced
 historical defect can recur. production testing incurs downtime and genuine
 subscription/provider usage. the reset deliberately discards useful history and
 commitments too; private recovery material remains outside the live corpus.
+
+## implementation evidence
+
+reliability source: `84f4179f1178e5755ed93170da4244483491326d`, based on
+`80af4e4`. independent adversarial review covered the contract, owning-layer
+repairs, temporary probes and their actual outcomes. this is isolated proof;
+it is not installed acceptance or a diagnosed historical native cause.
+
+| boundary | qualified scope |
+| --- | --- |
+| discord dependency | exact public fork `4c137a2de1c8aa36ac1df19f654afb99856824f2`, based on official 2.7.1; no official equivalent was available in the audited upstream. all three initial no-session resume paths, handshake ownership, close/backoff and simultaneous fatal-error races are repaired in the dependency. eight controlled fault probes and 282 existing upstream tests pass; affected typing and formatting pass. |
+| jarvis lifecycle | thirteen controlled service/gateway checks cover fresh-client retry, one worker/bind, stop during login/retry/readiness, callback drain, fixed page bounds, fatal sinks and concurrent event failure. actual SDK HTTP login received two controlled 408 responses, then succeeded with three distinct, closed sessions. actual local websocket 503 recovery reached HELLO/IDENTIFY; close joined a 30-second backoff promptly. these used local transport peers, not Discord production. |
+| catch-up cut | an additional controlled actual gateway/service scheduling probe reproduced live id 13 advancing canonical id 10 and skipping downtime ids 11/12. the repaired pre-ingress cut remains 10 through truncated-page retry and another readiness callback; each accepted input persists once. no new cursor store or protocol fallback. |
+| linux process stop | fresh frozen CPython 3.12.13 on Linux 6.8/x86-64/glibc 2.39, aiohttp 3.14.4, aiodns 4.0.4, pycares 5.2.1 and the exact installed fork. after two unanswered UDP DNS queries, parent SIGINT to whole-process exit took 1.123 seconds; service cleanup took 1.62 ms. exit 0, no bindings, one worker, no pending tasks, closed client/connector and empty stderr. an earlier five-second total-startup probe expired during 8.74-second cold imports; that setup failure is retained separately from the stop measurement. |
+| safe fatal exits | actual command subprocesses with private markers in Discord/aiohttp/provider failures and causes reproduce the old raw traceback leak and now exit 1 without markers or traceback. SDK child logging is contained through public logging configuration. |
+| native diagnostics | thirteen schema/validator/privacy checks and eleven bounds checks pass. both exact schema byte snapshots remain unchanged. actual kernel, controlled public app-server socket and real postgres prove three faults after an accepted billed-once read: distinct progress violations and a malformed sealed terminal. each fences/parks, rejects stale callbacks and preserves original read/reply bytes across recovery with one executor entry; the terminal retains its original seal. this proves a read callback boundary, not a write fault or historical causation. |
+| private workspace origin | the specified private `NielsdaWheelz/jarvis-notes` origin now has an empty main branch at `fdcf2c60d176b94d4b266b104cdcba032ab83de8`. authenticated metadata reports private; anonymous API returns 404; the existing server account reads that exact branch through its existing SSH authentication. production bootstrap remains pending. |
+| stopped administration | twenty exercised command-boundary activation cases plus three usage refusals pass. ten real `0008a` preflights reject operative old obligations before migration while preserving finalized retired uncertainty and stopped/completed native read barriers byte-exact. nine real dump/copy/mode/refusal checks prove snapshot preparation and verification, not restore qualification. two installer checks prove explicit canonical-calendar configuration replaces the hardcoded alias. |
+| reset rehearsal | six real postgres/initializer/collector boundaries prove the finite eighteen-table atomic wipe, interrupted-wipe rollback, unchanged schema/grants/guards, empty singleton defaults and the sole non-memory-admitted paused control. controlled native-source collection proves a fresh cut, quiet old prefix, genuine later capture, retry idempotence and pending baselines. five additional controlled channel/actual catch-up/postgres checks prove finite deletion inventory and fresh channel input. these do not prove Discord operator permission, production deletion or production collector reset. |
+
+the exact dependency fork adds a maintenance obligation until an official
+equivalent is qualified. asynchronous DNS adds the explicit aiodns/pycares
+dependency instead of abandoning Python runner cleanup. reconnect catch-up may
+rescan one bounded page; canonical deduplication remains unchanged.
+
+temporary probes and private results are retained until final source review and
+cleanup. final f3 integration, complete static/build/memory checks, production
+journey and fresh reset are not yet claimed. the historical native issue remains
+OPEN. production still selects `b6cf4b32d32f2b01291d47291a206d4fc744fce4`, schema
+`0008a`; no production service/configuration/history mutation has occurred here.

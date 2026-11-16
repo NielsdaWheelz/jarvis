@@ -121,13 +121,15 @@ budget acceptance stays with their later contracts.
 source and a separate temporary candidate: continuable mail/calendar/web reads,
 full supported text, fresh observations, existing draft/calendar writes and
 original receipt recovery. its local, controlled, live and native checks remain
-distinct; production activation is pending. [f3 is specified](subscription-model-runtime.md#temporary-proof-and-acceptance)
-and [f2 is specified](runtime-reliability-and-integration.md#implementation-ownership-and-acceptance);
-both implementations/proofs remain pending.
+distinct; production activation is pending.
+[f3's evidence](subscription-model-runtime.md#implementation-evidence) qualifies
+fixed subscription roles, delegated selections and recovery in a separate candidate.
+[f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
+reliability/deployment proof; final composition and production proof remain pending.
 f2 must prove discord outage/process-stop behavior, safe native diagnostics,
 owning-layer repairs for demonstrated defects and
 the combined email → attachment → sourced research/delegation → draft/calendar
-action → scheduled follow-through → restart journey. f3 must prove the actual
+action → scheduled follow-through → restart journey. f3 proves the actual
 personal codex subscription through `provider-runtime`: exact `gpt-6-astra/max`
 for main/native/callback work, `gpt-6.1-sol/xhigh` for compactor/dreamer, deliberate
 native-child model/effort and per-session skid choices. preserve old sealed-terminal
@@ -138,7 +140,7 @@ historical native incident may remain explicitly open; passing journeys do not
 retroactively diagnose it. final acceptance precedes the owner's one-off reset of
 all discord/jarvis/central shared history and commitments, with coordinated source
 cuts and preserved private/source data. no standing suite, benchmark or competitor-
-parity claim follows. no installed proof or deletion has occurred in this docs task.
+parity claim follows. no installed proof or deletion has occurred in f2.
 
 ## native cutover acceptance
 

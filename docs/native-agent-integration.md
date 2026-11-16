@@ -16,22 +16,24 @@ native spec section 18 and n4. later memory/delegation qualification and
 [f1 evidence](mail-calendar-web-reads.md#implementation-evidence) retain their own
 artifacts and do not rewrite this historical cutover receipt.
 
-next model/runtime target: [adr 0075](decisions/0075-v2-completion-and-subscription-model.md)
+qualified source model target: [adr 0075](decisions/0075-v2-completion-and-subscription-model.md)
 selects `gpt6astra-max`: authenticated dispatch model `gpt-6-astra`, reasoning
 `max`, through the existing personal codex subscription and `provider-runtime`.
 its [finishing spec](subscription-model-runtime.md) now owns the
 [adr 0076](decisions/0076-role-models-and-delegated-choices.md) refinement:
 astra/max for main, fixed sol/xhigh for isolated memory, deliberate native-child
-and per-session skid model/effort choices. qualify actual catalog keys/auth route
-and compatible pins; no invented alias or fallback for fixed roles.
-the contract/evidence below retains the current qualified `gpt-5.6-terra/high`
-composition until that separate cutover. this docs change updates no runtime pins.
+and per-session skid model/effort choices.
+[f3's evidence](subscription-model-runtime.md#implementation-evidence) qualifies
+those actual selections, policies, useful work and recovery with unchanged
+cognition pins. the earlier `gpt-5.6-terra/high` observations below retain their
+original artifacts; production jarvis activation remains separate.
 
 ## contract
 
 - main is `NativeDefinition` plus one `FrozenToolPlan`; contained isolated roles
-  still use `AgentDefinition` and `run_one_shot`. the exact configured main route
-  remains personal `gpt-5.6-terra`, reasoning `high`; no aliases or model fallback.
+  still use `AgentDefinition` and `run_one_shot`. current source uses personal
+  `gpt-6-astra/max` for main and fixed `gpt-6.1-sol/xhigh` for memory; no aliases
+  or fixed-role model fallback.
 - `JarvisOwner` requires the existing dedicated postgres owner connection and
   immutable owner permit. conversation locks order request/control, attempt,
   invocation and action authority. losing that connection stops that process.

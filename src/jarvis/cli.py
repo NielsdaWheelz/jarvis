@@ -45,6 +45,7 @@ from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
 from jarvis.db import create_engine, normalize_database_url
 from jarvis.definitions import (
+    MEMORY_CODEX_MODEL,
     RoleDefinitions,
     build_compactor,
     build_definitions,
@@ -188,7 +189,7 @@ async def _isolated_memory_runtime(
                 isolated_provider = await resolve_provider_configuration(
                     runtime=runtime,
                     profile_key=settings.codex_profile_key,
-                    model_key=settings.codex_model,
+                    model_key=MEMORY_CODEX_MODEL,
                 )
                 compactor_definition, compactor_plan = build_compactor(
                     catalog=catalog,
@@ -439,10 +440,15 @@ async def _compose_main(
 ) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
     """Compose the release's tools and role plans from the live codex catalog."""
 
-    isolated_provider = await resolve_provider_configuration(
+    main_provider = await resolve_provider_configuration(
         runtime=agent_runtime,
         profile_key=settings.codex_profile_key,
         model_key=settings.codex_model,
+    )
+    isolated_provider = await resolve_provider_configuration(
+        runtime=agent_runtime,
+        profile_key=settings.codex_profile_key,
+        model_key=MEMORY_CODEX_MODEL,
     )
     agents = AgentController(
         cli_path=settings.agent_cli_path,
@@ -466,7 +472,7 @@ async def _compose_main(
     definitions = build_definitions(
         catalog=composition.catalog,
         main_provider=main_provider_configuration(
-            isolated_provider, notes_repository=host.notes_repository
+            main_provider, notes_repository=host.notes_repository
         ),
         isolated_provider=isolated_provider,
         owner_timezone=settings.owner_timezone,

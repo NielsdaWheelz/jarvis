@@ -63,14 +63,16 @@ outside this cut. [adr 0075](decisions/0075-v2-completion-and-subscription-model
 adds focused mail/calendar/web read completion, native/discord reliability and
 an independently qualified `gpt-6-astra`/`max` personal-subscription target through
 the existing provider library. [f1](mail-calendar-web-reads.md#implementation-evidence)
-has source and separate candidate qualification. [f3](subscription-model-runtime.md)
-is specified under [adr 0076](decisions/0076-role-models-and-delegated-choices.md):
+has source and separate candidate qualification.
+[f3](subscription-model-runtime.md#implementation-evidence) is implemented and
+source/candidate qualified under [adr 0076](decisions/0076-role-models-and-delegated-choices.md):
 main astra/max, fixed memory sol/xhigh, shared provider/authentication mechanisms,
-and deliberate native-child/per-session skid choices.
-[f2](runtime-reliability-and-integration.md) specifies startup/network-only retries,
-safe native diagnostics, final installed proof and a one-off fresh reset under
-[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md). both
-implementations remain pending.
+and deliberate native-child/per-session skid choices. fixed host roles have no
+fallback; worker v11 uses qualified skid v0.24.4.
+[f2](runtime-reliability-and-integration.md) implements network-only retries,
+safe native diagnostics and stopped deployment preparation. final source
+integration, installed proof and the one-off fresh reset under
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) remain pending.
 broader search/budget
 remains separate; f2 now owns stopped production activation after source readiness.
 reuse existing owners, prompt/tool

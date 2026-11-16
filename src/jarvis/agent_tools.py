@@ -23,6 +23,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -85,7 +86,7 @@ type AgentReference = Annotated[str, Field(min_length=1, max_length=4096)]
 type AgentLabel = Literal["macbook", "dev-server", "arch"]
 type AgentHandle = Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
-AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v10"
+AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v11"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
 
 
@@ -141,6 +142,20 @@ class AgentStartInput(_Closed):
     cwd: str | None = Field(default=None, min_length=1, max_length=4096)
     group: str | None = Field(default=None, min_length=1, max_length=64)
     prompt: str | None = Field(default=None, min_length=1, max_length=32768)
+    model: str | None = Field(default=None, min_length=1, max_length=255)
+    effort: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("model", "effort")
+    @classmethod
+    def launch_option(cls, value: str | None, info: ValidationInfo) -> str | None:
+        limit = 255 if info.field_name == "model" else 64
+        if value is not None and (
+            len(value.encode("utf-8")) > limit
+            or value.strip() != value
+            or any(unicodedata.category(c) == "Cc" for c in value)
+        ):
+            raise ValueError("invalid native model or effort override")
+        return value
 
     @field_validator("prompt")
     @classmethod
@@ -702,7 +717,8 @@ def agent_family(controller: AgentController) -> ToolFamily:
         (
             "start",
             "create a codex or claude terminal with optional name/cwd/group and one "
-            "optional literal brief. profile commands supply provider defaults. "
+            "optional literal brief. profiles supply provider/account defaults; "
+            "optional model/effort select native launch overrides. "
             "returns separate creation and delivery facts; does not observe task "
             "execution. partial launch retains captured evidence.",
             controller.start,

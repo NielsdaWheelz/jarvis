@@ -2,8 +2,9 @@
 
 status: f3 implementation contract under [adr 0075](decisions/0075-v2-completion-and-subscription-model.md)
 and [adr 0076](decisions/0076-role-models-and-delegated-choices.md),
-2026-11-16. specification only; implementation, live qualification and production
-activation NOT_RUN. the [roadmap](implementation-plan.md#v2-finishing-prs) owns
+2026-11-16. source and separate candidate qualified; see the
+[implementation evidence](#implementation-evidence). production activation
+remains separate. the [roadmap](implementation-plan.md#v2-finishing-prs) owns
 sequence; this document owns model selection and its qualification.
 
 ## goal and boundary
@@ -251,10 +252,10 @@ subscription route and service authority. production's host unit, socket, mappin
 checkout and running release remain untouched. candidate isolation is not a new
 production deployment mode; follow [operations](operations.md#private-workspace-handoff).
 
-final installed activation belongs to [f2](runtime-reliability-and-integration.md)
-under [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md): isolated
-fault proof and qualified artifacts precede cutover, then the actual production
-journey and fresh history reset. apply existing activation checks: incompatible unfinished
+final installed activation belongs to [f2](implementation-plan.md#v2-finishing-prs):
+isolated fault proof and qualified artifacts precede the stopped v2 cutover, then
+the actual production journey and the owner's separate fresh history reset.
+apply existing activation checks: incompatible unfinished
 contracts block; current unknown outcomes retain their reconciliation and causal
 barriers. reconcile incompatible work with its original qualified release.
 preserve opaque finalized evidence, not legacy execution paths.
@@ -382,3 +383,108 @@ per-session skid choice adds an upstream release/adoption and worker contract
 cutover. bare forwarding commands cover the inspected fleet; compound profile
 commands keep default launches but reject overrides. support for rewriting arbitrary
 shell commands is deliberately excluded.
+
+## implementation evidence
+
+qualified 2026-11-16 with independent adversarial review at contract, source and
+final evidence boundaries, plus review of actual synthetic outputs. no f3 blocker
+remains. this is source/candidate qualification, not production jarvis activation
+or f2's reliability, integrated production journey or reset.
+
+### artifacts and actual selection
+
+- jarvis implementation: `1fed26c3a31c7ff73d810154f1010877e6bae4a9`, after
+  the accepted-contract commit `c79b1d4`. all ten changed production files were
+  byte-checked against the final candidate before its final live journey. later
+  evidence/runbook edits change no runtime source.
+- all four dependency pins in the audited starting-point table remain unchanged;
+  `pyproject.toml`, `uv.lock`, `EXPECTED_GIT_PINS` and the manifest agree. stock
+  remains `0.160.0`; python `3.12.13`, native postgres schema `0013`. no library,
+  cognition runtime, schema or credential upgrade was necessary.
+- application revision `jarvis-subscription-roles-v1`, main role revision
+  `jarvis-main-subscription-roles-v1`; the manifest retains its v3 schema and both
+  actual keys. compactor/dreamer role revisions remain v3.
+- skid [pr 206](https://github.com/NielsdaWheelz/skidbladnir/pull/206) implements
+  the public extension. immutable signed
+  [v0.24.4](https://github.com/NielsdaWheelz/skidbladnir/releases/tag/v0.24.4)
+  uses `ec77119be6178034c1a3e14d6e5c7196e4f9c0f7`; its exact public assets/pin
+  passed the existing verifier. [pin pr 207](https://github.com/NielsdaWheelz/skidbladnir/pull/207)
+  merged as `3c79af6e6eebdb4ef34779b088c406d141f14c82`.
+
+the actual personal endpoint reported catalog revision
+`93480af7a55d7cfe01962afe6c8ccaeeaf64faccc7809585533ada77f5a3c2cc`:
+
+| role | actual key / dispatch / effort | row fingerprint |
+| --- | --- | --- |
+| main | `gpt-6-astra` / `gpt-6-astra` / `max` | `da97a77bbce4b3ecef3dbaa0237814605fedb67b7913853a19dacecf4b3ec899` |
+| compactor/dreamer | `gpt-6.1-sol` / `gpt-6.1-sol` / `xhigh` | `4f3488f6b97eefbf6555de9898bd8640ff40debe557a0cd55f6083cb73c70f17` |
+
+public provider calls reported `account.type=chatgpt`; successful session opening
+then validated actual `modelProvider=openai`, model, effort and effective policy.
+the disposable forwarding observer recorded these non-secret returned facts,
+never credentials or requested settings presented as acceptance. native child
+inspection used the public observe-only client and `thread/read` with
+`includeTurns=false`; no private adapter or product telemetry was added.
+
+### proof and review
+
+| boundary | actual evidence |
+| --- | --- |
+| selection/composition | predecessor failed target integration assertions. seven final checks pass: main-only settings, fixed memory composition, wrong/missing/duplicate rows, dispatch/effort mismatch, swapped roles, manifest and configured/longest installed iana timezone. adding delegation guidance initially exceeded the unchanged system bound; compressing touched prose fixed it. final longest-zone composition is 16,325/16,384 bytes. |
+| provider rejection | exact pinned provider's four existing controlled tests pass, including absent/api-key subscription auth and stale catalog/row evidence. an external protocol peer accepted two valid policies and rejected twelve model/provider/cwd/effort/approval/sandbox mismatches before any turn submission. these are controlled boundary checks, not live entitlement claims. |
+| actual main | personal astra/max completed a real `work.list` callback, native reusable csv helper, image/pdf reading, useful structured progress, same-attempt canonical steering and a strict committed terminal completing both owner inputs. independent inspection recomputed alpha 5, beta 4, total 9; viewed the green-square image and extracted the pdf's 17-hour budget. seven generated helper checks pass. elapsed 300.73 seconds, including preparation. effective main policy remains workspace-write/network-enabled/approval-never, native tools plus host callbacks, no native web/mcp. |
+| actual memory | compactor completed in 28.396 seconds with 512 bytes; dreamer in 36.202 seconds with one provider turn and one supported synthesis. both actual sol/xhigh sessions retained read-only/no-network/approval-never and isolated grammar. outputs preserve named attribution, 24/tuesday corrected to 18/thursday, unverified vendor claims and hypothesis versus observation. real postgres proved precommit invisibility and atomic node or synthesis/reference/leaf/cursor completion; canonical message count stayed unchanged. dreaming chose no extra memory reads; the available embedding credential was unused. no forced tool sequence or limit change. |
+| recovery | exact `80af4e4` source and real postgres produced three callback replies with two actual read dispatches: duplicate callback replayed its receipt, while a new mutable read saw changed work. occupied/new callbacks fail after fencing. an old seal settles once from its stored schema with zero inference; canonical pause preserves stale disposition. original action/read/request/seal bytes and paid-read/uncertain-effect barriers survive, and fresh receipt context includes originals. the journal rejects the exact predecessor's full fingerprint; controlled kernel leases with the old model/catalog/compatibility on the current definition close and reopen. |
+| worker cutover/replay | a v10 registered wait blocks v11 admission until its original release finishes/publishes the outcome. finalized v10 malformed nested targets and terminal uncertainty load opaquely without becoming permanent activation blocks. actual v11 journal/write dispatcher/action/controller staging preserves sol/high, literal stdin, captured target and partial launch receipt across two identical callbacks with one action, executor entry and transport call; only cli transport was controlled. |
+| actual delegation | the final byte-checked candidate completed native-child and installed-worker integration in 319.887 seconds. actual child `01a1e602-b299-7fa1-8747-d3a189bb1aa5` reported sol/high/openai and parent `01a1e602-033d-7012-8cb0-3c7f70c2b1bf`; native source lineage corroborates it. spawn returned a task name, so the child's `CODEX_THREAD_ID` discovered its selector; public metadata established selection. its completed useful result and the worker's independently checked total 9 were integrated. real `agent.wait` registration/outcome and one canonical event completed with the owner request in a strict seal. the installed personal worker's actual `/status` panel reported `GPT-6.1-Sol (reasoning high, summaries auto)`. |
+| launch lowering/refusal | controlled cli → http → gateway → manager checks plus real bash/zsh argv recording pass absence/null, byte/control bounds, terminal overrides, plain forwarding profiles and literal metacharacters. codex toml and claude lowering round-trip; unsupported forms refuse before tmux with `InvalidRequest/not_sent`. the actual selected personal wrapper forwards arguments. a separate created worker with unsupported effort produced native `400 invalid_enum_value` on its first brief; original read receipt preserves the error. no option drop, fallback, profile rewrite or retry. |
+
+the initial main and recovery proofs used an intermediate f3 manifest: both new
+keys and the final application revision were already present, while main's role
+revision was still `jarvis-main-complete-reads-v1`. their original fingerprints
+remain evidence. final sync changed only that main role revision; memory's
+definition/compatibility stayed identical. a focused final-composition check
+changed only the earlier compatibility revision: the kernel closed the old lease,
+opened the final lease, then reused it, with zero inference and zero database
+access. the final live delegation above used the exact final manifest/source.
+
+`scripts/verify` passes on final runtime source, including build/wheel install,
+typing, formatting and dependency audit; the three retained memory regressions
+from exact `b616ee9` pass with zero skips in a separate disposable database.
+jarvis hosted source checks passed at `1fed26c` (runs `43947610838` and
+`43947623873`). skid host checks and exact merge/pin runs `43944420057` and
+`43945317717` pass; signed host and android release verification passes. the
+unrelated upstream vercel account restriction remains recorded in skid's existing
+issue; no website-preview pass is claimed.
+
+### installed handoff and resource disposition
+
+macbook and dev-server gateways now run exact v0.24.4. both normal updates left
+terminal services unchanged: all 12 macbook and four dev-server pre-existing
+terminal refs, active panes and provider pid/start identities survived; profile
+rosters and `config.yaml` bytes match. initial updater invocations refused before
+mutation because their environment differed from the installed service's;
+using that existing environment allowed the normal updates. no runtime restart,
+provider installation/login, account-state copy or settings rewrite occurred.
+
+the one candidate used separate schema-5 host unit/socket/mapping, task checkout,
+database and runtime state, the actual personal account and the existing private
+socket publication/authority. its cli was the exact qualified installed release
+binary; production jarvis's client, running release, host/mapping and activation
+remain unchanged. `claude-work` stays owner-deferred: controlled lowering passes,
+useful live execution NOT_RUN. arch/phone installed behavior, f2's production
+acceptance/reset and broader usefulness/competitor claims are outside this proof.
+
+teardown passed independent review: both exact task-terminal refs closed with
+`--terminal-only`; no interruption/cancellation claim is inferred. the candidate
+host stopped with `Result=success`, `MainPID=0`, exit status 0; no forced kill was
+observed. candidate unit/files, endpoint/mapping/env, database, mounts, release,
+checkout, cache, runtime and remote probes are absent. only selected production
+release `b6cf4b32d32f2b01291d47291a206d4fc744fce4` remains. production jarvis/host
+retain active pids `590939`/`590542` and unchanged mapping bytes. all 16 original
+terminal refs/panes/provider lifetimes still match; one additional unrelated
+macbook terminal was left untouched. temporary local probes are removed after
+accepted review; retained memory regressions and provider-owned histories remain.
+no canonical shared-history deletion belongs to f3. merged clean upstream task
+worktrees/refs are removed; the requested jarvis branch/worktree remains for review.
+original checkouts and concurrent documentation changes are preserved.

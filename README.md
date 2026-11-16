@@ -135,16 +135,18 @@ memory/maps/fleet search remain later work.
 [finishing prs](docs/implementation-plan.md#v2-finishing-prs):
 [complete mail/calendar/web reads](docs/mail-calendar-web-reads.md#implementation-evidence)
 has source and separate candidate qualification.
-[f2](docs/runtime-reliability-and-integration.md) specifies discord/native repairs,
-final stopped production cutover and a real installed journey, followed by the
-owner-selected fresh reset of discord/jarvis/all shared history and commitments.
-private repos, credentials, real google data and original native chats are preserved.
-[f3](docs/subscription-model-runtime.md) specifies personal-subscription
+[f2](docs/runtime-reliability-and-integration.md) implements isolated discord/native
+and stopped-deployment repairs. final source integration precedes its stopped
+production cutover and installed journey, then the owner's fresh reset of
+discord/jarvis/all shared history and commitments. private repos, credentials,
+real google data and original native chats are preserved.
+[f3](docs/subscription-model-runtime.md#implementation-evidence) qualifies personal-subscription
 `gpt-6-astra/max` for main and `gpt-6.1-sol/xhigh` for memory, plus main-selected
-native-child and per-session skid model/effort. current model/runtime pins remain
-unchanged; implementation and qualification are pending.
-no new orchestrator, persona system or inbox housekeeping is included. source proof
-precedes cutover; installed acceptance and reset are still pending.
+native-child and per-session skid model/effort. source and the separate candidate
+pass; cognition dependency/runtime pins remain unchanged. installed skid v0.24.4
+is adopted on macbook/dev-server; production jarvis activation belongs to f2.
+no new orchestrator, persona system or inbox housekeeping is included. installed
+acceptance and reset remain pending.
 
 ## Authoritative documents
 

@@ -137,8 +137,8 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined candidate qualified; production deferred; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
 | attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
 | mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; production activation separate; wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
-| reliability and integrated acceptance | [finishing pr f2](#v2-finishing-prs) accepted; spec pending | jarvis lifecycle/journals and demonstrated upstream defects; final combined proof follows f1/f3 and slices 5–6 |
-| subscription model/runtime | [finishing pr f3](#v2-finishing-prs) accepted; spec pending; owner selects `gpt6astra-max` | jarvis, kernel and provider-runtime; personal codex subscription; exact model/runtime qualification |
+| reliability and integrated acceptance | [f2 contract](runtime-reliability-and-integration.md) specified; implementation pending | discord lifecycle/native diagnostics, demonstrated upstream repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
+| subscription model/runtime and delegated choices | [f3 contract](subscription-model-runtime.md) specified; implementation pending | main astra/max, memory sol/xhigh via personal codex; native-child choices and bounded upstream skid launch extension |
 | broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
 | budget integration — later | settled [contract](budget-integration.md) retained; full bookkeeping authority and larger originals need separate adoption/implementation | jarvis plus budget-app; existing ledger/api, private object storage and attachment/native-reading prerequisites |
@@ -199,7 +199,11 @@ slice 4 can already author/run ordinary helpers and self-contained visual files.
 ### v2 finishing prs
 
 accepted scope under adr 0075; [f1 is source/candidate qualified](mail-calendar-web-reads.md#implementation-evidence).
-f2/f3 specs are next, one per review unit.
+[f3 is specified](subscription-model-runtime.md) under the owner's
+[role/delegation refinement](decisions/0076-role-models-and-delegated-choices.md);
+[f2 is specified](runtime-reliability-and-integration.md) under the owner's
+[production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
+both implementations remain pending.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
 records the exact artifact, pins and temporary candidate. production activation
 remains separate.
@@ -208,8 +212,8 @@ these labels preserve the original six slices and do not imply opened prs.
 | unit | scope and owner | contract and status |
 | --- | --- | --- |
 | f1: complete mail/calendar/web reads | jarvis owns complete supported mail/calendar traversal/text, incoming `Reply-To` and fresh deliberate mutable observations; llm-tools owns web search continuation and full supported extracted-text chunks. bounded responses with explicit provider/live-source limits; retain original callback receipts and paid-read barriers. existing writes stay. | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence); source and separate candidate qualified on the audited owner-approved event stack |
-| f2: reliability and integration | jarvis owns interruptible discord startup retry/backoff for transient outages and clean stop; invalid credentials/configuration remain explicit failures. retain content-free native diagnostics, reproduce the failure and repair its owning layer. qualify the assembled product and actual prompt/tool composition. | `docs/runtime-reliability-and-integration.md`; use the existing [discord](issues/discord-login-failure-exit.md) and [native](issues/native-protocol-diagnostics.md) issue records, not a second issue inventory |
-| f3: subscription model/runtime | pin `gpt6astra-max`: authenticated `gpt-6-astra` dispatch model with reasoning `max`, through the owner's personal codex subscription and provider library (`provider-runtime` in `llm-calling`). qualify exact catalog key, auth route, effort, runtime and dependency pins; no substitute model/api-key generation route/fallback. | `docs/subscription-model-runtime.md`; preserve one shared cognition selection for main and isolated memory roles; skid profiles remain independent |
+| f2: reliability and installed integration | interruptible discord login/readiness retry, owned asynchronous DNS and clean stop; safe native diagnostics and owning-layer repairs. qualify the actual composition, restore the activation primitive, run the production journey, then the owner's completely fresh history reset. historical irreproducible native incidents may remain explicitly open. | [contract](runtime-reliability-and-integration.md); existing [discord](issues/discord-login-failure-exit.md) and [native](issues/native-protocol-diagnostics.md) records remain authoritative for their failures |
+| f3: subscription model/runtime and delegated choices | main `gpt-6-astra/max`; fixed compactor/dreamer `gpt-6.1-sol/xhigh`, through the personal codex subscription and `provider-runtime`. main chooses native-child and per-session skid model/effort. qualify actual catalog keys, auth, effort, runtime/pins and the bounded upstream skid extension; no substitute for fixed-role selections. | [contract](subscription-model-runtime.md); specified, implementation/qualification pending; reuse current cognition pins first |
 
 specification can proceed in parallel. implement f1 after auditing the merged
 5–6 interfaces; do not race their google/attachment changes. f2's isolated native
@@ -225,12 +229,14 @@ that spec. fixes belong to the existing owner; no parallel provider wrapper or
 orchestration framework. f1 owns connector/web read surfaces, f2 service/native
 failure handling, f3 model/auth selection and compatible runtime/pins. f1/f2 own
 any necessary upstream fixes and adoption; coordinate shared pins explicitly.
+f3's owner-selected worker launch extension is a separate implementation boundary
+within its contract; preserve terminal-only control and asynchronous observation.
 preserve existing useful prompt/personality,
 native subagents and skid; change only demonstrated omissions. each spec includes
 proportionate content design, adversarial review and temporary end-to-end/live
 red/green/refactor proof, followed by deletion of its temporary probes.
 
-f2's combined journey must cross real boundaries: incoming email → full message
+f2's installed journey must cross real boundaries: incoming self-fixture email → full message
 and attachment inspection → useful sourced research/delegation → an appropriate
 existing draft/calendar action → scheduled follow-through → restart-safe
 continuation. verify native child results and skid outcome integration rather
@@ -238,16 +244,29 @@ than treating launch/idle as completion. test the exact final model/runtime and
 published tools, preserve original effect receipts, and state unrun boundaries.
 no comparative performance claim or standing benchmark framework follows.
 
-after all three units and slices 5–6 are integrated/qualified, perform the separate
-stopped production cutover: reconcile pending effects/waits and reminder
-obligations, migrate/provision the selected release, then prove physical owner
-ingress and installed continuation through the existing operations runbook.
-source/candidate success does not activate production or close an unresolved
-native issue. no intermediate production activation is added.
+after isolated reliability proof and qualified f3 are integrated with f1/slices
+1–6, f2 performs the stopped production cutover and actual installed journey.
+reconcile pending effects/waits and account for reminders; migrate/provision the
+selected release, then prove physical owner ingress/consent and restart continuation
+through existing operations. source success alone does not activate production.
+the owner permits an explicitly open irreproducible historical native issue;
+current demonstrated defects still require repair. no intermediate activation.
+
+after acceptance, perform adr 0077's stopped fresh reset: configured discord,
+jarvis and ALL central shared history, plus todos/reminders/waits. preserve private
+repos, credentials, real google data and original native/nexus chats. coordinate
+the 18 tables/source cuts and attachment disposition; no immediate republication
+of old history or automatic daily-review seed. this is a one-off operator action,
+not a runtime deletion feature. retain concise evidence before deleting fixtures.
 
 trade-offs: deeper retrieval uses more calls/context; provider and per-operation
-limits remain. `max` reasoning can increase latency, including memory-role work.
-the native root-cause repair size is unknown. inbox housekeeping, new invitation
+limits remain. main `max` and memory `xhigh` can increase latency and subscription
+usage; compaction may delay foreground preparation.
+the historical native cause may remain unknown; f2 adds asynchronous DNS and any
+demonstrated websocket repair. production testing incurs downtime; the fresh reset
+discards useful shared history and commitments too. f3 adds a bounded skid launch-contract
+change; arbitrary profile shell commands cannot silently ignore overrides.
+inbox housekeeping, new invitation
 response tools, outgoing files, browser/credential products, hosted interactive
 deliverables, memory/maps/fleet search expansion and budget stay outside these prs.
 
@@ -271,7 +290,8 @@ facts; writing this roadmap sends no assignment to another agent.
 | memory library | existing archive/tree/view/search; add explicit nexus source values and atomic export append/duplicate proof through shared insertion primitives | [core](universal-memory.md), [completion handoff](memory-delivery.md#non-overlapping-implementation-boundaries); uncapped ranked [search amendment](complete-and-continuable-searches.md#uncapped-ranked-memory) remains a separate delivery |
 | kernel + llm-tools | production transient read recorder for disposable dreaming using the existing recorder/executor seam | [daily dreaming](universal-memory.md#daily-dreaming); production recorder published; coordinated kernel/tools/provider pins adopted; request-fit and strict json fixes qualified |
 | llm-tools, web reads | portable web-search continuation/provider boundaries and complete supported extracted-text chunks, retaining web safety | [f1 web handoff and evidence](mail-calendar-web-reads.md#implementation-evidence) implemented, adopted at exact pins and qualified; no kernel runtime redesign |
-| llm-calling (`provider-runtime`), kernel and jarvis model composition | exact personal-subscription `gpt-6-astra`/`max` selection and compatible native/runtime pins | f3 scope accepted; spec, authenticated qualification and adoption pending; preserve other consumers and current historical evidence |
+| llm-calling (`provider-runtime`), kernel and jarvis model composition | personal-subscription main astra/max, memory sol/xhigh and compatible native/runtime pins | [f3 specified](subscription-model-runtime.md); authenticated qualification/adoption pending; current pins support both in source |
+| skid and jarvis launch adapter | per-session model/effort, exact native lowering and worker v11 cutover | [f3 handoff](subscription-model-runtime.md#delegated-model-choices); source implementation/publication/adoption pending; retain terminal-only evidence and waits |
 | budget-app | broaden existing write authority to all bookkeeping, reuse shared planner calculation through an api, and support independent originals up to 100 mib through private r2 | [budget api handoff](budget-integration.md#budget-api-handoff); fresh `7b7a9c2` source audit complete; bounded handoff prepared, not assigned or implemented |
 | budget deployment owner and dev-server | budget private bucket/cors/storage secrets; jarvis configured budget origin/owner/read/write credentials and native cache access | [budget delivery](budget-integration.md#nonoverlapping-delivery-and-hard-cutover); provisioning and installed qualification remain separate |
 | nexus-web | configured owner's librarian tools and future-only durable capture; terminal snapshot/outbox/publisher, current call identity and native internal marking; no automated-helper tool grants | [completion handoff](memory-delivery.md), [client issue](issues/nexus-memory-client.md); adr 0070 source and isolated current-route qualification complete; nexus release deferred |
@@ -1072,8 +1092,8 @@ intent merely because their implementation is incomplete.
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
 | f1 reads | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; page/chunk/freshness/recovery/native proof passes; production cutover separate; broader [search proposal](complete-and-continuable-searches.md) stays deferred |
-| f2 reliability/integration | spec pending; existing native/discord issues remain open; final useful combined journey consumes all selected artifacts |
-| f3 model/runtime | owner selects `gpt6astra-max` via personal codex subscription/provider library; exact authenticated selection, runtime compatibility and live qualification pending |
+| f2 reliability/integration | [specified](runtime-reliability-and-integration.md); native/discord issues remain open; qualified final stack → stopped production cutover/live journey → authorized fresh history reset |
+| f3 model/runtime | [specified](subscription-model-runtime.md): main astra/max, memory sol/xhigh, independent native-child/per-session skid choices; implementation/authenticated qualification pending |
 | attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |
 

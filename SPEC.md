@@ -114,8 +114,11 @@ remain later work; the focused completion below is now selected.
 
 [adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adopts
 three additional review units. [f1's implementation contract](docs/mail-calendar-web-reads.md)
-is implemented with source and separate candidate qualification; f2/f3 still
-need their own specs:
+is implemented with source and separate candidate qualification;
+[f3's contract](docs/subscription-model-runtime.md) specifies the owner refinement
+in [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md).
+[f2's contract](docs/runtime-reliability-and-integration.md) adopts the owner's
+[adr 0077](docs/decisions/0077-production-acceptance-and-fresh-reset.md) decisions:
 
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
@@ -136,23 +139,40 @@ need their own specs:
   after retaining sufficient content-free diagnostics and reproducing the cause.
   qualify actual prompt/tool composition and a useful combined journey; reuse
   existing personality, goals, native subagents and skid. no new orchestrator or
-  relaxed recovery/validation.
+  relaxed recovery/validation. controlled fault proof precedes stopped v2 cutover;
+  final live acceptance runs on the actual production service/channel, exclusively.
+  an irreproducible historical native incident may remain explicitly open after
+  representative reproduction; new demonstrated defects still require repair.
 - pin the owner's `gpt6astra-max` target: authenticated `gpt-6-astra` dispatch
   model at reasoning `max`, through the personal codex subscription and the
   owner's provider library (`provider-runtime` in `llm-calling`). use the actual
-  authenticated catalog key; do not invent a combined alias. one shared cognition
-  selection serves main and isolated memory roles; worker profiles are separate.
-  qualify exact model/effort/authentication and library/native-runtime pins. no
-  model substitution, api-key generation route or silent fallback.
+  authenticated catalog key; do not invent a combined alias. this fixed target is
+  for main. compactor/dreamer use fixed personal-subscription `gpt-6.1-sol/xhigh`.
+  main chooses supported model/effort for native children and skid workers; f3
+  adds per-session skid choices while profiles retain provider/account defaults.
+  qualify exact model/effort/authentication, delegated choices and library/native-
+  runtime pins. no substitution or api-key generation fallback for fixed roles.
 
 f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
 its implemented source, exact dependency pins and separate live candidate.
-f2/f3 remain accepted scope; no model/runtime cutover is claimed. current
+f2/f3 are specified; implementation and installed acceptance remain pending. no
+model/runtime cutover is claimed. current
 `gpt-5.6-terra/high` qualification remains historical/current source evidence
 until the new target is qualified. the
 [roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
-integration; production cutover remains separate. no feature-parity claim follows
+integration; f2 now owns the final stopped production cutover and installed proof.
+no feature-parity claim follows
 from this scope or from jarvis-only proof.
+
+after installed acceptance, the owner selects a one-off fresh reset of configured
+discord history, jarvis history and all central shared history, including other
+agents' admitted material. clear todos/reminders/waits; preserve private repos,
+credentials, real google data and original native/nexus chats. adr 0077 grants only
+this stopped administrative exception to retention/append-only/capture-cut rules.
+finish/disposition entered work, retain private recovery evidence, clear the
+coordinated stores and establish fresh source cuts; no old-history republication,
+automatic daily-review recreation or runtime deletion capability. the f2 contract
+owns the exact inventory, attachment disposition and verification.
 
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the

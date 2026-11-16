@@ -1,0 +1,407 @@
+# reliability repairs and final integrated acceptance
+
+status: f2 implementation contract, 2026-11-16, under
+[adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
+[adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md).
+specification only; implementation, installed acceptance and reset NOT_RUN.
+the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
+
+## goal, scope and decisions
+
+recover from transient discord startup outages without crash loops; stop cleanly
+during login/retry; retain enough safe native-failure evidence to repair the
+responsible layer. prove the assembled product through a useful real production
+journey, then perform the owner-selected fresh history reset.
+
+audit base: jarvis `80af4e4`, landed slices 1–6 and f1. f3 is specified, not yet
+implemented: main astra/max, memory sol/xhigh, deliberate native-child/per-session
+skid choices. consume its actual qualified successor, not this placeholder state.
+reliability repairs can proceed in parallel; final acceptance waits for the exact
+merged artifact, pins, model selections, worker contract and host pair.
+
+- use production exclusively for final live acceptance after isolated fault proof
+  and stopped cutover. no concurrent gateway with its token or autonomous actor
+  on its mailbox/calendars. no destructive fault injection into production.
+- use one authorized synthetic self-email with a test pdf; actual owner messages
+  exercise ordinary approval and catch-up. no owner impersonation or third-party
+  recipient. tests must inspect outcomes, not merely accept model claims.
+- an irreproducible historical native incident may remain OPEN after diagnostics
+  and representative reproduction pass. new demonstrated defects must be fixed.
+- after acceptance, reset discord/jarvis/central shared history and all work/waits.
+  preserve private repos, credentials, real google data and original native chats.
+
+non-goals: new features, orchestration/notification systems, standing benchmark or
+test harness, general retry framework, native protocol relaxation, automatic
+unpark, legacy execution paths, model fallback, new credential/budget/browser
+products or runtime history-deletion tools. ordinary approvals stay conversation.
+
+## a. discord startup and stop
+
+the current `run_service` calls `gateway.start` once and later awaits it during
+shutdown without interrupting login. pinned `discord.py 2.7.1` replaces its HTTP
+session on each login; retrying that same client leaks sessions. `close` + `clear`
+retains a closed connector in that version. use its public lifecycle, not private
+field repair.
+
+the current transitive aiohttp DNS resolver uses executor-backed `getaddrinfo`;
+cancelling login cannot stop that thread and Python's runner can wait minutes
+for executor shutdown. create each gateway with public `aiohttp.AsyncResolver`
+and `TCPConnector`, passed through public `discord.Client(connector=...)`.
+declare exact compatible aiohttp/aiodns dependencies; retain the already selected
+aiohttp version unless a demonstrated issue requires change. own and close the
+explicit resolver after its client/connector; the connector does not own an
+externally supplied resolver. no resolver-thread killing, private client fields
+or executor-shutdown bypass. qualify actual process exit under non-answering DNS.
+explicitly close the owned connector even if stop precedes HTTP-session creation;
+`Client.close()` alone then has no session to close. resolver closure follows.
+
+target internal composition: `run_service(service, gateway_factory, token,
+shutdown, memory_http)`. the factory creates the existing `DiscordGateway` with
+the same owner sink/ready handler. worker, deployment ownership and memory HTTP
+start once. login attempts do not rebuild the service or repeat action recovery.
+
+1. create an unbound gateway and call public `login(token)`.
+2. on a classified transient failure, fully close that client, wait interruptibly
+   and create a fresh client. after success, recheck shutdown and bind that one
+   client through existing `service.bind_gateway` exactly once.
+3. run public `connect(reconnect=True)`. discord.py owns websocket connection and
+   established-session resume/backoff. do not duplicate that implementation.
+4. `on_ready` serializes readiness with one local lock. validate the configured
+   guild/channel/permissions, then perform bounded canonical catch-up. only
+   successful catch-up opens the existing startup-ready latch; recheck service
+   shutdown after sinks finish. do not reset that latch on every later disconnect.
+
+jarvis-owned login/readiness retry policy: `1, 2, 4, 8, 16, 30` seconds, then 30;
+no retry-count exhaustion for a transient outage. honor a valid longer server
+rate-limit wait. retain the library's rate-limit/request handling; no outer login
+timeout that cuts short `Retry-After`. no new environment setting or systemd
+restart-policy change.
+
+| retry | fail explicitly |
+| --- | --- |
+| transport timeout, DNS/network interruption, disconnected/truncated response, HTTP 408/429/5xx | invalid token, forbidden/missing configured resources, other 4xx, certificate/trust failure, invalid configuration, local permission/resource errors, unexpected exceptions |
+
+use exact public exception/status/errno classification, shared by login and
+readiness; no blanket `OSError`, `ClientError`, `Exception` or `AttributeError`
+retry. SDK-handled rate limits need no second retry counter.
+keep the shared classifier, backoff and interruptible-network helper in
+`src/jarvis/discord.py`; `cli.py` owns composition, not duplicate retry policy.
+
+readiness retries only the network regions: configuration/channel lookup and
+collection of one bounded history page. extract `_collect_history` from
+`bounded_catch_up`, keeping its captured `after_source_message_id` and limit fixed
+across retries. persist accepted owner messages afterward through the original
+sink/dedup path, OUTSIDE retry and cancellation helpers. database/sink failures,
+`on_message` failures and arbitrary event-handler errors remain fatal.
+
+replace `on_error`'s immediate client close with synchronous failure marking,
+`stop_ingress()` and content-free logging. the lifecycle owner observes that
+stopping event directly, independently of connect completion. recheck
+`event_failed` after draining admitted callbacks so an error racing owner stop
+remains nonzero. no new failure bus/future or early HTTP close.
+
+use one small interruptible-I/O helper for public login/readiness reads
+and retry waits. it races an owned transport/timer child against the stop event,
+cancels and joins only that child, and rethrows real completed failures. replace
+the gateway's stopping bool with a stopping event as needed. never pass a ready
+handler, database sink, entered write, `connect()` or client `close()` to this
+helper. connect itself can await close; cancelling it can poison shared cleanup.
+
+stop order: close ingress admission; request cooperative service stop; interrupt
+network/retry children; let their owners finish cleanup; drain admitted callbacks
+and service work; close clients, then join connect without cancelling it. do not cancel the gateway
+owner while it awaits `Client.close()`: the library's shared closing task can
+otherwise remain cancelled. preserve simultaneous permanent/unexpected failures;
+only intentional cancellation/stopped transient retries become a normal stop.
+with no entered work, a stop during blocked login/backoff must finish within five
+seconds; entered work retains the existing drain/360-second service policy.
+
+startup still permits existing authorized action recovery/bookkeeping before
+catch-up. new main reasoning/background memory/event publication retain their
+existing startup gates. no broader offline-mode policy is introduced.
+
+upstream concern: pinned `connect(reconnect=True)` appears to dereference `self.ws`
+after initial websocket creation fails while it is still `None`. source inspection
+also found this in upstream master; neither proves a runtime reproduction. add
+one controlled initial-connect probe. if confirmed, repair discord.py's owning
+branch and adopt an exact qualified fix/release, preferring an official fix when
+available. no monkeypatch, `AttributeError` catch or copied reconnect loop. update
+dependency/pin/runbook claims together; retaining 2.7.1 is conditional on proof.
+also qualify public close during websocket backoff: stock sleeps can outlast the
+service stop deadline. the same bounded upstream lifecycle handoff must make close
+wake that wait and finish connect without masking its original fatal exception.
+close-then-join alone is insufficient unless this public behavior is proved.
+disable raw SDK exception logging through public logger configuration; retain
+controlled host outage/recovery/failure facts, not library response bodies/traces.
+
+## b. native diagnostics and repair
+
+the [native issue](issues/native-protocol-diagnostics.md) retains three failed
+attempts across slices 3–4; only the second slice-4 failure was narrowed to progress
+validation. do not infer one cause. current progress validation chains
+`ValidationError` into `NativeDefect`, then logs only its class. two root validators
+emit indistinguishable `value_error` codes. terminal validation also discards its
+reason. kernel propagation/fencing already preserves original exceptions/evidence;
+no upstream diagnostic redesign is currently justified.
+
+add one private jarvis projection, reused before existing run parking, terminal
+failure handling and command failure propagation. emit into existing logs, not
+new database fields, native receipts or a telemetry service:
+
+```text
+event: "native_failure"
+attempt_id: host attempt uuid | null
+boundary: "run" | "terminal" | "command"
+exceptions: [{kind, frames: [{module, function, line}],
+              validation: [{code, location}], validation_total}]
+truncated: boolean
+```
+
+closed projection: at most four causes, four innermost owned frames each, eight
+validation entries total, eight location segments and 8 kib valid json. follow
+explicit cause, otherwise unsuppressed context; bound cycles. `kind` is a known
+exception class or fixed `other`. frames contain only installed owned-code
+module/function/line coordinates; never absolute paths or source lines. source
+pins in evidence give those coordinates meaning. drop excess entries with
+`truncated=true`, never crop serialized json.
+
+validation codes come from public `pydantic_core.ErrorType` plus the static codes
+below; unknown codes become `unknown_validation`. schema locations admit declared
+fields/fixed union labels and list indexes;
+replace unknown strings with `?`. even input-free pydantic errors can expose an
+unknown private property name through `loc`. never emit messages, `str`/`repr`,
+arguments, context, inputs, notes, locals, private ids/payloads or payload digests.
+
+replace these existing ordinary validator errors with `PydanticCustomError(code,
+existing_constant_message)`, without context. preserve conditions, order and
+byte-identical `model_json_schema()`; this changes diagnostics, not valid behavior:
+
+| current check | code |
+| --- | --- |
+| invalid utf-8 | `jarvis_text_utf8_invalid` |
+| progress byte bound | `jarvis_progress_bytes_exceeded` |
+| duplicate action refs | `jarvis_action_refs_duplicate` |
+| blocker on nonwaiting disposition | `jarvis_nonwaiting_has_blocker` |
+| waiting without blocker | `jarvis_waiting_missing_blocker` |
+| blocker/action-ref mismatch | `jarvis_blocker_action_refs_mismatch` |
+| duplicate input dispositions | `jarvis_input_dispositions_duplicate` |
+| progress with dispositions | `jarvis_progress_has_dispositions` |
+
+provider public `AgentRuntimeError`/`AgentRuntimeDefect` roots currently escape
+the cli's type-only handler and can produce raw tracebacks containing provider
+strings. catch them at that existing nonzero-exit boundary; apply the same safe
+projection and retain fail-stop behavior. do not convert provider defects into
+recoverable `NativeDefect`. log before parking/propagation so a later persistence
+failure cannot erase the initiating cause.
+
+reproduce the two candidate progress violations and malformed terminal output with
+synthetic faults to prove distinguishability and unchanged recovery. then exercise
+the representative actual scheduled-worker and native-workspace/progress paths on
+the final stack. synthetic faults prove diagnostics, not historical causation.
+repair any reproduced current defect at its responsible prompt/schema, jarvis,
+kernel or provider boundary; change no protocol merely on suspicion. when no
+current cause is reproduced, retain the issue and state that precise residual risk.
+no endless model tournament or repeated live runs after meaningful proof passes.
+
+## c. final composition and content
+
+inspect actual composed definitions/native-session material, not just prompt
+strings: goals/personality, owner timezone, source framing, clock, memory view,
+complete published schemas/grants, callback/native authority, exact f3 selections
+and effective child/worker choices. preserve three distinct role contracts.
+
+f1 measured 16,372/16,384 bytes at its largest tested system prompt. consolidate
+repeated evidence/authority/silence/replay guidance before increasing any bound;
+retain distinct exceptions, personality/goals and explicit progress rules. do not
+hide overflow in another instruction channel. measure final system/developer/output
+schema sizes with actual and longest supported representative timezone. any needed
+bound amendment must name the measured requirement and owning contract.
+
+the content designer reviews each feature:
+
+- outage logs state fixed phase/reason, attempt and next delay; one recovery fact
+  is enough. no raw response, token, URL or repeated discord outage announcements.
+- native failure notices use existing failed-response behavior: work stopped,
+  existing effects/evidence remain for inspection. diagnostics stay operator-side;
+  malformed output never becomes a successful-looking answer or auto-retry.
+- useful results lead with findings, correct attachment page/section references,
+  source links, reply routing and local times. distinguish draft/created/scheduled/
+  sent/completed; report material limits without routine narration or dashboards.
+- briefs carry task, needed context, constraints and expected result. integrate
+  child/worker findings; launch/input/idle alone proves no useful completion.
+  unrelated events may settle silently. tests can request both delegation paths;
+  the permanent prompt must not require a scripted procedure.
+
+## d. cutover and one live journey
+
+one integration owner reconciles f1/f2/f3 source, pins and schemas. source migration
+head is currently `0013`; inspect the installed head before selecting migrations. restore
+`deploy/activate-release` from the qualified primitive's responsibilities in
+`50611a3`, not by copying its obsolete branches. use current release helpers,
+`dev-server-deploy` and `sudo -n`; retain the shared deploy lock, clean-stopped
+checks, exact host/application pair, current activation checks and canonical
+control. remove the intermediate unconditional refusal only after source readiness.
+no fallback SSH target, automatic authority resume, old scheduler or retained
+legacy migration/execution branch.
+
+before production starts: original-release disposition of incompatible actions/
+waits and reminder accounting; existing stopped database/runtime snapshot;
+selected migrations; actual private-notes origin/bootstrap and schema-5 host
+mapping; private r2 access; discovered canonical calendar ids with complete
+owner-only ACLs. use the existing operations procedures, not another installer.
+the owner's fresh-start decision permits cancelling old commitments instead of
+recreating them. never discard entered/unknown work to bypass activation checks.
+qualify activation script refusals and successful selection using controlled
+system/command boundaries before its actual production use. code rollback is not
+database rollback; failed cutover leaves the service stopped for explicit repair.
+
+the installed journey uses harmless synthetic content and bounded real work:
+
+1. verify the installed artifacts, sole gateway/actor, canonical control and quiet
+   google baselines. the owner posts a real task in the configured channel:
+   review the incoming fixture, research its claim, draft a reply, make a private
+   preparation block, delegate independent checks and schedule follow-through;
+   explicitly ask before sending. no fabricated owner message or approval.
+2. an operator helper delivers the authorized self-email outside jarvis's action
+   store. independently verify the recipient is the owner. use a unique subject,
+   harmless two-page pdf and one material correction on page two; retain exact
+   fixture ids. no blind resend after ambiguous delivery, extra recipients or
+   private material. mail arrival must wake main through the real source adapter.
+3. main reads full relevant message/attachment content, retains the original in
+   private r2, reads a useful real web source and writes a concise workspace note.
+   integrate one native child's result and launch/register a wait for an installed
+   codex worker's meaningful independent check. use f3's actual model-choice
+   capabilities; retain the
+   owner-deferred `claude-work` live NOT_RUN boundary.
+4. inspect a real unsent threaded draft and an owner-only calendar block with no
+   attendees; verify the corrected conclusion, routing and source citations.
+   the calendar's approaching-event fact exercises real ingress; its own mutation
+   echo may correctly be suppressed. observe the actual event fact, not a mock.
+5. retain a pending send proposal, scheduled todo and registered worker wait;
+   cleanly restart the application. the owner's ordinary approval during downtime
+   must arrive through real catch-up. independently verify the self-addressed
+   plain-text reply. reopen the original attachment and consume the actual timer/
+   worker outcomes using the same references, with no relaunch or duplicate write.
+   arrange the fixture timing so the wait is still registered at the restart;
+   record evidence instead of inferring this from a quick successful run.
+6. deliver a useful, grounded result through the real discord outbox; verify
+   original receipts and terminal dispositions. inspect workspace/git after
+   interruption; native commands retain their own recovery domain. confirm
+   actual memory roles/quiet completion on the final f3 composition. use existing
+   stopped `jarvis dream` when needed for bounded installed proof: it prepares
+   compaction and leaves the nightly marker unchanged. no overnight wait/new hook.
+
+reuse existing depth/format proofs where unchanged; no full connector/media/fleet
+matrix or competitor-parity claim. fault injection remains isolated. ordinary
+installed-worker capture policy is unchanged, so synthetic worker histories can
+enter shared memory before the later reset. record reality, not a claim of total
+candidate isolation. close relevant installed-cutover issues only on real evidence.
+
+## e. post-acceptance fresh reset
+
+this is the owner's one-off administrative operation, not a product capability.
+first retain concise acceptance evidence and one private stopped inventory/
+recovery snapshot. cancel commitments through existing transitions; finish or
+reconcile entered effects and task-owned work. never erase a failed proof or
+nonterminal recovery obligation. preserve unrelated running native terminals.
+
+quiesce jarvis, memory HTTP writers and native collectors. remove history only
+from the configured discord channel using operator authority; verify permission
+and complete enumeration first. do not recreate the channel or broaden bot tools.
+delete exact fixture draft/calendar/file resources and the recorded incoming/
+self-reply Gmail message ids after independently recording their outcomes; a sent
+draft id may already be absent. preserve nonfixture thread messages and real
+google data. use owner-side cleanup when existing scopes cannot delete sent mail;
+do not add inbox-housekeeping tools or broaden OAuth grants. if deletion is interrupted, keep the
+service stopped and resume the exact inventory, not a broader selection.
+
+clear these 18 application tables together through the stopped administrative
+boundary; preserving canonical admitted history would otherwise republish it:
+
+```text
+message, action, model_decision, read_position, native_attempt,
+native_invocation, native_input_delivery, memory_log, memory_summary,
+memory_lane, source_conversation, source_record, memory_leaf, memory_node,
+memory_state, work, attachment, event_cursor
+```
+
+preserve schema/alembic head, roles/grants, append-only guards and private config.
+use an explicit finite table allowlist, not an indiscriminate database drop or
+permanent privilege relaxation. restore all guards in the same controlled reset;
+reseed `memory_state(id=1)` with empty defaults. existing `initialize-state` creates
+the sole fresh, non-memory-admitted paused control row. work/waits remain empty;
+no automatic daily-review recreation.
+
+inventory attachment rows and actual object keys before removing metadata. delete
+proved fixture keys/cache only. any nonfixture original must retain its bytes and
+an exact private key/hash/source manifest outside live memory and notes git, unless
+its deletion is separately selected. do not leave undiscoverable orphan blobs or
+silently delete a retained contract/pdf. private notes/source repos stay intact.
+
+restart stateless native collectors through existing complete-inventory/current-
+head activation; old cuts are replaced only for this authorized reset. unavailable
+conversations retain normal pending-baseline behavior, with no old-prefix import.
+nexus is recorded disabled: verify it and leave it disabled. if it is actually
+active, quiesce its captured runs/publisher and coordinate its source-owned
+`memory_exports`/capture registration before clearing central proof. dispose of
+old pending exports and establish a current boundary; do not let them replay or
+rotate capture identity under a live old run. preserve source nexus chats.
+
+verify empty central history, no old work/waits and no old fixture retrieval before
+new writers resume. start paused, validate discord catch-up and fresh memory cuts,
+then obtain ordinary owner resumption. source controls use their existing enabled
+defaults and quiet current google baselines; current calendar attention remains
+eligible. verify genuine new owner activity/new capture without planting more
+test history. old facts can still be quoted in future source conversations; this
+is a reset of the corpus, not permanent erasure of preserved source files.
+
+## implementation ownership and acceptance
+
+| boundary | owner/files |
+| --- | --- |
+| discord lifecycle | `cli.py:run_service`, `discord.py:DiscordGateway/bounded_catch_up`, shutdown guard in `service.py:gateway_ready`, exact aiohttp/aiodns dependencies; fresh-client login, owned asynchronous DNS, network-only retry/stop, bounded catch-up |
+| websocket lifecycle | discord.py upstream `Client.connect/close`: initial failure and close-during-backoff proof/repair; exact qualified dependency adoption in `pyproject.toml`/`uv.lock`; no jarvis monkeypatch |
+| native diagnostics | one private `src/jarvis/native_diagnostics.py`, `native_runtime.py`, `terminal.py`, existing cli failure catch; no action/journal schema change |
+| composition/content | `definitions.py`, compatibility manifest and relevant tool guidance only for demonstrated omissions; one integration owner coordinates f3 overlaps |
+| installed cutover/reset | `deploy/activate-release`, existing deploy helpers/checks and `docs/operations.md`; temporary operator reset procedure, source-owned capture handoffs, no runtime deletion api |
+| evidence/issues | this contract and existing linked issue records; remove resolved issues, retain the explicit historical unknown if applicable |
+
+parallelize discord and diagnostics work; their cli edits own different functions.
+integration follows both and qualified f3. the designer owns wording/rubric;
+an independent adversary reviews contract, implementation and final evidence for
+each boundary. no new standing review machinery.
+
+temporary red → green → refactor → delete proof:
+
+- real integration/process tests with controlled network faults: repeated login
+  failure then success in one process; failed-client closure; stop during login,
+  retry wait and readiness fetch; initial websocket failure and close during
+  websocket backoff; fatal authentication/
+  configuration/sink errors; concurrent failure during stop. prove readiness gates,
+  fixed catch-up watermark, no duplicate persistence, drain-before-close and no
+  leaked tasks/clients/resolvers or raw SDK payload logging. measure subprocess exit under non-answering DNS,
+  not only coroutine return.
+- synthetic native faults after an accepted callback, malformed terminal and a
+  provider failure containing private markers in its message/cause; include a
+  marker in an extra JSON property name. assert distinct bounded diagnostics and
+  no markers in logs/stdout/stderr/notices, unchanged schemas, fencing/parking and
+  original evidence. reject stale callbacks; no replay of effects/paid reads.
+- representative actual native reproduction and the installed journey above.
+  record either reproduced-and-repaired or historical-cause-unknown explicitly.
+- real-postgres reset rehearsal plus controlled discord/capture boundaries prove
+  the finite wipe, required singleton/control initialization, guards and fresh
+  capture without old-history republication before production cleanup.
+
+after useful proof passes, refactor duplicated paths and remove superseded code.
+run affected upstream checks, approved memory regressions and `scripts/verify`;
+repeat only a changed boundary or unresolved concern. then delete only this work's
+temporary probes/resources. retain exact source/pins/host/model identities, live
+versus controlled scope, useful outcomes, fault/recovery evidence, downtime,
+reset inventory disposition and unrun/unknown boundaries here. history deletion
+must not remove the concise evidence required to assess acceptance.
+
+trade-offs: transient outages wait indefinitely with bounded backoff; bad config
+still needs repair. safe diagnostics deliberately omit payloads. an unreproduced
+historical defect can recur. production testing incurs downtime and genuine
+subscription/provider usage. the reset deliberately discards useful history and
+commitments too; private recovery material remains outside the live corpus.

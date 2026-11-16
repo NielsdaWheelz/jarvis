@@ -2,8 +2,14 @@
 
 status: open; accepted for [f2 reliability/integration](../implementation-plan.md#v2-finishing-prs)
 under adr 0075. retain bounded content-free diagnostics, reproduce and repair the
-owning layer; spec and repair remain pending. a model upgrade or passing later
+owning layer; the [contract](../runtime-reliability-and-integration.md#b-native-diagnostics-and-repair)
+is specified and implementation remains pending. a model upgrade or passing later
 journey does not resolve these failures. repair size remains unknown.
+
+[adr 0077](../decisions/0077-production-acceptance-and-fresh-reset.md) permits final
+acceptance with this issue explicitly OPEN if safe diagnostics and representative
+actual reproduction cannot identify the historical cause. new demonstrated defects
+still require repair. this is an accepted residual risk, not issue closure.
 
 problem: one native turn failed after accepted callbacks, but retained evidence
 identifies only `NativeDefect`; its exact cause cannot be reconstructed.
@@ -51,3 +57,10 @@ resolved when: reproduce with sufficient content-free evidence to identify the
 actual owning layer, repair any demonstrated defect there and verify the affected
 path, fencing and original-effect preservation. no guessed exception-text
 logging, automatic unpark, effect replay or fallback output closes this issue.
+
+current source audit: the two candidate root validators emit the same `value_error`
+and empty location; custom static codes can distinguish future failures without
+changing schemas. even input-free pydantic errors expose unknown property names
+through `loc`. provider public error roots also escape the cli's current safe
+failure catch. f2 owns bounded projections and that fail-stop repair; synthetic
+violations alone cannot establish which historical cause occurred.

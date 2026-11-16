@@ -1,7 +1,8 @@
 # discord login failure exits the service
 
 status: open; accepted for [f2 reliability/integration](../implementation-plan.md#v2-finishing-prs)
-under adr 0075. detailed spec and current reproduction remain pending.
+under adrs 0075/0077. the [contract](../runtime-reliability-and-integration.md#a-discord-startup-and-stop)
+is specified; implementation and current reproduction remain pending.
 
 problem: `serve` exits 1 when discord's login fails, on a connect timeout or a
 resolution failure. a cooperative stop while the login is still pending waits
@@ -24,6 +25,13 @@ resolver that hangs 30 s per attempt the stop took 123 s and ended
 selected direction: interruptible startup retry/backoff for transient connection
 failures; invalid credentials/configuration remain explicit failures. preserve
 responsive ingress/control and normal successful login behavior.
+
+source audit (2026-11-16): repeated login on the same pinned client replaces HTTP
+sessions; close/clear retains its closed connector. use fresh clients. cancelling
+executor-backed DNS does not stop its thread; qualify public asynchronous resolver
+ownership and actual process exit. initial websocket failure also has a possible
+`self.ws is None` defect in the dependency, pending controlled reproduction.
+readiness network retries must leave canonical message sinks outside retry/cancel.
 
 resolved when: current isolated proof demonstrates recovery after a transient
 startup outage without manual systemd reset, clean cooperative stop during

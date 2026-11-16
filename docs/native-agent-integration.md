@@ -19,9 +19,11 @@ artifacts and do not rewrite this historical cutover receipt.
 next model/runtime target: [adr 0075](decisions/0075-v2-completion-and-subscription-model.md)
 selects `gpt6astra-max`: authenticated dispatch model `gpt-6-astra`, reasoning
 `max`, through the existing personal codex subscription and `provider-runtime`.
-its [separate finishing spec](implementation-plan.md#v2-finishing-prs) is pending.
-qualify the actual catalog key/auth route, compatible pins, main and isolated
-memory roles; no invented alias, model substitution or api-key generation fallback.
+its [finishing spec](subscription-model-runtime.md) now owns the
+[adr 0076](decisions/0076-role-models-and-delegated-choices.md) refinement:
+astra/max for main, fixed sol/xhigh for isolated memory, deliberate native-child
+and per-session skid model/effort choices. qualify actual catalog keys/auth route
+and compatible pins; no invented alias or fallback for fixed roles.
 the contract/evidence below retains the current qualified `gpt-5.6-terra/high`
 composition until that separate cutover. this docs change updates no runtime pins.
 

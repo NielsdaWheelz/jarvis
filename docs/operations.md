@@ -33,6 +33,16 @@ private declaration. automated helpers and other viewers receive no memory tools
 
 ## accepted v2 target and operational scope
 
+[f2](runtime-reliability-and-integration.md), under
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md), now owns
+isolated reliability proof → stopped v2 cutover → real production acceptance →
+one-off fresh history reset. implementation/activation/deletion remain pending.
+the real channel/token/mailbox actor is exclusive. an irreproducible historical
+native incident may remain explicitly open; new demonstrated defects require repair.
+the reset clears discord/jarvis/all central shared history and commitments while
+preserving private repos, credentials, real google data and original native chats.
+its exact source-cut, attachment and recovery constraints are in the f2 contract.
+
 [adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the product target.
 [one-main source](one-main-events.md) implements its first slice; it has not been
 installed or activated. these instructions describe that source. the active
@@ -133,6 +143,12 @@ action replay never repeats that mutation. daily review is ordinary work data,
 created once during supervised setup, never recreated at startup.
 
 ### private workspace handoff
+
+[f3](subscription-model-runtime.md) specifies main astra/max, memory sol/xhigh
+and native-child/per-session skid model choices. it is not implemented or installed.
+its candidate must preserve production's runtime and private mapping. the future
+v11 worker cutover settles/cancels pending v10 waits and publishes outcomes with
+the original release; no old watcher, model fallback or effect replay is added.
 
 [slice 4](private-notes-and-rolodex.md) implements general files/commands/git in
 the new private `NielsdaWheelz/jarvis-notes` checkout, including helpers and visual
@@ -394,8 +410,11 @@ for the retained release before retrying; no extra rollback release is retained.
 `deploy/activate-release` deliberately refuses this intermediate one-main
 release. slice 1 removes the scheduler; slice 2 supplies scheduled todos. restore
 activation only after the selected slices and retained reminder obligations are
-accounted for. installation, private stopped snapshots and isolated qualification
-remain available. source completion does not imply deployment or owner resumption.
+accounted for. f2 owns restoration/qualification and the owner-selected final
+production journey. the fresh-start choice permits cancelling prior commitments
+through their original release instead of recreating them. installation, private
+stopped snapshots and isolated qualification remain available. source completion
+does not imply deployment or owner resumption.
 
 the qualified routine-activation primitive remains in memory merge `50611a3`.
 this source retains its initialized-control checks and preserves canonical
@@ -468,11 +487,12 @@ retained reminder purpose, time and source references belong to slice 2's todo
 conversion; there is no temporary reminder table or executable old scheduler.
 
 the current source migration chain continues from memory `0008` through
-per-conversation baselines `0008a`, one-main `0009`, work `0010` and attachments
-`0011`. work adds the mutable todo table and its current schedule; attachments add
+per-conversation baselines `0008a`, one-main `0009`, work `0010`, attachments
+`0011`, event sources `0012` and lossless read-result storage `0013`.
+work adds the mutable todo table and its current schedule; attachments add
 one original-metadata table and immutable upload manifests. old messages without
 manifests retain their text/archive digests. runtime admission requires the exact
-`0011` schema head; this is not an installed-production migration receipt.
+`0013` schema head; this is not an installed-production migration receipt.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
 parents only by joining canonical action identities. native committed products
@@ -482,6 +502,11 @@ source times remain original; historical first-observation time remains unknown
 where no canonical evidence exists.
 
 ### supervised todo setup
+
+adr 0077's selected post-acceptance fresh reset clears every todo/reminder/wait
+and supersedes daily-review creation for that reset. do not recreate one on startup;
+future ordinary owner work can request it. the original setup procedure below
+remains the source contract outside this one-off decision.
 
 account for each retained reminder in the private cutover inventory before the
 selected v2 release resumes unattended. give main its original purpose, intended
@@ -929,6 +954,12 @@ attempt, action or request to make it look undispatched. there is no rolling
 admission file to repair.
 
 ## Data durability and logs
+
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) grants only the
+explicit post-acceptance administrative reset in [f2](runtime-reliability-and-integration.md#e-post-acceptance-fresh-reset).
+it does not add a runtime deletion API or relax ordinary append-only guards.
+private recovery snapshots/manifests remain outside live memory; source cuts and
+pending exports must be coordinated before writers resume. reset work is pending.
 
 the [target cutover](universal-memory.md#9-migration-and-hard-cutover) takes one
 local pre-migration `pg_dump` with the necessary runtime/configuration copy. this

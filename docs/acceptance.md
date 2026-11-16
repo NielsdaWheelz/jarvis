@@ -121,15 +121,24 @@ budget acceptance stays with their later contracts.
 source and a separate temporary candidate: continuable mail/calendar/web reads,
 full supported text, fresh observations, existing draft/calendar writes and
 original receipt recovery. its local, controlled, live and native checks remain
-distinct; production activation is pending. f2/f3 specs and proof remain pending.
-f2 must prove discord outage/stop behavior, a reproduced owning-layer native repair and
+distinct; production activation is pending. [f3 is specified](subscription-model-runtime.md#temporary-proof-and-acceptance)
+and [f2 is specified](runtime-reliability-and-integration.md#implementation-ownership-and-acceptance);
+both implementations/proofs remain pending.
+f2 must prove discord outage/process-stop behavior, safe native diagnostics,
+owning-layer repairs for demonstrated defects and
 the combined email → attachment → sourced research/delegation → draft/calendar
 action → scheduled follow-through → restart journey. f3 must prove the actual
-personal codex subscription and exact `gpt-6-astra`/`max` selection through
-`provider-runtime`, including main/native/callback and isolated memory roles.
-integrated proof must use the final selected artifacts. f2/f3 remain planned
-temporary proofs; f1's scoped acceptance creates no standing suite or production
-activation. no benchmark or competitor-parity claim follows.
+personal codex subscription through `provider-runtime`: exact `gpt-6-astra/max`
+for main/native/callback work, `gpt-6.1-sol/xhigh` for compactor/dreamer, deliberate
+native-child model/effort and per-session skid choices. preserve old sealed-terminal
+settlement and original receipt recovery across the model change.
+integrated proof uses the final selected artifacts on the actual production service
+after isolated fault proof and stopped cutover. under adr 0077, an irreproducible
+historical native incident may remain explicitly open; passing journeys do not
+retroactively diagnose it. final acceptance precedes the owner's one-off reset of
+all discord/jarvis/central shared history and commitments, with coordinated source
+cuts and preserved private/source data. no standing suite, benchmark or competitor-
+parity claim follows. no installed proof or deletion has occurred in this docs task.
 
 ## native cutover acceptance
 

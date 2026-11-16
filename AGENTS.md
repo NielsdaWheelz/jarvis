@@ -16,8 +16,16 @@ These instructions govern all work in this repository.
   at reasoning `max` through the owner's personal codex subscription and
   `provider-runtime`; no invented wire alias, model substitution or api-key
   generation fallback. current pins/evidence remain unchanged until qualified.
-  [f1](docs/mail-calendar-web-reads.md) implements read completion; f2/f3 specs
-  remain pending. f1 reuses landed attachment manifests and the audited event
+  [f1](docs/mail-calendar-web-reads.md) implements read completion;
+  [f3](docs/subscription-model-runtime.md) and
+  [f2](docs/runtime-reliability-and-integration.md) are specified; implementation
+  and installed acceptance remain pending.
+  [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md) refines f3:
+  astra/max is main only; compactor/dreamer use fixed personal-subscription
+  `gpt-6.1-sol/xhigh`. main chooses supported native-child and per-session skid
+  model/effort; this supersedes adr 0068's override prohibition at the future
+  qualified worker cutover. preserve current source/evidence until implemented.
+  f1 reuses landed attachment manifests and the audited event
   profile/refresh primitives, removes clipped thread/fanout paths, and keeps
   original receipts plus normalized paid-read barriers. the owner selected
   disposable web pages with explicit restart after stale cursors. the roadmap
@@ -27,6 +35,18 @@ These instructions govern all work in this repository.
   demonstrated gaps rather than add an orchestration framework. production
   activation remains separate. f1 source and its separate candidate
   are qualified; its evidence owns exact artifacts, temporary proof and cleanup.
+- [adr 0077](docs/decisions/0077-production-acceptance-and-fresh-reset.md) makes
+  f2 own final stopped production cutover/acceptance, after isolated fault proof
+  and qualified f3. use the real production channel exclusively; no parallel
+  gateway/mailbox actor. historical native incidents may remain explicitly OPEN
+  if representative reproduction cannot identify them; current reproduced defects
+  require repair. after acceptance the owner requests a completely fresh reset:
+  configured discord/jarvis/all central shared history plus todos/reminders/waits.
+  this is one stopped administrative exception to retention and capture cuts,
+  not a runtime deletion tool. preserve private repos, credentials, real google
+  data and original native/nexus chats; retain recovery evidence, coordinate all
+  stores/source cuts and prove no immediate old-history republication. do not
+  recreate daily-review work. follow f2's exact contract and file disposition.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

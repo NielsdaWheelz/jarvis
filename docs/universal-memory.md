@@ -2295,4 +2295,76 @@ unchanged-hint operator retry, and exact cut/checkpoint/original preservation
 across collector restart. independent code, test and contract review passes.
 new probes and disposable databases are removed after qualification. no schema,
 api, binding revision, provider/kernel pin or capture boundary changes. installed
-replacement and fresh ordinary capture latency remain separately pending.
+replacement and fresh ordinary capture latency are qualified below.
+
+### installed collector repair qualification
+
+source [jarvis pr 69](https://github.com/NielsdaWheelz/jarvis/pull/69) and
+[dev-server pr 218](https://github.com/NielsdaWheelz/dev-server/pull/218) are merged.
+central and both online collectors select
+`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, immutable tag
+`memory-collector-fairness-2026-11-15`. provider `6582551`, kernel `42e7ecd`,
+universal-memory `93e02af`, stock cognition 0.160 and schema 0008a are unchanged.
+v2 stays unactivated; no standing maintenance branch remains.
+
+the stopped-to-running comparison preserves all 13 lanes, 5,262 conversations,
+12,706 originals, 28 notes and 12,724 leaves exactly, including cuts and
+checkpoints: snapshot hash
+`52669688d23993112067e667cdb40f5f86ea8a2a951690f3b8fac59af17e2760`.
+canonical resume sequence 4 persists; no action is converted and the three
+finalized compatible worker records remain opaque. the same-release contained
+host, containment and both online gateway reads pass. jarvis is active with zero
+restarts. the old selected release is pruned. an actual mcp read reopens the
+prior exact 77-byte synthetic original with its original identity and digest.
+
+collectors start at 2026-11-16 00:13:02 utc on macbook and 00:13:12 on dev-server,
+with six active lanes each and authenticated v3/exact dependency checks passing.
+only the collector launch changes. all six native mcp entries are already exact;
+instruction/private configuration files and all ten original private inputs are
+preserved. one macbook claude-work2 native configuration has a separate publication
+93 seconds before its installer begins; its writer is unidentified, its owned
+memory entry is still exact, and the installer neither rewrites nor rolls it back.
+
+exactly one fresh normal persisted work2 turn per host then passes: model exit 0,
+one owner event and one assistant event, complete unique parts/leaves, exact
+final checkpoint/digest and no baseline/capture error. one installed native mcp
+client opens both captured originals exactly and unclipped; this is not a new
+per-host client qualification. root's actual shared search independently returns each
+expected assistant record. no synthetic launch was repeated.
+
+| host | model completion utc | inventory observation utc | stored archive receipt utc | first committed-read observation utc | model→receipt | assistant record |
+| --- | --- | --- | --- | --- | --- | --- |
+| macbook | 00:14:14.826702 | 00:15:02.733563 | 00:15:22.313590 | 00:15:26.635637 | 67.49 s | `e2a3776f-5bf9-4df1-a657-3f7af22791fa` |
+| dev-server | 00:14:42.487839 | 00:15:31.190852 | 00:15:47.118229 | 00:16:01.232543 | 64.63 s | `eea7df6a-6349-4e32-b187-af6822baf0e9` |
+
+all clocks above are 2026-11-16 utc. inventory timestamps are observations, not
+registration commits; stored archive receipts are not exact wal commit clocks.
+committed visibility is bounded by each receipt and positive read observation.
+thus post-inventory receipt delays are 19.58 and 15.93 seconds, with committed
+visibility observed within 23.91 and 30.05 seconds. exact mcp responses were
+observed by 00:16:01.241 and 00:17:10.187 respectively; these later manual proof
+times are not ingestion latency. no sub-minute end-to-end or fleet load claim
+is made. the prior repaired-paging-only observations were about 792 and 415
+seconds; this qualifies these ordinary post-restart journeys, not a benchmark.
+
+the final snapshot has 13 lanes, 5,264 conversations, 12,816 originals, 28 notes
+and 12,834 leaves, hash
+`cef9cceb3ee4a094fb627b5376782ce1d33fd48bbc48bfef809e79fe911de47a`.
+comparisons against both the stopped predecessor and original pre-rollout state
+pass. two conversations and 110 originals/leaves appended since the stopped
+snapshot; four existing checkpoints changed without a cut reset or changing
+a digest under the same id. opaque changed ids alone do not prove ordering.
+there are no duplicate parts/sequences, incomplete events or originals beneath
+pending baselines. temporary proof code, disposable databases and copied private
+stages are removed after review; native histories and append-only evidence remain.
+
+remaining coverage is explicit: 21 dev-server conversations have proven missing
+native source dependencies; two macbook conversations remain unavailable. both
+macbook primary files exist and grew during metadata observation, which proves
+neither stable-head failure nor complete native lineage. their cause is
+[unresolved](issues/macbook-work2-pending-baselines.md). healthy/new capture
+works; recovered pending conversations still establish fresh cuts without gap
+backfill. arch, nexus activation, the three named claude model checks, historical
+import, backup/restore and broad usefulness/load evaluation retain their approved
+deferrals. indivisible initial inventory and individual read cost remain an
+[explicit limitation](issues/memory-cold-start-scan.md).

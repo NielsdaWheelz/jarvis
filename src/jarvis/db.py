@@ -4,6 +4,7 @@ from typing import cast
 
 from pgvector.sqlalchemy import VECTOR  # pyright: ignore[reportMissingTypeStubs]
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -40,7 +41,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0012"
+APPLICATION_SCHEMA_REVISION = "0013"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -361,7 +362,7 @@ read_position = Table(
     Column("contract", JSONB, nullable=False),
     Column("state", Text, nullable=False),
     Column("reservation", JSONB(none_as_null=True)),
-    Column("result", JSONB(none_as_null=True)),
+    Column("result", JSON(none_as_null=True)),
     Column("settlement", JSONB(none_as_null=True)),
     Column(
         "created_at",

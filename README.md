@@ -80,7 +80,10 @@ reservation or arbitrary main cutoff remains. finite operation limits and effect
 uncertainty barriers remain. skid owns independent worker launch/control; jarvis
 owns durable observation and integration.
 
-jarvis owns fifteen application tables, including six library-owned memory tables:
+current source owns eighteen application tables: the native nine, six
+library-owned memory tables, `work` (`0010`), `attachment` (`0011`) and
+`event_cursor` (`0012`). migration `0013` preserves full read text in postgres
+json without adding a table:
 
 ```text
 message
@@ -98,18 +101,24 @@ source_record
 memory_leaf
 memory_node
 memory_state
+work
+attachment
+event_cursor
 ```
 
 ## remaining v2 target
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the product
 contract. slice 1 supplies the common main lifecycle, conversational decisions
-and scoped stop. slice 2 adds work records/wakes; later slices supply private native files
-and inbound attachments. source implementation does not authorize activation.
+and scoped stop. slice 2 adds work records/wakes; slices 3–4 add qualified skid
+follow-through and private native files; slice 5 adds qualified inbound
+attachments, and slice 6 adds qualified mail/calendar event sources. slices 1–6
+have source qualification; their contracts distinguish isolated proof from
+separate candidate qualification. source implementation does not authorize activation.
 
 one work table holds current work and optional one-time or repeated
 wakes; due dates remain separate. source main now uses a private native git
-checkout for ordinary notes and files; inbound originals will live in private r2 storage. existing
+checkout for ordinary notes and files; inbound originals use private r2 storage. existing
 asynchronous skid observation already delivers events without repeated model
 polling. slice 1 removes the old scheduler; outstanding reminders remain private
 cutover obligations until slice 2 accounts for them. unattended activation is
@@ -119,8 +128,18 @@ helpers, components, charts and self-contained interactive files. production
 bootstrap/acceptance remains at final v2 cutover. browser and
 credential products, interactive hosting/television integration and a separate ui
 are deferred. the shared-memory delivery remains separate and unchanged; selected
-dream wakes and work-informed dreaming are outside this cut. complete searches
-and budget integration retain their later contracts without adoption here.
+dream wakes and work-informed dreaming are outside this cut. budget and broader
+memory/maps/fleet search remain later work.
+
+[adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adds three
+[finishing prs](docs/implementation-plan.md#v2-finishing-prs):
+[complete mail/calendar/web reads](docs/mail-calendar-web-reads.md#implementation-evidence)
+has source and separate candidate qualification. native/discord reliability and
+integrated acceptance still needs a spec, as does the owner's
+`gpt6astra-max` target (`gpt-6-astra`, reasoning `max`) through his personal codex
+subscription and provider library. current model/runtime pins are unchanged.
+no new orchestrator, persona system or inbox housekeeping is included; final
+production cutover follows combined qualification.
 
 ## Authoritative documents
 
@@ -271,12 +290,11 @@ these describe current source trade-offs; installed behavior is qualified separa
   tagged domain variant rather than Google's compatibility end. This preserves
   truth but requires consumers to handle the third observed-end variant; plan/
   session fingerprints prevent reuse with an incompatible get-event contract.
-- Calendar event listing uses host-owned bounded pagination and returns typed
-  completeness rather than a model-selected limit or truncation guess. Its v6
-  result returns at most 1,500 compact overview items in 512 KiB; full details
-  require explicit `calendar.get_event` reads. It may use more Google requests
-  and still reports unusually dense ranges as partial at the fixed
-  page/event/byte/deadline bounds.
+- [mail/calendar/web reads](docs/mail-calendar-web-reads.md) use explicit bounded
+  pages and full-text byte chunks. main chooses calendars and depth; live changes
+  require explicit restart. web search caches one disposable page, and stale
+  local cursors fail without another paid fetch. strict calendar snapshots remain
+  separate from text evidence. deeper reads use more calls and context.
 - main persists typed public progress as prose without completing owner requests.
   final output separately renders an answer, partial result, question, failure
   or silence, with explicit request dispositions. malformed structured output

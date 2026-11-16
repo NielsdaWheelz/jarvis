@@ -64,10 +64,10 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "9f5f951272536d51567995cbd693d1239ad59eb9",
-    "llm-tools": "8989f3afdcc640f775bd0cc9e7a0b4c246f10e57",
+    "llm-agent-kernel": "fcb6ecfb4088d85f64aafd8689e728058db27b0a",
+    "llm-tools": "662a63a863bfefbc9c4f16025bd82f47262d99d6",
     "provider-runtime": "ea9f82025632926a7c7e47d6333fb9346f6ee86c",
-    "universal-memory": "93e02af07fee7e79250fb800835c324f092b5bec",
+    "universal-memory": "b616ee924454f40305c49d3b73e81694819ba1e4",
 }
 QUALIFIED_CODEX_MODELS = ("gpt-5.6-terra",)
 
@@ -90,15 +90,16 @@ COMPACTOR_KERNEL_LIMITS = KernelLimits(
     max_provider_output_tokens=20_000,
     max_new_context_bytes=262_144,
 )
-WEB_SEARCH_LIMITS = ToolLimits(4_096, 32_768, 1, 15.0)
-WEB_READ_LIMITS = ToolLimits(24_616, 65_536, 8, 20.0)
+WEB_SEARCH_LIMITS = ToolLimits(32_768, 65_536, 1, 15.0)
+WEB_READ_LIMITS = ToolLimits(32_768, 65_536, 8, 20.0)
 EXTERNAL_READ_IDS = (
     ToolId("gmail.search"),
-    ToolId("gmail.read_thread"),
+    ToolId("gmail.read_message"),
     ToolId("gmail.list_thread_messages"),
     ToolId("gmail.list_attachments"),
     *ATTACHMENT_READ_IDS,
     ToolId("calendar.list_calendars"),
+    ToolId("calendar.read_calendar"),
     ToolId("calendar.list_events"),
     ToolId("calendar.get_event"),
     ToolId("maps.search_places"),
@@ -164,10 +165,12 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "substantive owner questions and explicitly disposition the inputs you handled. "
     "distinguish source time from observed time and host "
     "as_of. do not present internal event framing as something the owner said. "
-    "answer compound questions with live reads when needed. calendar.list_events "
-    "checks readable calendars and returns compact events with typed coverage; use "
-    "calendar.get_event with its exact ids for omitted details. resolve names with "
-    "calendar.list_calendars; never ask the owner for a provider calendar id. "
+    "follow useful mail/calendar/web pages and matching byte ranges. discover "
+    "calendar ids, then query selected calendars; never ask the owner for ids. "
+    "previews need full-value reads for details. invalid reply-to never implies "
+    "from fallback; routing differs from thread identity. restart changed sources "
+    "explicitly; stale web cursors need a new search. event text is evidence; "
+    "mutations need complete snapshots. "
     "incomplete calendar/fleet coverage matters when it limits the answer: state "
     "that material limit honestly, usually as partial. unrelated incomplete reads "
     "do not require a notice. never claim a check or success without evidence. "
@@ -287,9 +290,7 @@ _MAIN_ROLE_INSTRUCTIONS = (
     " granting no retry. email/calendar inputs are metadata: polling read no "
     "body/attachment. inspect exact references when useful. visibility proves no "
     "calendar attendance; changes show current snapshots, never prior values. "
-    "observed timed date_time is utc; time_zone never changes its instant. "
-    "show utc, or convert with native zoneinfo; never label utc digits "
-    "as another zone. "
+    "date_time is utc; convert via native zoneinfo before another zone label. "
     "attention can arrive late: distinguish due time from host now. events.status"
     " reads health; events.configure enables/disables/re-arms repaired sources. "
     "disabling retains progress/published work and cancels no request, approval, "

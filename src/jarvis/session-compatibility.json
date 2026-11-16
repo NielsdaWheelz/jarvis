@@ -1,10 +1,10 @@
 {
-  "application_session_contract_revision": "jarvis-attachments-event-sources-v1",
+  "application_session_contract_revision": "jarvis-complete-reads-v1",
   "dependencies": {
-    "llm-agent-kernel": "9f5f951272536d51567995cbd693d1239ad59eb9",
-    "llm-tools": "8989f3afdcc640f775bd0cc9e7a0b4c246f10e57",
+    "llm-agent-kernel": "fcb6ecfb4088d85f64aafd8689e728058db27b0a",
+    "llm-tools": "662a63a863bfefbc9c4f16025bd82f47262d99d6",
     "provider-runtime": "ea9f82025632926a7c7e47d6333fb9346f6ee86c",
-    "universal-memory": "93e02af07fee7e79250fb800835c324f092b5bec"
+    "universal-memory": "b616ee924454f40305c49d3b73e81694819ba1e4"
   },
   "qualified_models": [
     "gpt-5.6-terra"
@@ -12,7 +12,7 @@
   "role_contract_revisions": {
     "compactor": "jarvis-memory-compactor-v3",
     "dreamer": "jarvis-memory-dreamer-v3",
-    "main": "jarvis-main-attachments-event-sources-v1"
+    "main": "jarvis-main-complete-reads-v1"
   },
   "schema_version": "jarvis-session-compatibility.v3"
 }

@@ -12,8 +12,18 @@ qualification/probe removal and `f3b4dc3` is the merge. the former feature branc
 is historical; current deployment remains an independent operational handoff.
 
 authority: [adr 0065](decisions/0065-native-agent-supervision.md), shared kernel
-native spec section 18 and n4. the pending universal-memory/delegation roadmap
-does not alter this cutover.
+native spec section 18 and n4. later memory/delegation qualification and
+[f1 evidence](mail-calendar-web-reads.md#implementation-evidence) retain their own
+artifacts and do not rewrite this historical cutover receipt.
+
+next model/runtime target: [adr 0075](decisions/0075-v2-completion-and-subscription-model.md)
+selects `gpt6astra-max`: authenticated dispatch model `gpt-6-astra`, reasoning
+`max`, through the existing personal codex subscription and `provider-runtime`.
+its [separate finishing spec](implementation-plan.md#v2-finishing-prs) is pending.
+qualify the actual catalog key/auth route, compatible pins, main and isolated
+memory roles; no invented alias, model substitution or api-key generation fallback.
+the contract/evidence below retains the current qualified `gpt-5.6-terra/high`
+composition until that separate cutover. this docs change updates no runtime pins.
 
 ## contract
 

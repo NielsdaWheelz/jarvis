@@ -1,6 +1,6 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1 source/candidate qualified; v2 not activated**
 
 date: **2026-11-16**
 
@@ -101,12 +101,58 @@ the adopted schema additions are `work`, `event_cursor` and `attachment`, plus
 o6's causal message reference and contract changes; there is no `recurring_wake`
 table. detailed fields/tools, migration and acceptance belong to the linked
 contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
-the current source has eighteen application tables: the native nine, six memory
-tables, `work`, `attachment` and `event_cursor`. migration `0011` adds attachments
-after `0010`; `0012` adds event-source progress.
-shared memory stays in its separate pr: no capture, dreaming or memory-schema
-change is implied, and selected dream-triggered turns remain deferred. existing
-complete-search and budget proposals remain separately scoped later work.
+this owner-approved source stack has eighteen application tables: the native
+nine, six memory tables, `work`, `attachment` and `event_cursor`. migration `0011`
+adds attachments and `0012` adds event sources; `0013` changes only read-result
+storage. production activation remains separate.
+shared memory retains its separate delivery and recorded qualification/deferrals:
+no capture, dreaming or memory-schema change is implied, and selected
+dream-triggered turns remain deferred. budget and the broader search proposal
+remain later work; the focused completion below is now selected.
+
+### accepted v2 finishing work
+
+[adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adopts
+three additional review units. [f1's implementation contract](docs/mail-calendar-web-reads.md)
+is implemented with source and separate candidate qualification; f2/f3 still
+need their own specs:
+
+- complete mail/calendar/web reads through bounded pages/chunks, full supported
+  available text, correct incoming `Reply-To` and fresh deliberate observations.
+  preserve original callback receipts and paid-read barriers. retain existing
+  writes; add no inbox housekeeping, invitation-response tools or outgoing files.
+  memory ranking, maps and worker-history expansion stay deferred. the broader
+  search proposal's schemas are not adopted wholesale. f1 hard-cuts clipped
+  thread reads to the landed message/file manifests plus complete message/part
+  chunks, pages individual calendars, and preserves exact write snapshots.
+  web search uses disposable pages and explicit stale-cursor recovery; new
+  observations retain normalized unknown-paid-read barriers. its contract owns
+  the replacement schemas, resource boundaries and temporary qualification.
+  the read-result column uses postgres `json` to retain valid source nul text
+  losslessly; migration `0013` preserves existing values under stopped ownership.
+  native input journals retain their existing `jsonb` nul rejection. no table,
+  codec or authority change is added; downgrade requires forward repair.
+- repair discord startup/stop resilience and the demonstrated native failures
+  after retaining sufficient content-free diagnostics and reproducing the cause.
+  qualify actual prompt/tool composition and a useful combined journey; reuse
+  existing personality, goals, native subagents and skid. no new orchestrator or
+  relaxed recovery/validation.
+- pin the owner's `gpt6astra-max` target: authenticated `gpt-6-astra` dispatch
+  model at reasoning `max`, through the personal codex subscription and the
+  owner's provider library (`provider-runtime` in `llm-calling`). use the actual
+  authenticated catalog key; do not invent a combined alias. one shared cognition
+  selection serves main and isolated memory roles; worker profiles are separate.
+  qualify exact model/effort/authentication and library/native-runtime pins. no
+  model substitution, api-key generation route or silent fallback.
+
+f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
+its implemented source, exact dependency pins and separate live candidate.
+f2/f3 remain accepted scope; no model/runtime cutover is claimed. current
+`gpt-5.6-terra/high` qualification remains historical/current source evidence
+until the new target is qualified. the
+[roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
+integration; production cutover remains separate. no feature-parity claim follows
+from this scope or from jarvis-only proof.
 
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
@@ -1240,7 +1286,7 @@ definition fingerprint. secret bytes, clock and current inputs do not. schema-v3
 session compatibility has no predecessor exceptions; schema-4 host mapping is a
 separate operational contract.
 
-the shared `llm-agent-kernel-native-agent-v3` base instruction permits prose in
+the shared `llm-agent-kernel-native-agent-v4` base instruction permits prose in
 the application's required commentary format and reserves input dispositions
 for final output. its revision and digest automatically rotate the definition
 fingerprint; jarvis neither copies its text nor supplies a manual base revision.
@@ -1336,10 +1382,10 @@ pipeline, never a nested agent.
 
 | Tools | Granted role | Authority |
 |---|---|---|
-| `gmail.search`, `gmail.read_thread` | Main | Read; automatic |
+| `gmail.search`, `gmail.list_thread_messages`, `gmail.list_attachments`, `gmail.read_message` | main | read; automatic |
 | `gmail.create_draft`, `gmail.update_draft` | Main | Write; automatic |
 | `gmail.send_draft` | Main | Write; approval required |
-| `calendar.list_calendars`, `calendar.list_events`, `calendar.get_event` | Main | Read; automatic |
+| `calendar.list_calendars`, `calendar.read_calendar`, `calendar.list_events`, `calendar.get_event` | main | read; automatic |
 | `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | Main | Automatic only for a no-attendee event on a verified owner-only calendar; otherwise approval required |
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
@@ -1491,15 +1537,12 @@ older readers are unqualified; pause, preserve data and forward-repair. whole-st
 restoration must account for new records and external effects. code rollback alone
 is not data rollback; no legacy reader is added to mask that limitation.
 
-The Slice 2 Jarvis-owned read result unions are exactly:
+the [f1 contract](docs/mail-calendar-web-reads.md) owns the current mail/calendar/
+web inputs, results, failures, byte bounds and continuation semantics. the
+unchanged maps read result unions are:
 
-| Tool | Declared errors |
-|---|---|
-| `gmail.search` | `InvalidQuery`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
-| `gmail.read_thread` | `ThreadNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
-| `calendar.list_calendars` | `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
-| `calendar.list_events` | `InvalidRange`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
-| `calendar.get_event` | `EventNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
+| tool | declared errors |
+| --- | --- |
 | `maps.search_places` | `InvalidQuery`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
 | `maps.get_place` | `PlaceNotFound`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
 | `maps.directions` | `NoRoute`, `InvalidLocation`, `InvalidDepartureTime`, `RateLimited`, `ProviderUnavailable`, `ProviderResponseTooLarge` |
@@ -1515,24 +1558,15 @@ compactor and AutomaticWriteGate plans are empty. every plan is frozen for its
 run and may never exceed its envelope. agents choose their procedure; no required
 first tool or minimum call count.
 
-`calendar.list_events` takes only aware `time_min`, aware `time_max`, and an IANA
-`time_zone`. It exposes neither a provider calendar ID nor a model-selected
-result bound. The host reads `users/me/calendarList` with reader-or-better
-access, non-deleted entries, hidden entries included, and a hard 50-calendar
-bound, then reads the requested range from every returned calendar. Jarvis MUST
-NOT ask the owner for a provider calendar ID. `calendar.list_calendars` exposes
-that same bounded live set, with an exact stable ID, nullable display name and
-IANA time zone, access role, and primary/hidden/selected flags, so a human
-calendar name can be resolved for targeted reads or writes. Neither result is
-persisted.
+mail and calendar reads page explicitly; main discovers canonical calendar ids
+and chooses the calendars, interval and depth. labelled previews have complete
+message/part/calendar/event text paths. no host fanout, total-hit clipping or
+aggregate coverage obligation remains. callers never ask the owner for provider
+ids. the f1 contract distinguishes complete strict mutation snapshots from text
+observations and preserves original callback receipts.
 
-Every Jarvis-owned entry above initially declares
-`implementation_revision = "jarvis-<canonical-tool-id>-v1"`, replacing dots
-with hyphens. Calendar discovery is `jarvis-calendar-list_calendars-v1`; the
-Calendar list binding is `jarvis-calendar-list_events-v6` after ADR 0038's
-bounded pagination, compact overview, and coverage hard cut; the Calendar get
-binding remains `jarvis-calendar-get_event-v2` after ADR 0029's observed-end
-correction. The model-facing tool IDs remain unversioned.
+jarvis-owned bindings carry explicit implementation revisions; public tool ids
+remain unversioned. f1 rotates the affected bindings and main/session manifest.
 Reviewers MUST reject
 a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
@@ -1557,10 +1591,10 @@ unsafe redirects, unsupported media, and oversized responses. Web observations
 are untrusted evidence, never instructions or authority. Unmistakable credential
 material is rejected from Web arguments rather than sent. V1 does not implement
 authenticated browsing, browser automation, or JavaScript rendering.
-The pinned reader binding implementation is `llm-tools-web-read-v3`. Its
-model-visible `extraction` identifier is `plain-text-v2` for literal plain text
-and `html-visible-text-v2` for visible HTML/XHTML text. These projections decode
-character references exactly once; plain text is never treated as markup.
+the pinned reader binding is `llm-tools-web-read-v4`; f1 owns its chunked
+source projections and evidence. plain text/json preserve source whitespace;
+html/xhtml use inert visible text with one character-reference decoding pass.
+plain text is never treated as markup.
 
 The production Brave binding uses the pinned `llm-tools`
 `operation_deadline_seconds=12.0` policy. the current main and scheduled-read
@@ -1568,67 +1602,20 @@ plans retain one external search attempt and `BilledOnce`, with one serial
 callback. cumulative call/attempt/byte/elapsed limits are null. each operation
 retains its finite declared bounds; jarvis adds no second deadline wrapper.
 
-The eight Jarvis-owned connector reads declare `ProviderResponseTooLarge` in
-addition to their tool-specific failures. Provider JSON is rejected before
-parsing when its decoded body exceeds two mebibytes. Stable identifiers and
-values are never truncated: an overlong provider ID, email address, timestamp,
-URI, MIME type, Calendar recurrence or event value, or other exact field returns
-`ProviderResponseTooLarge`. Only the explicitly presentation-oriented Gmail
-snippet and decoded message text may be shortened, and their enclosing
-`truncated` flag MUST report it. Bounds apply to UTF-8 bytes as well as schema
-characters. Every success carries an aware UTC `observed_at`; ordinary logs
-contain no connector body.
+mail/calendar reads use f1's source-specific pages, complete text projections,
+account binding, resource deadlines and actual-attempt accounting. ids remain
+exact; responses limit each batch rather than total reachable source content.
+original callbacks replay original results, while deliberate new observations
+are fresh. unknown paid search operations retain their normalized causal barrier.
 
-`gmail.search` performs one `users.threads.list` request and returns at most 20
-`{thread_id: string[1..1024], snippet: string[0..1000 bytes]}` records. It sets
-`truncated` for provider pagination or a shortened snippet and performs no
-per-hit expansion. `gmail.read_thread` performs one
-`users.threads.get(format=full)` request and returns at most 50 messages. Each
-message contains exact bounded message/thread IDs, sender, To/Cc/Bcc mailboxes,
-nullable exact RFC Message-ID, subject, aware UTC internal timestamp, decoded
-inert `body_text`, a `body_truncated` flag, and bounded attachment metadata
-`(filename, media_type, size_bytes)`. The newest `max_messages` are selected and
-returned oldest to newest. Mailbox
-names are at most 320 bytes, addresses are exact and at most 320 bytes, subjects
-and RFC Message-IDs are exact and at most 998 bytes, each decoded text is at
-most 16 KiB, aggregate
-returned text is at most 64 KiB, and at most 50 mailboxes per address field and
-50 attachment records per message are returned. Inline `text/plain` is
-preferred; inline HTML is converted to inert text only as fallback. Jarvis does
-not fetch a Gmail `attachmentId`, execute HTML, or load a subresource.
+maps retain their existing two-mib decoded-response bound and exact-field limits.
+every successful observation carries an aware utc timestamp; ordinary logs
+contain no connector bodies.
 
-Calendar reads return a closed tagged event union. List obtains at most 50
-reader-or-better CalendarList entries, including hidden calendars, and reads
-their event ranges with at most ten concurrent Google requests. The model
-supplies no calendar ID or result bound. Event reads use pages of 250 and follow
-`nextPageToken` in deterministic calendar-ID rounds, with at most 100 event-page
-requests and a connector-owned 55-second deadline inside the executor's
-60-second fence. Including discovery and the existing refresh behavior, the
-tool permits at most 202 external attempts. A normal compact list item has exact
-`calendar_id` and `event_id` strings of at most 1024 bytes,
-`status = confirmed | tentative`, an exact summary up to 1024 bytes, a required
-timed aware or all-day start, a required observed end, and nullable exact
-location up to 4096 bytes. A sparse cancelled list item contains only its type
-and exact bounded calendar/event IDs. A list returns the scanned Calendar
-references, at most 1,500 globally chronological whole compact items, an
-explicit bounded per-calendar failure list, and a closed `coverage` value.
-Sparse cancelled events sort last. The canonical success envelope is at most
-524,288 bytes. Stable list fields are never shortened; whole items are omitted
-at a count or byte bound. Description, recurrence, attendees, organizer,
-reminders, etag, and update metadata remain available through
-`calendar.get_event`; Main MUST use the list's exact IDs before relying on those
-omitted full details.
+the following calendar time/participant rules describe the unchanged strict read
+snapshot. f1 text reads retain the supported values beyond its presentation
+limits and explicitly disclose omitted attendees.
 
-Calendar coverage contains `complete`, sorted unique `reasons`,
-`calendars_discovered`, `calendars_completed`, and nullable `matched_events`.
-Reasons are exactly `calendar_limit`, `calendar_failure`, `event_page_limit`,
-`event_limit`, `output_byte_limit`, and `deadline`. `complete` is true exactly
-when reasons are empty: discovery is untruncated, every selected page is
-exhausted, every selected Calendar succeeds, and no result bound clips the
-observation. `matched_events` is non-null only when every in-scope event page was
-exhausted. One failed calendar does not erase truthful completed observations
-from other calendars, but makes coverage partial. A get may return either
-variant; event fields are never shortened.
 The observed end is a direct closed union of the existing `TimedEventTime` and
 `AllDayEventTime` plus payload-free
 `UnspecifiedEventEnd {type = unspecified}`; all three share the `type`
@@ -1645,7 +1632,8 @@ fields, each bounded to 320 UTF-8 bytes; a provider participant with both fields
 null is preserved. Normal-event attendees and organizer use this shape. This
 does not weaken Gmail or future Calendar-write
 `Mailbox`, whose address remains required. An over-bound present participant
-field is `ProviderResponseTooLarge`.
+field makes the strict snapshot `SnapshotTooLarge`; f1 text retains the full
+supported value.
 For a timed event, Jarvis preserves a valid provider IANA `timeZone` when one is
 present. An offset-free `dateTime` is localized with that `ZoneInfo`; an
 ambiguous fall-back time deterministically uses `fold=0`, while a nonexistent
@@ -1653,20 +1641,10 @@ spring-forward time is malformed upstream. If Google omits `timeZone` for an
 already-aware `dateTime`, Jarvis preserves the instant and emits canonical
 `UTC`; an offset-free value without a zone is malformed. Normalization performs
 no additional provider request.
-The Calendar get contract and binding remain v2. Discovery is v1. The Calendar
-list contract and binding are v6 because its fixed host bound, paging, compact
-overview, typed coverage, and result schema replace v5. Affected catalogs,
-maximum and selected profiles, plans, HostTables, role/output contracts, and
-definition fingerprints are recomposed. ADR 0038's Main terminal contract
-already advanced the
-application session revision; the v6 binding rotates the definition fingerprint
-and cold-bootstraps without a second manual compatibility bump. Unaffected
-isolated roles do not change. Event
-aggregation permits at most 202 external attempts and retains the 60-second
-executor fence; discovery permits two attempts and 15 seconds. main and
-scheduled reads have no aggregate response/context quota. these finite
-per-operation bounds still apply to each call; recorded results are replayed
-without another executor charge.
+f1 recomposes affected catalogs, profiles, plans, published native tools and
+main compatibility with exact dependency pins. unchanged memory/maps/worker
+policies retain their owners. original read receipts replay without another
+provider attempt; continuations are new callbacks.
 
 Maps place records expose canonical `maps_uri`, a nullable bounded absolute
 HTTPS URI of at most 4096 bytes. Production requests the qualified Places wire
@@ -2063,12 +2041,14 @@ controls.
 
 ## 9. Persistence
 
-the current source owns seventeen application tables: the native nine, six
-standalone memory tables, `work` and `attachment`, at migration `0011`.
+this source stack owns eighteen application tables: the native nine, six
+standalone memory tables, `work`, `attachment` and `event_cursor`, at migration
+`0013`; its last migration changes only the read-result representation.
 the six archive/tree table columns are defined once in
 [the memory schema](docs/universal-memory.md#4-schema-and-invariants);
 [work](docs/work-records.md) and
-[attachments](docs/attachments-and-durable-originals.md) own their schemas.
+[attachments](docs/attachments-and-durable-originals.md), plus
+[event sources](docs/event-sources-and-recurring-work.md), own their schemas.
 the baseline native tables retain the following columns.
 
 ```text

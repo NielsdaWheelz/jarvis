@@ -3,6 +3,10 @@
 status: open evidence gap, recorded 2026-11-14. this is not an implementation
 blocker or a new standing qualification gate.
 
+[f2](../implementation-plan.md#v2-finishing-prs) now owns one useful combined
+jarvis journey. that product proof does not supply the missing competitor trials
+or close this comparison issue.
+
 ## problem and impact
 
 the [competitive research](../research/personal-agents-2026-11/README.md) establishes

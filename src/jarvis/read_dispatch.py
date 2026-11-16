@@ -1,4 +1,4 @@
-"""Serial Slice 2 read dispatch with pre-execution Web secret rejection."""
+"""Automatic read dispatch with pre-execution Web secret rejection."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ class ReadRecorder(PositionRecorder, Protocol):
 
 
 class ReadToolDispatcher:
-    """Execute only the automatic Slice 2 reads through llm-tools."""
+    """Execute the frozen automatic reads through llm-tools."""
 
     def __init__(
         self,
@@ -199,7 +199,7 @@ class ReadToolDispatcher:
             or binding.spec.effect is not ToolEffect.Read
         ):
             raise ToolDispatchDefect(
-                "dispatcher received authority outside Slice 2 reads"
+                "dispatcher received authority outside automatic reads"
             )
         try:
             planned_binding = plan.catalog_view.binding(tool_id)

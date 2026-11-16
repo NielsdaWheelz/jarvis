@@ -631,6 +631,11 @@ class PostgresNativeJournal:
                     rejection=result.result,
                     host_ref=None if result.host_ref is None else str(result.host_ref),
                 )
+            elif row["tool_id"] == "web.search" and result.result == {
+                "type": "Failure",
+                "error": {"type": "InvalidCursor"},
+            }:
+                value.update(type="local_result", result=result.result, host_ref=None)
             elif result.host_ref is not None:
                 reference = str(result.host_ref)
                 if reference.startswith("native-invocation:"):

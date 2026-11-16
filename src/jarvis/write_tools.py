@@ -777,18 +777,19 @@ def calendar_write_family(provider: GoogleWriteProvider) -> ToolFamily:
                         f"{CALENDAR_API_BASE_URL}/calendars/{{calendar_id}}/events"
                     ),
                 },
-                implementation_revision="jarvis-calendar-create_event-v2",
+                implementation_revision="jarvis-calendar-create_event-v3",
             ),
             _binding(
                 CALENDAR_UPDATE_EVENT_SPEC,
                 provider.calendar_update_event,
                 {"conditional": "If-Match expected.etag", "http_method": "PATCH"},
-                implementation_revision="jarvis-calendar-update_event-v2",
+                implementation_revision="jarvis-calendar-update_event-v3",
             ),
             _binding(
                 CALENDAR_DELETE_EVENT_SPEC,
                 provider.calendar_delete_event,
                 {"conditional": "If-Match expected.etag", "http_method": "DELETE"},
+                implementation_revision="jarvis-calendar-delete_event-v2",
             ),
         ),
     )

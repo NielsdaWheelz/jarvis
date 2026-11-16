@@ -27,8 +27,11 @@ echoes are content-free, and internal cognition is excluded from capture.
 
 ## accepted v2 target
 
-[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts an unimplemented
-event-driven target. owner input, connector events, time and skid outcomes enter
+[adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the event-driven
+target; slices 1–6 have source qualification. their contracts distinguish
+isolated proof from separate candidate qualification; installed activation
+remains separate. owner
+input, connector events, time and skid outcomes enter
 the same main with the same full plan and honest source attribution. evidence
 does not become counterfeit owner speech. main decides what to do and whether a
 visible response helps; no `notice_policy` field or notification framework owns
@@ -56,7 +59,14 @@ the detailed contracts own implementation; the
 [implementation plan](implementation-plan.md) owns delivery. shared memory and
 quiet dreaming remain unchanged. selected dream wakes, work-informed dreaming,
 browser/credential products, interactive deliverables and a separate ui are
-outside this cut. later search and budget contracts are not adopted by it.
+outside this cut. [adr 0075](decisions/0075-v2-completion-and-subscription-model.md)
+adds focused mail/calendar/web read completion, native/discord reliability and
+an independently qualified `gpt-6-astra`/`max` personal-subscription target through
+the existing provider library. [f1](mail-calendar-web-reads.md#implementation-evidence)
+has source and separate candidate qualification; f2/f3 specs remain pending.
+broader search/budget
+and production activation remain separate. reuse existing owners, prompt/tool
+publication and delegation; this adds no framework or model-routing service.
 
 ## System shape
 
@@ -382,22 +392,19 @@ requires a concrete parsed end. True produces the unspecified variant and
 discards Google's compatibility end, for every normal event type; start remains
 required. Sparse cancelled events remain separate. The three-branch observed
 projection is deliberately not a future create/update input, which retains the
-unchanged two-branch concrete end and address-required attendees. Calendar
-discovery lists every non-deleted reader-or-better CalendarList entry, including
-hidden entries, with a hard 50-calendar bound. Aggregate event reads page in
-deterministic calendar-ID rounds with concurrency ten, a 250-event provider page,
-100 event-page requests, a 55-second connector deadline inside the 60-second
-executor fence, and 202 total external attempts including discovery and refresh.
-They project compact overview records, merge globally in chronological order,
-and return at most 1,500 whole items inside the 524,288-byte canonical envelope.
-Overview items retain exact IDs, status, summary, start, observed end, and
-location; `calendar.get_event` supplies description, recurrence, people,
-reminders, etag, and update metadata on demand. A typed coverage value reports
-calendar/page/failure/count/byte/deadline incompleteness; exact fields are never
-shortened. Discovery is binding v1, aggregate list is v6, and get remains v2.
-Recomposed catalog/profile/plan/HostTable and Main output/role identities force
-a continuing-session cold bootstrap without changing isolated roles or database
-state.
+unchanged two-branch concrete end and address-required attendees.
+calendar discovery and event listing now follow [f1](mail-calendar-web-reads.md):
+main composes selected calendars through explicit pages, labelled previews and
+complete text reads. there is no aggregate calendar fanout/coverage controller.
+shared google profile/refresh primitives bind each observation to its account.
+portable utf-8/envelope fitting and inert html belong to llm-tools; source-specific
+projections, provider cursors and private google spools belong to jarvis.
+
+original read results commit before native replies; `read_position.result` uses
+postgres json so valid source nul remains lossless. a new callback observes fresh
+state. paid search recovery compares normalized provider operations, and stored
+null operation proof permits only network-free local cursor recovery. cached web
+suffixes never trigger an implicit fetch after eviction.
 
 Google OAuth, Google API, Maps, Brave, and Discord each use a dedicated
 host-owned HTTP client with environment proxy trust and automatic redirects
@@ -620,7 +627,10 @@ PostgreSQL owns `message`, `memory_log`, `memory_summary`, `action`,
 `model_decision`, `read_position`, `native_attempt`, `native_invocation` and
 `native_input_delivery`, plus the six library tables `memory_lane`,
 `source_conversation`, `source_record`, `memory_leaf`, `memory_node` and
-`memory_state`. existing integration state remains with its owner.
+`memory_state`. v2 adds `work` at `0010`, `attachment` at `0011` and
+`event_cursor` at `0012`: eighteen application tables. migration `0013` changes
+only `read_position.result` to lossless postgres json; no table is added.
+existing integration state remains with its owner.
 message owns request/control state; action remains the sole effect ledger.
 native rows retain original requests, lineage, provider facts and immutable
 replies. product publication is separate from the provider terminal commit.

@@ -1,5 +1,10 @@
 # unexplained native defect during candidate qualification
 
+status: open; accepted for [f2 reliability/integration](../implementation-plan.md#v2-finishing-prs)
+under adr 0075. retain bounded content-free diagnostics, reproduce and repair the
+owning layer; spec and repair remain pending. a model upgrade or passing later
+journey does not resolve these failures. repair size remains unknown.
+
 problem: one native turn failed after accepted callbacks, but retained evidence
 identifies only `NativeDefect`; its exact cause cannot be reconstructed.
 

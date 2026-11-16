@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy import and_, or_, select, text
 
@@ -14,8 +15,11 @@ from jarvis.db import (
     action,
     message,
     model_decision,
+    native_attempt,
+    native_invocation,
     read_position,
 )
+from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, lock_conversation
 
 
@@ -63,6 +67,58 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         )
         if unknown is not None:
             raise RuntimeError("retired paid read requires original-release settlement")
+        resumable = tuple(
+            (
+                await connection.execute(
+                    select(message.c.id).where(
+                        message.c.source_conversation_id == conversation_id,
+                        message.c.role.in_(("owner", "host")),
+                        message.c.control_kind.is_(None),
+                        message.c.request_state.in_(("pending", "waiting")),
+                    )
+                )
+            ).scalars()
+        )
+        component = set(await causal_component_ids(connection, resumable))
+        if component:
+            invocations = (
+                (
+                    await connection.execute(
+                        select(native_invocation)
+                        .join(
+                            native_attempt,
+                            native_attempt.c.id == native_invocation.c.attempt_id,
+                        )
+                        .where(
+                            native_attempt.c.conversation_id == conversation_id,
+                            native_invocation.c.tool_id == "web.search",
+                            native_invocation.c.validation == "accepted",
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            positions = tuple(
+                row["read_position"] or "native-invocation:" + str(row["id"])
+                for row in invocations
+                if component.intersection(map(UUID, row["proposal"]["input_ids"]))
+            )
+            unknown_web = (
+                await connection.execute(
+                    select(read_position.c.contract).where(
+                        read_position.c.position.in_(positions),
+                        read_position.c.state.in_(("dispatched", "uncertain")),
+                        read_position.c.contract["replay_policy"].as_string()
+                        == "BilledOnce",
+                    )
+                )
+            ).scalars()
+            if any("web_source_operation" not in contract for contract in unknown_web):
+                raise RuntimeError(
+                    "outstanding retired web search requires "
+                    "original-release disposition"
+                )
         inference = await connection.scalar(
             select(model_decision.c.decision_id)
             .where(

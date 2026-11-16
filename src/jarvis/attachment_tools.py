@@ -352,7 +352,7 @@ def attachment_family(store: AttachmentToolStore) -> ToolFamily:
                 replay_policy=ReplayPolicy.ReDispatchable,
                 implementation_revision="jarvis-"
                 + str(spec.id).replace(".", "-")
-                + "-v1",
+                + ("-v2" if spec.id == ATTACHMENT_RETAIN_SPEC.id else "-v1"),
                 policy_epoch=PolicyEpoch("jarvis-attachment-v1"),
                 policy_inputs={
                     "storage": "private-r2-immutable-original-v1",

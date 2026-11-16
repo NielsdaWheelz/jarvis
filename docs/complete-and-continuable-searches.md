@@ -1,20 +1,17 @@
 # complete and continuable searches
 
-status: later proposal, reconciled 2026-11-14 with the terminal-only worker
-contract. the 2026-10-09 search choices remain subject to spec/adr adoption,
-including the memory-search amendment below. the
-[roadmap](implementation-plan.md#complete-and-continuable-searches) owns sequencing.
+status: broader later proposal, reconciled 2026-11-16. the
+[roadmap](implementation-plan.md#complete-and-continuable-searches) owns sequence.
 
-[adr 0071](decisions/0071-simple-event-driven-v2.md) retains this as later scoped
-work, outside the selected v2 cut. necessary complete attachment manifests and
-reopenable source references may ship with attachments/event adapters; they do
-not require or imply this whole search overhaul or its memory-ranking amendment.
-the [slice 5 contract](attachments-and-durable-originals.md#gmail-discovery-and-source-reads)
-implements `gmail.list_thread_messages` and `gmail.list_attachments` with exact
-ids, digest-bound offset pages and shared mime descriptors. its source and
-separate candidate are qualified. this later proposal must consume those primitives
-before changing search/body APIs, not introduce another mime walker or competing
-attachment pagination. its broader search/body and memory changes remain deferred.
+[adr 0075](decisions/0075-v2-completion-and-subscription-model.md) selects
+mail/calendar/web completion. its [focused contract](mail-calendar-web-reads.md)
+now owns those schemas, resource policies, receipt composition and acceptance;
+the superseded designs have been removed here. it reuses slice 5's landed
+message/file manifests and consumes slice 6's merged profile/refresh primitives.
+
+this document retains only the later memory/maps/worker-search proposal and
+shared direction. its schemas are not adopted by f1. no inbox housekeeping,
+invitation-response tools, outgoing files or broader domain adoption is implied.
 
 ## target and boundaries
 
@@ -24,14 +21,12 @@ application total-hit, candidate, historical-age, page-count or scan-duration
 ceiling. existing admission, per-operation deadlines, physical resource bounds,
 provider limits and permissions remain. no automatic exhaustive scan.
 
-all historical gmail messages and their full available textual bodies are in
-scope, including body text behind `attachmentId`. binary attachment content,
-pdf/image interpretation and durable originals stay in the attachment feature.
-calendar, places, web, shared memory, work and available retained terminal text
-follow the same principle. [adr 0069](decisions/0069-terminal-only-workers.md)
-removes worker-native history/control; this proposal does not restore them.
-independent provider archives and admitted memory retain their own APIs and
-scope. native notes use ordinary commands; no notes search service.
+mail/calendar/web follow the [f1 contract](mail-calendar-web-reads.md).
+this later proposal covers places, shared memory and available retained terminal
+text; work already has its own complete reads. [adr 0069](decisions/0069-terminal-only-workers.md)
+removes worker-native history/control; this proposal does not restore it.
+independent provider archives and admitted memory retain their own APIs and scope.
+native notes use ordinary commands; no notes search service.
 
 main chooses scope, depth, further queries, merging, deduplication and resumption.
 use ordinary context/work/notes for query, cursor, completed-item progress and
@@ -53,14 +48,6 @@ are a contract, not a new paging framework:
 | `boundary` | `more`, `exhausted`, `provider_limit`, `unknown`; unknown may offer a next-page probe |
 | counts | exact count, provider estimate or unknown explicitly distinguished; no estimate presented as exact |
 | limitations | material exclusions, missing content/indexing, retained-history scope and live-source behavior |
-
-provider-paginated google collections return ONE complete provider page or a declared `OutputTooLarge`
-failure without advancing continuation. caller retries the same page with a
-smaller page size. never discard an unread suffix and return the provider's next
-page token. previews may clip with `clipped` plus an openable identity; exact
-identifiers cannot clip. a single valid compact reference must fit. calendar/
-place/calendar-list display prose becomes clipped previews, not exact-field
-validation that can block enumeration; full values remain openable.
 
 page sizes are batch controls, never total limits. defaults: 20 items; accept the
 provider's supported per-page range. retained local collections use 1–100.
@@ -103,15 +90,8 @@ carry normalized-selector digest and original provider token; no cursor rows.
 
 | tool | input / target result |
 | --- | --- |
-| `gmail.search` | hard-cut thread hits to message refs `{message_id, thread_id}` from `messages.list`; `query = null` means all, `include_spam_trash = true`, `page_size` 1–500, cursor; expose provider estimate separately; retire `max_results` |
-| `gmail.read_thread` | `thread_id`, page size/cursor → paged message-id manifest from minimal `threads.get`; cursor binds manifest digest and offset; no bodies/newest-50 selection; retire `max_messages` |
-| `gmail.read_message` | new: `message_id`, `section = message | body_part`, nullable `part_id`, offset/max bytes/expected digest → text chunk; body_part requires exact native part id and `text_view = decoded | readable`, message forbids those fields |
-| `calendar.list_calendars` | page size 1–250/cursor → readable, nondeleted entries including hidden; preserve stable ids/access roles |
-| `calendar.list_events` | required discovered `calendar_id`, existing time bounds/zone, page size 1–2,500/cursor → one provider event page; include hidden invitations; preserve single-event expansion and compact identities/times/status |
-| `calendar.get_event`, `maps.get_place` | require `projection = snapshot | text`; snapshot branch takes existing ids, text branch ids plus chunk arguments; maps also requires `read_id: UUID`; tagged closed snapshot/text results share one fetch adapter |
+| `maps.get_place` | require `projection = snapshot | text`; snapshot branch takes existing ids, text branch ids plus chunk arguments; requires `read_id: UUID`; tagged closed snapshot/text results share one fetch adapter |
 | `maps.search_places` | add `search_id: UUID`, page size 1–20/cursor; request and expose `nextPageToken`; original query/bias remain fixed; retire `max_results` |
-| `web.search` | add `search_id: UUID`, page size 1–20/cursor; llm-tools maps page offsets 0–9 and exposes provider continuation uncertainty/limit |
-| `web.read` | existing url plus offset/max bytes/expected digest → chunks of complete supported extracted text; retain original destination/media/evidence checks |
 | `work.list`, `work.get` | reuse [o7](work-records.md)'s unbounded sequence of bounded offset pages/current full record; changing work can shift offsets; no snapshot promise |
 | `agent.list`, `agent.read` | add terminal inventory/text continuation through the bounded skid handoff below; preserve unavailable peers and terminal target/source/output evidence; no native-history selector |
 | `memory.search`, `memory_search` | same shared ranked API amended below; existing view/zoom/open already navigate/page retained originals |
@@ -122,63 +102,10 @@ normalized fields before presentation length/array validation, not new provider
 fields/reviews. no automatic fallback. text is read evidence, never a weakened
 write snapshot; mutation schemas remain strict.
 
-gmail's message section projects all available header prose in native order,
-including duplicates, plus a complete mime-part manifest: exact part id, media
-type, filename/disposition, size and status: `container`, `text`, `empty`, `excluded_binary`,
-`unsupported`, `unavailable`; last two include a reason. text/empty include the
-exact next-call part reference, including a valid empty native root-part id.
-containers have no body-read reference; retain their child structure/order.
-empty means an empty supported textual leaf.
-large headers/recipient/attachment inventories are text chunks, never fixed
-998-byte/50-item reasons to block a body. body_part selects ONE textual leaf,
-never a multipart subtree. supported textual mime parts remain readable regardless
-of filename/disposition: `text/*`, `application/json`, `application/xml`.
-decoded view preserves complete charset-decoded source text, including html markup;
-readable view reuses inert visible-html extraction and otherwise preserves text.
-both have distinct projection revisions/digests. preserve alternative part
-references; never execute html or fetch subresources.
-fetch only the requested external text part per operation, not every part in one
-bounded call. malformed/unsupported text is an explicit omission/error. no separate
-binary attachment request, decoding/output/interpretation or durable retention;
-full-message json can incidentally contain inline binary data, discarded from
-the retained projection. [provider body contract](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments).
-
-replace the ordinary-mail 2-mib full-object ceiling with dedicated private
-fetch/projection files and resource-aware per-message/part processing. ordinary
-content reads must not change `MAX_PROVIDER_BODY_BYTES` imported by write
-reconciliation. no invented source-size guarantee: Gmail permits large imports
-and documents no ranged message/attachment get. [large imports](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/import).
-available space/process limits
-and finite fetch deadlines remain genuine constraints, reported honestly.
-
-calendar main discovers ids and iterates calendars/pages itself; never ask the
-owner for ids. cross-calendar ordering becomes agent composition. retire host
-fanout/aggregate 50-calendar/100-page/1,500-event cutoffs and permanent partial-turn
-tracking: a page with continuation is normal, not an unresolved coverage failure.
-retain exact timezone/end/cancelled-event parsing and independent fleet failures.
-use the actual [event time/paging semantics](https://developers.google.com/workspace/calendar/api/v3/reference/events/list):
-lower bound tests event end, upper bound tests start; an empty page may continue.
-recurrence expansion uses a chosen finite time interval, with no global age/window
-ceiling. an infinitely recurring future is not a finite collection to exhaust.
-
-Brave freezes provider count in the cursor: changing count starts a new traversal.
-its adapter retains only the current bounded provider page, serving byte-fitted
-whole-hit prefixes with digest-bound within-page continuation BEFORE advancing
-provider offset. lost cache is `StaleCursor`, never a hidden paid refetch. this
-avoids losing hits or shrinking the provider's reachable horizon just to fit a
-response. [brave paging](https://api-dashboard.search.brave.com/api-reference/web/search/get).
-remove the client-side combined-result `limit` slice: all recognized web/news
-hits returned by that page remain reachable. count/offset governs web results;
-boxed news coverage is separately labeled, not a promised news pagination api.
-report actual effective provider query/freshness selectors, including alterations.
-
-places and brave are ranked provider searches, not exhaustive geography/web
-enumerators. Places currently exposes up to 60 results per query; Brave has ten
-page positions and may overlap. [places ceiling](https://developers.google.com/maps/documentation/places/web-service/text-search),
-[brave limits](https://api-dashboard.search.brave.com/api-reference/web/search/get).
-reaching their boundary reports the provider
-limit/unknown, never complete web coverage. preserve web's current wire/decoded
-safety bounds: `TooLarge` is unavailable content, not a completed document.
+places is a provider-ranked search, not an exhaustive geography enumerator.
+its current endpoint exposes up to 60 results per query; report that provider
+boundary rather than complete coverage. [provider ceiling](https://developers.google.com/maps/documentation/places/web-service/text-search).
+web provider ceilings and complete extracted text belong to f1.
 
 ## uncapped ranked memory
 
@@ -236,7 +163,7 @@ one original callback replays its original result; continuation is a new callbac
 redispatchable mutable reads on new invocations are fresh, not reused merely
 because old unfinished requests had identical arguments.
 
-paid memory/web/places search starts use explicit `search_id` as observation
+paid memory/places search starts use explicit `search_id` as observation
 identity, not permission. completed original observations can replay, while a
 deliberately new id starts a new paid observation. do not auto-restart on failure.
 maps detail's `read_id` similarly identifies one captured provider observation:
@@ -246,7 +173,7 @@ normalized source operation in existing `read_position.contract` before provider
 entry, alongside its unchanged exact contract/input digest; no new columns.
 its closed descriptor identifies provider/account, operation, selectors and
 source position: query/filter/cutoff/seek for memory; original query/bias/provider
-token for Places; query/freshness/actual frozen-count page window for Brave; exact
+token for Places; exact
 resource/field projection for paid detail. owning adapters derive this descriptor
 from validated arguments, decoded cursor and frozen caller context before I/O.
 exclude observation ids and local rendering/offset/size when they do not change
@@ -291,11 +218,10 @@ originals answer the question.` no compulsory wording/report template or critic.
 
 | owner / unit | exclusive files / result |
 | --- | --- |
-| jarvis connector contracts | `read_tools.py`, `connectors.py`, small new content-read helper if needed: gmail/calendar/maps pages/projections/errors; preserve write recovery |
+| jarvis connector contracts | `read_tools.py`, `connectors.py`, small new content-read helper if needed: maps pages/projections/errors; preserve write recovery |
 | jarvis worker adapters | `agent_tools.py`, `agent_control.py`: new skid read/list schemas and command arguments |
-| jarvis composition/presentation | `definitions.py`, `tool_composition.py`, `read_dispatch.py`, `read_positions.py`, `terminal.py`, `native_runtime.py`, `session-compatibility.json`, exact dependency pins: grants, freshness, original receipts, content and retired calendar aggregate tracking |
+| jarvis composition/presentation | `definitions.py`, `tool_composition.py`, `read_dispatch.py`, `read_positions.py`, `terminal.py`, `native_runtime.py`, `session-compatibility.json`, exact dependency pins: grants, freshness, original receipts, content and retained-terminal continuation |
 | memory library | shared public retrieval/schema module and postgres query implementation: uncapped ranking/query contexts; jarvis internal and mcp adapters consume one api |
-| llm-tools | `web/contracts.py`, `web/brave.py`, `web/tools.py`, `web/reader.py`: portable web paging/chunks; consolidate repeated utf-8 slicing/envelope-fitting primitives where genuinely shared |
 | skid | existing cli/gateway/terminal read owners: page inventory before transport fencing and continue retained terminal text; no provider archive dependency or native-history parser |
 | deployment | skid publishes/installs matching artifacts; dev-server consumes its release/configuration; jarvis consumes qualified pins and separately resolves service access to live installed state |
 | temporary proofs / designer | scoped integration/live files only; boundary/content evidence, no production edits by proof writer |
@@ -305,22 +231,19 @@ product composition/authority. no new kernel api, application table or notes/wor
 service. update maximum envelopes/frozen grants together, advancing affected tool
 contract/implementation/policy and composed definition/session revisions.
 integrate shared files with one writer. adopt memory/search and affected
-calendar/worker contracts together; drain/reconcile occupied old positions before
+worker contracts together; drain/reconcile occupied old positions before
 incompatible pins. preserve finalized evidence as opaque history. delete retired
-clipped handlers, aggregate bookkeeping and old schema acceptance; no dual decoder,
+clipped handlers and old schema acceptance; no dual decoder,
 fallback provider, alternate ranking or old/new tool path.
 
 temporary red/green integration plus controlled synthetic live journeys prove:
 
-1. more than 20 gmail hits/50 thread members, 50 calendars/1,500 events, 10
-   places/web hits, 100 memory candidates and 32-kib retained terminal output stay reachable;
-   provider ceilings/empty pages with tokens are honest. unchanged fixtures have
-   no missing/duplicated identities. include older mail, spam/trash and work pages;
-   terminal paging never substitutes provider history for missing scrollback.
-2. last text suffix after 16/64 kib, >2-mib valid email, oversized headers and
-   many external text parts, including named text/empty root ids, are readable;
-   no separate binary attachment fetch/output. escaped/multibyte
-   envelope fitting and byte-fit retries preserve unread content/items.
+1. more than10 places hits,100 memory candidates and32-kib retained terminal
+   output stay reachable; provider ceilings/empty pages are honest. unchanged
+   fixtures have no missing/duplicated identities; terminal paging never replaces
+   missing scrollback with provider history.
+2. place-detail suffixes, escaped/multibyte fitting and byte-fit retries preserve
+   unread content/items. mail/calendar/web proof belongs to f1.
 3. full rank-fusion ordering beyond former horizons, including equal rational
    scores at rank pairs `(60,60)` and `(20,180)`; one query embedding reused;
    missing vectors, stale contexts, altered scope/content and indexing changes
@@ -328,8 +251,7 @@ temporary red/green integration plus controlled synthetic live journeys prove:
 4. identical callback replay, fresh new reads, continuation across main turns,
    explicit restart after stale cursors and original paid unknown barriers,
    including changed observation ids/rendering/cursor encodings. work mutations
-   during scans do not cause avoidable self-skips; Brave byte fitting retains all
-   hits under its frozen provider count.
+   during scans do not cause avoidable self-skips.
    requested progress/finals describe actual coverage; more pages alone do not
    force a permanent partial terminal. no changed write/approval authority.
 
@@ -340,11 +262,8 @@ and run `scripts/verify`. this task changes docs only; behavioral/live checks ar
 not run. standing verification redesign and retained memory regression groups
 keep their separate scope.
 
-costs: more calls/time/inference; exact deep ranking can be expensive; calendar
-composition moves to main; live collections can overlap/change; cursor/cache loss
+costs: more calls/time/inference; exact deep ranking can be expensive;
+live collections can overlap/change; cursor/cache loss
 can require a new scan and paid embedding; temporary content may need refetch and
 large-object parsing uses memory/storage. provider/safety/availability limits can
 leave explicit gaps. temporary test deletion leaves less regression coverage.
-
-gmail enumeration/manifest reuse [message pages](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
-and unpaged [thread get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/get).

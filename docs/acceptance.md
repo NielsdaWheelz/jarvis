@@ -47,9 +47,9 @@ remain deferred.
 [adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the next target;
 [slice 1](one-main-events.md#implementation-evidence) and
 [slice 2 source evidence](work-records.md#implementation-evidence) are complete.
-[slice 3 candidate proof](delegated-follow-through.md#implementation-evidence--2026-11-15)
-is complete with its recorded deferrals. remaining slices and installed activation
-are pending. the baseline criteria below are
+slices 3–6 have source and separate candidate qualification under the contracts
+linked below, with their recorded deferrals. installed v2 activation remains
+pending. the baseline criteria below are
 not evidence of v2 completion. its gate, read-only wake, button approval, exact
 human-payload binding and separate schedule requirements are superseded for the
 target. their historical receipts still describe only the artifacts tested.
@@ -112,8 +112,24 @@ generic input proof
 does not qualify those adapters. the remaining checks belong to their slices;
 there is no additional standing suite. shared-memory acceptance
 above stays unchanged; browser/credential products, interactive hosting, separate ui,
-selected dream wakes and work context are outside this cut. complete-search and
+selected dream wakes and work context are outside this cut. broader search and
 budget acceptance stays with their later contracts.
+
+[adr 0075](decisions/0075-v2-completion-and-subscription-model.md) adds three
+[finishing units](implementation-plan.md#v2-finishing-prs).
+[f1's evidence](mail-calendar-web-reads.md#implementation-evidence) qualifies
+source and a separate temporary candidate: continuable mail/calendar/web reads,
+full supported text, fresh observations, existing draft/calendar writes and
+original receipt recovery. its local, controlled, live and native checks remain
+distinct; production activation is pending. f2/f3 specs and proof remain pending.
+f2 must prove discord outage/stop behavior, a reproduced owning-layer native repair and
+the combined email → attachment → sourced research/delegation → draft/calendar
+action → scheduled follow-through → restart journey. f3 must prove the actual
+personal codex subscription and exact `gpt-6-astra`/`max` selection through
+`provider-runtime`, including main/native/callback and isolated memory roles.
+integrated proof must use the final selected artifacts. f2/f3 remain planned
+temporary proofs; f1's scoped acceptance creates no standing suite or production
+activation. no benchmark or competitor-parity claim follows.
 
 ## native cutover acceptance
 
@@ -144,9 +160,10 @@ existing shared conformance remains. this restores no retired standing suite.
       qualified pinned git revisions, not the user's mutable local worktrees.
 - [ ] **A1.3** A clean checkout can be configured without modifying Ariel,
       `llm-agent-kernel`, `llm-calling`, or `llm-tools`.
-- [ ] **A1.4** migrations produce the seventeen current-source application tables
-      at `0011`: the native nine, six library-owned memory tables, `work` and
-      `attachment`, with exact columns from spec and their owning contracts.
+- [ ] **A1.4** migrations produce the eighteen current-source application tables
+      at `0013`: the native nine, six library-owned memory tables, `work` (`0010`),
+      `attachment` (`0011`) and `event_cursor` (`0012`), with exact columns from
+      spec and their owning contracts. `0013` changes read-result storage only.
       this source count does not establish installed v2 activation.
 - [ ] **A1.5** `scripts/verify` runs the frozen-environment, formatting, lint, type,
       documentation-link, dependency-audit and package build/install checks.

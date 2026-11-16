@@ -5,8 +5,12 @@ dependency adoption, installed qualification and activation remain separate.
 
 implementation: [slice 1](../one-main-events.md#implementation-evidence) and
 [slice 2](../work-records.md#implementation-evidence) now have source and isolated
-functional proof. the remaining slices and installed activation are pending;
-scheduled todos replace the retired scheduler.
+functional proof. slices 3–4 have source and separate candidate qualification
+under their contracts. [slice 5](../attachments-and-durable-originals.md#implementation-evidence)
+now implements attachments with separate private-storage/native-host candidate
+qualification. remaining slices and installed activation are pending; scheduled
+todos replace the retired scheduler. production activation stays at final v2
+cutover, independently of source/candidate evidence and resource disposition.
 
 ## context
 
@@ -51,6 +55,12 @@ or worker callback service. the current memory completion is a separate pr.
    with stable references and native reading of images, pdfs and supported files.
    use the existing attachment contract's one metadata table. prose belongs in
    the repo; original binary files belong in object storage.
+   slice 5 implements raw captions plus immutable host manifests,
+   attachment-only ingress, narrowly scoped gmail discovery and the shared native
+   cache. one entered upload per original prevents late resurrection; bounded
+   delete retries are safe because completed originals' keys are never reused.
+   its detailed contract owns schemas, atomic receipts and qualified candidate proof;
+   this is not adoption of the later search overhaul or production activation.
 5. delegate through skid. its existing asynchronous wait publishes a canonical
    event when observation completes; main need not poll sessions to discover it.
    qualify the installed path and repair demonstrated gaps before proposing a
@@ -77,7 +87,9 @@ and [attachments](../attachments-and-durable-originals.md). they are adopted by
 this decision and spec; the [single roadmap](../implementation-plan.md) owns pr
 sequence. this adr adds three application tables across those slices: `work`,
 `event_cursor` and `attachment`. derive migrations from the actual memory/native
-predecessor rather than asserting a second fixed total.
+predecessor rather than asserting a second fixed total. current source has
+seventeen tables: native nine, six memory tables, work at `0010` and attachments
+at `0011`; the event cursor remains a later slice.
 
 shared memory, capture and quiet dreaming retain adrs 0066, 0067 and 0070. selected dream
 wakes and dreamer work context are outside this v2 cut. the existing complete-search
@@ -108,8 +120,8 @@ approvals, reminders and worker waits; settle or explicitly disposition old
 executable state and disable retired components. recreate retained reminders as
 scheduled todos with truthful original timing/context, preserving historical
 receipts. no dual scheduler, rewritten historical receipt or silently lost
-commitment. notes requires the explicit kernel/provider native-access handoff;
-the current contained endpoint does not already provide it.
+commitment. notes' kernel/provider native-access handoff is source/candidate
+qualified by slice 4; the installed endpoint still awaits final v2 activation.
 
 the owner subsequently confirmed that intermediate slices need not be usable.
 slice 1 removes the old scheduler; slice 2 replaces it. retain reminder obligations
@@ -130,12 +142,12 @@ guaranteed workflow. notifications depend on useful agent behavior. private note
 are mutable; memory observations and original execution receipts retain their
 own history. attachments are durable originals, not a backup promise.
 
-this change is documentation only. run static/build/document checks; no source,
-behavioral/live execution, deployment or service resumption is included. future
+the original adr review changed documentation only. subsequent owner-authorized
 implementation uses the focused outcomes in the owning contracts and
-[acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks.
-the owner selected temporary integration/live red/green/refactor for slices 1–4,
+[acceptance](../acceptance.md#accepted-v2-outcome-checks), sized to actual risks;
+source/candidate evidence does not authorize production activation or resumption.
+the owner selected temporary integration/live red/green/refactor for slices 1–5,
 with designer and adversarial review per feature/stage, then probe deletion.
 that scoped implementation exception does not restore a standing suite under
-adr 0046 or change memory's separate checks. this specification task runs no
-behavioral/live work and authorizes no source change or activation.
+adr 0046 or change memory's separate checks. their linked evidence owns exact
+artifacts, provider versus controlled proof and resource disposition.

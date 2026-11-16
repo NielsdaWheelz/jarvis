@@ -9,6 +9,12 @@ including the memory-search amendment below. the
 work, outside the selected v2 cut. necessary complete attachment manifests and
 reopenable source references may ship with attachments/event adapters; they do
 not require or imply this whole search overhaul or its memory-ranking amendment.
+the [slice 5 contract](attachments-and-durable-originals.md#gmail-discovery-and-source-reads)
+implements `gmail.list_thread_messages` and `gmail.list_attachments` with exact
+ids, digest-bound offset pages and shared mime descriptors. its source and
+separate candidate are qualified. this later proposal must consume those primitives
+before changing search/body APIs, not introduce another mime walker or competing
+attachment pagination. its broader search/body and memory changes remain deferred.
 
 ## target and boundaries
 

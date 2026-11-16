@@ -9,12 +9,21 @@ contracts remain binding; dated evidence remains historical. adr 0065 separately
 owns the current native contract and its temporary integration/live proof; it
 supersedes the affected session, main-loop, host and capacity decisions below.
 
-[adr 0071](0071-simple-event-driven-v2.md) adopts the unimplemented v2 target:
+[adr 0071](0071-simple-event-driven-v2.md) adopts the v2 target:
 same main for every event, scheduled todos, private native repo, durable attachments
 and conversational approvals. it supersedes the affected baseline authority,
 approval presentation, scheduling and main-containment portions identified there;
-current implementation evidence remains historical until each new cutover.
-memory's separate adrs 0066, 0067 and 0070 remain unchanged.
+slices 1–6 have source qualification; their contracts distinguish isolated proof
+from separate candidate qualification. installed v2 activation remains pending.
+memory's separate adrs 0066, 0067 and
+0070 remain unchanged.
+
+[adr 0075](0075-v2-completion-and-subscription-model.md) adds focused
+mail/calendar/web read completion, reliability/integration and the owner's
+`gpt6astra-max` subscription model/runtime target. [f1](../mail-calendar-web-reads.md)
+has source and separate candidate qualification; f2/f3 specs and qualification
+remain pending.
+the broader search proposal and production activation remain separate.
 
 [adr 0072](0072-native-memory-rollout.md) owns the qualified native rollout
 amendments and service access boundaries. source checks and the registry audit
@@ -92,10 +101,11 @@ with nexus and arch deferred.
 | [0068](0068-generalized-skid-consumer.md) | generalized skid consumer | source adapter removes launch model/effort and reads installed state; 0072's installed service-uid mount and both online gateway reads pass; worker effects/observation remain separate |
 | [0069](0069-terminal-only-workers.md) | terminal-only skid workers | terminal-only source implemented; isolated proof passes; 0072 advances to v10/enrolled host names and retires v9 receipts; installed cutover separate |
 | [0070](0070-nexus-capture-and-memory-delivery.md) | nexus capture and memory delivery | implemented source with isolated functional proof; future-only durable nexus exports and explicit provenance; audit resolved under 0072, nexus installation deferred to its next release; usefulness/load, historical import and backup deferred |
-| [0071](0071-simple-event-driven-v2.md) | simple event-driven v2 | accepted documentation target; one main, scheduled todos, conversational consent, ordinary private repo, private originals and existing skid observation; browser/credential products/interactive deliverables deferred; implementation/activation separate |
+| [0071](0071-simple-event-driven-v2.md) | simple event-driven v2 | accepted documentation target; one main, scheduled todos, conversational consent, ordinary private repo, private originals and existing skid observation; browser/credential products/interactive deliverables deferred; slices 1–6 source-qualified with distinct isolated/candidate proof, installed activation separate |
 | [0072](0072-native-memory-rollout.md) | native memory rollout | online installed qualification passes: schema `0008`, v10 service reads, twelve sdk connections, nine model journeys, ten capture cuts, quiet memory and outage/restart recovery; five profile deferrals remain, arch later, nexus next release |
 | [0073](0073-per-conversation-memory-baselines.md) | per-conversation native capture baselines | accepted healthy/new capture with explicit pending unreadable histories; complete identity inventory and immutable established cuts retained; source and online installed capture qualified; unreadable histories remain pending |
 | [0074](0074-private-native-socket-publication.md) | private native socket publication | slice 4 implementation correction; private physical socket plus application-only file bind; coordinated restart/remount; source/candidate qualified, production cutover separate |
+| [0075](0075-v2-completion-and-subscription-model.md) | v2 completion and subscription model | accepted scope; f1 source/candidate qualified, f2/f3 specs pending; reliability/integration and `gpt6astra-max` via the personal codex subscription remain pending; production activation separate |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

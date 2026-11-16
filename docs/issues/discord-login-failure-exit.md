@@ -1,5 +1,8 @@
 # discord login failure exits the service
 
+status: open; accepted for [f2 reliability/integration](../implementation-plan.md#v2-finishing-prs)
+under adr 0075. detailed spec and current reproduction remain pending.
+
 problem: `serve` exits 1 when discord's login fails, on a connect timeout or a
 resolution failure. a cooperative stop while the login is still pending waits
 for that failure and also ends `Result=failure`, not the clean SIGINT exit 130.
@@ -18,6 +21,11 @@ default timeouts the service crash-looped about 10 s after each start; with a
 resolver that hangs 30 s per attempt the stop took 123 s and ended
 `ExecMainStatus=130 Result=success`, which is why round 3's clean stop held.
 
-resolved when: a decision exists on whether startup retries the discord login
-with backoff while staying stoppable, or exits; and a stop during a pending or
-failing login ends `Result=success` in an isolated proof.
+selected direction: interruptible startup retry/backoff for transient connection
+failures; invalid credentials/configuration remain explicit failures. preserve
+responsive ingress/control and normal successful login behavior.
+
+resolved when: current isolated proof demonstrates recovery after a transient
+startup outage without manual systemd reset, clean cooperative stop during
+pending/failing login, and explicit configuration/authentication failure. the
+roadmap decision alone does not establish a fix.

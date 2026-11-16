@@ -8,9 +8,13 @@ implementation: [slice 1](../one-main-events.md#implementation-evidence) and
 functional proof. slices 3–4 have source and separate candidate qualification
 under their contracts. [slice 5](../attachments-and-durable-originals.md#implementation-evidence)
 now implements attachments with separate private-storage/native-host candidate
-qualification. remaining slices and installed activation are pending; scheduled
-todos replace the retired scheduler. production activation stays at final v2
+qualification. [slice 6](../event-sources-and-recurring-work.md#implementation-evidence)
+has source and separate combined migration/native candidate qualification.
+installed activation remains pending; scheduled todos replace the retired scheduler. production activation stays at final v2
 cutover, independently of source/candidate evidence and resource disposition.
+[adr 0075](0075-v2-completion-and-subscription-model.md) adds focused read
+completion, reliability/integration and a subscription model/runtime target; it
+supersedes only the affected later-search deferral below.
 
 ## context
 
@@ -94,8 +98,9 @@ this decision and spec; the [single roadmap](../implementation-plan.md) owns pr
 sequence. this adr adds three application tables across those slices: `work`,
 `event_cursor` and `attachment`. derive migrations from the actual memory/native
 predecessor rather than asserting a second fixed total. current source has
-seventeen tables: native nine, six memory tables, work at `0010` and attachments
-at `0011`; the event cursor remains a later slice.
+eighteen tables: native nine, six memory tables, work at `0010`, attachments
+at `0011` and the event cursor at `0012`. f1's `0013` changes read-result storage
+without adding a table.
 
 shared memory, capture and quiet dreaming retain adrs 0066, 0067 and 0070. selected dream
 wakes and dreamer work context are outside this v2 cut. the existing complete-search

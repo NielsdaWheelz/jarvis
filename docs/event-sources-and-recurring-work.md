@@ -519,3 +519,42 @@ local temporary databases are separate schemas/databases in task-owned
 qualification, then will be deleted as requested. google and controlled faults
 above are deliberately distinct. exact final artifact/pins, native candidate,
 combined outcomes and cleanup will be recorded here before completion.
+
+
+combined-source update: `fd1ab065132482589308d2ad51da955e6feb2b49`
+integrates final attachment application artifact
+`ad6c48eadd61d730228213d65c2cdec178373a9b`. landed predecessor is
+`bbfeb47d1e74dc32a8827501a4ffc963bbf52d6a` (pr 73), whose documentation
+is adopted at `e704715`. all attachment modules, actual migration `0011`,
+deployment files and lock pins retain their predecessor behavior. one shared
+`get_json` retains attachment byte/deadline/connect bounds while polling keeps
+its narrow defaults; the fresh-read set contains all work/event/attachment/mail
+members. the additional large-original transport proof passed.
+
+the actual fresh chain `0001→0011`, populated canonical message/immutable
+attachment manifest/pending original/work rows, then `0011→0012` passed. complete
+`row_to_json` snapshots were unchanged; source columns and actual runtime-role
+cursor crud were checked. core source and native-journal/local-tool probes passed
+on that fully migrated database. real google profile/history/inventory and the
+create/edit/cancel/attention fixture journey passed again on the combined `0012`
+tree; fixture deleted. the retained capture/retry regression also passed there.
+
+the first separate native candidate exposed an actual composition defect before
+admitting any request: rendered system instructions were 17,130 bytes against
+16,384. the repair shortens only attachment/work/events/workspace guidance;
+earlier authority/lifecycle/worker/memory prose and owner context remain verbatim.
+independent content review repaired lost causal qualifiers and publication
+certainty. full 46-tool catalogue construction now passes at 16,184 system bytes,
+zero developer bytes and 3,802/32,768 output-schema bytes, with unchanged isolated
+role grants. no bound was increased. the actual native rerun remains pending.
+
+candidate setup's initial cache-path renderer retained a nonexistent production
+path and systemd refused its namespace before application startup. the renderer
+and candidate unit now grant only task runtime/cognition/cache paths; no product
+containment bypass was added. its notes cwd is a private local scratch git
+checkout, matching slice 5's event-unrelated boundary; the permanent selected
+remote is not provisioned and its bootstrap remains at final v2 cutover under the
+existing private-workspace issue. unused r2 dependency settings are synthetic;
+no bucket/credential is created and harnesses prohibit attachment calls/storage
+requests. host authorization expired before the native rerun; see the temporary
+[remaining qualification](issues/event-source-native-qualification.md).

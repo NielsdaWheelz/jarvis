@@ -35,6 +35,7 @@ from llm_tools import (
 from universal_memory.tools import MEMORY_READ_IDS, MEMORY_SAVE_NOTE_SPEC, SaveNoteInput
 
 from jarvis.agent_tools import AGENT_READ_IDS
+from jarvis.attachment_tools import ATTACHMENT_READ_IDS
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 from jarvis.tool_results import NoTelemetry, completed_tool_result
 from jarvis.work_tools import WORK_READ_IDS
@@ -191,6 +192,7 @@ class ReadToolDispatcher:
                 *AGENT_READ_IDS,
                 *MEMORY_READ_IDS,
                 *WORK_READ_IDS,
+                *ATTACHMENT_READ_IDS,
             )
             or binding.spec.effect is not ToolEffect.Read
         ):

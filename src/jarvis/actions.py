@@ -65,8 +65,10 @@ from jarvis.agent_tools import (
     validate_agent_failure,
     validate_agent_success,
 )
+from jarvis.attachment_tools import AttachmentDeleteResult
 from jarvis.db import (
     action,
+    attachment,
     message,
     native_attempt,
     native_input_delivery,
@@ -713,35 +715,15 @@ class ActionStore:
         result: Mapping[str, object],
         resolved_at: datetime | None = None,
     ) -> StoredAction:
-        timestamp = resolved_at or datetime.now(UTC)
-        _aware(timestamp, "action reconciliation time")
-        canonical_result = _json_object(dict(result), "action result")
-        if status != "uncertain":
-            tool_result = _tool_result(canonical_result)
-            if (status == "succeeded") != (tool_result["type"] == "Success"):
-                raise ValueError("action status disagrees with its tool result")
         async with self.engine.begin() as connection:
             stored = await require_locked_action(connection, action_id)
-            if status == "uncertain":
-                canonical_result = _uncertainty_result(stored, canonical_result)
-            if stored.status in {"succeeded", "failed"}:
-                if stored.status != status or stored.result != canonical_result:
-                    raise ActionPersistenceDefect("terminal action resolution changed")
-                return stored
-            if stored.status not in {"executing", "uncertain"}:
-                raise ActionPersistenceDefect(
-                    "only executing or uncertain work can be reconciled"
-                )
-            if stored.status == "uncertain" and status == "uncertain":
-                if stored.result != canonical_result:
-                    raise ActionPersistenceDefect("uncertain evidence changed")
-                return stored
-            return await _update_action(
+            return await resolve_reconciliation_in_transaction(
                 connection,
-                action_id,
+                stored,
                 status=status,
-                completed_at=timestamp,
-                result=canonical_result,
+                result=result,
+                resolved_at=resolved_at or datetime.now(UTC),
+                source_conversation_id=None,
             )
 
     async def reconcile_agent_receipt(self, action_id: UUID) -> StoredAction:
@@ -1012,6 +994,9 @@ class ActionPositionRecorder:
             replay_policy=replay_policy,
         )
         replay = action_replay_result(stored)
+        if replay is None and stored.status == "uncertain":
+            async with self._store.engine.connect() as connection:
+                replay = await attachment_uncertainty_receipt(connection, stored)
         if replay is not None:
             return PositionState(
                 replay,
@@ -1061,6 +1046,8 @@ class ActionPositionRecorder:
             if replay_policy is not stored.execution_contract.replay_policy:
                 raise ValueError("action replay policy changed")
             replay = action_replay_result(stored)
+            if replay is None:
+                replay = await attachment_uncertainty_receipt(connection, stored)
             if replay is not None:
                 return PositionState(
                     replay,
@@ -1189,7 +1176,13 @@ class ActionPositionRecorder:
                 self._settlement = settlement
                 return replay
             if stored.status == "uncertain":
-                raise ValueError("uncertain action requires reconciliation")
+                receipt = await attachment_uncertainty_receipt(connection, stored)
+                if receipt is None or receipt != canonical_result:
+                    raise ValueError("uncertain action requires reconciliation")
+                if self._reservation_accepted:
+                    await budgets.settle(position, settlement)
+                self._settlement = settlement
+                return receipt
             if stored.status not in {"queued", "executing"}:
                 raise ValueError("action cannot accept a terminal tool result")
             if self._reservation_accepted:
@@ -1516,6 +1509,199 @@ async def require_locked_action(
     if stored is None:
         raise ActionPersistenceDefect("action does not exist")
     return stored
+
+
+async def attachment_manual_cleanup_reported(
+    connection: AsyncConnection, attachment_id: UUID, action_id: UUID | None
+) -> bool:
+    """Bind an operator's factual cleanup to the affected original/action."""
+    affected = message.c.trace["affected_action_id"].as_string()
+    reported = await connection.scalar(
+        select(message.c.id)
+        .where(
+            message.c.source == "attachment",
+            message.c.trace["attachment_id"].as_string() == str(attachment_id),
+            affected.is_(None) if action_id is None else affected == str(action_id),
+            message.c.trace["after_manual_cleanup"].as_boolean().is_(True),
+        )
+        .limit(1)
+    )
+    return reported is not None
+
+
+async def attachment_uncertainty_receipt(
+    connection: AsyncConnection, stored: StoredAction
+) -> ToolResult | None:
+    """Recover a typed callback failure without changing its action uncertainty."""
+    if stored.status != "uncertain" or stored.tool_name not in {
+        ToolId("attachment.retain"),
+        ToolId("attachment.delete"),
+    }:
+        return None
+    retaining = stored.tool_name == ToolId("attachment.retain")
+    row = (
+        (
+            await connection.execute(
+                select(attachment).where(
+                    (
+                        attachment.c.capture_action_id
+                        if retaining
+                        else attachment.c.delete_action_id
+                    )
+                    == stored.id
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is not None and row["state"] == ("ready" if retaining else "deleted"):
+        if await attachment_manual_cleanup_reported(connection, row["id"], stored.id):
+            # Factual cleanup is no receipt for the original action. The
+            # uncertain position remains suspended, with no executor entry.
+            return None
+    if (
+        row is None
+        or row["state"] != ("pending" if retaining else "deleting")
+        or (
+            row["error"]
+            not in (
+                {"CaptureUnresolved", "StorageConflict"}
+                if retaining
+                else {"StorageConflict", "DeleteUnresolved"}
+            )
+        )
+    ):
+        raise ActionPersistenceDefect("attachment uncertainty lost its exact evidence")
+    if retaining:
+        requested = stored.payload["source"]
+        if not isinstance(requested, dict) or any(
+            row["source"].get(key) != value
+            for key, value in cast(dict[str, object], requested).items()
+        ):
+            raise ActionPersistenceDefect("attachment capture receipt changed source")
+    elif stored.payload["id"] != str(row["id"]):
+        raise ActionPersistenceDefect("attachment deletion receipt changed identity")
+    return {"type": "Failure", "error": {"type": row["error"], "id": str(row["id"])}}
+
+
+async def resolve_reconciliation_in_transaction(
+    connection: AsyncConnection,
+    stored: StoredAction,
+    *,
+    status: Literal["succeeded", "failed", "uncertain"],
+    result: Mapping[str, object],
+    resolved_at: datetime,
+    source_conversation_id: str | None,
+) -> StoredAction:
+    """Resolve current evidence with caller-owned state and optional publication."""
+    _aware(resolved_at, "action reconciliation time")
+    canonical = _json_object(dict(result), "action result")
+    if status == "uncertain":
+        canonical = _uncertainty_result(stored, canonical)
+    else:
+        tool_result = _tool_result(canonical)
+        if (status == "succeeded") != (tool_result["type"] == "Success"):
+            raise ValueError("action status disagrees with its tool result")
+    if stored.status in {"succeeded", "failed"} or (
+        stored.status == "uncertain" and status == "uncertain"
+    ):
+        if stored.status != status or stored.result != canonical:
+            raise ActionPersistenceDefect("terminal action resolution changed")
+        settled = stored
+    else:
+        if stored.status == "queued":
+            if stored.tool_name != ToolId("attachment.delete") or stored.attempts < 1:
+                raise ActionPersistenceDefect("queued work has no entered deletion")
+            original = (
+                (
+                    await connection.execute(
+                        select(attachment)
+                        .where(
+                            attachment.c.id == UUID(str(stored.payload["id"])),
+                            attachment.c.delete_action_id == stored.id,
+                        )
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                original is None
+                or original["state"] not in {"deleting", "deleted"}
+                or original["put_entered_at"] is None
+                or original["stored_at"] is None
+            ):
+                raise ActionPersistenceDefect("queued deletion lost its exact original")
+            if stored.recovered_external_attempts == 0:
+                if original["state"] == "deleting" and original["error"] in {
+                    "StorageConflict",
+                    "Unavailable",
+                }:
+                    expected_error = original["error"]
+                elif original[
+                    "state"
+                ] == "deleted" and await attachment_manual_cleanup_reported(
+                    connection, original["id"], stored.id
+                ):
+                    expected_error = "Deleted"
+                else:
+                    raise ActionPersistenceDefect(
+                        "unentered deletion has no proved failure"
+                    )
+                if status != "failed" or canonical != {
+                    "type": "Failure",
+                    "error": {"type": expected_error, "id": str(original["id"])},
+                }:
+                    raise ActionPersistenceDefect("unentered deletion failure changed")
+            elif status == "succeeded":
+                if original["state"] != "deleted" or canonical != {
+                    "type": "Success",
+                    "value": AttachmentDeleteResult(
+                        id=str(original["id"]),
+                        deleted_at=original["deleted_at"],
+                        scope="original_and_cache",
+                    ).model_dump(mode="json"),
+                }:
+                    raise ActionPersistenceDefect(
+                        "queued deletion has no proved receipt"
+                    )
+            elif status == "failed":
+                if (
+                    original["state"] != "deleting"
+                    or original["error"] != "CacheCleanupFailed"
+                    or canonical
+                    != {
+                        "type": "Failure",
+                        "error": {
+                            "type": "CacheCleanupFailed",
+                            "id": str(original["id"]),
+                        },
+                    }
+                ):
+                    raise ActionPersistenceDefect(
+                        "queued deletion has no proved local cleanup failure"
+                    )
+            elif status != "uncertain" or canonical["evidence_code"] not in {
+                "StorageConflict",
+                "DeleteUnresolved",
+            }:
+                raise ActionPersistenceDefect("queued deletion uncertainty is invalid")
+        elif stored.status not in {"executing", "uncertain"}:
+            raise ActionPersistenceDefect(
+                "only executing or uncertain work can be reconciled"
+            )
+        settled = await _update_action(
+            connection,
+            stored.id,
+            status=status,
+            completed_at=resolved_at,
+            result=canonical,
+        )
+    if source_conversation_id is not None:
+        await _publish_action_outcome(connection, settled, source_conversation_id)
+    return settled
 
 
 async def complete_local_action(
@@ -2386,10 +2572,13 @@ __all__ = [
     "action_resolution_text",
     "agent_uncertainty_result",
     "archived_worker_action",
+    "attachment_manual_cleanup_reported",
+    "attachment_uncertainty_receipt",
     "complete_local_action",
     "recorded_action",
     "recorded_action_result",
     "require_locked_action",
+    "resolve_reconciliation_in_transaction",
     "retired_worker_action",
     "retired_worker_revision",
 ]

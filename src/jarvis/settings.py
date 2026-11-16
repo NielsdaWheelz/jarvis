@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from datetime import time
 from pathlib import Path
@@ -57,6 +58,11 @@ class Settings(BaseModel):
     maps_api_key: SecretStr = Field(repr=False)
     brave_api_key: SecretStr = Field(repr=False)
     embedding_openai_api_key: SecretStr = Field(repr=False)
+    attachment_r2_account_id: str
+    attachment_r2_bucket: str = Field(min_length=1, max_length=63)
+    attachment_r2_access_key_id: SecretStr = Field(repr=False)
+    attachment_r2_secret_access_key: SecretStr = Field(repr=False)
+    attachment_cache_directory: Path
     verified_owner_only_calendar_ids: tuple[str, ...] = Field(
         min_length=1,
         max_length=32,
@@ -82,12 +88,30 @@ class Settings(BaseModel):
         "maps_api_key",
         "brave_api_key",
         "embedding_openai_api_key",
+        "attachment_r2_access_key_id",
+        "attachment_r2_secret_access_key",
     )
     @classmethod
     def _nonempty_secret(cls, value: SecretStr) -> SecretStr:
         raw = value.get_secret_value()
         if not raw or raw != raw.strip():
             raise ValueError("secret setting must be non-empty without edge whitespace")
+        return value
+
+    @field_validator("attachment_r2_account_id")
+    @classmethod
+    def _r2_account_id(cls, value: str) -> str:
+        if not re.fullmatch(r"[0-9a-f]{32}", value):
+            raise ValueError(
+                "R2 account id must be 32 lowercase hexadecimal characters"
+            )
+        return value
+
+    @field_validator("attachment_r2_bucket")
+    @classmethod
+    def _r2_bucket(cls, value: str) -> str:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", value):
+            raise ValueError("R2 bucket must be an ordinary S3 bucket name")
         return value
 
     @field_validator("owner_timezone")
@@ -123,6 +147,7 @@ class Settings(BaseModel):
         "runtime_state_directory",
         "memory_config_path",
         "google_oauth_state_path",
+        "attachment_cache_directory",
     )
     @classmethod
     def _absolute_runtime_directory(cls, value: Path) -> Path:
@@ -145,6 +170,8 @@ class Settings(BaseModel):
             self.maps_api_key.get_secret_value(),
             self.brave_api_key.get_secret_value(),
             self.embedding_openai_api_key.get_secret_value(),
+            self.attachment_r2_access_key_id.get_secret_value(),
+            self.attachment_r2_secret_access_key.get_secret_value(),
         )
         return tuple(dict.fromkeys(value for value in values if value))
 
@@ -252,6 +279,17 @@ class Settings(BaseModel):
                 brave_api_key=SecretStr(required("JARVIS_BRAVE_API_KEY")),
                 embedding_openai_api_key=SecretStr(
                     required("JARVIS_EMBEDDING_OPENAI_API_KEY")
+                ),
+                attachment_r2_account_id=required("JARVIS_ATTACHMENT_R2_ACCOUNT_ID"),
+                attachment_r2_bucket=required("JARVIS_ATTACHMENT_R2_BUCKET"),
+                attachment_r2_access_key_id=SecretStr(
+                    required("JARVIS_ATTACHMENT_R2_ACCESS_KEY_ID")
+                ),
+                attachment_r2_secret_access_key=SecretStr(
+                    required("JARVIS_ATTACHMENT_R2_SECRET_ACCESS_KEY")
+                ),
+                attachment_cache_directory=Path(
+                    required("JARVIS_ATTACHMENT_CACHE_DIRECTORY")
                 ),
                 verified_owner_only_calendar_ids=calendar_ids,
                 embedding_model=EMBEDDING_MODEL,

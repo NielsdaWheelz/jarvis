@@ -15,6 +15,7 @@ from jarvis.agent_tools import (
     AgentStopInput,
     AgentWaitInput,
 )
+from jarvis.attachment_tools import AttachmentDeleteInput, AttachmentRetainInput
 from jarvis.work_tools import WorkCreateInput, WorkDeleteInput, WorkUpdateInput
 from jarvis.write_tools import (
     CalendarCreateEventInput,
@@ -37,6 +38,7 @@ def classify_write(
 
     name = str(tool_id)
     if (name, type(value)) in {
+        ("attachment.retain", AttachmentRetainInput),
         ("work.create", WorkCreateInput),
         ("work.update", WorkUpdateInput),
         ("work.delete", WorkDeleteInput),
@@ -50,6 +52,8 @@ def classify_write(
         ("agent.cancel_wait", AgentCancelWaitInput),
     }:
         return "automatic"
+    if name == "attachment.delete" and isinstance(value, AttachmentDeleteInput):
+        return "approval_required"
     if name in {"gmail.create_draft", "gmail.update_draft"}:
         return "automatic"
     if name == "gmail.send_draft":

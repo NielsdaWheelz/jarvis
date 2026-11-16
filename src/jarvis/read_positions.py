@@ -36,6 +36,7 @@ from llm_tools import (
 from sqlalchemy import RowMapping, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from jarvis.attachment_tools import ATTACHMENT_READ_IDS
 from jarvis.db import (
     message,
     model_decision,
@@ -50,6 +51,14 @@ from jarvis.work_tools import WORK_READ_IDS
 
 if TYPE_CHECKING:
     from jarvis.memory_service import MemoryService
+
+
+# New callbacks observe current files/pages; exact native callbacks still replay.
+FRESH_READ_IDS = (
+    WORK_READ_IDS
+    | ATTACHMENT_READ_IDS
+    | {ToolId("gmail.list_thread_messages"), ToolId("gmail.list_attachments")}
+)
 
 
 class PostgresReadRecorder:
@@ -227,7 +236,7 @@ class PostgresReadRecorder:
                 current_input.model_dump(mode="json")
             ) != canonical_json_bytes(arguments):
                 raise ValueError("read arguments changed after callback acceptance")
-            if binding.spec.id in WORK_READ_IDS:
+            if binding.spec.id in FRESH_READ_IDS:
                 return None
             unfinished = set(
                 (

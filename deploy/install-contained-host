@@ -135,6 +135,8 @@ fi
 sudo install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
 sudo install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
 sudo install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
+sudo install -d -m 0750 -o jarvis -g codex-clients \
+  /var/cache/jarvis /var/cache/jarvis/attachments
 if ! sudo test -e /var/lib/jarvis-notes; then
   sudo install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
 fi

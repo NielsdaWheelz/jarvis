@@ -44,6 +44,7 @@ from universal_memory.types import (
 
 from jarvis.db import message, native_attempt, native_invocation
 from jarvis.embeddings import EmbeddingBusy, EmbeddingFailure, MemoryEmbedder
+from jarvis.input_framing import archive_message_text
 from jarvis.ownership import Database, DeploymentOwnershipDefect
 
 LOGGER = logging.getLogger(__name__)
@@ -279,10 +280,13 @@ class MemoryService:
                             .mappings()
                             .one()
                         )
+                        text = archive_message_text(
+                            row["text"], row["trace"], row["id"]
+                        )
                         data = {
                             "id": event_id,
                             "role": row["role"],
-                            "text": row["text"],
+                            "text": text,
                             "source": row["source"],
                             "conversation": row["source_conversation_id"],
                             "created_at": row["created_at"].isoformat(),
@@ -295,7 +299,7 @@ class MemoryService:
                                 ).hexdigest(),
                                 "role": row["role"],
                                 "kind": "text",
-                                "text": row["text"],
+                                "text": text,
                                 "attributes": {"secret_omissions": 0},
                                 "occurred_at": row["created_at"],
                             }

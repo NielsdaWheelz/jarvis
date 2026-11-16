@@ -1,8 +1,8 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–4 source-qualified, not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–5 source-qualified, not activated**
 
-date: **2026-11-15**
+date: **2026-11-16**
 
 audience: product, engineering, design, operations, and future coding agents
 
@@ -11,9 +11,12 @@ audience: product, engineering, design, operations, and future coding agents
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following
 2026-11-14 owner decisions. slices 1–2 are implemented and isolated-qualified;
 slice 3 has source and temporary-candidate qualification against installed skid;
-slice 4 has source and separate native-host candidate qualification. temporary
-resources are removed; each contract distinguishes its live candidate from
-subsequent memory-mainline integration.
+slice 4 has source and separate native-host candidate qualification. those
+temporary resources are removed; each contract distinguishes its live candidate
+from subsequent memory-mainline integration. slice 5 implements attachments and
+has separate private-storage/native-host candidate qualification; its
+[evidence](docs/attachments-and-durable-originals.md#implementation-evidence)
+owns the exact journeys and resource disposition.
 the remaining slices and v2 activation are pending. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
@@ -58,8 +61,13 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   the application retains its pid-only proc view.
   [attachments](docs/attachments-and-durable-originals.md)
   retain discord/email original bytes privately in r2, with one metadata table
-  and native image/pdf/file reading. notes' explicit provider/kernel handoff
-  precedes native file access; no notes service or extraction framework.
+  and native image/pdf/file reading. slice 5's implemented contract reuses
+  slice 4's qualified native access. it separates raw owner captions from immutable
+  host file manifests, permits attachment-only input, and adds only the gmail
+  discovery needed to select exact files. one put per original, fresh cache reads
+  and bounded deletion recovery preserve existing action evidence. source and a
+  separate candidate are qualified; production activation remains at final v2
+  cutover. no extraction framework or media protocol is added.
 - approvals are [ordinary conversation](docs/one-main-events.md#conversational-approvals).
   main interprets consent and records it through the existing action transition;
   clear prior consent needs no repeated question. retire mandatory buttons,
@@ -77,6 +85,9 @@ the adopted schema additions are `work`, `event_cursor` and `attachment`, plus
 o6's causal message reference and contract changes; there is no `recurring_wake`
 table. detailed fields/tools, migration and acceptance belong to the linked
 contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
+the current source has seventeen application tables: the native nine, six memory
+tables, `work` and `attachment`. migration `0011` adds attachments after `0010`;
+the event cursor remains a later slice.
 shared memory stays in its separate pr: no capture, dreaming or memory-schema
 change is implied, and selected dream-triggered turns remain deferred. existing
 complete-search and budget proposals remain separately scoped later work.
@@ -86,7 +97,7 @@ their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
 not constitute v2 acceptance. [slice 1's qualification](docs/one-main-events.md#implementation-evidence)
 records its source and isolated live proof; it does not activate the service.
-the owner-selected implementation method for slices 1–4 is temporary
+the owner-selected implementation method for slices 1–5 is temporary
 end-to-end integration/live red/green/refactor, with content design and adversarial
 review per feature, then deletion of those temporary probes. this is a scoped
 exception to adr 0046, not a standing test suite or production activation.
@@ -2027,9 +2038,13 @@ controls.
 
 ## 9. Persistence
 
-jarvis owns fifteen application tables: the native nine and six standalone
-memory tables under the consolidated contract. the six archive/tree table
-columns are defined once in [the memory schema](docs/universal-memory.md#4-schema-and-invariants).
+the current source owns seventeen application tables: the native nine, six
+standalone memory tables, `work` and `attachment`, at migration `0011`.
+the six archive/tree table columns are defined once in
+[the memory schema](docs/universal-memory.md#4-schema-and-invariants);
+[work](docs/work-records.md) and
+[attachments](docs/attachments-and-durable-originals.md) own their schemas.
+the baseline native tables retain the following columns.
 
 ```text
 message
@@ -2153,7 +2168,8 @@ native_input_delivery
   updated_at
 ```
 
-these are the current application columns. generated search columns, the control
+these baseline columns and the linked memory/work/attachment schemas define the
+current application state. generated search columns, the control
 sequence and Alembic bookkeeping are physical infrastructure. a new application
 table or semantic memory field requires an accepted ADR.
 

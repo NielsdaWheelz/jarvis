@@ -55,9 +55,9 @@ the owning contracts define migration, local decision receipts and scoped stoppi
 optional one-time/repeated wakes belong to work records, replacing separate
 schedule/recurring-wake products. due dates remain distinct. keep the existing
 asynchronous skid observer and separately prove its installed event delivery;
-no new callback service or repeated model polling is proposed. future native
-notes/files require the persistent private checkout; inbound originals require
-private r2 storage. activation must use the eventual qualified artifacts and
+no new callback service or repeated model polling is proposed. native notes/files
+use the persistent private checkout; inbound originals use private r2 storage.
+activation must use the qualified artifacts and
 their cutover instructions, reconciling entered effects before incompatible
 changes. this section supplies no new migration command or deployment authority.
 
@@ -65,6 +65,55 @@ the [implementation plan](implementation-plan.md) owns those handoffs. shared
 memory delivery and quiet dreaming remain unchanged. browser/credential products,
 interactive hosting, a separate ui, selected dream wakes and work context
 remain outside this cut; later search and budget contracts are not adopted here.
+
+### attachment handoff
+
+[slice 5](attachments-and-durable-originals.md#implementation-evidence) is
+implemented with separate candidate qualification: database/native host, private
+r2 bucket and cache. its evidence distinguishes live provider paths, controlled
+faults and resource disposition. keep production's release, endpoint and
+activation refusal; installation and activation remain at final v2 cutover.
+the private bucket and scoped object-only standby credentials are provisioned;
+the linked evidence owns their location and controls. production environment
+publication remains deferred. final cutover publishes that private configuration
+and exposes only the app-owned original cache for native read access; bucket public
+access and expiry remain disabled.
+the native uid receives neither storage credentials nor the app's private state.
+
+the current source has seventeen application tables at migration `0011`; the
+attachment table follows work's `0010`. the application writes the shared
+`/var/cache/jarvis/attachments` cache; the native host mounts it read-only. originals
+and their private staging never belong in the notes repo. restart discards the
+app-owned cache contents and rematerializes verified r2 bytes on demand; it does
+not replace the mounted cache root.
+
+`jarvis attachment-reconcile ATTACHMENT_ID [--after-manual-cleanup]` now observes
+one registered key/cache under exclusive deployment ownership. run it with the
+configured runtime identity/environment while the service is stopped. it requires
+no canonical `pause` and creates no pause/resume cycle; separate authority-change
+and final-cutover pause requirements still apply. it neither repeats an unknown
+put nor performs operator cleanup. absent evidence cannot prove that an entered
+put will never complete.
+
+without intervening manual mutation, positive evidence can reconcile the original
+action and publish its normal outcome while preserving its original callback
+receipt. a failed preflight with no prior provider entry, or a definite rejection
+of the first provider attempt, fails the action. earlier staged attempts still
+require reconciliation. conflicting metadata never authorizes deletion.
+an unresolved entered deletion remains
+`deleting`/`DeleteUnresolved` with an uncertain action. `CacheCleanupFailed` is a
+failed partial deletion: the remote original is proved absent, but local cache
+cleanup failed. the row remains `deleting`; never reset it to ready or describe
+the entire deletion as complete.
+
+if ordinary operator tools have changed this key/cache, the
+`--after-manual-cleanup` flag is required. it records factual storage/cache state
+without upgrading an original failed or uncertain action to success, rewriting
+its native receipt or clearing an existing uncertainty barrier. independently
+authorized new owner work remains possible. deletion removes our original/cache,
+not source mail/discord, scratch copies, open handles, conversation, notes or
+memory. no public links, upload website, extraction service or backup promise is
+added.
 
 ### private workspace handoff
 
@@ -382,9 +431,12 @@ action, approval or deployment state. inventory is evidence, not completion.
 retained reminder purpose, time and source references belong to slice 2's todo
 conversion; there is no temporary reminder table or executable old scheduler.
 
-the merged migration chain is memory `0008`, one-main `0009`, then work `0010`.
-work adds the mutable todo table and its current schedule; it changes no historical
-action or message. runtime admission requires that exact schema head.
+the current source migration chain continues from memory `0008` through
+per-conversation baselines `0008a`, one-main `0009`, work `0010` and attachments
+`0011`. work adds the mutable todo table and its current schedule; attachments add
+one original-metadata table and immutable upload manifests. old messages without
+manifests retain their text/archive digests. runtime admission requires the exact
+`0011` schema head; this is not an installed-production migration receipt.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
 parents only by joining canonical action identities. native committed products

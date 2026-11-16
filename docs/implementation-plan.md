@@ -1,6 +1,6 @@
 # jarvis: roadmap and implementation plan
 
-updated 2026-11-15; simple event-driven v2 adopted by
+updated 2026-11-16; simple event-driven v2 adopted by
 [adr 0071](decisions/0071-simple-event-driven-v2.md). shared memory remains a
 separate delivery. notes, searches, events, attachments and budget have focused
 contracts; the selected v2 cut and later work are distinguished below.
@@ -56,9 +56,10 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 ## current position
 
-the source has sixteen application tables: the native nine plus six memory
-tables and slice 2's work table, including scheduling. migration `0008` adds no
-table; `0010` adds work. later events add one cursor table and attachments add one.
+the source has seventeen application tables: the native nine plus six memory
+tables, slice 2's work table and slice 5's attachment table. migration `0008` adds
+no table; `0010` adds work and `0011` adds attachments. later events add one cursor
+table.
 there is no separate recurring-wake table. derive migration dependencies from the actual predecessor;
 do not hard-code a stale total into independently developed slices.
 
@@ -130,7 +131,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
 | private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) adopted by 0071; source/candidate qualified, production deferred | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
 | event sources and recurring work | [contract](event-sources-and-recurring-work.md) adopted by 0071; email/calendar ingress and ordinary internal append unimplemented; recurrence belongs to o7 | jarvis; o6, source references/cursors; no memory amendment |
-| attachments and durable originals | [contract](attachments-and-durable-originals.md) adopted by 0071; unimplemented | jarvis plus dev-server; one table/private bucket, ordinary native tools; notes native access prerequisite |
+| attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
 | complete and continuable searches — later | settled [contract](complete-and-continuable-searches.md) retained; adoption/implementation separate, including uncapped ranked memory | jarvis, memory library, llm-tools and skid/provider history; deliver only necessary source/attachment references within the selected v2 slices |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
 | budget integration — later | settled [contract](budget-integration.md) retained; full bookkeeping authority and larger originals need separate adoption/implementation | jarvis plus budget-app; existing ledger/api, private object storage and attachment/native-reading prerequisites |
@@ -160,7 +161,7 @@ orders.
 | 2 | todos and scheduled turns | [implementation spec](work-records.md): ordinary CRUD, atomic local receipts, fresh reads, calendar/interval wakes and busy-main publication; accepts queued-late schedules; depends on 1 and converts retained reminder obligations |
 | 3 | skid follow-through | [source and candidate qualified](delegated-follow-through.md#implementation-evidence--2026-11-15): real skid, full-plan continuation/restart/content proof and bounded repairs; depends on 1–2 and matching artifacts; production acceptance at final v2 cutover |
 | 4 | ordinary private repo | [source and candidate qualified](private-notes-and-rolodex.md#implementation-evidence--2026-11-15): borrowed checkout, mixed native/callback tools, documents/helpers/visuals and native git; isolated memory roles retain containment; separate temporary native-host proof, production at final cutover |
-| 5 | attachment originals and reading | discord/email ingress, private r2, stable references and image/pdf/file inspection; depends on 4 and necessary email attachment manifests, not the entire later search overhaul |
+| 5 | attachment originals and reading | [source and candidate qualified](attachments-and-durable-originals.md#implementation-evidence): automatic discord/selected gmail capture, private r2, stable references, fresh native paths and scoped deletion; includes necessary mail discovery, reuses qualified 4; production at final cutover |
 | 6 | external event sources | email/calendar cursor adapters publish ordinary inputs while main is busy; depends on 1; daily review is an ordinary todo from 2 |
 
 independent investigation of 4's upstream needs and 6's source interfaces may
@@ -838,9 +839,10 @@ merge order.
 - native main retains original attempt, invocation and action/read evidence.
   compactor/dreamer inference and dreamer read receipts are disposable; the
   completed nodes, synthesis notes and progress commit in the memory store.
-- memory adds six tables to the native nine: fifteen total. the contract defines
+- memory adds six tables to the native nine: fifteen before v2 additions. the contract defines
   leaf mapping, completed nodes and singleton progress beside the three archive
-  tables. o7 separately contributes the one work table. sequence actual migrations and revalidate owner permits and
+  tables. work and attachments bring current source to seventeen at `0011`;
+  the event cursor remains later. sequence actual migrations and revalidate owner permits and
   definition revisions against the deployed predecessor, preserving canonical rows.
 
 ## subsequent product slices
@@ -912,12 +914,22 @@ failure policy. neither amendment is part of the separate memory pr.
 
 ### attachments and original storage
 
-the [contract](attachments-and-durable-originals.md) settles automatic owner
-discord capture, gmail on fetch, indefinite private r2 originals and file deletion
-with conversational consent. one table holds source identity/bytes/hash; ordinary native tools
-and installed utilities read images, pdf, text, docx and csv. no reader ui,
-extraction pipeline or multimodal wire redesign. notes' trusted-native cutover
-and dev-server storage/cache/utility setup remain prerequisites.
+the [implemented contract](attachments-and-durable-originals.md#implementation-evidence)
+qualifies automatic owner discord capture, main-selected gmail retention,
+indefinite private r2 originals
+and deletion with conversational consent. the source builds on audited merged
+`d93b84d`: atomic caption/host-manifest ingress, one metadata table, two narrow
+gmail discovery reads, three attachment tools, storage-specific recovery and
+fresh native paths. slice 4 supplies qualified native access; source and a
+separate private-storage/native-host candidate are qualified. the linked evidence
+owns actual versus controlled paths and resource disposition. no reader ui,
+extraction pipeline, full search overhaul or multimodal wire redesign.
+
+its file-ownership boundaries separate ingress, source/storage, composition and
+host setup. temporary red/green/refactor journeys cover discord/storage, selected
+gmail and actual native reading, with content design and adversarial review at
+each stage, then probe deletion. migration `0011` follows work's `0010`.
+production activation stays at final v2 cutover.
 
 expiring links, internal extraction text and derivatives are not durable
 originals. notes/memory keep references/published observations; binaries stay
@@ -986,7 +998,7 @@ intent merely because their implementation is incomplete.
 | m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
 | notes | [contract](private-notes-and-rolodex.md) adopted by 0071; kernel/provider handoffs, persistent checkout and live native/git proof remain |
 | search | owner choices settled in [contract](complete-and-continuable-searches.md); full message text, uncapped ranked memory, library/skid handoffs and cross-turn page/chunk proof remain |
-| attachments | [contract](attachments-and-durable-originals.md) adopted by 0071; table/ingress/tools, private storage/native setup and live file journeys remain |
+| attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |
 
 [adr 0046](decisions/0046-reset-testing.md) remains in force. run `scripts/verify`

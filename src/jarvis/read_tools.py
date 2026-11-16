@@ -40,6 +40,12 @@ GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1"
 CALENDAR_API_BASE_URL = "https://www.googleapis.com/calendar/v3"
 PLACES_API_BASE_URL = "https://places.googleapis.com/v1"
 ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+ATTACHMENT_CONNECT_SECONDS = 10.0
+ATTACHMENT_SOCKET_SECONDS = 60.0
+ATTACHMENT_MAX_BYTES = 100 * 1_024 * 1_024
+ATTACHMENT_OPERATION_SECONDS = 300.0
+ATTACHMENT_EXTERNAL_JSON_BYTES = 140 * 1_024 * 1_024
+ATTACHMENT_MESSAGE_JSON_BYTES = 160 * 1_024 * 1_024
 MAX_CALENDAR_LIST_ENTRIES = 50
 CALENDAR_EVENT_CONCURRENCY = 10
 CALENDAR_EVENT_PAGE_SIZE = 250
@@ -158,20 +164,97 @@ class GmailThreadHit(_StrictModel):
         return _bounded_utf8(value, 1_000, "Gmail snippet")
 
 
+def attachment_media_type(value: str | None) -> str | None:
+    if value is not None:
+        _bounded_utf8(value, 255, "attachment media type")
+        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+            raise ValueError("attachment media type contains an HTTP control character")
+    return value
+
+
+def display_descriptor(
+    name: str | None, media_type: str | None, advertised_size: int | None
+) -> dict[str, object]:
+    preview = None
+    if name is not None:
+        preview = name.encode("utf-8")[:240].decode("utf-8", errors="ignore")
+        while len(canonical_json_bytes(preview)) > 242:
+            preview = preview[:-1]
+    return {
+        "name": preview,
+        "name_truncated": preview != name,
+        "media_type": attachment_media_type(media_type),
+        "advertised_size": advertised_size,
+    }
+
+
 class GmailAttachment(_StrictModel):
-    filename: Annotated[str, Field(max_length=255)]
-    media_type: Annotated[str, Field(min_length=1, max_length=255)]
-    size_bytes: Annotated[int, Field(ge=0, le=26_214_400)]
+    part_id: Annotated[str, Field(max_length=1_024)]
+    name: str | None
+    name_truncated: bool
+    media_type: str | None
+    advertised_size: Annotated[int | None, Field(strict=True, ge=0)]
 
-    @field_validator("filename")
+    @field_validator("part_id", "name", "media_type")
     @classmethod
-    def bounded_filename(cls, value: str) -> str:
-        return _bounded_utf8(value, 255, "attachment filename")
+    def bounded_fields(cls, value: str | None, info: Any) -> str | None:
+        limits = {"part_id": 1_024, "name": 240, "media_type": 255}
+        return (
+            None
+            if value is None
+            else _bounded_utf8(value, limits[info.field_name], info.field_name)
+        )
 
-    @field_validator("media_type")
+
+class _GmailPageInput(_StrictModel):
+    offset: Annotated[int, Field(strict=True, ge=0, le=2**53 - 1)]
+    limit: Annotated[int, Field(strict=True, ge=1, le=50)]
+    expected_digest: Annotated[str | None, Field(pattern=r"^[0-9a-f]{64}$")]
+
+    @model_validator(mode="after")
+    def continuing_snapshot(self) -> _GmailPageInput:
+        if self.offset > 0 and self.expected_digest is None:
+            raise ValueError("continuation requires its complete snapshot digest")
+        return self
+
+
+class GmailListThreadMessagesInput(_GmailPageInput):
+    thread_id: Annotated[str, Field(min_length=1, max_length=1_024)]
+
+    @field_validator("thread_id")
     @classmethod
-    def bounded_media_type(cls, value: str) -> str:
-        return _bounded_utf8(value, 255, "attachment media type")
+    def bounded_id(cls, value: str) -> str:
+        return _bounded_utf8(value, 1_024, "thread ID")
+
+
+class GmailListAttachmentsInput(_GmailPageInput):
+    message_id: Annotated[str, Field(min_length=1, max_length=1_024)]
+
+    @field_validator("message_id")
+    @classmethod
+    def bounded_id(cls, value: str) -> str:
+        return _bounded_utf8(value, 1_024, "message ID")
+
+
+class GmailListThreadMessagesSuccess(_StrictModel):
+    thread_id: str
+    digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    total: Annotated[int, Field(strict=True, ge=0)]
+    offset: Annotated[int, Field(strict=True, ge=0)]
+    message_ids: Annotated[tuple[str, ...], Field(max_length=50)]
+    next_offset: Annotated[int | None, Field(strict=True, ge=0)]
+    observed_at: AwareDatetime
+
+
+class GmailListAttachmentsSuccess(_StrictModel):
+    message_id: str
+    thread_id: str
+    digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    total: Annotated[int, Field(strict=True, ge=0)]
+    offset: Annotated[int, Field(strict=True, ge=0)]
+    attachments: Annotated[tuple[GmailAttachment, ...], Field(max_length=50)]
+    next_offset: Annotated[int | None, Field(strict=True, ge=0)]
+    observed_at: AwareDatetime
 
 
 class GmailMessage(_StrictModel):
@@ -187,6 +270,8 @@ class GmailMessage(_StrictModel):
     body_text: Annotated[str, Field(max_length=16_384)]
     body_truncated: bool
     attachments: Annotated[tuple[GmailAttachment, ...], Field(max_length=50)]
+    attachments_total: Annotated[int, Field(strict=True, ge=0)]
+    attachments_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
     @field_validator("message_id", "thread_id")
     @classmethod
@@ -763,6 +848,14 @@ class ThreadNotFound(_StrictModel):
     type: Literal["ThreadNotFound"] = "ThreadNotFound"
 
 
+class MessageNotFound(_StrictModel):
+    type: Literal["MessageNotFound"] = "MessageNotFound"
+
+
+class SourceChanged(_StrictModel):
+    type: Literal["SourceChanged"] = "SourceChanged"
+
+
 class CalendarNotFound(_StrictModel):
     type: Literal["CalendarNotFound"] = "CalendarNotFound"
 
@@ -808,6 +901,14 @@ type GmailSearchError = (
 )
 type GmailReadThreadError = (
     ThreadNotFound | RateLimited | ProviderUnavailable | ProviderResponseTooLarge
+)
+type GmailDiscoveryError = (
+    ThreadNotFound
+    | MessageNotFound
+    | SourceChanged
+    | RateLimited
+    | ProviderUnavailable
+    | ProviderResponseTooLarge
 )
 type CalendarListEventsError = (
     InvalidRange | RateLimited | ProviderUnavailable | ProviderResponseTooLarge
@@ -861,6 +962,14 @@ class GoogleReadProvider(Protocol):
     async def gmail_read_thread(
         self, value: GmailReadThreadInput
     ) -> ReadResponse[GmailReadThreadSuccess]: ...
+
+    async def gmail_list_thread_messages(
+        self, value: GmailListThreadMessagesInput
+    ) -> ReadResponse[GmailListThreadMessagesSuccess]: ...
+
+    async def gmail_list_attachments(
+        self, value: GmailListAttachmentsInput
+    ) -> ReadResponse[GmailListAttachmentsSuccess]: ...
 
     async def calendar_list_calendars(
         self, value: CalendarListCalendarsInput
@@ -916,7 +1025,41 @@ GMAIL_READ_THREAD_SPEC = ToolSpec[
     success_type=GmailReadThreadSuccess,
     error_type=cast(type[GmailReadThreadError], GmailReadThreadError),
     effect=ToolEffect.Read,
-    limits=ToolLimits(4_096, 131_072, 2, 20.0),
+    limits=ToolLimits(4_096, 131_072, 3, 30.0),
+)
+GMAIL_LIST_THREAD_MESSAGES_SPEC = ToolSpec[
+    GmailListThreadMessagesInput, GmailListThreadMessagesSuccess, GmailDiscoveryError
+](
+    id=ToolId("gmail.list_thread_messages"),
+    summary="Enumerate exact message IDs in a live Gmail thread.",
+    documentation=PromptDocument(
+        "List exact message IDs lexically, not chronologically. Continue with the "
+        "returned "
+        "digest; SourceChanged requires a fresh offset zero observation. "
+        "A first page explicitly supplies offset=0, limit=50, expected_digest=null."
+    ),
+    input_type=GmailListThreadMessagesInput,
+    success_type=GmailListThreadMessagesSuccess,
+    error_type=cast(type[GmailDiscoveryError], GmailDiscoveryError),
+    effect=ToolEffect.Read,
+    limits=ToolLimits(4_096, 131_072, 3, 25.0),
+)
+GMAIL_LIST_ATTACHMENTS_SPEC = ToolSpec[
+    GmailListAttachmentsInput, GmailListAttachmentsSuccess, GmailDiscoveryError
+](
+    id=ToolId("gmail.list_attachments"),
+    summary="Enumerate exact file parts in one live Gmail message.",
+    documentation=PromptDocument(
+        "List file parts lexically by exact part ID. Names are metadata. "
+        "Continue with the complete-list digest. SourceChanged requires a fresh "
+        "offset zero observation. A first page explicitly supplies offset=0, "
+        "limit=50, expected_digest=null. No binary content is returned or retained."
+    ),
+    input_type=GmailListAttachmentsInput,
+    success_type=GmailListAttachmentsSuccess,
+    error_type=cast(type[GmailDiscoveryError], GmailDiscoveryError),
+    effect=ToolEffect.Read,
+    limits=ToolLimits(4_096, 131_072, 3, ATTACHMENT_OPERATION_SECONDS),
 )
 CALENDAR_LIST_CALENDARS_SPEC = ToolSpec[
     CalendarListCalendarsInput,
@@ -1040,6 +1183,8 @@ def _declared_error(code: str) -> _StrictModel:
         "provider_response_too_large": ProviderResponseTooLarge,
         "rate_limited": RateLimited,
         "thread_not_found": ThreadNotFound,
+        "message_not_found": MessageNotFound,
+        "source_changed": SourceChanged,
         "provider_unavailable": ProviderUnavailable,
     }
     error_type = errors.get(code)
@@ -1084,14 +1229,10 @@ def _binding[InputT, SuccessT, ErrorT](
     ) -> HandlerSuccess[SuccessT]:
         return await _run(operation, value, context.grant.limits.max_output_bytes)
 
-    if spec.id == ToolId("calendar.list_events"):
-        revision = "v6"
-    elif spec.id == ToolId("calendar.list_calendars"):
-        revision = "v1"
-    elif str(spec.id).startswith("calendar."):
-        revision = "v2"
-    else:
-        revision = "v1"
+    revision = {
+        "calendar.list_events": "v7",
+        "calendar.get_event": "v3",
+    }.get(str(spec.id), "v2")
     return ToolBinding(
         spec=spec,
         execute=Available(execute),
@@ -1105,7 +1246,12 @@ def _binding[InputT, SuccessT, ErrorT](
 def gmail_family(provider: GoogleReadProvider) -> ToolFamily:
     return ToolFamily(
         namespace="gmail",
-        declarations=(GMAIL_SEARCH_SPEC, GMAIL_READ_THREAD_SPEC),
+        declarations=(
+            GMAIL_SEARCH_SPEC,
+            GMAIL_READ_THREAD_SPEC,
+            GMAIL_LIST_THREAD_MESSAGES_SPEC,
+            GMAIL_LIST_ATTACHMENTS_SPEC,
+        ),
         bindings=(
             _binding(
                 GMAIL_SEARCH_SPEC,
@@ -1128,9 +1274,9 @@ def gmail_family(provider: GoogleReadProvider) -> ToolFamily:
                     "attachment": {
                         "body_fetch": False,
                         "count": 50,
-                        "filename_bytes": 255,
+                        "filename_bytes": 240,
                         "media_type_bytes": 255,
-                        "size_bytes": 26_214_400,
+                        "digest": "complete-sorted-source-list",
                     },
                     "body_fallback": "text-plain-then-inert-html",
                     "format": "full",
@@ -1140,6 +1286,23 @@ def gmail_family(provider: GoogleReadProvider) -> ToolFamily:
                     "message_text_bytes": 16_384,
                     "selection": "newest-returned-oldest-to-newest",
                     "stable_id_max_bytes": 1_024,
+                },
+            ),
+            _binding(
+                GMAIL_LIST_THREAD_MESSAGES_SPEC,
+                provider.gmail_list_thread_messages,
+                ReplayPolicy.ReDispatchable,
+                {"format": "minimal", "ordering": "lexical", "page_size": 50},
+            ),
+            _binding(
+                GMAIL_LIST_ATTACHMENTS_SPEC,
+                provider.gmail_list_attachments,
+                ReplayPolicy.ReDispatchable,
+                {
+                    "format": "full",
+                    "projection": "id,threadId,payload",
+                    "ordering": "lexical",
+                    "page_size": 50,
                 },
             ),
         ),
@@ -1326,6 +1489,8 @@ AUTOMATIC_READ_TOOL_IDS = frozenset(
     {
         ToolId("gmail.search"),
         ToolId("gmail.read_thread"),
+        ToolId("gmail.list_thread_messages"),
+        ToolId("gmail.list_attachments"),
         ToolId("calendar.list_calendars"),
         ToolId("calendar.list_events"),
         ToolId("calendar.get_event"),

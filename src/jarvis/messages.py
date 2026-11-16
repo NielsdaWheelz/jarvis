@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import RowMapping, case, func, select, update
@@ -12,12 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import (
     action,
+    attachment,
     control_sequence,
     message,
     native_attempt,
     native_invocation,
 )
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
+
+if TYPE_CHECKING:
+    from jarvis.attachments import DiscordUpload
 
 MessageRole = Literal["owner", "assistant", "host"]
 
@@ -67,11 +71,16 @@ async def append_waking_input(
     parent_request_id: UUID | None = None,
     action_id: UUID | None = None,
     message_id: UUID | None = None,
+    attachment_manifest: tuple[dict[str, object], ...] = (),
 ) -> InboundInsert:
     """Append one source fact within the producer's existing transaction."""
     if role not in {"owner", "host"}:
         raise ValueError("waking input must be owner or host")
-    _nonempty(text, "message text")
+    if attachment_manifest:
+        if role != "owner" or source != "discord":
+            raise ValueError("upload manifests require owner discord input")
+    else:
+        _nonempty(text, "message text")
     _nonempty(source, "message source")
     _nonempty(source_conversation_id, "source conversation id")
     _nonempty(source_message_id, "source message id")
@@ -108,6 +117,8 @@ async def append_waking_input(
     trace: dict[str, object] = {"observed_at": datetime.now(UTC).isoformat()}
     if action_id is not None:
         trace["action_id"] = str(action_id)
+    if attachment_manifest:
+        trace["attachment_manifest"] = list(attachment_manifest)
     row = (
         (
             await connection.execute(
@@ -289,8 +300,41 @@ class MessageStore:
         action_id: UUID | None = None,
         message_id: UUID | None = None,
         control_kind: Literal["pause", "resume"] | None = None,
+        uploads: tuple[DiscordUpload, ...] = (),
+        attachment_r2_account: str | None = None,
+        attachment_r2_bucket: str | None = None,
     ) -> InboundInsert:
         async with self._engine.begin() as connection:
+            await lock_conversation(connection, source_conversation_id)
+            if source == "discord":
+                existing = (
+                    (
+                        await connection.execute(
+                            select(message).where(
+                                message.c.source == source,
+                                message.c.source_message_id == source_message_id,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing is not None:
+                    if (existing["role"], existing["source_conversation_id"]) != (
+                        role,
+                        source_conversation_id,
+                    ):
+                        raise PersistenceDefect("discord source identity changed scope")
+                    return InboundInsert(_stored_message(existing), inserted=False)
+            manifest: tuple[dict[str, object], ...] = ()
+            if uploads:
+                from jarvis.attachments import ingress_manifest
+
+                if role != "owner" or source != "discord":
+                    raise ValueError("uploads require owner discord input")
+                if not attachment_r2_account or not attachment_r2_bucket:
+                    raise ValueError("uploads require the configured storage location")
+                manifest = ingress_manifest(uploads)
             result = await append_waking_input(
                 connection,
                 role=role,
@@ -302,10 +346,25 @@ class MessageStore:
                 parent_request_id=parent_request_id,
                 action_id=action_id,
                 message_id=message_id,
+                attachment_manifest=manifest,
             )
+            if result.inserted and uploads:
+                from jarvis.attachments import register_ingress
+
+                assert attachment_r2_account is not None
+                assert attachment_r2_bucket is not None
+                await register_ingress(
+                    connection,
+                    result.message.id,
+                    uploads,
+                    r2_account=attachment_r2_account,
+                    bucket=attachment_r2_bucket,
+                )
             if result.inserted and control_kind is not None:
-                if role != "owner" or text != control_kind:
-                    raise PersistenceDefect("control must be exact owner input")
+                from jarvis.discord import classify_control
+
+                if role != "owner" or classify_control(text) != control_kind:
+                    raise PersistenceDefect("control must match the raw owner caption")
                 row = (
                     (
                         await connection.execute(
@@ -482,6 +541,14 @@ class MessageStore:
             message.c.control_kind.is_(None),
             message.c.processing_parked_at.is_(None),
             message.c.id.not_in(exclude_ids),
+            ~select(attachment.c.id)
+            .where(
+                attachment.c.origin_message_id == message.c.id,
+                attachment.c.capture_action_id.is_(None),
+                attachment.c.state == "pending",
+                attachment.c.error.is_(None),
+            )
+            .exists(),
         )
         async with self._engine.connect() as connection:
             rows = (

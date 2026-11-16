@@ -20,6 +20,7 @@ from uuid import UUID
 import discord
 import httpx
 
+from jarvis.attachments import DiscordUpload
 from jarvis.config import DiscordSettings
 
 LOGGER = logging.getLogger(__name__)
@@ -87,13 +88,14 @@ class DiscordOwnerMessage:
     text: str
     created_at: datetime
     control: Control | None
+    uploads: tuple[DiscordUpload, ...] = ()
 
 
 def owner_message_from_event(
     message: discord.Message,
     settings: DiscordSettings,
 ) -> DiscordOwnerMessage | None:
-    """Accept only owner-authored text events in the configured guild channel."""
+    """Accept owner captions and uploads in the configured guild channel."""
 
     if message.guild is None or message.guild.id != settings.guild_id:
         return None
@@ -108,7 +110,7 @@ def owner_message_from_event(
         return None
     if message.type not in {discord.MessageType.default, discord.MessageType.reply}:
         return None
-    if not message.content.strip():
+    if not message.content.strip() and not message.attachments:
         return None
     if message.created_at.tzinfo is None or message.created_at.utcoffset() is None:
         raise DiscordConfigurationError("Discord supplied a naive message timestamp")
@@ -119,6 +121,21 @@ def owner_message_from_event(
         text=message.content,
         created_at=message.created_at,
         control=classify_control(message.content),
+        uploads=tuple(
+            DiscordUpload(
+                source={
+                    "kind": "discord",
+                    "guild_id": str(settings.guild_id),
+                    "channel_id": str(settings.channel_id),
+                    "message_id": str(message.id),
+                    "attachment_id": str(upload.id),
+                },
+                filename=upload.filename,
+                media_type=upload.content_type,
+                advertised_size=upload.size,
+            )
+            for upload in message.attachments
+        ),
     )
 
 

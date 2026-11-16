@@ -9,10 +9,12 @@ description = "A small personal agent with durable conversation history"
 readme = "README.md"
 requires-python = ">=3.12.13,<3.13"
 dependencies = [
+  "aiodns==4.0.4",
+  "aiohttp==3.14.4",
   "alembic==1.16.5",
   "boto3==1.44.3",
   "cryptography==50.0.1",
-  "discord.py==2.7.1",
+  "discord.py @ git+https://github.com/NielsdaWheelz/discord.py.git@4c137a2de1c8aa36ac1df19f654afb99856824f2",
   "fastapi==0.143.0",
   "httpx==0.28.1",
   "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@fcb6ecfb4088d85f64aafd8689e728058db27b0a",

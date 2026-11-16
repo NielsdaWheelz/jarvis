@@ -59,6 +59,12 @@ target internal composition: `run_service(service, gateway_factory, token,
 shutdown, memory_http)`. the factory creates the existing `DiscordGateway` with
 the same owner sink/ready handler. worker, deployment ownership and memory HTTP
 start once. login attempts do not rebuild the service or repeat action recovery.
+capture the latest canonical owner source id before this process opens gateway
+ingress; retain that fixed cut for every readiness catch-up in the process.
+reading the watermark in `on_ready` is too late: a live message can advance it
+past downtime messages. reconnects may rescan one bounded newest history page;
+the existing sink deduplication prevents duplicate canonical persistence. add no
+separate cursor store or mutable coverage tracker.
 
 1. create an unbound gateway and call public `login(token)`.
 2. on a classified transient failure, fully close that client, wait interruptibly

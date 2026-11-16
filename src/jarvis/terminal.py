@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
 
@@ -31,7 +32,9 @@ def _utf8(value: str) -> str:
     try:
         value.encode("utf-8")
     except UnicodeEncodeError as exc:
-        raise ValueError("terminal text must be valid UTF-8") from exc
+        raise PydanticCustomError(
+            "jarvis_text_utf8_invalid", "terminal text must be valid UTF-8"
+        ) from exc
     return value
 
 
@@ -106,7 +109,10 @@ class Progress(_StrictModel):
     def bounded_text(cls, value: str) -> str:
         _utf8(value)
         if len(value.encode("utf-8")) > PROGRESS_MAX_BYTES:
-            raise ValueError("progress exceeds its UTF-8 byte bound")
+            raise PydanticCustomError(
+                "jarvis_progress_bytes_exceeded",
+                "progress exceeds its UTF-8 byte bound",
+            )
         return value
 
 
@@ -122,16 +128,27 @@ class InputOutcome(_StrictModel):
     @model_validator(mode="after")
     def valid_blocker(self) -> InputOutcome:
         if len(self.action_refs) != len(set(self.action_refs)):
-            raise ValueError("action references must be unique")
+            raise PydanticCustomError(
+                "jarvis_action_refs_duplicate", "action references must be unique"
+            )
         if self.disposition != "waiting":
             if self.wait_reason is not None or self.action_refs:
-                raise ValueError("nonwaiting disposition has no blocker")
+                raise PydanticCustomError(
+                    "jarvis_nonwaiting_has_blocker",
+                    "nonwaiting disposition has no blocker",
+                )
         elif self.wait_reason is None:
-            raise ValueError("waiting disposition requires a blocker")
+            raise PydanticCustomError(
+                "jarvis_waiting_missing_blocker",
+                "waiting disposition requires a blocker",
+            )
         elif bool(self.action_refs) != (
             self.wait_reason in {"approval", "external_reconciliation"}
         ):
-            raise ValueError("action references disagree with the blocker")
+            raise PydanticCustomError(
+                "jarvis_blocker_action_refs_mismatch",
+                "action references disagree with the blocker",
+            )
         return self
 
 
@@ -142,7 +159,10 @@ class _InputDispositions(_StrictModel):
     def unique_inputs(self) -> Self:
         ids = [item.input_id for item in self.input_outcomes]
         if len(ids) != len(set(ids)):
-            raise ValueError("input dispositions must be unique")
+            raise PydanticCustomError(
+                "jarvis_input_dispositions_duplicate",
+                "input dispositions must be unique",
+            )
         return self
 
 
@@ -160,7 +180,10 @@ class JarvisNativeMessage(_InputDispositions):
     @model_validator(mode="after")
     def progress_has_no_dispositions(self) -> Self:
         if isinstance(self.response, Progress) and self.input_outcomes:
-            raise ValueError("progress cannot settle or change input dispositions")
+            raise PydanticCustomError(
+                "jarvis_progress_has_dispositions",
+                "progress cannot settle or change input dispositions",
+            )
         return self
 
 

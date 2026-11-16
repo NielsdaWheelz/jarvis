@@ -76,6 +76,7 @@ from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
 from jarvis.memory_workers import MemoryWorker
 from jarvis.messages import MessageStore, StoredMessage, causal_component_ids
+from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_journal import (
     PostgresNativeJournal,
     commit_product,
@@ -447,6 +448,7 @@ class NativeRunner:
             # run_native fences old callbacks; restart reasoning in a fresh thread.
             return NativeRunOutcome("progressed")
         except NativeDefect as error:
+            log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
             await _fail_native_product(
@@ -454,11 +456,6 @@ class NativeRunner:
                 request.attempt_id,
                 request.input_ids,
                 "native protocol requires repair",
-            )
-            LOGGER.warning(
-                "native turn blocked: attempt=%s exception=%s",
-                attempt_id,
-                type(error).__name__,
             )
             return NativeRunOutcome("blocked")
         finally:
@@ -559,7 +556,8 @@ async def _settle_native_product(
             final,
             recovering=recovering,
         )
-    except (TypeError, ValueError, OutputSchemaMismatch):
+    except (TypeError, ValueError, OutputSchemaMismatch) as error:
+        log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
         await _fail_native_product(
             owner,
             turn.attempt_id,

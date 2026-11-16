@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+target=dev-server-deploy
 owner="${JARVIS_AGENT_STATE_OWNER:?supply the enrolled host account}"
 source_state="${JARVIS_AGENT_SOURCE_STATE_DIRECTORY:?supply the enrolled host live state directory}"
 source_cli="${JARVIS_AGENT_SOURCE_CLI:?supply the exact enrolled host release executable}"
@@ -74,9 +74,9 @@ systemctl start "$unit"
 [[ "$(stat -c '%d:%i' "$state")" == "$(stat -c '%d:%i' "$source_state")" ]]
 verify_agent_client "$candidate" "$state"
 mv -fT -- "$candidate" "$cli"
-sudo -u jarvis "$cli" version
+sudo -n -u jarvis "$cli" version
 sha256sum "$cli"
 printf 'installed live enrolled state mount; jarvis remains stopped\n'
 REMOTE
-} | ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- \
+} | ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- \
   "$owner" "$source_state" "$source_cli"

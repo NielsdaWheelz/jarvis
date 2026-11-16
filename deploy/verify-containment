@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
-ssh "$target" bash -s <<'REMOTE'
+target=dev-server-deploy
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n bash -s <<'REMOTE'
 set -euo pipefail
 
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
   /etc/jarvis/migration.env; do
-  sudo test -f "$file"
-  sudo test ! -L "$file"
-  observed="$(sudo stat -c '%U:%G:%a' "$file")"
+  sudo -n test -f "$file"
+  sudo -n test ! -L "$file"
+  observed="$(sudo -n stat -c '%U:%G:%a' "$file")"
   [[ "$observed" == root:root:600 ]]
-  if sudo -u jarvis test -r "$file"; then
+  if sudo -n -u jarvis test -r "$file"; then
     printf 'Jarvis service identity can read root-managed secret file: %s\n' \
       "$file" >&2
     exit 1
   fi
 done
 
-sudo systemctl is-active --quiet jarvis.service
-pid="$(sudo systemctl show --property=MainPID --value jarvis.service)"
+sudo -n systemctl is-active --quiet jarvis.service
+pid="$(sudo -n systemctl show --property=MainPID --value jarvis.service)"
 [[ "$pid" =~ ^[1-9][0-9]*$ ]]
 inspection_blocked=0
 for _attempt in 1 2 3 4 5 6 7 8 9 10; do
-  if ! sudo -u jarvis dd if="/proc/$pid/environ" of=/dev/null status=none \
+  if ! sudo -n -u jarvis dd if="/proc/$pid/environ" of=/dev/null status=none \
     2>/dev/null; then
     inspection_blocked=1
     break
@@ -35,46 +35,46 @@ if ((inspection_blocked == 0)); then
   exit 1
 fi
 
-sudo test "$(sudo systemctl show --property=ProtectProc --value jarvis.service)" = \
+sudo -n test "$(sudo -n systemctl show --property=ProtectProc --value jarvis.service)" = \
   ptraceable
-sudo test "$(sudo systemctl show --property=ProcSubset --value jarvis.service)" = pid
-sudo test "$(sudo systemctl show --property=LimitCORE --value jarvis.service)" = 0
+sudo -n test "$(sudo -n systemctl show --property=ProcSubset --value jarvis.service)" = pid
+sudo -n test "$(sudo -n systemctl show --property=LimitCORE --value jarvis.service)" = 0
 mapping=/etc/jarvis/codex-host.json
-sudo test -f "$mapping" && sudo test ! -L "$mapping"
-[[ "$(sudo stat -c '%U:%G:%a' "$mapping")" == root:root:644 ]]
-sudo systemctl is-active --quiet jarvis-codex-contained.service
-sudo test -f /run/jarvis-contained/app-server.sock
-sudo test ! -L /run/jarvis-contained/app-server.sock
-[[ "$(sudo stat -c '%a:%h:%s' /run/jarvis-contained/app-server.sock)" == 0:1:0 ]]
-[[ "$(sudo stat -c '%a' /run/jarvis-contained)" == 710 ]]
-[[ "$(sudo stat -c '%a' /run/jarvis-contained/exec)" == 700 ]]
-app_host_dependency="$(sudo systemctl show --property=BindsTo --value jarvis.service)"
+sudo -n test -f "$mapping" && sudo -n test ! -L "$mapping"
+[[ "$(sudo -n stat -c '%U:%G:%a' "$mapping")" == root:root:644 ]]
+sudo -n systemctl is-active --quiet jarvis-codex-contained.service
+sudo -n test -f /run/jarvis-contained/app-server.sock
+sudo -n test ! -L /run/jarvis-contained/app-server.sock
+[[ "$(sudo -n stat -c '%a:%h:%s' /run/jarvis-contained/app-server.sock)" == 0:1:0 ]]
+[[ "$(sudo -n stat -c '%a' /run/jarvis-contained)" == 710 ]]
+[[ "$(sudo -n stat -c '%a' /run/jarvis-contained/exec)" == 700 ]]
+app_host_dependency="$(sudo -n systemctl show --property=BindsTo --value jarvis.service)"
 [[ " $app_host_dependency " == *" jarvis-codex-contained.service "* ]]
-[[ "$(sudo systemctl show --property=ProtectHome --value jarvis-codex-contained.service)" == read-only ]]
-[[ "$(sudo systemctl show --property=ProtectSystem --value jarvis-codex-contained.service)" == strict ]]
-[[ "$(sudo systemctl show --property=ProcSubset --value jarvis-codex-contained.service)" == all ]]
-[[ "$(sudo systemctl show --property=ProtectProc --value jarvis-codex-contained.service)" == ptraceable ]]
-[[ "$(sudo systemctl show --property=ProtectKernelTunables --value jarvis-codex-contained.service)" == yes ]]
-[[ "$(sudo systemctl show --property=NoNewPrivileges --value jarvis-codex-contained.service)" == yes ]]
-[[ -z "$(sudo systemctl show --property=CapabilityBoundingSet --value jarvis-codex-contained.service)" ]]
-host_write_paths="$(sudo systemctl show --property=ReadWritePaths --value jarvis-codex-contained.service)"
+[[ "$(sudo -n systemctl show --property=ProtectHome --value jarvis-codex-contained.service)" == read-only ]]
+[[ "$(sudo -n systemctl show --property=ProtectSystem --value jarvis-codex-contained.service)" == strict ]]
+[[ "$(sudo -n systemctl show --property=ProcSubset --value jarvis-codex-contained.service)" == all ]]
+[[ "$(sudo -n systemctl show --property=ProtectProc --value jarvis-codex-contained.service)" == ptraceable ]]
+[[ "$(sudo -n systemctl show --property=ProtectKernelTunables --value jarvis-codex-contained.service)" == yes ]]
+[[ "$(sudo -n systemctl show --property=NoNewPrivileges --value jarvis-codex-contained.service)" == yes ]]
+[[ -z "$(sudo -n systemctl show --property=CapabilityBoundingSet --value jarvis-codex-contained.service)" ]]
+host_write_paths="$(sudo -n systemctl show --property=ReadWritePaths --value jarvis-codex-contained.service)"
 [[ " $host_write_paths " == *" /var/lib/jarvis-notes "* ]]
 cache=/var/cache/jarvis/attachments
-[[ "$(sudo stat -c '%U:%G:%a' "$cache")" == jarvis:codex-clients:750 ]]
-app_write_paths="$(sudo systemctl show --property=ReadWritePaths --value jarvis.service)"
+[[ "$(sudo -n stat -c '%U:%G:%a' "$cache")" == jarvis:codex-clients:750 ]]
+app_write_paths="$(sudo -n systemctl show --property=ReadWritePaths --value jarvis.service)"
 [[ " $app_write_paths " == *" $cache "* ]]
-host_pid="$(sudo systemctl show --property=MainPID --value jarvis-codex-contained.service)"
+host_pid="$(sudo -n systemctl show --property=MainPID --value jarvis-codex-contained.service)"
 [[ "$host_pid" =~ ^[1-9][0-9]*$ ]]
-cache_mount_options="$(sudo nsenter --target "$host_pid" --mount \
+cache_mount_options="$(sudo -n nsenter --target "$host_pid" --mount \
   findmnt --target "$cache" --noheadings --output VFS-OPTIONS)"
 [[ ",$cache_mount_options," == *,ro,* ]]
-sudo -u jarvis test ! -w /var/lib/jarvis-notes
-sudo -u jarvis test ! -w /var/lib/jarvis-notes/.git
-release="$(sudo readlink -f /opt/jarvis/current)"
+sudo -n -u jarvis test ! -w /var/lib/jarvis-notes
+sudo -n -u jarvis test ! -w /var/lib/jarvis-notes/.git
+release="$(sudo -n readlink -f /opt/jarvis/current)"
 [[ "$release" =~ ^/opt/jarvis/releases/[0-9a-f]{40}$ ]]
 # qualify the public native startup contract through the same uid, group and
 # namespace restrictions as the application. no model turn is submitted.
-sudo systemd-run --quiet --wait --pipe --collect \
+sudo -n systemd-run --quiet --wait --pipe --collect \
   --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
   --property=SupplementaryGroups=codex-clients \
   --property=ProtectHome=true --property=ProtectSystem=strict \

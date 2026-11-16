@@ -2012,6 +2012,15 @@ batch or background job; a compatible batch appended mid-loop gets its own
 instant. Tool-only continuations and embedding calls receive no repeated clock.
 Stable prompt material precedes dynamic time.
 
+administration is separate from development: privileged deployment runs from the
+operator workstation through the existing separately keyed `dev-server-deploy`
+ssh alias and noninteractive `sudo -n`. `dev-server` remains unprivileged niels
+access. copy no deployment key to that account, restore no developer sudo/groups
+and add no server-agent privilege substitute or alternate administrative route.
+niels retains its rootless development docker; root-controlled system docker is
+nexus production. this transport boundary changes no jarvis runtime identity,
+systemd service, native postgres 16 or deployment architecture.
+
 The physical deployment uses a dedicated `jarvis` Unix account,
 `/opt/jarvis/releases/<git-commit>` with an atomic `/opt/jarvis/current`
 symlink, durable state under `/var/lib/jarvis`, and root-owned configuration

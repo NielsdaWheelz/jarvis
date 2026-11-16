@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-target="${JARVIS_DEPLOY_TARGET:-dev-server-deploy}"
+target=dev-server-deploy
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
 source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
 source_memory="${JARVIS_SOURCE_MEMORY_CONFIG:-$repo_dir/deploy/memory-config.example.json}"
@@ -117,12 +117,12 @@ chmod 0600 "$scratch/google-oauth-state.json"
 # Validate the application declaration before entering either remote install.
 "$repo_dir/deploy/install-agent-client"
 
-remote="$(ssh "$target" mktemp -d /tmp/jarvis-private-state.XXXXXX)"
+remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" mktemp -d /tmp/jarvis-private-state.XXXXXX)"
 case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
-scp -q "$scratch/jarvis.env" "$scratch/google-oauth-state.json" "$scratch/memory.json" \
+scp -q -o BatchMode=yes -o ForwardAgent=no "$scratch/jarvis.env" "$scratch/google-oauth-state.json" "$scratch/memory.json" \
   "$target:$remote/"
 
-ssh "$target" sudo flock /opt/jarvis/.deploy.lock bash -s -- "$remote" <<'REMOTE'
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$remote" <<'REMOTE'
 set -euo pipefail
 remote="$1"
 case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
@@ -138,14 +138,14 @@ trap cleanup EXIT HUP INT TERM
 for file in jarvis.env google-oauth-state.json memory.json; do
   [[ -f "$remote/$file" && ! -L "$remote/$file" ]]
 done
-sudo install -d -m 0700 -o jarvis -g jarvis \
+sudo -n install -d -m 0700 -o jarvis -g jarvis \
   /var/lib/jarvis/connectors
-sudo install -d -m 0750 -o jarvis -g codex-clients \
+sudo -n install -d -m 0750 -o jarvis -g codex-clients \
   /var/cache/jarvis /var/cache/jarvis/attachments
-sudo install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
-sudo install -m 0600 -o jarvis -g jarvis \
+sudo -n install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
+sudo -n install -m 0600 -o jarvis -g jarvis \
   "$remote/memory.json" /etc/jarvis/memory.json
-sudo install -m 0600 -o jarvis -g jarvis \
+sudo -n install -m 0600 -o jarvis -g jarvis \
   "$remote/google-oauth-state.json" \
   /var/lib/jarvis/connectors/google-oauth-state.json
 printf 'installed jarvis private state; worker installed-state access validated.\n'

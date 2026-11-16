@@ -163,6 +163,9 @@ receipts qualify only their named artifacts and boundaries.
   source implementation and its exact qualification artifacts. this intermediate
   events source is not deployed; selected slices and retained reminder obligations
   must be accounted for before activation.
+- deployment administration runs from the operator workstation through the
+  separately keyed `dev-server-deploy` ssh alias with `sudo -n`. `dev-server`
+  is the unprivileged developer connection; it has no administrative fallback.
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
 - Primary client: one configured channel in a dedicated private Discord server

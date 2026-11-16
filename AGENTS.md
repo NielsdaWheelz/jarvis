@@ -284,6 +284,17 @@ These instructions govern all work in this repository.
   retired plans, cleanup logs and qualification reports live in git history,
   not a duplicate archive tree or new execution gates.
 
+## deployment administration
+
+- run privileged deployment from the operator workstation through the existing,
+  separately keyed `dev-server-deploy` ssh alias and `sudo -n`.
+- `dev-server` selects unprivileged niels development access. never restore sudo
+  or sudo/docker group membership, copy the deployment key onto the server or add
+  a server-agent administrative substitute/fallback.
+- preserve jarvis's existing runtime identity, systemd/native postgres 16 and
+  deployment model. development uses niels's rootless docker; root-controlled
+  system docker is nexus production.
+
 ## V1 constraints
 
 - Keep the system small and optimize for one user and one deployment.

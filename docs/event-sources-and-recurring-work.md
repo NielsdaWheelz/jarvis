@@ -569,3 +569,12 @@ not-on-pypi limitation. this is static/package evidence, not native acceptance.
 the new temporary behavioral probes remain until actual candidate completion;
 final post-deletion verification is still required. server authorization remains
 pending, so neither native rerun nor complete candidate cleanup is claimed.
+
+
+administration correction: the apparent expired authorization was the deliberate
+separation of development and production administration. niels remains
+unprivileged. the existing separately keyed `dev-server-deploy` connection works
+from the operator workstation with `sudo -n`; it replaces the old administrative
+route, without key copying, developer sudo or runtime redesign. the remaining
+candidate qualification now resumes through that connection. source/deployment
+instructions record the same hard cut; developer docker remains rootless.

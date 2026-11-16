@@ -216,6 +216,25 @@ historical reminder inventory uses `action.tool_name = schedule.wake` and
 source exposes no legacy schedule tool or timer. its single work timer publishes
 `work_wake` inputs through the common native path.
 
+## administrative transport
+
+run deployment entrypoints from the operator workstation, where the separate
+`dev-server-deploy` ssh key already lives. privileged remote operations use
+`ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy 'sudo -n …'`; entrypoints use that
+fixed alias and never fall back to `dev-server` or prompt for a sudo password.
+for an administrative session, open `ssh dev-server-deploy` from that workstation
+and use `sudo -n` for the server commands below. do not run the privileged phase
+from a developer agent on the server, copy the deployment key there, restore
+niels sudo/group membership or install a replacement privileged wrapper.
+
+`dev-server` remains the unprivileged niels development connection. niels may
+build under its ordinary identity when the deployment process explicitly selects
+it; it cannot administer the host. development docker uses niels's separate
+rootless engine. system docker belongs to root-controlled nexus production and
+must not be used for jarvis development fixtures. jarvis remains the existing
+`jarvis` systemd service with native postgres 16, its established runtime identity,
+release directories, locks and private configuration.
+
 ## Install and configure
 
 The production cutover is split into preparation, installation, and activation.

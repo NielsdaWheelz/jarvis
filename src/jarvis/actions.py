@@ -1030,7 +1030,9 @@ class ActionPositionRecorder:
             if self._reservation != reservation:
                 raise ValueError("write position reservation changed")
             assert self._reservation_accepted is not None
-            return self._reservation_accepted
+            if not self._reservation_accepted:
+                return False
+            return await budgets.reserve(position, reservation)
         accepted = await budgets.reserve(position, reservation)
         self._reservation = reservation
         self._reservation_accepted = accepted

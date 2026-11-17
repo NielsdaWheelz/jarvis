@@ -9,7 +9,9 @@ and [adr 0080's first valid stopping rule](decisions/0080-first-valid-compaction
 source implementation, integrated composition and isolated fault proof qualified.
 the preliminary production reset is complete. the free-copy/batch and first-valid
 repairs have source and real-model candidate qualification and are installed.
-complete production preparation, the real journey and final fresh reset remain pending.
+complete fresh-prefix preparation and the first real main dispatch are observed.
+the journey is stopped on demonstrated calendar precision and executor-capacity
+defects; combined acceptance and the final fresh reset remain pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -681,8 +683,7 @@ at `2026-11-17T09:11:49Z`, production parks `2112+64` as
 `invalid_completion`, with coverage 2,233 of 3,039 leaves and zero main native
 attempts. the original reply is unavailable through the pinned public ephemeral
 contract; the selected first address does not identify the offending result.
-the [diagnostic issue](issues/compaction-invalid-completion.md) retains that
-unknown cause and the still-pending genuine owner request.
+this record retains that unknown cause and the genuine owner request.
 
 the worker now logs only host run/requested-address coordinates and a closed
 kernel stop enum, caller result-schema rejection, duplicate-address rejection or
@@ -711,6 +712,94 @@ leaves, coverage 2,233, genuine `resume` sequence 9 and the pending owner reques
 remain unchanged; the command makes no model call. the previously missing
 level-6/index-33 node (`2112+64`) is absent at 09:47:54 and present at 09:49:15,
 with coverage 2,241 and no compaction error. this proves genuine parent recovery,
-not the original failure's cause. main native attempts remain zero; preparation,
-the real journey and final reset are still pending. any newly reproduced rejection
-requires diagnosis and responsible repair before another explicit retry.
+not the original failure's cause. main native attempts are zero at that observation.
+any newly reproduced rejection requires diagnosis and responsible repair before
+another explicit retry.
+
+production subsequently reaches complete coverage of the then-current 3,039
+leaves with no compaction error. native main attempt
+`96e13f2b-6c6b-4c89-a422-7df0a632a278` starts at
+`2026-11-17T12:34:16Z`, with genuine owner request
+`2487c506-4aef-4f2e-9018-554ada7377d0` recorded as initial input. its terminal is
+retained at `12:38:36Z`. this satisfies the diagnostic issue's qualified execution
+past blocked preparation; that resolved issue is removed. the original rejected
+reply remains unrecoverable and its cause unknown. the private main/delivery and
+recovery receipts remain; no historical causation or large-corpus latency claim
+follows. later capture can extend the corpus beyond that completed prefix.
+
+### first main dispatch and stopped write failures
+
+the fixture email has never been sent. this first main turn instead enters
+calendar action `5b577ec6-cfbf-4bcc-b89a-3058400d812e`, which later remains
+uncertain, and encounters `BudgetExceeded` before the proposed todo or a later
+web search enters execution. the system-suspension reply incorrectly states that
+the entered action has not executed. required memory preparation succeeded;
+these are separate write/recovery defects, not evidence of a continued compaction
+block. the application stops cleanly at `2026-11-17T12:40:54Z`, retaining genuine
+`resume` sequence 9. no hidden reschedule, repeated effect or fabricated owner
+input has been used.
+
+an exact-id read-only calendar observation at `12:47:37Z` finds the event at its
+deterministic id. only start/end fractional seconds differ, each by -954,234
+microseconds; owner, time zones and all other writable fields match. the
+[calendar precision issue](issues/calendar-subsecond-precision.md) owns that
+source repair and actual same-effect recovery. the
+[executor-capacity issue](issues/execution-capacity-after-recovery.md) owns the
+shared in-flight slot left occupied after recovery handoff; a 2,767-byte todo
+request was below its 65,792-byte wrapped input limit. original arguments,
+uncertain receipts and failed results remain unchanged. private receipts retain the first main
+turn, write failure and independent event observation. the real combined journey
+and final reset remain unqualified.
+
+### qualified write and pending-result repairs
+
+the source repair graph selects kernel
+`9fd491a2aca24022bf1fbbf8a41c4668d55ba758`, tools
+`b25bd5f08bc82eb47eb4384139cfb2623ad12a68` and memory
+`f77a4c7a5f85b897fbea08066b9dd5b890c2e6d7`. memory changes only its tools pin and
+lock; all twelve runtime files remain byte-identical to `6506ae08`, and its three
+retained real-postgres regressions pass without skips. provider `ea9f820`, stock
+0.160.0 and the main/memory model and effort selections stay unchanged.
+
+eleven controlled actual-connector cases qualify whole-second desired calendar
+encoding and strict positive comparison, including pre-io refusal of collapsed
+intervals and preservation of exact observed snapshots. ten executor cases and
+seven actual jarvis/postgres checks qualify independent work/read progress on the
+same serial budget after recovery handoff, preserving unresolved cost, original
+effect rows and nonreplayability. kernel v5's pending-result wording reports an
+unresolved outcome without asserting nonexecution; supervisor/public-client Unix
+peer checks preserve action references, waiting actors and byte-exact recorded
+replies. these checks use controlled transports, not new production effects or
+model calls. application session revision v2 captures common recorder admission;
+calendar create/update bindings separately advance to v4 for precision behavior.
+
+one full `scripts/verify` passes on the resolved graph: frozen lock, formatting,
+lint, zero typing errors, documentation links, source/wheel build, fresh-wheel
+installation/cli/dependency verification and audit. runtime source hashes remain
+unchanged through that check; three owned Git packages remain outside the index
+audit's coverage. the lock sha256 is
+`b112b3f5119392c536929ff6d069462b206a36f26cb01f4715329caad068eba7`.
+the unchanged retained jarvis capture/retry group passes on a fresh actual `0013`
+runtime-role database with no skips. its two injected publication `MemoryError`
+warnings are expected; the owned fixture is removed after zero-client and
+independent container/volume/tunnel/listener absence checks.
+
+final nonexecuting composition passes for the configured and longest supported
+representative time zones across all three roles. main's joined system text is
+16,322/16,335 bytes, developer text is empty and its output schema is 3,802 bytes;
+all 47 captured callback input schemas match the declarations and grants.
+compactor/dreamer system text stays 848 bytes, with output schemas of 1,083/1,623
+bytes and unchanged grants/containment. goals, personality and role builders are
+byte-identical apart from exact dependency pins; only native base wording grows
+seven bytes and the two calendar guides change. callback schema/contract revisions
+stay unchanged while the calendar implementation/policy precision change remains
+explicit. these local request captures stop before any real session or turn;
+they prove no fresh account entitlement, effective live settings or installed
+consumer behavior. concise qualification and cleanup receipts remain private.
+
+production remains on stopped `c544f68`; the original calendar action is still
+uncertain. at `2026-11-17T13:17:41Z`, its event has ended and no fixture
+calendar-attention fact exists, so the original timing window is missed. the
+fixture email has never been sent. later positive reconciliation, production
+replacement and any genuine owner timing amendment remain separate; this source
+qualification does not complete installed acceptance or the final reset.

@@ -6,8 +6,9 @@ the owner subsequently approved
 [adr 0079's free-copy and serial-batch amendment](../decisions/0079-bounded-serial-compaction.md)
 after genuine new capture exposed substantial preparation work. source and a
 real-model candidate are qualified; the repair was first installed as `0b33fc4`.
-complete production preparation and the real journey remain pending. large-corpus
-throughput and latency remain unqualified.
+complete fresh-prefix preparation and the first main dispatch are now observed;
+the real journey and final reset remain pending. large-corpus throughput and
+latency remain unqualified.
 the owner additionally approved [first valid hard-fitting summaries](../decisions/0080-first-valid-compaction.md)
 after the real 516→504-byte soft-target retry demonstrated an extra post-valid
 call. that stopping amendment has source and real-model candidate qualification,
@@ -15,9 +16,11 @@ and was first installed as `8bc3c15`. it does not change the fixed models or
 accepted coverage/reset scope. the current `c544f68` adds qualified closed rejection
 diagnostics without changing that policy. after one supported stopped diagnostic
 retry, the formerly missing `2112+64` parent is present and coverage reaches 2,241
-of 3,039 leaves with no compaction error at 09:49:15 utc. main native attempts
-remain zero; the genuine combined journey is still pending. the earlier rejection's
-cause remains unknown; [its issue](compaction-invalid-completion.md) stays open.
+of 3,039 leaves with no compaction error at 09:49:15 utc. production later prepares
+all then-current 3,039 leaves and starts the genuine main attempt at 12:34:16 utc.
+its terminal is retained at 12:38:36 utc. the earlier rejection's diagnostic gap
+and blocked preparation are resolved; its original cause remains unknown in
+[f2's retained evidence](../runtime-reliability-and-integration.md#compaction-rejection-diagnostic-and-observed-recovery).
 
 problem: main waits for the complete admitted-history view before opening a native
 turn. admitted capture can accumulate a substantial uncompressed tail. the original
@@ -27,9 +30,11 @@ without a main native attempt, action or email. the application stopped cleanly 
 22:58:14 utc to inspect required work before continuing paid preparation. gmail
 and calendar baselines had completed quietly, with no event facts or errors.
 
-impact: the installed combined journey awaits fresh-corpus preparation. successful source ci
-`43974508049` at installed `b3615292b0628322be00dba8855d03f65904fec5` does not
-qualify this backlog's operational cost. broader
+impact: the required fresh-prefix preparation and actual dispatch criteria are
+met. the combined journey now awaits separate write/recovery repairs; this issue
+remains open for its remaining journey/reset closure criteria. historical source
+ci `43974508049` at installed `b3615292b0628322be00dba8855d03f65904fec5` does not
+qualify the old backlog's operational cost. broader
 [memory usefulness/load evaluation](memory-usefulness-evaluation.md) remains separate.
 
 historical pre-reset evidence: stopped metadata reports 39,873 admitted leaves,
@@ -87,10 +92,14 @@ through the pinned public contract. the installed diagnostic gap is repaired and
 independently qualified, but no original cause is inferred. the single explicit
 stopped retry clears only that park: source/node/leaf byte fingerprints, coverage,
 genuine `resume` sequence 9 and the pending owner request remain unchanged.
-subsequent completion of the missing parent and coverage through 2,241 prove real
-recovery progress. they do not prove a complete fresh view, main dispatch,
-throughput or journey acceptance. the [f2 implementation evidence](../runtime-reliability-and-integration.md#compaction-rejection-diagnostic-and-observed-recovery)
-records the exact installed source, qualification and observation boundaries.
+subsequent completion of the missing parent and coverage through 2,241 first prove
+recovery progress. later full coverage through 3,039 and native attempt
+`96e13f2b-6c6b-4c89-a422-7df0a632a278`, with the actual owner input recorded,
+prove preparation and main dispatch. the application then stops cleanly at
+12:40:54 utc on separate calendar precision/executor-capacity defects, preserving
+`resume` sequence 9. the fixture email has never been sent; no todo was created
+after its pre-entry budget failure. the [f2 implementation evidence](../runtime-reliability-and-integration.md#first-main-dispatch-and-stopped-write-failures)
+records those actual boundaries. no throughput or journey acceptance follows.
 
 owner disposition: implement exact free copies through 2,048 bytes and bounded
 serial batches, qualify the real journey, then perform the final reset. before

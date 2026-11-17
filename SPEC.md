@@ -1765,6 +1765,15 @@ arguments. A match is success; a conflict is never overwritten or retried
 blindly. Calendar update and delete reconcile through their known provider event
 ID and live state under the same rule.
 
+timed calendar creates and update replacements discard fractional seconds at the
+provider boundary. the binding uses one whole-second desired projection for
+interval validation, encoding, direct receipt checks and reconciliation, preserving
+the original immutable arguments. a normalized start/end interval must remain
+positive; otherwise return `InvalidEvent` before any provider request. this
+deliberately discards requested subsecond precision rather than using an epsilon.
+observed read/precondition snapshots remain exact; do not truncate them for
+matching. all-day dates, time-zone names and utc offsets remain unchanged.
+
 `schedule.wake` uses one closed tagged schema: create with an exact
 `execute_after` instant and instruction, or cancel with the target queued wake's
 action ID. A create action's closed `result` has two independently managed

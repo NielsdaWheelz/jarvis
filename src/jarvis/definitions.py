@@ -69,7 +69,7 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "36f9c6b8e4674916d185eb14e522e77d21c3f86f",
+    "llm-agent-kernel": "42e1ff252a3232b14721f7068d86812c1c3a7e08",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
     "provider-runtime": "ea9f82025632926a7c7e47d6333fb9346f6ee86c",
     "universal-memory": "87a202cd124de9d09a50b2548b1938f403c8e1b8",

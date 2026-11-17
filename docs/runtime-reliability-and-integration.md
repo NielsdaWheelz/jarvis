@@ -1175,8 +1175,11 @@ progress, notes, canonical work, read positions and the nightly marker stay
 unchanged. the command's zero exit is not accepted as successful completion.
 the [missing stop diagnostic](issues/dreamer-stop-diagnostics.md) requires a
 bounded repair and one qualified actual retry; the original cause is unknown.
-the owner reports posting the genuine revised journey while the application is
-stopped; it must still be received and checked through real channel catch-up.
+a finite REST-only read verifies the revised journey as genuine owner message
+`1572385672046575698` in the configured channel, with 1,547 characters and body
+sha256 `69c51f3dcba15413cf802b2aca5a315d2a0645c17b7064cbd2b37029aaf5dba1`.
+only the file's final newline is absent. no Gateway connects or canonical input
+is inserted; normal startup catch-up must still admit and verify that message.
 
 the minimal source diagnostic repair shares compactor's existing closed kernel
 failure projection with dreamer and logs the actual stopped enum/run identity
@@ -1189,3 +1192,37 @@ after review; private final receipt has sha256
 `6eedc294ad14f4244a106dfd13e070f7348adc9f3810f1a2c35dead17176ac1e`.
 format/lint, zero typing errors and all 153 documentation files pass. the real
 retry still owns cause identification and installed quiet qualification.
+
+the same-release `ff440f4` host qualification passes. its actual stopped retry
+retains `budget_exhausted` after 53.746 seconds, run
+`afcccfe0-74a9-4170-bd70-e66760f4128c`; no seed progress or notes commit.
+that enum covers several exact kernel decisions, including a native turn timeout.
+it does not establish account quota, elapsed-time exhaustion or a specific token
+ceiling. a bounded diagnostic refinement adds the exact decision tag to the
+existing kernel outcome event and fixed public numeric metrics at the host;
+limits, roles and model policy remain unchanged while the cause is measured.
+
+kernel `42e1ff252a3232b14721f7068d86812c1c3a7e08` adds five closed budget tags
+at the original decision sites. it preserves cooperative-time `>=`, token `>`,
+turn/repair counting, native-timeout precedence and quota classification. the
+host forwards only a known tag or its original safe failure projection and logs
+fixed returned metrics; unknown token counts remain null. `native_turn_timeout`
+names the runtime's timeout classification, not a proved remote-server origin.
+
+twenty controlled actual-kernel cases compare original outcome enums, returned
+metrics, clock-read counts and semantic event kind/attributes after excluding
+only the added tag events. event timestamps/run ids are outside that comparison;
+no complete event-byte identity is claimed. applicable isolated/decision/event
+conformance, static/types and standard isolated package build pass. independent
+producer rerun passes, as do two actual worker/provider-port/kernel→host cases
+and four mixed/unknown metadata privacy groups. producer/host probes, copied
+baseline and owned compiled files are deleted after hash receipts. private
+producer/host receipts have sha256
+`5cd5f2eda87195ded398375a37143be951ee795505a236e14ad432d4c7893542`
+and `a6830484e8206c8ce10c706d58c870b6f792b31ca8bae0a2ed0f0d82ebf8316f`.
+kernel hosted [ci](https://github.com/NielsdaWheelz/llm-agent-kernel/actions/runs/44200305924)
+passes. all four consumer pins match; frozen installed kernel bytes match the
+reviewed source, and combined static/types/docs/build/fresh-wheel/cli/audit checks
+pass. unchanged stateful capture/library evidence remains scoped to its original
+graph; new budget-branch proof covers this diagnostic delta. all limits stay
+fixed, and the qualified actual retry still owns live diagnosis/completion.

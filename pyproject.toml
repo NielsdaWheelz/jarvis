@@ -17,7 +17,7 @@ dependencies = [
   "discord.py @ git+https://github.com/NielsdaWheelz/discord.py.git@4c137a2de1c8aa36ac1df19f654afb99856824f2",
   "fastapi==0.143.0",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@36f9c6b8e4674916d185eb14e522e77d21c3f86f",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@42e1ff252a3232b14721f7068d86812c1c3a7e08",
   "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
   "mcp==2.3.0",
   "pgvector==0.4.1",

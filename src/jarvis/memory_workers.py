@@ -83,17 +83,36 @@ class _MemoryFailureEvents:
                 "failure_line_1",
             }
         }
-        if event.kind is EventKind.outcome and attributes.get("failure_site") in {
+        if event.kind is not EventKind.outcome:
+            return
+        if attributes.get("failure_site") not in {
             "bootstrap_context",
             "provider_configuration",
             "kernel_configuration",
         }:
-            LOGGER.warning(
-                "memory kernel failure %s",
-                canonical_json_bytes(
-                    {"run_id": str(event.run_id), **attributes}
-                ).decode("utf-8"),
+            budget_limit = next(
+                (
+                    item.value
+                    for item in event.attributes
+                    if item.name == "budget_limit"
+                ),
+                None,
             )
+            if budget_limit not in {
+                "provider_turns",
+                "cooperative_seconds",
+                "provider_input_tokens",
+                "provider_output_tokens",
+                "native_turn_timeout",
+            }:
+                return
+            attributes = {"budget_limit": budget_limit}
+        LOGGER.warning(
+            "memory kernel failure %s",
+            canonical_json_bytes({"run_id": str(event.run_id), **attributes}).decode(
+                "utf-8"
+            ),
+        )
 
 
 class MemoryWorker:
@@ -480,7 +499,17 @@ class DreamerWorker:
             )
             if not isinstance(outcome, OneShotCompleted):
                 LOGGER.warning(
-                    "dream stopped: run_id=%s stop_kind=%s", run_id, outcome.type.value
+                    "dream stopped %s",
+                    canonical_json_bytes(
+                        {
+                            "run_id": run_id,
+                            "stop_kind": outcome.type.value,
+                            "provider_turns": outcome.metrics.provider_turns,
+                            "input_tokens": outcome.metrics.usage.input_tokens,
+                            "output_tokens": outcome.metrics.usage.output_tokens,
+                            "duration_seconds": outcome.metrics.duration_seconds,
+                        }
+                    ).decode("utf-8"),
                 )
                 return None
             if cancellation.cancelled:

@@ -1,7 +1,7 @@
 # dreamer stop diagnostics
 
-status: open, observed 2026-11-17; source diagnostic repair qualified, actual
-stopped retry pending.
+status: open, observed 2026-11-17; exact-budget diagnostic source is qualified.
+the live run's decision branch remains unknown until an installed retry.
 
 the real stopped `jarvis dream` on candidate
 `40325aa212877fa93f405192105e4d0216e5b291` returns after 61.269 seconds with
@@ -27,3 +27,22 @@ worker/kernel controlled-port faults prove configuration and provider stops are
 distinguished without exposing private sentinels or causes. independent rerun
 passes; the new probe and matching compiled-file inventory are removed after
 hash receipts. roles, pins, models, retries, returns and cli semantics stay fixed.
+
+the actual retry on `ff440f4fe241965d73f0c3d62796e1b80ec68a3a` stops after
+53.746 seconds with `budget_exhausted`, run
+`afcccfe0-74a9-4170-bd70-e66760f4128c`. private
+`ff440f4-stopped-dream-live.log` has sha256
+`395d1830bf362ff4fa7a283f7c7fdec8fb1af5beb5868a47d33abd2f3a5cc6c0`.
+the pinned kernel maps turn count, cooperative time, cumulative input/output
+tokens and a native turn timeout to that enum. it does not prove account quota
+or which limit fired. retain the exact kernel decision tag through its existing
+outcome event and the returned public numeric metrics, preserving null usage.
+all limits stay fixed until measured evidence supports any separate amendment.
+
+kernel `42e1ff252a3232b14721f7068d86812c1c3a7e08` supplies five closed decision
+tags on the existing outcome event. the host preserves those tags and returned
+public counters, including null token usage. twenty actual-kernel controlled
+cases preserve original outcomes, counters, check order and semantic event
+attributes; independent producer/host checks pass. no budget is reclassified in
+the host. source proof and the frozen installed-package byte check do not
+identify the earlier live limit or qualify successful model completion.

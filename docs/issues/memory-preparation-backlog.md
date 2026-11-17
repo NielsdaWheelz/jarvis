@@ -1,23 +1,28 @@
 # main blocked by admitted-memory preparation backlog
 
-status: open operational blocker, 2026-11-16. the preliminary reset under
+status: open operational blocker, updated 2026-11-17. the preliminary reset under
 [adr 0078](../decisions/0078-fresh-corpus-first-acceptance.md) is complete.
 the owner subsequently approved
 [adr 0079's free-copy and serial-batch amendment](../decisions/0079-bounded-serial-compaction.md)
 after genuine new capture exposed substantial preparation work. source and a
-real-model candidate are qualified; the repair is installed as `0b33fc4`.
+real-model candidate are qualified; the repair was first installed as `0b33fc4`.
 complete production preparation and the real journey remain pending. large-corpus
 throughput and latency remain unqualified.
 the owner additionally approved [first valid hard-fitting summaries](../decisions/0080-first-valid-compaction.md)
 after the real 516→504-byte soft-target retry demonstrated an extra post-valid
 call. that stopping amendment has source and real-model candidate qualification,
-and is installed as `8bc3c15`. it does not change the fixed models or accepted
-coverage/reset scope. coverage reaches 353 with no error; main native dispatch
-and the genuine combined journey remain pending at this observation.
+and was first installed as `8bc3c15`. it does not change the fixed models or
+accepted coverage/reset scope. the current `c544f68` adds qualified closed rejection
+diagnostics without changing that policy. after one supported stopped diagnostic
+retry, the formerly missing `2112+64` parent is present and coverage reaches 2,241
+of 3,039 leaves with no compaction error at 09:49:15 utc. main native attempts
+remain zero; the genuine combined journey is still pending. the earlier rejection's
+cause remains unknown; [its issue](compaction-invalid-completion.md) stays open.
 
 problem: main waits for the complete admitted-history view before opening a native
-turn. the existing archive has a large uncompressed tail. the genuine production
-fixture request entered canonical history at 22:55:02 utc and remained pending
+turn. admitted capture can accumulate a substantial uncompressed tail. the original
+pre-reset production fixture request entered canonical history at 22:55:02 utc
+and remained pending
 without a main native attempt, action or email. the application stopped cleanly at
 22:58:14 utc to inspect required work before continuing paid preparation. gmail
 and calendar baselines had completed quietly, with no event facts or errors.
@@ -27,7 +32,8 @@ impact: the installed combined journey awaits fresh-corpus preparation. successf
 qualify this backlog's operational cost. broader
 [memory usefulness/load evaluation](memory-usefulness-evaluation.md) remains separate.
 
-evidence: stopped metadata reports 39,873 admitted leaves, `view_through=2238`,
+historical pre-reset evidence: stopped metadata reports 39,873 admitted leaves,
+`view_through=2238`,
 2,238 built level-zero nodes, both shrink flags false and no compaction error.
 37,635 leaves remain unbuilt: 37,629 source leaves and six notes. raw text alone
 exceeds 512 utf-8 bytes for 15,251 of those source leaves and all six notes.
@@ -74,6 +80,17 @@ actual inference rather than free copying under the new policy; raw source reach
 8,000 bytes and those stored nodes are at most 514 bytes. the main native attempt
 has not yet opened at this observation. this is progress, not a latency or
 steady-state capacity qualification.
+
+at 09:11:49 utc, current production parks `2112+64` as `invalid_completion` at
+coverage 2,233 with 3,039 leaves; the original ephemeral reply cannot be recovered
+through the pinned public contract. the installed diagnostic gap is repaired and
+independently qualified, but no original cause is inferred. the single explicit
+stopped retry clears only that park: source/node/leaf byte fingerprints, coverage,
+genuine `resume` sequence 9 and the pending owner request remain unchanged.
+subsequent completion of the missing parent and coverage through 2,241 prove real
+recovery progress. they do not prove a complete fresh view, main dispatch,
+throughput or journey acceptance. the [f2 implementation evidence](../runtime-reliability-and-integration.md#compaction-rejection-diagnostic-and-observed-recovery)
+records the exact installed source, qualification and observation boundaries.
 
 owner disposition: implement exact free copies through 2,048 bytes and bounded
 serial batches, qualify the real journey, then perform the final reset. before

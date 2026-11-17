@@ -674,3 +674,43 @@ does not cancel that preparation or move its cutoff. late steering is journaled
 normally; same-turn delivery is not guaranteed. self-email still waits for the
 actual canonical waiting-for-fixture disposition. the real journey and final
 fresh reset remain pending.
+
+### compaction rejection diagnostic and observed recovery
+
+at `2026-11-17T09:11:49Z`, production parks `2112+64` as
+`invalid_completion`, with coverage 2,233 of 3,039 leaves and zero main native
+attempts. the original reply is unavailable through the pinned public ephemeral
+contract; the selected first address does not identify the offending result.
+the [diagnostic issue](issues/compaction-invalid-completion.md) retains that
+unknown cause and the still-pending genuine owner request.
+
+the worker now logs only host run/requested-address coordinates and a closed
+kernel stop enum, caller result-schema rejection, duplicate-address rejection or
+address-set mismatch. no transcript, payload or exception prose is retained.
+the durable park, models, limits, retries and atomic completion stay unchanged.
+the actual postgres/kernel red parks correctly but lacks the diagnostic. seven
+focused controlled green checks pass independent review: six actual-kernel paths
+cover protocol/quota stops, duplicate/missing/wrong addresses and valid completion;
+one explicitly controlled post-kernel result corruption covers defensive caller
+validation. every rejection preserves originals and commits zero inferred/free
+nodes or frontier progress. full `scripts/verify`, fresh-wheel/types/docs/audit
+checks and hosted ci `44057103705` pass. the new probe and owned fixture
+database/container/anonymous volume/tunnel are removed; concise proof remains.
+
+routine replacement installs matching host/application
+`c544f68c37628cece24ee9811a980853ee3897b7`, tree
+`b5a1f8a808a534e3f6c0eeb95eef11520ab9f32f`, with unchanged lock sha256
+`021c330d51e24faf78dd1d934782a9b82ed758cce2721cc7138f199ba65e2f85`.
+initial health at `2026-11-17T09:47:37Z` reports host/application pids
+2,807,962/2,818,932, successful results and zero restarts; host configuration is
+byte-identical and the prior `8bc3c15` installation is pruned.
+
+before application activation, one supported stopped `memory retry-compression`
+clears only the park. fingerprints of 3,039 source records, 4,444 nodes and 3,039
+leaves, coverage 2,233, genuine `resume` sequence 9 and the pending owner request
+remain unchanged; the command makes no model call. the previously missing
+level-6/index-33 node (`2112+64`) is absent at 09:47:54 and present at 09:49:15,
+with coverage 2,241 and no compaction error. this proves genuine parent recovery,
+not the original failure's cause. main native attempts remain zero; preparation,
+the real journey and final reset are still pending. any newly reproduced rejection
+requires diagnosis and responsible repair before another explicit retry.

@@ -1,13 +1,15 @@
 # calendar write precision prevents positive recovery
 
-status: open; precision repair approved, actual recovery pending, 2026-11-17.
+status: open; source repair qualified and actual positive recovery observed;
+subsequent main progress pending, 2026-11-17.
 
 problem: calendar writes encode fractional seconds and compare their complete
 expected timestamps with provider observations. the actual entered create is
 present at its deterministic id, but its fractional seconds were discarded.
-the current comparison therefore leaves a known event's action uncertain and
-blocks the genuine main journey. the service is clean-stopped; no repeat post is
-authorized by that observation.
+the original comparison left a known event's action uncertain and blocked the
+genuine main journey. later positive reconciliation now resolves that action;
+the service remains clean-stopped pending repaired continuation. the original
+observation never authorized a repeat post.
 
 evidence: action `5b577ec6-cfbf-4bcc-b89a-3058400d812e` targets deterministic event
 `cd56db077dd294490865c195308e1516`. the independently retained read-only
@@ -43,6 +45,20 @@ whole-second encoding, one-second/other-field conflicts, exact observed fraction
 collapsed intervals before any request, all-day dates and offset/zone preservation.
 original inputs and the retained observation remain unchanged; no authenticated
 production request is part of this controlled proof.
+
+actual recovery: inactive candidate `0c3edfc5` uses the qualified stopped operator
+and fresh verified owner identity to observe that same deterministic event. the
+`2026-11-17T13:52:56Z` positive result resolves the original action to `Success`
+without a calendar mutation or another executor entry. the v3 contract, fractional
+arguments, entry count of one, both original callback rows and the old resolution
+fact's immutable evidence remain unchanged. recovered account qualification stays
+null. the atomic transition adds admitted success fact
+`f16a39b2-00bf-567d-9b0b-458627ecb5fc`; an independent `13:54:29Z` database reread
+confirms the result and the old-plus-new pair of facts. ordinary oauth refresh
+does not imply a calendar post. private before/observed/after and independent
+receipts retain the original uncertainty. subsequent main continuation is not
+yet observed; the original event window was already missed and the fixture email
+has never been sent.
 
 resolved when: controlled actual-connector/reconciliation proof reproduces the
 observed shape, qualifies consistent encoding/positive recovery and strict refusal

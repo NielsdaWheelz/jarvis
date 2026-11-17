@@ -10,8 +10,10 @@ source implementation, integrated composition and isolated fault proof qualified
 the preliminary production reset is complete. the free-copy/batch and first-valid
 repairs have source and real-model candidate qualification and are installed.
 complete fresh-prefix preparation and the first real main dispatch are observed.
-the journey is stopped on demonstrated calendar precision and executor-capacity
-defects; combined acceptance and the final fresh reset remain pending.
+the demonstrated calendar precision and executor-capacity repairs are qualified;
+the already-entered calendar effect has positive production recovery. the repaired
+candidate remains inactive, with subsequent main continuation, combined acceptance
+and the final fresh reset pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -730,7 +732,7 @@ follows. later capture can extend the corpus beyond that completed prefix.
 ### first main dispatch and stopped write failures
 
 the fixture email has never been sent. this first main turn instead enters
-calendar action `5b577ec6-cfbf-4bcc-b89a-3058400d812e`, which later remains
+calendar action `5b577ec6-cfbf-4bcc-b89a-3058400d812e`, which is subsequently recorded
 uncertain, and encounters `BudgetExceeded` before the proposed todo or a later
 web search enters execution. the system-suspension reply incorrectly states that
 the entered action has not executed. required memory preparation succeeded;
@@ -797,9 +799,33 @@ explicit. these local request captures stop before any real session or turn;
 they prove no fresh account entitlement, effective live settings or installed
 consumer behavior. concise qualification and cleanup receipts remain private.
 
-production remains on stopped `c544f68`; the original calendar action is still
-uncertain. at `2026-11-17T13:17:41Z`, its event has ended and no fixture
-calendar-attention fact exists, so the original timing window is missed. the
-fixture email has never been sent. later positive reconciliation, production
-replacement and any genuine owner timing amendment remain separate; this source
-qualification does not complete installed acceptance or the final reset.
+### stopped positive recovery of the entered calendar effect
+
+candidate `0c3edfc5bd102ae6db5e8f9768dc2ff0b6309530`, tree
+`1664a794983e8b44832eabcef00ae1c10791b001`, is installed inactive with the qualified
+lock above. its exact hosted push verification, run `44096443485`, passes. the
+matching contained host is installed; the application remains stopped with
+`c544f68` selected and genuine `resume` sequence 9 unchanged.
+
+the qualified stopped operator uses fresh verified account identity and strict
+read-only reconciliation of the original deterministic event. at
+`2026-11-17T13:52:56Z`, the later positive evidence resolves the original action to
+typed `Success`, retaining its null account qualification. its v3 execution
+contract, fractional arguments, executor-entry count of one, both original callback
+rows and the old resolution fact's immutable evidence remain unchanged. the normal
+atomic resolution adds exactly one admitted success fact,
+`f16a39b2-00bf-567d-9b0b-458627ecb5fc`; the old fact plus this new fact total two.
+no calendar mutation or action reexecution occurs; ordinary oauth token refresh
+is separate from that statement. the independent database reread at `13:54:29Z`
+confirms the same success, v3 contract, entry count and two facts, with one native
+attempt, two action rows and no work rows. the candidate's stopped preflight passes
+with zero compatible, incompatible or in-flight unfinished actions; it makes
+no cognition call. concise before/observed/after, independent reread and unit
+receipts remain private.
+
+the application has not continued through this repaired action. at
+`2026-11-17T13:17:41Z`, the original event had ended and no fixture
+calendar-attention fact existed, so that timing window was missed. the fixture
+email has never been sent. production activation and any genuine owner timing
+amendment remain separate; positive recovery does not complete installed
+acceptance or the final reset.

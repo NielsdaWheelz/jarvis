@@ -877,3 +877,38 @@ the real adapter publishes exact canonical mail fact
 `created_at=2026-11-17T15:09:14Z` is the message's source time, not application
 admission time. these observations prove arrival and the original pdf bytes;
 native pdf processing, the combined journey and final reset remain pending.
+
+### coordinated native instruction publication
+
+two owner-authorized stopped maintenance windows publish native memory startup
+instructions from dev-server prs 222 and 223; the final source merge is
+`d3b5c7a792008ddadb733d50aa106cfc0cbfa7c0`. the final six instruction files have
+sha256 `8590c23d7d2c3cd2359bd4184d7c57e3ed63a5a0ef586e803d5d88280a205bae`
+and mode `0600`; their managed source asset has sha256
+`fabc89711bdd4f7f312fbf5207bb2ef46696a91860bc21155a559c187f352e15`
+and mode `0644`. the publishing peer reports all eighteen protected configuration,
+authentication and collector files unchanged. f2 independently verifies the seven
+published files, selected release and host mapping; it does not repeat that
+eighteen-file audit.
+
+each window cleanly stops the application and passive observer with no entered
+obligations, preserves canonical `resume` sequence 9 and the pending fixture,
+and restarts the same selected `0c3edfc5bd102ae6db5e8f9768dc2ff0b6309530`
+release after the contained host's service-identity verification. that verification
+submits no model turn. the final fresh passive observer initializes at
+`2026-11-17T18:19:19.138092Z`, before application start at `18:19:29Z`, pid
+`3735981`. contained pid is `3731846`; observer pid is `3735581`. independent
+health checks report all three running, success, and zero application restarts.
+real discord catch-up scans one message and accepts zero new inputs. there is no
+canonical control write, migration, release change or source-cut reset.
+
+the peer's final devbox codex and claude probes each complete a frozen ready
+snapshot before task reads, covering `[0,3693)` with admitted bound 7118.
+codex abandons its first snapshot, then fully completes a second without observed
+splicing. the corresponding macbook probes cover `[0,3664)` with admitted bound
+6556. this is bounded startup-order evidence, not complete capture or general
+usefulness qualification.
+the claude probe rereads an oversized saved memory-view result. subsequent source
+and exact native-lineage inspection identify the [view-page feedback
+issue](issues/memory-view-page-feedback.md). the combined journey and final reset
+remain pending.

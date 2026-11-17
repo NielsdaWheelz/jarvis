@@ -10,8 +10,10 @@ complete production preparation and the real journey remain pending. large-corpu
 throughput and latency remain unqualified.
 the owner additionally approved [first valid hard-fitting summaries](../decisions/0080-first-valid-compaction.md)
 after the real 516→504-byte soft-target retry demonstrated an extra post-valid
-call. that stopping amendment is under source/candidate qualification; it does
-not change the fixed models or accepted coverage/reset scope.
+call. that stopping amendment has source and real-model candidate qualification,
+and is installed as `8bc3c15`. it does not change the fixed models or accepted
+coverage/reset scope. coverage reaches 353 with no error; main native dispatch
+and the genuine combined journey remain pending at this observation.
 
 problem: main waits for the complete admitted-history view before opening a native
 turn. the existing archive has a large uncompressed tail. the genuine production

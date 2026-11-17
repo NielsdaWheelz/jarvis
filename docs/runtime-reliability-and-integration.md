@@ -7,9 +7,9 @@ with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md),
 [adr 0079's bounded serial compaction](decisions/0079-bounded-serial-compaction.md)
 and [adr 0080's first valid stopping rule](decisions/0080-first-valid-compaction.md).
 source implementation, integrated composition and isolated fault proof qualified.
-the preliminary production reset is complete. the compaction amendment has source
-and real-model candidate qualification and is installed; production preparation,
-the first-valid amendment, real journey and final fresh reset remain under qualification.
+the preliminary production reset is complete. the free-copy/batch and first-valid
+repairs have source and real-model candidate qualification and are installed.
+complete production preparation, the real journey and final fresh reset remain pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -626,7 +626,7 @@ there is no latency or capacity conclusion from that progress.
 decision after the 516→504-byte real-model retry. the caller accepts a first valid
 candidate within the existing 2,048-byte hard bound while still prompting for
 512. it removes shortest-candidate tracking and soft-target retries; only hard
-oversize or transient failure retries. source/library/model/schema/authority
+oversize or transient failure retries. capture/library/model/schema/authority
 contracts stay fixed; compactor compatibility becomes
 `jarvis-memory-compactor-v5`. larger inferred nodes may coarsen older detail
 earlier; net parent cost and general quality remain unmeasured.
@@ -640,7 +640,37 @@ malformed addressing, cancellation and three transient failures. the latter
 boundaries commit neither inferred nodes nor accompanying copies. setup-only
 model-constant/XML parsing and interpreter-selection errors remain separate from
 that behavior red. full frozen static/types/docs/build, fresh install/provenance
-and audit checks pass. independent review approves the exact source/policy for
-an inactive candidate; live stopping-boundary proof and routine replacement
-remain pending. unchanged library regressions and the prior fourteen caller
-cases are not repeated without a new concern.
+and audit checks pass. unchanged library regressions and the prior fourteen
+caller cases are not repeated without a new concern.
+
+exact candidate `8bc3c155c617761d26acf82c0fa662c4f135c098` then completes one real
+personal-subscription sol/xhigh inference with one prepared turn. its first
+1,041-byte summary preserves the complete 695-byte synthetic opaque evidence
+locator, thursday-not-wednesday correction, accreditation-report reason,
+unconfirmed attendee count, background fact and synthetic attribution. independent
+review verifies source grounding and that the first returned candidate equals
+committed text byte-for-byte. originals remain unchanged and the observer sees zero uncommitted nodes/coverage,
+then one node/coverage after commit. no new mcp/raw-policy observation is claimed;
+unchanged authority qualification and mandatory pinned runtime validation retain
+their stated scope. this is one meaningful boundary case, not a general quality
+or speed claim.
+
+the routine stopped replacement installs matching host/application artifacts at
+that exact commit, tree `855897e8b9f7f33779c4f9011e2d5ccb19b8a689`, with unchanged
+lock sha256 `021c330d51e24faf78dd1d934782a9b82ed758cce2721cc7138f199ba65e2f85`.
+schema stays `0013`, host mapping stays byte-identical, genuine `resume` sequence 9
+and coverage through 190 survive, and the application starts at
+`2026-11-17T03:24:28Z` with zero restarts. the prior installed release is pruned;
+hosted ci `44008432190` and the installed containment/client verifier pass. new
+controlled/live probes, duplicate padded/raw model captures, both fixture
+databases, owned container/anonymous volume and tunnel are removed after reviewed
+hash receipts and zero active clients. concise source/content/route/atomicity
+witnesses remain private.
+
+production coverage subsequently reaches 353 with no compaction error. main has
+not opened its native attempt at this observation. the verified ordinary owner
+task can queue while the fixed preparation cutoff is completed: ordinary ingress
+does not cancel that preparation or move its cutoff. late steering is journaled
+normally; same-turn delivery is not guaranteed. self-email still waits for the
+actual canonical waiting-for-fixture disposition. the real journey and final
+fresh reset remain pending.

@@ -180,6 +180,14 @@ class MemoryWorker:
                     OneShotStopKind.model_decision_uncertain,
                 }:
                     failed = selected[0]
+                    LOGGER.warning(
+                        "compaction rejected: run_id=%s start=%s count=%s "
+                        "reason=kernel_stopped stop_kind=%s",
+                        run_id,
+                        failed.start,
+                        failed.count,
+                        outcome.type.value,
+                    )
                     break
                 for task in selected:
                     address = (task.start, task.count)
@@ -192,13 +200,30 @@ class MemoryWorker:
                     result = CompactionResult.model_validate_json(
                         canonical_json_bytes(thaw_json_value(outcome.result))
                     )
-                    addresses = [(node.start, node.count) for node in result.nodes]
-                    if len(set(addresses)) != len(addresses) or set(addresses) != {
-                        (task.start, task.count) for task in selected
-                    }:
-                        raise ValueError("compactor substituted batch addresses")
                 except ValueError:
                     failed = selected[0]
+                    LOGGER.warning(
+                        "compaction rejected: run_id=%s start=%s count=%s "
+                        "reason=result_schema",
+                        run_id,
+                        failed.start,
+                        failed.count,
+                    )
+                    break
+                addresses = {(node.start, node.count) for node in result.nodes}
+                if len(addresses) != len(result.nodes) or addresses != {
+                    (task.start, task.count) for task in selected
+                }:
+                    failed = selected[0]
+                    LOGGER.warning(
+                        "compaction rejected: run_id=%s start=%s count=%s reason=%s",
+                        run_id,
+                        failed.start,
+                        failed.count,
+                        "address_duplicate"
+                        if len(addresses) != len(result.nodes)
+                        else "address_set_mismatch",
+                    )
                     break
                 for node in result.nodes:
                     address = (node.start, node.count)

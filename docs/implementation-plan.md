@@ -57,6 +57,21 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
   contract. distinguish source merged, dependency pinned, fleet installed, live
   behavior verified and owner-resumed service.
 
+## memory orientation
+
+[adr 0078](decisions/0078-memory-orientation-first.md) and the
+[shared contract](universal-memory.md#orientation-lifecycle-and-outages) settle
+orientation, original navigation, outages and native-session boundaries first.
+delivery order: shared universal-memory guidance and immutable upstream pin;
+jarvis prompt/mcp adoption; separately owned nexus injection and dev-server
+native-profile instruction adoption; then installed acceptance and usefulness
+checks. the [open issue](issues/memory-orientation.md) tracks those remaining
+consumer and installation boundaries. retain jarvis context assembly, host
+compaction, existing keyword/semantic ranking and paged open throughout.
+the shared guidance and jarvis adoption now have
+[source qualification](universal-memory.md#orientation-first-source-qualification);
+their prs and consumer installations remain separate.
+
 ## current position
 
 the source has seventeen application tables: the native nine plus six memory

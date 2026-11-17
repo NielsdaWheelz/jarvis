@@ -23,7 +23,7 @@ dependencies = [
   "pydantic==2.12.5",
   "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@ea9f82025632926a7c7e47d6333fb9346f6ee86c",
   "sqlalchemy[asyncio]==2.0.43",
-  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@b616ee924454f40305c49d3b73e81694819ba1e4",
+  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@a788c885d5529227de55a9da9d8aa940da00eaba",
   "uvicorn==0.54.0",
 ]
 

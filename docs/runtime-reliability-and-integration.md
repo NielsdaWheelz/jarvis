@@ -55,8 +55,14 @@ exact selected artifact/configuration/host pair and genuine owner ingress.
   ready prefix as native clients, with explicit coverage/admitted backlog and
   unchanged canonical inputs, receipt context, effect barriers and admitted
   archive-read scope. indefinite stale or empty historical orientation is an
-  accepted trade-off. retain idle full compression and strict dreamer/maintenance
+  accepted trade-off. retain idle full compression and strict maintenance
   preparation; no new task, timer, fairness mechanism or fallback.
+- adr 0082 bounds dream seeds by committed ready coverage while preserving full
+  admitted reads and unbuilt seeds. after main reports no work, the existing
+  due-nightly attempt precedes compression/indexing; an absent or zero-progress
+  attempt falls through. one bounded dream can delay those batches and later
+  ready seeds may wait until the next night/manual run. no new scheduling task,
+  mode, schema or grant; fixed roles and atomic completion remain.
 
 non-goals: new features, orchestration/notification systems, standing benchmark or
 test harness, general retry framework, native protocol relaxation, automatic
@@ -256,7 +262,8 @@ complete host table, the existing full 64,000-byte seed and 8,000-byte older sam
 and actual role/time/identity framing. the owning
 [memory contract](universal-memory.md#daily-dreaming) therefore raises
 only the dreamer's cumulative host context cap from 262,144 to 327,680 bytes
-(320 kib), with dreamer role revision v4. shared allocation and the other finite
+(320 kib), originally with dreamer role revision v4. adr 0082 advances the role
+to v5 without changing these bounds. shared allocation and the other finite
 token, turn, tool and elapsed bounds retain their values. this permits 65,536 more
 rendered context bytes; existing post-read overflow behavior still applies.
 
@@ -332,8 +339,9 @@ journey uses harmless synthetic content and bounded real work:
    original receipts and terminal dispositions. inspect workspace/git after
    interruption; native commands retain their own recovery domain. confirm
    actual memory roles/quiet completion on the final f3 composition. use existing
-   stopped `jarvis dream` when needed for bounded installed proof: it prepares
-   compaction and leaves the nightly marker unchanged. no overnight wait/new hook.
+   stopped `jarvis dream` when needed for bounded installed proof: under adr 0082
+   it consumes committed ready seeds with the full admitted read/reference cutoff
+   and leaves the nightly marker unchanged. no overnight wait/new hook.
 
 reuse existing depth/format proofs where unchanged; no full connector/media/fleet
 matrix or competitor-parity claim. fault injection remains isolated. ordinary
@@ -1101,5 +1109,56 @@ missing `4040+8` node: 507 bytes, sha256
 `3a3c2bdd75db693f2e493e50752bd99a56bb40dd910809589b242693f1bd489b`.
 coverage advances beyond 4,106 with no construction error. this resolves the
 diagnostic/retry gap and proves recovery progress, while the lost original cause
-remains unknown. the manual run is still preparing its frozen prefix; no dreamer
+remains unknown. at that recovery observation, the manual run was still
+preparing its frozen prefix; no dreamer
 completion, whole-prefix readiness or latency qualification follows.
+
+### ready-seed dreaming source qualification, 2026-11-17
+
+the owner explicitly adopts adr 0082 after the bounded stopped repair run ends
+with coverage 4,127 of 21,234 admitted leaves and no dream completion. library
+`87a202cd124de9d09a50b2548b1938f403c8e1b8` changes existing seed selection and
+its public readme only: committed ready coverage bounds seeds; the full admitted
+cutoff still governs reads/references. no api, type or schema changes. actual
+postgres red/green covers eight cases, including unbuilt admitted-original reads,
+future fencing, successive progress without skipped seeds, synthesis exclusion,
+no-ready/rebuild coverage below consumed progress, and atomic completion/rollback.
+the exact independent rerun passes. static/build checks and all three retained
+library regressions pass without skips; the new probe and matching compiled-file
+inventory are removed after hash receipts.
+
+jarvis removes dreamer's compactor dependency and gives the existing due-nightly
+attempt priority after main reports no work. absent, already-claimed and
+zero-progress attempts fall through to compression; nonempty synthesis-only
+bookkeeping counts as progress. four actual service-drain cases and their
+independent rerun verify priority, fallthrough and foreground interruption.
+dreamer's owning revision becomes v5; main stays v3. models, policies, grants,
+context ceilings and the other dependency pins remain unchanged.
+
+the actual worker/kernel/tool-executor proof uses runtime-role postgres `0013`
+and a controlled public provider port, not a real sdk/socket/model. the original
+worker with the new library held fixed rejects on its actual persisted park.
+the new worker opens an admitted original beyond ready coverage and commits one
+note/reference/leaf with consumed progress 0→1 while preserving the park. an
+independent snapshot before the provider terminal sees the old notes/cursor;
+the library proof separately owns uncommitted-transaction visibility and rollback.
+actual no-ready and repeated-nightly calls enter no provider work or seed progress.
+a synthesis-only call advances 2→3 without inference or another note.
+
+independent source/proof review approves the exact graph; private review receipt
+has sha256 `ef9ec5929a81599321c9ab9bb3eade3eb417dba5d1e8d2b512fd9c3c4f489853`.
+combined frozen static/types/docs/build/fresh-wheel/cli/audit checks pass, as does
+the retained capture/retry group on separate pristine `0013` under the runtime
+role, with only its two expected injected publication warnings. owned git
+kernel/tools/provider packages remain outside public-registry audit coverage.
+combined verify/capture receipts have sha256
+`28ae96729ca8d6a5b4ef5e82e1f3c5516d03c3a306ba0b0c3ca9235d5c68d4a2`
+and `4d9be3a7d9b494adc2318de5801a1c8bbfb56ef06e230ec2d222c7277ee4b103`.
+new caller/service probes, the copied baseline and its owned compiled file are
+deleted after independent review; final caller receipt has sha256
+`fa1c97682753d50dfec666b5d6b737653e288e69875f201e99b150feaa335f76`.
+the one rootless postgres container, its exact anonymous volume and ssh tunnel
+are removed after zero sessions in all three assigned databases; both listeners
+are absent. original operational helpers, journey inputs and private receipts stay.
+actual fixed-model quiet completion, the real restart journey and final reset
+remain separate outstanding obligations.

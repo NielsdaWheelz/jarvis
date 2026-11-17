@@ -378,13 +378,11 @@ class DreamerWorker:
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
-        compactor: MemoryWorker,
         owner_timezone: str,
         nightly_time: time,
     ) -> None:
         self.definition, self.plan = definition, plan
         self.owner, self.provider, self.memory = owner, provider, memory
-        self.compactor = compactor
         self.timezone, self.nightly_time = ZoneInfo(owner_timezone), nightly_time
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
@@ -398,7 +396,7 @@ class DreamerWorker:
         except (MemoryError, SQLAlchemyError) as error:
             LOGGER.warning("dream did not complete: type=%s", type(error).__name__)
             return False
-        return completed is not None
+        return completed is not None and completed.seed_end > completed.seed_start
 
     async def run_at(
         self,
@@ -436,7 +434,6 @@ class DreamerWorker:
         pending = await self.memory.pending_publication()
         await self.memory.project_pending(pending)
         cutoff = await self.memory.library.cutoff()
-        await self.compactor.ensure_ready(cutoff, cancellation)
         if cancellation.cancelled:
             return None
         seed = await self.memory.library.dream_input(cutoff)

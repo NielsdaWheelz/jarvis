@@ -5,7 +5,10 @@ status: accepted, 2026-11-17, by explicit owner choice during f2 qualification:
 consolidated memory contract and the affected portions of adrs 0063/0066/0079.
 retention, full-tree construction, fixed models and both authorized resets remain.
 source proof is qualified at memory `e52a48d` with controlled native/postgres and
-public mcp checks; installed acceptance remains pending in f2.
+public mcp checks; installed foreground dispatch is observed in f2, while the
+combined journey and final reset remain pending.
+adr 0082 subsequently amends dreaming's preparation and nightly priority; this
+decision's original strict-dreamer proof remains historical evidence.
 
 ## evidence
 

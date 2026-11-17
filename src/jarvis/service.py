@@ -468,14 +468,16 @@ class JarvisService:
                 return
             if outcome.status != "no_work":
                 continue
+            if self._work.is_set():
+                return
+            if self._dream_due:
+                dream = await self._run_background_once(self._dreamer)
+                self._dream_due = False
+                if dream:
+                    continue
             if await self._run_background_once(self._background):
                 continue
-            if self._work.is_set() or not self._dream_due:
-                return
-            dream = await self._run_background_once(self._dreamer)
-            self._dream_due = False
-            if not dream:
-                return
+            return
 
     async def _recover_actions(self, *, allow_queued_execution: bool) -> int:
         if self._dispatch_lane.locked():

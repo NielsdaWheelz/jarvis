@@ -117,7 +117,8 @@ with nexus and arch deferred.
 | [0078](0078-fresh-corpus-first-acceptance.md) | fresh-corpus-first acceptance | owner-approved preliminary reset → real production journey → final reset; original recovery/uncertainty evidence preserved, large-corpus warm-up latency unqualified |
 | [0079](0079-bounded-serial-compaction.md) | bounded serial compaction | owner-approved 2,048-byte exact copies and up to eight inferred nodes per atomic serial batch; source/live candidate qualified and installed, combined acceptance separate |
 | [0080](0080-first-valid-compaction.md) | first valid compaction | accept the first valid hard-fitting summary while prompting for 512 bytes; source/live candidate qualified and installed, general quality and parent cost unmeasured |
-| [0081](0081-ready-memory-for-main.md) | ready memory for main | owner-approved shared fitting ready view, explicit admitted backlog and unchanged operative recovery; indefinite historical staleness accepted, source qualified and installed proof pending |
+| [0081](0081-ready-memory-for-main.md) | ready memory for main | owner-approved shared fitting ready view, explicit admitted backlog and unchanged operative recovery; indefinite historical staleness accepted, source and installed foreground dispatch qualified; combined journey pending |
+| [0082](0082-ready-seeds-and-nightly-priority.md) | ready seeds and nightly priority | owner-approved committed-ready seed prefix with full admitted reads and no skipped seeds; existing due-nightly attempt precedes compression after foreground work |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

@@ -72,7 +72,7 @@ EXPECTED_GIT_PINS = {
     "llm-agent-kernel": "36f9c6b8e4674916d185eb14e522e77d21c3f86f",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
     "provider-runtime": "ea9f82025632926a7c7e47d6333fb9346f6ee86c",
-    "universal-memory": "e52a48dc48376f73ae94601d080110c3a26dcfa3",
+    "universal-memory": "87a202cd124de9d09a50b2548b1938f403c8e1b8",
 }
 MAIN_CODEX_MODEL = "gpt-6-astra"
 MEMORY_CODEX_MODEL = "gpt-6.1-sol"

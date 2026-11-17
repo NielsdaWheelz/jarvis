@@ -218,9 +218,23 @@ clients, with explicit covered range and admitted backlog. historical context ma
 be stale or empty indefinitely; omitted corrections are not guaranteed recalled.
 all archive reads retain the admitted scope. exact active requests, existing
 receipt context and effect barriers stay unchanged. existing idle compression
-continues; strict dreamer and maintenance preparation remain. add no new task,
+continues; maintenance preparation remains. adr 0082 below subsequently amends
+dreamer preparation. add no new task,
 mode, grant, raw-tail fallback or freshness guarantee. source and installed proof
 remain separate.
+
+[adr 0082](docs/decisions/0082-ready-seeds-and-nightly-priority.md) selects dream
+seeds only through committed ready coverage while retaining the full frozen
+admitted read/reference cutoff. preserve every unbuilt/unselected seed, bounded
+fitting, synthesis exclusion and atomic consumed-cursor completion. no ready new
+interval means no inference or progress. after main reports no work, the existing
+due-nightly attempt precedes the next compactor/indexer batch. an absent,
+already-claimed or zero-progress attempt falls through to compression; progress
+returns through foreground admission.
+reuse current nightly claims/cancellation; add no scheduler, task, timer or mode.
+seeds may be stale, that bounded dream can delay compression/indexing, and later
+ready material can wait until the next night/manual run. strict maintenance
+preparation and fixed models/grants remain; qualification is separate.
 
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
@@ -414,8 +428,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   no durable jobs, node generations or background replay journal.
 - use bounded contextual, host-enforced tool-free compaction and ready-node
   scheduling. main freezes its admitted cutoff and consumes a fitting ready
-  view without waiting for construction under adr 0081. strict dreamer and
-  maintenance preparation can drive required compression over their frozen
+  view without waiting for construction under adr 0081. strict
+  maintenance preparation can drive required compression over its frozen
   bounds without another owner message. every dispatch still needs a fitting
   complete request. the reference's 512-byte node target,
   64,000–128,000-byte main view and 16,000–32,000-byte compactor view are initial
@@ -477,6 +491,11 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   and consumed-seed completion commit together, including empty success;
   summary inference follows the commit. note flags alone cannot track archived
   seed work. the dreamer receives no model-callable note-write grant.
+  adr 0082 bounds new seeds by committed ready coverage while preserving the
+  full admitted read/reference cutoff and all unbuilt seeds. the existing due
+  nightly attempt precedes compression/indexing after foreground work. an absent
+  or zero-progress attempt falls through. neither a ready seed nor a nightly claim proves inference or
+  useful synthesis. maintenance retains strict preparation.
   dreamer uses transient kernel decisions; its reads use
   run-local receipts. interrupted background computation may repeat and be charged
   again under normal admission. no frozen background scopes or paid-call recovery

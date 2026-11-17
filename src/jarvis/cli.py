@@ -221,7 +221,6 @@ async def _isolated_memory_runtime(
                         owner=owner,
                         provider=kernel.provider,
                         memory=memory,
-                        compactor=compactor,
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     ),
@@ -583,7 +582,6 @@ async def _serve(
                         owner=owner,
                         provider=kernel_runtime.provider,
                         memory=memory,
-                        compactor=compactor,
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     )

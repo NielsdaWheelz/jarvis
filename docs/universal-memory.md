@@ -152,8 +152,8 @@ unbounded. changing this retention policy requires an explicit later decision.
 
 target: discovered changes commit within 60 seconds while their dependencies are
 available. metadata misses wait for the initially hourly revisit. compaction runs
-serially when idle or required by strict dreamer/maintenance preparation; main
-does not wait for it under adr 0081. no compression latency or
+serially when idle or required by strict maintenance preparation. main does not
+wait under adr 0081; dreaming consumes ready seeds under adr 0082. no compression latency or
 complete fleet capture is promised.
 live qualification records native completion, discovery, archive commit and exact
 readback separately. a short discovery-to-commit interval does not excuse a long
@@ -1033,7 +1033,8 @@ parked construction can prevent catch-up, and omitted corrections may not be
 recalled. retained originals remain available through existing archive reads
 when identified; leaf zoom still needs its built node and search retains its
 embedding/error contract. no new fairness, daemon, timer or raw-tail window.
-strict full preparation remains for dreaming and maintenance where required.
+strict full preparation remains for maintenance where required. adr 0082's
+dreamer consumes committed ready seeds without requiring further construction.
 
 keep stable instructions/tools before the view, then operative inputs and clocks.
 use only approved transport cache controls and measure usage. the pin has no
@@ -1047,11 +1048,19 @@ no daemon, model-callable write, separate synthesis store or inference journal.
 new archive material and explicit notes seed it; prior syntheses remain available
 to deliberate retrieval but never create new seed work.
 
-freeze `cutoff=leaf_count`; select a physical interval `[dream_through,end)` with
-`end <= cutoff`. build its run-local view from existing nodes, descending those
+freeze the full admitted `cutoff=leaf_count` for reads and references. in the
+existing dream-input transaction, read committed `view_through` and
+`dream_through` together. select a nonempty physical interval `[dream_through,end)`
+only when `end <= min(cutoff,view_through)`; this uses committed construction
+coverage, not main's potentially smaller fitting view. build its run-local view
+from existing nodes, descending those
 crossing boundaries or mixing eligible material with synthesis leaves; omit the
 latter. preserve global addresses. a mixed summary cannot be relabeled as new
-evidence. required nodes are built by ordinary compaction before inference.
+evidence. required nodes already exist; dreaming never waits for further
+compaction. no new ready interval returns `[dream_through,dream_through)` with
+no inference or consumed progress, including when a stopped rebuild leaves
+construction coverage below consumed progress.
+unbuilt and unselected seeds remain pending. maintenance preparation stays strict.
 
 allow 64,000 rendered bytes for this seed view. if it cannot fit after eligible
 sibling merges, shorten the declared interval at a leaf boundary. never truncate
@@ -1113,7 +1122,14 @@ backlog is explicit and may outgrow nightly throughput. bounded manual
 `jarvis dream` is also available under the existing stopped-owner CLI contract,
 without resetting the nightly marker.
 failure preserves seeds for the next night/manual run; no immediate inference
-retry loop. main work takes precedence.
+retry loop. main work takes precedence. after main reports no work, check the
+existing due-nightly attempt before the next compactor/indexer batch. absent,
+already-claimed and zero-progress attempts fall through to compression; actual
+dream progress returns through foreground admission. retain existing claim,
+background cancellation and owner fences; add no task, timer, queue or mode.
+one bounded dream can delay the next compression/index batch. seeds may be stale;
+material becoming ready after that night's attempt may wait until the next night
+or a manual run. no freshness, throughput or usefulness guarantee is added.
 
 use isolated `run_one_shot`, `TransientModelDecisions`, one `as_of` and run-local
 read receipts. retain ten provider turns, two repairs, three no-progress attempts,
@@ -1131,8 +1147,9 @@ promise graceful read refusal followed by successful completion.
 f2's measured composition amendment raises the dreamer's host context capacity
 to 320 kib. its complete host table plus the full 64,000-byte seed, 8,000-byte
 sample and actual role/time/identity framing require 292,817 bytes. the former
-262,144-byte cap could reject a valid initial request before inference. the
-dreamer role contract is v4; shared allocation and all other limits above retain
+262,144-byte cap could reject a valid initial request before inference.
+this capacity amendment used dreamer role v4; adr 0082 advances the owning role
+to v5 without changing these bounds. shared allocation and all other limits above retain
 their values. this permits up to 65,536 more cumulative rendered context bytes
 under the existing token, turn, tool and elapsed bounds.
 
@@ -1694,8 +1711,10 @@ recorder remain the operational source; its latest-invocation tail is bounded,
 not a claim to contain every old receipt. unresolved effects stay host-enforced
 barriers independently of model context. new historical orientation is never
 permission to replay them. main's ready-view serving never waits for compaction;
-the existing background worker runs when main is idle. strict dreamer and
-maintenance preparation continue to drive their required construction.
+the existing background worker runs when main is idle. strict maintenance
+preparation drives its required construction. adr 0082's existing due-nightly
+attempt precedes the next compactor/indexer batch and consumes only ready seeds,
+retaining the full admitted read/reference scope and unbuilt backlog.
 
 remove the dreamer's snapshot-wide selector, scripted first-search procedure
 and search-count completion gate, plus its flat-summary insertion/removal output

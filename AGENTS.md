@@ -74,10 +74,19 @@ These instructions govern all work in this repository.
   indefinitely stale orientation. keep all archive reads scoped to the frozen
   admitted cutoff and exact active inputs/receipt context/effect barriers intact.
   main never waits for construction; existing idle compression and strict
-  dreamer/maintenance preparation remain. no new daemon, fairness mechanism,
+  maintenance preparation remain. adr 0082 amends dreaming below. no new daemon, fairness mechanism,
   mode, grant or fallback. rotate main's owning and affected view binding revisions,
   qualify source and the
   installed journey separately, and retain f2's final reset.
+- [adr 0082](docs/decisions/0082-ready-seeds-and-nightly-priority.md) bounds dream
+  seeds by committed ready coverage while preserving full admitted reads and
+  every unbuilt/unselected seed. remove dreamer's compactor dependency. after
+  main reports no work, the existing due-nightly attempt precedes compactor/indexer;
+  absent/zero-progress attempts fall through; actual progress returns through foreground admission.
+  reuse existing claim/cancellation; no new task, timer, queue, mode or schema.
+  retain atomic completion, synthesis exclusion, fixed models/grants and strict
+  maintenance preparation. seed staleness and one bounded night's priority over
+  compression/indexing are accepted; qualify source and installed proof separately.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

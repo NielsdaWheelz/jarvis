@@ -134,7 +134,11 @@ is qualified. installed `ca101b5` starts actual main at `21:43:47Z`, with origin
 this proves serving availability, not historical freshness or usefulness.
 one later stopped retry builds the missing node and advances coverage; its lost
 historical failure cause remains unknown. quiet dreaming still requires full
-preparation of its frozen prefix.
+preparation of its frozen prefix at this installed boundary. the owner then
+adopts [adr 0082](../decisions/0082-ready-seeds-and-nightly-priority.md): ready
+dream seeds keep the full admitted read scope and unbuilt backlog, with the
+existing due-nightly attempt ahead of compactor/indexer after main. source and
+controlled proof pass; actual installed quiet completion remains pending.
 
 resolved when: the shared ready-view contract passes meaningful source proof and
 the installed main reaches native dispatch despite the unprepared admitted tail,

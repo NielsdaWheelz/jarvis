@@ -249,6 +249,12 @@ no comparative performance claim or standing benchmark framework follows.
 after isolated reliability proof and qualified f3 are integrated with f1/slices
 1–6, f2 performs the stopped production cutover, preliminary fresh reset and actual
 installed journey under adr 0078.
+the preliminary reset is complete. [adr 0079](decisions/0079-bounded-serial-compaction.md)
+adds exact 2,048-byte free copies and up to eight independent inferred nodes per
+serial batch after substantial genuine new capture. qualify that amendment at
+the library/caller boundary and installed composition before completing the
+journey. preserve originals, fixed models, cuts and complete main coverage; the
+memory contract owns atomic addressed completion and request limits.
 reconcile pending effects/waits and account for reminders; migrate/provision the
 selected release, then prove physical owner ingress/consent and restart continuation
 through existing operations. source success alone does not activate production.

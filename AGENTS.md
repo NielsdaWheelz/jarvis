@@ -53,6 +53,15 @@ These instructions govern all work in this repository.
   not a runtime deletion tool. coordinate source cuts and prove no old-history
   republication; do not recreate daily-review work. large-corpus preparation
   latency remains unqualified. follow f2's exact contract and file disposition.
+- [adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
+  copies up to 2,048 bytes and up to eight independent inferred nodes per serial
+  batch. retain the 512-byte inferred target, fixed models, current request/retry
+  ceilings, originals, source cuts and full-history preparation. the library owns
+  readiness and atomic addressed completion; no singleton compatibility path,
+  new table, parallel compactor or durable job ledger. initial and retry requests
+  pack complete entries under the unchanged actual prepared-request ceiling.
+  qualify own-source attribution despite visible sibling sources. source and
+  installed proof remain separate.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

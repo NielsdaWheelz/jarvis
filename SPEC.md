@@ -189,6 +189,20 @@ cuts with no old-history republication or automatic daily-review recreation.
 fresh-corpus acceptance does not qualify the discarded large corpus's preparation
 latency. f2 owns the exact inventory, attachment disposition and verification.
 
+[adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
+copies up to the existing 2,048-byte hard node bound and serial inference batches
+of at most eight independent ready nodes. the library owns immutable sources,
+readiness and atomic whole-batch completion; deterministic free progress commits
+before newly enabled parents are selected. preserve the 512-byte inferred target,
+fixed models, full-history coverage, originals and current isolated-role ceilings.
+initial and retry calls pack complete sources/feedback under the unchanged actual
+request ceiling. one shared earlier context
+prefix grounds references; visible sibling sources cannot contribute unrelated
+facts to another node. larger free nodes can coarsen older detail sooner, sibling
+material is exposed within a batch, and interruption may repeat a batch. this
+supersedes the former single-source isolation and adr 0078's rejection of a
+throughput change. source and installed proof remain separate.
+
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
@@ -387,7 +401,9 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   tuning defaults, with rendered framing counted and actual provider context
   reserves enforced. hard node text is 2,048 bytes; at most five inference calls
   per node attempt, with bounded retries/parking. use one serial compactor on the
-  qualified model/route and the existing isolated empty-tool plan. complete task
+  qualified model/route and the existing isolated empty-tool plan. adr 0079 allows
+  up to eight independent ready nodes per call, within the unchanged actual
+  prepared-request ceilings, with complete initial/retry entries. complete task
   source is separate from its bounded completed context prefix, so a parent never
   depends on itself to make its context fit. cache controls depend on the approved
   transport; neither cross-model sharing nor a hit rate is guaranteed.

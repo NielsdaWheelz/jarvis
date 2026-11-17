@@ -3,9 +3,11 @@
 status: f2 implementation contract, 2026-11-16, under
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
 [adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
-with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md).
+with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md) and
+[adr 0079's bounded serial compaction](decisions/0079-bounded-serial-compaction.md).
 source implementation, integrated composition and isolated fault proof qualified.
-installed acceptance and both fresh resets remain pending.
+the preliminary production reset is complete; the compaction amendment,
+installed journey and final fresh reset remain under qualification.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -35,6 +37,10 @@ exact selected artifact/configuration/host pair and genuine owner ingress.
   google data and original native/nexus chats. the owner selected this order after
   the [historical preparation backlog](issues/memory-preparation-backlog.md) blocked
   main; fresh-corpus proof does not qualify that backlog's latency.
+- adr 0079 changes free-copy and serial-batch policy after fresh capture exposed
+  substantial new preparation work. originals, source cuts, fixed models and
+  full-history preparation stay binding. its exact contract and trade-offs live
+  in the memory contract; source and actual installed proof remain separate.
 
 non-goals: new features, orchestration/notification systems, standing benchmark or
 test harness, general retry framework, native protocol relaxation, automatic
@@ -556,3 +562,34 @@ group check correctly refused. the fixture returned to `0750`; production
 permissions were untouched by this proof. independent adversarial review and
 private receipts under `source-evidence/installer-service-group` qualify this
 boundary. this is not a completed installation or production acceptance claim.
+
+### bounded serial compaction amendment
+
+[adr 0079](decisions/0079-bounded-serial-compaction.md) adopts the owner-approved
+repair after genuine post-reset capture exposed substantial preparation work.
+the standalone library is `6506ae0813edb207caf5234034acc30b7ff5fca1`, based on
+qualified `b616ee9`. its immutable batch carries up to eight independent inferred
+tasks and 128 exact free copies. the caller uses the existing kernel preparation
+primitive to pack complete initial/retry entries under the unchanged 262,144-byte
+request ceiling. completion validates the exact whole result before any insertion,
+then commits nodes and persisted frontiers atomically. compactor revision is
+`jarvis-memory-compactor-v4`; fixed models, kernel/provider/tools pins, other role
+instructions, schemas and authority stay unchanged. manifest-derived fingerprints
+include the new shared library pin as designed.
+
+| proof | qualified boundary |
+| --- | --- |
+| library red/green | an actual 1,248-byte complete source requires inference under the old rule and becomes an exact free copy. seven real-postgres cases cover batch independence, source identity, committed-only readiness, rollback and observer-visible atomic frontiers. additional checks cover 128-copy selection, fitting-view refusal, exact 2,048/2,049-byte boundary, a bad second result with zero partial insertion, and public admission of near-limit metadata. |
+| caller red/green | the old caller commits one of three leaves; the new caller completes two paid nodes and an exact copy through one actual isolated-kernel call. fourteen controlled-provider/real-runtime-role-postgres cases cover addressed output, per-node retries/shortest accepted candidate, initial/full-feedback escaping and repacking, free-only progress, source conflict, cancellation, canonical control change and owner loss. malformed later subsets commit neither earlier candidates nor copies. these use no paid inference or production data. |
+| required checks | the library's three retained regressions pass on real postgres with zero skips, and its static/build verification passes. jarvis passes full frozen static/types/docs/build, fresh wheel installation, runtime provenance/cli checks and the existing audit scope; capture/retry exits 0 against a fresh actual `0013` database with the runtime role. the first static pass found missing explicit task annotations; the corrected pass has zero typing errors. |
+| disposition | independent review approves the exact library/caller/pin/contract source for an inactive candidate. library probes are deleted after hash receipts; caller/live probes remain until their coordinated proof completes. actual model attribution, installed preparation, the real journey and final reset are pending. |
+
+the preliminary reset's complete native identity comparison finds zero overlap
+between 1,885 newly captured parts and 39,825 old parts. all 44 fresh google cursors
+completed with zero poll errors. one real calendar-attention request awaits memory
+preparation; no action or todo exists at the recorded stopped boundary. 23 pending
+unreadable baselines and a separate [native physical-record bound](issues/native-archive-record-bound.md)
+remain explicit. this proves neither steady-state capacity nor broader memory
+usefulness. the [backlog issue](issues/memory-preparation-backlog.md) owns the
+remaining preparation blocker; both owner-approved resets retain their original
+scope.

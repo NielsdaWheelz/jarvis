@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from llm_agent_kernel import (
     AgentDefinition,
     CancellationToken,
+    ContextLimitExceeded,
     HostInput,
     InputId,
     OneShotCompleted,
@@ -19,6 +20,7 @@ from llm_agent_kernel import (
     ProviderSessionPort,
     RunId,
     TransientModelDecisions,
+    bootstrap_context,
     run_one_shot,
 )
 from llm_tools import (
@@ -31,10 +33,16 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from provider_runtime.agent_runtime import thaw_json_value
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
-from universal_memory import DreamResult, MemoryError, render_dream_view
+from universal_memory import (
+    CompactionTask,
+    DreamResult,
+    MemoryError,
+    Node,
+    render_dream_view,
+)
 from universal_memory.policy import (
     COMPACTION_CALLS,
     COMPACTION_FAILURES,
@@ -88,115 +96,156 @@ class MemoryWorker:
         self, cancellation: CancellationToken, *, cutoff: int | None = None
     ) -> bool:
         async with self.memory.database.begin() as connection:
-            task = await self.memory.library.next_compaction(connection, cutoff=cutoff)
+            batch = await self.memory.library.next_compaction(connection, cutoff=cutoff)
             control = await connection.scalar(
                 select(func.max(message.c.control_sequence)).where(
                     message.c.source_conversation_id == self.owner.scope_id
                 )
             )
-        if task is None or cancellation.cancelled:
+        if batch is None or cancellation.cancelled:
             return False
-        candidate = task.free_text
+        pending: list[CompactionTask] = list(batch.tasks)
+        calls = {(task.start, task.count): 0 for task in pending}
+        failures = {(task.start, task.count): 0 for task in pending}
+        shortest: dict[tuple[int, int], str] = {}
+        completed: dict[tuple[int, int], str] = {}
+        feedback: dict[str, JsonValue] = {}
+        failed: CompactionTask | None = None
         failure = "invalid_completion"
         permit = self.owner.permit("jarvis-compaction:" + str(uuid4()))
         as_of = datetime.now(UTC)
-        if candidate is None:
-            shortest: str | None = None
-            feedback: dict[str, object] = {}
-            failures = 0
-            for _ in range(COMPACTION_CALLS):
-                if cancellation.cancelled:
-                    return False
-                await self.owner.require_current(permit)
-                run_id = RunId(str(uuid4()))
-                source = PromptSections(
+        while pending:
+            if cancellation.cancelled:
+                return False
+            await self.owner.require_current(permit)
+            run_id = RunId(str(uuid4()))
+            inputs = (HostInput(InputId(str(run_id)), PromptSections(()), as_of),)
+            selected: list[CompactionTask] = []
+            source = None
+            for task in pending:
+                trial: list[CompactionTask] = [*selected, task]
+                addressed = {
+                    f"{item.start}+{item.count}": feedback[f"{item.start}+{item.count}"]
+                    for item in trial
+                    if f"{item.start}+{item.count}" in feedback
+                }
+                request = batch.model_copy(update={"tasks": tuple(trial), "copies": ()})
+                proposed = PromptSections(
                     (
                         PromptSection(
                             PromptSectionKind("historical_memory_view"),
                             (),
-                            PromptText(task.context),
+                            PromptText(batch.context),
                         ),
                         PromptSection(
                             PromptSectionKind("compaction_source"),
                             (),
-                            PromptJson(
-                                {
-                                    "start": task.start,
-                                    "count": task.count,
-                                    "source": task.source,
-                                    "ruler": task.ruler,
-                                    "target_bytes": NODE_TARGET_BYTES,
-                                    "size_feedback": feedback,
-                                }
-                            ),
+                            PromptJson(request.model_input(addressed)),
                         ),
                     )
                 )
-                outcome = await run_one_shot(
-                    decisions=TransientModelDecisions(),
-                    run_id=run_id,
-                    definition=self.definition,
-                    inputs=(
-                        HostInput(InputId(str(run_id)), PromptSections(()), as_of),
-                    ),
-                    as_of=as_of,
-                    plan=self.plan,
-                    source_sections=source,
-                    owner=self.owner,
-                    permit=permit,
-                    provider=self.provider,
-                    dispatcher=EmptyToolDispatcher(),
-                    budget_factory=ExactToolBudgetFactory(),
-                    cancellation=cancellation,
-                )
-                if cancellation.cancelled:
-                    return False
-                if not isinstance(outcome, OneShotCompleted):
-                    if outcome.type is OneShotStopKind.cancelled:
-                        return False
-                    if outcome.type not in {
-                        OneShotStopKind.provider_error,
-                        OneShotStopKind.model_decision_uncertain,
-                    }:
-                        shortest = None
-                        failure = "invalid_completion"
-                        break
-                    failures += 1
-                    failure = "inference_failed"
-                    if failures >= COMPACTION_FAILURES:
-                        shortest = None
-                        break
-                    try:
-                        await asyncio.wait_for(
-                            cancellation.wait(), COMPACTION_RETRY_SECONDS
-                        )
-                        return False
-                    except TimeoutError:
-                        continue
                 try:
-                    value = CompactionResult.model_validate_json(
-                        canonical_json_bytes(thaw_json_value(outcome.result))
-                    ).text.strip()
-                except ValidationError:
-                    shortest = None
-                    failure = "invalid_completion"
+                    bootstrap_context(
+                        self.definition, inputs, as_of, self.plan, proposed
+                    )
+                except ContextLimitExceeded:
                     break
-                size = len(value.encode())
-                if shortest is None or size < len(shortest.encode()):
-                    shortest = value
-                if size <= NODE_TARGET_BYTES:
-                    break
-                feedback = {
-                    "measured_bytes": size,
-                    "candidate": value,
-                    "target_cut": clip_utf8(value, NODE_TARGET_BYTES),
-                }
-                failure = "candidate_too_large"
-            candidate = (
-                shortest
-                if shortest is not None and len(shortest.encode()) <= NODE_HARD_BYTES
-                else None
+                selected, source = trial, proposed
+            if source is None:
+                raise MemoryError("compaction_blocked")
+            for task in selected:
+                calls[task.start, task.count] += 1
+            outcome = await run_one_shot(
+                decisions=TransientModelDecisions(),
+                run_id=run_id,
+                definition=self.definition,
+                inputs=inputs,
+                as_of=as_of,
+                plan=self.plan,
+                source_sections=source,
+                owner=self.owner,
+                permit=permit,
+                provider=self.provider,
+                dispatcher=EmptyToolDispatcher(),
+                budget_factory=ExactToolBudgetFactory(),
+                cancellation=cancellation,
             )
+            if cancellation.cancelled:
+                return False
+            transient = not isinstance(outcome, OneShotCompleted)
+            if not isinstance(outcome, OneShotCompleted):
+                if outcome.type is OneShotStopKind.cancelled:
+                    return False
+                if outcome.type not in {
+                    OneShotStopKind.provider_error,
+                    OneShotStopKind.model_decision_uncertain,
+                }:
+                    failed = selected[0]
+                    break
+                for task in selected:
+                    address = (task.start, task.count)
+                    failures[address] += 1
+                    if failures[address] >= COMPACTION_FAILURES:
+                        failed, failure = task, "inference_failed"
+                        break
+            else:
+                try:
+                    result = CompactionResult.model_validate_json(
+                        canonical_json_bytes(thaw_json_value(outcome.result))
+                    )
+                    addresses = [(node.start, node.count) for node in result.nodes]
+                    if len(set(addresses)) != len(addresses) or set(addresses) != {
+                        (task.start, task.count) for task in selected
+                    }:
+                        raise ValueError("compactor substituted batch addresses")
+                except ValueError:
+                    failed = selected[0]
+                    break
+                for node in result.nodes:
+                    address = (node.start, node.count)
+                    value = node.text.strip()
+                    size = len(value.encode())
+                    if address not in shortest or size < len(
+                        shortest[address].encode()
+                    ):
+                        shortest[address] = value
+                    if size <= NODE_TARGET_BYTES:
+                        completed[address] = value
+                    else:
+                        feedback[f"{node.start}+{node.count}"] = {
+                            "measured_bytes": size,
+                            "candidate": value,
+                            "target_cut": clip_utf8(value, NODE_TARGET_BYTES),
+                        }
+            if failed is not None:
+                break
+            for task in selected:
+                address = (task.start, task.count)
+                if address not in completed and calls[address] >= COMPACTION_CALLS:
+                    if (
+                        address in shortest
+                        and len(shortest[address].encode()) <= NODE_HARD_BYTES
+                    ):
+                        completed[address] = shortest[address]
+                    else:
+                        failed = task
+                        failure = (
+                            "inference_failed" if transient else "candidate_too_large"
+                        )
+                        break
+            if failed is not None:
+                break
+            pending = [
+                task for task in pending if (task.start, task.count) not in completed
+            ]
+            if transient and pending:
+                try:
+                    await asyncio.wait_for(
+                        cancellation.wait(), COMPACTION_RETRY_SECONDS
+                    )
+                    return False
+                except TimeoutError:
+                    pass
         await self.owner.require_current(permit)
         async with self.memory.database.begin() as connection:
             latest = await connection.scalar(
@@ -206,10 +255,21 @@ class MemoryWorker:
             )
             if cancellation.cancelled or latest != control:
                 return False
-            if candidate is None:
-                await self.memory.library.park_compaction(connection, task, failure)
+            if failed is not None:
+                await self.memory.library.park_compaction(connection, failed, failure)
                 return False
-            await self.memory.library.complete_compaction(connection, task, candidate)
+            await self.memory.library.complete_compaction(
+                connection,
+                batch,
+                tuple(
+                    Node(
+                        start=task.start,
+                        count=task.count,
+                        text=completed[task.start, task.count],
+                    )
+                    for task in batch.tasks
+                ),
+            )
         return True
 
     async def run_one(self, cancellation: CancellationToken) -> bool:

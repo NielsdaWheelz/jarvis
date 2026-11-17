@@ -4,14 +4,14 @@
     "llm-agent-kernel": "fcb6ecfb4088d85f64aafd8689e728058db27b0a",
     "llm-tools": "662a63a863bfefbc9c4f16025bd82f47262d99d6",
     "provider-runtime": "ea9f82025632926a7c7e47d6333fb9346f6ee86c",
-    "universal-memory": "b616ee924454f40305c49d3b73e81694819ba1e4"
+    "universal-memory": "6506ae0813edb207caf5234034acc30b7ff5fca1"
   },
   "qualified_models": [
     "gpt-6-astra",
     "gpt-6.1-sol"
   ],
   "role_contract_revisions": {
-    "compactor": "jarvis-memory-compactor-v3",
+    "compactor": "jarvis-memory-compactor-v4",
     "dreamer": "jarvis-memory-dreamer-v4",
     "main": "jarvis-main-subscription-roles-v1"
   },

@@ -897,7 +897,7 @@ it. section 4 defines their atomic allocation and foreign keys.
 node `(l, i)` covers leaf positions `[i * 2^l, (i + 1) * 2^l)` and has address
 `id+n`, where `id=i*2^l` and `n=2^l`. level zero summarizes one part/note. a parent
 uses `(l-1, 2*i)` and `(l-1, 2*i+1)`. if the source or joined child text fits the
-node target, retain it without inference. otherwise run bounded contextual
+2,048-byte hard node bound, retain it verbatim without inference. otherwise run bounded contextual
 compression. build once in normal operation; explicit repair reconciles affected
 ancestors and views. original records remain append-only.
 
@@ -912,9 +912,12 @@ input. tree coverage is not proof that a generated assertion is true.
 
 views contain built nodes, oldest first, rendered `start+count|text` with internal
 newlines flattened. current operative input goes whole outside the historical
-view. short free nodes can remain verbatim; there is no separate recent raw window.
+view. a complete source fitting the 2,048-byte hard bound is copied verbatim,
+including provenance; inferred summaries still target 512 bytes. there is no
+separate recent raw window. [adr 0079](decisions/0079-bounded-serial-compaction.md)
+adopts this policy and bounded serial inference batches.
 
-both saved frontiers cover `[0,view_through)`. node completion inserts the node,
+both saved frontiers cover `[0,view_through)`. batch completion inserts its nodes,
 appends newly consecutive built leaves to both frontiers, applies available merges
 and saves lists, coverage and shrink flags in ONE transaction. append one leaf at
 a time and resume available shrink. an unfinished compact-view batch must not
@@ -932,6 +935,7 @@ new messages. batching preserves the priority rule, not an identical merge seque
 | shared library policy | initial value |
 | --- | --- |
 | summary target / hard accepted node text | 512 / 2,048 utf-8 bytes |
+| complete verbatim source / inferred tasks per serial batch | 2,048 bytes / at most 8 |
 | main view lower / upper | 64,000 / 128,000 rendered bytes |
 | compactor view lower / upper | 16,000 / 32,000 rendered bytes |
 | candidate text / size-feedback candidates | at most 8,000 bytes / at most 5 |
@@ -942,36 +946,59 @@ fixed token count. normal restart loads actual frontiers/flags and continues the
 tail; only explicit repair/budget changes refold history. node text is immutable
 during normal operation.
 
-jarvis runs ONE compactor job at a time with isolated `run_one_shot`,
+jarvis runs ONE compactor inference at a time with isolated `run_one_shot`,
 `TransientModelDecisions`, an empty tool plan and `EmptyToolDispatcher`. retain the
 qualified contained codex route/model; no haiku or new inference recipient is
-selected. the library issues plain tasks: node address, complete source part or
-two children, context and size feedback. jarvis returns `{text}`; the library
-validates and commits it. provider/kernel objects stay outside the library.
+selected. the library issues an immutable batch: deterministic verbatim copies,
+up to eight independent ready tasks with addresses and complete source parts or
+committed children, and one shared earlier context prefix. copies do not consume
+the eight inference slots; selection is bounded by the existing ready-leaf
+window. copies can wait for the same batch's inference. only a subsequent
+selection after commit may enable their parents; rollback never teaches the
+ready cache about a node. a nonempty free-only batch is ordinary progress.
 
-reuse the existing empty-plan ceilings per candidate: three provider turns, two
+jarvis returns the exact set of addressed inferred results
+`{nodes:[{start,count,text}]}`. the library validates every address, complete
+source identity and node bound before any insert, then inserts the whole batch
+and advances frontiers once in the caller's transaction. malformed, duplicate,
+missing or unexpected results cannot partially commit. the old single-task
+producer contract is removed; a one-node batch uses the same interface.
+provider/kernel objects stay outside the library.
+
+reuse the existing empty-plan ceilings per isolated call: three provider turns, two
 protocol repairs, three no-progress attempts, 300 cooperative seconds, 100,000
 input tokens, 20,000 output tokens and 262,144 rendered new-context bytes. token
 ceilings are safe-boundary checks, not hard generation limits. source/context is
 data; the compactor has no tool authority regardless of its output.
 
-clip compactor context to a prefix ending before a leaf or at a merge's end,
-descending nodes crossing that boundary. if it cannot fit, stop at an earlier
+clip the shared compactor context to a prefix ending before the earliest inferred
+task's start, descending nodes crossing that boundary. if it cannot fit, stop at an earlier
 WHOLE node and report the actual cutoff. always supply the entire task source
 separately. a parent must not wait for itself to exist before its context fits.
-no later material, placeholders or partial original is shown. context resolves
-references; it cannot import unrelated facts into the covered range.
+no placeholders or partial originals are shown. sibling sources in the same
+batch can expose later material; this explicitly replaces physical isolation
+from later sources. context resolves references; neither that context nor another
+task's source may import unrelated facts into the covered range.
 
-trim outer whitespace, reject empty candidates and count utf-8 bytes. show a
+for inferred candidates, trim outer whitespace, reject empty text and count utf-8
+bytes. free copies retain exact source bytes. show a
 512-dash ruler and, after overshoot, the measured candidate and utf-8-safe
 512-byte cut. each size retry is a fresh isolated call: this kernel cannot
 continue after `finish`. allow at most five inference calls per node attempt,
-including transient retries. retain the shortest valid candidate; accept
+including transient retries, counted separately for each node. retry only the
+unfinished subset and retain full original sources and feedback. measure the
+complete prepared request against the unchanged 262,144-byte ceiling, including
+framing/escaping, through the existing kernel preparation primitive. use that
+same whole-entry packing for initial and retry calls. never crop input to fit.
+retain the shortest valid candidate; accept
 only within the 2,048-byte hard bound. invalid completion, five excessive
 candidates or three exhausted transient failures park construction with one
-content-free `{start,count,code}` diagnostic. retry waits are cancellable and
+content-free `{start,count,code}` diagnostic for the failed task. invalid addressed
+output discards the whole batch. retry waits are cancellable and
 need no owner message. preemption discards unfinished inference; built nodes
-survive. no durable job or retry ledger is needed.
+survive. an interrupted batch may repeat up to eight uncommitted summaries.
+larger free nodes may consume view budget and coarsen older detail sooner.
+no durable job or retry ledger is needed.
 
 reconstruct readiness once at startup, then maintain a ready queue and bounded
 window of missing leaves. completed children enqueue parents. prioritize waiting
@@ -1692,7 +1719,7 @@ columns. there is no second schema-version service or generic storage interface.
 | --- | --- |
 | `activate_lane`, `append_events` | normalized input and current checkpoint → original receipt; archive/checkpoint/leaf changes share the caller transaction |
 | `append_note` | host-stamped identity/text/provenance → original idempotent receipt and one leaf; conflicting reuse fails |
-| `next_compaction`, `complete_compaction` | plain immutable task/result; library selects sources/context and validates size; host performs inference; only completed nodes/frontiers commit |
+| `next_compaction`, `complete_compaction` | plain immutable batch/addressed results; library selects independent complete sources and shared context, validates the whole result, and atomically advances nodes/frontiers; host performs bounded serial inference |
 | `view`, `zoom`, `date`, `open` | closed bounded source/node data; frozen view paging, exact source paging and cutoff enforcement from section 6 |
 | `search` | validated query, query vector, filters/cutoff/limit → deterministic shared ranking; host performs the single embedding request before this database operation |
 | `dream_input`, `complete_dream` | frozen progress/cutoff → eligible view/sample; validated notes plus expected cursor → atomic append/progress; jarvis owns the role and nightly scheduling |

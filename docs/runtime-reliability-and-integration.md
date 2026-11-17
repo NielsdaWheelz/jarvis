@@ -11,9 +11,10 @@ the preliminary production reset is complete. the free-copy/batch and first-vali
 repairs have source and real-model candidate qualification and are installed.
 complete fresh-prefix preparation and the first real main dispatch are observed.
 the demonstrated calendar precision and executor-capacity repairs are qualified;
-the already-entered calendar effect has positive production recovery. the repaired
-candidate remains inactive, with subsequent main continuation, combined acceptance
-and the final fresh reset pending.
+the already-entered calendar effect has positive production recovery. the same
+repaired artifact is active. one authorized fixture send, positive content
+inspection and canonical mail arrival are observed. native pdf processing,
+combined acceptance and the final fresh reset remain pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -731,7 +732,7 @@ follows. later capture can extend the corpus beyond that completed prefix.
 
 ### first main dispatch and stopped write failures
 
-the fixture email has never been sent. this first main turn instead enters
+at this first main turn, the fixture email has not yet been sent. the turn enters
 calendar action `5b577ec6-cfbf-4bcc-b89a-3058400d812e`, which is subsequently recorded
 uncertain, and encounters `BudgetExceeded` before the proposed todo or a later
 web search enters execution. the system-suspension reply incorrectly states that
@@ -802,10 +803,10 @@ consumer behavior. concise qualification and cleanup receipts remain private.
 ### stopped positive recovery of the entered calendar effect
 
 candidate `0c3edfc5bd102ae6db5e8f9768dc2ff0b6309530`, tree
-`1664a794983e8b44832eabcef00ae1c10791b001`, is installed inactive with the qualified
+`1664a794983e8b44832eabcef00ae1c10791b001`, was installed inactive with the qualified
 lock above. its exact hosted push verification, run `44096443485`, passes. the
-matching contained host is installed; the application remains stopped with
-`c544f68` selected and genuine `resume` sequence 9 unchanged.
+matching contained host was installed; at this recovery boundary the application
+remained stopped with `c544f68` selected and genuine `resume` sequence 9 unchanged.
 
 the qualified stopped operator uses fresh verified account identity and strict
 read-only reconciliation of the original deterministic event. at
@@ -823,9 +824,56 @@ with zero compatible, incompatible or in-flight unfinished actions; it makes
 no cognition call. concise before/observed/after, independent reread and unit
 receipts remain private.
 
-the application has not continued through this repaired action. at
+at this stopped recovery boundary, the application had not continued through the
+repaired action. at
 `2026-11-17T13:17:41Z`, the original event had ended and no fixture
 calendar-attention fact existed, so that timing window was missed. the fixture
-email has never been sent. production activation and any genuine owner timing
-amendment remain separate; positive recovery does not complete installed
+email had not yet been sent. production activation and genuine owner timing
+steering were still separate; positive recovery alone does not complete installed
 acceptance or the final reset.
+
+### production activation and single fixture arrival
+
+the same `0c3edfc5bd102ae6db5e8f9768dc2ff0b6309530` application starts at
+`2026-11-17T15:39:48Z`, pid `3452494`, with zero restarts, the unchanged contained
+host and genuine `resume` sequence 9. real discord catch-up scans one message and
+accepts zero new inputs.
+
+the one authorized self-email fixture is acknowledged at gmail message/thread
+`1a1ea0e17a9c6aa3`. original send receipt sha256
+`efc1fc19cc8e27583b2f3c7db83801c9c32b6f2ef679b4af7a332c5dc5f51352`,
+submitted mime and fixture identity remain unchanged. independent inspection
+(raw mime sha256 `f845d14159bf52d9f912150cdf509039013e47bcb78f6f4ddb9bc914093fc46f`)
+finds one valid delivered rfc message-id differing from the submitted id; the
+verified self account, exact acknowledged message/thread, subject, self-routing,
+absent cc/bcc/effect header and single original pdf all match. pdf sha256 remains
+`1241524cdb3c1a0f14a5512bfbafb1a647f2cff184cc1ef5539a5b411269a992`.
+no resend occurs and no product connector defect is established.
+
+the disposable inspector's preserved-rfc assumption is repaired in base helper
+`acaf482c0f241929cbc64346472dc861bdbfaf392ad3f369099ba6a4c3741ae9`
+and future updated-event helper
+`8341a097849eb70a3d08a2825420949f55e7967ee01a0a244473b39c668549b1`.
+inspection now requires the exact acknowledged message/thread and one valid
+actual message-id, retaining the submitted id separately. reply and cleanup
+ancestry use only the observed actual id. original `19bb` fails on the actual raw
+message; intermediate `6502` also reproduces acceptance of a duplicate recipient
+header. the final repair requires exact single, defect-free subject and
+self-routing headers. 23 base controlled cases plus five shared rfc flows through
+the future helper pass and are independently rerun; the new probe and its
+compiled file are deleted. all
+other helper functions, including the respective calendar branches, remain
+byte-identical. private `operator-rfc-repair-receipt.json`, sha256
+`44db59c2fb8b2bd72b134473e447ac880cdef1a3cbf979effbe72d0a55d78605`,
+binds source, retained baseline, red/green, review and disposition evidence. only
+the base helper is staged; the future helper remains conditional on a real
+same-event update.
+
+fresh live inspection succeeds, retaining `observed.json` sha256
+`170f28501b161567da3ee6009f9976c76018a48702151e8ef683efb5e5b0a019`.
+the real adapter publishes exact canonical mail fact
+`e0ab7889-d8fc-4105-9e88-b7306f008c48`, pending and unparked, with payload
+`observed_at=2026-11-17T15:40:08.603735Z`. its canonical
+`created_at=2026-11-17T15:09:14Z` is the message's source time, not application
+admission time. these observations prove arrival and the original pdf bytes;
+native pdf processing, the combined journey and final reset remain pending.

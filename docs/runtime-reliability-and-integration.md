@@ -1162,3 +1162,30 @@ are removed after zero sessions in all three assigned databases; both listeners
 are absent. original operational helpers, journey inputs and private receipts stay.
 actual fixed-model quiet completion, the real restart journey and final reset
 remain separate outstanding obligations.
+
+### first ready-seed installed dream remains incomplete
+
+candidate `40325aa212877fa93f405192105e4d0216e5b291`, tree
+`7cf2ae67713e6096b76fbd6d3260de4614d71ad6`, passes hosted
+[verification](https://github.com/NielsdaWheelz/jarvis/actions/runs/44194510237).
+its same-release contained host qualifies without a model turn; application and
+observer remain stopped, canonical resume 9 and the unentered proposal preserved.
+the actual stopped dream returns no completion after 61.269 seconds. consumed
+progress, notes, canonical work, read positions and the nightly marker stay
+unchanged. the command's zero exit is not accepted as successful completion.
+the [missing stop diagnostic](issues/dreamer-stop-diagnostics.md) requires a
+bounded repair and one qualified actual retry; the original cause is unknown.
+the owner reports posting the genuine revised journey while the application is
+stopped; it must still be received and checked through real channel catch-up.
+
+the minimal source diagnostic repair shares compactor's existing closed kernel
+failure projection with dreamer and logs the actual stopped enum/run identity
+before returning. no role, pin, model, retry, return or cli-semantic change.
+actual worker/kernel controlled-port configuration and provider faults reproduce
+the missing logs and then produce distinct safe diagnostics; independent rerun
+passes without private sentinels/causes or a completion call. no postgres, model
+or socket probe is needed for this logging path. the exact new probe is deleted
+after review; private final receipt has sha256
+`6eedc294ad14f4244a106dfd13e070f7348adc9f3810f1a2c35dead17176ac1e`.
+format/lint, zero typing errors and all 153 documentation files pass. the real
+retry still owns cause identification and installed quiet qualification.

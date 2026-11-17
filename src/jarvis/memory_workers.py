@@ -64,7 +64,7 @@ from jarvis.memory_service import MemoryService
 LOGGER = logging.getLogger(__name__)
 
 
-class _CompactionFailureEvents:
+class _MemoryFailureEvents:
     def emit(self, event: KernelEvent) -> None:
         attributes = {
             item.name: item.value
@@ -89,7 +89,7 @@ class _CompactionFailureEvents:
             "kernel_configuration",
         }:
             LOGGER.warning(
-                "compaction kernel failure %s",
+                "memory kernel failure %s",
                 canonical_json_bytes(
                     {"run_id": str(event.run_id), **attributes}
                 ).decode("utf-8"),
@@ -201,7 +201,7 @@ class MemoryWorker:
                 dispatcher=EmptyToolDispatcher(),
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
-                event_sink=_CompactionFailureEvents(),
+                event_sink=_MemoryFailureEvents(),
             )
             if cancellation.cancelled:
                 return False
@@ -476,8 +476,14 @@ class DreamerWorker:
                 dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
+                event_sink=_MemoryFailureEvents(),
             )
-            if not isinstance(outcome, OneShotCompleted) or cancellation.cancelled:
+            if not isinstance(outcome, OneShotCompleted):
+                LOGGER.warning(
+                    "dream stopped: run_id=%s stop_kind=%s", run_id, outcome.type.value
+                )
+                return None
+            if cancellation.cancelled:
                 return None
             try:
                 result = DreamResult.model_validate_json(

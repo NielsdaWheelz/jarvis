@@ -1,6 +1,7 @@
 # main blocked by admitted-memory preparation backlog
 
-status: open operational blocker, updated 2026-11-17. the preliminary reset under
+status: foreground dependency removed and installed-qualified; background cost and
+remaining journey/reset evidence open, updated 2026-11-17. the preliminary reset under
 [adr 0078](../decisions/0078-fresh-corpus-first-acceptance.md) is complete.
 the owner subsequently approved
 [adr 0079's free-copy and serial-batch amendment](../decisions/0079-bounded-serial-compaction.md)
@@ -13,7 +14,7 @@ the owner additionally approved [first valid hard-fitting summaries](../decision
 after the real 516→504-byte soft-target retry demonstrated an extra post-valid
 call. that stopping amendment has source and real-model candidate qualification,
 and was first installed as `8bc3c15`. it does not change the fixed models or
-accepted coverage/reset scope. the current `c544f68` adds qualified closed rejection
+accepted coverage/reset scope. historical release `c544f68` adds qualified closed rejection
 diagnostics without changing that policy. after one supported stopped diagnostic
 retry, the formerly missing `2112+64` parent is present and coverage reaches 2,241
 of 3,039 leaves with no compaction error at 09:49:15 utc. production later prepares
@@ -22,7 +23,7 @@ its terminal is retained at 12:38:36 utc. the earlier rejection's diagnostic gap
 and blocked preparation are resolved; its original cause remains unknown in
 [f2's retained evidence](../runtime-reliability-and-integration.md#compaction-rejection-diagnostic-and-observed-recovery).
 
-problem: main waits for the complete admitted-history view before opening a native
+historical problem, before adr 0081: main waits for the complete admitted-history view before opening a native
 turn. admitted capture can accumulate a substantial uncompressed tail. the original
 pre-reset production fixture request entered canonical history at 22:55:02 utc
 and remained pending
@@ -30,7 +31,7 @@ without a main native attempt, action or email. the application stopped cleanly 
 22:58:14 utc to inspect required work before continuing paid preparation. gmail
 and calendar baselines had completed quietly, with no event facts or errors.
 
-impact: the first fresh-prefix preparation and actual dispatch criteria are
+historical impact, before adr 0081: the first fresh-prefix preparation and actual dispatch criteria are
 met. after write/recovery repair, the real fixture mail fact is admitted but
 again waits for preparation of the admitted prefix frozen for its run; the
 combined journey and final reset remain open. historical source
@@ -127,8 +128,13 @@ removes main's foreground construction wait. share the existing fitting ready
 view with explicit coverage/admitted backlog and preserve exact operative inputs,
 recovery and the admitted archive-read scope. indefinite stale or empty historical
 orientation is accepted; omitted corrections may not be recalled. source proof
-is qualified; installed proof is pending. repair the separately parked configuration failure
-without pretending this availability policy classifies it.
+is qualified. installed `ca101b5` starts actual main at `21:43:47Z`, with original
+`4040+8` construction park retained. its immutable historical section states
+`coverage [0,4106)`, `admitted_through=13224` and `not_in_view=9118`.
+this proves serving availability, not historical freshness or usefulness.
+one later stopped retry builds the missing node and advances coverage; its lost
+historical failure cause remains unknown. quiet dreaming still requires full
+preparation of its frozen prefix.
 
 resolved when: the shared ready-view contract passes meaningful source proof and
 the installed main reaches native dispatch despite the unprepared admitted tail,

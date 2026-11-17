@@ -967,9 +967,9 @@ active main
 attempts, unfinished actions, unresolved reads, todos and undelivered replies are
 all zero. observer capture 3 ends with operator stop and zero selected roots;
 there is no post-email native-work proof to infer. the contained host remains
-running on the same selected release. the [diagnostic
-gap](issues/memory-compactor-stop-diagnostics.md) is under repair; no retry or
-cause attribution is claimed.
+running on the same selected release. the diagnostic gap is under repair at
+this boundary; no retry or cause attribution is claimed here. the later stopped
+recovery below retains the original failure separately.
 
 one reviewed service-identity observation at `19:56:14Z` uses only public account,
 default rate-limit and visible-model reads under a hard 60-second process bound;
@@ -994,7 +994,8 @@ pass independent privacy/reason-distinction checks. actual runtime-role postgres
 proof retains one filtered log, unchanged originals and the original atomic park,
 with zero nodes, actions or native attempts. the new probe is deleted after
 hash receipts. the lost production cause remains unknown; installed retry and
-progress through `4040+8` are still pending.
+progress through `4040+8` were pending at this source-qualification boundary.
+the later stopped recovery below records their separate completion.
 
 memory `e52a48dc48376f73ae94601d080110c3a26dcfa3` factors one immutable
 `ReadyView` and one measured renderer from the existing external-view assembly.
@@ -1031,3 +1032,74 @@ zero-client checks; original journey inputs, operational helpers and bounded
 proof receipts remain. installed journey, compactor recovery, quiet production
 roles and final reset remain separate obligations. strict production dreaming
 still requires its full frozen prefix; adr 0081 does not waive that cost or proof.
+
+### ready-view activation and incomplete real journey, 2026-11-17
+
+release `ca101b5a242dfa65aab9f95314bc2d630a01d983`, tree
+`3e915890f43c3b432e6290c643bdfbd83f4bdf2b`, passes hosted
+[verification](https://github.com/NielsdaWheelz/jarvis/actions/runs/44181059738).
+same-release contained-host qualification and normal activation pass without
+changing schema `0013` or canonical resume sequence 9. the application starts
+at `21:43:34Z`; actual astra/max main starts at `21:43:47Z` with ready coverage
+4,106, admitted bound 13,224 and the original `4040+8` compaction park intact.
+this proves foreground availability under that park, not memory catch-up.
+
+the actual fixture original is retained and opened. both pdf-page renders and
+extracted text exist at `21:47:18Z`; the useful private note exists at `21:51:58Z`.
+original action receipts prove one unsent draft, its unentered send proposal,
+an update of the same private calendar event, one todo, and one installed
+sol/high worker with a registered 600-second idle observation. its matched
+outcome at `22:03:47Z` retains a visible report of useful independent checks
+followed by a foreground delay measured at 480.006382231 seconds. a later main
+integrates the actual calendar attention, todo wake and worker report without
+relaunching the worker. independent stopped Google inspections positively match
+the exact draft MIME and updated owner-only event; they do not qualify timing.
+
+the first terminal fails the correct cross-root approval-reference check at
+`21:56:55Z`; see the [diagnosed disposition](issues/cross-request-approval-disposition.md).
+its seal and original effects remain preserved. the separate
+[observer gap](issues/native-acceptance-observation.md) leaves native-child
+completion without sufficient independent evidence. the exact root command
+transcript is unavailable; actual file artifacts and git state remain inspectable.
+the one-time wake is 574.597771 seconds after committed creation; event start
+is 1,185.783290 seconds after the update receipt, with exact 20-minute duration.
+no tolerance or hidden rescheduling makes those exact requested offsets pass.
+
+the application stops cleanly at `22:08:26Z`, after a zero-active-attempt,
+zero-unsettled-read, zero-entered-action and zero-outbound-watermark observation.
+contained host and observer remain active; canonical resume is unchanged. no
+restart occurred while both the original timer and worker wait were pending:
+the combined restart criterion is **MISS**. the draft is still unapproved and
+unsent. at this stop, genuine continuation, sufficient native proof, quiet
+production roles, compactor recovery and final reset remained outstanding.
+
+the source clarification defines approval-reference authority through the
+input's recorded `parent_request_id` root. main revision v3 changes no guard,
+schema, tool grant, model or isolated-role fingerprint. actual joined instructions
+shrink six bytes to 16,316 configured and 16,329 for the longest supported zone.
+the controlled construction proof and independent content review pass; it does
+not guarantee future model compliance. its new probe and matching compiled-file
+inventory are removed after the private receipt, sha256
+`c44e4e520c2ce13a929bd1e60ffd086a58fbcdd94b87640b624156e97318db3d`.
+
+the child-only observer repair discovers unknown typed thread identifiers through
+one public metadata read per bounded candidate, then verifies actual parent
+lineage before retaining later events. an unverified triggering completion is
+discarded, not buffered. four controlled unix-websocket cases cover absent child
+announcements, missing ancestors, unrelated-root privacy and early-completion
+loss; independent rerun passes. its exact new probe is deleted after review.
+root item subscription is unchanged. actual workspace/PDF artifacts and git state
+own file-behavior verification; no exact root command transcript is claimed.
+capture 4 stops explicitly with five roots, zero selected native frames and
+seven unverified frames; acceptance remains false. the repaired helper is staged
+with sha256 `43ac01aa14dfd02762dde0aed8c83bea90c63fffa310907f99db23992366fe5f`;
+a new live child capture is still required.
+
+one explicit stopped `memory retry-compression` succeeds on the installed
+diagnostic stack. the existing stopped `jarvis dream` then commits the formerly
+missing `4040+8` node: 507 bytes, sha256
+`3a3c2bdd75db693f2e493e50752bd99a56bb40dd910809589b242693f1bd489b`.
+coverage advances beyond 4,106 with no construction error. this resolves the
+diagnostic/retry gap and proves recovery progress, while the lost original cause
+remains unknown. the manual run is still preparing its frozen prefix; no dreamer
+completion, whole-prefix readiness or latency qualification follows.

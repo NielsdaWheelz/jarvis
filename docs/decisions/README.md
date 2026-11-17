@@ -32,6 +32,11 @@ amendments and service access boundaries. source checks and the registry audit
 pass; the online installed rollout is qualified with five named profile deferrals,
 with nexus and arch deferred.
 
+[adr 0078](0078-memory-orientation-first.md) adopts shared orientation-first
+guidance and default use of remembered preferences/decisions, with explicit
+outage and native-session boundaries. shared guidance and jarvis adoption are
+the current slice; nexus/native-profile adoption and installation remain separate.
+
 | ADR | Decision | Status |
 |---|---|---|
 | [0001](0001-small-personal-agent.md) | One small personal agent system | Accepted; trace amended by 0010/0019; internal gate added by 0019 |

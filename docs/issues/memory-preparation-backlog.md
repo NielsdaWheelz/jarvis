@@ -4,9 +4,14 @@ status: open operational blocker, 2026-11-16. the preliminary reset under
 [adr 0078](../decisions/0078-fresh-corpus-first-acceptance.md) is complete.
 the owner subsequently approved
 [adr 0079's free-copy and serial-batch amendment](../decisions/0079-bounded-serial-compaction.md)
-after genuine new capture exposed substantial preparation work. source and
-installed qualification are pending. large-corpus throughput and latency remain
-unqualified.
+after genuine new capture exposed substantial preparation work. source and a
+real-model candidate are qualified; the repair is installed as `0b33fc4`.
+complete production preparation and the real journey remain pending. large-corpus
+throughput and latency remain unqualified.
+the owner additionally approved [first valid hard-fitting summaries](../decisions/0080-first-valid-compaction.md)
+after the real 516→504-byte soft-target retry demonstrated an extra post-valid
+call. that stopping amendment is under source/candidate qualification; it does
+not change the fixed models or accepted coverage/reset scope.
 
 problem: main waits for the complete admitted-history view before opening a native
 turn. the existing archive has a large uncompressed tail. the genuine production
@@ -58,6 +63,15 @@ and one separate `macbook/claude-work` capture rejection, `event_too_large`.
 [the latter](native-archive-record-bound.md) reproduces the provider's existing
 8-mib physical transcript-record refusal before any central request. no new
 implementation defect is established. neither state was cleared or treated as a cut.
+
+after actual candidate content/route proof and routine host/application
+replacement, genuine `resume` sequence 9 remains current and catch-up completes.
+production coverage advances from 31 through 122 with no compaction error.
+thirteen newly built level-zero nodes have raw source above 2,048 bytes, proving
+actual inference rather than free copying under the new policy; raw source reaches
+8,000 bytes and those stored nodes are at most 514 bytes. the main native attempt
+has not yet opened at this observation. this is progress, not a latency or
+steady-state capacity qualification.
 
 owner disposition: implement exact free copies through 2,048 bytes and bounded
 serial batches, qualify the real journey, then perform the final reset. before

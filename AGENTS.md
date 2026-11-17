@@ -62,6 +62,12 @@ These instructions govern all work in this repository.
   pack complete entries under the unchanged actual prepared-request ceiling.
   qualify own-source attribution despite visible sibling sources. source and
   installed proof remain separate.
+- [adr 0080](docs/decisions/0080-first-valid-compaction.md) accepts the first valid
+  inferred node within the existing 2,048-byte hard bound while prompting for
+  512. retry only hard oversize/transient failures within existing ceilings;
+  remove shortest-candidate tracking and soft-target retries. preserve whole-batch
+  atomicity, strict validation, fixed models, originals and source cuts. larger
+  nodes may coarsen earlier; qualify the changed stopping boundary before replacement.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

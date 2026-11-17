@@ -3,11 +3,13 @@
 status: f2 implementation contract, 2026-11-16, under
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
 [adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
-with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md) and
-[adr 0079's bounded serial compaction](decisions/0079-bounded-serial-compaction.md).
+with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md),
+[adr 0079's bounded serial compaction](decisions/0079-bounded-serial-compaction.md)
+and [adr 0080's first valid stopping rule](decisions/0080-first-valid-compaction.md).
 source implementation, integrated composition and isolated fault proof qualified.
-the preliminary production reset is complete; the compaction amendment,
-installed journey and final fresh reset remain under qualification.
+the preliminary production reset is complete. the compaction amendment has source
+and real-model candidate qualification and is installed; production preparation,
+the first-valid amendment, real journey and final fresh reset remain under qualification.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -573,8 +575,8 @@ tasks and 128 exact free copies. the caller uses the existing kernel preparation
 primitive to pack complete initial/retry entries under the unchanged 262,144-byte
 request ceiling. completion validates the exact whole result before any insertion,
 then commits nodes and persisted frontiers atomically. compactor revision is
-`jarvis-memory-compactor-v4`; fixed models, kernel/provider/tools pins, other role
-instructions, schemas and authority stay unchanged. manifest-derived fingerprints
+`jarvis-memory-compactor-v4`; fixed models, kernel/provider/tools pins, main/dreamer
+instructions and schemas, database schema and authority stay unchanged. manifest-derived fingerprints
 include the new shared library pin as designed.
 
 | proof | qualified boundary |
@@ -582,7 +584,9 @@ include the new shared library pin as designed.
 | library red/green | an actual 1,248-byte complete source requires inference under the old rule and becomes an exact free copy. seven real-postgres cases cover batch independence, source identity, committed-only readiness, rollback and observer-visible atomic frontiers. additional checks cover 128-copy selection, fitting-view refusal, exact 2,048/2,049-byte boundary, a bad second result with zero partial insertion, and public admission of near-limit metadata. |
 | caller red/green | the old caller commits one of three leaves; the new caller completes two paid nodes and an exact copy through one actual isolated-kernel call. fourteen controlled-provider/real-runtime-role-postgres cases cover addressed output, per-node retries/shortest accepted candidate, initial/full-feedback escaping and repacking, free-only progress, source conflict, cancellation, canonical control change and owner loss. malformed later subsets commit neither earlier candidates nor copies. these use no paid inference or production data. |
 | required checks | the library's three retained regressions pass on real postgres with zero skips, and its static/build verification passes. jarvis passes full frozen static/types/docs/build, fresh wheel installation, runtime provenance/cli checks and the existing audit scope; capture/retry exits 0 against a fresh actual `0013` database with the runtime role. the first static pass found missing explicit task annotations; the corrected pass has zero typing errors. |
-| disposition | independent review approves the exact library/caller/pin/contract source for an inactive candidate. library probes are deleted after hash receipts; caller/live probes remain until their coordinated proof completes. actual model attribution, installed preparation, the real journey and final reset are pending. |
+| actual model content | exact inactive jarvis `0b33fc40075a601dd0dc4e6140b43c9115e68611` and memory `6506ae0`, with the unchanged qualified stock endpoint. one real personal-subscription `gpt-6.1-sol/xhigh` batch summarizes three synthetic historical sources. independent review verifies each correction, reason, identifier, clock time, uncertainty and peer-versus-owner attribution. a later sibling's attempted cross-import remains quoted and rejected. only the 516-byte third candidate is retried, becoming 504 bytes; the first two nodes remain unchanged. two actual one-shot/prepared turns, unchanged originals and zero-until-commit then three-node/frontier visibility. this qualifies the example, not general semantic fidelity or performance. |
+| actual isolated authority | a separate metadata-only public-client observation matches the first prepared thread exactly: one configured/reported inherited mcp server, disabled, zero tools/errors. the retry thread is not independently mcp-observed. both actual turn-start records retain `xhigh` and approval `never`; exact model/auth/policy checks remain mandatory in the pinned live provider. raw policy settings are not independently observed. no gateway, google, embedding or production-database call occurs in this fixture. |
+| disposition | independent review approves exact source, real content/route and candidate. new library/caller probes are deleted after hash receipts; live-probe cleanup retains concise content/route evidence. all four isolated databases, their owned container/anonymous volume and tunnel are removed after zero active clients. the real journey and final reset remain pending. |
 
 the preliminary reset's complete native identity comparison finds zero overlap
 between 1,885 newly captured parts and 39,825 old parts. all 44 fresh google cursors
@@ -593,3 +597,50 @@ remain explicit. this proves neither steady-state capacity nor broader memory
 usefulness. the [backlog issue](issues/memory-preparation-backlog.md) owns the
 remaining preparation blocker; both owner-approved resets retain their original
 scope.
+
+the stopped routine replacement selects that same runtime
+`0b33fc40075a601dd0dc4e6140b43c9115e68611`, tree
+`90f87126700bdafcccfda957f2b4ba9969b203e6`, lock sha256
+`021c330d51e24faf78dd1d934782a9b82ed758cce2721cc7138f199ba65e2f85`.
+host and application use the same artifact, schema remains `0013`, the current
+non-secret host mapping is byte-identical, and genuine `resume` sequence 9 is
+preserved. application startup is `2026-11-17T02:33:53Z`, with zero restarts;
+validated discord catch-up scans one existing input and accepts zero. the previous
+installed release is pruned. hosted source ci `44001754315` succeeds.
+the existing installed containment verifier passes for the new pair, including
+process/secret isolation and actual worker gateway reads on dev-server/macbook;
+arch remains explicitly deferred.
+an initial scp timeout occurred before installation: the incomplete staging
+archive's hash differed, its exact file was removed, and the ordinary retry
+installed the same artifact. no migration or activation ran on that failed upload.
+production coverage advances from 31 to 122 with no compaction error while genuine
+capture continues. thirteen new level-zero nodes with raw source above 2,048 bytes
+prove actual installed compactor inference under the new free-copy rule; raw
+source reaches 8,000 bytes and these stored nodes are at most 514 bytes.
+main dispatch and the complete real journey are still pending;
+there is no latency or capacity conclusion from that progress.
+
+### first valid summary amendment
+
+[adr 0080](decisions/0080-first-valid-compaction.md) follows the owner's explicit
+decision after the 516→504-byte real-model retry. the caller accepts a first valid
+candidate within the existing 2,048-byte hard bound while still prompting for
+512. it removes shortest-candidate tracking and soft-target retries; only hard
+oversize or transient failure retries. source/library/model/schema/authority
+contracts stay fixed; compactor compatibility becomes
+`jarvis-memory-compactor-v5`. larger inferred nodes may coarsen older detail
+earlier; net parent cost and general quality remain unmeasured.
+
+the genuine red uses the actual kernel and a runtime-role `0013` database: the
+old caller stores the already-valid 516-byte candidate only after five
+appearances, failing the one-call requirement. seven focused green cases verify
+first 516 and exact 2,048-byte acceptance, exclusion of a completed peer while an
+oversized 2,050-byte candidate becomes 1,500, exhausted five hard oversizes,
+malformed addressing, cancellation and three transient failures. the latter
+boundaries commit neither inferred nodes nor accompanying copies. setup-only
+model-constant/XML parsing and interpreter-selection errors remain separate from
+that behavior red. full frozen static/types/docs/build, fresh install/provenance
+and audit checks pass. independent review approves the exact source/policy for
+an inactive candidate; live stopping-boundary proof and routine replacement
+remain pending. unchanged library regressions and the prior fourteen caller
+cases are not repeated without a new concern.

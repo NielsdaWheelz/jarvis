@@ -203,6 +203,14 @@ material is exposed within a batch, and interruption may repeat a batch. this
 supersedes the former single-source isolation and adr 0078's rejection of a
 throughput change. source and installed proof remain separate.
 
+[adr 0080](docs/decisions/0080-first-valid-compaction.md) retains the 512-byte prompt
+target and accepts the first valid inferred summary within the existing
+2,048-byte hard bound. retry only hard oversize or transient failures under the
+same per-node ceilings; malformed output still parks with no partial batch commit.
+this replaces shortest-candidate selection and soft-target retries. larger
+inferred nodes may coarsen older detail earlier; net parent cost and general
+quality remain unmeasured. existing nodes, originals and source cuts stay intact.
+
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
@@ -400,7 +408,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   64,000–128,000-byte main view and 16,000–32,000-byte compactor view are initial
   tuning defaults, with rendered framing counted and actual provider context
   reserves enforced. hard node text is 2,048 bytes; at most five inference calls
-  per node attempt, with bounded retries/parking. use one serial compactor on the
+  per node attempt, accepting the first valid hard-fitting result under adr 0080,
+  with bounded retries/parking. use one serial compactor on the
   qualified model/route and the existing isolated empty-tool plan. adr 0079 allows
   up to eight independent ready nodes per call, within the unchanged actual
   prepared-request ceilings, with complete initial/retry entries. complete task

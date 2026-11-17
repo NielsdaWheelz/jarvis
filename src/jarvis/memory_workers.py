@@ -107,7 +107,6 @@ class MemoryWorker:
         pending: list[CompactionTask] = list(batch.tasks)
         calls = {(task.start, task.count): 0 for task in pending}
         failures = {(task.start, task.count): 0 for task in pending}
-        shortest: dict[tuple[int, int], str] = {}
         completed: dict[tuple[int, int], str] = {}
         feedback: dict[str, JsonValue] = {}
         failed: CompactionTask | None = None
@@ -205,11 +204,7 @@ class MemoryWorker:
                     address = (node.start, node.count)
                     value = node.text.strip()
                     size = len(value.encode())
-                    if address not in shortest or size < len(
-                        shortest[address].encode()
-                    ):
-                        shortest[address] = value
-                    if size <= NODE_TARGET_BYTES:
+                    if size <= NODE_HARD_BYTES:
                         completed[address] = value
                     else:
                         feedback[f"{node.start}+{node.count}"] = {
@@ -222,17 +217,9 @@ class MemoryWorker:
             for task in selected:
                 address = (task.start, task.count)
                 if address not in completed and calls[address] >= COMPACTION_CALLS:
-                    if (
-                        address in shortest
-                        and len(shortest[address].encode()) <= NODE_HARD_BYTES
-                    ):
-                        completed[address] = shortest[address]
-                    else:
-                        failed = task
-                        failure = (
-                            "inference_failed" if transient else "candidate_too_large"
-                        )
-                        break
+                    failed = task
+                    failure = "inference_failed" if transient else "candidate_too_large"
+                    break
             if failed is not None:
                 break
             pending = [

@@ -981,23 +981,27 @@ from later sources. context resolves references; neither that context nor anothe
 task's source may import unrelated facts into the covered range.
 
 for inferred candidates, trim outer whitespace, reject empty text and count utf-8
-bytes. free copies retain exact source bytes. show a
-512-dash ruler and, after overshoot, the measured candidate and utf-8-safe
-512-byte cut. each size retry is a fresh isolated call: this kernel cannot
-continue after `finish`. allow at most five inference calls per node attempt,
+bytes. free copies retain exact source bytes. show a 512-dash ruler and prompt
+for the 512-byte target, but accept the FIRST structurally valid addressed
+candidate within the existing 2,048-byte hard bound. do not spend another call
+optimizing an already-valid candidate. [adr 0080](decisions/0080-first-valid-compaction.md)
+supersedes shortest-candidate retention and retries after soft-target overshoot.
+after hard oversize, show the measured candidate and utf-8-safe 512-byte cut.
+each size retry is a fresh isolated call: this kernel cannot continue after
+`finish`. allow at most five inference calls per node attempt,
 including transient retries, counted separately for each node. retry only the
 unfinished subset and retain full original sources and feedback. measure the
 complete prepared request against the unchanged 262,144-byte ceiling, including
 framing/escaping, through the existing kernel preparation primitive. use that
 same whole-entry packing for initial and retry calls. never crop input to fit.
-retain the shortest valid candidate; accept
-only within the 2,048-byte hard bound. invalid completion, five excessive
-candidates or three exhausted transient failures park construction with one
+invalid completion, exhausting five appearances without an acceptable candidate,
+or three transient failures park construction with one
 content-free `{start,count,code}` diagnostic for the failed task. invalid addressed
 output discards the whole batch. retry waits are cancellable and
 need no owner message. preemption discards unfinished inference; built nodes
 survive. an interrupted batch may repeat up to eight uncommitted summaries.
-larger free nodes may consume view budget and coarsen older detail sooner.
+larger free nodes and first valid inferred nodes may consume view budget and
+coarsen older detail sooner. net parent-call cost and general quality are unmeasured.
 no durable job or retry ledger is needed.
 
 reconstruct readiness once at startup, then maintain a ready queue and bounded

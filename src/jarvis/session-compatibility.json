@@ -11,7 +11,7 @@
     "gpt-6.1-sol"
   ],
   "role_contract_revisions": {
-    "compactor": "jarvis-memory-compactor-v4",
+    "compactor": "jarvis-memory-compactor-v5",
     "dreamer": "jarvis-memory-dreamer-v4",
     "main": "jarvis-main-subscription-roles-v1"
   },

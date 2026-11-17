@@ -255,6 +255,10 @@ serial batch after substantial genuine new capture. qualify that amendment at
 the library/caller boundary and installed composition before completing the
 journey. preserve originals, fixed models, cuts and complete main coverage; the
 memory contract owns atomic addressed completion and request limits.
+[adr 0080](decisions/0080-first-valid-compaction.md) subsequently adopts first
+valid hard-fitting summaries while retaining the 512-byte prompt target and
+existing ceilings. qualify its stopping boundary, then continue the same installed
+journey; no additional reset, model, schema or memory-source change.
 reconcile pending effects/waits and account for reminders; migrate/provision the
 selected release, then prove physical owner ingress/consent and restart continuation
 through existing operations. source success alone does not activate production.

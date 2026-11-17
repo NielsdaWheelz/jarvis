@@ -152,7 +152,8 @@ unbounded. changing this retention policy requires an explicit later decision.
 
 target: discovered changes commit within 60 seconds while their dependencies are
 available. metadata misses wait for the initially hourly revisit. compaction runs
-serially when idle or required by a waiting turn; no compression latency or
+serially when idle or required by strict dreamer/maintenance preparation; main
+does not wait for it under adr 0081. no compression latency or
 complete fleet capture is promised.
 live qualification records native completion, discovery, archive commit and exact
 readback separately. a short discovery-to-commit interval does not excuse a long
@@ -168,11 +169,12 @@ view below is host-owned context, not external profile injection.
 
 ### automatic historical orientation
 
-accepted scope under adr 0066: when fresh jarvis context is built, include a
-bounded compressed view covering retained history from all admitted sources,
-including jarvis conversation and captured codex/claude conversations across the
-fleet, plus explicit notes with their own submission provenance. origin labels
-never exclude admitted material from this coverage. every
+accepted scope under adr 0066, refined by adr 0081: fresh jarvis context includes
+a bounded fitting ready prefix from the shared tree, with actual coverage and
+admitted backlog. construction still covers all admitted sources, including
+jarvis conversation, captured codex/claude fleet conversations and explicit notes
+with their submission provenance. origin labels never filter that eligibility.
+automatic orientation can remain stale or empty indefinitely. every
 included source competes for finite view space; busy native work may make older
 personal/scientific material coarser. representation does not guarantee retention
 of every fact in summary text; original evidence remains independently accessible.
@@ -207,7 +209,9 @@ chronology and instruction precedence depend on actual source evidence and
 authority, never arrival order alone; preserve ambiguity where evidence conflicts
 or cannot be compared. historical import remains separately deferred.
 
-jarvis reconstructs context for each new top-level turn from a fixed admitted view,
+jarvis reconstructs context for each new top-level turn from a frozen fitting
+ready view with explicit coverage and admitted backlog under
+[adr 0081](decisions/0081-ready-memory-for-main.md),
 current input and exact active requests/receipts. a running turn retains its tool
 loop and compatible mid-run steering; a settled turn's native session is not
 reused for the next top-level turn. this supersedes cross-turn main-session reuse
@@ -869,7 +873,8 @@ these are separate representations owned by the memory library:
   leaf; parents summarize exactly two adjacent equal-span children. nodes point
   to children or canonical source records rather than copying originals.
 - view: an ordered selection of nodes covering a fixed admitted prefix exactly
-  once. it mixes depths, giving recent entries more detail, rather than collapsing
+  once; its covered prefix may precede the overall admitted bound. it mixes
+  depths, giving recent entries more detail, rather than collapsing
   the entire past into one summary. navigation opens children and then source
   text; search remains an independent route into the same corpus.
 
@@ -1008,17 +1013,27 @@ reconstruct readiness once at startup, then maintain a ready queue and bounded
 window of missing leaves. completed children enqueue parents. prioritize waiting
 foreground dependencies, then oldest ready work; shrinking parents cannot be
 starved by leaves. do not rescan the historical tree on every completion.
-ordinary construction/dreaming yield to foreground work. required compaction runs
-BEFORE main dispatch, not in an idle-only worker blocked by the waiting main.
+ordinary construction/dreaming yield to foreground work. main does not wait for
+construction; the existing idle worker continues full compression and indexing.
 
 a main context request freezes `cutoff=leaf_count` after pending canonical
-publication (section 9). later arrivals do not extend its wait. when ready, clip
-the saved main frontier to exactly `[0,cutoff)`, descending crossing nodes;
-coarsen this request-local list if clipping exceeds the upper bound. dispatch
-requires full coverage AND a fitting complete request. missing nodes drive
-required construction; parked work returns a typed blocking error and leaves
-canonical input pending. cancellation also preserves input. external view reads
-report the ready cutoff/backlog, never imply coverage of unbuilt material.
+publication (section 9), then obtains the same immutable fitting ready-view value
+as external readers. the library owns clipping, coarsening and whole-node fitting
+under the existing upper bound, including coverage/admitted-backlog framing.
+report actual `[0,through)` coverage and `admitted_through=cutoff`; orientation
+can be empty or end before construction progress when only an older prefix fits.
+main consumes the complete value in-process without paging or cache allocation.
+all archive reads keep the admitted cutoff, not `through`. the historical value
+stays frozen through active steering. valid ready views remain usable when
+construction parks; publication/database failures retain their typed blocking
+behavior, never empty success. cancellation preserves canonical input.
+
+this deliberately permits indefinite historical staleness: foreground work or
+parked construction can prevent catch-up, and omitted corrections may not be
+recalled. retained originals remain available through existing archive reads
+when identified; leaf zoom still needs its built node and search retains its
+embedding/error contract. no new fairness, daemon, timer or raw-tail window.
+strict full preparation remains for dreaming and maintenance where required.
 
 keep stable instructions/tools before the view, then operative inputs and clocks.
 use only approved transport cache controls and measure usage. the pin has no
@@ -1210,7 +1225,11 @@ underscores; jarvis's internal tools use dotted names):
   offset, at most 128 ascii characters. no database rows, timer or per-client
   service is needed. restart, eviction or stopped repair makes a cursor
   `stale_view`; the caller starts a new read. pages end between nodes. never page
-  a changing live frontier. main's automatic context needs no cursor/cache entry.
+  a changing live frontier. each view page packs within 16 kib of encoded and
+  rendered framing to reduce native result spills; more cursor reads are the
+  trade-off. the complete frozen view and common 64-kib original-read bound stay
+  unchanged. main's automatic context needs no cursor/cache entry. the view
+  binding records this page limit in its revisioned policy inputs.
 - view/zoom/date are local `Read` operations, with zero external attempts,
   4,096 input bytes, 64-kib output and ten-second operation bounds. they use the
   existing open binding's replay policy and caller recorder. main keeps durable
@@ -1637,7 +1656,8 @@ first projection; retained source evidence describes original chronology.
 while jarvis capture is admitted, main preparation captures the ids of pending
 eligible canonical originals and finishes projection in bounded batches. that
 in-memory set fixes preparation work; later arrivals do not extend it. then
-freeze `leaf_count` for compaction readiness. a publication error reports blocked
+freeze `leaf_count` as the admitted read scope and select the shared fitting ready
+view without requiring construction. a publication error reports blocked
 memory and preserves pending owner work. ordinary status exposes publication
 backlog separately from archive/tree progress. restarting simply rediscovers
 missing projections; no unfinished snapshot is persisted.
@@ -1673,8 +1693,9 @@ control, action recovery and paid-read barriers. `native_receipt_context` and th
 recorder remain the operational source; its latest-invocation tail is bounded,
 not a claim to contain every old receipt. unresolved effects stay host-enforced
 barriers independently of model context. new historical orientation is never
-permission to replay them. required compaction must run while main is preparing,
-even though ordinary background work normally waits for main to be idle.
+permission to replay them. main's ready-view serving never waits for compaction;
+the existing background worker runs when main is idle. strict dreamer and
+maintenance preparation continue to drive their required construction.
 
 remove the dreamer's snapshot-wide selector, scripted first-search procedure
 and search-count completion gate, plus its flat-summary insertion/removal output

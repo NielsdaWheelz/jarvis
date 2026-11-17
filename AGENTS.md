@@ -56,7 +56,7 @@ These instructions govern all work in this repository.
 - [adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
   copies up to 2,048 bytes and up to eight independent inferred nodes per serial
   batch. retain the 512-byte inferred target, fixed models, current request/retry
-  ceilings, originals, source cuts and full-history preparation. the library owns
+  ceilings, originals, source cuts and full-tree construction. the library owns
   readiness and atomic addressed completion; no singleton compatibility path,
   new table, parallel compactor or durable job ledger. initial and retry requests
   pack complete entries under the unchanged actual prepared-request ceiling.
@@ -68,6 +68,16 @@ These instructions govern all work in this repository.
   remove shortest-candidate tracking and soft-target retries. preserve whole-batch
   atomicity, strict validation, fixed models, originals and source cuts. larger
   nodes may coarsen earlier; qualify the changed stopping boundary before replacement.
+- [adr 0081](docs/decisions/0081-ready-memory-for-main.md) gives main the same
+  frozen fitting ready view as external native clients after canonical
+  publication. report actual coverage and admitted backlog, including empty or
+  indefinitely stale orientation. keep all archive reads scoped to the frozen
+  admitted cutoff and exact active inputs/receipt context/effect barriers intact.
+  main never waits for construction; existing idle compression and strict
+  dreamer/maintenance preparation remain. no new daemon, fairness mechanism,
+  mode, grant or fallback. rotate main's owning and affected view binding revisions,
+  qualify source and the
+  installed journey separately, and retain f2's final reset.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional
@@ -226,8 +236,9 @@ These instructions govern all work in this repository.
   identity/digest binds the native event before suppression; missing bodies remain explicit.
   retain tool-result archive text under a permanent 30,000-character head/tail
   cap with explicit omissions and source identity; canonical recovery receipts
-  stay intact. jarvis reconstructs each new top-level turn from a fixed admitted
-  view plus exact current requests/receipts; its active tool loop stays together.
+  stay intact. jarvis reconstructs each new top-level turn from a frozen fitting
+  ready view with explicit admitted backlog plus exact current requests/receipts;
+  its active tool loop stays together.
   codex/claude/nexus retain native chats and choose shared memory reads. use
   bounded tool-free compaction, ready queues and dependency/retry progress.
   email enters memory through actual tool observations, without wholesale inbox

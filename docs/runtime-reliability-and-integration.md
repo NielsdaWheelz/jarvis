@@ -6,13 +6,16 @@ status: f2 implementation contract, 2026-11-16, under
 with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md),
 [adr 0079's bounded serial compaction](decisions/0079-bounded-serial-compaction.md)
 and [adr 0080's first valid stopping rule](decisions/0080-first-valid-compaction.md).
+[adr 0081](decisions/0081-ready-memory-for-main.md) now adopts shared frozen ready
+orientation for main; its source proof is qualified and installed proof is pending.
 source implementation, integrated composition and isolated fault proof qualified.
 the preliminary production reset is complete. the free-copy/batch and first-valid
 repairs have source and real-model candidate qualification and are installed.
 complete fresh-prefix preparation and the first real main dispatch are observed.
 the demonstrated calendar precision and executor-capacity repairs are qualified;
 the already-entered calendar effect has positive production recovery. the same
-repaired artifact is active. one authorized fixture send, positive content
+repaired artifact is installed; the application is cleanly stopped after a new
+isolated-compactor configuration stop. one authorized fixture send, positive content
 inspection and canonical mail arrival are observed. native pdf processing,
 combined acceptance and the final fresh reset remain pending.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
@@ -46,8 +49,14 @@ exact selected artifact/configuration/host pair and genuine owner ingress.
   main; fresh-corpus proof does not qualify that backlog's latency.
 - adr 0079 changes free-copy and serial-batch policy after fresh capture exposed
   substantial new preparation work. originals, source cuts, fixed models and
-  full-history preparation stay binding. its exact contract and trade-offs live
+  full-tree construction stay binding. its exact contract and trade-offs live
   in the memory contract; source and actual installed proof remain separate.
+- adr 0081 removes foreground full-preparation waiting. use the same fitting
+  ready prefix as native clients, with explicit coverage/admitted backlog and
+  unchanged canonical inputs, receipt context, effect barriers and admitted
+  archive-read scope. indefinite stale or empty historical orientation is an
+  accepted trade-off. retain idle full compression and strict dreamer/maintenance
+  preparation; no new task, timer, fairness mechanism or fallback.
 
 non-goals: new features, orchestration/notification systems, standing benchmark or
 test harness, general retry framework, native protocol relaxation, automatic
@@ -912,3 +921,113 @@ the claude probe rereads an oversized saved memory-view result. subsequent sourc
 and exact native-lineage inspection identify the [view-page feedback
 issue](issues/memory-view-page-feedback.md). the combined journey and final reset
 remain pending.
+
+### bounded view-page repair and actual consumer
+
+memory `ab8db62c203128b2012577a8183f752567794503` changes only the existing
+view-page packing comparison and its one global limit. jarvis records that limit
+in the view binding's revisioned policy inputs. public schemas, 64-kib hard
+result/admission limits, other binding policies, frozen coverage and the complete
+128,000-byte automatic main view remain unchanged.
+
+real-postgres/public-mcp red observes a 64,936-byte first page for a controlled
+89,477-byte complete view. green packs that view into seven whole-node pages,
+with a maximum framed page of 16,146 bytes. append, cutoff, stale-cursor and
+complete frozen coverage checks pass. an actual reachable 2,048-byte control
+node fits; an 8,000-byte original remains byte-exact through open and leaf zoom,
+whose framed results are 57,289 and 57,287 bytes. independent reruns pass.
+
+one actual claude `2.1.326` cli session makes eight memory-view calls and reads all
+103 controlled nodes inline, ending its exact cursor chain at null with the
+expected node digest. the maximum framed result is 16,146 bytes and no spill
+occurs. the session exits zero after 26 seconds. private
+`view-pages-consumer-live.json`, sha256
+`0d9a31dce5cbcec60bbc93f4a8dabe0640cdbaacf5bba1b072b7e402fd58234d`,
+retains public metadata, hashes and counts, excluding reasoning and assistant
+prose. this uses strict fixture-only mcp, only `memory_view`, disabled builtins
+and requested nonpersistence; native capture absence is not independently checked.
+it qualifies that representative restricted client, not a default-client causal
+comparison, numeric spill threshold or all memory-derived generic reads. more
+cursor reads remain the trade-off. installed activation is pending.
+
+### stopped compactor configuration failure
+
+at `2026-11-17T19:32:57.291815Z`, memory parks `4040+8` with
+`invalid_completion`. the installed safe log identifies run
+`da07ca83-482e-4b5c-af34-1e6933e75478`, `reason=kernel_stopped` and
+`stop_kind=configuration_error`. that kernel stop covers several configuration,
+provider, protocol and invariant failures; it does not establish malformed model
+output, exhausted quota or an instruction-file cause. the original isolated
+exception and terminal are not retained.
+
+the application and passive observer stop cleanly at `19:34:14Z`. canonical
+`resume` sequence 9, the pending unparked fixture, all 13,224 admitted leaves,
+coverage 4,106 and original nodes/frontiers are retained for the retry comparison.
+active main
+attempts, unfinished actions, unresolved reads, todos and undelivered replies are
+all zero. observer capture 3 ends with operator stop and zero selected roots;
+there is no post-email native-work proof to infer. the contained host remains
+running on the same selected release. the [diagnostic
+gap](issues/memory-compactor-stop-diagnostics.md) is under repair; no retry or
+cause attribution is claimed.
+
+one reviewed service-identity observation at `19:56:14Z` uses only public account,
+default rate-limit and visible-model reads under a hard 60-second process bound;
+it submits no model turn. subscription authentication is present, and the catalog
+offers `gpt-6.1-sol` with `xhigh` and the expected dispatch identity. default
+seven-day usage is 99%, resetting at `2026-11-19T04:20:27Z`; no five-hour field is
+returned. private `cognition-health-live.json`, sha256
+`981b7977d80b3e00fb3ad187f5427387abdbb0fc5e925bd8718cc07e7515351f`,
+retains only approved booleans, counts and numeric usage. current account/catalog
+health neither identifies the lost failure nor proves inference will succeed;
+default usage does not establish every model-specific limit.
+
+### isolated diagnostics and ready-view source qualification
+
+kernel `36f9c6b8e4674916d185eb14e522e77d21c3f86f` retains fixed failure metadata
+on the existing outcome event at three exception boundaries, before accounting
+or cleanup can replace it. the caught type/code remain distinct from at most two
+verified owned source coordinates selected through a bounded explicit cause
+chain. the host's narrow logger excludes all other fields. public-client
+validator faults, wrapped causes, bootstrap failure and secondary cleanup failure
+pass independent privacy/reason-distinction checks. actual runtime-role postgres
+proof retains one filtered log, unchanged originals and the original atomic park,
+with zero nodes, actions or native attempts. the new probe is deleted after
+hash receipts. the lost production cause remains unknown; installed retry and
+progress through `4040+8` are still pending.
+
+memory `e52a48dc48376f73ae94601d080110c3a26dcfa3` factors one immutable
+`ReadyView` and one measured renderer from the existing external-view assembly.
+main consumes that value directly; its compactor dependency is removed. main's
+owning revision is v2 and only the affected `memory.view` implementation becomes
+v4; other role/binding schemas, limits, authority and models remain unchanged.
+the new coverage/backlog framing stays inside the existing historical budget:
+an actual boundary measures 127,999 bytes before metadata, 128,035 unadjusted,
+and 126,274 after shared fitting.
+
+the first of two actual native-runner/kernel turns through a controlled public
+unix socket completes with ready coverage 122 and admitted bound 130 despite a
+construction park. exact operative inputs and original local `memory.open`
+receipt bytes survive; the second turn checks receipt continuity in its fresh
+context. unprepared admitted originals open, later originals remain fenced, and
+input polling after construction progress preserves the frozen historical value.
+this is local-read proof,
+not a new billed external-read claim. official mcp traversal returns six complete
+pages matching the direct ready value, maximum 16,263 framed bytes. strict actual
+dreamer preparation still blocks as required. library static/package checks and
+all three retained postgres regressions pass without skips; independent review
+approves the exact source and proof. all new source probes and their matching
+compiled files are deleted after hash receipts. the exact combined graph uses
+kernel `36f9c6b`, memory `e52a48d`, tools `b25bd5f` and provider `ea9f820`, with
+lock sha256 `05fed3cfb5694318413dda82b041942ad592ada4cc6021d24f1acfee3bfcbaba`.
+full static/types/docs/build/fresh-wheel/cli/audit checks pass, as does the retained
+runtime-role capture/retry group on pristine `0013`; only its two expected
+injected publication warnings appear. public-registry audit coverage still
+excludes the three owned kernel/tools/provider git packages. private combined verify/capture receipts
+have sha256 `ff7c98bbf831586590e2a4cf5017a0df6e3bc7fcd543b7b3cdd91151d6951c2c`
+and `5618e6f514f3a70fcd257e7b7c2fa34eaae1616a054d36aa00ff63b20fa1f13d`.
+the owned synthetic mcp fixture and rootless postgres resources are removed after
+zero-client checks; original journey inputs, operational helpers and bounded
+proof receipts remain. installed journey, compactor recovery, quiet production
+roles and final reset remain separate obligations. strict production dreaming
+still requires its full frozen prefix; adr 0081 does not waive that cost or proof.

@@ -624,7 +624,6 @@ async def _serve(
                             )
                         ),
                         memory=memory,
-                        memory_worker=compactor,
                     )
                     delivery = DiscordCreateMessageClient(
                         settings.discord, discord_http

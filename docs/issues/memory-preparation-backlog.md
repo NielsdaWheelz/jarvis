@@ -30,9 +30,10 @@ without a main native attempt, action or email. the application stopped cleanly 
 22:58:14 utc to inspect required work before continuing paid preparation. gmail
 and calendar baselines had completed quietly, with no event facts or errors.
 
-impact: the required fresh-prefix preparation and actual dispatch criteria are
-met. the combined journey now awaits separate write/recovery repairs; this issue
-remains open for its remaining journey/reset closure criteria. historical source
+impact: the first fresh-prefix preparation and actual dispatch criteria are
+met. after write/recovery repair, the real fixture mail fact is admitted but
+again waits for preparation of the admitted prefix frozen for its run; the
+combined journey and final reset remain open. historical source
 ci `43974508049` at installed `b3615292b0628322be00dba8855d03f65904fec5` does not
 qualify the old backlog's operational cost. broader
 [memory usefulness/load evaluation](memory-usefulness-evaluation.md) remains separate.
@@ -101,17 +102,36 @@ prove preparation and main dispatch. the application then stops cleanly at
 after its pre-entry budget failure. the [f2 implementation evidence](../runtime-reliability-and-integration.md#first-main-dispatch-and-stopped-write-failures)
 records those actual boundaries. no throughput or journey acceptance follows.
 
-owner disposition: implement exact free copies through 2,048 bytes and bounded
+at `2026-11-17T19:11:05.352296Z`, selected repaired release `0c3edfc` is running
+with canonical `resume` sequence 9, coverage 4,017 of 10,910 admitted leaves and
+no compaction error. the actual mail fact `e0ab7889-d8fc-4105-9e88-b7306f008c48`
+remains pending and unparked, with no native main attempt since the latest
+18:19:29 restart. four new paid-required leaves after the independently recorded
+18:08:54 baseline reduce 4,180–8,000-byte originals to 501–575-byte summaries.
+this proves current committed inference progress, not per-turn timing or a
+completion estimate. the separately observed [view-page feedback
+defect](memory-view-page-feedback.md) is not established as the cause of all
+preparation latency.
+
+earlier owner disposition: implement exact free copies through 2,048 bytes and bounded
 serial batches, qualify the real journey, then perform the final reset. before
 either wipe, disposition pending work through existing controls, satisfy every
 stopped-reset obligation and retain verified current private `0013` recovery and
 original uncertainty evidence. replace an older full recovery artifact only after
 its successor verifies; retain concise original receipts. both resets establish
 fresh source cuts and preserve original native/nexus chats and private data. no
-stale view, parallel compactor or skipped admitted history is adopted.
+parallel compactor or skipped archive construction is adopted.
 
-resolved when: the amended library/caller contract passes meaningful source/live
-proof and the actual main turn reaches native dispatch with the required complete
-fresh view, followed by the remaining real
-journey and reset evidence. fresh-corpus success would not qualify latency for
-this 39,873-leaf backlog; retain that limitation explicitly.
+current owner decision: [adr 0081](../decisions/0081-ready-memory-for-main.md)
+removes main's foreground construction wait. share the existing fitting ready
+view with explicit coverage/admitted backlog and preserve exact operative inputs,
+recovery and the admitted archive-read scope. indefinite stale or empty historical
+orientation is accepted; omitted corrections may not be recalled. source proof
+is qualified; installed proof is pending. repair the separately parked configuration failure
+without pretending this availability policy classifies it.
+
+resolved when: the shared ready-view contract passes meaningful source proof and
+the installed main reaches native dispatch despite the unprepared admitted tail,
+with truthful historical scope, followed by the remaining real journey and reset
+evidence. this qualifies removal of the serving dependency, not compression
+throughput, freshness or latency for the historical 39,873-leaf backlog.

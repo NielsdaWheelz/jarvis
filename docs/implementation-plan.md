@@ -205,6 +205,10 @@ under the owner's [role/delegation refinement](decisions/0076-role-models-and-de
 reliability/deployment proof under the owner's
 [production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
 reordered by [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md).
+[adr 0081](decisions/0081-ready-memory-for-main.md) additionally adopts shared
+frozen ready orientation for main with explicit historical backlog, preserving
+canonical inputs/effect recovery and existing idle compression. source proof is
+qualified and combined checks pass; installed proof remains pending within f2.
 final source integration is qualified; installed acceptance and reset remain pending.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
 records the exact artifact, pins and temporary candidate. production activation
@@ -548,7 +552,9 @@ reduction. tool-result archive text is capped at 30,000 characters, head/tail wi
 explicit omission; canonical execution receipts remain exact. worker histories
 share the tree and linked report occurrences remain distinct. supplied context
 stays reference-only. views use corrected merge priority and persisted batched
-shrink; waiting targets a fixed admitted cutoff. shared search remains available.
+shrink. main consumes a frozen fitting ready view under adr 0081; strict dreamer
+and maintenance preparation retain their fixed admitted cutoff. shared search
+retains the full admitted read scope.
 email capture uses actual tool observations, without wholesale inbox ingestion.
 retain exposed attachment text and references; durable files/image access remain
 in the attachment feature. shared tools/basic inspection ship first; a dedicated

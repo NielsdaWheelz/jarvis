@@ -69,10 +69,10 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "9fd491a2aca24022bf1fbbf8a41c4668d55ba758",
+    "llm-agent-kernel": "36f9c6b8e4674916d185eb14e522e77d21c3f86f",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
     "provider-runtime": "ea9f82025632926a7c7e47d6333fb9346f6ee86c",
-    "universal-memory": "f77a4c7a5f85b897fbea08066b9dd5b890c2e6d7",
+    "universal-memory": "e52a48dc48376f73ae94601d080110c3a26dcfa3",
 }
 MAIN_CODEX_MODEL = "gpt-6-astra"
 MEMORY_CODEX_MODEL = "gpt-6.1-sol"

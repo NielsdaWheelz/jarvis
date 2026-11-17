@@ -2,7 +2,7 @@
 
 status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 installed, combined acceptance pending**
 
-date: **2026-11-16**
+date: **2026-11-17**
 
 audience: product, engineering, design, operations, and future coding agents
 
@@ -211,6 +211,17 @@ this replaces shortest-candidate selection and soft-target retries. larger
 inferred nodes may coarsen older detail earlier; net parent cost and general
 quality remain unmeasured. existing nodes, originals and source cuts stay intact.
 
+[adr 0081](docs/decisions/0081-ready-memory-for-main.md) removes main's dependency
+on full historical preparation. after canonical publication, freeze the admitted
+cutoff and consume the same complete fitting ready-view value as external native
+clients, with explicit covered range and admitted backlog. historical context may
+be stale or empty indefinitely; omitted corrections are not guaranteed recalled.
+all archive reads retain the admitted scope. exact active requests, existing
+receipt context and effect barriers stay unchanged. existing idle compression
+continues; strict dreamer and maintenance preparation remain. add no new task,
+mode, grant, raw-tail fallback or freshness guarantee. source and installed proof
+remain separate.
+
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do
@@ -402,9 +413,11 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   originals, positions and dream progress remain immutable/preserved as applicable.
   no durable jobs, node generations or background replay journal.
 - use bounded contextual, host-enforced tool-free compaction and ready-node
-  scheduling. a waiting turn freezes its admitted cutoff; its required
-  compression can run/retry without another owner message. dispatch needs both
-  completed summaries and a fitting request. the reference's 512-byte node target,
+  scheduling. main freezes its admitted cutoff and consumes a fitting ready
+  view without waiting for construction under adr 0081. strict dreamer and
+  maintenance preparation can drive required compression over their frozen
+  bounds without another owner message. every dispatch still needs a fitting
+  complete request. the reference's 512-byte node target,
   64,000–128,000-byte main view and 16,000–32,000-byte compactor view are initial
   tuning defaults, with rendered framing counted and actual provider context
   reserves enforced. hard node text is 2,048 bytes; at most five inference calls
@@ -472,8 +485,9 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   fencing still rejects late results.
 - shared keyword/semantic candidates, identity deduplication and deterministic
   reciprocal-rank fusion through bounded search/open. fresh jarvis context also
-  receives a bounded compressed view covering retained history from all admitted
-  jarvis/native sources. search remains available alongside tree navigation and
+  receives a bounded fitting ready prefix from the shared all-source tree, with
+  explicit actual coverage and admitted backlog under adr 0081. orientation may
+  remain stale or empty indefinitely. search remains available alongside tree navigation and
   paged source opening; capture/admission and current authority remain.
   callers choose when to search; remove the recaller,
   automatic pre-input recall and its isolated inference work. main's full and
@@ -787,8 +801,9 @@ admission bits, independently of request settlement.
 
 Discord is a client and delivery surface, not the canonical conversation store.
 Every owner message and every Jarvis response MUST be persisted in `message`.
-main opens a fresh native session for each top-level turn from a fixed admitted
-memory view and exact current requests/receipts. its active steering/tool loop
+main opens a fresh native session for each top-level turn from a frozen fitting
+ready view with explicit admitted backlog and exact current requests/receipts.
+its active steering/tool loop
 stays together. connection, process or owner loss fences old callbacks; fresh
 reasoning reconstructs canonical unfinished requests and original receipts while
 preserving entered effect dispatchers. native history is disposable.
@@ -1249,7 +1264,8 @@ supplies bounded tool-free inference through one serial compactor. source parts
 are ordinary leaves; no private oversized-leaf reduction. completed nodes,
 frontiers and retry progress commit together; interrupted inference may repeat.
 
-fresh top-level main turns use a fixed admitted view plus exact current requests
+fresh top-level main turns use a frozen fitting ready view with explicit coverage
+and admitted backlog plus exact current requests
 and operative receipts. active steering stays in the same tool loop. canonical
 conversation/effect commits precede recoverable archive projection; memory
 failure never replaces an original receipt or authorizes its replay.
@@ -1368,7 +1384,7 @@ and cache behavior remain provider optimizations, never canonical state or
 guaranteed cost properties.
 
 jarvis supplies canonical product context: stable instructions and owner profile,
-the fixed admitted memory view, unfinished requests and original action/read
+the frozen ready memory view with explicit admitted backlog, unfinished requests and original action/read
 receipts, current input timestamps, the frozen capabilities, owner IANA
 timezone and host `as_of`. typed `llm-tools` sections express provenance; they are
 not an authority boundary. each current input is supplied once within its native
@@ -1633,7 +1649,8 @@ a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
 policy inputs.
 
-main receives the fixed admitted memory view and shared tools described above. internal cognitive
+main receives the frozen ready memory view and shared tools described above. archive
+reads retain the frozen admitted cutoff, not the ready prefix's end. internal cognitive
 roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
 No role receives `tool.search`, `tool.read`, a local-filesystem tool, a Gmail
 organization tool, or a model-callable Discord tool.
@@ -1959,7 +1976,7 @@ AutomaticWriteGate runs a fresh isolated one-shot within its parent callback,
 using the same current owner and explicit parent invocation permit. main cannot
 enter another effect while that dispatch is active; native observation/control
 continues. foreground work takes precedence over compaction/dreaming; main
-preparation may run the compaction required by its fixed admitted cutoff.
+preparation never waits for historical construction under adr 0081.
 background cancellation preserves canonical source/progress and does not
 automatically rearm paid inference.
 

@@ -23,6 +23,7 @@ from llm_agent_kernel import (
     bootstrap_context,
     run_one_shot,
 )
+from llm_agent_kernel.events import EventKind, KernelEvent
 from llm_tools import (
     FrozenToolPlan,
     PromptJson,
@@ -61,6 +62,38 @@ from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_service import MemoryService
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _CompactionFailureEvents:
+    def emit(self, event: KernelEvent) -> None:
+        attributes = {
+            item.name: item.value
+            for item in event.attributes
+            if item.name
+            in {
+                "failure_site",
+                "failure_kind",
+                "failure_code",
+                "failure_frame_count",
+                "failure_module_0",
+                "failure_function_0",
+                "failure_line_0",
+                "failure_module_1",
+                "failure_function_1",
+                "failure_line_1",
+            }
+        }
+        if event.kind is EventKind.outcome and attributes.get("failure_site") in {
+            "bootstrap_context",
+            "provider_configuration",
+            "kernel_configuration",
+        }:
+            LOGGER.warning(
+                "compaction kernel failure %s",
+                canonical_json_bytes(
+                    {"run_id": str(event.run_id), **attributes}
+                ).decode("utf-8"),
+            )
 
 
 class MemoryWorker:
@@ -168,6 +201,7 @@ class MemoryWorker:
                 dispatcher=EmptyToolDispatcher(),
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
+                event_sink=_CompactionFailureEvents(),
             )
             if cancellation.cancelled:
                 return False

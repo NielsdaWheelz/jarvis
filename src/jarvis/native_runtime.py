@@ -52,7 +52,7 @@ from provider_runtime.agent_runtime import (
 )
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import array
-from universal_memory import MemoryError, render_view
+from universal_memory import MemoryError, render_ready_view
 
 from jarvis.actions import (
     ActionStore,
@@ -74,7 +74,6 @@ from jarvis.definitions import RoleDefinitions
 from jarvis.input_framing import host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
-from jarvis.memory_workers import MemoryWorker
 from jarvis.messages import MessageStore, StoredMessage, causal_component_ids
 from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_journal import (
@@ -288,7 +287,6 @@ class NativeRunner:
         kernel_runtime: KernelRuntime,
         definitions: RoleDefinitions,
         memory: MemoryService,
-        memory_worker: MemoryWorker,
         dispatcher_factory: Callable[
             [NativeInputs, PostgresNativeJournal], WriteToolDispatcher
         ],
@@ -296,7 +294,7 @@ class NativeRunner:
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
         self.kernel, self.definitions = kernel_runtime, definitions
-        self.memory, self.memory_worker, self.actions = memory, memory_worker, actions
+        self.memory, self.actions = memory, actions
         self.dispatcher_factory = dispatcher_factory
         self._session: ProviderSessionLease | None = None
         self._journal: PostgresNativeJournal | None = None
@@ -333,8 +331,7 @@ class NativeRunner:
             pending_publication = await self.memory.pending_publication()
             await self.memory.project_pending(pending_publication)
             cutoff = await self.memory.library.cutoff()
-            await self.memory_worker.ensure_ready(cutoff, cancellation)
-            nodes = await self.memory.library.main_view(cutoff)
+            memory_view = await self.memory.library.ready_view(cutoff)
         except MemoryError as error:
             LOGGER.warning("memory preparation blocked: code=%s", error.code)
             return NativeRunOutcome("blocked")
@@ -345,7 +342,7 @@ class NativeRunner:
                 PromptSection(
                     PromptSectionKind("historical_memory_view"),
                     (),
-                    PromptText(render_view(nodes, cutoff)),
+                    PromptText(render_ready_view(memory_view)),
                 ),
             )
         )

@@ -10,10 +10,13 @@ installed `650eb7c` completed the quiet dream. on `844fe16` main reopened
 the original attachment and integrated an independently observed native child.
 the next calendar update failed before action creation. on `34d1620` the
 owner supplied a fresh timing instruction and the update succeeded with all
-120 delivered inputs. the application stopped with the original send awaiting
-approval, a future todo wake and the worker wait registered. restart catch-up,
-approval, verified reply, final disposition, post-journey compaction and quiet
-dream on the selected graph, and final reset remain outstanding at that checkpoint.
+120 delivered inputs. restart catch-up admitted the owner's downtime approval.
+the original send executed once and the verified self-reply was in the same
+thread. the todo wake and worker wait settled. main missed the fixture's
+already completed calendar notice and delivered a partial final. three owner
+requests await input and the original todo is blocked at that checkpoint.
+compaction and a quiet dream completed on the selected graph. the corrected
+final disposition and final reset remain outstanding.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -1575,3 +1578,91 @@ all three retained synthesis notes came from `650eb7c`. the stopped
 post-journey compaction and a quiet dream still need observation on this graph.
 private `34d1620-stopped-memory-roles.json` has sha256
 `d456569bfa7a05d4fc9c9618881f436ad987b759178e6970eb99ce30b801f5e0`.
+
+### restart catch-up and original send
+
+the owner approved the existing draft in ordinary discord message
+`1572453887498264599` at `03:30:21.560Z` during downtime. systemd started
+only the application at `03:36:52Z`. the gateway scanned four messages,
+accepted one and completed catch-up below its scan limit at `03:37:04Z`.
+canonical owner input `45efcc25-4674-45ce-a9d8-e18bcf8ee755` matched the
+observed post. fresh native attempt `fbdbc40a-0362-454c-af18-fe5481ffeee6`
+recorded that input, the original timer wake and the worker wait outcome in
+its opening. the canonical control remained resume 9.
+
+the timer's one-time occurrence retained its original todo, wake id and
+scheduled time of `03:11:52Z`. startup settled the registered wait at
+`03:37:01Z` as a timeout after its deadline. its original registration and
+full worker target matched. the native progress report distinguished the
+wait timeout from the successful independent worker result.
+
+the accepted `approval.respond` invocation `1c92b5b5-d6c2-49b9-b8c4-401e0ab38196`
+bound that exact owner input to original send `8bc53688-c507-467b-9945-b6b359d7996e`
+at `03:37:22Z`. the original send succeeded at `03:37:23Z` with one executor
+entry. its arguments and input digest matched the stopped proposal. the draft
+and send receipts matched on content digest, thread and original effect marker.
+there was one draft creation, one send proposal and one worker launch.
+private `34d1620-original-send-confirmed.json` has sha256
+`af34efc84805932f44d857b707b218409c8fe2e0f60d3d4539062a97e77cbce8`.
+
+the restart attempt committed its partial final at `03:44:13Z` and delivered
+discord message `1572457378773864509`. the fresh timing instruction, approval,
+todo wake, wait resolution and send resolution were completed. the three
+earlier owner requests were waiting for owner input, the existing todo was
+blocked and the outbox was empty. the final correctly distinguished the timed-out
+wait from the worker's completed report. it left the renewed event's attention
+unverified and asked whether to run another window.
+
+the canonical source had already observed that exact event at `03:07:20.538512Z`,
+due `03:06:52Z` for the `03:21:52Z` start. both provider ids and the start
+matched the renewed event. pre-stop attempt 14 recorded the fact
+`b1ab8435-2c1a-4cef-87f8-1e7321a61327` as its fifth input and completed it
+at `03:09:42Z`. its delivered conclusion mentioned the scheduled block. the
+restart attempt received a different calendar notice. its final missed the
+retained fixture fact. private `34d1620-fixture-attention-occurrences.json`
+has sha256 `b8c90e8c85c346346b5263f8ef2c38f378446e8204bc086de5ea242d11e4192e`.
+private `34d1620-approval-restart-terminal-16.json` has sha256
+`c2970e588ba5e32099472e235c350473ce1ffff1dccf1af6a5af8278ddd45f65`.
+
+the retained notice occupied leaf 22,192 within the restart attempt's admitted
+cutoff of 22,199. that attempt searched for the event, etag and a timestamp
+without the utc suffix. postgres full-text search required the token `52`.
+the archived timestamp ended in `52z` and the actual query returned zero.
+on the same original, the event id with either the etag or the event kind
+matched. the source record remained directly openable. private
+`34d1620-attention-search-miss.json` has sha256
+`3b33adfdb6e3c5ab74ac57b471a7ec8c5885dce2f5834e8134b7c6e641e7d3b7`.
+
+the resumed main reopened the same retained original at `03:39:44Z` and read
+the checker's complete report at `03:39:48Z`. after the run, the private
+checkout remained at `fdcf2c6`. its untracked 3,812-byte note included the
+page-two correction, primary source, 12,400 cases and measured delay. both
+original page renders and the extracted text were still present. these
+observations establish the file contents and git state at inspection. private
+`34d1620-reopened-original-and-reports.json` and `34d1620-postrestart-workspace.json`
+have sha256 `266a5702c74b59ef611b2abcc3b42df5020405c930717881e20cffff4d11e5c8`
+and `152a01969d63b7faf3a32be9b8b8ad850f0c47142495b195cfbdba687228ea0a`,
+respectively.
+
+an independent gmail read at `03:56:39Z` verified the sent plain-text reply,
+its sole owner recipient, original thread, reply headers and corrected body.
+the private receipt retains the original and sent message ids for exact cleanup.
+private `34d1620-final-sent-positive.json` has sha256
+`d0ab5ced67f4b5d49a5c5a0e7fb752d195e69644c7f5e5effa00f479b337dcdb`.
+
+by `03:50:28Z` the post-journey compactor had committed ready coverage
+through 4,131. two 8,000-byte inputs at positions 4,129 and 4,130 produced
+528- and 516-byte nodes, respectively. the dream cursor remained at 4,127.
+private `34d1620-selected-compactor.json` has sha256
+`faf62ce966b6f81725536d71ce95597404ee828d0e7de8d33245f7621396fdca`.
+
+the application stopped cleanly at `03:55:42Z` for the independent mail
+read and the stopped `jarvis dream`. by this stop the compactor had prepared
+through 4,150. the selected release's fixed sol/xhigh dream consumed the
+23 ready seeds in `[4127,4150)` and exited successfully after 169.8 seconds.
+an independent postgres read found four committed synthesis notes at positions
+25,396–25,399 with 3, 2, 2 and 4 references. the nightly marker and the hashes
+of all eleven canonical tables matched across the run. private
+`34d1620-independent-postdream.json` has sha256
+`bb334b5b2555e146dcd4e8a7ac888edf378217b5c2f903c411b613784f7eb7f2`.
+the same application restarted at `04:13:17Z` under existing resume 9.

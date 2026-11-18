@@ -558,6 +558,14 @@ where no canonical evidence exists.
 
 ### supervised todo setup
 
+the installed cutover reached schema `0013`. the private original inventory
+`retired-one-main-cutover.json` (sha256
+`f0b30e8c3df8519958a410690e05c5f1cd6e8b4907aa3708cde08991421c3086`)
+contained zero reminders, three reviewed historical actions, zero undelivered
+messages and zero unsettled attempts. genuine owner resume sequence 9 preceded
+the real fixture todo and wake. the preliminary reset created no daily review.
+the later restart with a pending timer remains part of f2.
+
 adr 0078's two selected fresh resets clear every todo/reminder/wait
 and supersede daily-review creation for those resets. do not recreate one on startup;
 future ordinary owner work can request it. the original setup procedure below
@@ -657,7 +665,7 @@ a temporary candidate, task database/runtime state and real installed skid under
 service restrictions. production's release, database and canonical control remain
 unchanged. its controlled ingress and actual outbox proof do not close physical
 owner gateway or selected-production restart acceptance; retain those for final
-v2 cutover with the [todo handoff](issues/work-installed-cutover.md).
+v2 cutover with the [todo handoff](operations.md#supervised-todo-setup).
 
 `deploy/verify-agent-client` accepts an explicit installed-state directory for
 that qualified boundary. `deploy/verify-containment` checks installed

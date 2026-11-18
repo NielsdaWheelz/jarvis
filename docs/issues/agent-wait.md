@@ -45,6 +45,6 @@ resolved when: final authorized v2 cutover repeats
 real owner gateway → main → worker → observation → useful continuation → discord,
 including selected-service restart. preserve original receipts, latest stopped
 intent and effect recovery. production migration/reminder accounting belongs to
-[the existing todo cutover](work-installed-cutover.md); candidate success does not
+[the existing todo cutover](../operations.md#supervised-todo-setup); candidate success does not
 close this issue. arch remains deferred. no new callback protocol or standing
 behavioral harness is required.

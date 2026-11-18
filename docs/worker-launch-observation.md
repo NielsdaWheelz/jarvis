@@ -193,7 +193,7 @@ adr 0072 distinguishes routine stopped-release replacement, which preserves
 canonical pause/resume, from migrations and private-configuration/authority
 changes, which retain their pause requirements. do not synthesize a control or
 silently restore an old installer. startup recovery and validated discord catch-up
-remain mandatory; [todo conversion](issues/work-installed-cutover.md) stays with
+remain mandatory; [todo conversion](operations.md#supervised-todo-setup) stays with
 the selected v2 cutover.
 
 rollback requires proof the prior release reads current schema/contracts and

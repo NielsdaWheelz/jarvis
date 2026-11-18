@@ -774,7 +774,7 @@ input has been used.
 an exact-id read-only calendar observation at `12:47:37Z` finds the event at its
 deterministic id. only start/end fractional seconds differ, each by -954,234
 microseconds; owner, time zones and all other writable fields match. the
-[calendar precision issue](issues/calendar-subsecond-precision.md) owns that
+[stopped positive recovery](#stopped-positive-recovery-of-the-entered-calendar-effect) records that
 source repair and actual same-effect recovery. the
 [executor-capacity issue](issues/execution-capacity-after-recovery.md) owns the
 shared in-flight slot left occupied after recovery handoff; a 2,767-byte todo
@@ -1374,3 +1374,13 @@ recovery fences unsettled callback owners, settles only sealed terminals and
 uses canonical unfinished requests/original receipts for fresh reasoning.
 no new lifecycle or recovery machinery follows. installed main continuation,
 the combined journey and final reset remain outstanding.
+
+the stopped inventory was independently reread on resumption. schema `0013`,
+owner resume sequence 9, 12 actions, 37 read positions, an empty outbox and
+the original pending send with zero executor entries were observed. the genuine
+continuation remained pending and unparked. the selected notes checkout retained
+the exact private origin and bootstrap head `fdcf2c6`. the stopped configuration
+had adopted the canonical calendar id after inspection of 21 calendars and one
+complete owner-only acl. the actual same-event update and subsequent attention
+observation qualify the installed calendar read/write path. the original reminder
+inventory and disposition are recorded in [operations](operations.md#supervised-todo-setup).

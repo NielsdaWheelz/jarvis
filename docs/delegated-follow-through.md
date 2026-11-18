@@ -205,7 +205,7 @@ issues; retain their production handoff until it is actually proved. no duplicat
 qualification-report tree or permanent review machinery.
 
 final production acceptance belongs to [operations](operations.md#skid-only-worker-cutover)
-and [todo cutover](issues/work-installed-cutover.md): selected compatible release,
+and [todo cutover](operations.md#supervised-todo-setup): selected compatible release,
 accounted-for effects/reminders, schema conversion and existing control rules;
 then real owner gateway → main → installed worker → observation → useful main
 continuation → discord, including selected-service restart. retain startup

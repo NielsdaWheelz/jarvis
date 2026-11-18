@@ -449,7 +449,7 @@ qualification and exact pins remain unchanged. post-deletion adversarial review
 passes; no temporary harness, credential copy or task service remains.
 
 production services, databases and original checkouts were not changed. the
-[installed handoff](issues/work-installed-cutover.md) retains reminder conversion,
+[installed handoff](operations.md#supervised-todo-setup) retains reminder conversion,
 once-only daily setup and selected-release activation; no production acceptance
 or owner resumption is claimed by this source qualification.
 

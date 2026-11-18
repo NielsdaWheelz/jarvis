@@ -496,7 +496,7 @@ attention states inform agent judgment. daily review is an ordinary repeating
 todo that remains active between runs. admitted schedule changes delayed past
 their time wake late with truthful context. the
 [implementation evidence](work-records.md#implementation-evidence) records source
-qualification; the [installed handoff](issues/work-installed-cutover.md) retains
+qualification; the [installed handoff](operations.md#supervised-todo-setup) retains
 reminder conversion and supervised setup. later dreamer work context is outside
 this cut.
 
@@ -1118,7 +1118,7 @@ intent merely because their implementation is incomplete.
 | --- | --- |
 | native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
 | o6 | [contract](one-main-events.md) source and isolated functional proof complete; selected-slice cutover and installed activation remain |
-| o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](issues/work-installed-cutover.md) remains |
+| o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](operations.md#supervised-todo-setup) accounted for all prior reminders |
 | o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
 | o9 | [evidence](delegated-follow-through.md#implementation-evidence--2026-11-15) qualifies source and temporary candidate against installed skid, with `claude-work` explicitly unavailable by owner decision; production acceptance stays at final v2 cutover |
 | new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined migration/native candidate qualified; installed cutover deferred; recurrence belongs to o7, dream wakes deferred |

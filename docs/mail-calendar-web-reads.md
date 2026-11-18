@@ -498,7 +498,7 @@ configuration before the relevant model/effect entry. the live calendar selector
 failure was the configured `primary` alias; exact canonical discovery and full
 owner-only acl verification repaired only the stopped candidate's allowlist.
 production's later canonical configuration remains an explicit
-[cutover prerequisite](issues/canonical-calendar-configuration.md).
+[cutover prerequisite](runtime-reliability-and-integration.md#installed-quiet-completion-and-native-startup-failure).
 
 the first native harness exited during its post-run cleanup check: its verifier
 compared json spellings of datetimes despite the existing write contract comparing
@@ -544,6 +544,6 @@ activated. ordinary shared oauth refresh bookkeeping was retained. no original
 codex history/credentials, skid state or global host journals were deleted.
 no task r2 bucket/object or third-party send/invitation was created.
 f2's combined acceptance, f3 and stopped production activation remain separate.
-the [private notes origin](issues/private-notes-origin.md) remains unavailable;
+at f1 qualification the [private notes origin](runtime-reliability-and-integration.md#bootstrap-metadata-permission-repair) was unavailable;
 this candidate uses its own empty ordinary checkout and claims no private-origin
 bootstrap. the original native diagnostics issue remains open.

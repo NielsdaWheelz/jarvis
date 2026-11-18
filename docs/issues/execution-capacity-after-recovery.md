@@ -1,8 +1,8 @@
 # executor capacity remains occupied after recovery handoff
 
 status: OPEN. the source repair has independently reviewed isolated functional
-proof; installed verification is pending. the calendar outcome remains a separate
-uncertainty until its own verified recovery.
+proof. the repaired graph was installed in `0c3edfc`. the calendar effect
+subsequently reconciled positively. the combined installed journey remains open.
 
 on 2026-11-17, main's calendar creation entered at 12:36:48 utc, then returned
 `recovery_required` / `waiting_for=system`. `work.create` failed at 12:37:11 with
@@ -26,7 +26,7 @@ work input. source owners are `llm_tools.execution.ToolExecutor` and
 `llm_tools.budgets.RunBudgetState`; durable effect and cost evidence remain owned
 by the existing jarvis recorders. the independent exact-event observation at
 12:47:37 isolated discarded fractional seconds in both event times, with other
-writable fields equal; the [calendar precision issue](calendar-subsecond-precision.md)
+writable fields equal; the [calendar precision issue](../runtime-reliability-and-integration.md#stopped-positive-recovery-of-the-entered-calendar-effect)
 owns that separate cause.
 
 the selected repair releases only active executor capacity when an accepted

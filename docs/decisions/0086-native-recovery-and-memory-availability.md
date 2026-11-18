@@ -322,3 +322,72 @@ preserved original evidence. invalid model content parks its inputs, including
 a completion hiding an open action or decoded nul in response text. a failed
 storage transaction preserves the seal and identifies the attempt for repair.
 independent opus approved the correction after its final live and crash runs.
+
+**0015 candidate.** linux installed `34879a3c4fb70581ea4e3b60da44b510205c16a0`
+from `05d1c33` with provider `f42d6cf`, kernel `eae7b86` and stock
+`0.160.0`. the frozen lock sha256 was
+`c5982434ce8932825969ee47122b7b7fa4d25f243d2e8fe362a72ce7489e449e`.
+under a 2 gib high / 3 gib max cgroup, zero versus 108 inert rows produced
+16,991 versus 17,007 received recovery bytes. cold peak rss was 232,304
+versus 232,168 kib. queries fetched zero inert request bytes. authenticated
+reads finished during recovery in 19.4 and 20.6 ms.
+
+the candidate retained the prior stop result across reboot. killing snapshot
+creation left an unpublished partial copy and schema 0013. preparing again
+succeeded. corrupting a recovery file or changing a paid barrier blocked the
+cut. the verified stopped candidate preserved its resume, 108 inert attempts,
+339 original gmail calls, unknown paid read and outbox. its pending opening
+fit at 2,017 scalars and 6,294 wire bytes. the activated service returned a
+receipt and exact reopen in 21 ms. the candidate used synthetic mail and
+discord state. an outstanding action from an incompatible old plan blocks
+activation. check the real action inventory and opening on a private restored
+copy of the stopped database before migrating it.
+
+**b · admission.** stock accepted 1,048,576 unicode scalars spread over two
+items and returned its structured refusal at one more. separate wire tests
+exercised equality and overflow at 4 mib. the pinned provider passed 996
+tests, the kernel 188. the postgres/kernel journey covered crashes before and
+after loss accounting, late seals, refusal, pause, omitted requests, one
+notice per park and release of a named request. a release records the current
+attempt sequence on that request to fence late originals.
+
+review withdrew `d029f47` after an unrecorded steer completed in a real
+terminal transaction. on the successor, an accepted opening and a recorded
+steer confer authority. possible transmission still counts toward retry.
+nine additional kernel/postgres cases passed. a queued steer named by a write
+callback produced zero actions. opus independently reran the original and
+successor probes under the pinned packages.
+
+**d · service.** application `656e3874109167962277b3b46e1b80fc3e100507`
+has the qualified 0015 code as its parent. opus checked the clean checkout.
+on isolated postgres 16, 19 clients exercised all six tools (114 calls) and
+both capture protocols redelivered without duplicate originals. saving during
+a 64-event, 16 mib ingest took 2.317 s. with the assistant stopped, a ready
+view covered [0,120) while 126 leaves were admitted. all six newer originals
+were immediately addressable. resuming the assistant caught up derived work.
+
+both private routes released their checked-out read connections on disconnect.
+assistant writer contention returned zero attempts in 5.169 s without socket
+entry. a lost paid-search acknowledgment after transmission remained uncertain
+on replay and made zero additional calls. migrations verified both writer
+locks, the recorded pause and least-privilege grants. a separate stock session
+opened an unseen witness. embedding http and compaction output were controlled
+in this proof. postgres and the host remain shared failure domains.
+
+**0016 candidate.** an isolated linux host installed
+`c81324fdc9719d3d9fd2d6aea5447bedc8271377` over the qualified 0015 release.
+the actual handler recorded its pause. the competing memory lock blocked the
+cut. provisioning preserved the 0015 credentials, and both services started
+from the same 0016 receipt. pressure crossed the assistant's 2 gib threshold
+six times with zero oom kills. postgres answered while the assistant was
+frozen. the memory unit returned the same note in 125 ms under pressure,
+15 ms with the assistant and stock stopped, and 14 ms after its own restart.
+
+a separate 16,777,216-byte ingest took 1.603 s on the installed unit. the save
+completed in 78 ms during that ingest, with one note leaf. replay preserved
+the checkpoint. reopening a middle event recovered all 33 parts. the unit
+peaked at 420,560,896 bytes on this corpus, with zero high/max/oom events.
+opus approved the installed candidate and its two-key maintenance and
+credential boundaries. actual host pressure, archive size and embedding
+latency can differ. the frozen wheel, static typing and retained capture and
+completion regressions passed.

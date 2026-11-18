@@ -1133,19 +1133,21 @@ or a manual run. no freshness, throughput or usefulness guarantee is added.
 
 use isolated `run_one_shot`, `TransientModelDecisions`, one `as_of` and run-local
 read receipts. retain ten provider turns, two repairs, three no-progress attempts,
-300 cooperative seconds, 1,000,000 input tokens, 16,000 output tokens and 327,680
+300 cooperative seconds, 1,000,000 input tokens, 16,000 output tokens and 1,048,576
 rendered new-context bytes. reads allow eight calls/eight external attempts,
 32,768 aggregate input bytes and one in-flight call. set tool-budget elapsed time
 to 300 seconds, aligned to the isolated run: this clock starts before inference,
 so it includes model thinking, not just tool execution. per-tool deadlines remain.
 one search makes at most one embedding attempt. each result is at most 64 kib;
-aggregate output is at most 512 kib. eight maximum-size replies need not fit.
+aggregate output is at most 512 kib. the host context ceiling accommodates the
+maximal seed/sample plus eight full framed replies and measured call evidence;
+it does not guarantee every maximal repair/output/native path will fit.
 the pinned kernel can detect context overflow AFTER a read executes, aborting the
 whole isolated run as a configuration error; seeds stay pending. it does not
 promise graceful read refusal followed by successful completion.
 
-f2's measured composition amendment raises the dreamer's host context capacity
-to 320 kib. its complete host table plus the full 64,000-byte seed, 8,000-byte
+f2's original measured composition amendment raises the dreamer's host context
+capacity to 320 kib. its complete host table plus the full 64,000-byte seed, 8,000-byte
 sample and actual role/time/identity framing require 292,817 bytes. the former
 262,144-byte cap could reject a valid initial request before inference.
 this capacity amendment used dreamer role v4; adr 0082 advances the owning role
@@ -1162,6 +1164,20 @@ headroom, not a guarantee for every maximal path. this is a 6.25x resource
 threshold, including cached input, not a monetary bill. the after-generation
 check can overshoot by an in-flight turn. other bounds, models, grants and atomic
 completion remain unchanged; add no budget framework.
+
+[adr 0084](decisions/0084-dreamer-continuation-context.md) subsequently raises
+only cumulative host context from 327,680 to 1,048,576 bytes and advances dreamer
+to v7. the actual v6 run passes 421,532 input tokens over five turns, then fails
+at the context guard after a read. audits find no duplicate rendering. a valid
+maximal seed/sample bootstrap plus eight bounded read frames requires about
+817,105 visible bytes. the controlled compiled-role/kernel path measures 825,582
+canonical bytes before its final turn and 825,809 including the terminal,
+leaving 222,767 bytes under 1 mib. 512 kib fits only three maximal frames.
+the host threshold rises 3.2x; longer allowed history can increase generation
+work and exhaust unchanged input/time/native limits sooner. every other bound,
+model, grant and atomic completion rule remains. no clipping or prescribed
+procedure; strict overflow and incomplete runs remain possible. source proof
+and actual installed quiet completion stay separate.
 
 promote llm-tools' generic transient recorder into its production surface with
 `durable=False` fixed and consume the qualified pin. never import its test helper

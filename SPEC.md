@@ -245,6 +245,16 @@ the input threshold, including cached input; post-generation enforcement can
 overshoot. ten maximal turns and weekly availability remain unguaranteed.
 qualify source and actual installed quiet completion.
 
+[adr 0084](docs/decisions/0084-dreamer-continuation-context.md) raises only
+dreamer's cumulative host context ceiling from 327,680 to 1,048,576 bytes and
+owning revision to v7. the actual v6 run passes the old input threshold, then
+fails after a read at the context guard. valid maximal seed/sample and eight
+framed read slots justify 1 mib; source audits find no duplicated rendering.
+all other bounds, models, grants and completion rules remain. the 3.2x context
+threshold can increase generation work and hit unchanged input/time/native
+limits sooner; maximal-path fit and useful completion remain unguaranteed.
+qualify source and actual installed quiet completion separately.
+
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do

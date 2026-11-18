@@ -93,6 +93,14 @@ These instructions govern all work in this repository.
   models, grants and completion stay unchanged. the 6.25x threshold and existing
   post-generation overshoot are accepted; ten maximal turns and weekly availability
   remain unguaranteed. qualify source and live completion separately.
+- [adr 0084](docs/decisions/0084-dreamer-continuation-context.md) raises only
+  dreamer's cumulative host context ceiling to 1,048,576 bytes and owning revision
+  to v7 after the live v6 run reaches `ContextLimitExceeded` following reads.
+  valid maximal seed/sample plus eight bounded read frames size the amendment;
+  no duplicate rendering was found. all other limits, fixed models, grants and
+  completion stay unchanged. the 3.2x threshold and possible earlier exhaustion
+  of unchanged input/time/native bounds are accepted; source and installed quiet
+  completion remain separate, with no maximal-path or usefulness guarantee.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

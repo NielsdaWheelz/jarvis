@@ -274,6 +274,13 @@ stay fixed. the owner accepts a 6.25x resource threshold, including cached input
 and existing post-generation overshoot. it is not a monetary bill or a guarantee
 that every ten-turn path or weekly account availability will fit.
 
+adr 0084 subsequently raises only cumulative host context to 1,048,576 bytes
+and advances dreamer to v7 after the real v6 run reaches the context guard.
+valid maximal seed/sample plus eight bounded read frames size this amendment;
+all other bounds and behavior stay fixed. the 3.2x threshold and possible earlier
+exhaustion of unchanged input/time/native limits are accepted, without a
+maximal-path or useful-completion guarantee.
+
 the content designer reviews each feature:
 
 - outage logs state fixed phase/reason, attempt and next delay; one recovery fact
@@ -1180,7 +1187,7 @@ observer remain stopped, canonical resume 9 and the unentered proposal preserved
 the actual stopped dream returns no completion after 61.269 seconds. consumed
 progress, notes, canonical work, read positions and the nightly marker stay
 unchanged. the command's zero exit is not accepted as successful completion.
-the [missing stop diagnostic and budget follow-through](issues/dreamer-input-budget.md) requires a
+the [dreamer diagnostic and budget follow-through](issues/dreamer-context-budget.md) requires a
 bounded repair and one qualified actual retry; the original cause is unknown.
 a finite REST-only read verifies the revised journey as genuine owner message
 `1572385672046575698` in the configured channel, with 1,547 characters and body
@@ -1263,3 +1270,68 @@ final receipt has sha256
 frozen static/types/docs/build/fresh-wheel/cli/audit checks pass; unchanged
 stateful evidence remains scoped to its original graph. actual installed quiet
 completion, the genuine restart journey and final reset remain pending.
+
+### installed context failure and owner context amendment
+
+the stopped real fixed-model dream on
+`d34d30c223cae8e8cb22750ca1dd965bdb852543`, run
+`734fb92c-70a8-498b-9e21-bf34e71e58ca`, passes the former input threshold:
+421,532 input tokens, 1,063 output tokens and five provider turns. it then stops
+at the separate 327,680-byte context guard with `ContextLimitExceeded`, reported
+as `kernel_configuration` at `continuation_context:184` / `_project:242`.
+kernel duration is 42.025 seconds and cli wall time 53.882 seconds. the zero exit
+is not completion. private `d34d30c-stopped-dream-live.json` has sha256
+`4d04463a070906b2cd9449a392548a57bc4f1793023620a947e064934cbc9fc1`.
+this establishes the current context failure; it preserves the earlier measured
+input diagnosis and the unknown causes of earlier uninstrumented attempts.
+
+an independent stopped read-only snapshot retains 21,234 leaves, ready coverage
+4,127, dream cursor 0, synthesis notes 0, 177 messages, 12 actions, 37 read
+positions, seven native attempts, canonical `resume` sequence 9 and nightly
+marker `2026-11-17T21:56:55.974535Z`. private
+`d34d30c-post-dream-quiet-state.json` has sha256
+`4772dc0e72e3f084f4940cca8b3041eb4b47a3f196039570ea4da6066d1bc1d0`.
+no seed progress or synthesis commits; canonical work remains unchanged.
+
+source continuation/rendering audits find no duplicate bootstrap or read frame.
+actual compiled-role/kernel controlled-port sizing uses an exact 64,000-byte
+seed, 8,000-byte sample and nodes bounded at 2,048 bytes. the bootstrap measures
+292,790 bytes; the prior actual-postgresql proof's different identity/framing
+measured 292,817. valid ordinary and escaping-heavy memory pages pass the actual
+archive-admission and shared framed-result checks. one supported near-limit
+ordinary read adds 65,533 bytes and reproduces the installed failure site under
+the unchanged ceiling. a test-only copied 1 mib ceiling completes one and eight
+reads for both payloads. eight ordinary reads consume 817,054 visible bytes and
+825,582 canonical bytes before the final provider turn; including the final
+terminal gives 825,809. canonical size follows actual submitted inputs plus the
+public recorded-model-context projection. these repeated controlled pages size
+the existing envelope; they are not actual storage reads or the original live
+sequence. no database, socket, account, model or production call occurs in this
+source proof. independent rerun of all six cases passes.
+
+the owner explicitly approves [adr 0084](decisions/0084-dreamer-continuation-context.md)'s 1 mib ceiling,
+leaving 222,767 bytes after that conservative canonical total. 512 kib fits only
+three maximal read frames. only the context literal and dreamer's owning revision
+v6→v7 change. the 3.2x host threshold retains all other caps, fixed models,
+instructions, grants, ready/full-read scope and atomic completion; it promises
+neither maximal-path fit nor useful completion. the
+[current issue](issues/dreamer-context-budget.md) owns installed resolution.
+private measurement and independent receipts have sha256
+`349cc4f6c79a77bf3c43ccf0b225e54c0374e44f94d0efd0cd868dfc06634aa5`
+and `b7ff9b6b1d84ead495af8547272ac88473f0ac760d8087f99ac706aa2dd58895`.
+
+the final actual compiled v6 role reproduces the one-read failure before the
+product edit. actual compiled v7 then completes eight valid ordinary and
+escaping-heavy reads through the real kernel and controlled public ports.
+normalizing only the context cap and owning revision gives exact prior
+composition, including provider policy, instructions, output/HostTable schemas,
+other limits, dependency pins, other role revisions and compactor fingerprint.
+independent final rerun passes; no invalid oversized storage fixture or generic
+kernel boundary matrix is added. private final green and independent receipts
+have sha256
+`f57f3e10d728eefdd901c9e4c46aed67a33b4f18c4de8f30d90fe42c12b4d03e`
+and `02f86ace55d347086a04e0d5c51e19049bc15885bacd232536ead8d39f991a36`.
+the new probe and any owned compiled file are deleted after hash inventory;
+original red/green, sizing and review receipts remain. source qualification does
+not establish actual installed quiet completion, the genuine journey or final
+reset; those remain pending.

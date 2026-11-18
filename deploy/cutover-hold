@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 UNIT = "jarvis.service"
@@ -12,6 +13,7 @@ UNIT_PATH = "/org/freedesktop/systemd1/unit/jarvis_2eservice"
 ROOT = Path("/etc/systemd/system")
 HOLD = ROOT / "jarvis-cutover.hold"
 DROP = ROOT / (UNIT + ".d") / "86-cutover.conf"
+STOP_RECEIPT = ROOT / "jarvis-cutover-stop.json"
 CONDITION = f"[Unit]\nConditionPathExists=!{HOLD}\n"
 
 
@@ -105,9 +107,21 @@ def main():
         if property_value("ActiveState") not in {"inactive", "failed"}:
             subprocess.run(["systemctl", "stop", UNIT], check=False)
     held(args.target)
-    print(json.dumps(stopped(), sort_keys=True))
+    current = stopped()
+    if args.operation == "stop" and not STOP_RECEIPT.exists():
+        with tempfile.NamedTemporaryFile(mode="w", dir=ROOT, delete=False) as stream:
+            json.dump({"target": args.target, "stopped": current}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(stream.name, STOP_RECEIPT)
+        os.sync()
+    receipt = json.loads(STOP_RECEIPT.read_bytes())
+    if receipt["target"] != args.target:
+        raise SystemExit("recorded stop belongs to another target")
+    print(json.dumps(receipt["stopped"], sort_keys=True))
     if args.operation == "release":
         DROP.unlink()
+        STOP_RECEIPT.unlink()
         HOLD.unlink()
         systemctl("daemon-reload")
 

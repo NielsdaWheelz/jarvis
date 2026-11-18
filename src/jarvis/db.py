@@ -33,6 +33,9 @@ from universal_memory.policy import (
 )
 from universal_memory.schema import MEMORY_TABLES
 
+ASSISTANT_MEMORY_READS = 1
+SERVICE_MEMORY_READS = READ_POOL_SIZE - ASSISTANT_MEMORY_READS
+
 NAMING_CONVENTION = {
     "ck": "ck_%(table_name)s_%(constraint_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
@@ -41,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0015"
+APPLICATION_SCHEMA_REVISION = "0016"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -818,13 +821,13 @@ def normalize_database_url(database_url: str) -> str:
     raise ValueError(msg)
 
 
-def create_engine(database_url: str, *, memory_reads: bool = False) -> AsyncEngine:
+def create_engine(database_url: str, *, memory_reads: int = 0) -> AsyncEngine:
     return create_async_engine(
         normalize_database_url(database_url),
         pool_pre_ping=True,
         **(
             {
-                "pool_size": READ_POOL_SIZE,
+                "pool_size": memory_reads,
                 "max_overflow": 0,
                 "connect_args": {
                     "options": "-c default_transaction_read_only=on "

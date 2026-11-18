@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from llm_tools import canonical_json_bytes
@@ -27,6 +29,7 @@ from universal_memory import (
 from universal_memory.policy import (
     BATCH_EVENTS,
     BODY_BYTES,
+    READ_STATEMENT_SECONDS,
     SEARCH_STARTS,
     SEARCH_WINDOW_SECONDS,
     encoded_size,
@@ -43,17 +46,42 @@ from universal_memory.types import (
 )
 
 from jarvis.db import message, native_attempt, native_invocation
-from jarvis.embeddings import EmbeddingBusy, EmbeddingFailure, MemoryEmbedder
+from jarvis.embeddings import (
+    MAX_EMBEDDING_BATCH_SIZE,
+    EmbeddingBusy,
+    EmbeddingFailure,
+    MemoryEmbedder,
+)
 from jarvis.input_framing import archive_message_text
+from jarvis.memory_rpc import (
+    EmbeddedRecord,
+    IndexBatch,
+    MemoryRequestStopped,
+    MemoryRPC,
+    MemoryServiceError,
+)
 from jarvis.ownership import Database, DeploymentOwnershipDefect
 
 LOGGER = logging.getLogger(__name__)
 
 
-class MemoryServiceError(MemoryError):
-    def __init__(self, code: str, *, actual_attempts: int = 0) -> None:
-        super().__init__(code)
-        self.actual_attempts = actual_attempts
+async def _until_stopped[T](
+    operation: Coroutine[Any, Any, T], stop: Callable[[], Awaitable[object]] | None
+) -> T:
+    if stop is None:
+        return await operation
+    stopped = asyncio.ensure_future(stop())
+    work = asyncio.create_task(operation)
+    try:
+        await asyncio.wait((stopped, work), return_when=asyncio.FIRST_COMPLETED)
+        if stopped.done():
+            stopped.result()
+            raise MemoryRequestStopped
+        return work.result()
+    finally:
+        work.cancel()
+        stopped.cancel()
+        await asyncio.gather(work, stopped, return_exceptions=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,36 +96,68 @@ class MemoryService:
         *,
         library: MemoryStore,
         database: Database,
-        embedder: MemoryEmbedder,
+        embedder: MemoryEmbedder | None = None,
+        remote: MemoryRPC | None = None,
+        owner_available: Callable[[], Awaitable[bool]] | None = None,
         admitted_lanes: frozenset[tuple[str, str]],
-        guild_id: int,
-        channel_id: int,
+        guild_id: int | None = None,
+        channel_id: int | None = None,
         nexus_admitted_owner: UUID | None = None,
     ) -> None:
-        self.library, self.database, self.embedder = library, database, embedder
+        if embedder is not None and remote is not None:
+            raise ValueError("memory inference must have one owner")
+        if (guild_id is None) != (channel_id is None):
+            raise ValueError("canonical projection requires both Discord ids")
+        self.library, self.database = library, database
+        self._embedder, self._remote = embedder, remote
+        self._owner_available = owner_available
         self.admitted_lanes = admitted_lanes
         self.jarvis_admitted = ("devbox", "jarvis") in admitted_lanes
-        self.native_id = f"discord:{guild_id}:{channel_id}"
-        self.channel_id = str(channel_id)
+        self.native_id = (
+            f"discord:{guild_id}:{channel_id}" if channel_id is not None else None
+        )
+        self.channel_id = str(channel_id) if channel_id is not None else None
         self.nexus_admitted_owner = nexus_admitted_owner
         self._search_starts: deque[float] = deque()
 
-    async def search(
-        self, value: SearchInput, *, cutoff: int | None = None
-    ) -> SearchResult:
-        # Validation and the caller's grant precede this service boundary.
-        if cutoff is not None:
-            try:
-                admitted = await self.library.cutoff()
-            except MemoryError:
-                raise MemoryServiceError("unavailable") from None
-            if type(cutoff) is not int or not 0 <= cutoff <= admitted:
-                raise MemoryServiceError("invalid_input")
+    async def _require_owner(self) -> None:
         try:
+            if self._owner_available is not None:
+                if not await self._owner_available():
+                    raise MemoryServiceError("rate_limited")
+                return
             async with self.database.connect() as connection:
                 await connection.execute(select(literal(1)))
         except (DeploymentOwnershipDefect, SQLAlchemyError):
             raise MemoryServiceError("unavailable") from None
+
+    async def search(
+        self,
+        value: SearchInput,
+        *,
+        cutoff: int | None = None,
+        stop: Callable[[], Awaitable[object]] | None = None,
+    ) -> SearchResult:
+        await self._require_owner()
+        if self._remote is not None:
+            if cutoff is None:
+                raise MemoryServiceError("invalid_input")
+            return await self._remote.search(value, cutoff=cutoff)
+        return await _until_stopped(self._local_search(value, cutoff), stop)
+
+    async def _local_search(
+        self, value: SearchInput, cutoff: int | None
+    ) -> SearchResult:
+        if self._embedder is None:
+            raise MemoryServiceError("unavailable")
+        if cutoff is not None:
+            try:
+                async with asyncio.timeout(READ_STATEMENT_SECONDS):
+                    admitted = await self.library.cutoff()
+            except (MemoryError, TimeoutError):
+                raise MemoryServiceError("unavailable") from None
+            if type(cutoff) is not int or not 0 <= cutoff <= admitted:
+                raise MemoryServiceError("invalid_input")
         now = time.monotonic()
         while (
             self._search_starts
@@ -108,7 +168,7 @@ class MemoryService:
             raise MemoryServiceError("rate_limited")
         self._search_starts.append(now)
         try:
-            vectors = await self.embedder.embed((value.query,))
+            vectors = await self._embedder.embed((value.query,))
         except EmbeddingBusy:
             raise MemoryServiceError("rate_limited") from None
         except EmbeddingFailure:
@@ -118,6 +178,41 @@ class MemoryService:
         try:
             return await self.library.search(value, vectors[0], cutoff=cutoff)
         except (MemoryError, SQLAlchemyError):
+            raise MemoryServiceError("unavailable", actual_attempts=1) from None
+
+    async def index_batch(
+        self, *, stop: Callable[[], Awaitable[object]] | None = None
+    ) -> IndexBatch:
+        # Only interrupt disposable reads or provider/Unix-socket I/O. Cancelling a
+        # query on the dedicated writer connection could forfeit its session lock.
+        if self._remote is None:
+            await self._require_owner()
+            operation = self._embed_candidates
+        else:
+            operation = self._remote.index_batch
+        return await _until_stopped(operation(), stop)
+
+    async def _embed_candidates(self) -> IndexBatch:
+        if self._embedder is None:
+            raise MemoryServiceError("unavailable")
+        try:
+            async with asyncio.timeout(READ_STATEMENT_SECONDS):
+                rows = await self.library.embedding_candidates(MAX_EMBEDDING_BATCH_SIZE)
+        except (SQLAlchemyError, MemoryError, TimeoutError):
+            raise MemoryServiceError("unavailable") from None
+        if not rows:
+            return IndexBatch(rows=())
+        try:
+            vectors = await self._embedder.embed(tuple(row.text for row in rows))
+            return IndexBatch(
+                rows=tuple(
+                    EmbeddedRecord(ref=row.reference, vector=vector)
+                    for row, vector in zip(rows, vectors, strict=True)
+                )
+            )
+        except EmbeddingBusy:
+            raise MemoryServiceError("rate_limited") from None
+        except (EmbeddingFailure, ValueError):
             raise MemoryServiceError("unavailable", actual_attempts=1) from None
 
     async def save_note(self, text: str, submission: NoteProducer) -> NoteReceipt:
@@ -227,7 +322,7 @@ class MemoryService:
     async def project_pending(
         self, pending: tuple[Publication, ...] | None = None
     ) -> int:
-        if not self.jarvis_admitted:
+        if not self.jarvis_admitted or self.native_id is None:
             return 0
         if pending is None:
             pending = await self.pending_publication()

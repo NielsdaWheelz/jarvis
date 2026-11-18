@@ -9,19 +9,18 @@ import json
 import logging
 import os
 import stat
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from socket import socket
+from typing import Protocol
 from uuid import UUID
 
 import aiohttp
 import discord as discord_sdk
 import httpx
-import uvicorn
 from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 from provider_runtime.agent_runtime import (
@@ -43,7 +42,7 @@ from jarvis.agent_control import AgentController
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
-from jarvis.db import create_engine, normalize_database_url
+from jarvis.db import ASSISTANT_MEMORY_READS, create_engine, normalize_database_url
 from jarvis.definitions import (
     MEMORY_CODEX_MODEL,
     RoleDefinitions,
@@ -68,7 +67,8 @@ from jarvis.kernel import (
     resolve_provider_configuration,
 )
 from jarvis.memory_config import MEMORY_IDENTITIES, MemoryConfig
-from jarvis.memory_http import create_memory_app
+from jarvis.memory_rpc import MemoryRPC
+from jarvis.memory_server import serve_memory
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, MemoryWorker
@@ -85,16 +85,30 @@ from jarvis.native_runtime import (
     fence_abandoned_native_attempt,
 )
 from jarvis.ownership import (
+    DEPLOYMENT_LOCK_KEY,
+    MEMORY_LOCK_KEY,
     Database,
     DeploymentAlreadyOwned,
     deployment_ownership,
+    maintenance_ownership,
 )
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.service import JarvisService
-from jarvis.settings import Settings
+from jarvis.settings import (
+    CutoverSettings,
+    DatabaseSettings,
+    IsolatedRoleSettings,
+    MemoryJobSettings,
+    MemoryServerSettings,
+    MemoryStatusSettings,
+    NativeStateSettings,
+    PausedSettings,
+    Settings,
+    embedding_key_from_env,
+)
 from jarvis.state import PausedState
 from jarvis.tool_composition import (
     ToolComposition,
@@ -119,47 +133,54 @@ class StartupDefect(RuntimeError):
     """The configured private runtime layout is unsafe or incomplete."""
 
 
-class _MemoryHTTPServer(uvicorn.Server):
-    @contextmanager
-    def capture_signals(self) -> Iterator[None]:
-        """The application Runner owns cooperative signal handling."""
-        yield
-
-    async def serve(self, sockets: list[socket] | None = None) -> None:
-        try:
-            await super().serve(sockets)
-        except SystemExit as error:
-            raise RuntimeError("memory endpoint could not start") from error
+class _MemoryWriter(Database, Protocol):
+    async def check_available(self) -> bool: ...
 
 
 @asynccontextmanager
 async def _memory_service(
-    settings: Settings,
+    settings: Settings | MemoryJobSettings,
     config: MemoryConfig,
-    database: Database,
-    http: httpx.AsyncClient,
+    database: _MemoryWriter,
+    *,
+    offline_key: SecretStr | None = None,
 ) -> AsyncIterator[MemoryService]:
-    read_engine = create_engine(
-        settings.database_url.get_secret_value(), memory_reads=True
+    reads = create_engine(
+        settings.database_url.get_secret_value(), memory_reads=ASSISTANT_MEMORY_READS
     )
     try:
-        yield MemoryService(
-            library=MemoryStore(
-                read_engine,
-                result_size=memory_result_size,
-                view_size=memory_view_size,
-            ),
-            database=database,
-            embedder=OpenAIEmbedder(
-                settings.embedding_openai_api_key, http_client=http
-            ),
-            admitted_lanes=config.admitted_lanes,
-            nexus_admitted_owner=config.nexus_admitted_owner,
-            guild_id=settings.discord.guild_id,
-            channel_id=settings.discord.channel_id,
+        transport = (
+            httpx.AsyncHTTPTransport(uds=str(settings.memory_socket_path), retries=0)
+            if offline_key is None
+            else None
         )
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://memory",
+            trust_env=False,
+            follow_redirects=False,
+            # One provider embedding (45s) plus bounded read-pool work.
+            timeout=60.0,
+        ) as http:
+            yield MemoryService(
+                library=MemoryStore(
+                    reads, result_size=memory_result_size, view_size=memory_view_size
+                ),
+                database=database,
+                owner_available=database.check_available
+                if offline_key is None
+                else None,
+                embedder=OpenAIEmbedder(offline_key, http_client=http)
+                if offline_key is not None
+                else None,
+                remote=MemoryRPC(http) if offline_key is None else None,
+                admitted_lanes=config.admitted_lanes,
+                nexus_admitted_owner=config.nexus_admitted_owner,
+                guild_id=settings.discord_guild_id,
+                channel_id=settings.discord_channel_id,
+            )
     finally:
-        await read_engine.dispose()
+        await reads.dispose()
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,65 +193,67 @@ class _IsolatedMemoryRuntime:
 @asynccontextmanager
 async def _isolated_memory_runtime(
     *,
-    settings: Settings,
+    settings: MemoryJobSettings,
     config: MemoryConfig,
     host: CodexHostConfig,
-    database: Database,
+    database: _MemoryWriter,
     owner: JarvisOwner,
+    offline_key: SecretStr | None = None,
 ) -> AsyncIterator[_IsolatedMemoryRuntime]:
-    async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as http:
-        async with _memory_service(settings, config, database, http) as memory:
-            catalog = compose_memory_catalog(memory)
-            runtime = build_agent_runtime(
-                provider_state_root=settings.runtime_state_directory,
-                codex_endpoints=host.endpoints,
+    async with _memory_service(
+        settings, config, database, offline_key=offline_key
+    ) as memory:
+        catalog = compose_memory_catalog(memory)
+        runtime = build_agent_runtime(
+            provider_state_root=settings.runtime_state_directory,
+            codex_endpoints=host.endpoints,
+        )
+        kernel = None
+        try:
+            isolated_provider = await resolve_provider_configuration(
+                runtime=runtime,
+                profile_key=settings.codex_profile_key,
+                model_key=MEMORY_CODEX_MODEL,
             )
-            kernel = None
-            try:
-                isolated_provider = await resolve_provider_configuration(
-                    runtime=runtime,
-                    profile_key=settings.codex_profile_key,
-                    model_key=MEMORY_CODEX_MODEL,
-                )
-                compactor_definition, compactor_plan = build_compactor(
-                    catalog=catalog,
-                    provider=isolated_provider,
-                    owner_timezone=settings.owner_timezone,
-                )
-                dreamer_definition, dreamer_plan = build_dreamer(
-                    catalog=catalog,
-                    provider=isolated_provider,
-                    owner_timezone=settings.owner_timezone,
-                )
-                kernel = build_kernel_runtime(
-                    runtime=runtime,
-                    shared_cwd_parent=Path(host.cognition_cwd_parent),
-                )
-                compactor = MemoryWorker(
-                    definition=compactor_definition,
-                    plan=compactor_plan,
+            compactor_definition, compactor_plan = build_compactor(
+                catalog=catalog,
+                provider=isolated_provider,
+                owner_timezone=settings.owner_timezone,
+            )
+            dreamer_definition, dreamer_plan = build_dreamer(
+                catalog=catalog,
+                provider=isolated_provider,
+                owner_timezone=settings.owner_timezone,
+            )
+            kernel = build_kernel_runtime(
+                runtime=runtime,
+                shared_cwd_parent=Path(host.cognition_cwd_parent),
+            )
+            compactor = MemoryWorker(
+                definition=compactor_definition,
+                plan=compactor_plan,
+                owner=owner,
+                provider=kernel.provider,
+                memory=memory,
+            )
+            yield _IsolatedMemoryRuntime(
+                memory,
+                compactor,
+                DreamerWorker(
+                    definition=dreamer_definition,
+                    plan=dreamer_plan,
                     owner=owner,
                     provider=kernel.provider,
                     memory=memory,
-                )
-                yield _IsolatedMemoryRuntime(
-                    memory,
-                    compactor,
-                    DreamerWorker(
-                        definition=dreamer_definition,
-                        plan=dreamer_plan,
-                        owner=owner,
-                        provider=kernel.provider,
-                        memory=memory,
-                        owner_timezone=settings.owner_timezone,
-                        nightly_time=settings.memory_nightly_time,
-                    ),
-                )
-            finally:
-                if kernel is None:
-                    await runtime.close()
-                else:
-                    await kernel.close()
+                    owner_timezone=settings.owner_timezone,
+                    nightly_time=settings.memory_nightly_time,
+                ),
+            )
+        finally:
+            if kernel is None:
+                await runtime.close()
+            else:
+                await kernel.close()
 
 
 def _private_directory(path: Path, name: str) -> None:
@@ -260,7 +283,9 @@ def _shared_cognition_directory(path: Path, group: str) -> None:
         )
 
 
-def _attachment_cache_layout(settings: Settings, host: CodexHostConfig) -> None:
+def _attachment_cache_layout(
+    settings: IsolatedRoleSettings | CutoverSettings, host: CodexHostConfig
+) -> None:
     path = settings.attachment_cache_directory
     try:
         metadata = path.stat()
@@ -284,7 +309,9 @@ def _attachment_cache_layout(settings: Settings, host: CodexHostConfig) -> None:
         )
 
 
-def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
+def _validate_runtime_layout(
+    settings: IsolatedRoleSettings | CutoverSettings, host: CodexHostConfig
+) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     _attachment_cache_layout(settings, host)
@@ -294,7 +321,9 @@ def _validate_runtime_layout(settings: Settings, host: CodexHostConfig) -> None:
         raise StartupDefect(str(exc)) from exc
 
 
-async def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
+async def initialize_state(
+    settings: NativeStateSettings, host: CodexHostConfig
+) -> None:
     """Prepare private provider state and a canonical fresh deployment pause."""
 
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
@@ -311,10 +340,10 @@ async def initialize_state(settings: Settings, host: CodexHostConfig) -> None:
     try:
         async with deployment_ownership(engine) as database:
             await require_native_data(
-                database, conversation_id=str(settings.discord.channel_id)
+                database, conversation_id=str(settings.discord_channel_id)
             )
             await MessageStore(database).initialize_paused(
-                str(settings.discord.channel_id)
+                str(settings.discord_channel_id)
             )
     finally:
         await engine.dispose()
@@ -334,9 +363,8 @@ async def run_service(
     gateway_factory: Callable[[], DiscordGateway],
     token: str,
     shutdown: asyncio.Event,
-    memory_http: uvicorn.Server,
 ) -> None:
-    """Own the worker, fresh login clients and memory endpoint until drained."""
+    """Own the worker and fresh login clients until drained."""
     if shutdown.is_set():
         return
     worker = asyncio.create_task(service.run_worker(), name="jarvis-worker")
@@ -384,29 +412,23 @@ async def run_service(
             return
 
     gateway_task = asyncio.create_task(run_gateway(), name="jarvis-discord-gateway")
-    http_task = asyncio.create_task(memory_http.serve(), name="jarvis-memory-http")
     stopping = asyncio.create_task(shutdown.wait(), name="jarvis-shutdown-request")
     try:
         done, _ = await asyncio.wait(
-            {worker, gateway_task, http_task, stopping},
+            {worker, gateway_task, stopping},
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in done:
             task.result()
         if gateway_task in done and not shutdown.is_set():
             raise RuntimeError("Discord gateway stopped before application shutdown")
-        if http_task in done and not shutdown.is_set():
-            raise RuntimeError("memory endpoint stopped before application shutdown")
     finally:
         if gateway is not None:
             gateway.stop_ingress()
         service.request_shutdown()
-        memory_http.should_exit = True
         stopping.cancel()
         await asyncio.gather(stopping, return_exceptions=True)
-        results = await asyncio.gather(
-            gateway_task, worker, http_task, return_exceptions=True
-        )
+        results = await asyncio.gather(gateway_task, worker, return_exceptions=True)
         if gateway is not None:
             await gateway.drain_callbacks()
             try:
@@ -536,11 +558,8 @@ async def _serve(
                     discord_http = await clients.enter_async_context(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
-                    embedding_http = await clients.enter_async_context(
-                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
-                    )
                     memory = await clients.enter_async_context(
-                        _memory_service(settings, config, database, embedding_http)
+                        _memory_service(settings, config, database)
                     )
                     actions = ActionStore(database)
                     work = WorkStore(database, str(settings.discord.channel_id))
@@ -705,16 +724,6 @@ async def _serve(
                         gateway_factory,
                         settings.discord.bot_token.get_secret_value(),
                         shutdown,
-                        _MemoryHTTPServer(
-                            uvicorn.Config(
-                                create_memory_app(memory, config),
-                                host="127.0.0.1",
-                                port=settings.memory_http_port,
-                                lifespan="on",
-                                access_log=False,
-                                log_level="warning",
-                            )
-                        ),
                     )
             finally:
                 if kernel_runtime is not None:
@@ -751,7 +760,9 @@ async def reconcile_attachment(
         await engine.dispose()
 
 
-async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> None:
+async def release_parked(
+    settings: DatabaseSettings, message_ids: tuple[UUID, ...]
+) -> None:
     """Clear only the named parked markers while holding deployment ownership."""
 
     engine = create_engine(settings.database_url.get_secret_value())
@@ -762,7 +773,9 @@ async def release_parked(settings: Settings, message_ids: tuple[UUID, ...]) -> N
         await engine.dispose()
 
 
-async def stopped_native_cutover(settings: Settings, host: CodexHostConfig) -> int:
+async def stopped_native_cutover(
+    settings: CutoverSettings, host: CodexHostConfig
+) -> int:
     """Write the private stopped inventory without provider or connector work."""
     _validate_runtime_layout(settings, host)
     engine = create_engine(settings.database_url.get_secret_value())
@@ -771,21 +784,21 @@ async def stopped_native_cutover(settings: Settings, host: CodexHostConfig) -> i
             return await cutover_native(
                 database,
                 directory=settings.runtime_state_directory,
-                conversation_id=str(settings.discord.channel_id),
+                conversation_id=str(settings.discord_channel_id),
             )
     finally:
         await engine.dispose()
 
 
-async def _require_paused(database: Database, settings: Settings) -> None:
+async def _require_paused(database: Database, settings: PausedSettings) -> None:
     require_native_files(settings.runtime_state_directory)
-    scope = str(settings.discord.channel_id)
+    scope = str(settings.discord_channel_id)
     await require_native_data(database, conversation_id=scope)
     if not await MessageStore(database).paused(scope):
         raise StartupDefect("activation requires a canonical deployment pause")
 
 
-async def check_paused(settings: Settings) -> None:
+async def check_paused(settings: PausedSettings) -> None:
     """Check stopped canonical pause without opening a provider or connector."""
     engine = create_engine(settings.database_url.get_secret_value())
     try:
@@ -822,7 +835,7 @@ async def check_activation(
                 codex_endpoints=host.endpoints,
             )
             try:
-                async with _memory_service(settings, config, database, http) as memory:
+                async with _memory_service(settings, config, database) as memory:
 
                     async def event_admitted() -> bool:
                         return False
@@ -955,7 +968,7 @@ async def _pending_action_verdict(
 
 
 async def dream_once(
-    settings: Settings, host: CodexHostConfig
+    settings: MemoryJobSettings, host: CodexHostConfig
 ) -> DreamerRunCompleted | None:
     """One bounded stopped manual dream, without changing its nightly marker."""
     _validate_runtime_layout(settings, host)
@@ -970,7 +983,7 @@ async def dream_once(
                 config=config,
                 host=host,
                 database=database,
-                owner=JarvisOwner(database, str(settings.discord.channel_id)),
+                owner=JarvisOwner(database, str(settings.discord_channel_id)),
             ) as runtime:
                 return await runtime.dreamer.run_at(
                     as_of=datetime.now(UTC), cancellation=CancellationToken()
@@ -980,7 +993,7 @@ async def dream_once(
 
 
 async def rebuild_memory(
-    settings: Settings, host: CodexHostConfig, node: str | None = None
+    settings: MemoryJobSettings, host: CodexHostConfig, node: str | None = None
 ) -> None:
     """Refold admitted originals while stopped; preserve capture and dream progress."""
     _validate_runtime_layout(settings, host)
@@ -1017,15 +1030,16 @@ async def rebuild_memory(
         )
     engine = create_engine(memory_settings.database_url.get_secret_value())
     try:
-        async with deployment_ownership(
+        async with maintenance_ownership(
             engine, memory_admitted=config.jarvis_admitted
         ) as database:
             async with _isolated_memory_runtime(
                 settings=memory_settings,
+                offline_key=embedding_key_from_env(),
                 config=config,
                 host=host,
                 database=database,
-                owner=JarvisOwner(database, str(settings.discord.channel_id)),
+                owner=JarvisOwner(database, str(settings.discord_channel_id)),
             ) as runtime:
                 async with database.begin() as connection:
                     await runtime.memory.library.rebuild(connection, start, count)
@@ -1044,105 +1058,108 @@ async def rebuild_memory(
         await engine.dispose()
 
 
-async def memory_status(settings: Settings) -> dict[str, object]:
+async def memory_status(settings: MemoryStatusSettings) -> dict[str, object]:
     config = MemoryConfig.load(settings.memory_config_path)
-    engine = create_engine(settings.database_url.get_secret_value(), memory_reads=True)
+    engine = create_engine(
+        settings.database_url.get_secret_value(), memory_reads=ASSISTANT_MEMORY_READS
+    )
     try:
-        async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as http:
-            memory = MemoryService(
-                library=MemoryStore(
-                    engine,
-                    result_size=memory_result_size,
-                    view_size=memory_view_size,
-                ),
-                database=engine,
-                embedder=OpenAIEmbedder(
-                    settings.embedding_openai_api_key, http_client=http
-                ),
-                admitted_lanes=config.admitted_lanes,
-                nexus_admitted_owner=config.nexus_admitted_owner,
-                guild_id=settings.discord.guild_id,
-                channel_id=settings.discord.channel_id,
-            )
-            declared = {(lane.machine, lane.account): lane for lane in config.lanes}
-            registration = None
-            if config.nexus_client is not None:
-                async with engine.connect() as connection:
-                    state = await memory.library.nexus_capture_state(
-                        connection, config.nexus_client.owner_user_id
-                    )
-                if state.registration is not None:
-                    registration = state.registration.model_dump(mode="json")
-            return {
-                "memory": await memory.library.status(),
-                "publication_backlog": len(await memory.pending_publication()),
-                "declaration_sha256": config.declaration_sha256,
-                "nexus_client": {
-                    "declared": config.nexus_client is not None,
-                    "admit": config.nexus_admitted_owner is not None,
-                    "connect": config.nexus_client is not None
-                    and config.nexus_client.connect,
-                    "capture": config.nexus_client is not None
-                    and config.nexus_client.capture,
-                    "registration": registration,
-                    "processors": list(config.processors.nexus_model_processors),
-                },
-                "lanes": [
-                    {
-                        "machine": machine,
-                        "account": account,
-                        "declared": (machine, account) in declared,
-                        "admit": (machine, account) in config.admitted_lanes,
-                        "connect": (machine, account) in declared
-                        and declared[machine, account].connect,
-                    }
-                    for machine, account in sorted(MEMORY_IDENTITIES)
-                ],
-            }
+        memory = MemoryService(
+            library=MemoryStore(
+                engine,
+                result_size=memory_result_size,
+                view_size=memory_view_size,
+            ),
+            database=engine,
+            admitted_lanes=config.admitted_lanes,
+            nexus_admitted_owner=config.nexus_admitted_owner,
+            guild_id=settings.discord_guild_id,
+            channel_id=settings.discord_channel_id,
+        )
+        declared = {(lane.machine, lane.account): lane for lane in config.lanes}
+        registration = None
+        if config.nexus_client is not None:
+            async with engine.connect() as connection:
+                state = await memory.library.nexus_capture_state(
+                    connection, config.nexus_client.owner_user_id
+                )
+            if state.registration is not None:
+                registration = state.registration.model_dump(mode="json")
+        return {
+            "memory": await memory.library.status(),
+            "publication_backlog": len(await memory.pending_publication()),
+            "declaration_sha256": config.declaration_sha256,
+            "nexus_client": {
+                "declared": config.nexus_client is not None,
+                "admit": config.nexus_admitted_owner is not None,
+                "connect": config.nexus_client is not None
+                and config.nexus_client.connect,
+                "capture": config.nexus_client is not None
+                and config.nexus_client.capture,
+                "registration": registration,
+                "processors": list(config.processors.nexus_model_processors),
+            },
+            "lanes": [
+                {
+                    "machine": machine,
+                    "account": account,
+                    "declared": (machine, account) in declared,
+                    "admit": (machine, account) in config.admitted_lanes,
+                    "connect": (machine, account) in declared
+                    and declared[machine, account].connect,
+                }
+                for machine, account in sorted(MEMORY_IDENTITIES)
+            ],
+        }
     finally:
         await engine.dispose()
 
 
-async def retry_memory(settings: Settings, conversation: str | None) -> None:
+async def retry_memory(settings: DatabaseSettings, conversation: str | None) -> None:
     engine = create_engine(settings.database_url.get_secret_value())
     try:
-        async with deployment_ownership(engine) as database:
-            library = MemoryStore(engine)
-            async with database.begin() as connection:
-                if conversation is None:
-                    await library.retry_compression(connection)
-                else:
-                    try:
-                        identifier = UUID(conversation)
-                    except ValueError:
-                        provider, separator, native_id = conversation.partition(":")
-                        if not separator or provider not in {
-                            "codex",
-                            "claude",
-                            "jarvis",
-                        }:
-                            raise MemoryError("invalid_input") from None
-                        bounded_text(native_id, 256)
-                        identities = (
-                            (
-                                await connection.execute(
-                                    select(source_conversation.c.id)
-                                    .where(
-                                        source_conversation.c.provider == provider,
-                                        source_conversation.c.native_id == native_id,
-                                    )
-                                    .limit(2)
-                                )
-                            )
-                            .scalars()
-                            .all()
-                        )
-                        if not identities:
-                            raise MemoryError("not_found") from None
-                        if len(identities) != 1:
-                            raise MemoryError("ambiguous_source_use_uuid") from None
-                        identifier = identities[0]
-                    await library.retry_capture(connection, identifier)
+        if conversation is None:
+            async with (
+                deployment_ownership(engine) as database,
+                database.begin() as connection,
+            ):
+                await MemoryStore.retry_compression(connection)
+            return
+        try:
+            selector = source_conversation.c.id == UUID(conversation)
+        except ValueError:
+            provider, separator, native_id = conversation.partition(":")
+            if not separator or provider not in {"codex", "claude", "jarvis", "nexus"}:
+                raise MemoryError("invalid_input") from None
+            bounded_text(native_id, 256)
+            selector = (source_conversation.c.provider == provider) & (
+                source_conversation.c.native_id == native_id
+            )
+        query = (
+            select(source_conversation.c.id, source_conversation.c.provider)
+            .where(selector)
+            .limit(2)
+        )
+        async with engine.connect() as connection:
+            matches = (await connection.execute(query)).all()
+        if not matches:
+            raise MemoryError("not_found")
+        if len(matches) > 1:
+            raise MemoryError("ambiguous_source_use_uuid")
+        identifier, provider = matches[0]
+        key = DEPLOYMENT_LOCK_KEY if provider == "jarvis" else MEMORY_LOCK_KEY
+        async with (
+            deployment_ownership(engine, lock_key=key) as database,
+            database.begin() as connection,
+        ):
+            expected_role = (
+                "jarvis_runtime" if provider == "jarvis" else "jarvis_memory"
+            )
+            if await connection.scalar(text("SELECT current_user")) != expected_role:
+                raise StartupDefect("capture retry requires the source writer role")
+            if (await connection.execute(query)).all() != matches:
+                raise MemoryError("source_conflict")
+            await MemoryStore.retry_capture(connection, identifier)
     finally:
         await engine.dispose()
 
@@ -1151,6 +1168,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the Jarvis Discord service")
+    commands.add_parser("serve-memory", help="serve shared memory and capture")
     commands.add_parser("initialize-state", help="initialize private host state")
     commands.add_parser("check-paused", help="check the stopped canonical pause")
     activation = commands.add_parser(
@@ -1209,26 +1227,89 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
     try:
-        settings = Settings.from_env()
-        host = settings.codex_host_config
-        if arguments.command == "serve":
-            asyncio.run(serve(settings, host))
-        elif arguments.command == "initialize-state":
-            asyncio.run(initialize_state(settings, host))
-        elif arguments.command == "check-paused":
-            asyncio.run(check_paused(settings))
+        if arguments.command == "serve-memory":
+            asyncio.run(
+                serve_memory(MemoryServerSettings.from_env(), embedding_key_from_env())
+            )
+            return 0
+        if arguments.command == "memory":
+            if arguments.memory_command == "status":
+                print(
+                    json.dumps(
+                        asyncio.run(memory_status(MemoryStatusSettings.from_env())),
+                        sort_keys=True,
+                    )
+                )
+            else:
+                source = (
+                    arguments.source
+                    if arguments.memory_command == "retry-capture"
+                    else None
+                )
+                asyncio.run(retry_memory(DatabaseSettings.from_env(), source))
+                print(
+                    "memory retry armed; "
+                    "original boundaries and completed progress preserved"
+                )
+            return 0
+        if arguments.command == "release-parked":
+            message_ids = tuple(arguments.message_ids)
+            if len(set(message_ids)) != len(message_ids):
+                raise StartupDefect("release IDs must be unique")
+            asyncio.run(release_parked(DatabaseSettings.from_env(), message_ids))
+            print(f"Released {len(message_ids)} parked message(s).")
+            return 0
+        if arguments.command == "check-paused":
+            asyncio.run(check_paused(PausedSettings.from_env()))
             print("canonical deployment pause confirmed")
-        elif arguments.command == "cutover-native":
-            count = asyncio.run(stopped_native_cutover(settings, host))
+            return 0
+        if arguments.command == "initialize-state":
+            initial = NativeStateSettings.from_env()
+            asyncio.run(
+                initialize_state(
+                    initial, CodexHostConfig.load(initial.codex_host_config_path)
+                )
+            )
+            return 0
+        if arguments.command == "cutover-native":
+            cutover = CutoverSettings.from_env()
+            count = asyncio.run(
+                stopped_native_cutover(
+                    cutover, CodexHostConfig.load(cutover.codex_host_config_path)
+                )
+            )
             print(
                 f"private cutover inventory retained: records={count}; "
                 "activation unchanged"
             )
+            return 0
+        if arguments.command == "dream":
+            job = MemoryJobSettings.from_env()
+            result = asyncio.run(dream_once(job, job.codex_host_config))
+            if result is None:
+                print("dream did not complete; admitted progress is preserved")
+            else:
+                print(
+                    "dream completed: "
+                    f"notes={len(result.created_note_ids)} "
+                    f"seed={result.seed_start}+{result.seed_end - result.seed_start}"
+                )
+            return 0
+        if arguments.command == "rebuild-memory":
+            job = MemoryJobSettings.from_env()
+            asyncio.run(rebuild_memory(job, job.codex_host_config, arguments.node))
+            print("memory rebuild completed")
+            return 0
+        settings = Settings.from_env()
+        if arguments.command == "serve":
+            asyncio.run(serve(settings, settings.codex_host_config))
         elif arguments.command == "check-activation":
             try:
                 verdicts = asyncio.run(
                     check_activation(
-                        settings, host, fit_pending_mail=arguments.fit_pending_mail
+                        settings,
+                        settings.codex_host_config,
+                        fit_pending_mail=arguments.fit_pending_mail,
                     )
                 )
             except DeploymentAlreadyOwned:
@@ -1254,39 +1335,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             print(json.dumps(result, sort_keys=True))
-        elif arguments.command == "dream":
-            result = asyncio.run(dream_once(settings, host))
-            if result is None:
-                print("dream did not complete; admitted progress is preserved")
-            else:
-                print(
-                    "dream completed: "
-                    f"notes={len(result.created_note_ids)} "
-                    f"seed={result.seed_start}+{result.seed_end - result.seed_start}"
-                )
-        elif arguments.command == "rebuild-memory":
-            asyncio.run(rebuild_memory(settings, host, arguments.node))
-            print("memory rebuild completed")
-        elif arguments.command == "memory":
-            if arguments.memory_command == "status":
-                print(json.dumps(asyncio.run(memory_status(settings)), sort_keys=True))
-            else:
-                source = (
-                    arguments.source
-                    if arguments.memory_command == "retry-capture"
-                    else None
-                )
-                asyncio.run(retry_memory(settings, source))
-                print(
-                    "memory retry armed; "
-                    "original boundaries and completed progress preserved"
-                )
-        elif arguments.command == "release-parked":
-            message_ids = tuple(arguments.message_ids)
-            if len(set(message_ids)) != len(message_ids):
-                raise StartupDefect("release IDs must be unique")
-            asyncio.run(release_parked(settings, message_ids))
-            print(f"Released {len(message_ids)} parked message(s).")
         else:  # pragma: no cover
             raise AssertionError("unknown command")
     except (AgentRuntimeError, AgentRuntimeDefect) as exc:

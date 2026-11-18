@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 
 def memory_family(service: MemoryService) -> ToolFamily:
     # Composition runs after role/settings imports; declarations need no clients.
-    from jarvis.memory_service import MemoryServiceError
+    from jarvis.memory_rpc import MemoryServiceError
     from jarvis.settings import EMBEDDING_MODEL
 
     async def read(

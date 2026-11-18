@@ -1384,3 +1384,29 @@ had adopted the canonical calendar id after inspection of 21 calendars and one
 complete owner-only acl. the actual same-event update and subsequent attention
 observation qualify the installed calendar read/write path. the original reminder
 inventory and disposition are recorded in [operations](operations.md#supervised-todo-setup).
+
+### native usage accounting repair
+
+on the installed provider, the failing line rejects a reported cumulative total
+different from input plus output. stock `0.160.0` source at `a956835d` reports
+the three counters independently. on context exhaustion it also replaces the
+counters with a full-window estimate. either contract can violate the old
+equality assumption. the failed frame was never retained.
+
+six public unix-websocket cases reproduced the exception at the installed
+source coordinate. provider `0ebc1cb07f6320afb4af6e30f3661c36b76a2529`
+preserves each reported counter. the exact synthetic full-window shape
+establishes a fresh counter baseline. paid usage already observed in the
+invocation survives it, and subsequent reported increments count once. unknown
+optional counts stay unknown for the affected invocation. resume/start ordering
+was significant: independent review found two replay races after initial green.
+the final proof covers replay before resume returns, before preparation, and
+during turn start, including stale and missing turn identities. uncertainty
+about an unobserved interval can undercount consumption.
+
+all 30 focused cases passed the independent rerun. the provider suite passed
+983 cases with one skip and 40 live cases deselected. formatting, lint, types,
+wheel and sdist checks passed. the private `usage-provider-qualified.json`
+receipt (sha256 `7a7820ed87071a98577a118bd518a1b963a64b1dfeddbf67c08e4dea64f729af`)
+records the probe and deletion inventory. this controlled transport proof
+does not identify which shape reached the production decoder.

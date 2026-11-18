@@ -10,8 +10,8 @@ on installed `650eb7cb5db3604358906771dff472003232bfa0`, main attempt
 `01a1ec22-55a0-7761-894d-4ec900658613`, fails with `source_protocol` before a
 terminal seal. the closed command diagnostic retains `ProtocolDefect` and
 provider coordinates `_notification_event:1405` → `_token_usage:1832` →
-`_decode_token_usage:1836` → `_usage_member:1881`. this identifies the usage
-decoder boundary, not the exact raw member mismatch or a product-output defect.
+`_decode_token_usage:1836` → `_usage_member:1881`. the exact installed source line rejects a cumulative total unequal to
+input plus output. the raw values and producer cause are unknown.
 private `650eb7c-startup-protocol-fence-journal.log` has sha256
 `4e20e0af214e702e1f2dc6f19d8f3b6497289196d9c9c0542447127bcbf7fffe`.
 
@@ -39,3 +39,7 @@ preserve the original attempt/fence and any accepted receipts, reject stale
 callbacks, retain canonical control and verify no duplicated effects. the
 combined journey and final reset remain required. do not attribute this failure
 to earlier unknown incidents, model output, quota or the resolved dreamer caps.
+
+[provider source qualification](../runtime-reliability-and-integration.md#native-usage-accounting-repair)
+reproduced the old check and qualifies the repaired accounting and resume races.
+installed continuation remains outstanding.

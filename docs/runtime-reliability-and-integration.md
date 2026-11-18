@@ -20,9 +20,9 @@ graph. the owner then paused the application. the disposition checks passed
 under pause 10. the final recovery snapshot verified. the fixture storage,
 calendar, mail and channel cleanup completed. the final database reset committed,
 and production started under fresh pause 11 after the empty-corpus proof.
-fresh capture is incomplete because a [scratch checkout blocks claude archive
-discovery](issues/claude-archive-scratch-checkouts.md). owner resumption and
-verification of the new cuts remain pending.
+all twelve online native lanes completed their fresh inventories under pause
+11. ordinary owner resumption and verification of subsequent capture remain
+outstanding.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -1793,7 +1793,35 @@ completed inventory. they held 3,183 conversation rows. all 3,182 identities
 shared with the stopped inventory had new row ids. 24 unreadable conversations
 had explicit pending baselines, zero captured parts and no checkpoint. the
 remaining `macbook/claude-work` account had 2,246 conversations before the wipe
-and failed discovery before establishing its lane. at this checkpoint no old
-native, jarvis or nexus event parts had reappeared. private
+and failed discovery before establishing its lane. the two `observations.jsonl`
+test fixtures under a scratch directory fell outside the supported archive
+layouts. metadata-only listing, listing with heads and activation all returned
+`unsupported` at the same file before making any http request. private
+`final-reset-mac-claude-inventory-red.json` has sha256
+`8d3077c2d2fe841a062f4ff792684ac02123df2bae5c18f7ec9fb90b0fd8cf73`.
+at this checkpoint no old native, jarvis or nexus event parts had reappeared. private
 `final-reset-paused-eleven-cuts-comparison.json` has sha256
 `e0934be5836397445e2f562eaf9726c1ff606c6a670528c80d27801eb30ac7c0`.
+
+with owner authorization the scratch directory moved intact from the claude
+archive into the ordinary workspace. its directory identity, three checkout
+heads and statuses, untracked-file digest and both JSONL fixture digests
+matched immediately before and after the move. ten path substitutions in nine
+current files resolved to existing targets. the historical recovery copies and
+git states were preserved. private `34d1620-scratch-live-paths.json` has
+sha256 `eac2750e63d8c7fdcf98f895805bd2850f5cb4252487435efad511a64f6135cf`.
+the same installed provider listed 2,269 conversation ids through its
+metadata-only interface. ordinary
+collector activation established the `macbook/claude-work` cut at `06:47:46Z`.
+
+the `06:48:46Z` paused inventory covered all twelve online native lanes and
+5,452 conversations. all 5,428 previously known identities had fresh row ids,
+and 24 were newly discovered. 25 heads remained explicitly pending with no
+parts or checkpoint: 21 unavailable on devbox codex-work2, three unavailable
+on macbook codex-work2 and one oversized record on macbook claude-work.
+comparison with all 25,653 stopped native parts found zero overlap. at this
+point no new native part had entered the archive. private
+`final-reset-browser-scratch-move.json` and
+`final-reset-paused-twelve-comparison.json` have sha256
+`b8ac9610ae1f25d0e6de4141f425c1d05ad4682549842d6705a5add80a9f338c`
+and `cf8e045a9a97b0a89dd7c0bb499f25c5f0d34b77b59a764861286ac81fcb31b5`.

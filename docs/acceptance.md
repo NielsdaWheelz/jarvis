@@ -144,8 +144,8 @@ suite, benchmark or competitor-parity claim follows. both stopped database reset
 all twelve online native lanes established fresh cuts. the ordinary owner
 resume entered the fresh archive. [old calendar revisions](issues/calendar-revision-republication.md)
 were republished. the [stopped read-only check](runtime-reliability-and-integration.md#stopped-google-cursor-correction)
-then found 80 exact reoffers on the established cursor. the correction remains
-unexecuted and f2's future-only criterion remains open.
+then found 80 exact reoffers on the established cursor. the owner retained
+the corpus and ended cleanup. f2’s strict no-republication criterion remains unmet.
 
 ## native cutover acceptance
 

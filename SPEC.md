@@ -197,8 +197,10 @@ preserve the established google cursor rows while clearing the channel and
 remaining central history. under genuine pause 13 the established cursor
 returned 80 previously published revisions in one completed poll. clearing
 canonical publication keys would allow those revisions back into the corpus.
-the operator preserved the corpus and recovery snapshot. f2 remains open
-pending an owner decision on the future-only boundary.
+the owner chose to keep the corpus, its canonical publication keys and the
+recovery snapshot. this concludes cleanup for this delivery. the strict
+no-republication criterion remains unmet. eligible new calendar revisions
+continue through ordinary admission under the existing source controls.
 
 [adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
 copies up to the existing 2,048-byte hard node bound and serial inference batches

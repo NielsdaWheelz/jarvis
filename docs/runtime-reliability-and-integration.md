@@ -25,8 +25,8 @@ all twelve online native lanes completed their fresh inventories under pause
 the fresh archive. final acceptance remains open because [old calendar
 revisions were republished](issues/calendar-revision-republication.md). under
 genuine pause 13 the retained cursor returned 80 previously published revisions.
-the operator preserved the corpus and recovery snapshot. the [authorized
-correction](decisions/0085-preserve-google-cursors-during-correction.md) remains unexecuted.
+the owner retained the corpus and recovery snapshot and retired the [proposed
+correction](decisions/0085-preserve-google-cursors-during-correction.md) for this delivery.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -463,17 +463,11 @@ is a reset of the corpus, not permanent erasure of preserved source files.
 
 ### one stopped correction with established google cursors
 
-[adr 0085](decisions/0085-preserve-google-cursors-during-correction.md) authorizes
-one correction after isolated proof. apply the controls above, including genuine
-owner pause, disposition of entered work and verified full current private recovery.
-keep the complete verified `event_cursor` rows in place across the atomic clear
-of the other 17 tables. clear the configured discord channel. genuine intervening
-central history and its derivatives fall within this correction. retain private
-evidence for both discarded corpora. establish fresh native cuts and verify
-the empty history and unchanged cursor inventory under the existing initializer
-pause. after ordinary owner resumption, verify new capture, subsequent successful
-google polls and absence of the old provider revision identities. current
-attention remains eligible. recurrence requires a new disposition.
+[adr 0085](decisions/0085-preserve-google-cursors-during-correction.md) recorded
+a proposed stopped correction retaining all verified google cursor rows while
+clearing the other 17 tables and configured channel. after the [installed
+check](#stopped-google-cursor-correction) reproduced old revisions, the owner
+retired that procedure for this delivery.
 
 ## implementation ownership and acceptance
 
@@ -1933,5 +1927,12 @@ snapshot in place and performed no external cleanup. the same release restarted
 at `08:07:43Z` under pause 13. discord catch-up scanned one message and accepted
 zero. both collectors resumed. at `08:10:05Z` the database still held all 149
 canonical messages and all 44 google cursors. no google stream had advanced
-after the pause. the retained dump still matched its original sha256. f2
-remains open pending owner disposition of calendar revision replay.
+after the pause. the retained dump still matched its original sha256.
+
+the owner saw no need for further cleanup and chose to retain the corpus,
+including the 142 committed revisions and their publication keys. selective
+fixture cleanup was discretionary. the verified mail, calendar, file and
+channel cleanup was already complete. this delivery ends without another wipe
+or calendar filter. ordinary publication still suppresses matching keys and
+admits eligible new revisions under the existing source controls. the strict
+no-republication acceptance criterion remains unmet.

@@ -1,7 +1,7 @@
 # adr 0085: preserve google cursors during the f2 correction
 
-status: accepted by the owner. the installed read-only check reproduced
-the replay under pause 13. the operator preserved the corpus.
+status: retired for this delivery after the installed read-only check under
+pause 13. the owner retained the corpus and its canonical publication keys.
 
 ## evidence
 
@@ -17,12 +17,14 @@ the [stopped check](../runtime-reliability-and-integration.md#stopped-google-cur
 then followed the established cursor through a complete five-page poll. google
 returned 80 of the same 142 revision identities and the original sync token.
 clearing the canonical keys while retaining that cursor would permit replay.
-the operator stopped before the authorized correction. the current corpus,
-source cuts and private recovery evidence were preserved pending owner disposition.
+the operator stopped before the authorized correction. the owner subsequently
+chose to keep the corpus, source cuts and private recovery evidence. ordinary
+deduplication and calendar admission continue. the strict no-republication
+criterion remains unmet.
 
-## decision
+## original decision
 
-the owner authorizes one further stopped correction after isolated proof. retain
+the owner authorized one further stopped correction after isolated proof. retain
 the complete verified `event_cursor` rows in place as the google boundary.
 apply the [existing stopped procedure](../runtime-reliability-and-integration.md#e-fresh-history-resets)
 to the configured discord channel and the other 17 application tables. this

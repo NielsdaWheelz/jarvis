@@ -985,6 +985,7 @@ admission file to repair.
 [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md) authorized the two
 completed f2 resets. after calendar revisions reappeared, the owner authorized
 [one stopped correction retaining the google cursors](decisions/0085-preserve-google-cursors-during-correction.md).
+the owner retired that correction after the installed check reproduced replay.
 the [f2 procedure](runtime-reliability-and-integration.md#e-fresh-history-resets)
 owns its inventory, isolated proof and installed verification. ordinary
 append-only guards continue to apply.

@@ -28,7 +28,10 @@ the verified set of 142, and the terminal token equalled the starting token.
 the existing canonical keys still suppress duplicate publications. removing
 them would admit those offers again.
 
-the operator kept the corpus, source cuts and existing recovery snapshot.
-f2 remains open pending owner disposition of the future-only requirement
-and the already committed facts and derivatives. resolution requires installed
-evidence for the selected boundary, including genuine new activity and capture.
+the owner chose to retain the corpus, source cuts, existing recovery snapshot
+and canonical deduplication. the verified fixture cleanup was already complete.
+further cleanup and calendar filtering are retired for this delivery. distinct
+eligible revisions still follow ordinary source admission. the original strict
+no-republication criterion remains unmet. verification of that criterion would
+require an installed reset with zero overlap against prior provider revision
+identities while genuine new revisions still enter normally.

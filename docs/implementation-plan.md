@@ -213,6 +213,9 @@ installed foreground dispatch pass; the combined journey remains pending.
 ready-prefix dream seeds, full admitted reads and the existing due-nightly
 priority after foreground work. source and controlled qualification pass;
 installed quiet completion remains pending.
+[adr 0083](decisions/0083-dreamer-cumulative-input-budget.md) raises only the
+dreamer cumulative input ceiling to 1,000,000 after measured live exhaustion;
+source amendment and controlled proof pass; actual quiet completion remains pending.
 final source integration is qualified; installed acceptance and reset remain pending.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
 records the exact artifact, pins and temporary candidate. production activation

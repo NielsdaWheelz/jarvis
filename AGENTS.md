@@ -87,6 +87,12 @@ These instructions govern all work in this repository.
   retain atomic completion, synthesis exclusion, fixed models/grants and strict
   maintenance preparation. seed staleness and one bounded night's priority over
   compression/indexing are accepted; qualify source and installed proof separately.
+- [adr 0083](docs/decisions/0083-dreamer-cumulative-input-budget.md) raises only
+  dreamer's cumulative reported-input ceiling to 1,000,000 and owning revision
+  to v6 after measured 241,692 input tokens exceed 160,000. other limits, fixed
+  models, grants and completion stay unchanged. the 6.25x threshold and existing
+  post-generation overshoot are accepted; ten maximal turns and weekly availability
+  remain unguaranteed. qualify source and live completion separately.
 - [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the
   simple v2 target in SPEC. for those slices, it supersedes conflicting baseline
   rules below: one full main plan for every event; one todo table with optional

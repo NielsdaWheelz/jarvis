@@ -236,6 +236,15 @@ seeds may be stale, that bounded dream can delay compression/indexing, and later
 ready material can wait until the next night/manual run. strict maintenance
 preparation and fixed models/grants remain; qualification is separate.
 
+[adr 0083](docs/decisions/0083-dreamer-cumulative-input-budget.md) raises only
+dreamer's cumulative reported-input ceiling from 160,000 to 1,000,000 after an
+actual three-turn run reports 241,692 and stops at the input guard. accounting
+and composition audits find no duplication bug. dreamer becomes v6; every other
+limit, fixed model, grant and completion policy remains. this permits 6.25 times
+the input threshold, including cached input; post-generation enforcement can
+overshoot. ten maximal turns and weekly availability remain unguaranteed.
+qualify source and actual installed quiet completion.
+
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
 adopted target above governs its implementation; old runtime/runbook claims do

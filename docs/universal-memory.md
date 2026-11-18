@@ -1133,7 +1133,7 @@ or a manual run. no freshness, throughput or usefulness guarantee is added.
 
 use isolated `run_one_shot`, `TransientModelDecisions`, one `as_of` and run-local
 read receipts. retain ten provider turns, two repairs, three no-progress attempts,
-300 cooperative seconds, 160,000 input tokens, 16,000 output tokens and 327,680
+300 cooperative seconds, 1,000,000 input tokens, 16,000 output tokens and 327,680
 rendered new-context bytes. reads allow eight calls/eight external attempts,
 32,768 aggregate input bytes and one in-flight call. set tool-budget elapsed time
 to 300 seconds, aligned to the isolated run: this clock starts before inference,
@@ -1152,6 +1152,16 @@ this capacity amendment used dreamer role v4; adr 0082 advances the owning role
 to v5 without changing these bounds. shared allocation and all other limits above retain
 their values. this permits up to 65,536 more cumulative rendered context bytes
 under the existing token, turn, tool and elapsed bounds.
+
+adr 0083 subsequently raises only cumulative reported input from 160,000 to
+1,000,000 and advances dreamer to v6. an actual three-turn run reports 241,692
+input tokens and stops at that guard; accounting/cache and continuation audits
+find no duplication bug. the complete portable host table is 218,636 bytes.
+ten turns at the observed average extrapolate to 805,640; one million is empirical
+headroom, not a guarantee for every maximal path. this is a 6.25x resource
+threshold, including cached input, not a monetary bill. the after-generation
+check can overshoot by an in-flight turn. other bounds, models, grants and atomic
+completion remain unchanged; add no budget framework.
 
 promote llm-tools' generic transient recorder into its production surface with
 `durable=False` fixed and consume the qualified pin. never import its test helper

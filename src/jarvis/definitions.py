@@ -133,7 +133,7 @@ DREAMER_KERNEL_LIMITS = KernelLimits(
     max_protocol_repairs=2,
     max_no_progress_attempts=3,
     max_cooperative_seconds=300.0,
-    max_provider_input_tokens=160_000,
+    max_provider_input_tokens=1_000_000,
     max_provider_output_tokens=16_000,
     max_new_context_bytes=327_680,
 )

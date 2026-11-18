@@ -267,6 +267,13 @@ to v5 without changing these bounds. shared allocation and the other finite
 token, turn, tool and elapsed bounds retain their values. this permits 65,536 more
 rendered context bytes; existing post-read overflow behavior still applies.
 
+adr 0083 subsequently raises only dreamer's cumulative reported-input ceiling
+from 160,000 to 1,000,000 after the actual composed role reaches 241,692 in three
+turns. owning revision becomes v6; output, context, turn, time and tool bounds
+stay fixed. the owner accepts a 6.25x resource threshold, including cached input,
+and existing post-generation overshoot. it is not a monetary bill or a guarantee
+that every ten-turn path or weekly account availability will fit.
+
 the content designer reviews each feature:
 
 - outage logs state fixed phase/reason, attempt and next delay; one recovery fact
@@ -1173,7 +1180,7 @@ observer remain stopped, canonical resume 9 and the unentered proposal preserved
 the actual stopped dream returns no completion after 61.269 seconds. consumed
 progress, notes, canonical work, read positions and the nightly marker stay
 unchanged. the command's zero exit is not accepted as successful completion.
-the [missing stop diagnostic](issues/dreamer-stop-diagnostics.md) requires a
+the [missing stop diagnostic and budget follow-through](issues/dreamer-input-budget.md) requires a
 bounded repair and one qualified actual retry; the original cause is unknown.
 a finite REST-only read verifies the revised journey as genuine owner message
 `1572385672046575698` in the configured channel, with 1,547 characters and body
@@ -1226,3 +1233,33 @@ reviewed source, and combined static/types/docs/build/fresh-wheel/cli/audit chec
 pass. unchanged stateful capture/library evidence remains scoped to its original
 graph; new budget-branch proof covers this diagnostic delta. all limits stay
 fixed, and the qualified actual retry still owns live diagnosis/completion.
+
+### measured dreamer input ceiling and owner amendment
+
+actual `0ec6f73` run `7b3a3c61-a319-4a3b-914e-cea2852da226` reports the exact
+`provider_input_tokens` guard: 241,692 input tokens, 1,094 output tokens, three
+provider turns and 40.581 kernel seconds. no notes or consumed progress commit;
+canonical work and the nightly marker remain unchanged. this establishes that
+run's input limit, not the exact causes of earlier uninstrumented attempts.
+
+pinned-source accounting and continuation audits find no duplicate counting,
+cache re-addition or accidental bootstrap resend. complete portable tool schemas
+produce a 218,636-byte host table and 220,802-byte empty-seed bootstrap. reducing
+that publication contract is separate work. the owner explicitly approves adr
+0083's single input ceiling of 1,000,000; dreamer becomes v6. all other caps,
+models, instructions, policies, grants, schemas and dependency pins stay fixed.
+the owner accepts the 6.25x reported-input threshold and existing post-generation
+overshoot; ten maximal turns and weekly availability remain unguaranteed.
+
+the product diff is exactly those two literals. actual compiled-role/kernel
+controlled-port red/green admits the measured aggregate 241,692 across three
+scripted read/read/finish turns, accepts exactly one million, rejects one million
+plus one at the original input guard, and preserves unknown usage as null. these
+scripted steps reproduce aggregate resource use, not the unseen original live
+steps. other composition compares exact. independent rerun passes, and the new
+probe/matching compiled-file inventory is removed after hash receipts. private
+final receipt has sha256
+`97d03b01872891c812f7e759f2556efd5c1f220ae077ec3c0dc2f51470c05701`.
+frozen static/types/docs/build/fresh-wheel/cli/audit checks pass; unchanged
+stateful evidence remains scoped to its original graph. actual installed quiet
+completion, the genuine restart journey and final reset remain pending.

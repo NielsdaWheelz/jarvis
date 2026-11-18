@@ -1435,3 +1435,29 @@ ended with one root and zero descendants.
 the [steering context issue](issues/native-steering-context.md) records the
 measured duplication. reducing unrelated recent history alone still republishes
 824,360 rendered bytes of already supplied required evidence in this run.
+
+### steering receipt publication
+
+main v4 publishes optional recent observations in a fresh opening. a steering
+batch still selects its complete causal evidence. the host identifies each
+operative invocation by id and the sha256 of its canonical projection. when the
+same native turn already received that version, the new batch names the earlier
+invocation. new or changed projections travel in full. request, action and stop
+records remain explicit. the host retains 32 digest bytes per distinct delivered
+invocation plus its id and map overhead for the active attempt.
+
+the supervisor sends each steer only after accepting the opening. subsequent
+offers wait for the previous batch's recorded or rejected outcome. a queued
+or rejected control earns no receipt credit. this can delay further steering
+while the acknowledgment is outstanding. pause, stop and fencing remain
+observable. fresh reasoning rebuilds the opening without reusing any version
+map. no action, tool binding, paid-read policy or isolated role changed.
+
+the isolated postgres proof reproduced repetition before the repair. the
+repaired runner selected a compact reference for the unchanged causal body,
+the complete new and changed bodies, and the full opening on a fresh attempt.
+independent cases covered an optional candidate that failed the fit check,
+a projection changing and returning to its original value, and prepared,
+queued, rejected, missing and recorded delivery. the controlled provider port
+did not exercise the installed model. the retained capture/retry regression
+passed against a separate clean schema `0013`.

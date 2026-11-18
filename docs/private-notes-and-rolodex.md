@@ -6,9 +6,10 @@ and the demonstrated host repair in [adr 0074](decisions/0074-private-native-soc
 controlled integration and actual temporary candidate evidence. the audited
 jarvis predecessor was `dafb7e0`, kernel `da33773662089a72992c9aec1f938c76d9cb95ab`,
 provider-runtime `70178ec8bb5b54304367ad60c0732447084a37c7`.
-[the roadmap](implementation-plan.md#v2-reviewable-pr-slices) owns sequence;
-[production bootstrap and acceptance](issues/private-workspace-installed-cutover.md)
-remain at final v2 cutover.
+[f2](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+records the installed private checkout, note and dirty git state through restart.
+the [installed helper/git follow-up](issues/private-workspace-installed-cutover.md)
+retains the remaining slice 4 evidence gap.
 
 ## target and scope
 
@@ -448,8 +449,8 @@ controlled-peer fixture maintenance remain. final frozen checks after deletion:
 audits reported no known vulnerabilities; private git packages are not
 pypi-auditable. local upstream checks used darwin arm64; candidate and disposable
 postgres proof used actual linux x86_64. no hosted ci or broad provider/model
-matrix is claimed. the [installed handoff](issues/private-workspace-installed-cutover.md)
-and pre-existing native protocol issue are the remaining explicit boundaries.
+matrix is claimed. the [installed helper/git follow-up](issues/private-workspace-installed-cutover.md)
+and historical native protocol issue retain their separate boundaries.
 
 ### compatible memory mainline integration
 

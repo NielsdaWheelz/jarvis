@@ -12,11 +12,14 @@ the next calendar update failed before action creation. on `34d1620` the
 owner supplied a fresh timing instruction and the update succeeded with all
 120 delivered inputs. restart catch-up admitted the owner's downtime approval.
 the original send executed once and the verified self-reply was in the same
-thread. the todo wake and worker wait settled. main missed the fixture's
-already completed calendar notice and delivered a partial final. three owner
-requests await input and the original todo is blocked at that checkpoint.
-compaction and a quiet dream completed on the selected graph. the corrected
-final disposition and final reset remain outstanding.
+thread. the todo wake and worker wait settled. after initially missing the
+fixture's completed calendar notice, main reopened its archived original,
+delivered the corrected outcome, completed the three remaining owner requests
+and closed the same todo. compaction and a quiet dream completed on the selected
+graph. the owner then paused the application. the disposition checks passed
+under pause 10. the final recovery snapshot verified and fixture storage,
+calendar and bot-message cleanup completed. owner-side mail and channel
+cleanup, the database reset and fresh-source verification remain pending.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -782,7 +785,7 @@ deterministic id. only start/end fractional seconds differ, each by -954,234
 microseconds; owner, time zones and all other writable fields match. the
 [stopped positive recovery](#stopped-positive-recovery-of-the-entered-calendar-effect) records that
 source repair and actual same-effect recovery. the
-[executor-capacity issue](issues/execution-capacity-after-recovery.md) owns the
+[executor-capacity repair](#qualified-write-and-pending-result-repairs) addresses the
 shared in-flight slot left occupied after recovery handoff; a 2,767-byte todo
 request was below its 65,792-byte wrapped input limit. original arguments,
 uncertain receipts and failed results remain unchanged. private receipts retain the first main
@@ -943,10 +946,13 @@ codex abandons its first snapshot, then fully completes a second without observe
 splicing. the corresponding macbook probes cover `[0,3664)` with admitted bound
 6556. this is bounded startup-order evidence, not complete capture or general
 usefulness qualification.
-the claude probe rereads an oversized saved memory-view result. subsequent source
-and exact native-lineage inspection identify the [view-page feedback
-issue](issues/memory-view-page-feedback.md). the combined journey and final reset
-remain pending.
+the claude probe rereads an oversized saved memory-view result. two verified
+native saved-file reads reintroduced summary prose as ordinary tool output at
+tree positions 5,528–5,531 and 5,980–5,983. private
+`saved-memory-view-tree-membership.json` has sha256
+`4b113a40191c68cf0353d8e297aab854b35aff5a7f21f5dbfece9a15a56e9f93`.
+the [bounded page repair](#bounded-view-page-repair-and-actual-consumer) covers
+this specific feedback path.
 
 ### bounded view-page repair and actual consumer
 
@@ -1081,9 +1087,15 @@ integrates the actual calendar attention, todo wake and worker report without
 relaunching the worker. independent stopped Google inspections positively match
 the exact draft MIME and updated owner-only event; they do not qualify timing.
 
-the first terminal fails the correct cross-root approval-reference check at
-`21:56:55Z`; see the [diagnosed disposition](issues/cross-request-approval-disposition.md).
-its seal and original effects remain preserved. the separate
+at `21:56:55Z` terminal `8cf5836e-5500-40ca-bdb0-b5baa3c80b4f` incorrectly
+attached the send proposal to two distinct parentless owners. only
+`19c6030b-fc0a-4c06-a7d1-8257498d6be1` owned that proposal. the host rejected
+the whole disposition and preserved the seal, roots and original effects.
+private `main-8cf-failure-fixture-state.json` has sha256
+`a950162994fcea03d6078f068d0bae409d3a25600452a67d7cf54093307eeb31`.
+the [later approval](#restart-catch-up-and-original-send) and
+[completed roots](#recovered-final-and-reset-disposition) verify the genuine
+continuation. the separate
 [observer gap](#installed-native-child-and-action-lineage-failure) leaves native-child
 completion without sufficient independent evidence. the exact root command
 transcript is unavailable; actual file artifacts and git state remain inspectable.
@@ -1666,3 +1678,67 @@ of all eleven canonical tables matched across the run. private
 `34d1620-independent-postdream.json` has sha256
 `bb334b5b2555e146dcd4e8a7ac888edf378217b5c2f903c411b613784f7eb7f2`.
 the same application restarted at `04:13:17Z` under existing resume 9.
+
+### recovered final and reset disposition
+
+at `04:13:31Z` native attempt `7cc8d8e1-551d-4c04-b624-2e537cc225d8`
+opened with a new email host fact and the three waiting owner requests.
+a separate calendar notice arrived as a steer. the latest owner input at
+admission was still the original downtime approval. main searched again and
+opened the exact archived fixture notice through invocation
+`633600e4-d1b6-4f13-9783-9203ef972db7`. it marked the existing todo done
+with its wake cleared. the single self-send, worker launch and event schedule
+were preserved.
+
+the terminal committed at `04:19:01Z`. all five recorded inputs completed
+with canonical conclusion `d70bb3ee-45cb-54e3-b1af-c712d9824dc3`, delivered
+as discord message `1572466137206099979`. it reported the recovered fixture
+notice, the approved send, the eight corrected cases, the worker's successful
+report, its timed-out wait and the todo wake 25 minutes 9 seconds late.
+the delivered result retained a partial qualifier because main lacked a reply
+receipt for historical callback `07cc4e46-ca39-44d4-810e-1ca4295e6dd2`.
+the earlier failure occurred before action insertion. its original callback
+still has neither a linked action nor a recorded reply. the later successful
+calendar change has its own independently verified receipt. private
+`34d1620-17-final.json` has sha256
+`3d12f21f9fe5be65e67db1572932593180eacd12377666e6885a8236f3170429`.
+
+the owner's discord message `1572466562030510122` established canonical
+pause 10 at `04:20:43Z`. the `04:20:58Z` disposition check found zero
+unfinished requests or todos, undelivered replies, parked messages, pending
+or uncertain actions, unresolved reads or inference, and unsettled native
+products. the original send retained its single executor entry. private
+`34d1620-postfinal-reset-disposition-gate.json` has sha256
+`53a729ee68b8225ff86f9a24ab47316e391b04f5f874c180b80b664d80ffc6a2`.
+
+### final recovery snapshot and exact fixture cleanup
+
+both native collectors stopped before the application exited cleanly at
+`04:21:37Z`. nexus capture was disabled on both sides, with zero source
+exports, registered boundaries or stamped runs. the selected release's
+stopped `0013` snapshot passed the existing helper's creation and verification
+checks. its 22,631,392-byte dump has sha256
+`d018e6245ebe483d983f2a6b6d5ea54170b103be0df5fded354ba790d57d043e`.
+the extracted identity inventory matched the live stopped counts, including
+25,653 native parts across 5,428 native conversations. the predecessor full
+snapshot was removed after verification. both manifests and the separate
+original historical uncertainty receipts were retained. dump listing and
+identity extraction do not qualify a restore.
+
+the complete bucket inventory contained one object, the exact 1,572-byte
+fixture pdf. the storage service acknowledged its deletion with 204 and a
+fresh exact-key read returned 404. the fixture cache was absent. private
+`34d1620-final-attachment-cleanup.json` has sha256
+`656c20c22d4de324a275e0753cbb62a02bbe86b7e2b9c57141a752264877fab2`.
+the sent draft was already absent on two reads. the exact synthetic calendar
+event was deleted once and a fresh read found its matching cancelled
+tombstone. the idle fixture checker had zero attached clients and its original
+full reference before its terminal-only close. the eight observer captures
+were retained and verified before removal of the remote probe copies.
+the private notes checkout and original native chats were preserved.
+
+the complete configured channel inventory contained 18 bot messages and
+seven owner messages. discord acknowledged deletion of all 18 bot messages.
+a second exhaustive read found only the seven owner messages. at this boundary
+the two exact gmail message ids and the owner's seven channel messages
+required owner-side deletion. the application and collectors remained stopped.

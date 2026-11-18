@@ -1,7 +1,9 @@
 # skid follow-through — o9 / slice 3
 
-status: source and candidate qualified 2026-11-15 under
-[adr 0071](decisions/0071-simple-event-driven-v2.md); production acceptance pending.
+source and candidate qualified on 2026-11-15 under
+[adr 0071](decisions/0071-simple-event-driven-v2.md). the
+[production restart journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+subsequently qualified worker follow-through on the selected deployment.
 audited predecessor: merged `31f3dd9`; slices 1–2 are source-qualified. worker v10,
 full-plan events, conversational stop and todos already exist. this slice qualifies
 their composition and repairs demonstrated defects; it adds no orchestration layer.
@@ -20,12 +22,10 @@ owner input, worker outcomes and scheduled todos. todo state is context, not aut
 main may reuse a worker, coordinate/fan out, continue directly, inspect, ask, report
 or do nothing. a coordinator is useful for substantial work, never mandatory.
 
-owner decision: qualify a temporary candidate against the real installed skid
-fleet now; production acceptance stays at final v2 cutover. do not restore
-`deploy/activate-release`, migrate production, convert live reminders or change
-its selected release/control state in this slice. the final state is qualified
-candidate behavior, bounded repair diffs if needed, and an explicit production
-handoff. production follow-through remains unproved until that handoff passes.
+the owner selected a temporary candidate against the installed skid fleet for
+this slice, with deployment activation, reminder conversion and production
+acceptance deferred to f2. the candidate qualified behavior and the demonstrated
+repairs under that original decision.
 
 reuse [o6](one-main-events.md), [o7](work-records.md) and
 [o8](worker-launch-observation.md). no new table, column, migration, tool, role,
@@ -200,9 +200,9 @@ record concise implementation evidence here: exact commits/lock/cli/gateway/nati
 versions, migrated candidate head, tested hosts/profiles, real versus controlled
 boundaries, failing observations/fixes, final receipts and content-review verdict,
 probe cleanup and verification. never record secrets or private task bodies.
-update existing [wait](issues/agent-wait.md) and [worker](issues/skid-terminal-flags.md)
-issues; retain their production handoff until it is actually proved. no duplicate
-qualification-report tree or permanent review machinery.
+the [installed worker handoff](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+records the subsequent production restart, original wait outcome and discord
+delivery.
 
 final production acceptance belongs to [operations](operations.md#skid-only-worker-cutover)
 and [todo cutover](operations.md#supervised-todo-setup): selected compatible release,

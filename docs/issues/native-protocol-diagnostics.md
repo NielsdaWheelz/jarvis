@@ -3,9 +3,9 @@
 status: open; accepted for [f2 reliability/integration](../implementation-plan.md#v2-finishing-prs)
 under adr 0075. retain bounded content-free diagnostics, reproduce and repair the
 owning layer; the [contract](../runtime-reliability-and-integration.md#b-native-diagnostics-and-repair)
-now has implemented diagnostics with isolated fault proof. representative actual
-reproduction on the final qualified f3 stack remains pending. a model upgrade or
-passing later journey does not resolve these failures. repair size remains unknown.
+records implemented diagnostics and isolated fault proof. the selected stack
+subsequently completed representative worker, workspace and restart journeys.
+the original exceptions remain unknown.
 
 [adr 0077](../decisions/0077-production-acceptance-and-fresh-reset.md) permits final
 acceptance with this issue explicitly OPEN if safe diagnostics and representative
@@ -80,7 +80,8 @@ cause leak and verify the new safe exit; bounded helper probes cover unknown
 property/code/class names, cause cycles, all limits and valid json. source static
 checks pass. the f2 contract owns final artifacts and temporary-probe disposition.
 
-these are controlled faults, not actual model reproduction. this issue remains
-OPEN with historical cause unknown; representative scheduled-worker/workspace
-paths on the final f3 composition and installed write/restart acceptance remain
-pending. synthetic violations cannot identify which historical cause occurred.
+the [installed write/restart journey](../runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+reused the original worker, workspace and send receipt. those successful paths
+and the separate explicit usage, lineage and cross-root incidents did not
+reproduce the historical exceptions. the diagnostic issue remains open under
+adr 0077.

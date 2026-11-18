@@ -1,15 +1,15 @@
 # main blocked by admitted-memory preparation backlog
 
-status: foreground dependency removed and installed-qualified; background cost and
-remaining journey/reset evidence open, updated 2026-11-17. the preliminary reset under
+status: the foreground dependency and installed journey are qualified. the
+final fresh reset remains open at the 2026-11-18 paused checkpoint. the preliminary reset under
 [adr 0078](../decisions/0078-fresh-corpus-first-acceptance.md) is complete.
 the owner subsequently approved
 [adr 0079's free-copy and serial-batch amendment](../decisions/0079-bounded-serial-compaction.md)
 after genuine new capture exposed substantial preparation work. source and a
 real-model candidate are qualified; the repair was first installed as `0b33fc4`.
 complete fresh-prefix preparation and the first main dispatch are now observed;
-the real journey and final reset remain pending. large-corpus throughput and
-latency remain unqualified.
+the [installed journey](../runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+completed. large-corpus throughput and latency remain unqualified.
 the owner additionally approved [first valid hard-fitting summaries](../decisions/0080-first-valid-compaction.md)
 after the real 516→504-byte soft-target retry demonstrated an extra post-valid
 call. that stopping amendment has source and real-model candidate qualification,
@@ -110,9 +110,9 @@ remains pending and unparked, with no native main attempt since the latest
 18:19:29 restart. four new paid-required leaves after the independently recorded
 18:08:54 baseline reduce 4,180–8,000-byte originals to 501–575-byte summaries.
 this proves current committed inference progress, not per-turn timing or a
-completion estimate. the separately observed [view-page feedback
-defect](memory-view-page-feedback.md) is not established as the cause of all
-preparation latency.
+completion estimate. the [oversized view-page rereads](../runtime-reliability-and-integration.md#bounded-view-page-repair-and-actual-consumer)
+contributed eight verified feedback leaves. their share of preparation latency
+is unknown.
 
 earlier owner disposition: implement exact free copies through 2,048 bytes and bounded
 serial batches, qualify the real journey, then perform the final reset. before
@@ -140,8 +140,9 @@ dream seeds keep the full admitted read scope and unbuilt backlog, with the
 existing due-nightly attempt ahead of compactor/indexer after main. source and
 controlled proof pass. actual stopped quiet completion on `650eb7c` consumes
 `[0,4127)` and commits three synthesis notes under adr 0083/0084's capacity
-amendments; the remaining journey/reset and historical latency claims stay
-separate.
+amendments. selected `34d1620` later committed two inferred nodes from
+8,000-byte inputs and four synthesis notes over ready seeds `[4127,4150)`.
+the canonical tables and nightly marker remained unchanged by that dream.
 
 resolved when: the shared ready-view contract passes meaningful source proof and
 the installed main reaches native dispatch despite the unprepared admitted tail,

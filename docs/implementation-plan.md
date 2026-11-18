@@ -109,9 +109,9 @@ its own explicitly selected capability.
 
 | item | owner / remaining result |
 | --- | --- |
-| skid release and fleet cutover (o2) | matching cli and read-only live-state mount are installed; qualify launch/control/observation while preserving existing gateways/membership; [cutover issue](issues/skid-terminal-flags.md) |
+| skid release and fleet cutover (o2) | matching cli and read-only live-state mount installed. the [selected worker journey](runtime-reliability-and-integration.md#installed-lineage-and-stopped-restart-window) used the original target throughout |
 | native jarvis activation | same-release host/application, stopped conversion, owner resume and normal memory turn pass; [installed evidence](universal-memory.md#native-memory-installed-qualification). remaining physical google checks stay in their [issue](issues/codex-private-process.md) |
-| installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
+| installed worker observation | [installed restart and notification](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) consumed the same registered wait and independently read the worker report |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
 | current memory artifacts | source dependency fetch/build/audit and online installed rollout pass with named profile deferrals; nexus image/runtime qualification waits for its next release; [image handoff](issues/nexus-memory-image-qualification.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
@@ -129,15 +129,15 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 
 | feature | contract / specification work | owner and dependencies |
 | --- | --- | --- |
-| one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified; installed activation pending | jarvis; builds on native main; source adapters remain separate |
-| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis; one work table, independent timer; installed conversion/activation separate |
-| delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
+| one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified. installed main processed owner, timer, worker, mail and calendar events | jarvis; builds on native main; source adapters remain separate |
+| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis, one work table and timer. the installed journey rescheduled and consumed a one-time wake |
+| delegated follow-through (o9) | [slice 3](delegated-follow-through.md#implementation-evidence--2026-11-15) qualified source and candidate. [f2](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) qualified the production codex worker journey | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
-| private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) adopted by 0071; source/candidate qualified, production deferred | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
-| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined candidate qualified; production deferred; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
-| attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
-| mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; production activation separate; wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
-| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source and isolated repairs qualified; installed acceptance pending | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
+| private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) qualified source and candidate. production notes and dirty checkout verified. [installed helper/git](issues/private-workspace-installed-cutover.md) remains open | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
+| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) qualified source and candidate. installed mail and calendar attention verified. [conversational controls](issues/event-sources-installed-cutover.md) remain open. recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
+| attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified. the production journey retained and reopened the original pdf | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
+| mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified. selected production reads are recorded in f2. wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
+| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source, isolated repairs and installed journey qualified. the final reset remains open | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
 | subscription model/runtime and delegated choices | [f3 evidence](subscription-model-runtime.md#implementation-evidence) source/candidate qualified | main astra/max, memory sol/xhigh via personal codex; native-child choices and bounded upstream skid launch extension |
 | broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
@@ -308,7 +308,7 @@ facts; writing this roadmap sends no assignment to another agent.
 
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
-| skid / jarvis deployment owner | qualify selected-production worker journeys against the installed cli and live-state mount | [terminal-only contract](decisions/0069-terminal-only-workers.md), [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15); installed v0.24.3 and temporary-candidate proof pass; final production acceptance remains |
+| skid / jarvis deployment owner | selected-production codex worker follow-through qualified against the installed cli and live-state mount | [terminal-only contract](decisions/0069-terminal-only-workers.md), [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15); the v0.24.3 candidate proof predates the [selected production journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) |
 | skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
 | dev-server | selected cli/collector installation, long claude retention, private routing, client/capture credentials and native mcp configuration; arch deferred | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
@@ -439,8 +439,8 @@ resumption remain operational work; this plan resumes no stopped service.
 the [o6 implementation contract](one-main-events.md), adopted by adr 0071, owns
 common input, ordinary conversational consent, lifecycle and stopped cutover.
 source implementation and isolated integration/live qualification are complete;
-the contract records exact evidence. slice 3 now records candidate proof against
-installed skid; selected-production acceptance remains at final v2 cutover.
+the contract records exact evidence. slice 3 records candidate proof against
+installed skid. [f2](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) records production worker acceptance.
 the old scheduler is removed; slice 2 supplies scheduled todos. selected slices
 and retained obligations still govern resumption. this branch is not the
 installed memory rollout release.
@@ -515,12 +515,12 @@ durable nonblocking wait/cancel. v10 source and enrolled-label proof are complet
 recorded predecessor only. o6 owns broader event authority; o7 records and o9
 discretionary follow-through remain separate.
 
-remaining: qualify installed observation and actual delivery. the
-[live service-state boundary](universal-memory.md#native-memory-installed-qualification)
-and matching artifacts now pass under the jarvis service uid. the old
-private-client/file-pause installer design is retired. [cli cutover](issues/skid-terminal-flags.md)
-and [wait acceptance](issues/agent-wait.md) own remaining evidence. no worker
-protocol redesign or new table.
+the [live service-state boundary](universal-memory.md#native-memory-installed-qualification)
+and matching artifacts passed under the jarvis service uid. the
+[installed journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+retained the wait registration across restart and delivered the worker
+outcome through discord. useful claude-work execution remains `NOT_RUN`
+under the selected availability boundary.
 
 exit: coordinated installed launch/control; register, serve another owner message,
 receive one deduplicated later observation, repeat across restart. preserve

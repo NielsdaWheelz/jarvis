@@ -1,24 +1,20 @@
-# private workspace production cutover
+# installed private workspace helper and git journey
 
-problem: slice 4's source and isolated candidate do not activate the private
-workspace in production. the selected installed deployment still has schema-4
-mapping and no `/var/lib/jarvis-notes` checkout. intermediate activation remains
-deliberately refused.
+the production cutover bootstrapped the private checkout under the native
+account and installed the same release's schema-5 host mapping and application.
+the real discord task created a research note, rendered both pdf pages and
+updated the untracked note after restart. the checkout remained at `fdcf2c6`.
+the original attachment and worker receipts were preserved. reminder and
+entered-effect disposition are recorded in [f2](../runtime-reliability-and-integration.md#recovered-final-and-reset-disposition).
 
-impact: production main cannot use the new native workspace. source/candidate
-qualification must not be reported as installed acceptance.
+the retained files, git status and delivered report establish the installed
+file journey. the owner-selected fixture asked for research and a note. its
+evidence does not show main running a reusable private helper and exercising
+ordinary git in response to such a request. the earlier
+[slice 4 candidate](../private-notes-and-rolodex.md#implementation-evidence--2026-11-15)
+qualified helper reuse, remote git operations and conflict handling.
 
-evidence: [slice 4](../private-notes-and-rolodex.md) owns source, upstream pins,
-candidate journeys and cleanup. [the roadmap](../implementation-plan.md#v2-reviewable-pr-slices)
-owns the remaining sequence; [operations](../operations.md#private-workspace-handoff)
-owns bootstrap and host/application replacement. a concurrent production rollout
-observed during qualification did not install this slice's schema or checkout.
-
-resolved when: the final v2 cutover accounts for reminders and entered effects,
-creates the selected private remote, bootstraps the ordinary checkout under the
-actual native account environment, installs the same qualified release's schema-5
-mapping and host/application units, and verifies an actual owner discord
-file/helper/git journey plus restart with dirty-work and original-receipt
-preservation. record physical delivery and installed authority separately from
-the temporary controlled gateway/connector proof. no intermediate activation,
-credential copy, automatic pull or native-command replay.
+resolve the remaining slice 4 evidence gap with a genuine owner discord
+helper/git task on the selected host, its produced artifact or execution result,
+and independently inspected git state. the narrower f2 journey and final reset
+do not require another workspace task.

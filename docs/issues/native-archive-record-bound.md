@@ -13,8 +13,9 @@ checkpoint raises `ArchiveError(event_too_large)` in
 bounded `readline` observes more than the existing 8,388,608-byte physical-record
 limit. source paths, identities and bodies remain in private evidence; no cursor
 was moved or error cleared. the installed collector and new runtime provider's
-archive codecs are byte-identical. this is separate from the 23 currently
-unreadable pending baselines and the compaction backlog.
+archive codecs are byte-identical. that observation also had 23 unreadable
+pending baselines. the final quiesced inventory on november 18 had 21. those
+baseline counts do not establish recovery of the oversized physical record.
 
 the accepted memory contract preserves separate native parser/transport bounds.
 this refusal is therefore a truthful coverage gap, not proof that new compaction

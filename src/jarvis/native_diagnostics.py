@@ -38,6 +38,7 @@ _KINDS: dict[type[BaseException], str] = {
     )
 }
 _CODES = frozenset(get_args(ErrorType)) | {
+    "jarvis_text_nul",
     "jarvis_text_utf8_invalid",
     "jarvis_progress_bytes_exceeded",
     "jarvis_action_refs_duplicate",

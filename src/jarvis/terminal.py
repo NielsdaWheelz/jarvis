@@ -28,7 +28,9 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
-def _utf8(value: str) -> str:
+def _terminal_text(value: str) -> str:
+    if "\x00" in value:
+        raise PydanticCustomError("jarvis_text_nul", "terminal text contains nul")
     try:
         value.encode("utf-8")
     except UnicodeEncodeError as exc:
@@ -44,7 +46,7 @@ class Answered(_StrictModel):
     type: Literal["answered"]
     text: Annotated[str, Field(min_length=1, max_length=2_000)]
 
-    _valid_text = field_validator("text")(_utf8)
+    _valid_text = field_validator("text")(_terminal_text)
 
 
 class Partial(_StrictModel):
@@ -55,13 +57,13 @@ class Partial(_StrictModel):
     limitation: Annotated[str, Field(min_length=1, max_length=500)]
     question: Annotated[str | None, Field(min_length=1, max_length=500)]
 
-    _valid_text = field_validator("text")(_utf8)
-    _valid_limitation = field_validator("limitation")(_utf8)
+    _valid_text = field_validator("text")(_terminal_text)
+    _valid_limitation = field_validator("limitation")(_terminal_text)
 
     @field_validator("question")
     @classmethod
     def _valid_question(cls, value: str | None) -> str | None:
-        return None if value is None else _utf8(value)
+        return None if value is None else _terminal_text(value)
 
 
 class NeedsInput(_StrictModel):
@@ -71,8 +73,8 @@ class NeedsInput(_StrictModel):
     context: Annotated[str, Field(max_length=1_000)]
     question: Annotated[str, Field(min_length=1, max_length=500)]
 
-    _valid_context = field_validator("context")(_utf8)
-    _valid_question = field_validator("question")(_utf8)
+    _valid_context = field_validator("context")(_terminal_text)
+    _valid_question = field_validator("question")(_terminal_text)
 
 
 class Failed(_StrictModel):
@@ -81,7 +83,7 @@ class Failed(_StrictModel):
     type: Literal["failed"]
     explanation: Annotated[str, Field(min_length=1, max_length=2_000)]
 
-    _valid_explanation = field_validator("explanation")(_utf8)
+    _valid_explanation = field_validator("explanation")(_terminal_text)
 
 
 class Silent(_StrictModel):
@@ -95,7 +97,7 @@ class Waiting(_StrictModel):
     type: Literal["waiting"]
     text: Annotated[str, Field(min_length=1, max_length=2_000)]
 
-    _valid_text = field_validator("text")(_utf8)
+    _valid_text = field_validator("text")(_terminal_text)
 
 
 class Progress(_StrictModel):
@@ -107,7 +109,7 @@ class Progress(_StrictModel):
     @field_validator("text")
     @classmethod
     def bounded_text(cls, value: str) -> str:
-        _utf8(value)
+        _terminal_text(value)
         if len(value.encode("utf-8")) > PROGRESS_MAX_BYTES:
             raise PydanticCustomError(
                 "jarvis_progress_bytes_exceeded",

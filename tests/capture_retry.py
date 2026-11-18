@@ -341,7 +341,8 @@ async def check(url: str) -> None:
                 fits=lambda _: True,
             )
             assert context is not None
-            body = context.sections[0].body
+            sections, _ = context
+            body = sections.sections[0].body
             assert isinstance(body, PromptJson)
             records = cast(list[dict[str, Any]], body.value)
             async with database.connect() as connection:

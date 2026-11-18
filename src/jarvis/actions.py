@@ -1448,7 +1448,11 @@ async def _lock_new_action(
     attempt = (
         (
             await connection.execute(
-                select(native_attempt)
+                select(
+                    native_attempt.c.fenced_at,
+                    native_attempt.c.terminal_at,
+                    native_attempt.c.product_outcome.is_not(None).label("settled"),
+                )
                 .where(native_attempt.c.id == attempt_id)
                 .with_for_update()
             )
@@ -1469,8 +1473,8 @@ async def _lock_new_action(
     )
     if (
         attempt["fenced_at"] is not None
-        or attempt["terminal"] is not None
-        or attempt["product_outcome"] is not None
+        or attempt["terminal_at"] is not None
+        or attempt["settled"]
         or invocation["request_message_id"] != origin_id
         or contract.claim_id != str(attempt_id)
         or contract.model_step_ordinal != invocation["ordinal"]

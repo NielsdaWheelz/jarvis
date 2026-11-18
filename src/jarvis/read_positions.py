@@ -586,7 +586,9 @@ class PostgresReadRecorder:
                 attempt = (
                     (
                         await connection.execute(
-                            select(native_attempt)
+                            select(
+                                native_attempt.c.id, native_attempt.c.conversation_id
+                            )
                             .join(
                                 native_invocation,
                                 native_invocation.c.attempt_id == native_attempt.c.id,
@@ -601,7 +603,13 @@ class PostgresReadRecorder:
                 current = (
                     (
                         await connection.execute(
-                            select(native_attempt)
+                            select(
+                                native_attempt.c.fenced_at,
+                                native_attempt.c.terminal_at,
+                                native_attempt.c.product_outcome.is_not(None).label(
+                                    "settled"
+                                ),
+                            )
                             .where(native_attempt.c.id == attempt["id"])
                             .with_for_update()
                         )
@@ -611,8 +619,8 @@ class PostgresReadRecorder:
                 )
                 if (
                     current["fenced_at"] is not None
-                    or current["terminal"] is not None
-                    or current["product_outcome"] is not None
+                    or current["terminal_at"] is not None
+                    or current["settled"]
                 ):
                     raise DeploymentOwnershipDefect(
                         "native read authority is no longer live"

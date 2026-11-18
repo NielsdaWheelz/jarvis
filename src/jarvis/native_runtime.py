@@ -80,6 +80,7 @@ from jarvis.messages import MessageStore, StoredMessage, causal_component_ids
 from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_journal import (
     PostgresNativeJournal,
+    StaleNativeProduct,
     commit_product,
     park_product,
     recover_sealed_turn,
@@ -205,9 +206,9 @@ class NativeInputs:
             attempt = (
                 (
                     await connection.execute(
-                        select(native_attempt).where(
-                            native_attempt.c.id == UUID(request.attempt_id)
-                        )
+                        select(
+                            native_attempt.c.owner_epoch, native_attempt.c.fenced_at
+                        ).where(native_attempt.c.id == UUID(request.attempt_id))
                     )
                 )
                 .mappings()
@@ -488,41 +489,53 @@ class NativeRunner:
 
 
 async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
-    """Fence old callback owners, then drain sealed terminals locally."""
+    """Fence the abandoned owner, then drain original seals in arrival order."""
     async with owner.database.begin() as connection:
         await lock_conversation(connection, owner.scope_id)
-        rows = (
-            (
-                await connection.execute(
-                    select(native_attempt)
-                    .where(
-                        native_attempt.c.conversation_id == owner.scope_id,
-                        native_attempt.c.product_outcome.is_(None),
-                    )
-                    .order_by(native_attempt.c.attempt_seq)
-                    .with_for_update()
-                )
+        fenced = await connection.scalar(
+            update(native_attempt)
+            .where(
+                native_attempt.c.conversation_id == owner.scope_id,
+                native_attempt.c.fenced_at.is_(None),
+                native_attempt.c.product_outcome.is_(None),
             )
-            .mappings()
-            .all()
+            .values(fenced_at=func.now())
+            .returning(native_attempt.c.id)
         )
-        for row in rows:
-            await connection.execute(
-                update(native_attempt)
-                .where(native_attempt.c.id == row["id"])
-                .values(fenced_at=func.coalesce(native_attempt.c.fenced_at, func.now()))
-            )
     completed: list[UUID] = []
-    for row in rows:
-        if row["terminal"] is None:
-            continue
+    settled = stale = 0
+    while True:
+        async with owner.database.connect() as connection:
+            identifier = await connection.scalar(
+                select(native_attempt.c.id)
+                .where(
+                    native_attempt.c.conversation_id == owner.scope_id,
+                    native_attempt.c.terminal_at.is_not(None),
+                    native_attempt.c.product_outcome.is_(None),
+                )
+                .order_by(native_attempt.c.attempt_seq)
+                .limit(1)
+            )
+        if identifier is None:
+            break
         try:
             completed.extend(
-                await _settle_native_product(owner, str(row["id"]), recovering=True)
+                await _settle_native_product(owner, str(identifier), recovering=True)
             )
-        except NativeDefect:
-            await _mark_stale(owner, row["id"], "request_authority_changed")
-
+            settled += 1
+        except StaleNativeProduct:
+            await _mark_stale(owner, identifier, "request_authority_changed")
+            stale += 1
+        except Exception as error:
+            error.add_note(f"recovering sealed native attempt {identifier}")
+            raise
+    if fenced or settled or stale:
+        LOGGER.info(
+            "native recovery: fenced=%d settled=%d stale=%d",
+            int(fenced is not None),
+            settled,
+            stale,
+        )
     return tuple(completed)
 
 

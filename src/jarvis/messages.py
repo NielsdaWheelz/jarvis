@@ -444,6 +444,7 @@ class MessageStore:
                     select(native_attempt.c.id)
                     .where(
                         native_attempt.c.conversation_id == scope,
+                        native_attempt.c.fenced_at.is_(None),
                         native_attempt.c.product_outcome.is_(None),
                     )
                     .order_by(native_attempt.c.id)
@@ -461,7 +462,7 @@ class MessageStore:
             await connection.execute(
                 update(native_attempt)
                 .where(native_attempt.c.id.in_(attempts))
-                .values(fenced_at=func.coalesce(native_attempt.c.fenced_at, func.now()))
+                .values(fenced_at=func.now())
             )
         timestamp = datetime.now(UTC)
         if kind == "resume":

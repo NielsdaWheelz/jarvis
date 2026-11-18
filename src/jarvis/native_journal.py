@@ -55,7 +55,7 @@ from provider_runtime.agent_runtime import (
     thaw_json_value,
 )
 from pydantic import ValidationError
-from sqlalchemy import RowMapping, func, select, update
+from sqlalchemy import ColumnElement, RowMapping, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -161,6 +161,10 @@ class _SealedNativeTurn:
     terminal: AgentTerminal
 
 
+class StaleNativeProduct(NativeDefect):
+    """The original delivery no longer has product settlement authority."""
+
+
 async def recover_sealed_turn(
     database: Database, owner: JarvisOwner, attempt_id: str
 ) -> _SealedNativeTurn | None:
@@ -169,9 +173,15 @@ async def recover_sealed_turn(
         row = (
             (
                 await connection.execute(
-                    select(native_attempt).where(
-                        native_attempt.c.id == UUID(attempt_id)
-                    )
+                    select(
+                        native_attempt.c.conversation_id,
+                        native_attempt.c.terminal,
+                        native_attempt.c.request["provider_attempt"].label(
+                            "provider_attempt"
+                        ),
+                        native_attempt.c.request["output"].label("output"),
+                        native_attempt.c.request["input_ids"].label("input_ids"),
+                    ).where(native_attempt.c.id == UUID(attempt_id))
                 )
             )
             .mappings()
@@ -181,19 +191,18 @@ async def recover_sealed_turn(
         return None
     if row["conversation_id"] != owner.scope_id:
         raise NativeDefect("sealed inference is outside this conversation")
-    value = row["request"]
     terminal = terminal_from_json(row["terminal"])
-    prepared = AgentAttempt(**value["provider_attempt"])
+    prepared = AgentAttempt(**row["provider_attempt"])
     if (
         not isinstance(terminal.evidence, NativeTerminalEvidence)
         or terminal.evidence.attempt != prepared
         or prepared.attempt_id != attempt_id
     ):
         raise NativeDefect("product recovery requires original sealed native evidence")
-    output = value.get("output")
+    output = row["output"]
     return _SealedNativeTurn(
         attempt_id,
-        tuple(map(InputId, value["input_ids"])),
+        tuple(map(InputId, row["input_ids"])),
         None
         if output is None
         else JsonSchemaAgentOutput(output["name"], output["schema"]),
@@ -222,8 +231,14 @@ class PostgresNativeJournal:
             row = (
                 (
                     await connection.execute(
-                        select(native_attempt).where(
-                            native_attempt.c.id == UUID(attempt_id)
+                        select(
+                            native_attempt.c.id,
+                            native_attempt.c.request,
+                            native_attempt.c.request_fingerprint,
+                            native_attempt.c.terminal,
+                        ).where(
+                            native_attempt.c.id == UUID(attempt_id),
+                            native_attempt.c.terminal_at.is_not(None),
                         )
                     )
                 )
@@ -375,7 +390,13 @@ class PostgresNativeJournal:
             "native_turn_id": native_turn.native_turn_id,
         }
         async with self.database.begin() as connection:
-            row = await _locked_attempt(connection, self.owner, attempt_id, live=False)
+            row = await _locked_attempt(
+                connection,
+                self.owner,
+                attempt_id,
+                native_attempt.c.native_binding,
+                live=False,
+            )
             if row["native_binding"] is not None and row["native_binding"] != binding:
                 raise NativeDefect("native turn binding changed")
             await connection.execute(
@@ -942,6 +963,8 @@ class PostgresNativeJournal:
                 connection,
                 self.owner,
                 delivery.attempt_id,
+                native_attempt.c.native_binding,
+                native_attempt.c.request["provider_attempt"].label("provider_attempt"),
                 live=delivery.state == "prepared",
             )
             if evidence is not None and (
@@ -952,7 +975,7 @@ class PostgresNativeJournal:
                 )
                 or (
                     "attempt" in evidence
-                    and evidence["attempt"] != row["request"]["provider_attempt"]
+                    and evidence["attempt"] != row["provider_attempt"]
                 )
             ):
                 raise NativeDefect(
@@ -1031,8 +1054,24 @@ class PostgresNativeJournal:
         evidence: AgentSubmission | AgentTerminal | AgentControlReceipt,
     ) -> None:
         async with self.database.begin() as connection:
-            row = await _locked_attempt(connection, self.owner, attempt_id, live=False)
-            prepared = AgentAttempt(**row["request"]["provider_attempt"])
+            column = "submission_evidence"
+            if isinstance(evidence, AgentControlReceipt):
+                column = "local_outcome"
+            elif isinstance(evidence, AgentTerminal):
+                column = (
+                    "terminal"
+                    if isinstance(evidence.evidence, NativeTerminalEvidence)
+                    else "local_outcome"
+                )
+            row = await _locked_attempt(
+                connection,
+                self.owner,
+                attempt_id,
+                native_attempt.c.request["provider_attempt"].label("provider_attempt"),
+                native_attempt.c[column],
+                live=False,
+            )
+            prepared = AgentAttempt(**row["provider_attempt"])
             if isinstance(evidence, AgentControlReceipt):
                 local: dict[str, Any] = row["local_outcome"] or {
                     "terminal": None,
@@ -1067,7 +1106,6 @@ class PostgresNativeJournal:
                     raise NativeDefect(
                         "native terminal belongs to another prepared attempt"
                     )
-                column = "terminal" if native else "local_outcome"
                 if not native:
                     local = cast(
                         dict[str, Any],
@@ -1088,7 +1126,6 @@ class PostgresNativeJournal:
                 if evidence.attempt != prepared:
                     raise NativeDefect("submission evidence belongs to another attempt")
                 value = _evidence(evidence)
-                column = "submission_evidence"
                 changes = {column: value}
                 if isinstance(evidence, AgentNotSubmitted):
                     changes["fenced_at"] = datetime.now(UTC)
@@ -1104,7 +1141,13 @@ class PostgresNativeJournal:
 
     async def fence(self, attempt_id: str, reason: str) -> None:
         async with self.database.begin() as connection:
-            row = await _locked_attempt(connection, self.owner, attempt_id, live=False)
+            row = await _locked_attempt(
+                connection,
+                self.owner,
+                attempt_id,
+                native_attempt.c.local_outcome,
+                live=False,
+            )
             local: dict[str, Any] = row["local_outcome"] or {
                 "terminal": None,
                 "control_receipts": {},
@@ -1128,8 +1171,8 @@ class PostgresNativeJournal:
             row = await _locked_attempt(connection, self.owner, attempt_id, live=False)
             if (
                 row["fenced_at"] is not None
-                or row["terminal"] is not None
-                or row["product_outcome"] is not None
+                or row["terminal_at"] is not None
+                or row["settled"]
                 or row["owner_epoch"] != str(self.owner.token)
             ):
                 return
@@ -1182,14 +1225,22 @@ async def _locked_attempt(
     connection: AsyncConnection,
     owner: JarvisOwner,
     attempt_id: str,
-    *,
+    *evidence_columns: ColumnElement[Any],
     live: bool = True,
 ) -> RowMapping:
     await lock_conversation(connection, owner.scope_id)
     row = (
         (
             await connection.execute(
-                select(native_attempt)
+                select(
+                    native_attempt.c.id,
+                    native_attempt.c.conversation_id,
+                    native_attempt.c.owner_epoch,
+                    native_attempt.c.fenced_at,
+                    native_attempt.c.terminal_at,
+                    native_attempt.c.product_outcome.is_not(None).label("settled"),
+                    *evidence_columns,
+                )
                 .where(native_attempt.c.id == UUID(attempt_id))
                 .with_for_update()
             )
@@ -1215,8 +1266,8 @@ async def _locked_attempt(
     if live and (
         paused == "pause"
         or row["fenced_at"] is not None
-        or row["terminal"] is not None
-        or row["product_outcome"] is not None
+        or row["terminal_at"] is not None
+        or row["settled"]
         or row["owner_epoch"] != str(owner.token)
     ):
         raise NativeDefect("native attempt authority is stale")
@@ -1239,9 +1290,9 @@ async def commit_product(
         attempt, inputs = await _product_inputs(
             connection, owner, turn.attempt_id, turn.input_ids
         )
-        if attempt is None or attempt["terminal"] is None:
+        if attempt is None or attempt["terminal_at"] is None:
             raise NativeDefect("product settlement lacks a native terminal")
-        if attempt["product_outcome"] is not None:
+        if attempt["settled"]:
             return ()
         delivered_count = await connection.scalar(
             select(func.count())
@@ -1252,7 +1303,9 @@ async def commit_product(
             )
         )
         if not inputs or len(inputs) != delivered_count:
-            raise NativeDefect("original input lifecycle invalidates this terminal")
+            raise StaleNativeProduct(
+                "original input lifecycle invalidates this terminal"
+            )
         if not recovering and (
             attempt["fenced_at"] is not None
             or attempt["owner_epoch"] != str(owner.token)
@@ -1444,7 +1497,18 @@ async def _product_inputs(
     attempt = (
         (
             await connection.execute(
-                select(native_attempt)
+                select(
+                    native_attempt.c.id,
+                    native_attempt.c.conversation_id,
+                    native_attempt.c.attempt_seq,
+                    native_attempt.c.terminal_at,
+                    native_attempt.c.fenced_at,
+                    native_attempt.c.owner_epoch,
+                    native_attempt.c.product_outcome.is_not(None).label("settled"),
+                    native_attempt.c.request["control_sequence"]
+                    .as_integer()
+                    .label("control_sequence"),
+                )
                 .where(native_attempt.c.id == UUID(attempt_id))
                 .with_for_update()
             )
@@ -1459,6 +1523,7 @@ async def _product_inputs(
         if (
             row["source_conversation_id"] != owner.scope_id
             or row["role"] not in {"owner", "host"}
+            or row["processing_parked_at"] is not None
             or row["request_state"] not in {"pending", "waiting"}
         ):
             continue
@@ -1469,7 +1534,7 @@ async def _product_inputs(
                 select(message.c.id)
                 .where(
                     message.c.source_conversation_id == owner.scope_id,
-                    message.c.control_sequence > attempt["request"]["control_sequence"],
+                    message.c.control_sequence > attempt["control_sequence"],
                     message.c.control_targets.contains([row["id"]]),
                 )
                 .limit(1)
@@ -1491,6 +1556,23 @@ async def _product_inputs(
                 previous_sequence is not None
                 and previous_sequence > attempt["attempt_seq"]
             )
+        if attempt is not None and controlled is None and not superseded:
+            superseded = bool(
+                await connection.scalar(
+                    select(native_input_delivery.c.attempt_id)
+                    .join(
+                        native_attempt,
+                        native_attempt.c.id == native_input_delivery.c.attempt_id,
+                    )
+                    .where(
+                        native_input_delivery.c.message_id == row["id"],
+                        native_input_delivery.c.state != "rejected",
+                        native_attempt.c.conversation_id == owner.scope_id,
+                        native_attempt.c.attempt_seq > attempt["attempt_seq"],
+                    )
+                    .limit(1)
+                )
+            )
         if controlled is None and not superseded:
             inputs[row["id"]] = row
     return attempt, inputs
@@ -1511,7 +1593,7 @@ async def park_product(
         attempt, inputs = await _product_inputs(
             connection, owner, attempt_id, input_ids, failed=True
         )
-        if attempt is not None and attempt["product_outcome"] is not None:
+        if attempt is not None and attempt["settled"]:
             return
         for identifier, row in inputs.items():
             trace = {
@@ -1553,7 +1635,7 @@ async def park_product(
             changes: dict[str, object] = {
                 "fenced_at": attempt["fenced_at"] or timestamp
             }
-            if attempt["terminal"] is not None:
+            if attempt["terminal_at"] is not None:
                 changes["product_outcome"] = {
                     "status": "failed" if inputs else "stale",
                     "reason": reason,

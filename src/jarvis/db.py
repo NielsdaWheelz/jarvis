@@ -441,6 +441,17 @@ Index(
     ),
 )
 
+Index(
+    "ix_native_attempt_unsettled_seal",
+    native_attempt.c.conversation_id,
+    native_attempt.c.attempt_seq,
+    postgresql_include=["id"],
+    postgresql_where=(
+        native_attempt.c.terminal_at.is_not(None)
+        & native_attempt.c.product_outcome.is_(None)
+    ),
+)
+
 native_invocation = Table(
     "native_invocation",
     metadata,

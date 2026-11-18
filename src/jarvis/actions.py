@@ -133,7 +133,7 @@ class _ExecutionEnvelope(BaseModel):
     claim_id: Annotated[str, Field(min_length=1, max_length=256)]
     through_checkpoint: Annotated[str, Field(min_length=1, max_length=36)]
     model_step_ordinal: Annotated[int, Field(ge=1)]
-    input_message_ids: Annotated[tuple[str, ...], Field(min_length=1, max_length=100)]
+    input_message_ids: Annotated[tuple[str, ...], Field(min_length=1)]
 
     @field_validator(
         "tool_contract_revision",

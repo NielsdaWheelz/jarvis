@@ -358,6 +358,26 @@ nine additional kernel/postgres cases passed. a queued steer named by a write
 callback produced zero actions. opus independently reran the original and
 successor probes under the pinned packages.
 
+**c · receipt access.** on the frozen 0015 release, real stock ran three fresh
+`gpt-6-astra`/max sessions with all 48 main tools. compiled instructions were
+16,147 of 16,384 bytes. openings used 3,514, 3,530 and 1,520 bytes. the first
+model found the hidden subject among 339 calls before interruption. the
+journal charged one loss, waited 30 seconds and admitted the request again.
+the second model rediscovered the subject, opened the original and committed
+the exact answer to the canonical outbox. the third answered an unrelated
+question by opening its shared-memory original and identified 746 omitted
+characters. all three made zero gmail calls. search embeddings and mail
+records were synthetic. the gmail tripwire stood outside the published plan.
+
+the real admission test keeps the earlier uncertain draft and its handled
+notification. a separate trial with a pending draft-reconciliation task also
+requested a gmail read. the trace retained its tool name alone, so its purpose
+is unknown. pending/waiting sibling admission and settlement passed separately.
+the postgres checks exercised result-before-reply, scoped cursors across
+restart, multibyte chunks, stored json nul, opaque retired receipts and
+content-free capture. `connectors.gmail_headers` supplies the existing header
+parser to receipt previews.
+
 **d · service.** application `656e3874109167962277b3b46e1b80fc3e100507`
 has the qualified 0015 code as its parent. opus checked the clean checkout.
 on isolated postgres 16, 19 clients exercised all six tools (114 calls) and

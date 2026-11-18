@@ -130,7 +130,7 @@ check_args=()
 if [[ -e "$hold" ]]; then
   if [[ "$schema" == 0013 ]]; then cutover migrate; fi
   cutover verify-target
-  check_args+=(--fit-pending-mail)
+  check_args+=(--fit-pending-mail "$mail_request")
 elif [[ "$schema" != 0015 ]]; then
   refuse "routine activation requires current schema 0015"
 fi

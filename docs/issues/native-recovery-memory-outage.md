@@ -15,7 +15,11 @@ submission `fd0098ef-0dc3-42e7-abf8-8b50147f290b`. its original utf-8 sha256 is
 `1ffb02e2abd6cab51f8c6621a45a7c4097cdabc62510f421970a43148e56f6d9`.
 external tls and direct
 loopback tcp both connected, but neither received an http response. seven
-canonical requests were pending.
+canonical requests were pending. on 2026-11-18 the owner’s read-only production
+inventory identified pending mail owner request
+`0d3bcc75-749d-4014-a0df-3cdf545366b3`, the request selected by the stopped
+repair. attempt 19 is the first of the 108 already-fenced attempts. the
+snapshot rechecks the original request and cohort under deployment ownership.
 
 ## cause
 

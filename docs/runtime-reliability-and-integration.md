@@ -1872,3 +1872,40 @@ google’s internal reason for returning them is unknown. the
 [calendar issue](issues/calendar-revision-republication.md) records the
 scope of the owner's subsequent adr 0085 decision. installed proof of the
 correction remains pending.
+
+### stopped google cursor correction
+
+the isolated rehearsal used real postgres 16 at schema `0013` and the
+selected event poller and connector against controlled provider responses.
+the original reset discarded all 44 cursors. initial sync discarded its rows,
+then the next incremental poll published a previously admitted revision.
+the correction preserved all 44 rows in place while clearing the other 17
+tables. the normal initializer created the sole nonadmitted pause. the poller
+used the preserved token and admitted a new etag for the same event. when
+the provider deliberately returned the old etag on that same warm token,
+the poller published it. retaining a token alone cannot suppress that response.
+
+twelve refusal and rollback checks preserved the prior corpus, including a
+forced failure after truncation. the helper also refused reuse of the reviewed
+owner pause after fresh initialization. the private helper
+`reset-database-warm.py` has sha256
+`d272ffec6e45631a2e52835d55f360f34a10ecdf75b143134f9bdcd714bae13a`.
+private `adr0085-correction-qualification.json` records the test receipts
+and removal of the temporary test and database. its sha256 is
+`ebdc96e68ba46f42752ffb96dc2d64269dfd83f19bcdd7c1eae18b3537e6a372`.
+
+normal polling later completed several quiet rounds. during one later transition
+between two observed token digests the source identity index recorded 142
+individual hits in four seconds. the index serves other requests too, and its
+counters do not identify individual revisions. one quiet response from a
+warm token therefore cannot settle this incident.
+
+a finite read-only observer follows the affected calendar from its stopped
+cursor through the ordinary connector and poller. it compares offers with the
+142 prior provider identities before canonical deduplication. isolated proof
+covered a quiet round followed by all 142 old identities over eight pages,
+a changed etag, token expiry and the reverse transition. an incomplete window
+cannot establish the suspect transition. private
+`warm-calendar-window-qualification.json` records the exact observer and
+proof cleanup, sha256
+`b7beb01d5364daf7d8af9e06e857e5bfd381e963e31f677744a45339c8708edd`.

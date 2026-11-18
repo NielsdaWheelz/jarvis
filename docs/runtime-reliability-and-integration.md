@@ -1787,3 +1787,13 @@ started under pause 11 at `05:46:56Z`. private
 `34d1620-final-empty-memory-search.json` have sha256
 `566e338911da317ef6d0e9944c570fd23bcb77c54d285d1fc2fe0bc886ea8930`
 and `2b1f3117d02059c7fc0970d5303bef1816d0e52fde88464a63b9e70639e9f206`.
+
+at `06:26:34Z` eleven of the twelve online native lanes had activated and
+completed inventory. they held 3,183 conversation rows. all 3,182 identities
+shared with the stopped inventory had new row ids. 24 unreadable conversations
+had explicit pending baselines, zero captured parts and no checkpoint. the
+remaining `macbook/claude-work` account had 2,246 conversations before the wipe
+and failed discovery before establishing its lane. at this checkpoint no old
+native, jarvis or nexus event parts had reappeared. private
+`final-reset-paused-eleven-cuts-comparison.json` has sha256
+`e0934be5836397445e2f562eaf9726c1ff606c6a670528c80d27801eb30ac7c0`.

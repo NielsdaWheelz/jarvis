@@ -16,3 +16,9 @@ resolve by qualifying normal action persistence and readback for complete
 steered lineage with all identity and authority checks intact, then verify the
 real continuation through an authorized update. retain the original callback
 and fence. no effect was entered and no retry of a prior external write is due.
+
+source fix `f8f7fc6` passed the independent actual postgres dispatcher proof.
+runtime artifact `34d1620` passed local and hosted checks and is installed
+inactive with its verified contained host. actual continuation requires new
+owner timing steering because the earlier window expired. the original
+unentered callback, pending send, work and exact worker target remain preserved.

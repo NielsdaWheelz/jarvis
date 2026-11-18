@@ -1517,3 +1517,15 @@ a missing origin delivery and a fenced owner each produced zero actions and
 effects. new probes, container and volume were removed. private
 `lineage-dispatch-qualified.json` has sha256
 `a5f692913a0b62adaae658615d2f5ec2471705adedc5cc56635c5b9cbd246505`.
+
+runtime source `34d162048175da1ca3da7f685042da4013047189`, tree
+`016e0d1276ca2647eaa7aef72e3ef2b8168ca0e4`, passed local
+`scripts/verify` and [hosted verification](https://github.com/NielsdaWheelz/jarvis/actions/runs/44224432011).
+the local first pass and first two hosted passes timed out reading pypi. the
+unchanged source passed on retry. the inactive release and its same-release
+contained host installed and verified. the application selector remains
+`844fe16` and the application is cleanly stopped. the expired clock window
+requires genuine owner timing steering. the configured channel contained no
+new owner post after the progress message at the `02:54:38Z` observation.
+the original send remains awaiting approval with zero executor entries. the
+final reset still follows successful installed acceptance.

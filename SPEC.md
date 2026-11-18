@@ -121,7 +121,7 @@ implement and qualify the owner refinement in
 [f2's contract](docs/runtime-reliability-and-integration.md) adopts the owner's
 [adr 0077](docs/decisions/0077-production-acceptance-and-fresh-reset.md) decisions,
 with the reset order amended by
-[adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md):
+[fresh-corpus adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md):
 
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
@@ -178,7 +178,7 @@ and safe failure projection. historical dependency observations below retain the
 original artifacts. the f2 evidence records installed outcomes on each release.
 
 the owner selects a preliminary fresh reset → real production journey → final
-fresh reset under adr 0078. both clear configured discord/jarvis/all central
+fresh reset under the fresh-corpus decision. both clear configured discord/jarvis/all central
 shared history, including other agents' admitted material, and todos/reminders/
 waits. preserve private repos, credentials, real google data and original native/
 nexus chats. these are two stopped administrative exceptions to retention and
@@ -213,7 +213,7 @@ request ceiling. one shared earlier context
 prefix grounds references; visible sibling sources cannot contribute unrelated
 facts to another node. larger free nodes can coarsen older detail sooner, sibling
 material is exposed within a batch, and interruption may repeat a batch. this
-supersedes the former single-source isolation and adr 0078's rejection of a
+supersedes the former single-source isolation and the fresh-corpus decision's rejection of a
 throughput change. source and installed proof remain separate.
 
 [adr 0080](docs/decisions/0080-first-valid-compaction.md) retains the 512-byte prompt
@@ -481,7 +481,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   turn. acquire a fresh lease per `NativeRunner.run` and discard that lease at
   completion; retain dispatchers for effects already entered. this supersedes
   affected adr 0065 reuse rules, preserving owner authority, canonical control and
-  effect recovery. native clients keep their sessions and choose shared reads.
+  effect recovery. native clients keep their sessions; the orientation decision adds startup
+  orientation and relevance-conditioned navigation through the same shared reads.
   canonical message/receipt commits precede idempotent archive projection; memory
   failure cannot erase effect evidence. add immutable `memory_admitted` bits to
   `message` and `native_attempt`; invocations inherit attempt eligibility. legacy
@@ -540,7 +541,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   explicit actual coverage and admitted backlog under adr 0081. orientation may
   remain stale or empty indefinitely. search remains available alongside tree navigation and
   paged source opening; capture/admission and current authority remain.
-  callers choose when to search; remove the recaller,
+  orient from the supplied view, zoom relevant discussions and search when that
+  supplies no useful route or leaves a gap; remove the recaller,
   automatic pre-input recall and its isolated inference work. main's full and
   scheduled read-only plans expose view/zoom/date/search/open. the dreamer gets
   those reads over the frozen cutoff and preserved legacy stores, with no write
@@ -553,7 +555,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   inference gate serve queries/indexing/rebuild. one search rate limit covers all
   actual callers, while stored receipt replay costs no new service execution.
 - agent definitions specify context, tools, goals and quality; agents choose
-  their method. remove mandatory first searches, minimum call counts and scripted
+  their method within the orientation-first contract. remove mandatory first
+  searches, minimum call counts and scripted
   research/delegation procedures, including the dreamer completion gate. zero-call
   seed-only or empty success is valid. host protocol, authority, current-owner
   grounding, approvals, valid lineage and commit requirements remain binding.
@@ -1323,7 +1326,21 @@ failure never replaces an original receipt or authorizes its replay.
 
 ### 6.3 Search and authored notes
 
-main and external clients choose shared search/open/view/zoom/date when useful.
+[orientation-first adr 0078](docs/decisions/0078-memory-orientation-first.md) adopts orientation-first
+guidance shared by the library and its consumers. start from the automatic view;
+zoom relevant discussions when remembered context matters, and use existing
+keyword/semantic search when it supplies no useful route or leaves a gap. open
+originals for wording, attribution or disagreement. follow full-event open pages
+to exhaustion for complete retained text, keeping source omissions explicit.
+there is no requirement to zoom irrelevant history or perform a fixed call count.
+
+jarvis freezes the fitting ready prefix and its admitted bound under
+[adr 0081](docs/decisions/0081-ready-memory-for-main.md). publication or view
+read failures block dispatch. unfinished compaction is reported as backlog. nexus's owner-chat target receives automatic orientation
+per top-level turn; native sessions read a complete paged view at startup unless
+usable orientation is inherited. the consolidated contract owns
+[outage, resume, compaction and child boundaries](docs/universal-memory.md#orientation-lifecycle-and-outages).
+other consumer implementation and installed acceptance remain separate.
 one keyword/vector rank-fusion pipeline serves the three retained stores, with
 bounded complete opening and explicit omissions/provenance. no recaller, required
 first search, learned reranker or lexical-only failure fallback. shared bounds,
@@ -1351,8 +1368,12 @@ notification. legacy flat summaries remain readable; new output uses shared note
 
 ### 6.5 Evidence and repair
 
-memory is historical evidence, never current external truth, instructions,
-permission or consent. current Gmail, Calendar and Maps facts require live tools.
+use remembered user preferences and decisions as default working knowledge unless
+corrected or stale. preserve attribution, uncertainty and disagreement; distinguish
+user statements, quotations, hypotheses and agent syntheses. central arrival order
+is neither source chronology nor authority. remembered text grants no new
+permission or consent. changing external facts require current observations when
+the task depends on them.
 canonical `message` rows remain the conversation and request authority.
 
 stopped repair rebuilds derived nodes/views/vectors/indexes while preserving

@@ -9,6 +9,15 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [orientation-first adr 0078](docs/decisions/0078-memory-orientation-first.md) adopts shared
+  orientation-first guidance: view, relevant zoom, existing keyword/semantic
+  search when no useful route remains, and complete retained originals through
+  paged open. remembered preferences/decisions are default working knowledge,
+  preserving corrections, attribution and uncertainty without granting permission.
+  universal-memory owns wording; jarvis adopts the dependency. preserve context
+  assembly and host compaction. the consolidated contract owns native startup,
+  inherited context and outage behavior; other consumers and deployment remain
+  separate. this supersedes discretionary orientation wording below.
 - [adr 0075](docs/decisions/0075-v2-completion-and-subscription-model.md) adds
   three v2 finishing review units: complete mail/calendar/web reads with existing
   writes; native/discord reliability and combined acceptance; a separately
@@ -45,7 +54,7 @@ These instructions govern all work in this repository.
   and qualified f3. use the real production channel exclusively; no parallel
   gateway/mailbox actor. historical native incidents may remain explicitly OPEN
   if representative reproduction cannot identify them; current reproduced defects
-  require repair. [adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md)
+  require repair. [fresh-corpus adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md)
   amends order to preliminary fresh reset → real journey → final fresh reset. both
   clear configured discord/jarvis/all central shared history and todos/reminders/
   waits under existing stopped controls. preserve private repos, credentials, real

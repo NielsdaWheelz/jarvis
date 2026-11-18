@@ -379,7 +379,7 @@ candidate isolation. close relevant installed-cutover issues only on real eviden
 
 ## e. fresh history resets
 
-adr 0078 authorizes this finite administrative procedure twice: before the real
+the [fresh-corpus decision](decisions/0078-fresh-corpus-first-acceptance.md) authorized this finite administrative procedure twice: before the real
 journey, then after acceptance. neither reset is a product capability. before the
 first, retain the preliminary observations and stopped `0013` inventory/recovery;
 before the second, retain actual journey outcomes and current recovery evidence.
@@ -1936,3 +1936,29 @@ channel cleanup was already complete. this delivery ends without another wipe
 or calendar filter. ordinary publication still suppresses matching keys and
 admits eligible new revisions under the existing source controls. the strict
 no-republication acceptance criterion remains unmet.
+
+### integration with the orientation-first branch
+
+the first-party default branches include the qualified f2 changes. jarvis
+keeps the original kernel, tools and provider pins. the combined memory pin
+`13ac202f844110c74559f15c04872c7d0737fc03` has the same tree as the memory
+default-branch merge and includes both ready-prefix behavior and shared
+orientation guidance. the [tools](https://github.com/NielsdaWheelz/llm-tools/pull/29),
+[provider](https://github.com/NielsdaWheelz/llm-calling/pull/58),
+[kernel](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/31) and
+[memory](https://github.com/NielsdaWheelz/universal-memory/pull/9) merges
+preserve the original pinned commits. discord retains the qualified public
+2.7.1-derived fork. the installed journey belongs to release `34d1620`.
+
+the first combined main definition exceeded the existing 16,384-byte system
+limit. removing guidance duplicated in published tool descriptions and counting
+the provider's blank-line separators brought the main prompt to 16,159 bytes
+in `America/Los_Angeles` and 16,172 in `America/Argentina/ComodRivadavia`.
+the main role retained the shared orientation policy, 47 callbacks and a
+3,802-byte output schema. exact-fit and one-byte-over checks exercised all
+three channels for each role. authenticated mcp initialization published the
+native instructions and all six tools. the retained jarvis capture/retry
+regression passed at migration `0013` using the runtime role on disposable
+postgres 16. these checks qualify the merged source. the temporary database
+and integration probes were removed. the earlier one-use cursor correction
+and observation helpers were also removed after the owner retained the corpus.

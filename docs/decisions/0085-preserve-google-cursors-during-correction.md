@@ -42,8 +42,8 @@ resumption. observe subsequent completed polls and compare provider revision
 identities with the stopped inventories. verify that genuine new owner activity
 enters the fresh archive. currently due attention remains eligible.
 
-this exception amends adr 0078 only for this operation. it requires no migration
-or runtime change. historical revisions stay in the private evidence. normal
+this exception amends the [fresh-corpus decision](0078-fresh-corpus-first-acceptance.md)
+only for this operation. it requires no migration or runtime change. historical revisions stay in the private evidence. normal
 google polling uses its existing cursors, admission rules and explicit token-loss
 gap. the correction deliberately loses genuine intervening history from the live
 corpus. google can still return an earlier revision in a later incremental

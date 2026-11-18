@@ -57,6 +57,22 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
   contract. distinguish source merged, dependency pinned, fleet installed, live
   behavior verified and owner-resumed service.
 
+## memory orientation
+
+[orientation-first adr 0078](decisions/0078-memory-orientation-first.md) and the
+[shared contract](universal-memory.md#orientation-lifecycle-and-outages) settle
+orientation, original navigation, outages and native-session boundaries first.
+delivery order: shared universal-memory guidance and immutable upstream pin;
+jarvis prompt/mcp adoption; separately owned nexus injection and dev-server
+native-profile instruction adoption; then installed acceptance and usefulness
+checks. the [open issue](issues/memory-orientation.md) tracks those remaining
+consumer and installation boundaries. retain jarvis context assembly, host
+compaction, existing keyword/semantic ranking and paged open throughout.
+the [source evidence](universal-memory.md#orientation-first-source-qualification)
+identifies the original orientation graph. production `34d1620` retains its
+installed f2 qualification. the integrated orientation source requires separate
+installed acceptance.
+
 ## current position
 
 production runs `34d1620` at schema `0013`. the eighteen tables comprise
@@ -201,7 +217,7 @@ under the owner's [role/delegation refinement](decisions/0076-role-models-and-de
 [f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
 reliability/deployment proof under the owner's
 [production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
-reordered by [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md).
+reordered by [fresh-corpus adr 0078](decisions/0078-fresh-corpus-first-acceptance.md).
 [adr 0081](decisions/0081-ready-memory-for-main.md) additionally adopts shared
 frozen ready orientation for main with explicit historical backlog, preserving
 canonical inputs/effect recovery and existing idle compression. source proof and
@@ -256,7 +272,7 @@ no comparative performance claim or standing benchmark framework follows.
 
 after isolated reliability proof and qualified f3 are integrated with f1/slices
 1–6, f2 performs the stopped production cutover, preliminary fresh reset and actual
-installed journey under adr 0078.
+installed journey under the fresh-corpus decision.
 the preliminary reset is complete. [adr 0079](decisions/0079-bounded-serial-compaction.md)
 adds exact 2,048-byte free copies and up to eight independent inferred nodes per
 serial batch after substantial genuine new capture. qualify that amendment at
@@ -273,7 +289,7 @@ through existing operations. source success alone does not activate production.
 the owner permits an explicitly open irreproducible historical native issue;
 current demonstrated defects still require repair. no intermediate activation.
 
-apply adr 0078's existing stopped reset procedure before the journey and again
+apply the fresh-corpus decision's stopped reset procedure before the journey and again
 after acceptance: configured discord/jarvis/ALL central shared history and todos/
 reminders/waits. preserve private repos, credentials, real google data, original
 native/nexus chats and unknown-effect receipts. retain verified current `0013`

@@ -468,10 +468,10 @@ activation selects the release atomically and starts it with canonical control
 unchanged. only a healthy first start permits pruning; a failed start is stopped
 for explicit repair. there is no automatic rollback or authority resume. code
 rollback cannot reverse a migrated database. retain verified current stopped
-recovery through installed acceptance; adr 0078 permits replacing the old full
-artifact only after its successor verifies. source proof does not establish
+recovery through installed acceptance. the [fresh-corpus decision](decisions/0078-fresh-corpus-first-acceptance.md)
+permits replacing the old full artifact only after its successor verifies. source proof does not establish
 production success.
-f2 owns the exact qualified f3 integration and adr 0078's preliminary reset →
+f2 owns the exact qualified f3 integration and the preliminary reset →
 production journey → final reset. private-configuration/authority changes retain
 their separate pause and stopped-snapshot requirements even when no schema change
 is needed.
@@ -566,7 +566,7 @@ messages and zero unsettled attempts. genuine owner resume sequence 9 preceded
 the real fixture todo and wake. the preliminary reset created no daily review.
 the later restart with a pending timer remains part of f2.
 
-adr 0078's two selected fresh resets clear every todo/reminder/wait
+the [two selected fresh resets](decisions/0078-fresh-corpus-first-acceptance.md) clear every todo/reminder/wait
 and supersede daily-review creation for those resets. do not recreate one on startup;
 future ordinary owner work can request it. the original setup procedure below
 remains the source contract outside this one-off decision.
@@ -615,8 +615,8 @@ recovery; current source supplies no legacy execution branch.
 
 normal future-only native capture preserves established cuts. unavailable
 conversations retain explicit pending baselines and take a fresh cut on their
-first readable head. ordinary upgrades do not reset those cuts. adr 0078's
-two stopped resets are the sole selected exceptions; the f2 contract owns
+first readable head. ordinary upgrades do not reset those cuts. the
+[two stopped resets](decisions/0078-fresh-corpus-first-acceptance.md) are the sole selected exceptions; the f2 contract owns
 its complete inventory, quiescence, finite wipe and new capture boundaries.
 
 before the target's first start, recovery must restore database, runtime and

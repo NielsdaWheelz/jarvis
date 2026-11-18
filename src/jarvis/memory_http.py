@@ -36,6 +36,7 @@ from universal_memory.policy import BATCH_EVENTS, BODY_BYTES, NOTICE
 from universal_memory.schema import memory_lane, source_conversation
 from universal_memory.tools import (
     MEMORY_READ_SPECS,
+    NATIVE_ORIENTATION_GUIDANCE,
     SAVE_NOTE_GUIDANCE,
     MemoryToolFailure,
     SaveNoteInput,
@@ -297,7 +298,7 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
     mcp = Server[dict[str, object]](
         "jarvis-memory",
         version="1",
-        instructions=NOTICE,
+        instructions=NATIVE_ORIENTATION_GUIDANCE,
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )

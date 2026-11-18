@@ -30,7 +30,8 @@ main astra/max, memory sol/xhigh and deliberate native-child/per-session skid ch
 cutover, preliminary fresh reset, real production journey and final reset.
 the [installed evidence](../runtime-reliability-and-integration.md#final-database-reset-and-fresh-capture)
 records the product journey, resets and source coverage. [adr 0085](0085-preserve-google-cursors-during-correction.md)
-authorizes one stopped correction following installed calendar replay. broader search remains deferred.
+authorized one stopped correction. the retained cursor reoffered 80 old revisions
+during its installed check and the operator preserved the corpus. broader search remains deferred.
 
 [adr 0072](0072-native-memory-rollout.md) owns the qualified native rollout
 amendments and service access boundaries. source checks and the registry audit
@@ -122,7 +123,7 @@ with nexus and arch deferred.
 | [0082](0082-ready-seeds-and-nightly-priority.md) | ready seeds and nightly priority | owner-approved committed-ready seed prefix with full admitted reads and no skipped seeds; existing due-nightly attempt precedes compression after foreground work |
 | [0083](0083-dreamer-cumulative-input-budget.md) | dreamer cumulative input budget | owner-approved 1,000,000 reported-input ceiling for the measured composed role; other bounds stay fixed and post-generation overshoot remains possible |
 | [0084](0084-dreamer-continuation-context.md) | dreamer continuation context | owner-approved 1 mib cumulative host context ceiling; source and stopped quiet completion passed on `650eb7c` and selected `34d1620`. strict overflow remains possible |
-| [0085](0085-preserve-google-cursors-during-correction.md) | preserve google cursors during the f2 correction | one further stopped correction after isolated proof, retaining the verified google boundary and current recovery |
+| [0085](0085-preserve-google-cursors-during-correction.md) | preserve google cursors during the f2 correction | isolated correction qualified. installed preflight reproduced 80 old revisions on the retained cursor. corpus preserved |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

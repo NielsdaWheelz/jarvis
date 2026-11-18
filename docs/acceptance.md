@@ -143,8 +143,9 @@ fresh-corpus proof does not qualify large-backlog preparation latency. no standi
 suite, benchmark or competitor-parity claim follows. both stopped database resets and the production journey completed.
 all twelve online native lanes established fresh cuts. the ordinary owner
 resume entered the fresh archive. [old calendar revisions](issues/calendar-revision-republication.md)
-were republished. [one stopped correction](decisions/0085-preserve-google-cursors-during-correction.md)
-with the established google cursor rows requires separate isolated and installed proof.
+were republished. the [stopped read-only check](runtime-reliability-and-integration.md#stopped-google-cursor-correction)
+then found 80 exact reoffers on the established cursor. the correction remains
+unexecuted and f2's future-only criterion remains open.
 
 ## native cutover acceptance
 

@@ -53,9 +53,10 @@ These instructions govern all work in this repository.
   retain one verified current `0013` recovery artifact; verify its replacement
   before disposing of the predecessor. after old calendar revisions reappeared,
   [adr 0085](docs/decisions/0085-preserve-google-cursors-during-correction.md)
-  authorized one further stopped correction after isolated proof. retain the
-  verified google cursors and clear the other central state. coordinate source
-  cuts and prove no old-history republication; do not recreate daily-review work. large-corpus preparation
+  authorized one stopped correction retaining the google cursors. the installed
+  read-only check under pause 13 found 80 old revisions on the retained cursor.
+  preserve the corpus and existing recovery evidence pending owner disposition.
+  f2 still requires a future-only boundary and no automatic daily-review work. large-corpus preparation
   latency remains unqualified. follow f2's exact contract and file disposition.
 - [adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
   copies up to 2,048 bytes and up to eight independent inferred nodes per serial

@@ -21,9 +21,14 @@ and `34d1620-final-google-stream-shape-20261118T071426Z.json` have sha256
 and `aaa38afbb32b7a9acf64c1005952ce5ae428e053e63bbee32a48d364fa1dd660`.
 
 the owner authorized [one stopped correction](../decisions/0085-preserve-google-cursors-during-correction.md)
-after isolated proof. preserve the established cursors and verified private
-recovery. clearing the configured channel and remaining central tables includes
-already committed revisions, their derivatives and genuine intervening history.
-resolution requires the installed cursor comparison, ordinary owner resumption
-and new capture, then completed polls without replay of the old revisions.
-further wipes require a separate decision.
+retaining the established cursors. under genuine pause 13 the [installed
+read-only check](../runtime-reliability-and-integration.md#stopped-google-cursor-correction)
+found 80 distinct reoffers in one complete five-page poll. each belonged to
+the verified set of 142, and the terminal token equalled the starting token.
+the existing canonical keys still suppress duplicate publications. removing
+them would admit those offers again.
+
+the operator kept the corpus, source cuts and existing recovery snapshot.
+f2 remains open pending owner disposition of the future-only requirement
+and the already committed facts and derivatives. resolution requires installed
+evidence for the selected boundary, including genuine new activity and capture.

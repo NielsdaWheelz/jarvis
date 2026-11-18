@@ -1,6 +1,7 @@
 # adr 0085: preserve google cursors during the f2 correction
 
-status: accepted by the owner. installed correction pending.
+status: accepted by the owner. the installed read-only check reproduced
+the replay under pause 13. the operator preserved the corpus.
 
 ## evidence
 
@@ -11,6 +12,13 @@ matched the stopped recovery inventory. clearing canonical messages had removed
 their publication keys. the source committed those revisions and advanced its
 cursor. the [installed evidence](../runtime-reliability-and-integration.md#final-database-reset-and-fresh-capture)
 distinguishes this replay from a separate currently due attention fact.
+
+the [stopped check](../runtime-reliability-and-integration.md#stopped-google-cursor-correction)
+then followed the established cursor through a complete five-page poll. google
+returned 80 of the same 142 revision identities and the original sync token.
+clearing the canonical keys while retaining that cursor would permit replay.
+the operator stopped before the authorized correction. the current corpus,
+source cuts and private recovery evidence were preserved pending owner disposition.
 
 ## decision
 

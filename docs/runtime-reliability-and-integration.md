@@ -23,9 +23,10 @@ and production started under fresh pause 11 after the empty-corpus proof.
 all twelve online native lanes completed their fresh inventories under pause
 11. the owner resumed through discord and the new owner message entered
 the fresh archive. final acceptance remains open because [old calendar
-revisions were republished](issues/calendar-revision-republication.md). the owner
-has authorized [one stopped correction](decisions/0085-preserve-google-cursors-during-correction.md)
-that retains the verified google cursors.
+revisions were republished](issues/calendar-revision-republication.md). under
+genuine pause 13 the retained cursor returned 80 previously published revisions.
+the operator preserved the corpus and recovery snapshot. the [authorized
+correction](decisions/0085-preserve-google-cursors-during-correction.md) remains unexecuted.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -1870,8 +1871,8 @@ apart from their observation times. the fresh canonical messages had new ids.
 the poller admitted incremental rows under the existing source contract.
 google’s internal reason for returning them is unknown. the
 [calendar issue](issues/calendar-revision-republication.md) records the
-scope of the owner's subsequent adr 0085 decision. installed proof of the
-correction remains pending.
+scope of the owner's subsequent adr 0085 decision and the installed
+observation that prevented the correction.
 
 ### stopped google cursor correction
 
@@ -1915,3 +1916,22 @@ page if a later page fails. that proves a reoffer without attributing a terminal
 token or direction to an incomplete delta. six controlled cases qualified this
 revision. private `warm-calendar-partial-qualification.json` has sha256
 `3b364c36a381becad624d5d946e35cd74a678b9f1aa78bc889a6946d831bf32b`.
+
+on 2026-11-18 the owner's discord pause became canonical control 13 at
+`08:02:18Z`. after the service stopped, the read-only observer held deployment
+ownership and used the stored cursor from its successful `08:02:04Z` poll.
+at `08:04:45Z` the first incremental round completed five pages. all 80 offered
+revisions were distinct, and all 80 matched the 142 previously published keys.
+the final sync token matched the starting token. the observer exited 3 on
+that evidence. private `correction-pause13-warm-preflight.json` has sha256
+`d3fe860fe57eb79fa84067649fb9291ed9add5799e8891f85757a6c5e78236ff`.
+
+the observer committed no facts or cursor progress. clearing the canonical
+publication keys would remove the existing protection against these offers.
+the operator left the channel, central corpus, source cuts and recovery
+snapshot in place and performed no external cleanup. the same release restarted
+at `08:07:43Z` under pause 13. discord catch-up scanned one message and accepted
+zero. both collectors resumed. at `08:10:05Z` the database still held all 149
+canonical messages and all 44 google cursors. no google stream had advanced
+after the pause. the retained dump still matched its original sha256. f2
+remains open pending owner disposition of calendar revision replay.

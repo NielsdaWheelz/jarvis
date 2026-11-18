@@ -192,11 +192,13 @@ latency. f2 owns the exact inventory, attachment disposition and verification.
 
 after 142 old calendar revisions reappeared, the owner authorized [one further
 stopped correction](docs/decisions/0085-preserve-google-cursors-during-correction.md)
-after isolated proof and verified full current recovery. preserve the established
-google cursor rows and clear the configured channel and remaining central tables,
-including genuine intervening history and derived work. establish fresh native
-cuts and verify genuine owner resumption, capture and subsequent google polls
-against the prior revision identities. the exception adds no runtime capability.
+after isolated proof and verified full current recovery. the correction would
+preserve the established google cursor rows while clearing the channel and
+remaining central history. under genuine pause 13 the established cursor
+returned 80 previously published revisions in one completed poll. clearing
+canonical publication keys would allow those revisions back into the corpus.
+the operator preserved the corpus and recovery snapshot. f2 remains open
+pending an owner decision on the future-only boundary.
 
 [adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
 copies up to the existing 2,048-byte hard node bound and serial inference batches

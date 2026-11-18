@@ -415,7 +415,7 @@ leave the existing recovery artifact, database, google state and source cuts in 
    transaction. the target verifier compares originals and checks that every old
    deadline is null and every waking/pending flag false. the activation check lists
    queued authorized effects by id and tool before startup recovery can dispatch them.
-   the private preflight output identifies work that may run before catch-up. it fits pending
+   each run retains a private `activation-*.log` in the snapshot directory. it fits pending
    mail using the selected release without submitting a turn.
 
    ```sh

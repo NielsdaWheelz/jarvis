@@ -129,8 +129,14 @@ elif [[ "$schema" != 0015 ]]; then
 fi
 
 check_unit="jarvis-check-${commit:0:12}-$RANDOM"
+if [[ -e "$hold" ]]; then
+  # Retain each stopped fit/action report, including refusals on repeated checks.
+  preflight="$(mktemp "$snapshot/activation-XXXXXXXX.log")"
+else
+  preflight=/dev/null
+fi
 sudo -n systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
-  "${runtime_properties[@]}" "$release/.venv/bin/jarvis" check-activation "${check_args[@]}" </dev/null ||
+  "${runtime_properties[@]}" "$release/.venv/bin/jarvis" check-activation "${check_args[@]}" </dev/null 2>&1 | tee "$preflight" ||
   refuse "activation check failed; leave service stopped"
 
 started=0

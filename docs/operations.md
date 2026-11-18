@@ -37,8 +37,8 @@ private declaration. automated helpers and other viewers receive no memory tools
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) and
 [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), owns isolated proof →
 stopped v2 cutover → preliminary fresh reset → real production acceptance → final
-fresh reset. source reliability/deployment repairs are recorded in f2; the journey
-and both resets remain pending.
+fresh reset. f2 records the completed preliminary reset and current journey
+evidence. the final reset follows installed acceptance.
 the real channel/token/mailbox actor is exclusive. an irreproducible historical
 native incident may remain explicitly open; new demonstrated defects require repair.
 both resets clear discord/jarvis/all central shared history and commitments while
@@ -986,7 +986,7 @@ admission file to repair.
 explicit administrative resets in [f2](runtime-reliability-and-integration.md#e-fresh-history-resets).
 it does not add a runtime deletion API or relax ordinary append-only guards.
 private recovery snapshots/manifests remain outside live memory; source cuts and
-pending exports must be coordinated before writers resume. reset work is pending.
+pending exports must be coordinated before writers resume.
 
 the [target cutover](universal-memory.md#9-migration-and-hard-cutover) takes one
 local pre-migration `pg_dump` with the necessary runtime/configuration copy. this

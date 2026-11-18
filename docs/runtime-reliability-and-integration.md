@@ -6,9 +6,10 @@ pdf artifacts, a private note, a threaded draft, a private calendar update,
 and actual todo, calendar and installed-worker outcomes. the first run missed
 the restart window and did not independently verify native-child completion.
 
-installed `650eb7c` completed the stopped quiet dream. on `c5392be` the
-repaired provider retained the actual context-window failure. the application
-is cleanly stopped. all 103 delivered inputs are parked for repair. the original send proposal
+installed `650eb7c` completed the quiet dream. on `844fe16` main reopened
+the original attachment and integrated an independently observed native child.
+the next calendar update failed before action creation. the application is
+cleanly stopped with its genuine requests pending. the original send proposal
 has zero executor entries. the same-object restart, approval, verified reply,
 final disposition and final reset remain outstanding.
 
@@ -1078,7 +1079,7 @@ the exact draft MIME and updated owner-only event; they do not qualify timing.
 the first terminal fails the correct cross-root approval-reference check at
 `21:56:55Z`; see the [diagnosed disposition](issues/cross-request-approval-disposition.md).
 its seal and original effects remain preserved. the separate
-[observer gap](issues/native-acceptance-observation.md) leaves native-child
+[observer gap](#installed-native-child-and-action-lineage-failure) leaves native-child
 completion without sufficient independent evidence. the exact root command
 transcript is unavailable; actual file artifacts and git state remain inspectable.
 the one-time wake is 574.597771 seconds after committed creation; event start
@@ -1360,7 +1361,7 @@ actual main attempt `5f10be1d-781f-475b-8704-655ca148cd79`, native thread
 `01a1ec22-55a0-7761-894d-4ec900658613`, then fails with `source_protocol`.
 the closed command diagnostic retains provider `ProtocolDefect` through
 `_token_usage` / `_decode_token_usage` / `_usage_member:1881`. this is a new
-[native usage protocol issue](issues/native-token-usage-protocol.md), separate
+[native usage protocol issue](#native-usage-accounting-repair), separate
 from historical unknown native incidents and the resolved dreamer capacities.
 private `650eb7c-startup-protocol-fence-journal.log` has sha256
 `4e20e0af214e702e1f2dc6f19d8f3b6497289196d9c9c0542447127bcbf7fffe`.
@@ -1432,8 +1433,8 @@ stopped the application cleanly with zero restarts. the original 12 action
 snapshots, work row, 37 read positions and resume 9 were preserved. capture 6
 ended with one root and zero descendants.
 
-the [steering context issue](issues/native-steering-context.md) records the
-measured duplication. reducing unrelated recent history alone still republishes
+the [steering reconstruction](#steering-receipt-publication) quantifies the
+duplication. reducing unrelated recent history alone still republishes
 824,360 rendered bytes of already supplied required evidence in this run.
 
 ### steering receipt publication
@@ -1461,3 +1462,43 @@ a projection changing and returning to its original value, and prepared,
 queued, rejected, missing and recorded delivery. the controlled provider port
 did not exercise the installed model. the retained capture/retry regression
 passed against a separate clean schema `0013`.
+
+the stopped read-only candidate reconstruction matched all 63 opening records
+and reduced the seven appended receipt frames from 2,156,133 to 9,899 bytes
+(four at 2,432, three at 57). the prior frames are reconstructed because the
+journal records delivered steering ids and evidence, not each wire body.
+private `c5392be-steering-projection-candidate.json` has sha256
+`4045e514f297d081a1d8c3fc231b913bd289d79ed878cc6aca7f3dd6b2d0a93a`.
+the two fresh postgres fixtures and temporary probes were removed after review.
+
+### installed native child and action lineage failure
+
+jarvis `844fe165892ac4d70f1c8f4d399ade7d29b1c0b6` passed local verification
+and [hosted ci](https://github.com/NielsdaWheelz/jarvis/actions/runs/44220142312).
+the first hosted audit timed out reading pypi. retrying the unchanged source
+passed. the existing stopped operator command released the 103 exact inputs.
+their ids, bodies, parentage, original delivery evidence and terminal hashes
+matched the stopped inventory. same-release host, observer and application
+activation preserved schema `0013`, resume 9 and the original pending send.
+
+fresh main `0070f823-1255-4b4f-89c9-fb604f42301d` reopened the same original
+(1,572 bytes, sha256 `1241524cdb3c1a0f14a5512bfbafb1a647f2cff184cc1ef5539a5b411269a992`).
+capture 7 independently recorded the sol/high child
+`01a1ec68-d080-7fc0-90ad-95fa107dc48a`, its parent and its successful final
+turn at `02:08:17Z`. the child checked all eight years and the gregorian rule,
+and identified which pdf details it received from its parent. the parent's
+private note retained its first 2,170 bytes and appended the child's findings
+before the new clock. discord delivered the matching progress message at
+`02:10:55Z`. the parent reported rechecking both pages. workspace artifacts
+and content corroborate that account; the exact root command stream remains
+unavailable. the remaining restart/approval criterion is distinct from this
+installed proof of useful native-child integration.
+
+a subsequent calendar callback carried 124 delivered input ids. the application
+accepted the invocation, then failed constructing the immutable execution
+contract at its obsolete 100-id limit. no action, executor entry or external
+effect resulted. systemd restarted once. the following attempt was cancelled
+at the clean stop. the stop retained twelve actions, 41 read positions, one
+blocked todo with no new wake and the original unentered send. neither timer
+nor worker wait was armed and the inferred 02:20:58Z wake time passed. the
+[remaining lineage issue](issues/native-action-lineage.md) records this failure.

@@ -42,4 +42,6 @@ to earlier unknown incidents, model output, quota or the resolved dreamer caps.
 
 [provider source qualification](../runtime-reliability-and-integration.md#native-usage-accounting-repair)
 reproduced the old check and qualifies the repaired accounting and resume races.
-installed continuation remains outstanding.
+installed `c5392be` sealed the native failure with its reported usage.
+the [context-window failure](native-steering-context.md) now owns the remaining
+continuation blocker.

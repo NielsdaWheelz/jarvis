@@ -6,9 +6,9 @@ pdf artifacts, a private note, a threaded draft, a private calendar update,
 and actual todo, calendar and installed-worker outcomes. the first run missed
 the restart window and did not independently verify native-child completion.
 
-installed `650eb7c` completed the stopped quiet dream. after real discord
-catch-up, main failed at the provider token-usage decoder. the application is
-cleanly stopped. the genuine continuation is pending. the original send proposal
+installed `650eb7c` completed the stopped quiet dream. on `c5392be` the
+repaired provider retained the actual context-window failure. the application
+is cleanly stopped. all 103 delivered inputs are parked for repair. the original send proposal
 has zero executor entries. the same-object restart, approval, verified reply,
 final disposition and final reset remain outstanding.
 
@@ -1410,3 +1410,28 @@ wheel and sdist checks passed. the private `usage-provider-qualified.json`
 receipt (sha256 `7a7820ed87071a98577a118bd518a1b963a64b1dfeddbf67c08e4dea64f729af`)
 records the probe and deletion inventory. this controlled transport proof
 does not identify which shape reached the production decoder.
+
+### installed accounting and context exhaustion
+
+jarvis `c5392bec900fcbdff478e2735e0ac33bd300a96c`, tree
+`d512d981e46cd8760bb8e51f1100ed2e80dc08b4`, pins kernel `3afc584`
+and provider `0ebc1cb`. the frozen build, fresh wheel, cli, dependency
+identity, types, docs, registry audit and actual postgres capture/retry passed.
+the selected release passed [hosted verification](https://github.com/NielsdaWheelz/jarvis/actions/runs/44217004070).
+same-release host replacement, observer initialization, activation and discord
+catch-up succeeded. the pending proposal remained compatible.
+
+fresh attempt `a98fc5b5-044b-4e42-a3f7-30a7358249b3` sealed an actual failed
+native terminal at `2026-11-18T01:38:29Z` with 217,616 input and 608 output
+tokens. the retained diagnostic and stock log both identify context exhaustion.
+the terminal passed the repaired accounting path. a retrospective exact-thread
+log match also found the underlying context exhaustion on `5f10be1d`; its
+original usage frame remains unavailable. no new callback or action occurred.
+jarvis parked all 103 inputs and delivered the failure notice. the operator
+stopped the application cleanly with zero restarts. the original 12 action
+snapshots, work row, 37 read positions and resume 9 were preserved. capture 6
+ended with one root and zero descendants.
+
+the [steering context issue](issues/native-steering-context.md) records the
+measured duplication. reducing unrelated recent history alone still republishes
+824,360 rendered bytes of already supplied required evidence in this run.

@@ -128,7 +128,24 @@ async def inventory(conn, channel):
         )
     ).one_or_none()
     require(control is not None, "canonical control is uninitialized")
-    return {"tables": facts, "last_control": list(control)}
+    # Original incident attempts 19 through 126 have no retroactive retry budget.
+    incident = list(
+        (
+            await conn.execute(
+                text("""
+        SELECT id::text FROM native_attempt WHERE conversation_id=:channel
+          AND attempt_seq BETWEEN 19 AND 126 ORDER BY attempt_seq
+    """),
+                {"channel": channel},
+            )
+        ).scalars()
+    )
+    require(len(incident) == 108, "incident native attempt population differs")
+    return {
+        "tables": facts,
+        "last_control": list(control),
+        "incident_attempt_ids": incident,
+    }
 
 
 async def cut(operation, destination, target, system_stop):

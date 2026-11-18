@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Fence systemd starts across the stopped schema transition, including reboot."""
+
+import argparse
+import json
+import os
+import subprocess
+from pathlib import Path
+
+UNIT = "jarvis.service"
+UNIT_PATH = "/org/freedesktop/systemd1/unit/jarvis_2eservice"
+ROOT = Path("/etc/systemd/system")
+HOLD = ROOT / "jarvis-cutover.hold"
+DROP = ROOT / (UNIT + ".d") / "86-cutover.conf"
+CONDITION = f"[Unit]\nConditionPathExists=!{HOLD}\n"
+
+
+def systemctl(*args):
+    subprocess.run(["systemctl", *args], check=True)
+
+
+def property_value(name):
+    return json.loads(
+        subprocess.check_output(
+            [
+                "busctl",
+                "--system",
+                "--json=short",
+                "get-property",
+                "org.freedesktop.systemd1",
+                UNIT_PATH,
+                "org.freedesktop.systemd1.Unit",
+                name,
+            ]
+        )
+    )["data"]
+
+
+def held(target):
+    if (
+        HOLD.read_text() != target + "\n"
+        or DROP.read_text() != CONDITION
+        or any(p.stat().st_uid != 0 or p.stat().st_mode & 0o022 for p in (DROP, HOLD))
+    ):
+        raise SystemExit("cutover hold differs from selected release")
+    if not any(
+        kind == "ConditionPathExists" and not trigger and negate and path == str(HOLD)
+        for kind, trigger, negate, path, result in property_value("Conditions")
+    ):
+        raise SystemExit("systemd has not loaded the cutover condition")
+
+
+def stopped():
+    fields = [
+        "LoadState",
+        "ActiveState",
+        "MainPID",
+        "ControlPID",
+        "ControlGroup",
+        "Result",
+    ]
+    values = dict(
+        line.split("=", 1)
+        for line in subprocess.check_output(
+            ["systemctl", "show", UNIT, "--property", ",".join(fields)], text=True
+        ).splitlines()
+    )
+    if (
+        values["LoadState"] != "loaded"
+        or values["ActiveState"] not in {"inactive", "failed"}
+        or values["MainPID"] != "0"
+        or values["ControlPID"] != "0"
+        or property_value("Job")[0]
+    ):
+        raise SystemExit("systemd still owns a process or job")
+    group = values["ControlGroup"] or f"/system.slice/{UNIT}"
+    directory = Path("/sys/fs/cgroup") / group.lstrip("/")
+    if (
+        directory.exists()
+        and "populated 0" not in (directory / "cgroup.events").read_text().splitlines()
+    ):
+        raise SystemExit("service cgroup still populated")
+    return values
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("operation", choices=["stop", "check", "release"])
+    parser.add_argument("target")
+    args = parser.parse_args()
+    if args.operation == "stop":
+        if not HOLD.exists():
+            with HOLD.open("x") as stream:
+                stream.write(args.target + "\n")
+        if HOLD.read_text() != args.target + "\n":
+            raise SystemExit("another release already holds this cutover")
+        DROP.parent.mkdir(mode=0o755, exist_ok=True)
+        if not DROP.exists():
+            with DROP.open("x") as stream:
+                stream.write(CONDITION)
+        os.sync()
+        systemctl("daemon-reload")
+        held(args.target)
+        # Stopping an already failed unit can discard the original Result.
+        if property_value("ActiveState") not in {"inactive", "failed"}:
+            subprocess.run(["systemctl", "stop", UNIT], check=False)
+    held(args.target)
+    print(json.dumps(stopped(), sort_keys=True))
+    if args.operation == "release":
+        DROP.unlink()
+        HOLD.unlink()
+        systemctl("daemon-reload")
+
+
+if __name__ == "__main__":
+    main()

@@ -380,108 +380,68 @@ the later `0015→0016` grant/service cut requires the ordinary recorded pause a
 both writers stopped. the adr also defines memory command locks. installed acceptance
 is pending.
 
-the production deployment exists. install an exact committed release without
-activating it. ordinary migration requires a stopped, owner-paused deployment and
-the private snapshot/inventory below. routine replacement at schema `0013` preserves
-initialized canonical pause/resume. a systemd one-shot injects the root-only
-runtime environment after changing to the `jarvis` identity.
+### stopped incident cut from 0013 to 0015
 
-for an existing deployment, prepare a clean stop and the
-[native cutover](#native-cutover). install the contained host before activation;
-the worker catalog switch follows the [skid-only cutover](#skid-only-worker-cutover).
+use the **qualified a–c-only commit**. its installer archives that commit, builds the
+locked dependencies and records the git commit, tree and lockfile digest under
+`/opt/jarvis/releases`. the workstation activator independently derives that receipt.
+the only accepted source is `05d1c33b5dc31db96f9aef6318591ded786c3c4f`.
+leave the existing recovery artifact, database, google state and source cuts in place.
 
-```sh
-deploy/install-release
-deploy/activate-release "$(git rev-parse HEAD)"
-deploy/verify-containment
-```
+1. ask for an ordinary pause if the old service can record it. the owner approved
+   preserving the last actual control if the wedged release cannot record a pause.
+   drain where feasible. select the qualified target commit on the operator workstation.
+2. install the inactive release. prepare installs the root-owned hold and persistent
+   systemd condition, reloads the manager, stops the assistant, and records its actual
+   stop result. a skipped systemd start can return success. the loaded condition, empty
+   cgroup, zero main/control pids, cleared job and exclusive database lock establish
+   the stopped boundary. a reboot retains the condition.
 
-`install-release [FULL_GIT_COMMIT]` archives the exact commit (default `HEAD`), installs the exact
-`.python-version` interpreter inside the release, and builds with `uv sync
---frozen --no-dev --no-editable --link-mode copy`. After root-owning the tree,
-it verifies the release-contained interpreter, dependency identity and CLI as
-the actual `jarvis` service identity before recording the commit/tree/lock
-digest. It never writes the global service unit. Rechecking an existing receipt
-also requires that service-identity proof; an unusable release is rejected, not
-repaired in place. Each release carries its own interpreter/package bytes:
-additional disk use buys independence from private account homes and writable
-builder caches. It refuses tracked changes.
+   ```sh
+   deploy/install-release "$commit"
+   deploy/activate-release --prepare "$commit"
+   ```
 
-the existing builder identity must have git read access to the public
-`NielsdaWheelz/universal-memory` repository before installation. the installer
-checks that access before pruning a candidate. ci and local builds fetch the
-immutable public git pin without a private-dependency credential.
+3. find the new private copy in `/var/lib/jarvis-cutover/adr0086/$commit`. its
+   manifest records both releases, database, channel, actual last control and ordered
+   original-row fingerprints across all eighteen tables, including pending mail,
+   actions, original paid reads, outbox, attempts, capture checkpoints, event cursors,
+   notes and leaf positions. the dump is streamed through pg_restore and checksummed.
+   copied declaration/state trees retain file bytes, ownership, modes and symlink targets.
+   an interruption before publication can leave a private `.incomplete-*` directory.
+   repeat prepare to create or verify the completed snapshot under the same hold.
+4. install the contained host for the target using the existing private mapping, then
+   activate. verification and migration to exactly `0015` share a locked database
+   transaction. the target verifier compares originals and checks that every old
+   deadline is null and every waking/pending flag false. the activation check lists
+   queued authorized effects by id and tool before startup recovery can dispatch them.
+   the private preflight output identifies work that may run before catch-up. it fits pending
+   mail using the selected release without submitting a turn.
 
-release/contained-host installation, activation and pruning share
-`/opt/jarvis/.deploy.lock`. retain only the
-selected release and one temporary installation candidate; rebuild any discarded
-release from its exact commit. pruning checks both the running jarvis process and
-the contained host's loaded `ExecStart`. if that host still selects another
-release, cleanup refuses before deleting files. cleanly stop or install the host
-for the retained release before retrying; no extra rollback release is retained.
+   ```sh
+   deploy/install-contained-host "$commit"
+   deploy/activate-release "$commit"
+   ```
 
-`deploy/activate-release FULL_GIT_COMMIT` requires a cleanly stopped service,
-the exact installed release receipt and its same-release native host. its
-transient checks use the application's private socket-file bind. the current
-schema `0013` path runs host and activation checks without creating a control,
-snapshot, inventory or migration. existing startup recovery remains available;
-new main reasoning/background work waits for validated discord catch-up.
+   failure before release selection leaves the hold in place. correct the reported
+   cause and rerun activation. preserve any older verified recovery copy until the
+   replacement has been verified. manual removal of the hold discards the
+   pre-start exclusion. verify a host recovery by restarting the application to
+   mount its new socket inode. never restore the old database after new work starts.
 
-only the selected installed transition `0008a` → `0013` is supported. before
-changing private configuration or replacing the native host, disposition old
-work under its original release, canonically pause and cleanly stop the service.
-verify `ActiveState=inactive`, `Result=success` and `MainPID=0`. retain the private
-obligation inventory and take the one stopped snapshot with the target release's
-snapshot helper; it deliberately needs no new-target model/storage settings:
+5. after validated discord catch-up, verify the pending mail against its original
+   receipts. if the retained control is pause, the owner resumes through discord.
+   the originating macbook codex-work2 client retries the original 928-byte note
+   with submission id `fd0098ef-0dc3-42e7-abf8-8b50147f290b`, identical text
+   (sha256 `1ffb02e2abd6cab51f8c6621a45a7c4097cdabc62510f421970a43148e56f6d9`)
+   and omitted conversation id. inspect the returned note id, one original row
+   and one tree leaf. a client timeout leaves commit status unknown.
 
-```sh
-commit="$(git rev-parse HEAD)"
-ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-  sudo -n flock /opt/jarvis/.deploy.lock \
-  systemd-run --quiet --wait --pipe --collect \
-  --unit=jarvis-cutover-snapshot --property=Type=oneshot \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-  --property=EnvironmentFile=/etc/jarvis/migration.env \
-  "/opt/jarvis/releases/$commit/.venv/bin/python" \
-  "/opt/jarvis/releases/$commit/deploy/prepare-cutover" snapshot \
-  "/var/lib/jarvis-cutover/$commit"
-```
-
-the snapshot holds deployment ownership and checks canonical pause directly at
-schema `0008a` or `0013`. it retains a custom-format database dump, private state,
-configuration and the original selected release receipt under a private parent.
-dump and listing use the same database environment. `verify` checks that artifact
-against the same database endpoint, channel, source schema and selected receipt;
-configuration copies retain their pre-handoff values. at `0008a`, snapshot and
-verification refuse unfinished actions/waits, unresolved durable inference and
-operative unknown billed-once reads before migration can disable their original
-runtime. native reads whose original input is explicitly stopped/completed retain
-their original barriers; this creates no settlement or replay permission. retired
-non-native unknown paid reads retain their existing global refusal.
-uncertain effects require original-release disposition; validated finalized known
-retired worker uncertainty remains opaque and non-retryable. listing proves
-readability, not a qualified restore. an existing artifact is never overwritten.
-
-then publish the selected private configuration/notes/storage/calendar controls
-and install its native host. activation revalidates the pre-cutover snapshot
-before migrating, records the current stopped native inventory and runs all
-current activation checks. unknown schemas and unresolved incompatible contracts
-refuse. no old scheduler, rememberer drain or legacy executor is restored. the
-fresh-start choice permits cancelling prior commitments under their original
-release; never erase entered/unknown work to pass a check.
-
-activation selects the release atomically and starts it with canonical control
-unchanged. only a healthy first start permits pruning; a failed start is stopped
-for explicit repair. there is no automatic rollback or authority resume. code
-rollback cannot reverse a migrated database. retain verified current stopped
-recovery through installed acceptance. the [fresh-corpus decision](decisions/0078-fresh-corpus-first-acceptance.md)
-permits replacing the old full artifact only after its successor verifies. source proof does not establish
-production success.
-f2 owns the exact qualified f3 integration and the preliminary reset →
-production journey → final reset. private-configuration/authority changes retain
-their separate pause and stopped-snapshot requirements even when no schema change
-is needed.
+ordinary same-schema release replacement requires a clean stop, a matching
+installed receipt and a verified same-release contained host. the service starts
+only after the stopped activation check. one selected release and one installation
+candidate are retained. run `deploy/verify-containment` after startup.
+the later memory cut requires a genuine owner pause.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.

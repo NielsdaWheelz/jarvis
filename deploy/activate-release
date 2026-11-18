@@ -2,11 +2,18 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+operation=activate
+if [[ "${1:-}" == --prepare ]]; then
+  operation=prepare
+  shift
+fi
 commit="${1:-}"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
-  printf 'usage: deploy/activate-release FULL_GIT_COMMIT\n' >&2
+  printf 'usage: deploy/activate-release [--prepare] FULL_GIT_COMMIT\n' >&2
   exit 64
 fi
+tree="$(git -C "$repo_dir" rev-parse --verify "$commit^{tree}")"
+lock_sha="$(git -C "$repo_dir" show "$commit:uv.lock" | shasum -a 256 | awk '{print $1}')"
 
 {
 cat "$repo_dir/deploy/release-functions"
@@ -22,30 +29,42 @@ refuse() {
 }
 
 sudo -n test -f "$release/RELEASE.json" || refuse "release is not installed"
-sudo -n python3 - "$release/RELEASE.json" "$commit" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-receipt = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
-if receipt.get("commit") != sys.argv[2] or any(
-    not isinstance(receipt.get(key), str)
-    or not re.fullmatch(pattern, receipt[key])
-    for key, pattern in (("tree", r"[0-9a-f]{40}"), ("uv_lock_sha256", r"[0-9a-f]{64}"))
-):
-    raise SystemExit("installed release receipt does not match the selected artifact")
-PY
-for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
-  /etc/jarvis/migration.env; do
-  sudo -n test -f "$file" && sudo -n test ! -L "$file" ||
-    refuse "a required environment file is missing or is a symlink"
-done
-active_state="$(sudo -n systemctl show --property=ActiveState --value jarvis.service)"
-main_pid="$(sudo -n systemctl show --property=MainPID --value jarvis.service)"
-result="$(sudo -n systemctl show --property=Result --value jarvis.service)"
-if [[ "$active_state" != inactive || "$result" != success || "$main_pid" != 0 ]]; then
-  refuse "jarvis.service did not stop cleanly; inspect before activation"
+receipt="$(python3 - "$commit" "$2" "$3" "$release/RELEASE.json" <<'PYCODE'
+import json, pathlib, sys
+expected = dict(zip(("commit", "tree", "uv_lock_sha256"), sys.argv[1:4], strict=True))
+if json.loads(pathlib.Path(sys.argv[4]).read_bytes()) != expected:
+    raise SystemExit("installed receipt differs from externally selected release")
+print(json.dumps(expected, separators=(",", ":")))
+PYCODE
+)"
+operation="$4"
+snapshot="/var/lib/jarvis-cutover/adr0086/$commit"
+hold=/etc/systemd/system/jarvis-cutover.hold
+source=/opt/jarvis/releases/05d1c33b5dc31db96f9aef6318591ded786c3c4f
+selected="$(readlink -e /opt/jarvis/current)"
+cutover() {
+  systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+    "--property=WorkingDirectory=$release" \
+    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+    --property=EnvironmentFile=/etc/jarvis/migration.env \
+    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$receipt" </dev/null
+}
+if [[ "$operation" == prepare ]]; then
+  [[ "$selected" == "$source" ]] || refuse "cut requires the incident source release"
+  "$release/deploy/cutover-hold" stop "$commit"
+  if [[ -d "$snapshot" ]]; then cutover verify; else cutover snapshot; fi
+  exit
+fi
+if [[ -e "$hold" ]]; then
+  "$release/deploy/cutover-hold" check "$commit"
+elif [[ "$selected" == "$source" ]]; then
+  refuse "first prepare the stopped incident cut"
+else
+  [[ "$(systemctl show -p ActiveState --value jarvis.service)" == inactive &&
+     "$(systemctl show -p Result --value jarvis.service)" == success &&
+     "$(systemctl show -p MainPID --value jarvis.service)" == 0 ]] ||
+    refuse "jarvis.service did not stop cleanly"
 fi
 
 runtime_properties=(
@@ -100,35 +119,18 @@ except (KeyError, SQLAlchemyError, ValueError):
 print(revision)
 PY
 )"
-if [[ "$schema" == 0008a ]]; then
-  snapshot="/var/lib/jarvis-cutover/$commit"
-  snapshot_unit="jarvis-snapshot-${commit:0:12}-$RANDOM"
-  sudo -n systemd-run --quiet --wait --pipe --collect --unit="$snapshot_unit" \
-    --property=Type=oneshot "--property=WorkingDirectory=$release" \
-    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-    --property=EnvironmentFile=/etc/jarvis/migration.env \
-    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" verify "$snapshot" </dev/null ||
-    refuse "the stopped pre-cutover snapshot did not validate; leave service stopped"
-  migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
-  sudo -n systemd-run --quiet --wait --collect --unit="$migration_unit" \
-    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
-    "--property=WorkingDirectory=$release" \
-    --property=EnvironmentFile=/etc/jarvis/migration.env \
-    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-    "$release/.venv/bin/alembic" -c alembic.ini upgrade head ||
-    refuse "migration failed; leave service stopped for explicit repair"
-  cutover_unit="jarvis-cutover-${commit:0:12}-$RANDOM"
-  sudo -n systemd-run --quiet --wait --pipe --collect --unit="$cutover_unit" \
-    "${runtime_properties[@]}" "$release/.venv/bin/jarvis" cutover-native </dev/null ||
-    refuse "native cutover inventory failed; leave service stopped"
-elif [[ "$schema" != 0013 ]]; then
-  refuse "activation requires installed schema 0008a or current schema 0013"
+check_args=()
+if [[ -e "$hold" ]]; then
+  if [[ "$schema" == 0013 ]]; then cutover migrate; fi
+  cutover verify-target
+  check_args+=(--fit-pending-mail)
+elif [[ "$schema" != 0015 ]]; then
+  refuse "routine activation requires current schema 0015"
 fi
 
 check_unit="jarvis-check-${commit:0:12}-$RANDOM"
 sudo -n systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
-  "${runtime_properties[@]}" "$release/.venv/bin/jarvis" check-activation </dev/null ||
+  "${runtime_properties[@]}" "$release/.venv/bin/jarvis" check-activation "${check_args[@]}" </dev/null ||
   refuse "activation check failed; leave service stopped"
 
 started=0
@@ -147,6 +149,7 @@ temporary="/opt/jarvis/.current-$commit"
 sudo -n rm -f -- "$temporary"
 sudo -n ln -s "releases/$commit" "$temporary"
 sudo -n mv -Tf "$temporary" /opt/jarvis/current
+if [[ -e "$hold" ]]; then "$release/deploy/cutover-hold" release "$commit"; fi
 started=1
 sudo -n systemctl enable --now jarvis.service
 sleep 10
@@ -164,4 +167,4 @@ printf 'activated jarvis release: %s\n' "$commit"
 printf 'canonical control is unchanged; new reasoning waits for validated discord catch-up\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit"
+  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$tree" "$lock_sha" "$operation"

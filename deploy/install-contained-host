@@ -29,9 +29,13 @@ sudo -n test -f "$release/RELEASE.json"
 
 # host and mapping changes require a cleanly stopped application. existing native
 # attempts are recovered by the application after its next activation.
-[[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
-[[ "$(sudo -n systemctl show --property=Result --value jarvis.service)" == success ]]
-[[ "$(sudo -n systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+if [[ -e /etc/systemd/system/jarvis-cutover.hold ]]; then
+  "$release/deploy/cutover-hold" check "$commit"
+else
+  [[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+  [[ "$(sudo -n systemctl show --property=Result --value jarvis.service)" == success ]]
+  [[ "$(sudo -n systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+fi
 candidate="$(sudo -n mktemp /etc/jarvis/.codex-host.XXXXXX)"
 cleanup_candidate() { sudo -n rm -f -- "$candidate"; cleanup; }
 trap cleanup_candidate EXIT HUP INT TERM

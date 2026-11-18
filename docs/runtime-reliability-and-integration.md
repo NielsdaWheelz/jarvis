@@ -8,10 +8,12 @@ the restart window and did not independently verify native-child completion.
 
 installed `650eb7c` completed the quiet dream. on `844fe16` main reopened
 the original attachment and integrated an independently observed native child.
-the next calendar update failed before action creation. the application is
-cleanly stopped with its genuine requests pending. the original send proposal
-has zero executor entries. the same-object restart, approval, verified reply,
-final disposition and final reset remain outstanding.
+the next calendar update failed before action creation. on `34d1620` the
+owner supplied a fresh timing instruction and the update succeeded with all
+120 delivered inputs. the application stopped with the original send awaiting
+approval, a future todo wake and the worker wait registered. restart catch-up,
+approval, verified reply, final disposition, post-journey compaction and quiet
+dream on the selected graph, and final reset remain outstanding at that checkpoint.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -1501,7 +1503,8 @@ effect resulted. systemd restarted once. the following attempt was cancelled
 at the clean stop. the stop retained twelve actions, 41 read positions, one
 blocked todo with no new wake and the original unentered send. neither timer
 nor worker wait was armed and the inferred 02:20:58Z wake time passed. the
-[remaining lineage issue](issues/native-action-lineage.md) records this failure.
+[installed lineage proof](#installed-lineage-and-stopped-restart-window)
+records the subsequent repair.
 
 action lineage repair `f8f7fc6` removes the single-batch maximum from the
 persisted execution envelope. the run keeps its complete ordered inputs. long
@@ -1522,10 +1525,53 @@ runtime source `34d162048175da1ca3da7f685042da4013047189`, tree
 `016e0d1276ca2647eaa7aef72e3ef2b8168ca0e4`, passed local
 `scripts/verify` and [hosted verification](https://github.com/NielsdaWheelz/jarvis/actions/runs/44224432011).
 the local first pass and first two hosted passes timed out reading pypi. the
-unchanged source passed on retry. the inactive release and its same-release
-contained host installed and verified. the application selector remains
-`844fe16` and the application is cleanly stopped. the expired clock window
-requires genuine owner timing steering. the configured channel contained no
-new owner post after the progress message at the `02:54:38Z` observation.
-the original send remains awaiting approval with zero executor entries. the
-final reset still follows successful installed acceptance.
+unchanged source passed on retry. the release and its same-release contained
+host installed and verified before activation.
+
+### installed lineage and stopped restart window
+
+on november 18 the owner's ordinary discord post `1572445427326910505`
+supplied fresh timing authority. main on selected `34d1620` reported a clock
+anchor of `03:01:52Z`, corroborated by contemporaneous host input timestamps.
+the exact native shell output was unavailable. its accepted calendar invocation
+`8953f32c-ffba-49e7-8ff5-4a5a6ad1443b` and succeeded action
+`6bf4221b-a6fb-4cfb-b836-b2ad85de9cac` contained the same 120 ordered,
+distinct canonical ids. all matched the recorded delivery at their ordinal,
+20 opening and 100 steered. the checkpoint on both records matched their
+last input, `45207690-6394-4c10-a582-9aea4ca9b5ad`. origin, attempt and
+step matched. this attempt issued one calendar update with one executor
+entry. the earlier 124-input callback retained its original unentered status.
+private `34d1620-installed-action-lineage.json` has sha256
+`07bcf7944ea5a74813522bafc5fbc5b6f1a3ea5fbaae5a91f5188b0e996c2930`.
+
+the same todo was due at `03:11:52Z`. the same private calendar event was
+scheduled from `03:21:52Z` to `03:41:52Z`, with no attendees. main sent work to the
+original worker and registered wait `4ba31552-af4c-460e-8c0c-58d603e58092`
+at `03:02:54Z` with deadline `03:12:54Z`. discord delivered the ordinary
+approval question as `1572447925911556217`. at `03:07:02Z` the original
+draft and send proposal, new timer and registered wait coexisted. skid showed
+the exact original worker target working at `03:07:40Z`. this attempt made
+one worker send and one wait registration and started no worker.
+
+the application stopped cleanly at `03:09:51Z`. the `03:10:46Z` stopped
+snapshot matched the eight selected live action identities, arguments and
+receipts. the original send still had zero executor entries and the todo wake
+and worker deadline were both ahead. private `34d1620-live-stopped-conjunction.json`
+has sha256 `543f879003d799f736e68225a7a4727882fc0b1801948c9db800967f9e957cef`.
+the worker checked 12,400 cases and found 97 leap years. its terminal recorded
+a deliberate 480.005909560-second foreground delay and exit zero. skid observed
+the worker idle during downtime. private `34d1620-worker-final.txt` has sha256
+`4bf6d965b8b14047b4ba3fad1ab2879abc4651665cffb488bb7585301a5d5407`.
+
+positive google reads during downtime verified the same event on its owner-only
+calendar at `03:13:29Z` and the original threaded draft at `03:13:34Z`.
+private `34d1620-timed-event-positive.json` and `34d1620-timed-draft-positive.json`
+have sha256 `fb79861d26109491334f029d3450c26736bc5db29d5e02b3481bd27cc617ace1`
+and `83cc9b99dae66ec29d578674ef4207b5ad4fec19797a80bb35d3fcf6ca200fa7`,
+respectively.
+
+all three retained synthesis notes came from `650eb7c`. the stopped
+`34d1620` snapshot had ready coverage and `dream_through` both at 4,127.
+post-journey compaction and a quiet dream still need observation on this graph.
+private `34d1620-stopped-memory-roles.json` has sha256
+`d456569bfa7a05d4fc9c9618881f436ad987b759178e6970eb99ce30b801f5e0`.

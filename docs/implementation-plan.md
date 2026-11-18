@@ -134,7 +134,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) qualified source and candidate. installed mail and calendar attention verified. [conversational controls](issues/event-sources-installed-cutover.md) remain open. recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
 | attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified. the production journey retained and reopened the original pdf | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
 | mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified. selected production reads are recorded in f2. wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
-| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source, isolated repairs and installed journey qualified. the final database reset committed. all twelve online native lanes have fresh cuts. owner resumption and subsequent capture remain open | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
+| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source, isolated repairs and installed journey qualified. the final reset, twelve native cuts and capture of the genuine owner resume are verified. [one stopped correction](decisions/0085-preserve-google-cursors-during-correction.md) with established google cursors is authorized for the [observed replay](issues/calendar-revision-republication.md) | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
 | subscription model/runtime and delegated choices | [f3 evidence](subscription-model-runtime.md#implementation-evidence) source/candidate qualified | main astra/max, memory sol/xhigh via personal codex; native-child choices and bounded upstream skid launch extension |
 | broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
@@ -279,7 +279,9 @@ reminders/waits. preserve private repos, credentials, real google data, original
 native/nexus chats and unknown-effect receipts. retain verified current `0013`
 recovery, replacing predecessors only after verification. coordinate the 18 tables,
 source cuts and attachment disposition; no old-history republication or automatic
-daily-review seed. these are two operator actions, not a runtime deletion feature.
+daily-review seed. after the second operation republished old revisions,
+[adr 0085](decisions/0085-preserve-google-cursors-during-correction.md) authorizes
+one stopped correction with the established google cursors and fresh full recovery.
 retain concise evidence before cleanup. fresh-corpus acceptance leaves the
 [39,873-leaf preparation backlog](runtime-reliability-and-integration.md#historical-preparation-limit) unqualified
 for latency and throughput.

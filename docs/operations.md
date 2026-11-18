@@ -981,10 +981,13 @@ admission file to repair.
 
 ## Data durability and logs
 
-[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md), as reordered by
-[adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), grants only the two
-explicit administrative resets in [f2](runtime-reliability-and-integration.md#e-fresh-history-resets).
-it does not add a runtime deletion API or relax ordinary append-only guards.
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) and
+[adr 0078](decisions/0078-fresh-corpus-first-acceptance.md) authorized the two
+completed f2 resets. after calendar revisions reappeared, the owner authorized
+[one stopped correction retaining the google cursors](decisions/0085-preserve-google-cursors-during-correction.md).
+the [f2 procedure](runtime-reliability-and-integration.md#e-fresh-history-resets)
+owns its inventory, isolated proof and installed verification. ordinary
+append-only guards continue to apply.
 private recovery snapshots/manifests remain outside live memory; source cuts and
 pending exports must be coordinated before writers resume.
 

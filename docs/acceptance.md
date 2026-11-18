@@ -141,7 +141,10 @@ orders the owner's preliminary reset → real journey → final reset, with coor
 source cuts and preserved recovery/unknown-effect evidence and private/source data.
 fresh-corpus proof does not qualify large-backlog preparation latency. no standing
 suite, benchmark or competitor-parity claim follows. both stopped database resets and the production journey completed.
-verification of fresh capture and owner resumption remains open in f2.
+all twelve online native lanes established fresh cuts. the ordinary owner
+resume entered the fresh archive. [old calendar revisions](issues/calendar-revision-republication.md)
+were republished. [one stopped correction](decisions/0085-preserve-google-cursors-during-correction.md)
+with the established google cursor rows requires separate isolated and installed proof.
 
 ## native cutover acceptance
 

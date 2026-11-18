@@ -49,7 +49,8 @@ commitments, preserve schema/grants/guards, initialize fresh paused control and
 establish current source cuts before new writers resume. preserve private repos,
 credentials, real google data and original native/nexus chats. all other adr 0077
 requirements, isolated fault proof and installed journey acceptance remain binding.
-this authorizes two bounded administrative operations, not further resets.
+this authorized two bounded administrative operations. [adr 0085](0085-preserve-google-cursors-during-correction.md)
+subsequently authorizes one further stopped correction retaining verified google cursors.
 
 ## consequences
 

@@ -1,8 +1,9 @@
 # main blocked by admitted-memory preparation backlog
 
 status: the foreground dependency and installed journey are qualified. the
-final database reset committed at the 2026-11-18 paused checkpoint. its fresh
-capture and resumption proof remains open in [f2](../runtime-reliability-and-integration.md#final-database-reset-and-fresh-capture). the preliminary reset under
+final database reset committed on 2026-11-18, followed by all twelve native
+cuts and genuine owner resumption. the [calendar revision republication](calendar-revision-republication.md)
+leaves final reset acceptance open in [f2](../runtime-reliability-and-integration.md#final-database-reset-and-fresh-capture). the preliminary reset under
 [adr 0078](../decisions/0078-fresh-corpus-first-acceptance.md) is complete.
 the owner subsequently approved
 [adr 0079's free-copy and serial-batch amendment](../decisions/0079-bounded-serial-compaction.md)

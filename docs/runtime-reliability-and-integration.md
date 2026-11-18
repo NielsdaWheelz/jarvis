@@ -21,8 +21,11 @@ under pause 10. the final recovery snapshot verified. the fixture storage,
 calendar, mail and channel cleanup completed. the final database reset committed,
 and production started under fresh pause 11 after the empty-corpus proof.
 all twelve online native lanes completed their fresh inventories under pause
-11. ordinary owner resumption and verification of subsequent capture remain
-outstanding.
+11. the owner resumed through discord and the new owner message entered
+the fresh archive. final acceptance remains open because [old calendar
+revisions were republished](issues/calendar-revision-republication.md). the owner
+has authorized [one stopped correction](decisions/0085-preserve-google-cursors-during-correction.md)
+that retains the verified google cursors.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -456,6 +459,20 @@ defaults and quiet current google baselines; current calendar attention remains
 eligible. verify genuine new owner activity/new capture without planting more
 test history. old facts can still be quoted in future source conversations; this
 is a reset of the corpus, not permanent erasure of preserved source files.
+
+### one stopped correction with established google cursors
+
+[adr 0085](decisions/0085-preserve-google-cursors-during-correction.md) authorizes
+one correction after isolated proof. apply the controls above, including genuine
+owner pause, disposition of entered work and verified full current private recovery.
+keep the complete verified `event_cursor` rows in place across the atomic clear
+of the other 17 tables. clear the configured discord channel. genuine intervening
+central history and its derivatives fall within this correction. retain private
+evidence for both discarded corpora. establish fresh native cuts and verify
+the empty history and unchanged cursor inventory under the existing initializer
+pause. after ordinary owner resumption, verify new capture, subsequent successful
+google polls and absence of the old provider revision identities. current
+attention remains eligible. recurrence requires a new disposition.
 
 ## implementation ownership and acceptance
 
@@ -1825,3 +1842,33 @@ point no new native part had entered the archive. private
 `final-reset-paused-twelve-comparison.json` have sha256
 `b8ac9610ae1f25d0e6de4141f425c1d05ad4682549842d6705a5add80a9f338c`
 and `cf8e045a9a97b0a89dd7c0bb499f25c5f0d34b77b59a764861286ac81fcb31b5`.
+
+the owner posted `resume` in the configured discord channel at
+`07:00:05.084Z`. discord message `1572506666623172710` created canonical
+owner control `82235226-8d8c-4ea7-82cb-110319b7d41b`, sequence 12. its
+admitted original entered the jarvis archive at position zero. the fresh
+initializer's pause stayed outside memory. no test input was planted.
+
+at `07:10:29Z` all 44 google cursors had completed baselining. both source
+families were enabled, with no errors, blocked streams or open page continuations.
+at `07:12:27Z` the fresh archive contained 145 jarvis parts and zero native parts.
+comparison with 413 old jarvis parts and 25,653 old native parts found no
+matching source part ids. the twelve native lanes and jarvis lane were active.
+the six arch lanes and nexus remained disabled. private
+`final-reset-cuts-comparison.json` has sha256
+`d9f45116759b403cbfcd4874e0e1eb76d3365546b1b25def7788ac4578baa278`.
+ordinary macbook claude-work activity then produced 50 native parts. none
+matched any of the 25,653 stopped native part identities. private
+`final-reset-positive-native-native-overlap.json` has sha256
+`7e8738f40b78d9a5b356f7707f458718b0c53df66209447d20e57805b5d8b0fb`.
+
+a current calendar-attention fact was eligible and completed. separately,
+one public virtual calendar returned 71 confirmed and 71 cancelled all-day
+revisions during tokened sync after its initial baseline. at `07:13:20Z` all
+142 provider identities and facts matched earlier ones in the stopped dump,
+apart from their observation times. the fresh canonical messages had new ids.
+the poller admitted incremental rows under the existing source contract.
+google’s internal reason for returning them is unknown. the
+[calendar issue](issues/calendar-revision-republication.md) records the
+scope of the owner's subsequent adr 0085 decision. installed proof of the
+correction remains pending.

@@ -21,8 +21,9 @@ These instructions govern all work in this repository.
   [f3](docs/subscription-model-runtime.md#implementation-evidence) is source/candidate
   qualified. [f2](docs/runtime-reliability-and-integration.md) implements isolated
   reliability/deployment repairs with qualified source and installed journey.
-  the final reset committed. all twelve online native lanes have fresh cuts.
-  ordinary owner resumption and subsequent capture remain outstanding.
+  the final reset committed and all twelve online native lanes established
+  fresh cuts. ordinary owner resumption was captured. replay of old calendar
+  revisions remains an [installed acceptance issue](docs/issues/calendar-revision-republication.md).
   [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md) refines f3:
   astra/max is main only; compactor/dreamer use fixed personal-subscription
   `gpt-6.1-sol/xhigh`. main chooses supported native-child and per-session skid
@@ -50,9 +51,11 @@ These instructions govern all work in this repository.
   waits under existing stopped controls. preserve private repos, credentials, real
   google data, original native/nexus chats and original unknown-effect evidence.
   retain one verified current `0013` recovery artifact; verify its replacement
-  before disposing of the predecessor. these are two administrative exceptions,
-  not a runtime deletion tool. coordinate source cuts and prove no old-history
-  republication; do not recreate daily-review work. large-corpus preparation
+  before disposing of the predecessor. after old calendar revisions reappeared,
+  [adr 0085](docs/decisions/0085-preserve-google-cursors-during-correction.md)
+  authorized one further stopped correction after isolated proof. retain the
+  verified google cursors and clear the other central state. coordinate source
+  cuts and prove no old-history republication; do not recreate daily-review work. large-corpus preparation
   latency remains unqualified. follow f2's exact contract and file disposition.
 - [adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
   copies up to 2,048 bytes and up to eight independent inferred nodes per serial

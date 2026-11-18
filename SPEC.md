@@ -2,9 +2,17 @@
 
 status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 installed, combined acceptance pending**
 
-date: **2026-11-17**
+date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
+
+## accepted native recovery and memory availability target
+
+[adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
+governs native recovery, request fitting and retry eligibility, receipt access
+and independent shared-memory serving. its four contracts supersede conflicting
+full-receipt, retry and in-process ownership rules below. the roadmap owns
+delivery order. implementation and installed acceptance are pending.
 
 ## accepted v2 target
 
@@ -229,8 +237,8 @@ on full historical preparation. after canonical publication, freeze the admitted
 cutoff and consume the same complete fitting ready-view value as external native
 clients, with explicit covered range and admitted backlog. historical context may
 be stale or empty indefinitely; omitted corrections are not guaranteed recalled.
-all archive reads retain the admitted scope. exact active requests, existing
-receipt context and effect barriers stay unchanged. existing idle compression
+all archive reads retain the admitted scope. adr 0086 supplies exact current
+requests, operative effect facts and bounded access to original receipts. existing idle compression
 continues; maintenance preparation remains. adr 0082 below subsequently amends
 dreamer preparation. add no new task,
 mode, grant, raw-tail fallback or freshness guarantee. source and installed proof
@@ -330,8 +338,8 @@ kernel native contract and its n4 application requirements. it supersedes the
 affected baseline rules below: main uses native host-tool callbacks and public
 progress, explicit per-input dispositions and three native journal tables;
 stop/pause is canonical message control and cancels unentered approvals;
-healthy sessions may be reused in-process, but owner/connection loss fences old
-callbacks and cold-restarts reasoning. existing action/read uncertainty remains
+a healthy session serves one active turn. owner/connection loss fences old
+callbacks and invokes adr 0086 recovery. existing action/read uncertainty remains
 a reconciliation barrier. cumulative native quotas and rolling paid-capacity
 reservations are removed; operation limits, current owner authority, containment,
 isolated cognitive roles and memory behavior remain. no memory or delegation
@@ -360,10 +368,11 @@ adds owner-approved automatic orientation over all admitted history when fresh
 jarvis context is built and replaces automatic note extraction with chronological
 compression while retaining associative dreaming as a distinct function, seeded
 automatically by new archive material and retained optional explicit notes.
-a standalone non-jarvis library hosted inside jarvis owns archive/tree/view and
-search/navigation. source parts and notes are ordinary leaves in one binary tree;
+a standalone library owns archive, tree, view, search and navigation. adr 0086
+defines its independent serving process and assistant-owned derived work. source parts and notes are ordinary leaves in one binary tree;
 long text needs no private leaf-reduction mechanism. jarvis reconstructs each new
-top-level turn from the view and exact active requests/receipts. native codex,
+top-level turn from the ready view, exact active requests and operative effect
+facts. main can open original causal receipts through `receipt.read`. native codex,
 claude and nexus chats retain their own context management and access shared memory
 through mcp/api. the core source and online installed rollout are qualified within
 the named profile deferrals. nexus memory access is limited to the owner's chats;
@@ -475,8 +484,9 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   source is separate from its bounded completed context prefix, so a parent never
   depends on itself to make its context fit. cache controls depend on the approved
   transport; neither cross-model sharing nor a hit rate is guaranteed.
-- each new top-level jarvis turn starts from the view, current input and exact
-  requests/receipts. its running tool loop and compatible steering stay together;
+- each new top-level jarvis turn starts from the ready view, exact current
+  requests, operative facts and the adr 0086 receipt inventory. its running
+  tool loop and compatible steering stay together.
   a settled native conversational session is not reused for the next top-level
   turn. acquire a fresh lease per `NativeRunner.run` and discard that lease at
   completion; retain dispatchers for effects already entered. this supersedes
@@ -856,11 +866,11 @@ admission bits, independently of request settlement.
 Discord is a client and delivery surface, not the canonical conversation store.
 Every owner message and every Jarvis response MUST be persisted in `message`.
 main opens a fresh native session for each top-level turn from a frozen fitting
-ready view with explicit admitted backlog and exact current requests/receipts.
-its active steering/tool loop
-stays together. connection, process or owner loss fences old callbacks; fresh
-reasoning reconstructs canonical unfinished requests and original receipts while
-preserving entered effect dispatchers. native history is disposable.
+ready view, explicit backlog, exact current requests and operative control/effect
+facts. main can page and open its original causal receipts. its steering and
+tool loop stay together. loss fences old callbacks. adr 0086 governs delayed
+reopening, quarantine and original seal settlement. entered effects keep their
+dispatchers. native history is disposable.
 
 Inbound owner messages are stored with `processed_at = NULL` before processing
 and deduplicated by their source identity. On startup, the adapter MAY use
@@ -919,11 +929,11 @@ cannot repeat an action.
 
 on startup, fence old attempts before accepting callbacks. recover original
 sealed terminals locally before current model/catalog/tool construction; later
-stop/resume prevents stale product settlement. absent a seal, automatically
-restart reasoning for pending requests under the current owner. this may repeat
-model computation, never an unknown action or billed-once read. original
-accepted actions and complete receipts remain authoritative even outside the
-recent-observation window. `origin_message_id` is a stable root pointer, not
+stop/resume prevents stale product settlement. after a genuine loss, each affected
+waking input gets the one delayed fresh opening specified in adr 0086. another
+loss before its own valid disposition parks it for operator repair. model
+computation may repeat. original actions, paid-read barriers and receipts
+survive every opening. `origin_message_id` is a stable root pointer, not
 sufficient recovery authority. parked input remains operator-only.
 
 public commentary and final output use distinct persisted messages under the
@@ -1319,8 +1329,8 @@ are ordinary leaves; no private oversized-leaf reduction. completed nodes,
 frontiers and retry progress commit together; interrupted inference may repeat.
 
 fresh top-level main turns use a frozen fitting ready view with explicit coverage
-and admitted backlog plus exact current requests
-and operative receipts. active steering stays in the same tool loop. canonical
+and admitted backlog plus exact current requests, operative effect facts and
+addressable original receipts under adr 0086. active steering stays in the same tool loop. canonical
 conversation/effect commits precede recoverable archive projection; memory
 failure never replaces an original receipt or authorizes its replay.
 
@@ -1440,14 +1450,11 @@ the application's required commentary format and reserves input dispositions
 for final output. its revision and digest automatically rotate the definition
 fingerprint; jarvis neither copies its text nor supplies a manual base revision.
 
-main may reuse a healthy compatible native lease within its current process.
-there is no saved-session file, resume-on-restart or session-reference CAS.
-connection, process or owner loss permanently fences old callback authority.
-recover an original sealed terminal locally before constructing current
-definitions/catalog/tools. otherwise restart reasoning in a fresh native thread
-from canonical unfinished requests and original receipts. accepted actions and
-unknown billed-once reads retain their recovery barriers. repeated computation
-is permitted; invented non-submission or repeated unknown effects are not.
+main uses one fresh lease per top-level turn. compatible steering stays on that
+lease. connection, process or owner loss fences old callback authority. recover
+an original seal locally before current model or tool construction. adr 0086
+governs definite rejection, one delayed fresh opening and operator quarantine.
+accepted actions and unknown billed-once reads retain their original barriers.
 
 native bindings, submitted requests, input deliveries, invocation contracts and
 terminal seals are durable evidence. replacing a session neither deletes that
@@ -1456,12 +1463,13 @@ and cache behavior remain provider optimizations, never canonical state or
 guaranteed cost properties.
 
 jarvis supplies canonical product context: stable instructions and owner profile,
-the frozen ready memory view with explicit admitted backlog, unfinished requests and original action/read
-receipts, current input timestamps, the frozen capabilities, owner IANA
+the frozen ready memory view with explicit admitted backlog, unfinished requests,
+operative control/effect facts, receipt counts, current input timestamps, the
+frozen capabilities, owner IANA
 timezone and host `as_of`. typed `llm-tools` sections express provenance; they are
 not an authority boundary. each current input is supplied once within its native
 delivery; queued steering acceptance is distinct from a recorded native item.
-ambiguous delivery fences the old turn before fresh reconstruction. a new topic
+ambiguous delivery fences the old turn and follows adr 0086 retry eligibility. a new topic
 arrives promptly while retaining older unfinished requests. host action resolutions
 supply facts and never grant fresh owner intent. scheduled wakes use a separate
 read-only plan; they are not appended to an interactive turn.
@@ -1703,7 +1711,9 @@ scheduled-wake run uses the same continuing definition but receives only the
 catalogued Gmail, Calendar, Maps, and public-Web reads.
 both main plans include the five shared memory reads; scheduled wakes cannot
 save notes. the dreamer grants those same five reads through its fixed cutoff.
-compactor and AutomaticWriteGate plans are empty. every plan is frozen for its
+adr 0086 adds local `receipt.read` to main only. external memory and isolated
+roles retain their existing grants. compactor and AutomaticWriteGate plans are
+empty. every plan is frozen for its
 run and may never exceed its envelope. agents choose their procedure; no required
 first tool or minimum call count.
 
@@ -2383,15 +2393,17 @@ completion. preparing input requires a live attempt. later observations require
 an existing prepared input and matching original turn, delivery and attempt
 evidence; they may commit after fencing without admitting a new input. final
 recorded/rejected evidence remains immutable and grants no dispatch or settlement
-authority. ambiguous delivery fences its old turn before fresh reasoning.
+authority. ambiguous delivery fences its old turn. adr 0086 determines eligibility
+for a fresh opening.
 
 `read_position` uses the existing llm-tools recorder. original complete results
 replay; unknown billed-once dispatch cannot execute again. restored reservations/
 settlements preserve original per-operation accounting; main has no aggregate
 quota. action recovery retains its existing original effect authority.
 
-all stores use the dedicated deployment-lock connection for short serialized
-transactions. lost ownership cannot reconnect or admit work. no transaction
+assistant writes use its dedicated deployment-lock connection. external memory
+writes use the separate dedicated memory-lock connection under adr 0086. both
+serialize short transactions. lost ownership cannot reconnect or admit work. no transaction
 spans provider, tool or delivery I/O. native truth commits before product
 validation; current request/source/consent fences govern publication separately.
 
@@ -2416,7 +2428,10 @@ validation; current request/source/consent fences govern publication separately.
 - `processed_at` records completed/stopped owner requests or handled host facts,
   atomically with their canonical response/control/disposition.
 - `processing_attempts` retains historical non-negative values; native main
-  admits through current-owner permits, not this retired claim counter.
+  admits through current-owner permits. adr 0086 specifies retry eligibility in
+  `message.native_retry_after`, frozen delivery eligibility in
+  `native_input_delivery.was_waking` and crash recovery in
+  `native_attempt.recovery_pending`.
 - `processing_parked_at` is nullable `timestamptz` and canonical
   operator-quarantine control. ordinary input scans exclude parked rows until
   explicit operator repair clears them.
@@ -2672,8 +2687,8 @@ using the real personal integrations and subscription-backed Codex account.
 
 Acceptance includes:
 
-- natural single-channel Discord conversation, compatible in-process reuse and
-  fresh-session reasoning recovery after owner/connection/process loss.
+- natural single-channel discord conversation, compatible steering and bounded
+  recovery after owner, connection or process loss under adr 0086.
 - Live Gmail, Calendar, and Maps use.
 - Live public-Web search and page reading.
 - admitted capture, chronological compression, fresh-turn orientation, optional

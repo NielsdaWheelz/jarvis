@@ -373,6 +373,10 @@ live acls the operator verified as owner-only. calendar writes for those ids,
 without attendees or notification, are automatic. other calendar writes require
 ordinary conversational consent recorded by main through `approval.respond`.
 
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the
+target `0013→0015` and `0015→0016` cutovers, their stopped-state requirements,
+and the lock set for each memory command. installed acceptance is pending.
+
 the production deployment exists. install an exact committed release without
 activating it. migration requires a stopped, owner-paused deployment and the
 private snapshot/inventory below. routine replacement at schema `0013` preserves

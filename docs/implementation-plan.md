@@ -57,6 +57,18 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
   contract. distinguish source merged, dependency pinned, fleet installed, live
   behavior verified and owner-resumed service.
 
+## native recovery and memory availability
+
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the
+interfaces, schemas, file boundaries, trade-offs and per-unit acceptance.
+integrate a (bounded recovery), b (provider → kernel → jarvis retry), then c
+(receipt content and reader). qualify them together before the first stopped
+cutover and normal admission of the pending owner work. d (independent memory)
+owns the next stopped cutover after its isolated all-client proof. each unit
+has a content designer, independent opus challenge and temporary red/green/refactor
+proof. all four units are design-only. the ordinary owner-pause rule governs
+the first migration unless the owner adopts the incident-specific stopped procedure.
+
 ## memory orientation
 
 [orientation-first adr 0078](decisions/0078-memory-orientation-first.md) and the

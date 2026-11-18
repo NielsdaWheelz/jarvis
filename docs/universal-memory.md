@@ -1,5 +1,9 @@
 # universal memory: implementation contract
 
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns
+the target serving process, private search/index interface and maintenance
+ownership. this document continues to own archive, retrieval and readiness semantics.
+
 finite target exception: [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md),
 reordered by [fresh-corpus adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), authorizes
 the owner's preliminary reset → real journey → final reset, clearing central
@@ -214,7 +218,8 @@ or cannot be compared. historical import remains separately deferred.
 jarvis reconstructs context for each new top-level turn from a frozen fitting
 ready view with explicit coverage and admitted backlog under
 [adr 0081](decisions/0081-ready-memory-for-main.md),
-current input and exact active requests/receipts. a running turn retains its tool
+exact current requests, operative effect facts and addressable original receipts
+under [adr 0086](decisions/0086-native-recovery-and-memory-availability.md). a running turn retains its tool
 loop and compatible mid-run steering; a settled turn's native session is not
 reused for the next top-level turn. this supersedes cross-turn main-session reuse
 only when this target is implemented. it does not reset codex/claude/nexus sessions

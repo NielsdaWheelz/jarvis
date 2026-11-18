@@ -386,7 +386,12 @@ use the **qualified a–c-only commit**. its installer archives that commit, bui
 locked dependencies and records the git commit, tree and lockfile digest under
 `/opt/jarvis/releases`. the workstation activator independently derives that receipt.
 the only accepted source is `05d1c33b5dc31db96f9aef6318591ded786c3c4f`.
-leave the existing recovery artifact, database, google state and source cuts in place.
+the installed incident's owner request is `0d3bcc75-749d-4014-a0df-3cdf545366b3`.
+the snapshot verifies its link to attempt 19 and the original 108 fenced, unbound,
+unsealed attempts through 126. it records their ids, sequences and mail links.
+the default selects this uuid. isolated qualification supplies its fixture's
+own `--mail-request UUID` for both prepare and activate. leave the existing
+recovery artifact, database, google state and source cuts in place.
 
 1. ask for an ordinary pause if the old service can record it. the owner approved
    preserving the last actual control if the wedged release cannot record a pause.

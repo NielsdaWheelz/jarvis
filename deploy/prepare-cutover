@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from uuid import UUID
 
 from alembic import command
 from alembic.config import Config
@@ -89,7 +90,7 @@ def copy_digest(root):
     return digest.hexdigest()
 
 
-async def inventory(conn, channel):
+async def inventory(conn, channel, mail_request):
     # Hash original database projections on the server. json (including escaped
     # NUL) and ordered keys survive. Only fixed-size hashes cross the connection.
     await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
@@ -129,23 +130,41 @@ async def inventory(conn, channel):
         )
     ).one_or_none()
     require(control is not None, "canonical control is uninitialized")
-    # Original incident attempts 19 through 126 have no retroactive retry budget.
-    incident = list(
-        (
-            await conn.execute(
-                text("""
-        SELECT id::text FROM native_attempt WHERE conversation_id=:channel
-          AND attempt_seq BETWEEN 19 AND 126 ORDER BY attempt_seq
+    owner = (
+        await conn.execute(
+            text("""
+        SELECT id::text, request_state FROM message
+        WHERE source_conversation_id=:channel AND role='owner' AND control_kind IS NULL
+          AND id=CAST(:mail AS uuid)
     """),
-                {"channel": channel},
-            )
-        ).scalars()
+            {"channel": channel, "mail": str(mail_request)},
+        )
+    ).one_or_none()
+    require(owner is not None, "selected incident owner request is absent")
+    incident = (
+        await conn.execute(
+            text("""
+        SELECT a.id::text, a.attempt_seq,
+               a.request->'input_ids' @> jsonb_build_array(CAST(:mail AS text)) linked
+        FROM native_attempt a WHERE a.conversation_id=:channel
+          AND a.attempt_seq BETWEEN 19 AND 126
+          AND a.fenced_at IS NOT NULL AND a.terminal_at IS NULL
+          AND a.product_outcome IS NULL AND a.native_binding IS NULL
+          AND NOT EXISTS (SELECT FROM native_invocation i WHERE i.attempt_id=a.id)
+        ORDER BY a.attempt_seq
+    """),
+            {"channel": channel, "mail": str(mail_request)},
+        )
+    ).all()
+    require(
+        len(incident) == 108 and incident[0].linked,
+        "selected request or original fenced incident cohort differs",
     )
-    require(len(incident) == 108, "incident native attempt population differs")
     return {
         "tables": facts,
         "last_control": list(control),
-        "incident_attempt_ids": incident,
+        "mail_owner": list(owner),
+        "incident_attempts": [list(row) for row in incident],
     }
 
 
@@ -185,7 +204,7 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
             shutil.rmtree(stage)
 
 
-async def cut(operation, destination, target, system_stop):
+async def cut(operation, destination, target, mail_request, system_stop):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrator = make_url(migration_url)
@@ -261,7 +280,7 @@ async def cut(operation, destination, target, system_stop):
                 "channel": channel,
                 "database": endpoint,
                 "schemas": [SOURCE, TARGET],
-                "facts": await inventory(conn, channel),
+                "facts": await inventory(conn, channel, mail_request),
             }
             if operation == "snapshot":
                 sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
@@ -319,6 +338,7 @@ def main():
     )
     parser.add_argument("destination", type=Path)
     parser.add_argument("target_receipt", type=json.loads)
+    parser.add_argument("mail_request", type=UUID)
     args = parser.parse_args()
     stop = json.loads(
         subprocess.check_output(
@@ -330,7 +350,15 @@ def main():
         )
     )
     os.umask(0o077)
-    asyncio.run(cut(args.operation, args.destination, args.target_receipt, stop))
+    asyncio.run(
+        cut(
+            args.operation,
+            args.destination,
+            args.target_receipt,
+            args.mail_request,
+            stop,
+        )
+    )
     print("stopped cut validated:", args.operation)
 
 

@@ -7,9 +7,15 @@ if [[ "${1:-}" == --prepare ]]; then
   operation=prepare
   shift
 fi
+mail_request=0d3bcc75-749d-4014-a0df-3cdf545366b3
+if [[ "${1:-}" == --mail-request ]]; then
+  mail_request="${2:?supply the externally selected incident request uuid}"
+  shift 2
+fi
+[[ "$mail_request" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]] || exit 64
 commit="${1:-}"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
-  printf 'usage: deploy/activate-release [--prepare] FULL_GIT_COMMIT\n' >&2
+  printf 'usage: deploy/activate-release [--prepare] [--mail-request UUID] FULL_GIT_COMMIT\n' >&2
   exit 64
 fi
 tree="$(git -C "$repo_dir" rev-parse --verify "$commit^{tree}")"
@@ -38,6 +44,7 @@ print(json.dumps(expected, separators=(",", ":")))
 PYCODE
 )"
 operation="$4"
+mail_request="$5"
 snapshot="/var/lib/jarvis-cutover/adr0086/$commit"
 hold=/etc/systemd/system/jarvis-cutover.hold
 source=/opt/jarvis/releases/05d1c33b5dc31db96f9aef6318591ded786c3c4f
@@ -48,7 +55,7 @@ cutover() {
     --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
     --property=EnvironmentFile=/etc/jarvis/jarvis.env \
     --property=EnvironmentFile=/etc/jarvis/migration.env \
-    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$receipt" </dev/null
+    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$receipt" "$mail_request" </dev/null
 }
 if [[ "$operation" == prepare ]]; then
   [[ "$selected" == "$source" ]] || refuse "cut requires the incident source release"
@@ -173,4 +180,4 @@ printf 'activated jarvis release: %s\n' "$commit"
 printf 'canonical control is unchanged; new reasoning waits for validated discord catch-up\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$tree" "$lock_sha" "$operation"
+  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$tree" "$lock_sha" "$operation" "$mail_request"

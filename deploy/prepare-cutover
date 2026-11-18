@@ -24,6 +24,7 @@ from jarvis.ownership import deployment_ownership
 
 SOURCE = "0013"
 TARGET = "0015"
+SOURCE_LOCK = "0f57db5aba00bbf501d033073ccafa7c13e026de8813bdd3f113960f6e2e7e81"
 SOURCE_COMMIT = "05d1c33b5dc31db96f9aef6318591ded786c3c4f"
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
@@ -209,7 +210,7 @@ async def cut(operation, destination, target, system_stop):
         == {
             "commit": SOURCE_COMMIT,
             "tree": "b336e5c839323f4b1737b9d3b3b5c7773a0f0dd1",
-            "uv_lock_sha256": "0f57db5aba00bbf501d033073ccafa7c13e026de8813bdd3f113960f6e2e7e81",
+            "uv_lock_sha256": SOURCE_LOCK,
         },
         "source release receipt mismatch",
     )
@@ -292,9 +293,12 @@ async def cut(operation, destination, target, system_stop):
                 require(
                     not await conn.scalar(
                         text("""
-                    SELECT EXISTS (SELECT FROM message WHERE native_retry_after IS NOT NULL)
-                        OR EXISTS (SELECT FROM native_input_delivery WHERE was_waking IS DISTINCT FROM false)
-                        OR EXISTS (SELECT FROM native_attempt WHERE recovery_pending IS DISTINCT FROM false)
+                    SELECT EXISTS (SELECT FROM message
+                                   WHERE native_retry_after IS NOT NULL)
+                        OR EXISTS (SELECT FROM native_input_delivery
+                                   WHERE was_waking IS DISTINCT FROM false)
+                        OR EXISTS (SELECT FROM native_attempt
+                                   WHERE recovery_pending IS DISTINCT FROM false)
                 """)
                     ),
                     "existing retry state was charged",

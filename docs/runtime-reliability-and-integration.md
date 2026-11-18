@@ -1,23 +1,21 @@
 # reliability repairs and final integrated acceptance
 
-status: f2 implementation contract, 2026-11-16, under
-[adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and the owner's
-[adr 0077 refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
-with [adr 0078's reset order](decisions/0078-fresh-corpus-first-acceptance.md),
-[adr 0079's bounded serial compaction](decisions/0079-bounded-serial-compaction.md)
-and [adr 0080's first valid stopping rule](decisions/0080-first-valid-compaction.md).
-[adr 0081](decisions/0081-ready-memory-for-main.md) now adopts shared frozen ready
-orientation for main; its source proof is qualified and installed proof is pending.
-source implementation, integrated composition and isolated fault proof qualified.
-the preliminary production reset is complete. the free-copy/batch and first-valid
-repairs have source and real-model candidate qualification and are installed.
-complete fresh-prefix preparation and the first real main dispatch are observed.
-the demonstrated calendar precision and executor-capacity repairs are qualified;
-the already-entered calendar effect has positive production recovery. the same
-repaired artifact is installed; the application is cleanly stopped after a new
-isolated-compactor configuration stop. one authorized fixture send, positive content
-inspection and canonical mail arrival are observed. native pdf processing,
-combined acceptance and the final fresh reset remain pending.
+status: integrated source and isolated fault proof qualified. the preliminary
+production reset is complete. the installed journey has verified fixture arrival,
+pdf artifacts, a private note, a threaded draft, a private calendar update,
+and actual todo, calendar and installed-worker outcomes. the first run missed
+the restart window and did not independently verify native-child completion.
+
+installed `650eb7c` completed the stopped quiet dream. after real discord
+catch-up, main failed at the provider token-usage decoder. the application is
+cleanly stopped. the genuine continuation is pending. the original send proposal
+has zero executor entries. the same-object restart, approval, verified reply,
+final disposition and final reset remain outstanding.
+
+[adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
+the amendments below govern reset order, compaction, ready orientation and dream
+limits. the implementation evidence records each observation on its actual graph.
 the [roadmap](implementation-plan.md#v2-finishing-prs) owns sequence.
 
 ## goal, scope and decisions
@@ -1187,8 +1185,10 @@ observer remain stopped, canonical resume 9 and the unentered proposal preserved
 the actual stopped dream returns no completion after 61.269 seconds. consumed
 progress, notes, canonical work, read positions and the nightly marker stay
 unchanged. the command's zero exit is not accepted as successful completion.
-the [dreamer diagnostic and budget follow-through](issues/dreamer-context-budget.md) requires a
-bounded repair and one qualified actual retry; the original cause is unknown.
+the dreamer diagnostic and budget follow-through requires bounded repairs and
+qualified retries below; the original cause is unknown. later
+[quiet completion](#installed-quiet-completion-and-native-startup-failure)
+does not identify this earlier failure.
 a finite REST-only read verifies the revised journey as genuine owner message
 `1572385672046575698` in the configured channel, with 1,547 characters and body
 sha256 `69c51f3dcba15413cf802b2aca5a315d2a0645c17b7064cbd2b37029aaf5dba1`.
@@ -1314,8 +1314,8 @@ leaving 222,767 bytes after that conservative canonical total. 512 kib fits only
 three maximal read frames. only the context literal and dreamer's owning revision
 v6→v7 change. the 3.2x host threshold retains all other caps, fixed models,
 instructions, grants, ready/full-read scope and atomic completion; it promises
-neither maximal-path fit nor useful completion. the
-[current issue](issues/dreamer-context-budget.md) owns installed resolution.
+neither maximal-path fit nor useful completion. the installed quiet proof below
+subsequently resolves this measured context blocker.
 private measurement and independent receipts have sha256
 `349cc4f6c79a77bf3c43ccf0b225e54c0374e44f94d0efd0cd868dfc06634aa5`
 and `b7ff9b6b1d84ead495af8547272ac88473f0ac760d8087f99ac706aa2dd58895`.
@@ -1332,6 +1332,45 @@ have sha256
 `f57f3e10d728eefdd901c9e4c46aed67a33b4f18c4de8f30d90fe42c12b4d03e`
 and `02f86ace55d347086a04e0d5c51e19049bc15885bacd232536ead8d39f991a36`.
 the new probe and any owned compiled file are deleted after hash inventory;
-original red/green, sizing and review receipts remain. source qualification does
-not establish actual installed quiet completion, the genuine journey or final
-reset; those remain pending.
+original red/green, sizing and review receipts remain. source qualification alone
+does not establish the installed quiet proof below, the genuine journey or final
+reset.
+
+### installed quiet completion and native startup failure
+
+actual installed `650eb7cb5db3604358906771dff472003232bfa0` completes the stopped
+fixed personal-subscription sol/xhigh dream with no wrapper. the real cli reports
+success; an independent stopped repeatable-read observation verifies three
+committed synthesis notes, their references and tree positions 21,234–21,236,
+and consumed seed progress `[0,4127)`. leaf count becomes 21,237 while ready
+coverage stays 4,127. all eleven canonical table fingerprints and the nightly
+marker remain unchanged. private `650eb7c-quiet-completion.json` has sha256
+`39890b4acca342cc4c56c747eec917fd329ecc227920fedc2ac9fa40a25cc006`.
+independent adversarial review accepts this installed quiet-role evidence;
+source postgres proof separately owns transactional isolation/rollback.
+the resolved context issue is removed. all five earlier failed attempts retain
+their original receipts, diagnoses and explicit unknown causes; later completion
+does not make them successful. this qualifies the stated quiet run, not every
+maximal path, nightly workload, useful synthesis or the combined journey/reset.
+
+the following application startup catches up six channel messages and accepts
+the genuine owner continuation `36f388f2-be2a-4f3c-8d17-f4264d1122c5`, with body
+sha256 `69c51f3dcba15413cf802b2aca5a315d2a0645c17b7064cbd2b37029aaf5dba1`.
+actual main attempt `5f10be1d-781f-475b-8704-655ca148cd79`, native thread
+`01a1ec22-55a0-7761-894d-4ec900658613`, then fails with `source_protocol`.
+the closed command diagnostic retains provider `ProtocolDefect` through
+`_token_usage` / `_decode_token_usage` / `_usage_member:1881`. this is a new
+[native usage protocol issue](issues/native-token-usage-protocol.md), separate
+from historical unknown native incidents and the resolved dreamer capacities.
+private `650eb7c-startup-protocol-fence-journal.log` has sha256
+`4e20e0af214e702e1f2dc6f19d8f3b6497289196d9c9c0542447127bcbf7fffe`.
+
+the original attempt remains fenced and unsealed. one automatic restart creates
+`cb1cb8c6-910b-45b7-b6aa-8c7c8887f602`, cancelled/stale at the clean service
+stop. no new action is created; the old work stays blocked and journey clocks
+have not started. all 97 previously released messages remain pending and
+unparked; canonical `resume` sequence 9 is preserved. existing fresh-start
+recovery fences unsettled callback owners, settles only sealed terminals and
+uses canonical unfinished requests/original receipts for fresh reasoning.
+no new lifecycle or recovery machinery follows. installed main continuation,
+the combined journey and final reset remain outstanding.

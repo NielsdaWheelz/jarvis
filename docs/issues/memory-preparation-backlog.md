@@ -138,7 +138,10 @@ preparation of its frozen prefix at this installed boundary. the owner then
 adopts [adr 0082](../decisions/0082-ready-seeds-and-nightly-priority.md): ready
 dream seeds keep the full admitted read scope and unbuilt backlog, with the
 existing due-nightly attempt ahead of compactor/indexer after main. source and
-controlled proof pass; actual installed quiet completion remains pending.
+controlled proof pass. actual stopped quiet completion on `650eb7c` consumes
+`[0,4127)` and commits three synthesis notes under adr 0083/0084's capacity
+amendments; the remaining journey/reset and historical latency claims stay
+separate.
 
 resolved when: the shared ready-view contract passes meaningful source proof and
 the installed main reaches native dispatch despite the unprepared admitted tail,

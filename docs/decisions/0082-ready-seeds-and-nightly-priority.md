@@ -4,8 +4,10 @@ status: accepted, 2026-11-17, by explicit owner choice: "adopt ready seeds and
 due-nightly priority". supersedes dreamer's full-preparation requirement retained
 by adr 0081 and the affected portions of the consolidated memory contract.
 maintenance preparation, full-tree construction, retention and both resets stay.
-source implementation and controlled qualification pass at memory `87a202c`;
-installed qualification remains pending in f2.
+source implementation and controlled qualification pass at memory `87a202c`.
+actual stopped ready-seed quiet completion passes on jarvis `650eb7c`, with
+adr 0083/0084 capacity amendments. the combined journey and final reset remain
+pending in f2; this does not qualify every nightly/live workload.
 
 ## evidence and decision
 

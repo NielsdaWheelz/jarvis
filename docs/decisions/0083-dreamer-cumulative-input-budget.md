@@ -3,7 +3,8 @@
 status: accepted, 2026-11-17, by explicit owner choice: "raise only dreamer input
 ceiling to 1,000,000". supersedes only the consolidated memory contract's
 160,000-token dreamer input ceiling. source and controlled qualification pass;
-actual installed quiet completion remains pending.
+actual stopped quiet completion passes on `650eb7c` with adr 0084's later context
+amendment. the combined journey and final reset remain pending.
 
 ## evidence
 

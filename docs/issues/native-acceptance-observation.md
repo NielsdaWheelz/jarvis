@@ -4,7 +4,9 @@ status: open; real f2 native-child evidence remains incomplete, 2026-11-17.
 
 the child-only metadata-discovery repair is source-qualified and independently
 rerun against four controlled unix-websocket cases. its new probe is deleted;
-the repaired helper is staged but no new live capture has started. old capture 4
+the repaired helper subsequently initialized for capture 5. it saw two roots
+and zero descendants before the application stopped on the usage decoder.
+its final status records 21 discarded unverified status notifications. old capture 4
 ends explicitly with five roots, zero selected frames and seven unverified
 frames. this identifies the evidence loss without reconstructing lost messages.
 

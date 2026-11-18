@@ -3,8 +3,9 @@
 status: accepted, 2026-11-17 owner-local date, by explicit owner choice: "raise
 only dreamer context ceiling to 1 mib". supersedes only the 327,680-byte dreamer
 context bound retained by adr 0083 and the consolidated memory contract.
-source implementation and controlled qualification pass; actual installed quiet
-completion remains pending.
+source implementation and controlled qualification pass; actual installed stopped
+quiet completion passes on `650eb7c` with three notes and consumed seeds
+`[0,4127)`. the combined journey and final reset remain pending.
 
 ## evidence
 

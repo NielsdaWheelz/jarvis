@@ -1909,3 +1909,9 @@ cannot establish the suspect transition. private
 `warm-calendar-window-qualification.json` records the exact observer and
 proof cleanup, sha256
 `b7beb01d5364daf7d8af9e06e857e5bfd381e963e31f677744a45339c8708edd`.
+
+the final observer also retains exact matches from each completely decoded
+page if a later page fails. that proves a reoffer without attributing a terminal
+token or direction to an incomplete delta. six controlled cases qualified this
+revision. private `warm-calendar-partial-qualification.json` has sha256
+`3b364c36a381becad624d5d946e35cd74a678b9f1aa78bc889a6946d831bf32b`.

@@ -135,6 +135,16 @@ retain one current executable decoder.
    service. retain operative receipts, pending decisions, stopped-parent state
    and the canonical inputs/settlement establishing a stop. never trim a required
    recovery fact; leave input pending and surface the context limit.
+
+   a fresh turn publishes full operative invocation records, then recent optional
+   observations that fit. on a steer, publish each new or changed operative
+   invocation in full. an unchanged invocation already delivered in this turn
+   carries `{kind: "native_invocation_ref", invocation_id}` to identify the
+   earlier body that applies to the new inputs. canonical request, action and
+   stop records still travel in full. the opening request precedes every steer.
+   a later batch earns receipt credit only when the native journal records its
+   delivery. fresh reasoning reconstructs the full opening from postgres.
+
 4. replace blanket recovered-request write denial with concrete barriers. an
    entered action without its original effect receipt, or terminal `uncertain`,
    blocks new effect-bearing action admission in its causal component. local

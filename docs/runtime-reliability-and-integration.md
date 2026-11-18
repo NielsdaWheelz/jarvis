@@ -1502,3 +1502,18 @@ at the clean stop. the stop retained twelve actions, 41 read positions, one
 blocked todo with no new wake and the original unentered send. neither timer
 nor worker wait was armed and the inferred 02:20:58Z wake time passed. the
 [remaining lineage issue](issues/native-action-lineage.md) records this failure.
+
+action lineage repair `f8f7fc6` removes the single-batch maximum from the
+persisted execution envelope. the run keeps its complete ordered inputs. long
+active turns can therefore produce larger local action records. per-batch and
+transport limits, nonempty canonical ids, uniqueness, checkpoint and admission
+checks retain their existing meanings. no migration or model/tool change.
+
+the original typed calendar proposal passed. reconstructing its execution
+envelope failed only on lineage length, at 101 and 124. independent isolated
+postgres dispatch on the repaired source preserved all 124 ids and the exact
+checkpoint, recorded one action and entered the controlled calendar effect once.
+a missing origin delivery and a fenced owner each produced zero actions and
+effects. new probes, container and volume were removed. private
+`lineage-dispatch-qualified.json` has sha256
+`a5f692913a0b62adaae658615d2f5ec2471705adedc5cc56635c5b9cbd246505`.

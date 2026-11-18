@@ -18,16 +18,17 @@ replaces the bounded main loop and file-backed control. it preserves isolated
 memory roles and existing connectors. see the [integration handoff](docs/native-agent-integration.md)
 for the stopped migration, current qualification and dependency-pin status.
 
-[universal memory](docs/universal-memory.md) is the source implementation contract.
-this branch hosts the standalone `universal-memory` library in the existing
-process/database. it owns append-only originals, a binary summary tree, bounded
-views and shared navigation/rank-fused search. jarvis supplies admission,
-inference, embeddings, scheduling and a private mcp/http endpoint; provider-runtime
-owns native decoding and dev-server owns collectors/profile configuration.
+the `universal-memory` library owns append-only originals, the summary tree,
+bounded views and retrieval in postgres. `jarvis-memory.service` serves external
+reads, note saves, capture and embedding calls. the assistant owns canonical
+projection and schedules indexing, compaction and dreaming. while the assistant
+is stopped, new originals can be opened and the ready view can lag. both
+processes run the same release. [memory contract](docs/universal-memory.md)
+· [service and recovery contract](docs/decisions/0086-native-recovery-and-memory-availability.md)
 
 canonical requests and receipts commit before recoverable memory projection.
-each new top-level jarvis turn gets a fixed admitted view plus exact operative
-requests/receipts. its active loop and compatible steering stay together. native
+each new top-level turn gets its frozen ready view, exact requests, operative
+commitments and an inventory of original receipts. main opens them with `receipt.read`. its active loop and compatible steering stay together. native
 codex/claude/nexus chats manage their own context and choose shared reads. the
 [current memory delivery](docs/memory-delivery.md) adds future-only automatic
 capture of the configured owner's nexus librarian runs and completes the live

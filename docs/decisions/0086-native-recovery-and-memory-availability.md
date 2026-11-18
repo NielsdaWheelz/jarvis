@@ -1,7 +1,7 @@
 # adr 0086. bounded native recovery and independent shared memory
 
-accepted 2026-11-18. this release implements units a–c at schema `0015`.
-unit d ships in the subsequent `0016` release.
+accepted 2026-11-18. the first release implements a–c at schema `0015`.
+this release implements d at `0016`. production acceptance is pending.
 the deployed base is jarvis `05d1c33`, provider-runtime `0ebc1cb`, kernel `3afc584`,
 llm-tools `b25bd5f`, universal-memory `13ac202`, stock codex `0.160.0`, database migration
 `0013`.

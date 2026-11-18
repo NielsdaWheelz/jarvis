@@ -130,7 +130,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0083](0083-dreamer-cumulative-input-budget.md) | dreamer cumulative input budget | owner-approved 1,000,000 reported-input ceiling for the measured composed role; other bounds stay fixed and post-generation overshoot remains possible |
 | [0084](0084-dreamer-continuation-context.md) | dreamer continuation context | owner-approved 1 mib cumulative host context ceiling; source and stopped quiet completion passed on `650eb7c` and selected `34d1620`. strict overflow remains possible |
 | [0085](0085-preserve-google-cursors-during-correction.md) | preserve google cursors during the f2 correction | isolated correction qualified. installed preflight reproduced 80 old revisions on the retained cursor. corpus preserved |
-| [0086](0086-native-recovery-and-memory-availability.md) | bounded native recovery and independent shared memory | accepted target and four implementation contracts. installed proof pending |
+| [0086](0086-native-recovery-and-memory-availability.md) | bounded native recovery and independent shared memory | four units implemented across schemas 0015 and 0016. production acceptance pending |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

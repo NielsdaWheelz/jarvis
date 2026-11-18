@@ -2,14 +2,24 @@
 
 status: accepted scope, 2026-11-16. [f1](../mail-calendar-web-reads.md) now owns
 the read-completion schemas and acceptance; [f3](../subscription-model-runtime.md)
-has source and separate candidate qualification; f2's reliability/production
-acceptance remain separate.
+has source and separate candidate qualification. [f2](../runtime-reliability-and-integration.md)
+has qualified integrated source and isolated reliability/deployment proof;
+production acceptance and reset remain pending.
 implementation, qualification and production activation remain separate.
 
 [adr 0076](0076-role-models-and-delegated-choices.md) supersedes this adr's original
 shared main/memory model decision: main astra/max, memory sol/xhigh, with deliberate
 native-child and per-session skid model/effort choices. the original decision
 below remains its historical rationale; other finishing scope is unchanged.
+
+[adr 0077](0077-production-acceptance-and-fresh-reset.md) subsequently makes f2 own
+final stopped production activation/installed proof and a post-acceptance fresh
+history reset. an irreproducible historical native incident may remain explicitly
+open; new demonstrated defects still require repair. those decisions supersede
+the affected historical sequencing/acceptance statements below.
+[adr 0078](0078-fresh-corpus-first-acceptance.md) subsequently changes only the reset
+order and full recovery-artifact replacement: preliminary reset → real journey →
+final reset, with verified current recovery retained.
 
 f1 owner refinement: web result pages are disposable; eviction/restart requires
 an explicit fresh observation. original paid-read uncertainty is not retry
@@ -23,8 +33,9 @@ non-continuable gmail/calendar reads, clipped web results/text, missing incoming
 `Reply-To` and deliberate mutable reads that can reuse earlier observations.
 main already has no aggregate tool-call/time quota. its prompt already supplies
 the owner's personality/goals and tool guidance; native subagents and skid supply
-delegation. the [native failure](../issues/native-protocol-diagnostics.md) and
-[discord startup issue](../issues/discord-login-failure-exit.md) remain open.
+delegation. the [native failure](../issues/native-protocol-diagnostics.md) remains
+open. [f2's isolated evidence](../runtime-reliability-and-integration.md#implementation-evidence)
+now qualifies the discord startup/stop repair; installed acceptance remains separate.
 
 the owner accepts three separately specified review units. the
 [roadmap](../implementation-plan.md#v2-finishing-prs) alone owns sequencing:

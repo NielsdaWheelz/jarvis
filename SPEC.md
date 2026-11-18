@@ -1,8 +1,8 @@
 # jarvis specification
 
-status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 not activated**
+status: **native runtime and online memory rollout qualified with named profile deferrals; v2 slices 1–6 source-qualified; f1/f3 source/candidate qualified; v2 installed, combined acceptance pending**
 
-date: **2026-11-16**
+date: **2026-11-17**
 
 audience: product, engineering, design, operations, and future coding agents
 
@@ -19,7 +19,7 @@ has separate private-storage/native-host candidate qualification; its
 owns the exact journeys and resource disposition.
 slice 6 has source and separate native/source candidate qualification; its
 [event evidence](docs/event-sources-and-recurring-work.md#implementation-evidence)
-owns real versus controlled proof. installed v2 activation remains pending. these contracts supersede
+owns real versus controlled proof. f2 activated this stack in production. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
 
@@ -46,15 +46,15 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   enters ordinary canonical host history/memory; no automatic body/file archive.
   shared refresh concurrency and account-qualified new write receipts belong at
   the existing connector boundary. source and combined migration/native
-  candidate are qualified; production activation remains separate.
+  candidate are qualified. f2 observed production mail arrival and calendar attention.
   existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
   is main's judgment. slice 3's source repairs and temporary candidate are
   qualified against installed skid. `claude-work` remains unavailable by owner
   decision; useful execution is NOT_RUN. an [unexplained native
-  defect](docs/issues/native-protocol-diagnostics.md) remains open. production
-  acceptance remains at final v2 cutover; retain the intermediate activation refusal.
+  defect](docs/issues/native-protocol-diagnostics.md) remains open. f2 qualified
+  the installed worker across application restart using the same terminal.
 - [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
   with trusted native tools. slice 4 implements a general workspace in the new
   private `NielsdaWheelz/jarvis-notes` repo: documents, runnable helpers,
@@ -62,8 +62,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   execution belongs here; hosting, presentation ui and television integration
   remain deferred. its kernel/provider contract adds borrowed cwd lifecycle and
   mixed native/callback execution while retaining isolated-role containment.
-  source and a separate temporary native host are qualified; production bootstrap/activation
-  stays at final v2 cutover. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
+  source and a separate temporary native host are qualified. f2 bootstrapped
+  the private checkout and inspected the note and git state across restart. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
   corrects the host boundary demonstrated by real candidate failures: retain
   stock's private physical socket and expose it only in the application's
   namespace; host replacement requires application restart/remount. the native
@@ -76,8 +76,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   host file manifests, permits attachment-only input, and adds only the gmail
   discovery needed to select exact files. one put per original, fresh cache reads
   and bounded deletion recovery preserve existing action evidence. source and a
-  separate candidate are qualified; production activation remains at final v2
-  cutover. no extraction framework or media protocol is added.
+  separate candidate are qualified. f2 retained and reopened a gmail pdf
+  in production. no extraction framework or media protocol is added.
 - event receipt amendment (2026-11-16): direct gmail-send/calendar-create/update
   successes require verified account before effect entry. a proved recovered
   success may retain `account=null` when qualification is unavailable and cannot
@@ -104,7 +104,7 @@ contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
 this owner-approved source stack has eighteen application tables: the native
 nine, six memory tables, `work`, `attachment` and `event_cursor`. migration `0011`
 adds attachments and `0012` adds event sources; `0013` changes only read-result
-storage. production activation remains separate.
+storage. f2 activated the installed stack at schema `0013`.
 shared memory retains its separate delivery and recorded qualification/deferrals:
 no capture, dreaming or memory-schema change is implied, and selected
 dream-triggered turns remain deferred. budget and the broader search proposal
@@ -117,8 +117,11 @@ three additional review units. [f1's implementation contract](docs/mail-calendar
 is implemented with source and separate candidate qualification;
 [f3's contract and evidence](docs/subscription-model-runtime.md#implementation-evidence)
 implement and qualify the owner refinement in
-[adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md). f2's
-reliability and final production acceptance remain separate:
+[adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md).
+[f2's contract](docs/runtime-reliability-and-integration.md) adopts the owner's
+[adr 0077](docs/decisions/0077-production-acceptance-and-fresh-reset.md) decisions,
+with the reset order amended by
+[fresh-corpus adr 0078](docs/decisions/0078-fresh-corpus-first-acceptance.md):
 
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
@@ -139,7 +142,10 @@ reliability and final production acceptance remain separate:
   after retaining sufficient content-free diagnostics and reproducing the cause.
   qualify actual prompt/tool composition and a useful combined journey; reuse
   existing personality, goals, native subagents and skid. no new orchestrator or
-  relaxed recovery/validation.
+  relaxed recovery/validation. controlled fault proof precedes stopped v2 cutover;
+  final live acceptance runs on the actual production service/channel, exclusively.
+  an irreproducible historical native incident may remain explicitly open after
+  representative reproduction; new demonstrated defects still require repair.
 - pin the owner's `gpt6astra-max` target: authenticated `gpt-6-astra` dispatch
   model at reasoning `max`, through the personal codex subscription and the
   owner's provider library (`provider-runtime` in `llm-calling`). use the actual
@@ -153,12 +159,114 @@ reliability and final production acceptance remain separate:
 f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
 its implemented source, exact dependency pins and separate live candidate.
 f3 source and its separate candidate are qualified with unchanged cognition pins;
-skid v0.24.4 is published and adopted on macbook/dev-server. the historical
-`gpt-5.6-terra/high` qualification remains evidence for its original/installed
-release. production jarvis has not changed. the
+skid v0.24.4 is published and adopted on macbook/dev-server. f2's isolated
+reliability/deployment repairs and final source integration pass. the [installed
+journey](docs/runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+qualified the selected composition. the historical `gpt-5.6-terra/high` qualification
+remains evidence for its original/installed release. those qualifications alone
+do not establish current installed acceptance. the
 [roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
-integration; production cutover remains separate. no feature-parity claim follows
+integration; f2 now owns the final stopped production cutover and installed proof.
+no feature-parity claim follows
 from this scope or from jarvis-only proof.
+
+f2's source transport adopts the exact qualified 2.7.1-derived discord.py fork
+`4c137a2de1c8aa36ac1df19f654afb99856824f2`, with aiohttp 3.14.4 and aiodns 4.0.4.
+its [evidence](docs/runtime-reliability-and-integration.md#implementation-evidence)
+owns the public lifecycle repair, asynchronous DNS, fixed pre-ingress catch-up cut
+and safe failure projection. historical dependency observations below retain their
+original artifacts. the f2 evidence records installed outcomes on each release.
+
+the owner selects a preliminary fresh reset → real production journey → final
+fresh reset under the fresh-corpus decision. both clear configured discord/jarvis/all central
+shared history, including other agents' admitted material, and todos/reminders/
+waits. preserve private repos, credentials, real google data and original native/
+nexus chats. these are two stopped administrative exceptions to retention and
+capture cuts, not a runtime deletion capability. finish/disposition work first;
+preserve original unknown-effect evidence and a verified current private `0013`
+recovery artifact before each wipe. replace an older recovery artifact only after
+its successor verifies, retaining concise original receipts. establish fresh source
+cuts with no old-history republication or automatic daily-review recreation.
+fresh-corpus acceptance does not qualify the discarded large corpus's preparation
+latency. f2 owns the exact inventory, attachment disposition and verification.
+
+after 142 old calendar revisions reappeared, the owner authorized [one further
+stopped correction](docs/decisions/0085-preserve-google-cursors-during-correction.md)
+after isolated proof and verified full current recovery. the correction would
+preserve the established google cursor rows while clearing the channel and
+remaining central history. under genuine pause 13 the established cursor
+returned 80 previously published revisions in one completed poll. clearing
+canonical publication keys would allow those revisions back into the corpus.
+the owner chose to keep the corpus, its canonical publication keys and the
+recovery snapshot. this concludes cleanup for this delivery. the strict
+no-republication criterion remains unmet. eligible new calendar revisions
+continue through ordinary admission under the existing source controls.
+
+[adr 0079](docs/decisions/0079-bounded-serial-compaction.md) adopts exact free
+copies up to the existing 2,048-byte hard node bound and serial inference batches
+of at most eight independent ready nodes. the library owns immutable sources,
+readiness and atomic whole-batch completion; deterministic free progress commits
+before newly enabled parents are selected. preserve the 512-byte inferred target,
+fixed models, full-history coverage, originals and current isolated-role ceilings.
+initial and retry calls pack complete sources/feedback under the unchanged actual
+request ceiling. one shared earlier context
+prefix grounds references; visible sibling sources cannot contribute unrelated
+facts to another node. larger free nodes can coarsen older detail sooner, sibling
+material is exposed within a batch, and interruption may repeat a batch. this
+supersedes the former single-source isolation and the fresh-corpus decision's rejection of a
+throughput change. source and installed proof remain separate.
+
+[adr 0080](docs/decisions/0080-first-valid-compaction.md) retains the 512-byte prompt
+target and accepts the first valid inferred summary within the existing
+2,048-byte hard bound. retry only hard oversize or transient failures under the
+same per-node ceilings; malformed output still parks with no partial batch commit.
+this replaces shortest-candidate selection and soft-target retries. larger
+inferred nodes may coarsen older detail earlier; net parent cost and general
+quality remain unmeasured. existing nodes, originals and source cuts stay intact.
+
+[adr 0081](docs/decisions/0081-ready-memory-for-main.md) removes main's dependency
+on full historical preparation. after canonical publication, freeze the admitted
+cutoff and consume the same complete fitting ready-view value as external native
+clients, with explicit covered range and admitted backlog. historical context may
+be stale or empty indefinitely; omitted corrections are not guaranteed recalled.
+all archive reads retain the admitted scope. exact active requests, existing
+receipt context and effect barriers stay unchanged. existing idle compression
+continues; maintenance preparation remains. adr 0082 below subsequently amends
+dreamer preparation. add no new task,
+mode, grant, raw-tail fallback or freshness guarantee. source and installed proof
+remain separate.
+
+[adr 0082](docs/decisions/0082-ready-seeds-and-nightly-priority.md) selects dream
+seeds only through committed ready coverage while retaining the full frozen
+admitted read/reference cutoff. preserve every unbuilt/unselected seed, bounded
+fitting, synthesis exclusion and atomic consumed-cursor completion. no ready new
+interval means no inference or progress. after main reports no work, the existing
+due-nightly attempt precedes the next compactor/indexer batch. an absent,
+already-claimed or zero-progress attempt falls through to compression; progress
+returns through foreground admission.
+reuse current nightly claims/cancellation; add no scheduler, task, timer or mode.
+seeds may be stale, that bounded dream can delay compression/indexing, and later
+ready material can wait until the next night/manual run. strict maintenance
+preparation and fixed models/grants remain; qualification is separate.
+
+[adr 0083](docs/decisions/0083-dreamer-cumulative-input-budget.md) raises only
+dreamer's cumulative reported-input ceiling from 160,000 to 1,000,000 after an
+actual three-turn run reports 241,692 and stops at the input guard. accounting
+and composition audits find no duplication bug. dreamer becomes v6; every other
+limit, fixed model, grant and completion policy remains. this permits 6.25 times
+the input threshold, including cached input; post-generation enforcement can
+overshoot. ten maximal turns and weekly availability remain unguaranteed.
+qualify source and actual installed quiet completion.
+
+[adr 0084](docs/decisions/0084-dreamer-continuation-context.md) raises only
+dreamer's cumulative host context ceiling from 327,680 to 1,048,576 bytes and
+owning revision to v7. the actual v6 run passes the old input threshold, then
+fails after a read at the context guard. valid maximal seed/sample and eight
+framed read slots justify 1 mib; source audits find no duplicated rendering.
+all other bounds, models, grants and completion rules remain. the 3.2x context
+threshold can increase generation work and hit unchanged input/time/native
+limits sooner; maximal-path fit and useful completion remain unguaranteed.
+qualify source and actual installed quiet completion separately.
 
 the following accepted memory/native sections and numbered v1 baseline describe
 their respective contracts and implemented history. where v2 conflicts, the
@@ -351,14 +459,19 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   originals, positions and dream progress remain immutable/preserved as applicable.
   no durable jobs, node generations or background replay journal.
 - use bounded contextual, host-enforced tool-free compaction and ready-node
-  scheduling. a waiting turn freezes its admitted cutoff; its required
-  compression can run/retry without another owner message. dispatch needs both
-  completed summaries and a fitting request. the reference's 512-byte node target,
+  scheduling. main freezes its admitted cutoff and consumes a fitting ready
+  view without waiting for construction under adr 0081. strict
+  maintenance preparation can drive required compression over its frozen
+  bounds without another owner message. every dispatch still needs a fitting
+  complete request. the reference's 512-byte node target,
   64,000–128,000-byte main view and 16,000–32,000-byte compactor view are initial
   tuning defaults, with rendered framing counted and actual provider context
   reserves enforced. hard node text is 2,048 bytes; at most five inference calls
-  per node attempt, with bounded retries/parking. use one serial compactor on the
-  qualified model/route and the existing isolated empty-tool plan. complete task
+  per node attempt, accepting the first valid hard-fitting result under adr 0080,
+  with bounded retries/parking. use one serial compactor on the
+  qualified model/route and the existing isolated empty-tool plan. adr 0079 allows
+  up to eight independent ready nodes per call, within the unchanged actual
+  prepared-request ceilings, with complete initial/retry entries. complete task
   source is separate from its bounded completed context prefix, so a parent never
   depends on itself to make its context fit. cache controls depend on the approved
   transport; neither cross-model sharing nor a hit rate is guaranteed.
@@ -368,7 +481,7 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   turn. acquire a fresh lease per `NativeRunner.run` and discard that lease at
   completion; retain dispatchers for effects already entered. this supersedes
   affected adr 0065 reuse rules, preserving owner authority, canonical control and
-  effect recovery. native clients keep their sessions; adr 0078 adds startup
+  effect recovery. native clients keep their sessions; the orientation decision adds startup
   orientation and relevance-conditioned navigation through the same shared reads.
   canonical message/receipt commits precede idempotent archive projection; memory
   failure cannot erase effect evidence. add immutable `memory_admitted` bits to
@@ -411,6 +524,11 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   and consumed-seed completion commit together, including empty success;
   summary inference follows the commit. note flags alone cannot track archived
   seed work. the dreamer receives no model-callable note-write grant.
+  adr 0082 bounds new seeds by committed ready coverage while preserving the
+  full admitted read/reference cutoff and all unbuilt seeds. the existing due
+  nightly attempt precedes compression/indexing after foreground work. an absent
+  or zero-progress attempt falls through. neither a ready seed nor a nightly claim proves inference or
+  useful synthesis. maintenance retains strict preparation.
   dreamer uses transient kernel decisions; its reads use
   run-local receipts. interrupted background computation may repeat and be charged
   again under normal admission. no frozen background scopes or paid-call recovery
@@ -419,8 +537,9 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   fencing still rejects late results.
 - shared keyword/semantic candidates, identity deduplication and deterministic
   reciprocal-rank fusion through bounded search/open. fresh jarvis context also
-  receives a bounded compressed view covering retained history from all admitted
-  jarvis/native sources. search remains available alongside tree navigation and
+  receives a bounded fitting ready prefix from the shared all-source tree, with
+  explicit actual coverage and admitted backlog under adr 0081. orientation may
+  remain stale or empty indefinitely. search remains available alongside tree navigation and
   paged source opening; capture/admission and current authority remain.
   orient from the supplied view, zoom relevant discussions and search when that
   supplies no useful route or leaves a gap; remove the recaller,
@@ -436,7 +555,7 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   inference gate serve queries/indexing/rebuild. one search rate limit covers all
   actual callers, while stored receipt replay costs no new service execution.
 - agent definitions specify context, tools, goals and quality; agents choose
-  their method within adr 0078's orientation contract. remove mandatory first
+  their method within the orientation-first contract. remove mandatory first
   searches, minimum call counts and scripted
   research/delegation procedures, including the dreamer completion gate. zero-call
   seed-only or empty success is valid. host protocol, authority, current-owner
@@ -736,8 +855,9 @@ admission bits, independently of request settlement.
 
 Discord is a client and delivery surface, not the canonical conversation store.
 Every owner message and every Jarvis response MUST be persisted in `message`.
-main opens a fresh native session for each top-level turn from a fixed admitted
-memory view and exact current requests/receipts. its active steering/tool loop
+main opens a fresh native session for each top-level turn from a frozen fitting
+ready view with explicit admitted backlog and exact current requests/receipts.
+its active steering/tool loop
 stays together. connection, process or owner loss fences old callbacks; fresh
 reasoning reconstructs canonical unfinished requests and original receipts while
 preserving entered effect dispatchers. native history is disposable.
@@ -775,7 +895,8 @@ deduplication:
 In these derivations, `canonical_text(id)` means the lowercase, whitespace-free
 PostgreSQL text representation of the persisted ID.
 
-The qualified `discord.py` 2.7.1 public send API accepts `nonce` but does not
+The qualified `discord.py` 2.7.1 public send API, retained by f2's exact fork,
+accepts `nonce` but does not
 expose `enforce_nonce`. V1 therefore uses one small host-owned `httpx` binding to
 Discord REST v10 for Create Message. Gateway ingress, typing, and component
 interactions remain on `discord.py`; Jarvis does not call private `discord.py`
@@ -1197,14 +1318,15 @@ supplies bounded tool-free inference through one serial compactor. source parts
 are ordinary leaves; no private oversized-leaf reduction. completed nodes,
 frontiers and retry progress commit together; interrupted inference may repeat.
 
-fresh top-level main turns use a fixed admitted view plus exact current requests
+fresh top-level main turns use a frozen fitting ready view with explicit coverage
+and admitted backlog plus exact current requests
 and operative receipts. active steering stays in the same tool loop. canonical
 conversation/effect commits precede recoverable archive projection; memory
 failure never replaces an original receipt or authorizes its replay.
 
 ### 6.3 Search and authored notes
 
-[adr 0078](docs/decisions/0078-memory-orientation-first.md) adopts orientation-first
+[orientation-first adr 0078](docs/decisions/0078-memory-orientation-first.md) adopts orientation-first
 guidance shared by the library and its consumers. start from the automatic view;
 zoom relevant discussions when remembered context matters, and use existing
 keyword/semantic search when it supplies no useful route or leaves a gap. open
@@ -1212,8 +1334,9 @@ originals for wording, attribution or disagreement. follow full-event open pages
 to exhaustion for complete retained text, keeping source omissions explicit.
 there is no requirement to zoom irrelevant history or perform a fixed call count.
 
-jarvis retains its existing context assembly, required-view failure behavior and
-host-owned compaction. nexus's owner-chat target receives automatic orientation
+jarvis freezes the fitting ready prefix and its admitted bound under
+[adr 0081](docs/decisions/0081-ready-memory-for-main.md). publication or view
+read failures block dispatch. unfinished compaction is reported as backlog. nexus's owner-chat target receives automatic orientation
 per top-level turn; native sessions read a complete paged view at startup unless
 usable orientation is inherited. the consolidated contract owns
 [outage, resume, compaction and child boundaries](docs/universal-memory.md#orientation-lifecycle-and-outages).
@@ -1333,7 +1456,7 @@ and cache behavior remain provider optimizations, never canonical state or
 guaranteed cost properties.
 
 jarvis supplies canonical product context: stable instructions and owner profile,
-the fixed admitted memory view, unfinished requests and original action/read
+the frozen ready memory view with explicit admitted backlog, unfinished requests and original action/read
 receipts, current input timestamps, the frozen capabilities, owner IANA
 timezone and host `as_of`. typed `llm-tools` sections express provenance; they are
 not an authority boundary. each current input is supplied once within its native
@@ -1598,7 +1721,8 @@ a behavior-changing handler or transitive dependency change that neither bumps
 the affected implementation revision nor records the behavior in revisioned
 policy inputs.
 
-main receives the fixed admitted memory view and shared tools described above. internal cognitive
+main receives the frozen ready memory view and shared tools described above. archive
+reads retain the frozen admitted cutoff, not the ready prefix's end. internal cognitive
 roles receive no Gmail, Calendar, Maps, Web, scheduling, or Discord capability.
 No role receives `tool.search`, `tool.read`, a local-filesystem tool, a Gmail
 organization tool, or a model-callable Discord tool.
@@ -1729,6 +1853,15 @@ binding's normalized writable event projection with the immutable action
 arguments. A match is success; a conflict is never overwritten or retried
 blindly. Calendar update and delete reconcile through their known provider event
 ID and live state under the same rule.
+
+timed calendar creates and update replacements discard fractional seconds at the
+provider boundary. the binding uses one whole-second desired projection for
+interval validation, encoding, direct receipt checks and reconciliation, preserving
+the original immutable arguments. a normalized start/end interval must remain
+positive; otherwise return `InvalidEvent` before any provider request. this
+deliberately discards requested subsecond precision rather than using an epsilon.
+observed read/precondition snapshots remain exact; do not truncate them for
+matching. all-day dates, time-zone names and utc offsets remain unchanged.
 
 `schedule.wake` uses one closed tagged schema: create with an exact
 `execute_after` instant and instruction, or cancel with the target queued wake's
@@ -1915,7 +2048,7 @@ AutomaticWriteGate runs a fresh isolated one-shot within its parent callback,
 using the same current owner and explicit parent invocation permit. main cannot
 enter another effect while that dispatch is active; native observation/control
 continues. foreground work takes precedence over compaction/dreaming; main
-preparation may run the compaction required by its fixed admitted cutoff.
+preparation never waits for historical construction under adr 0081.
 background cancellation preserves canonical source/progress and does not
 automatically rearm paid inference.
 
@@ -1931,8 +2064,9 @@ completion scheduler or application process supervisor.
 - Database: PostgreSQL with full-text search and pgvector.
 - HTTP/schema: FastAPI and Pydantic v2 when a new HTTP surface is needed.
 - Persistence: Psycopg 3, SQLAlchemy 2, and Alembic.
-- Discord: reuse the working single-channel transport; use `discord.py` 2.7.1
-  for Gateway and interactions, and a narrow `httpx` Discord REST v10 Create
+- Discord: reuse the working single-channel transport; use f2's exact qualified
+  2.7.1-derived `discord.py` fork for Gateway and interactions, and a narrow
+  `httpx` Discord REST v10 Create
   Message binding for `enforce_nonce` until a qualified public client API exposes
   it.
 - Google: reuse the working Gmail, Calendar, Maps, OAuth, and client stack.

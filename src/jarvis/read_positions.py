@@ -562,7 +562,9 @@ class PostgresReadRecorder:
             if existing is not None:
                 if existing[0] != reservation:
                     raise ValueError("read position reservation changed")
-                return existing[1]
+                if not existing[1]:
+                    return False
+                return await budgets.reserve(position, reservation)
             accepted = await budgets.reserve(position, reservation)
             await connection.execute(
                 update(read_position)

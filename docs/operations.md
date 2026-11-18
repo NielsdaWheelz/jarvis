@@ -33,6 +33,22 @@ private declaration. automated helpers and other viewers receive no memory tools
 
 ## accepted v2 target and operational scope
 
+[f2](runtime-reliability-and-integration.md), under
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) and
+[adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), owns isolated proof →
+stopped v2 cutover → preliminary fresh reset → real production acceptance → final
+fresh reset. f2 records the completed preliminary reset and current journey
+evidence. the final reset follows installed acceptance.
+the real channel/token/mailbox actor is exclusive. an irreproducible historical
+native incident may remain explicitly open; new demonstrated defects require repair.
+both resets clear discord/jarvis/all central shared history and commitments while
+preserving private repos, credentials, real google data and original native chats.
+the exact source-cut, attachment and recovery constraints are in the f2 contract.
+retain one verified current `0013` recovery artifact before each wipe; verify its
+successor before disposing of an older full artifact, retaining original receipt/
+manifest hashes. original reviewed historical uncertainties remain unknown and
+non-replayable. fresh-corpus proof leaves large-backlog preparation latency unqualified.
+
 [adr 0071](decisions/0071-simple-event-driven-v2.md) adopts the product target.
 [one-main source](one-main-events.md) implements its first slice; it has not been
 installed or activated. these instructions describe that source. the active
@@ -71,8 +87,8 @@ remain outside this cut; later search and budget contracts are not adopted here.
 [slice 5](attachments-and-durable-originals.md#implementation-evidence) is
 implemented with separate candidate qualification: database/native host, private
 r2 bucket and cache. its evidence distinguishes live provider paths, controlled
-faults and resource disposition. keep production's release, endpoint and
-activation refusal; installation and activation remain at final v2 cutover.
+faults and resource disposition. preserve production's selected release and
+endpoint until the qualified final v2 cutover; installation/activation follow f2.
 the private bucket and scoped object-only standby credentials are provisioned;
 the linked evidence owns their location and controls. production environment
 publication remains deferred. final cutover publishes that private configuration
@@ -174,7 +190,7 @@ available during installation.
 same rendered host unit, preserving identity, namespace, instruction masks and
 privilege restrictions before replacing the final mapping/units. it renders and
 installs both host and application units from the same immutable release; the
-application remains stopped and activation still refuses this intermediate cut.
+application remains stopped until f2's separate qualified activation.
 new checkout
 root `/var/lib/jarvis-notes` belongs to the native uid and `codex-clients` with
 mode 02750; only its new `.git` directory gets client traversal/read. existing
@@ -359,9 +375,9 @@ ordinary conversational consent recorded by main through `approval.respond`.
 
 the production deployment exists. install an exact committed release without
 activating it. migration requires a stopped, owner-paused deployment and the
-private snapshot/inventory below. a systemd one-shot injects the root-only
-environment after changing to the `jarvis` identity. this intermediate release
-refuses activation:
+private snapshot/inventory below. routine replacement at schema `0013` preserves
+initialized canonical pause/resume. a systemd one-shot injects the root-only
+runtime environment after changing to the `jarvis` identity.
 
 for an existing deployment, prepare a clean stop and the
 [native cutover](#native-cutover). install the contained host before activation;
@@ -397,16 +413,68 @@ the contained host's loaded `ExecStart`. if that host still selects another
 release, cleanup refuses before deleting files. cleanly stop or install the host
 for the retained release before retrying; no extra rollback release is retained.
 
-`deploy/activate-release` deliberately refuses this intermediate one-main
-release. slice 1 removes the scheduler; slice 2 supplies scheduled todos. restore
-activation only after the selected slices and retained reminder obligations are
-accounted for. installation, private stopped snapshots and isolated qualification
-remain available. source completion does not imply deployment or owner resumption.
+`deploy/activate-release FULL_GIT_COMMIT` requires a cleanly stopped service,
+the exact installed release receipt and its same-release native host. its
+transient checks use the application's private socket-file bind. the current
+schema `0013` path runs host and activation checks without creating a control,
+snapshot, inventory or migration. existing startup recovery remains available;
+new main reasoning/background work waits for validated discord catch-up.
 
-the qualified routine-activation primitive remains in memory merge `50611a3`.
-this source retains its initialized-control checks and preserves canonical
-pause/resume. startup action recovery remains available; new main reasoning and
-background memory wait for validated discord catch-up.
+only the selected installed transition `0008a` → `0013` is supported. before
+changing private configuration or replacing the native host, disposition old
+work under its original release, canonically pause and cleanly stop the service.
+verify `ActiveState=inactive`, `Result=success` and `MainPID=0`. retain the private
+obligation inventory and take the one stopped snapshot with the target release's
+snapshot helper; it deliberately needs no new-target model/storage settings:
+
+```sh
+commit="$(git rev-parse HEAD)"
+ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
+  sudo -n flock /opt/jarvis/.deploy.lock \
+  systemd-run --quiet --wait --pipe --collect \
+  --unit=jarvis-cutover-snapshot --property=Type=oneshot \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  --property=EnvironmentFile=/etc/jarvis/migration.env \
+  "/opt/jarvis/releases/$commit/.venv/bin/python" \
+  "/opt/jarvis/releases/$commit/deploy/prepare-cutover" snapshot \
+  "/var/lib/jarvis-cutover/$commit"
+```
+
+the snapshot holds deployment ownership and checks canonical pause directly at
+schema `0008a` or `0013`. it retains a custom-format database dump, private state,
+configuration and the original selected release receipt under a private parent.
+dump and listing use the same database environment. `verify` checks that artifact
+against the same database endpoint, channel, source schema and selected receipt;
+configuration copies retain their pre-handoff values. at `0008a`, snapshot and
+verification refuse unfinished actions/waits, unresolved durable inference and
+operative unknown billed-once reads before migration can disable their original
+runtime. native reads whose original input is explicitly stopped/completed retain
+their original barriers; this creates no settlement or replay permission. retired
+non-native unknown paid reads retain their existing global refusal.
+uncertain effects require original-release disposition; validated finalized known
+retired worker uncertainty remains opaque and non-retryable. listing proves
+readability, not a qualified restore. an existing artifact is never overwritten.
+
+then publish the selected private configuration/notes/storage/calendar controls
+and install its native host. activation revalidates the pre-cutover snapshot
+before migrating, records the current stopped native inventory and runs all
+current activation checks. unknown schemas and unresolved incompatible contracts
+refuse. no old scheduler, rememberer drain or legacy executor is restored. the
+fresh-start choice permits cancelling prior commitments under their original
+release; never erase entered/unknown work to pass a check.
+
+activation selects the release atomically and starts it with canonical control
+unchanged. only a healthy first start permits pruning; a failed start is stopped
+for explicit repair. there is no automatic rollback or authority resume. code
+rollback cannot reverse a migrated database. retain verified current stopped
+recovery through installed acceptance. the [fresh-corpus decision](decisions/0078-fresh-corpus-first-acceptance.md)
+permits replacing the old full artifact only after its successor verifies. source proof does not establish
+production success.
+f2 owns the exact qualified f3 integration and the preliminary reset →
+production journey → final reset. private-configuration/authority changes retain
+their separate pause and stopped-snapshot requirements even when no schema change
+is needed.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.
@@ -474,11 +542,12 @@ retained reminder purpose, time and source references belong to slice 2's todo
 conversion; there is no temporary reminder table or executable old scheduler.
 
 the current source migration chain continues from memory `0008` through
-per-conversation baselines `0008a`, one-main `0009`, work `0010` and attachments
-`0011`. work adds the mutable todo table and its current schedule; attachments add
+per-conversation baselines `0008a`, one-main `0009`, work `0010`, attachments
+`0011`, event sources `0012` and lossless read-result storage `0013`.
+work adds the mutable todo table and its current schedule; attachments add
 one original-metadata table and immutable upload manifests. old messages without
 manifests retain their text/archive digests. runtime admission requires the exact
-`0011` schema head; this is not an installed-production migration receipt.
+`0013` schema head; this is not an installed-production migration receipt.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
 parents only by joining canonical action identities. native committed products
@@ -488,6 +557,19 @@ source times remain original; historical first-observation time remains unknown
 where no canonical evidence exists.
 
 ### supervised todo setup
+
+the installed cutover reached schema `0013`. the private original inventory
+`retired-one-main-cutover.json` (sha256
+`f0b30e8c3df8519958a410690e05c5f1cd6e8b4907aa3708cde08991421c3086`)
+contained zero reminders, three reviewed historical actions, zero undelivered
+messages and zero unsettled attempts. genuine owner resume sequence 9 preceded
+the real fixture todo and wake. the preliminary reset created no daily review.
+the later restart with a pending timer remains part of f2.
+
+the [two selected fresh resets](decisions/0078-fresh-corpus-first-acceptance.md) clear every todo/reminder/wait
+and supersede daily-review creation for those resets. do not recreate one on startup;
+future ordinary owner work can request it. the original setup procedure below
+remains the source contract outside this one-off decision.
 
 account for each retained reminder in the private cutover inventory before the
 selected v2 release resumes unattended. give main its original purpose, intended
@@ -523,65 +605,26 @@ reaches main and affects only its explicitly named delivered requests.
 
 ## universal memory cutover
 
-this transition completed under the memory release; its selected production
-schema is `0008`. the following records that release's procedure. events `0009`
-is a separate stopped migration and remains uninstalled.
+historical memory migration completed before the current v2 transition. the
+installed per-conversation capture patch uses schema `0008a` and
+`native-archive.v3`; its exact receipts remain in the
+[installed memory evidence](universal-memory.md#native-memory-installed-qualification).
+the earlier temporary native predecessor and rememberer-drain helper are retired.
+reconstruct an old release from its exact commit only for an explicitly selected
+recovery; current source supplies no legacy execution branch.
 
-the existing `0004` installation first uses an immutable temporary native
-predecessor to reach `0005` and import its canonical pause. it is never resumed.
-its cutover validates terminal retired worker evidence through the existing
-archive contract; unfinished workers and unknown effects still refuse. the
-imported pause is a truthful completed control, not an owner task for old memory
-extraction. the predecessor exists only for this transition and is removed after
-acceptance. the one-time helper supplies an inert retired worker-setting field
-to the old settings parser; neither helper dispatches workers or restores a
-legacy configuration to the target runtime.
+normal future-only native capture preserves established cuts. unavailable
+conversations retain explicit pending baselines and take a fresh cut on their
+first readable head. ordinary upgrades do not reset those cuts. the
+[two stopped resets](decisions/0078-fresh-corpus-first-acceptance.md) are the sole selected exceptions; the f2 contract owns
+its complete inventory, quiescence, finite wipe and new capture boundaries.
 
-migration `0006` requires a stopped, canonically paused native `0005` deployment
-with drained old remembering and resolved old memory cognition. run the stopped
-helper through the selected predecessor's exact frozen interpreter and libraries;
-the target runtime contains no old memory roles. parked work or
-unknown old submissions refuse migration and require repair under that predecessor.
-
-before the memory migration, use the selected predecessor runtime and
-`deploy/prepare-memory-cutover` to drain and take one private recovery artifact at `/var/lib/jarvis-memory-cutover/<target-commit>`.
-it contains a custom-format database dump, `/var/lib/jarvis`, `/etc/jarvis` and the
-predecessor release receipt. the helper requires the deployment lock, canonical
-pause and resolved drained work; it verifies the dump listing and preserves file
-ownership/modes. dump and listing receive the same database environment so the
-installed postgres wrappers select matching client versions. it refuses an
-existing or recursively copied artifact.
-
-migration `0008` follows the unchanged published `0006`/`0007` migrations. it
-adds the configured claude-work2 account and grants the runtime only schema
-identity reads. the memory release accepts existing `0006`, `0007` and `0008`
-installations; unknown revisions refuse. the `0005` predecessor receives that same schema-read
-grant under stopped ownership before its drain. that rollout left old migrations
-unchanged. the later adr 0073 amendment adds `0008a` and freezes `0006`'s original
-guard sql so it cannot read the new field before the new migration installs it.
-
-for per-conversation capture, stop both collectors and the application, then use
-the qualified v1 patch's installer/activation scripts, same-release contained host
-and schema `0008a`. its activation accepts both `0008` and `0008a`; current main's
-v2 activation refusal remains intentional. preserve canonical pause/resume and
-all existing cuts. replace both collectors with the same native-archive.v3
-composition before restarting them. `memory status` shows pending baseline counts
-and reasons separately from capture errors. pending histories retry automatically;
-their first readable stable head establishes a cut then, never a historical import.
-
-migration preserves canonical message/note/summary ids, text, dates and legacy
-summary lineage, checking before/after counts and digests. legacy eligibility is
-false and provenance stays absent. six memory tables start empty; only a declared
-admitted jarvis lane activates. native collectors subsequently establish online
-baselines. no historical import or metadata reconstruction occurs.
-
-before the target's first start, recovery restores the database, runtime and
-configuration together and rebuilds/selects the predecessor's exact release.
-after first start, repair forward: restoring the old snapshot would erase new
-canonical data. delete the single artifact after acceptance. activation does not
-retain an extra rollback release. a fresh database must migrate and initialize
-paused state before release activation; activation itself accepts only schema
-`0005`, `0006`, `0007` or `0008`.
+before the target's first start, recovery must restore database, runtime and
+configuration together and rebuild/select the exact predecessor release. after
+first start, repair forward: restoring an older snapshot would discard newer
+canonical data and might repeat external effects. retain only the selected
+release after successful acceptance; recovery artifacts are separate from an
+installed rollback release.
 
 ## admission journal cutover
 
@@ -622,7 +665,7 @@ a temporary candidate, task database/runtime state and real installed skid under
 service restrictions. production's release, database and canonical control remain
 unchanged. its controlled ingress and actual outbox proof do not close physical
 owner gateway or selected-production restart acceptance; retain those for final
-v2 cutover with the [todo handoff](issues/work-installed-cutover.md).
+v2 cutover with the [todo handoff](operations.md#supervised-todo-setup).
 
 `deploy/verify-agent-client` accepts an explicit installed-state directory for
 that qualified boundary. `deploy/verify-containment` checks installed
@@ -631,7 +674,7 @@ restrictions. source fixtures and artifact pins establish no installed-fleet pas
 contained cognition has its own prerequisite and qualification.
 
 use the stopped one-main inventory and snapshot procedure before incompatible
-changes. `deploy/activate-release` refuses this intermediate source. reconcile
+changes. activation applies the current schema/contract checks above. reconcile
 entered effects, retain unknown effects, and explicitly drain or cancel incompatible
 unentered work before any future activation. after new receipts, repair forward;
 older readers cannot be made safe by erasing facts or resurrecting retired codecs.
@@ -937,6 +980,17 @@ attempt, action or request to make it look undispatched. there is no rolling
 admission file to repair.
 
 ## Data durability and logs
+
+[adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) and
+[adr 0078](decisions/0078-fresh-corpus-first-acceptance.md) authorized the two
+completed f2 resets. after calendar revisions reappeared, the owner authorized
+[one stopped correction retaining the google cursors](decisions/0085-preserve-google-cursors-during-correction.md).
+the owner retired that correction after the installed check reproduced replay.
+the [f2 procedure](runtime-reliability-and-integration.md#e-fresh-history-resets)
+owns its inventory, isolated proof and installed verification. ordinary
+append-only guards continue to apply.
+private recovery snapshots/manifests remain outside live memory; source cuts and
+pending exports must be coordinated before writers resume.
 
 the [target cutover](universal-memory.md#9-migration-and-hard-cutover) takes one
 local pre-migration `pg_dump` with the necessary runtime/configuration copy. this

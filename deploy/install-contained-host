@@ -154,10 +154,10 @@ sudo -n systemctl daemon-reload
 sudo -n systemctl start jarvis-notes-bootstrap.service
 sudo -n systemctl stop jarvis-notes-bootstrap.service
 sudo -n rm -f -- "$bootstrap_unit"
-sudo -n -u jarvis test -r /var/lib/jarvis-notes
-sudo -n -u jarvis test -x /var/lib/jarvis-notes
-sudo -n -u jarvis test -r /var/lib/jarvis-notes/.git
-sudo -n -u jarvis test -x /var/lib/jarvis-notes/.git
+sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes
+sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes
+sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes/.git
+sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes/.git
 printf 'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -\n' | \
   sudo -n tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
 sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json

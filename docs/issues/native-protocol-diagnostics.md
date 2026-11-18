@@ -2,8 +2,15 @@
 
 status: open; accepted for [f2 reliability/integration](../implementation-plan.md#v2-finishing-prs)
 under adr 0075. retain bounded content-free diagnostics, reproduce and repair the
-owning layer; spec and repair remain pending. a model upgrade or passing later
-journey does not resolve these failures. repair size remains unknown.
+owning layer; the [contract](../runtime-reliability-and-integration.md#b-native-diagnostics-and-repair)
+records implemented diagnostics and isolated fault proof. the selected stack
+subsequently completed representative worker, workspace and restart journeys.
+the original exceptions remain unknown.
+
+[adr 0077](../decisions/0077-production-acceptance-and-fresh-reset.md) permits final
+acceptance with this issue explicitly OPEN if safe diagnostics and representative
+actual reproduction cannot identify the historical cause. new demonstrated defects
+still require repair. this is an accepted residual risk, not issue closure.
 
 problem: one native turn failed after accepted callbacks, but retained evidence
 identifies only `NativeDefect`; its exact cause cannot be reconstructed.
@@ -51,3 +58,30 @@ resolved when: reproduce with sufficient content-free evidence to identify the
 actual owning layer, repair any demonstrated defect there and verify the affected
 path, fencing and original-effect preservation. no guessed exception-text
 logging, automatic unpark, effect replay or fallback output closes this issue.
+
+f2 source repair (2026-11-16): the two candidate root validators now use distinct
+static codes. all eight selected validator conditions/messages/order and exact
+`model_json_schema()` bytes are preserved. one bounded content-free projection
+logs before run parking, terminal failure persistence and provider command
+failure propagation. its fixed class/code/location/source-coordinate allowlists
+exclude private messages, inputs, extra property names and unknown classes/codes;
+provider public error roots now exit nonzero without raw tracebacks.
+
+isolated proof uses the actual native runner/kernel, a controlled public
+app-server socket and disposable postgres at migration `0013`. after one accepted
+billed-once read callback, duplicate input dispositions and nonempty progress
+dispositions produce distinct diagnostics; a malformed sealed terminal retains
+its original seal and reports the terminal boundary. all three fence/park their
+requests, reject stale callback authority, ignore late malformed commentary and
+retain original replies/read receipts byte-exact across recovery, with one read
+executor entry. this proves paid-read preservation, not a write-callback fault
+or historical cause. command subprocess probes reproduce the old provider-message/
+cause leak and verify the new safe exit; bounded helper probes cover unknown
+property/code/class names, cause cycles, all limits and valid json. source static
+checks pass. the f2 contract owns final artifacts and temporary-probe disposition.
+
+the [installed write/restart journey](../runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+reused the original worker, workspace and send receipt. those successful paths
+and the separate explicit usage, lineage and cross-root incidents did not
+reproduce the historical exceptions. the diagnostic issue remains open under
+adr 0077.

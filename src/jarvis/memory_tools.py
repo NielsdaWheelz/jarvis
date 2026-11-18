@@ -20,12 +20,14 @@ from universal_memory.policy import (
     FUSION_K,
     RESULT_BYTES,
     SEARCH_CANDIDATES,
+    VIEW_PAGE_BYTES,
     MemoryError,
 )
 from universal_memory.tools import (
     MEMORY_READ_SPECS,
     MEMORY_SAVE_NOTE_SPEC,
     MEMORY_SEARCH_SPEC,
+    MEMORY_VIEW_SPEC,
     MemoryToolFailure,
     SaveNoteInput,
 )
@@ -112,10 +114,17 @@ def memory_family(service: MemoryService) -> ToolFamily:
             replay_policy=ReplayPolicy.BilledOnce
             if spec is MEMORY_SEARCH_SPEC
             else ReplayPolicy.ReDispatchable,
-            implementation_revision=f"jarvis-{str(spec.id).replace('.', '-')}-v3",
+            implementation_revision="jarvis-memory-view-v4"
+            if spec is MEMORY_VIEW_SPEC
+            else f"jarvis-{str(spec.id).replace('.', '-')}-v3",
             policy_epoch=PolicyEpoch("jarvis-universal-memory-v1"),
             policy_inputs={
                 **policy,
+                **(
+                    {"view_page_bytes": VIEW_PAGE_BYTES}
+                    if spec is MEMORY_VIEW_SPEC
+                    else {}
+                ),
                 **(
                     {
                         "lexical": "english-and-simple-stemmed-keywords",

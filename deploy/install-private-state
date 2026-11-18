@@ -51,6 +51,7 @@ required = {
     "JARVIS_ATTACHMENT_R2_BUCKET",
     "JARVIS_ATTACHMENT_R2_ACCESS_KEY_ID",
     "JARVIS_ATTACHMENT_R2_SECRET_ACCESS_KEY",
+    "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS",
 }
 allowed = required | {"JARVIS_GOOGLE_OAUTH_REDIRECT_URI"}
 raw = source.read_bytes()
@@ -82,7 +83,6 @@ JARVIS_AGENT_STATE_DIRECTORY=/run/jarvis-skid-state
 JARVIS_RUNTIME_STATE_DIRECTORY=/var/lib/jarvis/runtime
 JARVIS_ATTACHMENT_CACHE_DIRECTORY=/var/cache/jarvis/attachments
 JARVIS_GOOGLE_OAUTH_STATE_PATH=/var/lib/jarvis/connectors/google-oauth-state.json
-JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS=primary
 JARVIS_EMBEDDING_MODEL=text-embedding-3-small
 JARVIS_EMBEDDING_DIMENSION=1536
 JARVIS_MEMORY_CONFIG_PATH=/etc/jarvis/memory.json

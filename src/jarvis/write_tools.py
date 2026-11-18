@@ -556,7 +556,8 @@ CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
     summary="Create one Google Calendar event.",
     documentation=PromptDocument(
         "Create exactly one event. Automatic execution is restricted by host policy "
-        "to verified owner-only calendars and events with no attendees."
+        "to verified owner-only calendars and events with no attendees. Timed start "
+        "and end discard fractional seconds; the resulting interval must be positive."
     ),
     input_type=CalendarCreateEventInput,
     success_type=CalendarCreateEventSuccess,
@@ -571,7 +572,9 @@ CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
     summary="Conditionally replace one Google Calendar event.",
     documentation=PromptDocument(
         "Replace the writable projection only when the live event still has the "
-        "complete expected snapshot and etag."
+        "complete expected snapshot and etag. Replacement timed start and end "
+        "discard fractional seconds; the resulting interval must be positive. "
+        "The expected snapshot stays exact."
     ),
     input_type=CalendarUpdateEventInput,
     success_type=CalendarUpdateEventSuccess,
@@ -760,6 +763,7 @@ def gmail_write_family(provider: GoogleWriteProvider) -> ToolFamily:
 
 
 def calendar_write_family(provider: GoogleWriteProvider) -> ToolFamily:
+    precision = {"timed_precision": "whole-second-floor"}
     return ToolFamily(
         namespace="calendar",
         declarations=(
@@ -772,18 +776,23 @@ def calendar_write_family(provider: GoogleWriteProvider) -> ToolFamily:
                 CALENDAR_CREATE_EVENT_SPEC,
                 provider.calendar_create_event,
                 {
+                    **precision,
                     "create_id": "first-32-hex-sha256(jarvis-calendar-v1:action-id)",
                     "endpoint": (
                         f"{CALENDAR_API_BASE_URL}/calendars/{{calendar_id}}/events"
                     ),
                 },
-                implementation_revision="jarvis-calendar-create_event-v3",
+                implementation_revision="jarvis-calendar-create_event-v4",
             ),
             _binding(
                 CALENDAR_UPDATE_EVENT_SPEC,
                 provider.calendar_update_event,
-                {"conditional": "If-Match expected.etag", "http_method": "PATCH"},
-                implementation_revision="jarvis-calendar-update_event-v3",
+                {
+                    **precision,
+                    "conditional": "If-Match expected.etag",
+                    "http_method": "PATCH",
+                },
+                implementation_revision="jarvis-calendar-update_event-v4",
             ),
             _binding(
                 CALENDAR_DELETE_EVENT_SPEC,

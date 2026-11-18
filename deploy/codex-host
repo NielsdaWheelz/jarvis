@@ -131,7 +131,7 @@ def bootstrap_notes(config: CodexHostConfig) -> None:
         run("git", "clone", "--branch", "main", origin, str(repository))
         # Only this new metadata directory needs client traversal/read. Never
         # change existing checkout permissions or make its files group-writable.
-        (repository / ".git").chmod(0o2750)
+        (repository / ".git").chmod(0o750)
     config.verify_notes_repository()
 
 

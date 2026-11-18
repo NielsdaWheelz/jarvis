@@ -77,22 +77,23 @@ use a small set of meaningful implementation checks when that work is authorized
   has ended or the service has restarted. main integrates that evidence without
   repeated model polling. [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15)
   qualifies a temporary candidate against installed workers, including ordinary
-  follow-up and truthful interruption/results. controlled candidate ingress and
-  actual rest outbox are named; production gateway and selected-service restart
-  remain final v2 cutover acceptance. useful claude execution remains `NOT_RUN`
+  follow-up and truthful interruption/results. the [production gateway and restart](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+  preserved the worker target and wait registration through actual delivery. useful claude execution remains `NOT_RUN`
   after account limits; the owner selected explicit unavailable status.
 - [slice 4 evidence](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) qualifies native
   documents, reusable helpers/interactive files, actual private git operations,
   mixed native/callback execution and retained dirty state. its separate temporary
   host preserves isolated roles; this task did not modify production. the
-  [installed journey](issues/private-workspace-installed-cutover.md) remains at final
-  cutover. hosting/presentation stays deferred.
+  [installed file journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+  preserved the private checkout through restart. the
+  [helper/git follow-up](issues/private-workspace-installed-cutover.md) remains separate.
+  hosting/presentation stays deferred.
 - [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence)
   qualifies source and a separate private-storage/native-host candidate through
   discord/private storage, exact gmail selection and native image/pdf/docx/csv
   work. raw caption/host metadata attribution, byte identity/recovery, fresh paths,
   grounded content and scoped deletion have their named live or controlled proof.
-  production installation and activation remain at final v2 cutover. connector
+  the installed f2 journey retained and reopened the fixture pdf. connector
   receipts do not imply native exactly-once execution; stop/pause retain their
   distinct scopes. the evidence owns resource disposition.
 - [slice 6](event-sources-and-recurring-work.md#implementation-boundaries-and-acceptance)
@@ -101,8 +102,8 @@ use a small set of meaningful implementation checks when that work is authorized
   source controls during uncertainty, exact attention/echo identities, truthful
   gaps and responsive main. shared credential concurrency gets one controlled
   connector check; no credential product or production activation. source and separate combined
-  migration/native candidate are qualified in its owning evidence; installed
-  activation remains separate.
+  migration/native candidate are qualified in its owning evidence. installed mail
+  and calendar attention passed in f2. [conversational source controls](issues/event-sources-installed-cutover.md) remain open.
 
 slice 1's [source-audited proof plan](one-main-events.md#acceptance-and-redgreenrefactor)
 and slices 2–6's linked contracts own temporary integration/live red/green/refactor,
@@ -121,20 +122,30 @@ budget acceptance stays with their later contracts.
 source and a separate temporary candidate: continuable mail/calendar/web reads,
 full supported text, fresh observations, existing draft/calendar writes and
 original receipt recovery. its local, controlled, live and native checks remain
-distinct; production activation is pending.
+distinct. the installed f2 journey exercised fixture mail, calendar and web reads.
 [f3's evidence](subscription-model-runtime.md#implementation-evidence) qualifies
 fixed subscription roles, delegated selections and recovery in a separate candidate.
-f2's reliability and production proof remain separate.
-f2 must prove discord outage/stop behavior, a reproduced owning-layer native repair and
-the combined email → attachment → sourced research/delegation → draft/calendar
+[f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
+reliability/deployment and final source composition proof, with installed evidence
+for the combined email → attachment → sourced research/delegation → draft/calendar
 action → scheduled follow-through → restart journey. f3 proves the actual
 personal codex subscription through `provider-runtime`: exact `gpt-6-astra/max`
 for main/native/callback work, `gpt-6.1-sol/xhigh` for compactor/dreamer, deliberate
 native-child model/effort and per-session skid choices. preserve old sealed-terminal
 settlement and original receipt recovery across the model change.
-integrated proof must use the final selected artifacts. f3's temporary proof is
-complete; its and f1's scoped acceptance create no standing suite or production
-activation. no benchmark or competitor-parity claim follows.
+integrated proof uses the final selected artifacts on the actual production service
+after isolated fault proof and stopped cutover. under adr 0077, an irreproducible
+historical native incident may remain explicitly open; passing journeys do not
+retroactively diagnose it. [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md)
+orders the owner's preliminary reset → real journey → final reset, with coordinated
+source cuts and preserved recovery/unknown-effect evidence and private/source data.
+fresh-corpus proof does not qualify large-backlog preparation latency. no standing
+suite, benchmark or competitor-parity claim follows. both stopped database resets and the production journey completed.
+all twelve online native lanes established fresh cuts. the ordinary owner
+resume entered the fresh archive. [old calendar revisions](issues/calendar-revision-republication.md)
+were republished. the [stopped read-only check](runtime-reliability-and-integration.md#stopped-google-cursor-correction)
+then found 80 exact reoffers on the established cursor. the owner retained
+the corpus and ended cleanup. f2’s strict no-republication criterion remains unmet.
 
 ## native cutover acceptance
 

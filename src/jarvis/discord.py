@@ -7,16 +7,23 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import errno
 import hashlib
 import logging
+import math
+import socket
+import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from functools import partial
 from typing import Protocol, cast
 from uuid import UUID
 
+import aiodns.error
+import aiohttp
 import discord
 import httpx
 
@@ -29,6 +36,164 @@ DISCORD_API_BASE_URL = "https://discord.com/api/v10"
 DISCORD_MAX_CONTENT_CHARACTERS = 2_000
 SUPPRESS_EMBEDS = 1 << 2
 MAX_RETRY_AFTER_SLEEP_SECONDS = 30.0
+GATEWAY_RETRY_DELAYS = (1, 2, 4, 8, 16, 30)
+_DNS_ERRNOS = frozenset({socket.EAI_AGAIN, socket.EAI_FAIL, socket.EAI_NONAME})
+# aiodns re-exports untyped public c-ares error constants.
+_DNS_RETRY_CODES = frozenset(
+    cast(int, getattr(aiodns.error, name))
+    for name in (
+        "ARES_ENODATA",
+        "ARES_EFORMERR",
+        "ARES_ESERVFAIL",
+        "ARES_ENOTFOUND",
+        "ARES_ENOTIMP",
+        "ARES_EREFUSED",
+        "ARES_EBADRESP",
+        "ARES_ECONNREFUSED",
+        "ARES_ETIMEOUT",
+        "ARES_EOF",
+        "ARES_ENONAME",
+    )
+)
+
+NETWORK_FAILURES = (
+    OSError,
+    aiohttp.ClientConnectionError,
+    aiohttp.ClientPayloadError,
+    aiohttp.ClientResponseError,
+    discord.HTTPException,
+    discord.RateLimited,
+)
+_NETWORK_ERRNOS = frozenset(
+    {
+        errno.ECONNABORTED,
+        errno.ECONNREFUSED,
+        errno.ECONNRESET,
+        errno.EHOSTDOWN,
+        errno.EHOSTUNREACH,
+        errno.ENETDOWN,
+        errno.ENETUNREACH,
+        errno.ENOTCONN,
+        errno.EPIPE,
+        errno.ETIMEDOUT,
+    }
+)
+
+
+class DiscordStopped(Exception):
+    """An owned network read or retry wait stopped before completion."""
+
+
+def _network_failure_reason(error: BaseException) -> str | None:
+    if isinstance(error, ssl.SSLError | aiohttp.ClientSSLError):
+        return None
+    if isinstance(error, discord.RateLimited):
+        return "rate_limited"
+    if isinstance(error, discord.HTTPException | aiohttp.ClientResponseError):
+        status = error.status
+        if status == 408:
+            return "timeout"
+        if status == 429:
+            return "rate_limited"
+        return "server" if 500 <= status <= 599 else None
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if isinstance(error, aiohttp.ClientConnectorDNSError):
+        underlying = error.os_error
+        if underlying.errno is not None:
+            return "dns" if underlying.errno in _DNS_ERRNOS else None
+        cause = underlying.__cause__
+        if isinstance(cause, aiodns.error.DNSError):
+            return "dns" if cause.args and cause.args[0] in _DNS_RETRY_CODES else None
+        return "dns" if cause is None else None
+    if isinstance(error, socket.gaierror):
+        return "dns" if error.errno in _DNS_ERRNOS else None
+    if isinstance(error, aiohttp.ClientConnectorError):
+        return "network" if error.os_error.errno in _NETWORK_ERRNOS else None
+    if isinstance(error, OSError):
+        return "network" if error.errno in _NETWORK_ERRNOS else None
+    if isinstance(error, aiohttp.ClientPayloadError):
+        return "truncated_response"
+    if isinstance(error, aiohttp.ClientConnectionError):
+        return "disconnected"
+    return None
+
+
+def network_retry_delay(error: BaseException, *, phase: str, attempt: int) -> float:
+    """Classify a transport failure, or rethrow a permanent/local failure."""
+
+    reason = _network_failure_reason(error)
+    if reason is None:
+        raise error
+    delay = float(GATEWAY_RETRY_DELAYS[min(attempt - 1, len(GATEWAY_RETRY_DELAYS) - 1)])
+    retry_after: object = None
+    if isinstance(error, discord.RateLimited):
+        retry_after = error.retry_after
+    elif isinstance(error, discord.HTTPException):
+        retry_after = error.response.headers.get("Retry-After")
+    elif isinstance(error, aiohttp.ClientResponseError) and error.headers is not None:
+        retry_after = error.headers.get("Retry-After")
+    if isinstance(retry_after, str | int | float) and not isinstance(retry_after, bool):
+        try:
+            seconds = float(retry_after)
+        except ValueError:
+            pass
+        else:
+            if math.isfinite(seconds) and seconds >= 0:
+                delay = max(delay, seconds)
+    LOGGER.warning(
+        "discord outage: phase=%s reason=%s attempt=%d next_delay_seconds=%g",
+        phase,
+        reason,
+        attempt,
+        delay,
+    )
+    return delay
+
+
+async def interruptible_network[T](
+    operation: Callable[[], Awaitable[T]], stopping: asyncio.Event
+) -> T:
+    """Cancel and join only this transport/timer child when ingress stops."""
+
+    if stopping.is_set():
+        raise DiscordStopped
+    network = asyncio.ensure_future(operation())
+    stopped = asyncio.create_task(stopping.wait())
+    try:
+        done, _ = await asyncio.wait(
+            (network, stopped), return_when=asyncio.FIRST_COMPLETED
+        )
+        if network not in done:
+            network.cancel()
+        try:
+            return await network
+        except asyncio.CancelledError:
+            if stopping.is_set():
+                raise DiscordStopped from None
+            raise
+    finally:
+        network.cancel()
+        stopped.cancel()
+        await asyncio.gather(network, stopped, return_exceptions=True)
+
+
+async def _retry_network[T](
+    operation: Callable[[], Awaitable[T]], *, stopping: asyncio.Event, phase: str
+) -> T:
+    attempt = 1
+    while True:
+        try:
+            result = await interruptible_network(operation, stopping)
+        except NETWORK_FAILURES as error:
+            delay = network_retry_delay(error, phase=phase, attempt=attempt)
+            await interruptible_network(partial(asyncio.sleep, delay), stopping)
+            attempt += 1
+        else:
+            if attempt > 1:
+                LOGGER.info("discord recovered: phase=%s attempts=%d", phase, attempt)
+            return result
+
 
 REQUIRED_CHANNEL_PERMISSIONS = frozenset(
     {"view_channel", "send_messages", "attach_files", "read_message_history"}
@@ -203,12 +368,25 @@ def _source_snowflake(source_message_id: str | None) -> discord.Object | None:
     return discord.Object(id=value)
 
 
+async def _collect_history(
+    channel: HistoryChannel, *, after: discord.Object | None, limit: int
+) -> list[discord.Message]:
+    events: list[discord.Message] = []
+    async for event in channel.history(limit=limit, after=after, oldest_first=False):
+        if len(events) >= limit:
+            break
+        events.append(event)
+    events.reverse()
+    return events
+
+
 async def bounded_catch_up(
     channel: HistoryChannel,
     *,
     settings: DiscordSettings,
     after_source_message_id: str | None,
     sink: OwnerMessageSink,
+    stopping: asyncio.Event,
 ) -> CatchUpResult:
     """Persist accepted inputs from Discord's newest bounded history page."""
 
@@ -220,16 +398,12 @@ async def bounded_catch_up(
         raise DiscordConfigurationError("catch-up channel does not match configuration")
 
     after = _source_snowflake(after_source_message_id)
-    events: list[discord.Message] = []
-    async for event in channel.history(
-        limit=settings.catch_up_limit,
-        after=after,
-        oldest_first=False,
-    ):
-        if len(events) >= settings.catch_up_limit:
-            break
-        events.append(event)
-    events.reverse()
+    limit = settings.catch_up_limit
+    events = await _retry_network(
+        lambda: _collect_history(channel, after=after, limit=limit),
+        stopping=stopping,
+        phase="history",
+    )
 
     accepted = 0
     last_scanned_source_message_id = None
@@ -261,12 +435,15 @@ class DiscordGateway(discord.Client):
         *,
         ready_handler: ReadyHandler | None = None,
     ) -> None:
-        super().__init__(intents=gateway_intents())
+        self._resolver = aiohttp.AsyncResolver()
+        self._connector = aiohttp.TCPConnector(resolver=self._resolver)
+        super().__init__(intents=gateway_intents(), connector=self._connector)
         self._settings = settings
         self._owner_message_sink = owner_message_sink
         self._ready_handler = ready_handler
         self._event_failed = False
-        self._stopping = False
+        self._stopping = asyncio.Event()
+        self._ready_lock = asyncio.Lock()
         self._active_callbacks = 0
         self._callbacks_drained = asyncio.Event()
         self._callbacks_drained.set()
@@ -275,8 +452,21 @@ class DiscordGateway(discord.Client):
     def event_failed(self) -> bool:
         return self._event_failed
 
+    @property
+    def stopping(self) -> asyncio.Event:
+        return self._stopping
+
     def stop_ingress(self) -> None:
-        self._stopping = True
+        self._stopping.set()
+
+    async def close(self) -> None:
+        try:
+            await super().close()
+        finally:
+            try:
+                await self._connector.close()
+            finally:
+                await self._resolver.close()
 
     async def drain_callbacks(self) -> None:
         """Join admitted handlers without closing the HTTP client they use."""
@@ -284,7 +474,7 @@ class DiscordGateway(discord.Client):
 
     @contextmanager
     def _admit_callback(self) -> Iterator[bool]:
-        if self._stopping:
+        if self._stopping.is_set():
             yield False
             return
         self._active_callbacks += 1
@@ -300,9 +490,19 @@ class DiscordGateway(discord.Client):
         with self._admit_callback() as admitted:
             if not admitted:
                 return
-            await self.validate_live_configuration()
-            if self._ready_handler is not None:
-                await self._ready_handler()
+            async with self._ready_lock:
+                if self._stopping.is_set():
+                    return
+                try:
+                    await _retry_network(
+                        self.validate_live_configuration,
+                        stopping=self._stopping,
+                        phase="configuration",
+                    )
+                    if self._ready_handler is not None:
+                        await self._ready_handler()
+                except DiscordStopped:
+                    return
 
     async def on_message(self, message: discord.Message) -> None:
         with self._admit_callback() as admitted:
@@ -321,7 +521,7 @@ class DiscordGateway(discord.Client):
         del args, kwargs
         self._event_failed = True
         LOGGER.error("Discord event failed: event=%s", event_method)
-        await self.close()
+        self.stop_ingress()
 
     async def configured_channel(self) -> discord.TextChannel:
         guild = self.get_guild(self._settings.guild_id)
@@ -351,12 +551,15 @@ class DiscordGateway(discord.Client):
         validate_channel_permissions(channel.permissions_for(channel.guild.me))
 
     async def catch_up(self, after_source_message_id: str | None) -> CatchUpResult:
-        channel = await self.configured_channel()
+        channel = await _retry_network(
+            self.configured_channel, stopping=self._stopping, phase="channel"
+        )
         return await bounded_catch_up(
             cast(HistoryChannel, channel),
             settings=self._settings,
             after_source_message_id=after_source_message_id,
             sink=self._owner_message_sink,
+            stopping=self._stopping,
         )
 
     @asynccontextmanager

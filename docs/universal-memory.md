@@ -1,5 +1,15 @@
 # universal memory: implementation contract
 
+finite target exception: [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md),
+reordered by [fresh-corpus adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), authorizes
+the owner's preliminary reset → real journey → final reset, clearing central
+history including other agents' admitted originals/notes at both resets.
+[f2](runtime-reliability-and-integration.md#e-fresh-history-resets)
+owns coordinated canonical/archive clearing, fresh native cuts and any active
+nexus-export disposition. preserve original source chats and existing runtime
+append-only guards; add no deletion tool or general reset protocol. both resets
+remain pending. the normal contract and prior evidence below remain unchanged.
+
 owner-approved contract; jarvis and the online native fleet are installed and
 qualified with the explicit profile deferrals recorded below.
 reconciled with the native
@@ -72,7 +82,7 @@ recall.
   plus the older random sample. nightly idle dreaming appends synthesis notes
   quietly, without starting a turn. section 5 defines its bounds, progress and
   closed output/reference contract.
-- [adr 0078](decisions/0078-memory-orientation-first.md) adopts orientation-first
+- [orientation-first adr 0078](decisions/0078-memory-orientation-first.md) adopts orientation-first
   guidance: use the supplied view, zoom relevant discussions and search when no
   useful route remains. jarvis already receives automatic orientation; nexus's
   owner-chat target does too. native sessions read the paged view at startup
@@ -143,7 +153,8 @@ unbounded. changing this retention policy requires an explicit later decision.
 
 target: discovered changes commit within 60 seconds while their dependencies are
 available. metadata misses wait for the initially hourly revisit. compaction runs
-serially when idle or required by a waiting turn; no compression latency or
+serially when idle or required by strict maintenance preparation. main does not
+wait under adr 0081; dreaming consumes ready seeds under adr 0082. no compression latency or
 complete fleet capture is promised.
 live qualification records native completion, discovery, archive commit and exact
 readback separately. a short discovery-to-commit interval does not excuse a long
@@ -154,17 +165,18 @@ prerequisite: [claude transcript retention](issues/claude-transcript-retention.m
 (including old jarvis history/provenance and legacy codex homes), off-machine
 backup and disabling native automatic memory. also outside this slice: hooks,
 context injection, binary storage, web-chat exports, dashboards, domain schemas,
-account migration and actions triggered by archived text. adr 0078's automatic
+account migration and actions triggered by archived text. the orientation decision's automatic
 nexus view and native startup reads supersede the earlier external-orientation
 deferral; hooks and forced native context replacement remain excluded.
 
 ### automatic historical orientation
 
-accepted scope under adr 0066: when fresh jarvis context is built, include a
-bounded compressed view covering retained history from all admitted sources,
-including jarvis conversation and captured codex/claude conversations across the
-fleet, plus explicit notes with their own submission provenance. origin labels
-never exclude admitted material from this coverage. every
+accepted scope under adr 0066, refined by adr 0081: fresh jarvis context includes
+a bounded fitting ready prefix from the shared tree, with actual coverage and
+admitted backlog. construction still covers all admitted sources, including
+jarvis conversation, captured codex/claude fleet conversations and explicit notes
+with their submission provenance. origin labels never filter that eligibility.
+automatic orientation can remain stale or empty indefinitely. every
 included source competes for finite view space; busy native work may make older
 personal/scientific material coarser. representation does not guarantee retention
 of every fact in summary text; original evidence remains independently accessible.
@@ -199,7 +211,9 @@ chronology and instruction precedence depend on actual source evidence and
 authority, never arrival order alone; preserve ambiguity where evidence conflicts
 or cannot be compared. historical import remains separately deferred.
 
-jarvis reconstructs context for each new top-level turn from a fixed admitted view,
+jarvis reconstructs context for each new top-level turn from a frozen fitting
+ready view with explicit coverage and admitted backlog under
+[adr 0081](decisions/0081-ready-memory-for-main.md),
 current input and exact active requests/receipts. a running turn retains its tool
 loop and compatible mid-run steering; a settled turn's native session is not
 reused for the next top-level turn. this supersedes cross-turn main-session reuse
@@ -238,7 +252,7 @@ for changing external facts when the task depends on them.
 
 | consumer / boundary | behavior |
 | --- | --- |
-| jarvis top-level turn | retain existing fixed-cutoff publication, readiness and complete-view assembly. preparation failure remains blocked with pending requests and receipts preserved. no empty/partial substitute or rebuilt view inside the active loop. |
+| jarvis top-level turn | after canonical publication, freeze the fitting ready prefix, its coverage and admitted bound under [adr 0081](decisions/0081-ready-memory-for-main.md). an unbuilt tail permits dispatch. a publication or view read failure blocks dispatch with requests and receipts preserved. the view stays fixed through steering. |
 | nexus owner-chat top-level turn | target automatic complete ready-view injection under existing owner/processor grants. its consumer contract owns exact context budgeting. typed memory outages permit continued independent chat with an explicit unavailable notice; never silently inject a partial view or treat failure as empty history. |
 | native startup or resume | before substantive fresh-session work, read all pages of one frozen ready view unless usable completed orientation is inherited. resume a partial read with its same cursor; on `stale_view`, restart and discard the old snapshot's pages. |
 | native compaction / inherited child | preserve completed orientation, relevant provenance and coverage limitations in the native handoff. reuse it while useful; reread when absent or insufficient. no mandatory refresh after every tool, steering input or compaction. |
@@ -913,7 +927,8 @@ these are separate representations owned by the memory library:
   leaf; parents summarize exactly two adjacent equal-span children. nodes point
   to children or canonical source records rather than copying originals.
 - view: an ordered selection of nodes covering a fixed admitted prefix exactly
-  once. it mixes depths, giving recent entries more detail, rather than collapsing
+  once; its covered prefix may precede the overall admitted bound. it mixes
+  depths, giving recent entries more detail, rather than collapsing
   the entire past into one summary. navigation opens children and then source
   text; search remains an independent route into the same corpus.
 
@@ -941,7 +956,7 @@ it. section 4 defines their atomic allocation and foreign keys.
 node `(l, i)` covers leaf positions `[i * 2^l, (i + 1) * 2^l)` and has address
 `id+n`, where `id=i*2^l` and `n=2^l`. level zero summarizes one part/note. a parent
 uses `(l-1, 2*i)` and `(l-1, 2*i+1)`. if the source or joined child text fits the
-node target, retain it without inference. otherwise run bounded contextual
+2,048-byte hard node bound, retain it verbatim without inference. otherwise run bounded contextual
 compression. build once in normal operation; explicit repair reconciles affected
 ancestors and views. original records remain append-only.
 
@@ -956,9 +971,12 @@ input. tree coverage is not proof that a generated assertion is true.
 
 views contain built nodes, oldest first, rendered `start+count|text` with internal
 newlines flattened. current operative input goes whole outside the historical
-view. short free nodes can remain verbatim; there is no separate recent raw window.
+view. a complete source fitting the 2,048-byte hard bound is copied verbatim,
+including provenance; inferred summaries still target 512 bytes. there is no
+separate recent raw window. [adr 0079](decisions/0079-bounded-serial-compaction.md)
+adopts this policy and bounded serial inference batches.
 
-both saved frontiers cover `[0,view_through)`. node completion inserts the node,
+both saved frontiers cover `[0,view_through)`. batch completion inserts its nodes,
 appends newly consecutive built leaves to both frontiers, applies available merges
 and saves lists, coverage and shrink flags in ONE transaction. append one leaf at
 a time and resume available shrink. an unfinished compact-view batch must not
@@ -976,6 +994,7 @@ new messages. batching preserves the priority rule, not an identical merge seque
 | shared library policy | initial value |
 | --- | --- |
 | summary target / hard accepted node text | 512 / 2,048 utf-8 bytes |
+| complete verbatim source / inferred tasks per serial batch | 2,048 bytes / at most 8 |
 | main view lower / upper | 64,000 / 128,000 rendered bytes |
 | compactor view lower / upper | 16,000 / 32,000 rendered bytes |
 | candidate text / size-feedback candidates | at most 8,000 bytes / at most 5 |
@@ -986,52 +1005,90 @@ fixed token count. normal restart loads actual frontiers/flags and continues the
 tail; only explicit repair/budget changes refold history. node text is immutable
 during normal operation.
 
-jarvis runs ONE compactor job at a time with isolated `run_one_shot`,
+jarvis runs ONE compactor inference at a time with isolated `run_one_shot`,
 `TransientModelDecisions`, an empty tool plan and `EmptyToolDispatcher`. retain the
 qualified contained codex route/model; no haiku or new inference recipient is
-selected. the library issues plain tasks: node address, complete source part or
-two children, context and size feedback. jarvis returns `{text}`; the library
-validates and commits it. provider/kernel objects stay outside the library.
+selected. the library issues an immutable batch: deterministic verbatim copies,
+up to eight independent ready tasks with addresses and complete source parts or
+committed children, and one shared earlier context prefix. copies do not consume
+the eight inference slots; selection is bounded by the existing ready-leaf
+window. copies can wait for the same batch's inference. only a subsequent
+selection after commit may enable their parents; rollback never teaches the
+ready cache about a node. a nonempty free-only batch is ordinary progress.
 
-reuse the existing empty-plan ceilings per candidate: three provider turns, two
+jarvis returns the exact set of addressed inferred results
+`{nodes:[{start,count,text}]}`. the library validates every address, complete
+source identity and node bound before any insert, then inserts the whole batch
+and advances frontiers once in the caller's transaction. malformed, duplicate,
+missing or unexpected results cannot partially commit. the old single-task
+producer contract is removed; a one-node batch uses the same interface.
+provider/kernel objects stay outside the library.
+
+reuse the existing empty-plan ceilings per isolated call: three provider turns, two
 protocol repairs, three no-progress attempts, 300 cooperative seconds, 100,000
 input tokens, 20,000 output tokens and 262,144 rendered new-context bytes. token
 ceilings are safe-boundary checks, not hard generation limits. source/context is
 data; the compactor has no tool authority regardless of its output.
 
-clip compactor context to a prefix ending before a leaf or at a merge's end,
-descending nodes crossing that boundary. if it cannot fit, stop at an earlier
+clip the shared compactor context to a prefix ending before the earliest inferred
+task's start, descending nodes crossing that boundary. if it cannot fit, stop at an earlier
 WHOLE node and report the actual cutoff. always supply the entire task source
 separately. a parent must not wait for itself to exist before its context fits.
-no later material, placeholders or partial original is shown. context resolves
-references; it cannot import unrelated facts into the covered range.
+no placeholders or partial originals are shown. sibling sources in the same
+batch can expose later material; this explicitly replaces physical isolation
+from later sources. context resolves references; neither that context nor another
+task's source may import unrelated facts into the covered range.
 
-trim outer whitespace, reject empty candidates and count utf-8 bytes. show a
-512-dash ruler and, after overshoot, the measured candidate and utf-8-safe
-512-byte cut. each size retry is a fresh isolated call: this kernel cannot
-continue after `finish`. allow at most five inference calls per node attempt,
-including transient retries. retain the shortest valid candidate; accept
-only within the 2,048-byte hard bound. invalid completion, five excessive
-candidates or three exhausted transient failures park construction with one
-content-free `{start,count,code}` diagnostic. retry waits are cancellable and
+for inferred candidates, trim outer whitespace, reject empty text and count utf-8
+bytes. free copies retain exact source bytes. show a 512-dash ruler and prompt
+for the 512-byte target, but accept the FIRST structurally valid addressed
+candidate within the existing 2,048-byte hard bound. do not spend another call
+optimizing an already-valid candidate. [adr 0080](decisions/0080-first-valid-compaction.md)
+supersedes shortest-candidate retention and retries after soft-target overshoot.
+after hard oversize, show the measured candidate and utf-8-safe 512-byte cut.
+each size retry is a fresh isolated call: this kernel cannot continue after
+`finish`. allow at most five inference calls per node attempt,
+including transient retries, counted separately for each node. retry only the
+unfinished subset and retain full original sources and feedback. measure the
+complete prepared request against the unchanged 262,144-byte ceiling, including
+framing/escaping, through the existing kernel preparation primitive. use that
+same whole-entry packing for initial and retry calls. never crop input to fit.
+invalid completion, exhausting five appearances without an acceptable candidate,
+or three transient failures park construction with one
+content-free `{start,count,code}` diagnostic for the failed task. invalid addressed
+output discards the whole batch. retry waits are cancellable and
 need no owner message. preemption discards unfinished inference; built nodes
-survive. no durable job or retry ledger is needed.
+survive. an interrupted batch may repeat up to eight uncommitted summaries.
+larger free nodes and first valid inferred nodes may consume view budget and
+coarsen older detail sooner. net parent-call cost and general quality are unmeasured.
+no durable job or retry ledger is needed.
 
 reconstruct readiness once at startup, then maintain a ready queue and bounded
 window of missing leaves. completed children enqueue parents. prioritize waiting
 foreground dependencies, then oldest ready work; shrinking parents cannot be
 starved by leaves. do not rescan the historical tree on every completion.
-ordinary construction/dreaming yield to foreground work. required compaction runs
-BEFORE main dispatch, not in an idle-only worker blocked by the waiting main.
+ordinary construction/dreaming yield to foreground work. main does not wait for
+construction; the existing idle worker continues full compression and indexing.
 
 a main context request freezes `cutoff=leaf_count` after pending canonical
-publication (section 9). later arrivals do not extend its wait. when ready, clip
-the saved main frontier to exactly `[0,cutoff)`, descending crossing nodes;
-coarsen this request-local list if clipping exceeds the upper bound. dispatch
-requires full coverage AND a fitting complete request. missing nodes drive
-required construction; parked work returns a typed blocking error and leaves
-canonical input pending. cancellation also preserves input. external view reads
-report the ready cutoff/backlog, never imply coverage of unbuilt material.
+publication (section 9), then obtains the same immutable fitting ready-view value
+as external readers. the library owns clipping, coarsening and whole-node fitting
+under the existing upper bound, including coverage/admitted-backlog framing.
+report actual `[0,through)` coverage and `admitted_through=cutoff`; orientation
+can be empty or end before construction progress when only an older prefix fits.
+main consumes the complete value in-process without paging or cache allocation.
+all archive reads keep the admitted cutoff, not `through`. the historical value
+stays frozen through active steering. valid ready views remain usable when
+construction parks; publication/database failures retain their typed blocking
+behavior, never empty success. cancellation preserves canonical input.
+
+this deliberately permits indefinite historical staleness: foreground work or
+parked construction can prevent catch-up, and omitted corrections may not be
+recalled. retained originals remain available through existing archive reads
+when identified; leaf zoom still needs its built node and search retains its
+embedding/error contract. no new fairness, daemon, timer or raw-tail window.
+strict full preparation remains for maintenance where required. adr 0082's
+dreamer consumes committed ready seeds without requiring further construction.
 
 keep stable instructions/tools before the view, then operative inputs and clocks.
 use only approved transport cache controls and measure usage. the pin has no
@@ -1045,11 +1102,19 @@ no daemon, model-callable write, separate synthesis store or inference journal.
 new archive material and explicit notes seed it; prior syntheses remain available
 to deliberate retrieval but never create new seed work.
 
-freeze `cutoff=leaf_count`; select a physical interval `[dream_through,end)` with
-`end <= cutoff`. build its run-local view from existing nodes, descending those
+freeze the full admitted `cutoff=leaf_count` for reads and references. in the
+existing dream-input transaction, read committed `view_through` and
+`dream_through` together. select a nonempty physical interval `[dream_through,end)`
+only when `end <= min(cutoff,view_through)`; this uses committed construction
+coverage, not main's potentially smaller fitting view. build its run-local view
+from existing nodes, descending those
 crossing boundaries or mixing eligible material with synthesis leaves; omit the
 latter. preserve global addresses. a mixed summary cannot be relabeled as new
-evidence. required nodes are built by ordinary compaction before inference.
+evidence. required nodes already exist; dreaming never waits for further
+compaction. no new ready interval returns `[dream_through,dream_through)` with
+no inference or consumed progress, including when a stopped rebuild leaves
+construction coverage below consumed progress.
+unbuilt and unselected seeds remain pending. maintenance preparation stays strict.
 
 allow 64,000 rendered bytes for this seed view. if it cannot fit after eligible
 sibling merges, shorten the declared interval at a leaf boundary. never truncate
@@ -1111,20 +1176,62 @@ backlog is explicit and may outgrow nightly throughput. bounded manual
 `jarvis dream` is also available under the existing stopped-owner CLI contract,
 without resetting the nightly marker.
 failure preserves seeds for the next night/manual run; no immediate inference
-retry loop. main work takes precedence.
+retry loop. main work takes precedence. after main reports no work, check the
+existing due-nightly attempt before the next compactor/indexer batch. absent,
+already-claimed and zero-progress attempts fall through to compression; actual
+dream progress returns through foreground admission. retain existing claim,
+background cancellation and owner fences; add no task, timer, queue or mode.
+one bounded dream can delay the next compression/index batch. seeds may be stale;
+material becoming ready after that night's attempt may wait until the next night
+or a manual run. no freshness, throughput or usefulness guarantee is added.
 
 use isolated `run_one_shot`, `TransientModelDecisions`, one `as_of` and run-local
 read receipts. retain ten provider turns, two repairs, three no-progress attempts,
-300 cooperative seconds, 160,000 input tokens, 16,000 output tokens and 262,144
+300 cooperative seconds, 1,000,000 input tokens, 16,000 output tokens and 1,048,576
 rendered new-context bytes. reads allow eight calls/eight external attempts,
 32,768 aggregate input bytes and one in-flight call. set tool-budget elapsed time
 to 300 seconds, aligned to the isolated run: this clock starts before inference,
 so it includes model thinking, not just tool execution. per-tool deadlines remain.
 one search makes at most one embedding attempt. each result is at most 64 kib;
-aggregate output is at most 512 kib. eight maximum-size replies need not fit.
+aggregate output is at most 512 kib. the host context ceiling accommodates the
+maximal seed/sample plus eight full framed replies and measured call evidence;
+it does not guarantee every maximal repair/output/native path will fit.
 the pinned kernel can detect context overflow AFTER a read executes, aborting the
 whole isolated run as a configuration error; seeds stay pending. it does not
 promise graceful read refusal followed by successful completion.
+
+f2's original measured composition amendment raises the dreamer's host context
+capacity to 320 kib. its complete host table plus the full 64,000-byte seed, 8,000-byte
+sample and actual role/time/identity framing require 292,817 bytes. the former
+262,144-byte cap could reject a valid initial request before inference.
+this capacity amendment used dreamer role v4; adr 0082 advances the owning role
+to v5 without changing these bounds. shared allocation and all other limits above retain
+their values. this permits up to 65,536 more cumulative rendered context bytes
+under the existing token, turn, tool and elapsed bounds.
+
+adr 0083 subsequently raises only cumulative reported input from 160,000 to
+1,000,000 and advances dreamer to v6. an actual three-turn run reports 241,692
+input tokens and stops at that guard; accounting/cache and continuation audits
+find no duplication bug. the complete portable host table is 218,636 bytes.
+ten turns at the observed average extrapolate to 805,640; one million is empirical
+headroom, not a guarantee for every maximal path. this is a 6.25x resource
+threshold, including cached input, not a monetary bill. the after-generation
+check can overshoot by an in-flight turn. other bounds, models, grants and atomic
+completion remain unchanged; add no budget framework.
+
+[adr 0084](decisions/0084-dreamer-continuation-context.md) subsequently raises
+only cumulative host context from 327,680 to 1,048,576 bytes and advances dreamer
+to v7. the actual v6 run passes 421,532 input tokens over five turns, then fails
+at the context guard after a read. audits find no duplicate rendering. a valid
+maximal seed/sample bootstrap plus eight bounded read frames requires about
+817,105 visible bytes. the controlled compiled-role/kernel path measures 825,582
+canonical bytes before its final turn and 825,809 including the terminal,
+leaving 222,767 bytes under 1 mib. 512 kib fits only three maximal frames.
+the host threshold rises 3.2x; longer allowed history can increase generation
+work and exhaust unchanged input/time/native limits sooner. every other bound,
+model, grant and atomic completion rule remains. no clipping or prescribed
+procedure; strict overflow and incomplete runs remain possible. source proof
+and actual installed quiet completion stay separate.
 
 promote llm-tools' generic transient recorder into its production surface with
 `durable=False` fixed and consume the qualified pin. never import its test helper
@@ -1215,7 +1322,11 @@ underscores; jarvis's internal tools use dotted names):
   offset, at most 128 ascii characters. no database rows, timer or per-client
   service is needed. restart, eviction or stopped repair makes a cursor
   `stale_view`; the caller starts a new read. pages end between nodes. never page
-  a changing live frontier. main's automatic context needs no cursor/cache entry.
+  a changing live frontier. each view page packs within 16 kib of encoded and
+  rendered framing to reduce native result spills; more cursor reads are the
+  trade-off. the complete frozen view and common 64-kib original-read bound stay
+  unchanged. main's automatic context needs no cursor/cache entry. the view
+  binding records this page limit in its revisioned policy inputs.
 - view/zoom/date are local `Read` operations, with zero external attempts,
   4,096 input bytes, 64-kib output and ten-second operation bounds. they use the
   existing open binding's replay policy and caller recorder. main keeps durable
@@ -1644,7 +1755,8 @@ first projection; retained source evidence describes original chronology.
 while jarvis capture is admitted, main preparation captures the ids of pending
 eligible canonical originals and finishes projection in bounded batches. that
 in-memory set fixes preparation work; later arrivals do not extend it. then
-freeze `leaf_count` for compaction readiness. a publication error reports blocked
+freeze `leaf_count` as the admitted read scope and select the shared fitting ready
+view without requiring construction. a publication error reports blocked
 memory and preserves pending owner work. ordinary status exposes publication
 backlog separately from archive/tree progress. restarting simply rediscovers
 missing projections; no unfinished snapshot is persisted.
@@ -1680,8 +1792,11 @@ control, action recovery and paid-read barriers. `native_receipt_context` and th
 recorder remain the operational source; its latest-invocation tail is bounded,
 not a claim to contain every old receipt. unresolved effects stay host-enforced
 barriers independently of model context. new historical orientation is never
-permission to replay them. required compaction must run while main is preparing,
-even though ordinary background work normally waits for main to be idle.
+permission to replay them. main's ready-view serving never waits for compaction;
+the existing background worker runs when main is idle. strict maintenance
+preparation drives its required construction. adr 0082's existing due-nightly
+attempt precedes the next compactor/indexer batch and consumes only ready seeds,
+retaining the full admitted read/reference scope and unbuilt backlog.
 
 remove the dreamer's snapshot-wide selector, scripted first-search procedure
 and search-count completion gate, plus its flat-summary insertion/removal output
@@ -1730,7 +1845,7 @@ columns. there is no second schema-version service or generic storage interface.
 | --- | --- |
 | `activate_lane`, `append_events` | normalized input and current checkpoint → original receipt; archive/checkpoint/leaf changes share the caller transaction |
 | `append_note` | host-stamped identity/text/provenance → original idempotent receipt and one leaf; conflicting reuse fails |
-| `next_compaction`, `complete_compaction` | plain immutable task/result; library selects sources/context and validates size; host performs inference; only completed nodes/frontiers commit |
+| `next_compaction`, `complete_compaction` | plain immutable batch/addressed results; library selects independent complete sources and shared context, validates the whole result, and atomically advances nodes/frontiers; host performs bounded serial inference |
 | `view`, `zoom`, `date`, `open` | closed bounded source/node data; frozen view paging, exact source paging and cutoff enforcement from section 6 |
 | `search` | validated query, query vector, filters/cutoff/limit → deterministic shared ranking; host performs the single embedding request before this database operation |
 | `dream_input`, `complete_dream` | frozen progress/cutoff → eligible view/sample; validated notes plus expected cursor → atomic append/progress; jarvis owns the role and nightly scheduling |
@@ -1803,7 +1918,7 @@ behavioral or live tests.
 
 ### orientation-first source qualification
 
-2026-11-17: [adr 0078](decisions/0078-memory-orientation-first.md) is implemented
+2026-11-17: [orientation-first adr 0078](decisions/0078-memory-orientation-first.md) is implemented
 in shared [pr 7](https://github.com/NielsdaWheelz/universal-memory/pull/7), commit
 `a788c885d5529227de55a9da9d8aa940da00eaba`, and jarvis's
 `feature/memory-orientation` adoption. the dependency, frozen lock and compatibility
@@ -1832,6 +1947,14 @@ changed. the common result notice shrank from 188 to 176 bytes, preserving prior
 record envelope capacity. source checks do not establish model recall improvement,
 installed jarvis adoption or nexus/native session compliance. the
 [orientation issue](issues/memory-orientation.md) retains those boundaries.
+
+the integrated f2 source uses memory `13ac202f844110c74559f15c04872c7d0737fc03`
+and main role `jarvis-main-subscription-roles-v5`. main receives the shared
+orientation instructions, including when its supplied ready prefix trails the
+frozen admitted cutoff. its published save callback carries the shared note
+policy. the authenticated native mcp initializer returns the full native guidance
+and its six tools. see the [combined source evidence](runtime-reliability-and-integration.md#integration-with-the-orientation-first-branch)
+for the dependency graph. the installed journey remains scoped to `34d1620`.
 
 the following is the 2026-10-09 delivery baseline. it does not qualify the later
 [memory repair candidate](#memory-repair-source-candidate), current nexus or
@@ -2281,8 +2404,9 @@ nineteen real postgres 16/runtime-role checks prove routine activation preserves
 initialized stop/pause/resume, rejects missing or other-scope initialization, and
 retains ownership, native-state and action barriers. only provider-plan composition
 is scripted. the paused migration predicate is unchanged. independent review and
-full `scripts/verify` pass; this does not close the separate
-[pending-login shutdown issue](issues/discord-login-failure-exit.md).
+full `scripts/verify` pass; that artifact did not qualify pending-login shutdown.
+the later [f2 repair](runtime-reliability-and-integration.md#implementation-evidence)
+has its own isolated transport/process evidence and separate installed acceptance.
 
 ### native memory installed qualification
 

@@ -3,6 +3,18 @@ revision = 5
 requires-python = ">=3.12.13, <3.13"
 
 [[package]]
+name = "aiodns"
+version = "4.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pycares" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/22/a2d928e0e42baad0471d12ec44c71152ac870486e8298dddb2893b888c29/aiodns-4.0.4.tar.gz", hash = "sha256:cb10e0c0d2591636716ad2fe402e977c16d71bdaf76bb8cb49e8a6633596f736", size = 29918, upload-time = "2026-05-20T01:54:15.557Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/70/72e4ab117425ccdc4d10bd523a94c1baa051a15586057d64a4c6888f9e3f/aiodns-4.0.4-py3-none-any.whl", hash = "sha256:c24dd605bac70a1676ce503f967a98483ff163507198557d8e9db16267e6cfd2", size = 12696, upload-time = "2026-05-20T01:54:14.134Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -358,13 +370,9 @@ wheels = [
 [[package]]
 name = "discord-py"
 version = "2.7.1"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/NielsdaWheelz/discord.py.git?rev=4c137a2de1c8aa36ac1df19f654afb99856824f2#4c137a2de1c8aa36ac1df19f654afb99856824f2" }
 dependencies = [
     { name = "aiohttp" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ef/57/9a2d9abdabdc9db8ef28ce0cf4129669e1c8717ba28d607b5ba357c4de3b/discord_py-2.7.1.tar.gz", hash = "sha256:24d5e6a45535152e4b98148a9dd6b550d25dc2c9fb41b6d670319411641249da", size = 1106326, upload-time = "2026-03-03T18:40:46.24Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f7/a7/17208c3b3f92319e7fad259f1c6d5a5baf8fd0654c54846ced329f83c3eb/discord_py-2.7.1-py3-none-any.whl", hash = "sha256:849dca2c63b171146f3a7f3f8acc04248098e9e6203412ce3cf2745f284f7439", size = 1227550, upload-time = "2026-03-03T18:40:44.492Z" },
 ]
 
 [[package]]
@@ -583,6 +591,8 @@ name = "jarvis"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiodns" },
+    { name = "aiohttp" },
     { name = "alembic" },
     { name = "boto3" },
     { name = "cryptography" },
@@ -611,21 +621,23 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiodns", specifier = "==4.0.4" },
+    { name = "aiohttp", specifier = "==3.14.4" },
     { name = "alembic", specifier = "==1.16.5" },
     { name = "boto3", specifier = "==1.44.3" },
     { name = "cryptography", specifier = "==50.0.1" },
-    { name = "discord-py", specifier = "==2.7.1" },
+    { name = "discord-py", git = "https://github.com/NielsdaWheelz/discord.py.git?rev=4c137a2de1c8aa36ac1df19f654afb99856824f2" },
     { name = "fastapi", specifier = "==0.143.0" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=fcb6ecfb4088d85f64aafd8689e728058db27b0a" },
-    { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=662a63a863bfefbc9c4f16025bd82f47262d99d6" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=3afc58415a05321f11412114f01ac4eed6e1013d" },
+    { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=b25bd5f08bc82eb47eb4384139cfb2623ad12a68" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=ea9f82025632926a7c7e47d6333fb9346f6ee86c" },
+    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=0ebc1cb07f6320afb4af6e30f3661c36b76a2529" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.43" },
-    { name = "universal-memory", git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=a788c885d5529227de55a9da9d8aa940da00eaba" },
+    { name = "universal-memory", git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=13ac202f844110c74559f15c04872c7d0737fc03" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 
@@ -714,7 +726,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=fcb6ecfb4088d85f64aafd8689e728058db27b0a#fcb6ecfb4088d85f64aafd8689e728058db27b0a" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=3afc58415a05321f11412114f01ac4eed6e1013d#3afc58415a05321f11412114f01ac4eed6e1013d" }
 dependencies = [
     { name = "llm-tools" },
     { name = "provider-runtime" },
@@ -724,7 +736,7 @@ dependencies = [
 [[package]]
 name = "llm-tools"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=662a63a863bfefbc9c4f16025bd82f47262d99d6#662a63a863bfefbc9c4f16025bd82f47262d99d6" }
+source = { git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=b25bd5f08bc82eb47eb4384139cfb2623ad12a68#b25bd5f08bc82eb47eb4384139cfb2623ad12a68" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
@@ -1050,7 +1062,7 @@ wheels = [
 [[package]]
 name = "provider-runtime"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=ea9f82025632926a7c7e47d6333fb9346f6ee86c#ea9f82025632926a7c7e47d6333fb9346f6ee86c" }
+source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=0ebc1cb07f6320afb4af6e30f3661c36b76a2529#0ebc1cb07f6320afb4af6e30f3661c36b76a2529" }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },
@@ -1143,6 +1155,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e9/e6/78ebbb10a8c8e4b61a59249394a4a594c1a7af95593dc933a349c8d00964/pyasn1_modules-0.4.2.tar.gz", hash = "sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6", size = 307892, upload-time = "2025-03-28T02:41:22.17Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/47/8d/d529b5d697919ba8c11ad626e835d4039be708a35b0d22de83a269a6682c/pyasn1_modules-0.4.2-py3-none-any.whl", hash = "sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a", size = 181259, upload-time = "2025-03-28T02:41:19.028Z" },
+]
+
+[[package]]
+name = "pycares"
+version = "5.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/f3/4df974f2f902fdcec81087773f37eaedc7c8308291fb3f15da7ff21a5b88/pycares-5.2.1.tar.gz", hash = "sha256:3e89edc56a3745046676207958bf3dbf2971c5df0d64de9f7a893eba8bf255b4", size = 723791, upload-time = "2026-10-20T09:08:33.407Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/85/602fea6b3662373cf7c6a114c9730c84bf9e054d4918c6b7d84edc052d47/pycares-5.2.1-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:2e22f39ac1e4e79ccb4273d10367a103ca7d3e6d205d0375983c423aea279b73", size = 139692, upload-time = "2026-10-20T09:06:57.157Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/e7/729e819cba89381eebb9355b98c41ac2a624ee57b5ce138d9f2365730539/pycares-5.2.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:184b12c237903a2e081bce4a100321e22af6ddc5665686b78a695b6e65165858", size = 135096, upload-time = "2026-10-20T09:06:58.242Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/12/c749724c7d6ead53dfc8da94af68b9d1d45e24071d4e0c741d742bc619e2/pycares-5.2.1-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:84c3d66a053a8b53cf7febe4a4eab3dd8797e08ebaeca11c2a0365bf03693ae7", size = 226308, upload-time = "2026-10-20T09:06:59.314Z" },
+    { url = "https://files.pythonhosted.org/packages/81/b2/583f385a9d9e14ae44adc8e1e91eba20baf556ebe60469f92bb1b95495c0/pycares-5.2.1-cp312-cp312-manylinux_2_26_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:21feb36f7f73c89f5a0b03cb44ccee52465228740b9e60262762e8c44d82da9b", size = 258362, upload-time = "2026-10-20T09:07:00.423Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/c3/29288a64c3ea8a6c3e91a53d6916741262978f8b7311d826ea1455e1b813/pycares-5.2.1-cp312-cp312-manylinux_2_26_s390x.manylinux_2_28_s390x.whl", hash = "sha256:2b5084c9b24b18b2c0a2e0a73a39dd01e5ae095f8a702e72cada12796e73773d", size = 244825, upload-time = "2026-10-20T09:07:01.461Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/1e/481c274f1491a584ce622a5c3cba5a1b49132895b2bde28e34ec4fd7bd70/pycares-5.2.1-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8616a510b3f726588f11c02187fa5d7087b091b80402514df404776699318c24", size = 229620, upload-time = "2026-10-20T09:07:02.462Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/f3/bbecd5291414481bb0c62e9376c0f6c624f352c19701a9ae8c926a964b36/pycares-5.2.1-cp312-cp312-manylinux_2_38_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:93f2837e7fdc5dab2557524d0394cb588d04345edf278ba0f542ad60f93bb6f0", size = 226155, upload-time = "2026-10-20T09:07:03.514Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/a2/2eec79272584026c13f48cc064716b3dea682e8fd26d780d4c1ce8581687/pycares-5.2.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:c55d7a9992393b4d93ead9dc26ed548449cd1a73c60114b6ac29210c91933d1b", size = 229517, upload-time = "2026-10-20T09:07:04.928Z" },
+    { url = "https://files.pythonhosted.org/packages/db/78/eb3bc766c900bc75fc1083b3c64bd50fb8a1e10a5643160832422c4b0ff4/pycares-5.2.1-cp312-cp312-musllinux_1_2_ppc64le.whl", hash = "sha256:ed1844259c009f75bffbd58887ab5ae9336fcb3f5342f03f66af0260bd5b349c", size = 259244, upload-time = "2026-10-20T09:07:06.072Z" },
+    { url = "https://files.pythonhosted.org/packages/31/7b/4fce23ab948520cb87368fe6066d851f81c4dfb3219ebb10f72ac8e928f9/pycares-5.2.1-cp312-cp312-musllinux_1_2_riscv64.whl", hash = "sha256:3955ce0cad64b6b527b1fb982a5222cc50d040d3fef0d947f02af4693f94023d", size = 226414, upload-time = "2026-10-20T09:07:07.167Z" },
+    { url = "https://files.pythonhosted.org/packages/14/6e/f8370634b3e8753431d697724f46ecc8ba0fa5725a2248097f2b604b68e0/pycares-5.2.1-cp312-cp312-musllinux_1_2_s390x.whl", hash = "sha256:97abfe4266be952cd7928fb7915ac02c1109e0ab0d0c9bdd033d691a67c2b481", size = 243869, upload-time = "2026-10-20T09:07:08.539Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/44/3ba0725d7c87d2f930c2a3ce2ed3448f69b50fdec5b9c216b0d49526bb11/pycares-5.2.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:e338ad4212300d1bbf80dfb43731ba512d797054b9166dc336fb0e011214fca6", size = 229868, upload-time = "2026-10-20T09:07:09.649Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/df/e96cd7e94a0d04a835e35ce59fff8dca2bf480d7bcd707c8463f64a2cc4c/pycares-5.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:10d6ac376b2bf4123fb50356ff08f1b36084885aaf9fcc6bdcd86118f19ac670", size = 120022, upload-time = "2026-10-20T09:07:10.704Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/c9/8cd44880bc3dcd60fbaffa817398503f062c549ea9bbc893a5dcb603f391/pycares-5.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:3d7563db520e414aedca434504f042cf5c57eb42e01ea6236eb07e26d2ad07c0", size = 115145, upload-time = "2026-10-20T09:07:12.004Z" },
 ]
 
 [[package]]
@@ -1558,7 +1595,7 @@ wheels = [
 [[package]]
 name = "universal-memory"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=a788c885d5529227de55a9da9d8aa940da00eaba#a788c885d5529227de55a9da9d8aa940da00eaba" }
+source = { git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=13ac202f844110c74559f15c04872c7d0737fc03#13ac202f844110c74559f15c04872c7d0737fc03" }
 dependencies = [
     { name = "llm-tools" },
     { name = "pgvector" },

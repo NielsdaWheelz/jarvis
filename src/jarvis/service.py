@@ -110,15 +110,7 @@ class BackgroundWorkerPort(Protocol):
     def request_interrupt(self, cancellation: CancellationToken) -> None: ...
 
 
-class DiscordCursorPort(Protocol):
-    async def latest_discord_owner_source_message_id(
-        self,
-        *,
-        source_conversation_id: str,
-    ) -> str | None: ...
-
-
-class IngressStore(PendingDeliveryStore, DiscordCursorPort, Protocol):
+class IngressStore(PendingDeliveryStore, Protocol):
     async def insert_waking(
         self,
         *,
@@ -255,14 +247,12 @@ class JarvisService:
         self._event_poller.notify_changed()
         self._work.set()
 
-    async def gateway_ready(self) -> CatchUpResult:
-        """Boundedly catch up from the canonical Discord watermark."""
+    async def gateway_ready(self, after_source_message_id: str | None) -> CatchUpResult:
+        """Catch up from the canonical cut captured before this process's ingress."""
 
-        source_conversation_id = str(self._settings.discord.channel_id)
-        after = await self._store.latest_discord_owner_source_message_id(
-            source_conversation_id=source_conversation_id
-        )
-        result = await self._require_gateway().catch_up(after)
+        result = await self._require_gateway().catch_up(after_source_message_id)
+        if self._shutdown.is_set():
+            return result
         self._startup_ready = True
         self._event_poller.notify_changed()
         self._work.set()
@@ -478,14 +468,16 @@ class JarvisService:
                 return
             if outcome.status != "no_work":
                 continue
+            if self._work.is_set():
+                return
+            if self._dream_due:
+                dream = await self._run_background_once(self._dreamer)
+                self._dream_due = False
+                if dream:
+                    continue
             if await self._run_background_once(self._background):
                 continue
-            if self._work.is_set() or not self._dream_due:
-                return
-            dream = await self._run_background_once(self._dreamer)
-            self._dream_due = False
-            if not dream:
-                return
+            return
 
     async def _recover_actions(self, *, allow_queued_execution: bool) -> int:
         if self._dispatch_lane.locked():
@@ -537,7 +529,6 @@ class JarvisService:
 __all__ = [
     "ActionRecoveryPort",
     "DeliveryFlushResult",
-    "DiscordCursorPort",
     "JarvisService",
     "flush_pending_deliveries",
 ]

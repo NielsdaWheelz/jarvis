@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from llm_agent_kernel import (
     AgentDefinition,
     CancellationToken,
+    ContextLimitExceeded,
     HostInput,
     InputId,
     OneShotCompleted,
@@ -19,8 +20,10 @@ from llm_agent_kernel import (
     ProviderSessionPort,
     RunId,
     TransientModelDecisions,
+    bootstrap_context,
     run_one_shot,
 )
+from llm_agent_kernel.events import EventKind, KernelEvent
 from llm_tools import (
     FrozenToolPlan,
     PromptJson,
@@ -31,10 +34,16 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from provider_runtime.agent_runtime import thaw_json_value
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
-from universal_memory import DreamResult, MemoryError, render_dream_view
+from universal_memory import (
+    CompactionTask,
+    DreamResult,
+    MemoryError,
+    Node,
+    render_dream_view,
+)
 from universal_memory.policy import (
     COMPACTION_CALLS,
     COMPACTION_FAILURES,
@@ -53,6 +62,57 @@ from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_service import MemoryService
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _MemoryFailureEvents:
+    def emit(self, event: KernelEvent) -> None:
+        attributes = {
+            item.name: item.value
+            for item in event.attributes
+            if item.name
+            in {
+                "failure_site",
+                "failure_kind",
+                "failure_code",
+                "failure_frame_count",
+                "failure_module_0",
+                "failure_function_0",
+                "failure_line_0",
+                "failure_module_1",
+                "failure_function_1",
+                "failure_line_1",
+            }
+        }
+        if event.kind is not EventKind.outcome:
+            return
+        if attributes.get("failure_site") not in {
+            "bootstrap_context",
+            "provider_configuration",
+            "kernel_configuration",
+        }:
+            budget_limit = next(
+                (
+                    item.value
+                    for item in event.attributes
+                    if item.name == "budget_limit"
+                ),
+                None,
+            )
+            if budget_limit not in {
+                "provider_turns",
+                "cooperative_seconds",
+                "provider_input_tokens",
+                "provider_output_tokens",
+                "native_turn_timeout",
+            }:
+                return
+            attributes = {"budget_limit": budget_limit}
+        LOGGER.warning(
+            "memory kernel failure %s",
+            canonical_json_bytes({"run_id": str(event.run_id), **attributes}).decode(
+                "utf-8"
+            ),
+        )
 
 
 class MemoryWorker:
@@ -88,115 +148,169 @@ class MemoryWorker:
         self, cancellation: CancellationToken, *, cutoff: int | None = None
     ) -> bool:
         async with self.memory.database.begin() as connection:
-            task = await self.memory.library.next_compaction(connection, cutoff=cutoff)
+            batch = await self.memory.library.next_compaction(connection, cutoff=cutoff)
             control = await connection.scalar(
                 select(func.max(message.c.control_sequence)).where(
                     message.c.source_conversation_id == self.owner.scope_id
                 )
             )
-        if task is None or cancellation.cancelled:
+        if batch is None or cancellation.cancelled:
             return False
-        candidate = task.free_text
+        pending: list[CompactionTask] = list(batch.tasks)
+        calls = {(task.start, task.count): 0 for task in pending}
+        failures = {(task.start, task.count): 0 for task in pending}
+        completed: dict[tuple[int, int], str] = {}
+        feedback: dict[str, JsonValue] = {}
+        failed: CompactionTask | None = None
         failure = "invalid_completion"
         permit = self.owner.permit("jarvis-compaction:" + str(uuid4()))
         as_of = datetime.now(UTC)
-        if candidate is None:
-            shortest: str | None = None
-            feedback: dict[str, object] = {}
-            failures = 0
-            for _ in range(COMPACTION_CALLS):
-                if cancellation.cancelled:
-                    return False
-                await self.owner.require_current(permit)
-                run_id = RunId(str(uuid4()))
-                source = PromptSections(
+        while pending:
+            if cancellation.cancelled:
+                return False
+            await self.owner.require_current(permit)
+            run_id = RunId(str(uuid4()))
+            inputs = (HostInput(InputId(str(run_id)), PromptSections(()), as_of),)
+            selected: list[CompactionTask] = []
+            source = None
+            for task in pending:
+                trial: list[CompactionTask] = [*selected, task]
+                addressed = {
+                    f"{item.start}+{item.count}": feedback[f"{item.start}+{item.count}"]
+                    for item in trial
+                    if f"{item.start}+{item.count}" in feedback
+                }
+                request = batch.model_copy(update={"tasks": tuple(trial), "copies": ()})
+                proposed = PromptSections(
                     (
                         PromptSection(
                             PromptSectionKind("historical_memory_view"),
                             (),
-                            PromptText(task.context),
+                            PromptText(batch.context),
                         ),
                         PromptSection(
                             PromptSectionKind("compaction_source"),
                             (),
-                            PromptJson(
-                                {
-                                    "start": task.start,
-                                    "count": task.count,
-                                    "source": task.source,
-                                    "ruler": task.ruler,
-                                    "target_bytes": NODE_TARGET_BYTES,
-                                    "size_feedback": feedback,
-                                }
-                            ),
+                            PromptJson(request.model_input(addressed)),
                         ),
                     )
                 )
-                outcome = await run_one_shot(
-                    decisions=TransientModelDecisions(),
-                    run_id=run_id,
-                    definition=self.definition,
-                    inputs=(
-                        HostInput(InputId(str(run_id)), PromptSections(()), as_of),
-                    ),
-                    as_of=as_of,
-                    plan=self.plan,
-                    source_sections=source,
-                    owner=self.owner,
-                    permit=permit,
-                    provider=self.provider,
-                    dispatcher=EmptyToolDispatcher(),
-                    budget_factory=ExactToolBudgetFactory(),
-                    cancellation=cancellation,
-                )
-                if cancellation.cancelled:
-                    return False
-                if not isinstance(outcome, OneShotCompleted):
-                    if outcome.type is OneShotStopKind.cancelled:
-                        return False
-                    if outcome.type not in {
-                        OneShotStopKind.provider_error,
-                        OneShotStopKind.model_decision_uncertain,
-                    }:
-                        shortest = None
-                        failure = "invalid_completion"
-                        break
-                    failures += 1
-                    failure = "inference_failed"
-                    if failures >= COMPACTION_FAILURES:
-                        shortest = None
-                        break
-                    try:
-                        await asyncio.wait_for(
-                            cancellation.wait(), COMPACTION_RETRY_SECONDS
-                        )
-                        return False
-                    except TimeoutError:
-                        continue
                 try:
-                    value = CompactionResult.model_validate_json(
-                        canonical_json_bytes(thaw_json_value(outcome.result))
-                    ).text.strip()
-                except ValidationError:
-                    shortest = None
-                    failure = "invalid_completion"
+                    bootstrap_context(
+                        self.definition, inputs, as_of, self.plan, proposed
+                    )
+                except ContextLimitExceeded:
                     break
-                size = len(value.encode())
-                if shortest is None or size < len(shortest.encode()):
-                    shortest = value
-                if size <= NODE_TARGET_BYTES:
-                    break
-                feedback = {
-                    "measured_bytes": size,
-                    "candidate": value,
-                    "target_cut": clip_utf8(value, NODE_TARGET_BYTES),
-                }
-                failure = "candidate_too_large"
-            candidate = (
-                shortest
-                if shortest is not None and len(shortest.encode()) <= NODE_HARD_BYTES
-                else None
+                selected, source = trial, proposed
+            if source is None:
+                raise MemoryError("compaction_blocked")
+            for task in selected:
+                calls[task.start, task.count] += 1
+            outcome = await run_one_shot(
+                decisions=TransientModelDecisions(),
+                run_id=run_id,
+                definition=self.definition,
+                inputs=inputs,
+                as_of=as_of,
+                plan=self.plan,
+                source_sections=source,
+                owner=self.owner,
+                permit=permit,
+                provider=self.provider,
+                dispatcher=EmptyToolDispatcher(),
+                budget_factory=ExactToolBudgetFactory(),
+                cancellation=cancellation,
+                event_sink=_MemoryFailureEvents(),
             )
+            if cancellation.cancelled:
+                return False
+            transient = not isinstance(outcome, OneShotCompleted)
+            if not isinstance(outcome, OneShotCompleted):
+                if outcome.type is OneShotStopKind.cancelled:
+                    return False
+                if outcome.type not in {
+                    OneShotStopKind.provider_error,
+                    OneShotStopKind.model_decision_uncertain,
+                }:
+                    failed = selected[0]
+                    LOGGER.warning(
+                        "compaction rejected: run_id=%s start=%s count=%s "
+                        "reason=kernel_stopped stop_kind=%s",
+                        run_id,
+                        failed.start,
+                        failed.count,
+                        outcome.type.value,
+                    )
+                    break
+                for task in selected:
+                    address = (task.start, task.count)
+                    failures[address] += 1
+                    if failures[address] >= COMPACTION_FAILURES:
+                        failed, failure = task, "inference_failed"
+                        break
+            else:
+                try:
+                    result = CompactionResult.model_validate_json(
+                        canonical_json_bytes(thaw_json_value(outcome.result))
+                    )
+                except ValueError:
+                    failed = selected[0]
+                    LOGGER.warning(
+                        "compaction rejected: run_id=%s start=%s count=%s "
+                        "reason=result_schema",
+                        run_id,
+                        failed.start,
+                        failed.count,
+                    )
+                    break
+                addresses = {(node.start, node.count) for node in result.nodes}
+                if len(addresses) != len(result.nodes) or addresses != {
+                    (task.start, task.count) for task in selected
+                }:
+                    failed = selected[0]
+                    LOGGER.warning(
+                        "compaction rejected: run_id=%s start=%s count=%s reason=%s",
+                        run_id,
+                        failed.start,
+                        failed.count,
+                        "address_duplicate"
+                        if len(addresses) != len(result.nodes)
+                        else "address_set_mismatch",
+                    )
+                    break
+                for node in result.nodes:
+                    address = (node.start, node.count)
+                    value = node.text.strip()
+                    size = len(value.encode())
+                    if size <= NODE_HARD_BYTES:
+                        completed[address] = value
+                    else:
+                        feedback[f"{node.start}+{node.count}"] = {
+                            "measured_bytes": size,
+                            "candidate": value,
+                            "target_cut": clip_utf8(value, NODE_TARGET_BYTES),
+                        }
+            if failed is not None:
+                break
+            for task in selected:
+                address = (task.start, task.count)
+                if address not in completed and calls[address] >= COMPACTION_CALLS:
+                    failed = task
+                    failure = "inference_failed" if transient else "candidate_too_large"
+                    break
+            if failed is not None:
+                break
+            pending = [
+                task for task in pending if (task.start, task.count) not in completed
+            ]
+            if transient and pending:
+                try:
+                    await asyncio.wait_for(
+                        cancellation.wait(), COMPACTION_RETRY_SECONDS
+                    )
+                    return False
+                except TimeoutError:
+                    pass
         await self.owner.require_current(permit)
         async with self.memory.database.begin() as connection:
             latest = await connection.scalar(
@@ -206,10 +320,21 @@ class MemoryWorker:
             )
             if cancellation.cancelled or latest != control:
                 return False
-            if candidate is None:
-                await self.memory.library.park_compaction(connection, task, failure)
+            if failed is not None:
+                await self.memory.library.park_compaction(connection, failed, failure)
                 return False
-            await self.memory.library.complete_compaction(connection, task, candidate)
+            await self.memory.library.complete_compaction(
+                connection,
+                batch,
+                tuple(
+                    Node(
+                        start=task.start,
+                        count=task.count,
+                        text=completed[task.start, task.count],
+                    )
+                    for task in batch.tasks
+                ),
+            )
         return True
 
     async def run_one(self, cancellation: CancellationToken) -> bool:
@@ -272,13 +397,11 @@ class DreamerWorker:
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
-        compactor: MemoryWorker,
         owner_timezone: str,
         nightly_time: time,
     ) -> None:
         self.definition, self.plan = definition, plan
         self.owner, self.provider, self.memory = owner, provider, memory
-        self.compactor = compactor
         self.timezone, self.nightly_time = ZoneInfo(owner_timezone), nightly_time
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
@@ -292,7 +415,7 @@ class DreamerWorker:
         except (MemoryError, SQLAlchemyError) as error:
             LOGGER.warning("dream did not complete: type=%s", type(error).__name__)
             return False
-        return completed is not None
+        return completed is not None and completed.seed_end > completed.seed_start
 
     async def run_at(
         self,
@@ -330,7 +453,6 @@ class DreamerWorker:
         pending = await self.memory.pending_publication()
         await self.memory.project_pending(pending)
         cutoff = await self.memory.library.cutoff()
-        await self.compactor.ensure_ready(cutoff, cancellation)
         if cancellation.cancelled:
             return None
         seed = await self.memory.library.dream_input(cutoff)
@@ -373,8 +495,24 @@ class DreamerWorker:
                 dispatcher=dispatcher,
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
+                event_sink=_MemoryFailureEvents(),
             )
-            if not isinstance(outcome, OneShotCompleted) or cancellation.cancelled:
+            if not isinstance(outcome, OneShotCompleted):
+                LOGGER.warning(
+                    "dream stopped %s",
+                    canonical_json_bytes(
+                        {
+                            "run_id": run_id,
+                            "stop_kind": outcome.type.value,
+                            "provider_turns": outcome.metrics.provider_turns,
+                            "input_tokens": outcome.metrics.usage.input_tokens,
+                            "output_tokens": outcome.metrics.usage.output_tokens,
+                            "duration_seconds": outcome.metrics.duration_seconds,
+                        }
+                    ).decode("utf-8"),
+                )
+                return None
+            if cancellation.cancelled:
                 return None
             try:
                 result = DreamResult.model_validate_json(

@@ -32,8 +32,9 @@ neither a summary nor exhausted pagination restores unretained words.
 the [consolidated contract](../universal-memory.md#orientation-lifecycle-and-outages)
 owns the cross-client boundaries:
 
-- jarvis retains its fixed-cutoff context assembly and blocked preparation on
-  failure. nexus's owner-chat target adds automatic orientation per top-level
+- jarvis retains its fixed-cutoff context assembly. [adr 0081](0081-ready-memory-for-main.md)
+  specifies the fitting ready prefix with explicit admitted backlog. publication
+  or view read failures block dispatch. nexus's owner-chat target adds automatic orientation per top-level
   turn while preserving its typed outage with continued independent chat.
 - native startup/resume without usable inherited orientation reads every page
   of one frozen ready view. preserve ready/admitted coverage; restart stale

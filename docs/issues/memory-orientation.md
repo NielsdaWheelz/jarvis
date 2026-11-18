@@ -1,6 +1,6 @@
 # memory orientation across jarvis, nexus and native clients
 
-status: shared behavior settled by [adr 0078](../decisions/0078-memory-orientation-first.md),
+status: shared behavior settled by [orientation-first adr 0078](../decisions/0078-memory-orientation-first.md),
 2026-11-17. shared guidance and jarvis adoption are source-qualified;
 [evidence](../universal-memory.md#orientation-first-source-qualification) records
 the exact dependency and checks. consumer integration and installed acceptance
@@ -63,12 +63,13 @@ duplicating the automatically captured transcript.
 
 the [shared contract](../universal-memory.md#orientation-lifecycle-and-outages)
 now fixes outages, startup, inherited/fresh children and native compaction.
-jarvis keeps blocked required-view preparation; external clients may continue
+jarvis uses adr 0081's frozen fitting ready prefix with explicit backlog.
+publication or view read failures block dispatch. external clients may continue
 independent work with explicit material gaps. complete ready-view pagination
 does not prove capture is caught up. the host remains the sole tree compactor.
 
-remaining: merge/adopt the qualified shared and jarvis source, finish consumer
-integration and qualify installation. nexus owns automatic injection and context
+remaining: finish consumer integration and qualify installation of the combined
+source. nexus owns automatic injection and context
 budgeting in its consumer contract. the fleet task reports local source commit
 `55c5295`: all six installer paths pass, and its 4,055-byte instruction equals
 the shared native export plus newline. its `docs/issues/memory-orientation-rollout.md`

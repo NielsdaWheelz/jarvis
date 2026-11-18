@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""Create or verify the one private stopped-deployment recovery snapshot."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import re
+import shutil
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+from sqlalchemy import select, text
+from sqlalchemy.engine import make_url
+
+from jarvis._atomic_json import replace_private_json
+from jarvis.actions import archived_worker_action, recorded_action
+from jarvis.db import action, create_engine, normalize_database_url
+from jarvis.messages import MessageStore
+from jarvis.ownership import deployment_ownership
+
+
+class CutoverBlocked(RuntimeError):
+    """A content-free refusal to prepare the stopped deployment."""
+
+
+async def finish_process(process: asyncio.subprocess.Process, failure: str) -> None:
+    try:
+        if await process.wait():
+            raise CutoverBlocked(failure)
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            await process.wait()
+
+
+async def validate_dump(path: Path, environment: dict[str, str]) -> None:
+    with path.open("rb") as source:
+        process = await asyncio.create_subprocess_exec(
+            "pg_restore",
+            "--list",
+            env=environment,
+            stdin=source,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await finish_process(process, "postgres snapshot validation failed")
+
+
+async def prepare(
+    command: str,
+    *,
+    runtime_url: str,
+    migration_url: str,
+    channel_id: str,
+    destination: Path,
+    state_directory: Path,
+    declarations_directory: Path,
+    selected_receipt: Path,
+) -> None:
+    """Own the database lock while checking pause and copying or verifying evidence."""
+    runtime = make_url(normalize_database_url(runtime_url))
+    migration = make_url(normalize_database_url(migration_url))
+    endpoint = (runtime.host, runtime.port or 5432, runtime.database)
+    if endpoint != (migration.host, migration.port or 5432, migration.database):
+        raise CutoverBlocked(
+            "snapshot must use the configured postgres endpoint/database"
+        )
+    if migration.get_backend_name() != "postgresql" or set(migration.query) - {
+        "sslmode"
+    }:
+        raise CutoverBlocked("unsupported postgres snapshot connection")
+    if not channel_id.isdecimal() or int(channel_id) <= 0:
+        raise CutoverBlocked("snapshot requires the configured discord channel")
+    channel_id = str(int(channel_id))
+    if not re.fullmatch(r"[0-9a-f]{40}", destination.name):
+        raise CutoverBlocked("snapshot destination must name the full target commit")
+    if any(
+        destination.resolve().is_relative_to(path.resolve())
+        for path in (state_directory, declarations_directory)
+    ):
+        raise CutoverBlocked("the snapshot must be outside copied state/configuration")
+    receipt = json.loads(selected_receipt.read_bytes())
+    if set(receipt) != {"commit", "tree", "uv_lock_sha256"} or any(
+        not isinstance(receipt[name], str) or not re.fullmatch(pattern, receipt[name])
+        for name, pattern in (
+            ("commit", r"[0-9a-f]{40}"),
+            ("tree", r"[0-9a-f]{40}"),
+            ("uv_lock_sha256", r"[0-9a-f]{64}"),
+        )
+    ):
+        raise CutoverBlocked("the selected release receipt is invalid")
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("PG")
+    }
+    environment.update(
+        PGHOST=migration.host or "",
+        PGPORT=str(migration.port or 5432),
+        PGUSER=migration.username or "",
+        PGPASSWORD=migration.password or "",
+        PGDATABASE=migration.database or "",
+    )
+    if "sslmode" in migration.query:
+        environment["PGSSLMODE"] = str(migration.query["sslmode"])
+    engine = create_engine(migration_url)
+    try:
+        async with deployment_ownership(engine) as database:
+            async with database.connect() as connection:
+                revision = await connection.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                )
+            if revision not in {"0008a", "0013"}:
+                raise CutoverBlocked("snapshot requires installed schema 0008a or 0013")
+            if await MessageStore(database).current_control(channel_id) != "pause":
+                raise CutoverBlocked("snapshot requires canonical administrative pause")
+            if revision == "0008a":
+                async with database.connect() as connection:
+                    pending = await connection.scalar(
+                        select(action.c.id)
+                        .where(
+                            action.c.status.in_(
+                                ("queued", "awaiting_approval", "executing")
+                            )
+                        )
+                        .limit(1)
+                    )
+                    if pending is not None:
+                        raise CutoverBlocked(
+                            "finish or cancel old actions/waits before migration"
+                        )
+                    uncertain = tuple(
+                        (
+                            await connection.execute(
+                                select(action.c.id).where(
+                                    action.c.status == "uncertain"
+                                )
+                            )
+                        ).scalars()
+                    )
+                    for identifier in uncertain:
+                        stored = await recorded_action(connection, identifier)
+                        if stored is None or not archived_worker_action(stored):
+                            raise CutoverBlocked(
+                                "reconcile old effect uncertainty before migration"
+                            )
+                    if (
+                        await connection.scalar(
+                            text("""
+                        SELECT decision_id FROM model_decision
+                        WHERE terminal IS NULL AND submission IS NULL LIMIT 1
+                    """)
+                        )
+                        is not None
+                    ):
+                        raise CutoverBlocked("finish old inference before migration")
+                    if (
+                        await connection.scalar(
+                            text("""
+                        SELECT original.position FROM read_position original
+                        WHERE original.state IN ('dispatched','uncertain')
+                          AND original.contract->>'replay_policy' = 'BilledOnce'
+                          AND (original.position NOT LIKE 'native-invocation:%'
+                            OR EXISTS (
+                              SELECT 1 FROM native_invocation invocation
+                              JOIN LATERAL jsonb_array_elements_text(
+                                invocation.proposal->'input_ids') input(id) ON true
+                              JOIN message request ON request.id::text = input.id
+                              WHERE (invocation.read_position = original.position
+                                OR original.position =
+                                  'native-invocation:' || invocation.id::text)
+                                AND request.control_kind IS NULL
+                                AND (request.request_state IN ('pending','waiting')
+                                  OR (request.role = 'host'
+                                    AND request.processed_at IS NULL))
+                            )) LIMIT 1
+                    """)
+                        )
+                        is not None
+                    ):
+                        raise CutoverBlocked(
+                            "disposition old paid reads before migration"
+                        )
+            expected = {
+                "schema_version": "jarvis-cutover-snapshot.v1",
+                "target_commit": destination.name,
+                "source_schema": revision,
+                "database": list(endpoint),
+                "channel_id": channel_id,
+                "selected_release": receipt,
+            }
+            if command == "snapshot":
+                destination.parent.mkdir(mode=0o700, exist_ok=True)
+                if any(destination.parent.iterdir()):
+                    raise CutoverBlocked(
+                        "a prior cutover artifact exists; inspect it first"
+                    )
+                destination.mkdir(mode=0o700)
+                try:
+                    dump = destination / "database.dump"
+                    with dump.open("xb") as output:
+                        dump.chmod(0o600)
+                        process = await asyncio.create_subprocess_exec(
+                            "pg_dump",
+                            "--format=custom",
+                            env=environment,
+                            stdout=output,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        await finish_process(process, "postgres snapshot failed")
+                    for original, copied in (
+                        (state_directory, destination / "private-state"),
+                        (declarations_directory, destination / "declarations"),
+                        (selected_receipt, destination / "RELEASE.json"),
+                    ):
+                        process = await asyncio.create_subprocess_exec(
+                            "cp",
+                            "-a",
+                            "--",
+                            str(original),
+                            str(copied),
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        await finish_process(process, "private state snapshot failed")
+                    await validate_dump(dump, environment)
+                    replace_private_json(
+                        destination / "SNAPSHOT.json",
+                        {**expected, "recorded_at": datetime.now(UTC).isoformat()},
+                    )
+                except BaseException:
+                    shutil.rmtree(destination)
+                    raise
+            else:
+                manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
+                if set(manifest) != {*expected, "recorded_at"} or any(
+                    manifest[name] != value for name, value in expected.items()
+                ):
+                    raise CutoverBlocked(
+                        "snapshot does not match the stopped deployment"
+                    )
+                if json.loads((destination / "RELEASE.json").read_bytes()) != receipt:
+                    raise CutoverBlocked(
+                        "snapshot does not retain the selected receipt"
+                    )
+                if not all(
+                    (destination / name).is_dir()
+                    for name in ("private-state", "declarations")
+                ):
+                    raise CutoverBlocked("snapshot state/configuration copy is missing")
+                await validate_dump(destination / "database.dump", environment)
+    finally:
+        await engine.dispose()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("snapshot", "verify"))
+    parser.add_argument("destination", type=Path)
+    arguments = parser.parse_args()
+    os.umask(0o077)
+    try:
+        asyncio.run(
+            prepare(
+                arguments.command,
+                runtime_url=os.environ["JARVIS_DATABASE_URL"],
+                migration_url=os.environ["JARVIS_MIGRATION_DATABASE_URL"],
+                channel_id=os.environ["JARVIS_DISCORD_CHANNEL_ID"],
+                destination=arguments.destination,
+                state_directory=Path("/var/lib/jarvis"),
+                declarations_directory=Path("/etc/jarvis"),
+                selected_receipt=Path("/opt/jarvis/current/RELEASE.json"),
+            )
+        )
+    except CutoverBlocked as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    except Exception as error:
+        print(f"cutover snapshot failed: type={type(error).__name__}", file=sys.stderr)
+        return 1
+    print("private cutover snapshot validated")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

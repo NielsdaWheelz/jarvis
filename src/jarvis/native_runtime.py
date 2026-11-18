@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ from llm_tools import (
     PromptSections,
     PromptText,
     ReplayPolicy,
+    canonical_json_bytes,
     raw_input_digest,
 )
 from provider_runtime.agent_runtime import (
@@ -52,7 +54,7 @@ from provider_runtime.agent_runtime import (
 )
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import array
-from universal_memory import MemoryError, render_view
+from universal_memory import MemoryError, render_ready_view
 
 from jarvis.actions import (
     ActionStore,
@@ -74,8 +76,8 @@ from jarvis.definitions import RoleDefinitions
 from jarvis.input_framing import host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
-from jarvis.memory_workers import MemoryWorker
 from jarvis.messages import MessageStore, StoredMessage, causal_component_ids
+from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_journal import (
     PostgresNativeJournal,
     commit_product,
@@ -135,7 +137,8 @@ async def _fit_inputs(
     *,
     prefix: PromptSections,
     exclude_ids: tuple[UUID, ...],
-) -> tuple[HostInput, ...] | None:
+    delivered_receipts: dict[str, bytes] | None = None,
+) -> tuple[tuple[HostInput, ...], dict[str, bytes]] | None:
     while values:
         omitted = await store.waiting_input_count(
             owner.scope_id,
@@ -163,9 +166,11 @@ async def _fit_inputs(
             owner,
             input_ids=tuple(InputId(str(item.id)) for item in values),
             fits=fits,
+            delivered_receipts=delivered_receipts,
         )
         if receipts is not None:
-            return _host_inputs(values, receipts, omitted)
+            sections, versions = receipts
+            return _host_inputs(values, sections, omitted), versions
         values = values[:-1]
     return None
 
@@ -181,11 +186,15 @@ class NativeInputs:
         memory_cutoff: int,
         cancellation: CancellationToken,
         maximum_batch_size: int,
+        opening_receipts: dict[str, bytes],
     ) -> None:
         self.owner, self.store, self.plan = owner, store, plan
         self.definition = definition
         self.memory_cutoff = memory_cutoff
-        self._pending: AppendInputs | None = None
+        # The kernel can prepare a steer before submit, but sends it only after
+        # this opening request was accepted on the same native turn.
+        self._receipt_versions = opening_receipts
+        self._pending: tuple[tuple[UUID, ...], dict[str, bytes]] | None = None
         self.cancellation, self.maximum_batch_size = cancellation, maximum_batch_size
 
     async def poll(self, request: NativeRequest, through_checkpoint: Checkpoint | None):
@@ -209,21 +218,26 @@ class NativeInputs:
                 or attempt["fenced_at"] is not None
             ):
                 return Preempt("owner_fenced")
-            known = tuple(
-                (
-                    await connection.execute(
-                        select(native_input_delivery.c.message_id).where(
-                            native_input_delivery.c.attempt_id
-                            == UUID(request.attempt_id)
-                        )
+            deliveries = {
+                row.message_id: row.state
+                for row in await connection.execute(
+                    select(
+                        native_input_delivery.c.message_id,
+                        native_input_delivery.c.state,
+                    ).where(
+                        native_input_delivery.c.attempt_id == UUID(request.attempt_id)
                     )
-                ).scalars()
-            )
-        known = tuple(set(known).union(map(UUID, request.input_ids)))
+                )
+            }
         if self._pending is not None:
-            if not all(UUID(item.input_id) in known for item in self._pending.inputs):
-                return self._pending
+            pending_ids, versions = self._pending
+            states = {deliveries.get(identifier) for identifier in pending_ids}
+            if states == {"recorded"}:
+                self._receipt_versions.update(versions)
+            elif states != {"rejected"}:
+                return NoNewInput()
             self._pending = None
+        known = tuple(set(deliveries).union(map(UUID, request.input_ids)))
         values = await self.store.pending_inputs(
             source_conversation_id=self.owner.scope_id,
             limit=self.maximum_batch_size,
@@ -232,7 +246,7 @@ class NativeInputs:
         if not values:
             return NoNewInput()
         as_of = datetime.now(UTC)
-        inputs = await _fit_inputs(
+        fitted = await _fit_inputs(
             self.owner,
             self.store,
             self.definition,
@@ -240,14 +254,14 @@ class NativeInputs:
             as_of,
             prefix=PromptSections(()),
             exclude_ids=known,
+            delivered_receipts=self._receipt_versions,
         )
-        if inputs is None:
+        if fitted is None:
             LOGGER.warning("native append blocked: code=request_too_large")
             return NoNewInput()
-        self._pending = AppendInputs(
-            inputs, Checkpoint(str(inputs[-1].input_id)), as_of
-        )
-        return self._pending
+        inputs, versions = fitted
+        self._pending = tuple(UUID(item.input_id) for item in inputs), versions
+        return AppendInputs(inputs, Checkpoint(str(inputs[-1].input_id)), as_of)
 
     async def require_live_request(
         self, lineage: NativeDispatchLineage, request_ref: UUID
@@ -287,7 +301,6 @@ class NativeRunner:
         kernel_runtime: KernelRuntime,
         definitions: RoleDefinitions,
         memory: MemoryService,
-        memory_worker: MemoryWorker,
         dispatcher_factory: Callable[
             [NativeInputs, PostgresNativeJournal], WriteToolDispatcher
         ],
@@ -295,7 +308,7 @@ class NativeRunner:
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
         self.kernel, self.definitions = kernel_runtime, definitions
-        self.memory, self.memory_worker, self.actions = memory, memory_worker, actions
+        self.memory, self.actions = memory, actions
         self.dispatcher_factory = dispatcher_factory
         self._session: ProviderSessionLease | None = None
         self._journal: PostgresNativeJournal | None = None
@@ -332,8 +345,7 @@ class NativeRunner:
             pending_publication = await self.memory.pending_publication()
             await self.memory.project_pending(pending_publication)
             cutoff = await self.memory.library.cutoff()
-            await self.memory_worker.ensure_ready(cutoff, cancellation)
-            nodes = await self.memory.library.main_view(cutoff)
+            memory_view = await self.memory.library.ready_view(cutoff)
         except MemoryError as error:
             LOGGER.warning("memory preparation blocked: code=%s", error.code)
             return NativeRunOutcome("blocked")
@@ -344,12 +356,12 @@ class NativeRunner:
                 PromptSection(
                     PromptSectionKind("historical_memory_view"),
                     (),
-                    PromptText(render_view(nodes, cutoff)),
+                    PromptText(render_ready_view(memory_view)),
                 ),
             )
         )
         as_of = datetime.now(UTC)
-        inputs = await _fit_inputs(
+        fitted = await _fit_inputs(
             self.owner,
             self.store,
             self.definitions.main,
@@ -358,9 +370,10 @@ class NativeRunner:
             prefix=source,
             exclude_ids=(),
         )
-        if inputs is None:
+        if fitted is None:
             LOGGER.warning("native context blocked: code=request_too_large")
             return NativeRunOutcome("blocked")
+        inputs, opening_receipts = fitted
         current = input_batch(
             inputs,
             as_of,
@@ -402,6 +415,7 @@ class NativeRunner:
                 memory_cutoff=cutoff,
                 cancellation=cancellation,
                 maximum_batch_size=self.settings.maximum_batch_size,
+                opening_receipts=opening_receipts,
             )
             dispatcher = self.dispatcher_factory(native_inputs, journal)
             dispatcher.on_effect_settled = self.notify_work
@@ -447,6 +461,7 @@ class NativeRunner:
             # run_native fences old callbacks; restart reasoning in a fresh thread.
             return NativeRunOutcome("progressed")
         except NativeDefect as error:
+            log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
             await _fail_native_product(
@@ -454,11 +469,6 @@ class NativeRunner:
                 request.attempt_id,
                 request.input_ids,
                 "native protocol requires repair",
-            )
-            LOGGER.warning(
-                "native turn blocked: attempt=%s exception=%s",
-                attempt_id,
-                type(error).__name__,
             )
             return NativeRunOutcome("blocked")
         finally:
@@ -559,7 +569,8 @@ async def _settle_native_product(
             final,
             recovering=recovering,
         )
-    except (TypeError, ValueError, OutputSchemaMismatch):
+    except (TypeError, ValueError, OutputSchemaMismatch) as error:
+        log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
         await _fail_native_product(
             owner,
             turn.attempt_id,
@@ -664,7 +675,8 @@ async def native_receipt_context(
     *,
     input_ids: tuple[InputId, ...],
     fits: Callable[[PromptSections], bool],
-) -> PromptSections | None:
+    delivered_receipts: dict[str, bytes] | None = None,
+) -> tuple[PromptSections, dict[str, bytes]] | None:
     """Keep complete causal recovery facts; optional recent observations fit last."""
     selected_ids = tuple(map(UUID, input_ids))
     async with owner.database.connect() as connection:
@@ -758,16 +770,28 @@ async def native_receipt_context(
                 )
             ).scalars()
         )
-        recent = (
-            select(native_invocation.c.id)
-            .join(native_attempt, native_attempt.c.id == native_invocation.c.attempt_id)
-            .where(native_attempt.c.conversation_id == owner.scope_id)
-            .order_by(
-                native_attempt.c.attempt_seq.desc(), native_invocation.c.ordinal.desc()
-            )
-            .limit(100)
-            .correlate(None)
+        included = or_(
+            native_invocation.c.proposal["input_ids"].op("?|")(
+                array(tuple(map(str, component_ids)))
+            ),
+            native_invocation.c.action_id.in_(action_ids),
         )
+        if delivered_receipts is None:
+            recent = (
+                select(native_invocation.c.id)
+                .join(
+                    native_attempt,
+                    native_attempt.c.id == native_invocation.c.attempt_id,
+                )
+                .where(native_attempt.c.conversation_id == owner.scope_id)
+                .order_by(
+                    native_attempt.c.attempt_seq.desc(),
+                    native_invocation.c.ordinal.desc(),
+                )
+                .limit(100)
+                .correlate(None)
+            )
+            included = or_(included, native_invocation.c.id.in_(recent))
         rows = (
             (
                 await connection.execute(
@@ -778,13 +802,7 @@ async def native_receipt_context(
                     )
                     .where(
                         native_attempt.c.conversation_id == owner.scope_id,
-                        or_(
-                            native_invocation.c.proposal["input_ids"].op("?|")(
-                                array(tuple(map(str, component_ids)))
-                            ),
-                            native_invocation.c.action_id.in_(action_ids),
-                            native_invocation.c.id.in_(recent),
-                        ),
+                        included,
                     )
                     .order_by(native_attempt.c.attempt_seq, native_invocation.c.ordinal)
                 )
@@ -834,6 +852,7 @@ async def native_receipt_context(
         for identifier in action_ids:
             records.append(action_context(actions[identifier]))
         observations: list[tuple[dict[str, object], bool]] = []
+        versions: dict[str, bytes] = {}
         component_text_ids = set(map(str, component_ids))
         for row in rows:
             stored = actions.get(row["action_id"])
@@ -859,22 +878,29 @@ async def native_receipt_context(
                     result = read["result"]
                 elif stored is not None:
                     result = action_context(stored).get("recorded_result")
-            observations.append(
-                (
-                    {
-                        "kind": "native_invocation",
-                        "invocation_id": str(row["id"]),
-                        "tool_id": row["tool_id"],
-                        "proposal": row["proposal"],
-                        "reply": row["reply_receipt"],
-                        "read_state": None if read is None else read["state"],
-                        "read_contract": None if read is None else read["contract"],
-                        "recorded_result": result,
-                    },
-                    bool(component_text_ids.intersection(row["proposal"]["input_ids"]))
-                    or row["action_id"] in action_ids,
-                )
+            identifier = str(row["id"])
+            record = {
+                "kind": "native_invocation",
+                "invocation_id": identifier,
+                "tool_id": row["tool_id"],
+                "proposal": row["proposal"],
+                "reply": row["reply_receipt"],
+                "read_state": None if read is None else read["state"],
+                "read_contract": None if read is None else read["contract"],
+                "recorded_result": result,
+            }
+            digest = hashlib.sha256(canonical_json_bytes(record)).digest()
+            versions[identifier] = digest
+            if (
+                delivered_receipts is not None
+                and delivered_receipts.get(identifier) == digest
+            ):
+                record = {"kind": "native_invocation_ref", "invocation_id": identifier}
+            operative = (
+                bool(component_text_ids.intersection(row["proposal"]["input_ids"]))
+                or row["action_id"] in action_ids
             )
+            observations.append((record, operative))
     required = tuple(record for record, operative in observations if operative)
 
     def frame(values: tuple[dict[str, object], ...]) -> PromptSections:
@@ -891,18 +917,20 @@ async def native_receipt_context(
     context = frame(required)
     if not fits(context):
         return None
-    selected = {record["invocation_id"] for record in required}
+    selected = {str(record["invocation_id"]) for record in required}
     for record, operative in reversed(observations):
         if operative:
             continue
-        selected.add(record["invocation_id"])
+        identifier = str(record["invocation_id"])
+        selected.add(identifier)
         candidate = frame(
             tuple(item for item, _ in observations if item["invocation_id"] in selected)
         )
         if not fits(candidate):
+            selected.remove(identifier)
             break
         context = candidate
-    return context
+    return context, {key: versions[key] for key in selected}
 
 
 __all__ = [

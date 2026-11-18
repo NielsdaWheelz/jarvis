@@ -498,13 +498,25 @@ def _valid_event(value: CalendarWritableEvent) -> bool:
     return value.start.date < value.end.date
 
 
+def _whole_second_time(
+    value: TimedEventTime | AllDayEventTime,
+) -> TimedEventTime | AllDayEventTime:
+    if isinstance(value, TimedEventTime):
+        return value.model_copy(
+            update={"date_time": value.date_time.replace(microsecond=0)}
+        )
+    return value
+
+
 def _normalized_writable(value: CalendarWritableEvent) -> CalendarWritableEvent:
     return value.model_copy(
         update={
+            "start": _whole_second_time(value.start),
+            "end": _whole_second_time(value.end),
             "attendees": tuple(
                 attendee.model_copy(update={"name": None})
                 for attendee in value.attendees
-            )
+            ),
         }
     )
 
@@ -739,7 +751,8 @@ class GoogleWriteConnector:
         effect_id: UUID,
         attempt_budget: WriteAttemptBudget,
     ) -> WriteResponse[CalendarCreateEventSuccess]:
-        if not _valid_event(value.event):
+        expected = _normalized_writable(value.event)
+        if not _valid_event(expected):
             raise WriteConnectorFailure("invalid_event", attempts=0)
         account, profile_attempts = await self._account(
             action_id=effect_id, attempt_budget=attempt_budget
@@ -751,7 +764,7 @@ class GoogleWriteConnector:
                 "POST",
                 f"{CALENDAR_API_BASE_URL}/calendars/{calendar}/events",
                 params={"sendUpdates": "all" if value.notify_attendees else "none"},
-                body=_calendar_payload(value.event, event_id=event_id),
+                body=_calendar_payload(expected, event_id=event_id),
                 mutation=True,
                 action_id=effect_id,
                 attempt_budget=attempt_budget,
@@ -771,9 +784,7 @@ class GoogleWriteConnector:
             raise
         try:
             event = _calendar_snapshot(value.calendar_id, payload)
-            if event.event_id != event_id or event.writable != _normalized_writable(
-                value.event
-            ):
+            if event.event_id != event_id or event.writable != expected:
                 raise ValueError("Calendar returned a conflicting event")
             result = CalendarCreateEventSuccess(
                 account=account, event=event, created_at=self._now_utc()
@@ -788,7 +799,8 @@ class GoogleWriteConnector:
         effect_id: UUID,
         attempt_budget: WriteAttemptBudget,
     ) -> WriteResponse[CalendarUpdateEventSuccess]:
-        if not _valid_event(value.replacement):
+        replacement = _normalized_writable(value.replacement)
+        if not _valid_event(replacement):
             raise WriteConnectorFailure("invalid_event", attempts=0)
         account, profile_attempts = await self._account(
             action_id=effect_id, attempt_budget=attempt_budget
@@ -801,7 +813,7 @@ class GoogleWriteConnector:
             f"{CALENDAR_API_BASE_URL}/calendars/{calendar}/events/{event}",
             params={"sendUpdates": "all" if value.notify_attendees else "none"},
             headers={"If-Match": expected.etag},
-            body=_calendar_payload(value.replacement, event_id=None),
+            body=_calendar_payload(replacement, event_id=None),
             mutation=True,
             action_id=effect_id,
             attempt_budget=attempt_budget,
@@ -818,7 +830,7 @@ class GoogleWriteConnector:
             observed = _calendar_snapshot(expected.calendar_id, payload)
             if (
                 observed.event_id != expected.event_id
-                or observed.writable != _normalized_writable(value.replacement)
+                or observed.writable != replacement
             ):
                 raise ValueError("Calendar returned a conflicting event")
             result = CalendarUpdateEventSuccess(

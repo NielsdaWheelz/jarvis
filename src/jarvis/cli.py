@@ -13,15 +13,22 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequen
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from socket import socket
 from uuid import UUID
 
+import aiohttp
+import discord as discord_sdk
 import httpx
 import uvicorn
 from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
-from provider_runtime.agent_runtime import AgentRuntime
+from provider_runtime.agent_runtime import (
+    AgentRuntime,
+    AgentRuntimeDefect,
+    AgentRuntimeError,
+)
 from pydantic import SecretStr
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
@@ -44,7 +51,14 @@ from jarvis.definitions import (
     build_definitions,
     build_dreamer,
 )
-from jarvis.discord import DiscordCreateMessageClient, DiscordGateway
+from jarvis.discord import (
+    NETWORK_FAILURES,
+    DiscordCreateMessageClient,
+    DiscordGateway,
+    DiscordStopped,
+    interruptible_network,
+    network_retry_delay,
+)
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.events import EventStore
 from jarvis.kernel import (
@@ -64,6 +78,7 @@ from jarvis.native_cutover import (
     require_native_data,
     require_native_files,
 )
+from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_runtime import (
     NativeRunner,
     recover_native_products,
@@ -206,7 +221,6 @@ async def _isolated_memory_runtime(
                         owner=owner,
                         provider=kernel.provider,
                         memory=memory,
-                        compactor=compactor,
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     ),
@@ -316,20 +330,57 @@ async def recover_startup_actions(
 
 async def run_service(
     service: JarvisService,
-    gateway: DiscordGateway,
+    gateway_factory: Callable[[], DiscordGateway],
     token: str,
     shutdown: asyncio.Event,
     memory_http: uvicorn.Server,
 ) -> None:
-    """Own the worker, Gateway and memory endpoint with their dependencies."""
+    """Own the worker, fresh login clients and memory endpoint until drained."""
     if shutdown.is_set():
         return
     worker = asyncio.create_task(service.run_worker(), name="jarvis-worker")
+    gateway: DiscordGateway | None = None
+    connect_task: asyncio.Task[None] | None = None
 
     async def run_gateway() -> None:
-        await gateway.start(token)
-        if gateway.event_failed:
-            raise RuntimeError("Discord event processing failed")
+        nonlocal gateway, connect_task
+        attempt = 1
+        try:
+            while not shutdown.is_set():
+                gateway = gateway_factory()
+                try:
+                    await interruptible_network(
+                        partial(gateway.login, token), gateway.stopping
+                    )
+                except NETWORK_FAILURES as error:
+                    delay = network_retry_delay(error, phase="login", attempt=attempt)
+                    await gateway.close()
+                    await interruptible_network(
+                        partial(asyncio.sleep, delay), gateway.stopping
+                    )
+                    attempt += 1
+                    continue
+                if shutdown.is_set() or gateway.stopping.is_set():
+                    return
+                service.bind_gateway(gateway)
+                if attempt > 1:
+                    LOGGER.info("discord recovered: phase=login attempts=%d", attempt)
+                connect_task = asyncio.create_task(
+                    gateway.connect(reconnect=True), name="jarvis-discord-connect"
+                )
+                stopped = asyncio.create_task(gateway.stopping.wait())
+                try:
+                    done, _ = await asyncio.wait(
+                        (connect_task, stopped), return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if connect_task in done:
+                        connect_task.result()
+                    return
+                finally:
+                    stopped.cancel()
+                    await asyncio.gather(stopped, return_exceptions=True)
+        except DiscordStopped:
+            return
 
     gateway_task = asyncio.create_task(run_gateway(), name="jarvis-discord-gateway")
     http_task = asyncio.create_task(memory_http.serve(), name="jarvis-memory-http")
@@ -341,24 +392,34 @@ async def run_service(
         )
         for task in done:
             task.result()
+        if gateway_task in done and not shutdown.is_set():
+            raise RuntimeError("Discord gateway stopped before application shutdown")
         if http_task in done and not shutdown.is_set():
             raise RuntimeError("memory endpoint stopped before application shutdown")
     finally:
-        memory_http.should_exit = True
-        gateway.stop_ingress()
+        if gateway is not None:
+            gateway.stop_ingress()
         service.request_shutdown()
-        stopping.cancel()  # This task only waits on an Event; it owns no I/O.
+        memory_http.should_exit = True
+        stopping.cancel()
         await asyncio.gather(stopping, return_exceptions=True)
         results = await asyncio.gather(
-            worker, gateway.drain_callbacks(), http_task, return_exceptions=True
+            gateway_task, worker, http_task, return_exceptions=True
         )
-        try:
-            await gateway.close()
-        finally:
-            await gateway_task
+        if gateway is not None:
+            await gateway.drain_callbacks()
+            try:
+                await gateway.close()
+            finally:
+                if connect_task is not None:
+                    results.extend(
+                        await asyncio.gather(connect_task, return_exceptions=True)
+                    )
         for result in results:
             if isinstance(result, BaseException):
                 raise result
+        if gateway is not None and gateway.event_failed:
+            raise RuntimeError("Discord event processing failed")
 
 
 async def _compose_main(
@@ -521,7 +582,6 @@ async def _serve(
                         owner=owner,
                         provider=kernel_runtime.provider,
                         memory=memory,
-                        compactor=compactor,
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     )
@@ -562,7 +622,6 @@ async def _serve(
                             )
                         ),
                         memory=memory,
-                        memory_worker=compactor,
                     )
                     delivery = DiscordCreateMessageClient(
                         settings.discord, discord_http
@@ -613,8 +672,12 @@ async def _serve(
                             recovered_actions,
                         )
 
+                    catch_up_after = await store.latest_discord_owner_source_message_id(
+                        source_conversation_id=str(settings.discord.channel_id)
+                    )
+
                     async def ready() -> None:
-                        result = await service.gateway_ready()
+                        result = await service.gateway_ready(catch_up_after)
                         LOGGER.info(
                             "Discord catch-up completed: "
                             "scanned=%d accepted=%d bounded=%s",
@@ -623,15 +686,16 @@ async def _serve(
                             result.reached_scan_limit,
                         )
 
-                    gateway = DiscordGateway(
-                        settings.discord,
-                        service.receive_owner_message,
-                        ready_handler=ready,
-                    )
-                    service.bind_gateway(gateway)
+                    def gateway_factory() -> DiscordGateway:
+                        return DiscordGateway(
+                            settings.discord,
+                            service.receive_owner_message,
+                            ready_handler=ready,
+                        )
+
                     await run_service(
                         service,
-                        gateway,
+                        gateway_factory,
                         settings.discord.bot_token.get_secret_value(),
                         shutdown,
                         _MemoryHTTPServer(
@@ -1112,6 +1176,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    sdk_logger = logging.getLogger("discord")
+    sdk_logger.handlers.clear()
+    sdk_logger.addHandler(logging.NullHandler())
+    sdk_logger.propagate = False
     logging.getLogger("httpx").setLevel(logging.WARNING)
     parser = _parser()
     arguments = parser.parse_args(argv)
@@ -1192,8 +1260,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Released {len(message_ids)} parked message(s).")
         else:  # pragma: no cover
             raise AssertionError("unknown command")
+    except (AgentRuntimeError, AgentRuntimeDefect) as exc:
+        log_native_failure(LOGGER, exc, attempt_id=None, boundary="command")
+        return 1
     except (
         ConfigurationError,
+        discord_sdk.DiscordException,
+        aiohttp.ClientError,
         RuntimeError,
         OSError,
         ValueError,

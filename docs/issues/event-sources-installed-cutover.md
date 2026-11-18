@@ -1,16 +1,12 @@
-# installed event-source cutover
+# installed conversational event-source controls
 
-status: deferred to final v2 cutover; source and separate candidate are qualified.
+the installed poller established 44 quiet baselines and delivered genuine
+fixture mail and calendar attention. after restart main read `events.status`
+and later reopened the exact archived attention notice. the selected source
+remained enabled. [f2 records the disposition](../runtime-reliability-and-integration.md#recovered-final-and-reset-disposition).
 
-the event source code is implemented and qualified in
-[event evidence](../event-sources-and-recurring-work.md#implementation-evidence),
-including actual native/source/timer composition. production still selects
-`b6cf4b32d32f2b01291d47291a206d4fc744fce4`, schema `0008a`, with no event poller.
-source/candidate success is not installed acceptance.
-
-resolve through the [existing roadmap](../implementation-plan.md), effect drain,
-stopped migration/configuration and final activation order. prove quiet verified
-account baselines, real published mail/calendar facts and conversational source
-controls on the installed service; retain explicit gaps. create the daily review
-once through ordinary work setup, never recreate it at startup. other selected
-v2 slices and private-workspace/bootstrap requirements retain their own owners.
+the remaining slice 6 criterion is a genuine conversational request to change
+one source through `events.configure`. verify the committed scope and enabled
+state against its receipt. a status read or the fresh defaults after the final
+reset cannot establish that write. this is separate from f2's real-ingress
+criterion.

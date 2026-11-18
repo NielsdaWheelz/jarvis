@@ -59,7 +59,7 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 ## memory orientation
 
-[adr 0078](decisions/0078-memory-orientation-first.md) and the
+[orientation-first adr 0078](decisions/0078-memory-orientation-first.md) and the
 [shared contract](universal-memory.md#orientation-lifecycle-and-outages) settle
 orientation, original navigation, outages and native-session boundaries first.
 delivery order: shared universal-memory guidance and immutable upstream pin;
@@ -68,18 +68,18 @@ native-profile instruction adoption; then installed acceptance and usefulness
 checks. the [open issue](issues/memory-orientation.md) tracks those remaining
 consumer and installation boundaries. retain jarvis context assembly, host
 compaction, existing keyword/semantic ranking and paged open throughout.
-the shared guidance and jarvis adoption now have
-[source qualification](universal-memory.md#orientation-first-source-qualification);
-their prs and consumer installations remain separate.
+the [source evidence](universal-memory.md#orientation-first-source-qualification)
+identifies the original orientation graph. production `34d1620` retains its
+installed f2 qualification. the integrated orientation source requires separate
+installed acceptance.
 
 ## current position
 
-the source has seventeen application tables: the native nine plus six memory
-tables, slice 2's work table and slice 5's attachment table. migration `0008` adds
-no table; `0010` adds work and `0011` adds attachments. later events add one cursor
-table.
-there is no separate recurring-wake table. derive migration dependencies from the actual predecessor;
-do not hard-code a stale total into independently developed slices.
+production runs `34d1620` at schema `0013`. the eighteen tables comprise
+the nine native tables, six memory tables, work, attachment and event cursor.
+migrations `0010`–`0012` added the last three. `0013` changed read-result
+storage. todos carry their own wake fields. the [installed f2 evidence](runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+records the completed journey on this composition.
 
 source refresh 2026-11-14: memory delivery and current main are composed, retaining
 the existing provider/kernel/tools pins and adopting the shared claude-work2
@@ -108,12 +108,10 @@ owns terminal-only worker control; adr 0072 adds v10 and enrolled host names.
 those completed
 source handoffs do not need another worker-protocol specification.
 
-the authorized rollout started from stopped/paused production at schema `0004`.
-the current owner's installed skid `v0.24.3` artifact reads actual live state
-through the read-only mount; slice 3 records the upgrade from `v0.24.2`.
-matching host/application/cli installation and owner
-resumption and online memory acceptance are complete within the named profile
-deferrals. installed worker observation remains separate work.
+the earlier rollout started from paused production at schema `0004`.
+slice 3 records the installed skid upgrade from `v0.24.2` to `v0.24.3` and
+service-uid reads through the read-only mount. f2 qualified the actual
+worker observation on installed `v0.24.4`. the named profile deferrals remain.
 
 pending worker search may inspect only retained terminal history through
 `agent.read`; it cannot promise complete saved conversations or route silently
@@ -124,9 +122,9 @@ its own explicitly selected capability.
 
 | item | owner / remaining result |
 | --- | --- |
-| skid release and fleet cutover (o2) | matching cli and read-only live-state mount are installed; qualify launch/control/observation while preserving existing gateways/membership; [cutover issue](issues/skid-terminal-flags.md) |
+| skid release and fleet cutover (o2) | matching cli and read-only live-state mount installed. the [selected worker journey](runtime-reliability-and-integration.md#installed-lineage-and-stopped-restart-window) used the original target throughout |
 | native jarvis activation | same-release host/application, stopped conversion, owner resume and normal memory turn pass; [installed evidence](universal-memory.md#native-memory-installed-qualification). remaining physical google checks stay in their [issue](issues/codex-private-process.md) |
-| installed worker observation | jarvis repeats the relevant receipt/restart/notification journey against the coordinated installed fleet; [wait deployment issue](issues/agent-wait.md) |
+| installed worker observation | [installed restart and notification](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) consumed the same registered wait and independently read the worker report |
 | claude retention | dev-server manages long retention on every configured home before memory capture activation; [issue](issues/claude-transcript-retention.md) |
 | current memory artifacts | source dependency fetch/build/audit and online installed rollout pass with named profile deferrals; nexus image/runtime qualification waits for its next release; [image handoff](issues/nexus-memory-image-qualification.md) |
 | standing verification design | separately scope the [testing redesign](issues/testing-redesign.md); completed native/worker exceptions do not create a standing suite |
@@ -144,15 +142,15 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 
 | feature | contract / specification work | owner and dependencies |
 | --- | --- | --- |
-| one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified; installed activation pending | jarvis; builds on native main; source adapters remain separate |
-| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis; one work table, independent timer; installed conversion/activation separate |
-| delegated follow-through (o9) | [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15): source and temporary candidate qualified against installed skid; production acceptance at final v2 cutover | jarvis; o6/o7 and existing o8 observation |
+| one main for every event (o6) | [contract and evidence](one-main-events.md) implemented and isolated-qualified. installed main processed owner, timer, worker, mail and calendar events | jarvis; builds on native main; source adapters remain separate |
+| useful work records (o7) | [contract](work-records.md) adopted by 0071; mutable todos and one-time/repeated wakes implemented in source | jarvis, one work table and timer. the installed journey rescheduled and consumed a one-time wake |
+| delegated follow-through (o9) | [slice 3](delegated-follow-through.md#implementation-evidence--2026-11-15) qualified source and candidate. [f2](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) qualified the production codex worker journey | jarvis; o6/o7 and existing o8 observation |
 | universal memory (m1–m5) | [completion contract](memory-delivery.md) implemented and installed on the online jarvis/native fleet with named profile deferrals; nexus waits for its next release | memory library, jarvis, provider-runtime, llm-tools, dev-server and nexus-web; [memory delivery](#memory-delivery) |
-| private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) adopted by 0071; source/candidate qualified, production deferred | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
-| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined candidate qualified; production deferred; recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
-| attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified; production deferred | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
-| mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; production activation separate; wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
-| reliability and integrated acceptance | [finishing pr f2](#v2-finishing-prs) owns reliability and production acceptance | jarvis lifecycle/journals and demonstrated upstream defects; final combined proof consumes f1/f3 and slices 5–6 |
+| private workspace | [slice 4 source](private-notes-and-rolodex.md#implementation-evidence--2026-11-15) qualified source and candidate. production notes and dirty checkout verified. [installed helper/git](issues/private-workspace-installed-cutover.md) remains open | jarvis plus kernel/provider native access; ordinary private checkout, documents/helpers/visuals and agent-chosen git |
+| event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) qualified source and candidate. installed mail and calendar attention verified. [conversational controls](issues/event-sources-installed-cutover.md) remain open. recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
+| attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified. the production journey retained and reopened the original pdf | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
+| mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified. selected production reads are recorded in f2. wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
+| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source, isolated repairs and installed journey qualified. the final reset, twelve native cuts and capture of the genuine owner resume are verified. the [installed cursor check](runtime-reliability-and-integration.md#stopped-google-cursor-correction) reproduced 80 old revisions. the owner retained the corpus and ended cleanup. the strict no-republication criterion remains unmet | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
 | subscription model/runtime and delegated choices | [f3 evidence](subscription-model-runtime.md#implementation-evidence) source/candidate qualified | main astra/max, memory sol/xhigh via personal codex; native-child choices and bounded upstream skid launch extension |
 | broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
@@ -215,17 +213,32 @@ slice 4 can already author/run ordinary helpers and self-contained visual files.
 
 accepted scope under adr 0075; [f1 is source/candidate qualified](mail-calendar-web-reads.md#implementation-evidence).
 [f3 is source/candidate qualified](subscription-model-runtime.md#implementation-evidence)
-under the owner's [role/delegation refinement](decisions/0076-role-models-and-delegated-choices.md);
-f2's reliability and final production acceptance remain separate.
+under the owner's [role/delegation refinement](decisions/0076-role-models-and-delegated-choices.md).
+[f2](runtime-reliability-and-integration.md#implementation-evidence) has isolated
+reliability/deployment proof under the owner's
+[production/reset refinement](decisions/0077-production-acceptance-and-fresh-reset.md),
+reordered by [fresh-corpus adr 0078](decisions/0078-fresh-corpus-first-acceptance.md).
+[adr 0081](decisions/0081-ready-memory-for-main.md) additionally adopts shared
+frozen ready orientation for main with explicit historical backlog, preserving
+canonical inputs/effect recovery and existing idle compression. source proof and
+installed foreground dispatch and the subsequent combined journey passed.
+[adr 0082](decisions/0082-ready-seeds-and-nightly-priority.md) additionally adopts
+ready-prefix dream seeds, full admitted reads and the existing due-nightly
+priority after foreground work. f2 verified the committed seed progress and
+quiet synthesis notes on the selected release.
+[adr 0083](decisions/0083-dreamer-cumulative-input-budget.md) raises only the
+dreamer cumulative input ceiling to 1,000,000 after measured live exhaustion;
+the selected production dream completed within the amended bounds.
+f2 records the exact installed composition and both reset boundaries.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
-records the exact artifact, pins and temporary candidate. production activation
-remains separate.
+records the exact artifact, pins and temporary candidate. f2 owns the production
+reads and cutover evidence.
 these labels preserve the original six slices and do not imply opened prs.
 
 | unit | scope and owner | contract and status |
 | --- | --- | --- |
 | f1: complete mail/calendar/web reads | jarvis owns complete supported mail/calendar traversal/text, incoming `Reply-To` and fresh deliberate mutable observations; llm-tools owns web search continuation and full supported extracted-text chunks. bounded responses with explicit provider/live-source limits; retain original callback receipts and paid-read barriers. existing writes stay. | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence); source and separate candidate qualified on the audited owner-approved event stack |
-| f2: reliability and integration | jarvis owns interruptible discord startup retry/backoff for transient outages and clean stop; invalid credentials/configuration remain explicit failures. retain content-free native diagnostics, reproduce the failure and repair its owning layer. qualify the assembled product and actual prompt/tool composition. | `docs/runtime-reliability-and-integration.md`; use the existing [discord](issues/discord-login-failure-exit.md) and [native](issues/native-protocol-diagnostics.md) issue records, not a second issue inventory |
+| f2: reliability and installed integration | interruptible discord login/readiness retry, owned asynchronous DNS and clean stop; safe native diagnostics and owning-layer repairs. qualify the actual composition, restore the activation primitive, perform the preliminary fresh reset, run the production journey, then perform the final reset. historical irreproducible native incidents may remain explicitly open. | [contract](runtime-reliability-and-integration.md); [isolated discord evidence](runtime-reliability-and-integration.md#implementation-evidence) qualifies that repair; the [historical native issue](issues/native-protocol-diagnostics.md) remains open |
 | f3: subscription model/runtime and delegated choices | main `gpt-6-astra/max`; fixed compactor/dreamer `gpt-6.1-sol/xhigh`, through the personal codex subscription and `provider-runtime`. main chooses native-child and per-session skid model/effort. qualify actual catalog keys, auth, effort, runtime/pins and the bounded upstream skid extension; no substitute for fixed-role selections. | [contract and evidence](subscription-model-runtime.md#implementation-evidence); source/candidate qualified with unchanged cognition pins and installed skid v0.24.4 on macbook/dev-server |
 
 specification can proceed in parallel. implement f1 after auditing the merged
@@ -249,7 +262,7 @@ native subagents and skid; change only demonstrated omissions. each spec include
 proportionate content design, adversarial review and temporary end-to-end/live
 red/green/refactor proof, followed by deletion of its temporary probes.
 
-f2's combined journey must cross real boundaries: incoming email → full message
+f2's installed journey must cross real boundaries: incoming self-fixture email → full message
 and attachment inspection → useful sourced research/delegation → an appropriate
 existing draft/calendar action → scheduled follow-through → restart-safe
 continuation. verify native child results and skid outcome integration rather
@@ -257,17 +270,46 @@ than treating launch/idle as completion. test the exact final model/runtime and
 published tools, preserve original effect receipts, and state unrun boundaries.
 no comparative performance claim or standing benchmark framework follows.
 
-f2's owning contract sets the order of isolated fault proof, stopped production
-cutover, installed acceptance and the owner's separate reset. reconcile pending
-effects/waits and reminder obligations before incompatible migration; use the
-selected qualified artifacts and existing operations runbook.
-source/candidate success does not activate production or close an unresolved
-native issue. no intermediate production activation is added.
+after isolated reliability proof and qualified f3 are integrated with f1/slices
+1–6, f2 performs the stopped production cutover, preliminary fresh reset and actual
+installed journey under the fresh-corpus decision.
+the preliminary reset is complete. [adr 0079](decisions/0079-bounded-serial-compaction.md)
+adds exact 2,048-byte free copies and up to eight independent inferred nodes per
+serial batch after substantial genuine new capture. qualify that amendment at
+the library/caller boundary and installed composition before completing the
+journey. preserve originals, fixed models, cuts and complete main coverage; the
+memory contract owns atomic addressed completion and request limits.
+[adr 0080](decisions/0080-first-valid-compaction.md) subsequently adopts first
+valid hard-fitting summaries while retaining the 512-byte prompt target and
+existing ceilings. qualify its stopping boundary, then continue the same installed
+journey; no additional reset, model, schema or memory-source change.
+reconcile pending effects/waits and account for reminders; migrate/provision the
+selected release, then prove physical owner ingress/consent and restart continuation
+through existing operations. source success alone does not activate production.
+the owner permits an explicitly open irreproducible historical native issue;
+current demonstrated defects still require repair. no intermediate activation.
+
+apply the fresh-corpus decision's stopped reset procedure before the journey and again
+after acceptance: configured discord/jarvis/ALL central shared history and todos/
+reminders/waits. preserve private repos, credentials, real google data, original
+native/nexus chats and unknown-effect receipts. retain verified current `0013`
+recovery, replacing predecessors only after verification. coordinate the 18 tables,
+source cuts and attachment disposition; no old-history republication or automatic
+daily-review seed. after the second operation republished old revisions,
+[adr 0085](decisions/0085-preserve-google-cursors-during-correction.md) authorized
+one stopped correction retaining the google cursors. its installed preflight
+reproduced prior revisions under genuine pause 13. the operator preserved the
+corpus and existing snapshot. the owner retired the correction for this delivery.
+the strict no-republication criterion remains unmet. fresh-corpus acceptance leaves the
+[39,873-leaf preparation backlog](runtime-reliability-and-integration.md#historical-preparation-limit) unqualified
+for latency and throughput.
 
 trade-offs: deeper retrieval uses more calls/context; provider and per-operation
 limits remain. main `max` and memory `xhigh` can increase latency and subscription
 usage; compaction may delay foreground preparation.
-the native root-cause repair size is unknown. f3 adds a bounded skid launch-contract
+the historical native cause may remain unknown; f2 adds asynchronous DNS and any
+demonstrated websocket repair. production testing incurs downtime; the fresh reset
+discards useful shared history and commitments too. f3 adds a bounded skid launch-contract
 change; arbitrary profile shell commands cannot silently ignore overrides.
 inbox housekeeping, new invitation
 response tools, outgoing files, browser/credential products, hosted interactive
@@ -283,7 +325,7 @@ facts; writing this roadmap sends no assignment to another agent.
 
 | repository owner | remaining handoff | specification source / status |
 | --- | --- | --- |
-| skid / jarvis deployment owner | qualify selected-production worker journeys against the installed cli and live-state mount | [terminal-only contract](decisions/0069-terminal-only-workers.md), [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15); installed v0.24.3 and temporary-candidate proof pass; final production acceptance remains |
+| skid / jarvis deployment owner | selected-production codex worker follow-through qualified against the installed cli and live-state mount | [terminal-only contract](decisions/0069-terminal-only-workers.md), [slice 3 evidence](delegated-follow-through.md#implementation-evidence--2026-11-15); the v0.24.3 candidate proof predates the [selected production journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) |
 | skid, search | page worker inventory and retained terminal text before response fencing; preserve terminal-only control and explicit retained-screen limits | [search composition](complete-and-continuable-searches.md#receipts-and-external-composition); later handoff, not implemented; provider archives and shared memory remain separately selected capabilities |
 | dev-server | selected cli/collector installation, long claude retention, private routing, client/capture credentials and native mcp configuration; arch deferred | memory [ownership](universal-memory.md#2-ownership-and-admission), [collector](universal-memory.md#collector-and-normalization) and [retrieval](universal-memory.md#6-retrieval) contracts adopted in its spec; source and isolated host reconciliation qualified; installed fleet handoff remains |
 | llm-calling (`provider-runtime` package) | m1 archive enumeration/heads/events, capture identity, internal marking and memory-tool echo suppression | [native capture contract](universal-memory.md#3-native-capture); public archive api/codecs implemented and source/live-qualified; actual fleet admission separate |
@@ -414,8 +456,8 @@ resumption remain operational work; this plan resumes no stopped service.
 the [o6 implementation contract](one-main-events.md), adopted by adr 0071, owns
 common input, ordinary conversational consent, lifecycle and stopped cutover.
 source implementation and isolated integration/live qualification are complete;
-the contract records exact evidence. slice 3 now records candidate proof against
-installed skid; selected-production acceptance remains at final v2 cutover.
+the contract records exact evidence. slice 3 records candidate proof against
+installed skid. [f2](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) records production worker acceptance.
 the old scheduler is removed; slice 2 supplies scheduled todos. selected slices
 and retained obligations still govern resumption. this branch is not the
 installed memory rollout release.
@@ -471,7 +513,7 @@ attention states inform agent judgment. daily review is an ordinary repeating
 todo that remains active between runs. admitted schedule changes delayed past
 their time wake late with truthful context. the
 [implementation evidence](work-records.md#implementation-evidence) records source
-qualification; the [installed handoff](issues/work-installed-cutover.md) retains
+qualification; the [installed handoff](operations.md#supervised-todo-setup) retains
 reminder conversion and supervised setup. later dreamer work context is outside
 this cut.
 
@@ -490,12 +532,12 @@ durable nonblocking wait/cancel. v10 source and enrolled-label proof are complet
 recorded predecessor only. o6 owns broader event authority; o7 records and o9
 discretionary follow-through remain separate.
 
-remaining: qualify installed observation and actual delivery. the
-[live service-state boundary](universal-memory.md#native-memory-installed-qualification)
-and matching artifacts now pass under the jarvis service uid. the old
-private-client/file-pause installer design is retired. [cli cutover](issues/skid-terminal-flags.md)
-and [wait acceptance](issues/agent-wait.md) own remaining evidence. no worker
-protocol redesign or new table.
+the [live service-state boundary](universal-memory.md#native-memory-installed-qualification)
+and matching artifacts passed under the jarvis service uid. the
+[installed journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)
+retained the wait registration across restart and delivered the worker
+outcome through discord. useful claude-work execution remains `NOT_RUN`
+under the selected availability boundary.
 
 exit: coordinated installed launch/control; register, serve another owner message,
 receive one deduplicated later observation, repeat across restart. preserve
@@ -534,7 +576,11 @@ reduction. tool-result archive text is capped at 30,000 characters, head/tail wi
 explicit omission; canonical execution receipts remain exact. worker histories
 share the tree and linked report occurrences remain distinct. supplied context
 stays reference-only. views use corrected merge priority and persisted batched
-shrink; waiting targets a fixed admitted cutoff. shared search remains available.
+shrink. main consumes a frozen fitting ready view under adr 0081. adr 0082 gives
+dreaming committed-ready seeds and the existing due-nightly priority after main;
+full admitted reads, unbuilt seed backlog and strict maintenance preparation
+remain. shared search
+retains the full admitted read scope.
 email capture uses actual tool observations, without wholesale inbox ingestion.
 retain exposed attachment text and references; durable files/image access remain
 in the attachment feature. shared tools/basic inspection ship first; a dedicated
@@ -1087,18 +1133,17 @@ intent merely because their implementation is incomplete.
 
 | feature or cutover | remaining decision / evidence owner |
 | --- | --- |
-| native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
-| o6 | [contract](one-main-events.md) source and isolated functional proof complete; selected-slice cutover and installed activation remain |
-| o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](issues/work-installed-cutover.md) remains |
-| o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
-| o9 | [evidence](delegated-follow-through.md#implementation-evidence--2026-11-15) qualifies source and temporary candidate against installed skid, with `claude-work` explicitly unavailable by owner decision; production acceptance stays at final v2 cutover |
-| new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined migration/native candidate qualified; installed cutover deferred; recurrence belongs to o7, dream wakes deferred |
-| m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
-| notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
-| f1 reads | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; page/chunk/freshness/recovery/native proof passes; production cutover separate; broader [search proposal](complete-and-continuable-searches.md) stays deferred |
-| f2 reliability/integration | owns reliability and production acceptance; existing native/discord issues remain open; final useful combined journey consumes all selected artifacts |
-| f3 model/runtime | [qualified](subscription-model-runtime.md#implementation-evidence): main astra/max, memory sol/xhigh, independent native-child/per-session skid choices; source and separate candidate pass; production jarvis activation remains with f2 |
-| attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
+| native/worker activation | [installed journey](runtime-reliability-and-integration.md#installed-lineage-and-stopped-restart-window) verifies the selected host/application, worker and physical delivery |
+| o6 | [contract](one-main-events.md) qualified. main admitted and settled owner and host inputs through the installed restart |
+| o7 | the [installed cutover](operations.md#supervised-todo-setup) accounted for prior reminders. the real journey consumed the fixture todo wake and closed the same row |
+| o8–o9 | after restart main read the completed checker's report from the same installed skid terminal and consumed the wait timeout. useful execution on `claude-work` remains owner-deferred. [evidence](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) |
+| new event sources | installed fixture mail arrival and calendar attention qualified. [conversational source control](issues/event-sources-installed-cutover.md) remains open |
+| m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout). nexus waits for its next release |
+| notes | production checkout, note and git-state inspection qualified. a genuine [helper/git task](issues/private-workspace-installed-cutover.md) remains open |
+| f1 reads | [source and candidate](mail-calendar-web-reads.md#implementation-evidence) qualified. selected production reads passed in f2. broader search remains deferred |
+| f2 reliability/integration | the [contract and evidence](runtime-reliability-and-integration.md#implementation-evidence) owns the isolated faults, actual installed journey and final reset |
+| f3 model/runtime | [source and candidate](subscription-model-runtime.md#implementation-evidence) qualified. f2 records installed main astra/max, memory sol/xhigh and the native-child and skid choices |
+| attachments | [source and candidate](attachments-and-durable-originals.md#implementation-evidence) qualified. the actual fixture pdf was retained, reopened across restart and removed at the stopped reset |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |
 
 [adr 0046](decisions/0046-reset-testing.md) remains in force. run `scripts/verify`

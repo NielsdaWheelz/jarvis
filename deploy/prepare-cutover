@@ -27,6 +27,7 @@ TARGET = "0016"
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
+POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
 KEYS = {
     "message": "id",
     "action": "id",
@@ -131,9 +132,13 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
         dump = stage / "database.dump"
         with dump.open("xb") as out:
             subprocess.run(
-                ["pg_dump", "-Fc", "--snapshot", sql_snapshot], stdout=out, **args
+                [POSTGRES_BIN / "pg_dump", "-Fc", "--snapshot", sql_snapshot],
+                stdout=out,
+                **args,
             )
-        subprocess.run(["pg_restore", "--file=/dev/null", str(dump)], **args)
+        subprocess.run(
+            [POSTGRES_BIN / "pg_restore", "--file=/dev/null", str(dump)], **args
+        )
         copies = {}
         for name, path in (
             ("private-state", STATE),

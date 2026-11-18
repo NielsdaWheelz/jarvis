@@ -411,3 +411,40 @@ opus approved the installed candidate and its two-key maintenance and
 credential boundaries. actual host pressure, archive size and embedding
 latency can differ. the frozen wheel, static typing and retained capture and
 completion regressions passed.
+
+## production cutover evidence
+
+**0013→0015.** on 2026-11-18 the wedged production unit reached its six-minute
+stop timeout. the persistent condition remained loaded. systemd reported zero
+main/control pids, an empty cgroup and no pending job. the stopped snapshot
+preserved resume 14, the pending owner mail request, its 302 message reads and
+37 searches, and inert attempts 19–126. the stopped source listed zero unfinished
+actions. the initial note had no committed original in this stopped snapshot.
+
+the host had postgres clients 16 and 18. debian's wrapper chose 18 for the tcp
+dump from server 16. the stream check passed, but an actual 16 restore rejected
+the archive format. restoring directly with 18 rejected its `transaction_timeout`
+setting on server 16. the live schema was still 0013. the original snapshot,
+target receipt and deployment hold remained intact. a second export using
+`/usr/lib/postgresql/16/bin` took a repeatable-read snapshot under the same
+deployment lock and matched the original inventory. its receipt binds the
+original manifest, archive, stop receipt and both releases.
+
+the private pg16 dump sha256 is
+`c3d44099f9523b5beb59772cc7ede273f7744623ba631d4cf90d36b8e8813e34`.
+a strict single-transaction restore matched all 18 tables, the 108 attempts,
+grants, extensions and sequence values/call states. postgres flattened nested
+`and` expressions in three check constraints on restore. an independent
+schema-only restore from the stopped source matched the recovered schema and
+grants byte-for-byte. the scratch database migrated to 0015. all seven pending
+inputs fit together at cutoff 3,218, with 77,955 unicode scalars and 85,796
+wire bytes. the scratch databases were removed. the root-owned supplemental
+archive, binding receipt and rehearsal log remain beside the original recovery
+directory under `/var/lib/jarvis-cutover/adr0086`.
+
+the same live verification and migrations passed. `34879a3` started with
+resume 14 preserved. the first fresh attempt was 127. hashes of the original
+339 gmail receipts matched their pre-cut values. the subsequent d release
+`d49b3799adc2eceea41ec5006c5a4374591dbcb7` pins both snapshot commands to
+the deployed postgres major. an independent mixed-client restore matched all
+18 tables on postgres 16. opus approved that deployment-only change.

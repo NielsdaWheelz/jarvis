@@ -74,6 +74,7 @@ from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, MemoryWorker
 from jarvis.messages import MessageStore
 from jarvis.native_cutover import (
+    check_pending_mail_opening,
     cutover_native,
     require_native_data,
     require_native_files,
@@ -791,6 +792,8 @@ async def check_paused(settings: Settings) -> None:
 async def check_activation(
     settings: Settings,
     host: CodexHostConfig,
+    *,
+    fit_pending_mail: bool = False,
 ) -> tuple[tuple[UUID, str, str, str], ...]:
     """Classify unfinished execution authority; read-only."""
 
@@ -833,6 +836,14 @@ async def check_activation(
                         maps_http=http,
                         brave_http=http,
                     )
+                    if fit_pending_mail:
+                        await check_pending_mail_opening(
+                            database=database,
+                            scope=scope,
+                            definition=definitions.main,
+                            memory=memory,
+                            batch_size=settings.maximum_batch_size,
+                        )
                     plan = definitions.plans["main"]
                     return await _action_activation_verdicts(
                         actions,
@@ -1134,9 +1145,14 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("serve", help="run the Jarvis Discord service")
     commands.add_parser("initialize-state", help="initialize private host state")
     commands.add_parser("check-paused", help="check the stopped canonical pause")
-    commands.add_parser(
+    activation = commands.add_parser(
         "check-activation",
         help="check unfinished actions against this release while stopped",
+    )
+    activation.add_argument(
+        "--fit-pending-mail",
+        action="store_true",
+        help="measure the pending incident mail opening under stopped ownership",
     )
     commands.add_parser(
         "cutover-native",
@@ -1201,7 +1217,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif arguments.command == "check-activation":
             try:
-                verdicts = asyncio.run(check_activation(settings, host))
+                verdicts = asyncio.run(
+                    check_activation(
+                        settings, host, fit_pending_mail=arguments.fit_pending_mail
+                    )
+                )
             except DeploymentAlreadyOwned:
                 print("another jarvis process owns the deployment")
                 return 1

@@ -256,18 +256,18 @@ unit files and service-specific credentials. validate exact source, target and s
 at each cut. exercise the actual entry points on a candidate. one selected release serves.
 retain originals, cuts, cursors, actions, unknowns and note keys.
 
-the ordinary path takes a genuine owner pause and a clean stop. when the outage prevents
-recording that pause, the existing gate holds unless the owner adopts the following one-time
-`0013→0015` procedure. a synthetic pause would stop pending requests and cancel unentered
-actions. preserve the last actual control.
+the owner approved one verified stopped repair for `0013→0015` if the wedged release cannot
+record a discord pause. retain the last actual pause/resume. synthesizing a pause would stop
+pending requests and cancel unentered actions. the ordinary recorded-pause procedure governs
+the later memory-service cut.
 
 1. bind the operation to installed source `05d1c33b5dc31db96f9aef6318591ded786c3c4f`,
    schema `0013` and the qualified target’s externally selected release receipt. install a
    root-owned hold file and persistent drop-in under `/etc/systemd/system/jarvis.service.d/`
    with `ConditionPathExists=!<absolute hold file>`. reload systemd, verify the loaded condition,
-   stop the old unit and prove
-   a quiescent unit, zero main pid, empty cgroup and exclusive deployment lock. accept a
-   historical timeout/signal only with those proofs. record its actual systemd result.
+   stop the old unit and verify inactive or failed state, no pending unit job, zero main/control
+   pids, empty cgroup and exclusive deployment lock. accept a historical timeout/signal only
+   with those proofs. record its actual systemd result.
 2. extend the existing stopped snapshot and verifier for this exact transition. bind the source
    and target release receipts, last canonical control, pending mail lineage, outstanding
    actions, paid-read barriers, outbox, native high-water and capture checkpoints. use ordered
@@ -296,5 +296,5 @@ maintenance. overnight readiness can lag indefinitely. postgres and the host bou
 independent `claude-opus-5-5` at high effort challenged the contracts in session
 `c94455f3-30a2-4e77-8b6d-bc9123a7d72a`. revisions covered crash/retry accounting, actual
 gmail header order, paid-search uncertainty, control races and the pre-start hold. opus found
-no remaining implementation blocker. owner authority for the incident exception is separate.
+no remaining implementation blocker. the owner separately approved the exact stopped repair.
 the acceptance figures above are implementation targets.

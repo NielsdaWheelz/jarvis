@@ -11,8 +11,10 @@ audience: product, engineering, design, operations, and future coding agents
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
 governs native recovery, request fitting and retry eligibility, receipt access
 and independent shared-memory serving. its four contracts supersede conflicting
-full-receipt, retry and in-process ownership rules below. the roadmap owns
-delivery order. implementation and installed acceptance are pending.
+full-receipt, retry and in-process ownership rules below. the owner approved the
+verified stopped `0013→0015` incident repair if the old process cannot record a
+pause. `0015→0016` retains the ordinary owner pause. the roadmap owns delivery.
+implementation and installed acceptance are pending.
 
 ## accepted v2 target
 

@@ -14,7 +14,7 @@ same main for every event, scheduled todos, private native repo, durable attachm
 and conversational approvals. it supersedes the affected baseline authority,
 approval presentation, scheduling and main-containment portions identified there;
 slices 1–6 have source qualification; their contracts distinguish isolated proof
-from separate candidate qualification. installed v2 activation remains pending.
+from separate candidate qualification. f2 records the installed v2 activation.
 memory's separate adrs 0066, 0067 and
 0070 remain unchanged.
 
@@ -28,8 +28,8 @@ main astra/max, memory sol/xhigh and deliberate native-child/per-session skid ch
 [adr 0077](0077-production-acceptance-and-fresh-reset.md), reordered by
 [adr 0078](0078-fresh-corpus-first-acceptance.md): reliability repairs, stopped
 cutover, preliminary fresh reset, real production journey and final reset.
-source integration is qualified; combined acceptance and both resets remain
-pending. broader search remains deferred.
+the [installed evidence](../runtime-reliability-and-integration.md#final-database-reset-and-fresh-capture)
+records the product journey, resets and source coverage. broader search remains deferred.
 
 [adr 0072](0072-native-memory-rollout.md) owns the qualified native rollout
 amendments and service access boundaries. source checks and the registry audit
@@ -111,16 +111,16 @@ with nexus and arch deferred.
 | [0072](0072-native-memory-rollout.md) | native memory rollout | online installed qualification passes: schema `0008`, v10 service reads, twelve sdk connections, nine model journeys, ten capture cuts, quiet memory and outage/restart recovery; five profile deferrals remain, arch later, nexus next release |
 | [0073](0073-per-conversation-memory-baselines.md) | per-conversation native capture baselines | accepted healthy/new capture with explicit pending unreadable histories; complete identity inventory and immutable established cuts retained; source and online installed capture qualified; unreadable histories remain pending |
 | [0074](0074-private-native-socket-publication.md) | private native socket publication | slice 4 implementation correction; private physical socket plus application-only file bind; coordinated restart/remount; source/candidate qualified, production cutover separate |
-| [0075](0075-v2-completion-and-subscription-model.md) | v2 completion and subscription model | f1/f3 source/candidate qualified; f2 integrated source/isolated repairs qualified, combined acceptance/reset pending; role choices refined by 0076, production/reset scope by 0077 and order by 0078 |
+| [0075](0075-v2-completion-and-subscription-model.md) | v2 completion and subscription model | f1/f3 source and candidate qualified. f2 owns installed evidence. 0076 refines role choices, 0077 production scope and 0078 reset order |
 | [0076](0076-role-models-and-delegated-choices.md) | role models and delegated choices | source/candidate qualified: main astra/max, fixed memory sol/xhigh, deliberate native-child/per-session skid choices and worker v11; installed jarvis activation separate |
 | [0077](0077-production-acceptance-and-fresh-reset.md) | production acceptance and fresh reset | accepted scope: f2 repairs and installed journey, explicit historical native unknown permitted, finite fresh reset with private/source data preserved; ordering superseded by 0078 |
 | [0078](0078-fresh-corpus-first-acceptance.md) | fresh-corpus-first acceptance | owner-approved preliminary reset → real production journey → final reset; original recovery/uncertainty evidence preserved, large-corpus warm-up latency unqualified |
 | [0079](0079-bounded-serial-compaction.md) | bounded serial compaction | owner-approved 2,048-byte exact copies and up to eight inferred nodes per atomic serial batch; source/live candidate qualified and installed, combined acceptance separate |
 | [0080](0080-first-valid-compaction.md) | first valid compaction | accept the first valid hard-fitting summary while prompting for 512 bytes; source/live candidate qualified and installed, general quality and parent cost unmeasured |
-| [0081](0081-ready-memory-for-main.md) | ready memory for main | owner-approved shared fitting ready view, explicit admitted backlog and unchanged operative recovery; indefinite historical staleness accepted, source and installed foreground dispatch qualified; combined journey pending |
+| [0081](0081-ready-memory-for-main.md) | ready memory for main | owner-approved shared fitting ready view, explicit admitted backlog and unchanged operative recovery; indefinite historical staleness accepted, source, installed foreground dispatch and combined journey qualified |
 | [0082](0082-ready-seeds-and-nightly-priority.md) | ready seeds and nightly priority | owner-approved committed-ready seed prefix with full admitted reads and no skipped seeds; existing due-nightly attempt precedes compression after foreground work |
 | [0083](0083-dreamer-cumulative-input-budget.md) | dreamer cumulative input budget | owner-approved 1,000,000 reported-input ceiling for the measured composed role; other bounds stay fixed and post-generation overshoot remains possible |
-| [0084](0084-dreamer-continuation-context.md) | dreamer continuation context | owner-approved 1 mib cumulative host context ceiling; source and actual stopped quiet completion pass on `650eb7c`, combined journey/reset pending; strict overflow remains possible |
+| [0084](0084-dreamer-continuation-context.md) | dreamer continuation context | owner-approved 1 mib cumulative host context ceiling; source and stopped quiet completion passed on `650eb7c` and selected `34d1620`. strict overflow remains possible |
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

@@ -59,12 +59,11 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 ## current position
 
-the source has seventeen application tables: the native nine plus six memory
-tables, slice 2's work table and slice 5's attachment table. migration `0008` adds
-no table; `0010` adds work and `0011` adds attachments. later events add one cursor
-table.
-there is no separate recurring-wake table. derive migration dependencies from the actual predecessor;
-do not hard-code a stale total into independently developed slices.
+production runs `34d1620` at schema `0013`. the eighteen tables comprise
+the nine native tables, six memory tables, work, attachment and event cursor.
+migrations `0010`–`0012` added the last three. `0013` changed read-result
+storage. todos carry their own wake fields. the [installed f2 evidence](runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+records the completed journey on this composition.
 
 source refresh 2026-11-14: memory delivery and current main are composed, retaining
 the existing provider/kernel/tools pins and adopting the shared claude-work2
@@ -93,12 +92,10 @@ owns terminal-only worker control; adr 0072 adds v10 and enrolled host names.
 those completed
 source handoffs do not need another worker-protocol specification.
 
-the authorized rollout started from stopped/paused production at schema `0004`.
-the current owner's installed skid `v0.24.3` artifact reads actual live state
-through the read-only mount; slice 3 records the upgrade from `v0.24.2`.
-matching host/application/cli installation and owner
-resumption and online memory acceptance are complete within the named profile
-deferrals. installed worker observation remains separate work.
+the earlier rollout started from paused production at schema `0004`.
+slice 3 records the installed skid upgrade from `v0.24.2` to `v0.24.3` and
+service-uid reads through the read-only mount. f2 qualified the actual
+worker observation on installed `v0.24.4`. the named profile deferrals remain.
 
 pending worker search may inspect only retained terminal history through
 `agent.read`; it cannot promise complete saved conversations or route silently
@@ -137,7 +134,7 @@ o1, o3–o5 and o8 are implemented foundations; o2 is the operational cutover ab
 | event sources and recurring work | [source-audited spec](event-sources-and-recurring-work.md) qualified source and candidate. installed mail and calendar attention verified. [conversational controls](issues/event-sources-installed-cutover.md) remain open. recurrence belongs to o7 | jarvis; one cursor table/poll task, normal main admission and shared connector helpers; no memory schema change |
 | attachments and durable originals | [slice 5 evidence](attachments-and-durable-originals.md#implementation-evidence): source and separate private-storage/native-host candidate qualified. the production journey retained and reopened the original pdf | jarvis plus dev-server; one table/private bucket, exact mail discovery and native file reading; reuses qualified slice 4 access |
 | mail/calendar/web read completion | [f1 contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified. selected production reads are recorded in f2. wider [search proposal](complete-and-continuable-searches.md) is reference material | jarvis connector/fresh-read composition and llm-tools web; integrate landed slices 5–6 |
-| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source, isolated repairs and installed journey qualified. the final reset remains open | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
+| reliability and integrated acceptance | [f2 contract/evidence](runtime-reliability-and-integration.md#implementation-evidence): integrated source, isolated repairs and installed journey qualified. the final database reset committed. fresh capture and owner resumption remain open | discord lifecycle/native diagnostics, owning-layer repairs, stopped production cutover/live acceptance and owner-selected fresh history reset |
 | subscription model/runtime and delegated choices | [f3 evidence](subscription-model-runtime.md#implementation-evidence) source/candidate qualified | main astra/max, memory sol/xhigh via personal codex; native-child choices and bounded upstream skid launch extension |
 | broader complete searches — later | remaining [proposal](complete-and-continuable-searches.md) retained; memory ranking, maps and worker-history expansion remain deferred | memory library, jarvis, llm-tools and skid; no wholesale search-contract adoption |
 | dreamer work context — later | [contract](dreamer-work-context.md) retained outside this cut; selected dream wakes also deferred | jarvis; m3 and o7; quiet memory delivery unchanged |
@@ -208,18 +205,18 @@ reordered by [adr 0078](decisions/0078-fresh-corpus-first-acceptance.md).
 [adr 0081](decisions/0081-ready-memory-for-main.md) additionally adopts shared
 frozen ready orientation for main with explicit historical backlog, preserving
 canonical inputs/effect recovery and existing idle compression. source proof and
-installed foreground dispatch pass; the combined journey remains pending.
+installed foreground dispatch and the subsequent combined journey passed.
 [adr 0082](decisions/0082-ready-seeds-and-nightly-priority.md) additionally adopts
 ready-prefix dream seeds, full admitted reads and the existing due-nightly
-priority after foreground work. source and controlled qualification pass;
-installed quiet completion remains pending.
+priority after foreground work. f2 verified the committed seed progress and
+quiet synthesis notes on the selected release.
 [adr 0083](decisions/0083-dreamer-cumulative-input-budget.md) raises only the
 dreamer cumulative input ceiling to 1,000,000 after measured live exhaustion;
-source amendment and controlled proof pass; actual quiet completion remains pending.
-final source integration is qualified; installed acceptance and reset remain pending.
+the selected production dream completed within the amended bounds.
+f2 records the exact installed composition and both reset boundaries.
 f1 used the owner-approved unmerged event stack at `945dc62`; its evidence
-records the exact artifact, pins and temporary candidate. production activation
-remains separate.
+records the exact artifact, pins and temporary candidate. f2 owns the production
+reads and cutover evidence.
 these labels preserve the original six slices and do not imply opened prs.
 
 | unit | scope and owner | contract and status |
@@ -284,7 +281,7 @@ recovery, replacing predecessors only after verification. coordinate the 18 tabl
 source cuts and attachment disposition; no old-history republication or automatic
 daily-review seed. these are two operator actions, not a runtime deletion feature.
 retain concise evidence before cleanup. fresh-corpus acceptance leaves the
-[39,873-leaf preparation backlog](issues/memory-preparation-backlog.md) unqualified
+[39,873-leaf preparation backlog](runtime-reliability-and-integration.md#historical-preparation-limit) unqualified
 for latency and throughput.
 
 trade-offs: deeper retrieval uses more calls/context; provider and per-operation
@@ -1116,18 +1113,17 @@ intent merely because their implementation is incomplete.
 
 | feature or cutover | remaining decision / evidence owner |
 | --- | --- |
-| native/worker activation | existing qualified contracts; exact production artifact/configuration, stopped cutover, physical delivery and owner resumption |
-| o6 | [contract](one-main-events.md) source and isolated functional proof complete; selected-slice cutover and installed activation remain |
-| o7 | [work-record contract](work-records.md#implementation-evidence) records source and focused proof; [installed cutover](operations.md#supervised-todo-setup) accounted for all prior reminders |
-| o8 | [contract](worker-launch-observation.md), adr 0069 and 0072 own terminal-only v10; source/state-boundary qualified; installed effect/observation delivery remains |
-| o9 | [evidence](delegated-follow-through.md#implementation-evidence--2026-11-15) qualifies source and temporary candidate against installed skid, with `claude-work` explicitly unavailable by owner decision; production acceptance stays at final v2 cutover |
-| new event sources | [contract](event-sources-and-recurring-work.md) adopted by 0071; source and separate combined migration/native candidate qualified; installed cutover deferred; recurrence belongs to o7, dream wakes deferred |
-| m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout); nexus waits for its next release |
-| notes | [contract](private-notes-and-rolodex.md) source/upstream and separate native candidate qualified; production checkout/bootstrap and installed acceptance remain |
-| f1 reads | [contract and evidence](mail-calendar-web-reads.md#implementation-evidence) source and separate candidate qualified; page/chunk/freshness/recovery/native proof passes; production cutover separate; broader [search proposal](complete-and-continuable-searches.md) stays deferred |
-| f2 reliability/integration | [isolated repairs qualified](runtime-reliability-and-integration.md#implementation-evidence); source integration qualified; selected final stack → stopped cutover → preliminary fresh reset → real journey → final fresh reset |
-| f3 model/runtime | [qualified](subscription-model-runtime.md#implementation-evidence): main astra/max, memory sol/xhigh, independent native-child/per-session skid choices; source and separate candidate pass; production jarvis activation remains with f2 |
-| attachments | [evidence](attachments-and-durable-originals.md#implementation-evidence) qualifies source and a separate candidate; private bucket and standby credentials are provisioned; production publication, same-release installation and activation remain at final v2 cutover |
+| native/worker activation | [installed journey](runtime-reliability-and-integration.md#installed-lineage-and-stopped-restart-window) verifies the selected host/application, worker and physical delivery |
+| o6 | [contract](one-main-events.md) qualified. main admitted and settled owner and host inputs through the installed restart |
+| o7 | the [installed cutover](operations.md#supervised-todo-setup) accounted for prior reminders. the real journey consumed the fixture todo wake and closed the same row |
+| o8–o9 | after restart main read the completed checker's report from the same installed skid terminal and consumed the wait timeout. useful execution on `claude-work` remains owner-deferred. [evidence](runtime-reliability-and-integration.md#restart-catch-up-and-original-send) |
+| new event sources | installed fixture mail arrival and calendar attention qualified. [conversational source control](issues/event-sources-installed-cutover.md) remains open |
+| m1–m5 | source and online jarvis/native rollout complete with the named [profile deferrals](#memory-installed-rollout). nexus waits for its next release |
+| notes | production checkout, note and git-state inspection qualified. a genuine [helper/git task](issues/private-workspace-installed-cutover.md) remains open |
+| f1 reads | [source and candidate](mail-calendar-web-reads.md#implementation-evidence) qualified. selected production reads passed in f2. broader search remains deferred |
+| f2 reliability/integration | the [contract and evidence](runtime-reliability-and-integration.md#implementation-evidence) owns the isolated faults, actual installed journey and final reset |
+| f3 model/runtime | [source and candidate](subscription-model-runtime.md#implementation-evidence) qualified. f2 records installed main astra/max, memory sol/xhigh and the native-child and skid choices |
+| attachments | [source and candidate](attachments-and-durable-originals.md#implementation-evidence) qualified. the actual fixture pdf was retained, reopened across restart and removed at the stopped reset |
 | budget | owner choices settled in [contract](budget-integration.md); budget authority/storage/calculation handoff, jarvis tool/recovery adoption and three focused proof journeys remain |
 
 [adr 0046](decisions/0046-reset-testing.md) remains in force. run `scripts/verify`

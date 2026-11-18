@@ -140,8 +140,8 @@ retroactively diagnose it. [adr 0078](decisions/0078-fresh-corpus-first-acceptan
 orders the owner's preliminary reset → real journey → final reset, with coordinated
 source cuts and preserved recovery/unknown-effect evidence and private/source data.
 fresh-corpus proof does not qualify large-backlog preparation latency. no standing
-suite, benchmark or competitor-parity claim follows. the preliminary reset and
-production journey completed. the final reset remains pending.
+suite, benchmark or competitor-parity claim follows. both stopped database resets and the production journey completed.
+verification of fresh capture and owner resumption remains open in f2.
 
 ## native cutover acceptance
 

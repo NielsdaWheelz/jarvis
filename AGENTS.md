@@ -20,14 +20,14 @@ These instructions govern all work in this repository.
   [f1](docs/mail-calendar-web-reads.md) implements read completion;
   [f3](docs/subscription-model-runtime.md#implementation-evidence) is source/candidate
   qualified. [f2](docs/runtime-reliability-and-integration.md) implements isolated
-  reliability/deployment repairs with qualified final source integration; installed
-  acceptance and reset remain pending.
+  reliability/deployment repairs with qualified source and installed journey.
+  the final reset committed. fresh cuts and owner resumption remain outstanding.
   [adr 0076](docs/decisions/0076-role-models-and-delegated-choices.md) refines f3:
   astra/max is main only; compactor/dreamer use fixed personal-subscription
   `gpt-6.1-sol/xhigh`. main chooses supported native-child and per-session skid
   model/effort; f3 implements worker v11 and supersedes adr 0068's override
-  prohibition. retain original evidence with its original artifacts; installed
-  jarvis activation remains separate. skid v0.24.4 is adopted on macbook/dev-server.
+  prohibition. retain original evidence with its original artifacts. f2 records installed
+  main, child, worker and quiet-role outcomes. skid v0.24.4 is adopted on macbook/dev-server.
   f1 reuses landed attachment manifests and the audited event
   profile/refresh primitives, removes clipped thread/fanout paths, and keeps
   original receipts plus normalized paid-read barriers. the owner selected
@@ -114,9 +114,8 @@ These instructions govern all work in this repository.
   and quiet dreaming unchanged. slices 1–6 are source-qualified; slices 3–4 have
   temporary-candidate qualification against installed skid and a separate native
   host respectively. slice 5 has separate private-storage/native-host candidate
-  qualification. slice 6 has separate native/source candidate qualification;
-  installed activation remains pending. keep installed baseline
-  claims distinct from source and the adopted target.
+  qualification. slice 6 has separate native/source candidate qualification.
+  f2 records the installed journeys on the selected production composition.
   `docs/implementation-plan.md` owns sequence; its linked feature contracts own
   schemas and behavior.
   [slice 1](docs/one-main-events.md) owns the source-audited common lifecycle,
@@ -149,7 +148,7 @@ These instructions govern all work in this repository.
   cwd and native supervision;
   provider owns mixed tools and effective policy verification. isolated roles
   retain containment. use separate candidate host/mapping/runtime/checkout for
-  temporary proof; production bootstrap waits for final v2 cutover. the same
+  temporary proof. f2 bootstrapped the production checkout. the same
   scoped content/adversarial/red-green-refactor method and probe deletion apply.
   [slice 5](docs/attachments-and-durable-originals.md#implementation-evidence)
   is implemented with separate candidate qualification. migration `0011` adds

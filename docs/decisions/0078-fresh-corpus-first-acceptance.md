@@ -11,8 +11,8 @@ the genuine owner fixture reached canonical history, but main waited for its
 complete admitted-memory view before native dispatch. stopped metadata contains
 39,873 leaves with `view_through=2238`; at least 15,257 missing leaves require
 serial model compression, plus parent and retry work. the
-[operational issue](../issues/memory-preparation-backlog.md) records the source
-proof. this is a material preparation backlog, not a demonstrated deadlock, and
+[original operational analysis](https://github.com/NielsdaWheelz/jarvis/blob/5fa9897af4e28c3cf2ab91b133c79e5d2bd737cc/docs/issues/memory-preparation-backlog.md)
+records the source proof. this is a material preparation backlog, not a demonstrated deadlock, and
 provides no completion-time estimate. the original ordering made that historical
 backfill a prerequisite for a journey intended to precede clearing the same data.
 

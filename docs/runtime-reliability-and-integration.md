@@ -17,9 +17,12 @@ fixture's completed calendar notice, main reopened its archived original,
 delivered the corrected outcome, completed the three remaining owner requests
 and closed the same todo. compaction and a quiet dream completed on the selected
 graph. the owner then paused the application. the disposition checks passed
-under pause 10. the final recovery snapshot verified and fixture storage,
-calendar and bot-message cleanup completed. owner-side mail and channel
-cleanup, the database reset and fresh-source verification remain pending.
+under pause 10. the final recovery snapshot verified. the fixture storage,
+calendar, mail and channel cleanup completed. the final database reset committed,
+and production started under fresh pause 11 after the empty-corpus proof.
+fresh capture is incomplete because a [scratch checkout blocks claude archive
+discovery](issues/claude-archive-scratch-checkouts.md). owner resumption and
+verification of the new cuts remain pending.
 
 [adr 0075](decisions/0075-v2-completion-and-subscription-model.md) and
 [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md) govern f2.
@@ -52,7 +55,7 @@ exact selected artifact/configuration/host pair and genuine owner ingress.
 - reset discord/jarvis/central shared history and all work/waits before the real
   journey and again after acceptance. preserve private repos, credentials, real
   google data and original native/nexus chats. the owner selected this order after
-  the [historical preparation backlog](issues/memory-preparation-backlog.md) blocked
+  the [historical preparation backlog](#historical-preparation-limit) blocked
   main; fresh-corpus proof does not qualify that backlog's latency.
 - adr 0079 changes free-copy and serial-batch policy after fresh capture exposed
   substantial new preparation work. originals, source cuts, fixed models and
@@ -608,6 +611,16 @@ permissions were untouched by this proof. independent adversarial review and
 private receipts under `source-evidence/installer-service-group` qualify this
 boundary. this is not a completed installation or production acceptance claim.
 
+### historical preparation limit
+
+before the preliminary reset, the owner request reached canonical history and
+waited for full memory preparation. 2,238 of 39,873 leaves were ready. the
+then-installed 512-byte free-copy rule required inference for at least 15,257
+remaining leaves before accounting for parents or retries. adr 0078 records
+the resulting change to reset order. adr 0081 later removed complete preparation
+from foreground dispatch. the installed journey verified dispatch with a backlog.
+large-corpus throughput, warm-up time and memory usefulness remain unmeasured.
+
 ### bounded serial compaction amendment
 
 [adr 0079](decisions/0079-bounded-serial-compaction.md) adopts the owner-approved
@@ -637,9 +650,8 @@ completed with zero poll errors. one real calendar-attention request awaits memo
 preparation; no action or todo exists at the recorded stopped boundary. 23 pending
 unreadable baselines and a separate [native physical-record bound](issues/native-archive-record-bound.md)
 remain explicit. this proves neither steady-state capacity nor broader memory
-usefulness. the [backlog issue](issues/memory-preparation-backlog.md) owns the
-remaining preparation blocker; both owner-approved resets retain their original
-scope.
+usefulness. the [later installed ready-view proof](#ready-view-activation-and-incomplete-real-journey-2026-11-17)
+records foreground dispatch despite the remaining backlog.
 
 the stopped routine replacement selects that same runtime
 `0b33fc40075a601dd0dc4e6140b43c9115e68611`, tree
@@ -1739,6 +1751,39 @@ the private notes checkout and original native chats were preserved.
 
 the complete configured channel inventory contained 18 bot messages and
 seven owner messages. discord acknowledged deletion of all 18 bot messages.
-a second exhaustive read found only the seven owner messages. at this boundary
-the two exact gmail message ids and the owner's seven channel messages
-required owner-side deletion. the application and collectors remained stopped.
+a second exhaustive read found only the seven owner messages. after owner
+cleanup the complete channel scan at `04:39:33Z` returned zero. at the first
+gmail check both fixture messages still existed. an exact label read found both
+in trash. after permanent deletion, two independent, exact-id reads against
+the original account returned 404 at `05:42:52Z`, one for the original and
+one for its reply. the application and collectors remained stopped. private
+`34d1620-final-discord-empty.json` and `final-reset-google-mail-absence-02.json`
+have sha256 `2b62079b0f1841045758f1d96aa698247e51b49114b322b5a178648e3b21aff9`
+and `95bd33092d0df93a041994b48b6d9253f888f66519745ead6ddf3cd0aba197b7`.
+
+the final staging cleanup matched and removed eleven temporary operator
+helpers and two compiled cache files. all 68 retained private files matched
+their prior hashes. private `34d1620-final-staging-disposition.json` has
+sha256 `d8b15172493f394bbdb579a44b13acf7ea1f863e946d788e9d67f7e9a7372635`.
+
+### final database reset and fresh capture
+
+under the deployment lock the stopped reset cleared all 18 application tables
+in one transaction and reseeded the empty memory singleton. immediately before
+the wipe there were 232 canonical messages, 19 actions, one todo, 26,066
+archived source parts and 44 event cursors. afterwards all tables were empty
+apart from `memory_state(id=1)`. the original historical uncertainty receipts
+remain in private recovery evidence. private `final-reset-database-result.json`
+has sha256 `638c604e55a808117e0f7a28d1cebce7da37547fe17a828f0144c34dcf680d4c`.
+
+the existing initializer created the sole nonadmitted canonical pause, sequence
+11. an independent read confirmed schema `0013`, unchanged table and column
+grants and all 19 original guards enabled with matching definitions. the
+archive, work, actions and waits were empty. the normal memory search for
+the old fixture returned zero lexical or semantic candidates and wrote no
+history. these checks preceded all fresh writers. the selected application
+started under pause 11 at `05:46:56Z`. private
+`34d1620-independent-reset-structure-after.json` and
+`34d1620-final-empty-memory-search.json` have sha256
+`566e338911da317ef6d0e9944c570fd23bcb77c54d285d1fc2fe0bc886ea8930`
+and `2b1f3117d02059c7fc0970d5303bef1816d0e52fde88464a63b9e70639e9f206`.

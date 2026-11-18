@@ -19,7 +19,7 @@ has separate private-storage/native-host candidate qualification; its
 owns the exact journeys and resource disposition.
 slice 6 has source and separate native/source candidate qualification; its
 [event evidence](docs/event-sources-and-recurring-work.md#implementation-evidence)
-owns real versus controlled proof. installed v2 activation remains pending. these contracts supersede
+owns real versus controlled proof. f2 activated this stack in production. these contracts supersede
 conflicting baseline rules below
 for their v2 slices; unchanged contracts and the separate memory delivery remain.
 
@@ -46,15 +46,15 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   enters ordinary canonical host history/memory; no automatic body/file archive.
   shared refresh concurrency and account-qualified new write receipts belong at
   the existing connector boundary. source and combined migration/native
-  candidate are qualified; production activation remains separate.
+  candidate are qualified. f2 observed production mail arrival and calendar attention.
   existing
   [skid observation](docs/worker-launch-observation.md) already provides the
   asynchronous result path. [follow-through](docs/delegated-follow-through.md)
   is main's judgment. slice 3's source repairs and temporary candidate are
   qualified against installed skid. `claude-work` remains unavailable by owner
   decision; useful execution is NOT_RUN. an [unexplained native
-  defect](docs/issues/native-protocol-diagnostics.md) remains open. production
-  acceptance remains at final v2 cutover; retain the intermediate activation refusal.
+  defect](docs/issues/native-protocol-diagnostics.md) remains open. f2 qualified
+  the installed worker across application restart using the same terminal.
 - [notes](docs/private-notes-and-rolodex.md) are an ordinary private git checkout
   with trusted native tools. slice 4 implements a general workspace in the new
   private `NielsdaWheelz/jarvis-notes` repo: documents, runnable helpers,
@@ -62,8 +62,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   execution belongs here; hosting, presentation ui and television integration
   remain deferred. its kernel/provider contract adds borrowed cwd lifecycle and
   mixed native/callback execution while retaining isolated-role containment.
-  source and a separate temporary native host are qualified; production bootstrap/activation
-  stays at final v2 cutover. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
+  source and a separate temporary native host are qualified. f2 bootstrapped
+  the private checkout and inspected the note and git state across restart. [adr 0074](docs/decisions/0074-private-native-socket-publication.md)
   corrects the host boundary demonstrated by real candidate failures: retain
   stock's private physical socket and expose it only in the application's
   namespace; host replacement requires application restart/remount. the native
@@ -76,8 +76,8 @@ for their v2 slices; unchanged contracts and the separate memory delivery remain
   host file manifests, permits attachment-only input, and adds only the gmail
   discovery needed to select exact files. one put per original, fresh cache reads
   and bounded deletion recovery preserve existing action evidence. source and a
-  separate candidate are qualified; production activation remains at final v2
-  cutover. no extraction framework or media protocol is added.
+  separate candidate are qualified. f2 retained and reopened a gmail pdf
+  in production. no extraction framework or media protocol is added.
 - event receipt amendment (2026-11-16): direct gmail-send/calendar-create/update
   successes require verified account before effect entry. a proved recovered
   success may retain `account=null` when qualification is unavailable and cannot
@@ -104,7 +104,7 @@ contracts. [the roadmap](docs/implementation-plan.md) sequences reviewable prs.
 this owner-approved source stack has eighteen application tables: the native
 nine, six memory tables, `work`, `attachment` and `event_cursor`. migration `0011`
 adds attachments and `0012` adds event sources; `0013` changes only read-result
-storage. production activation remains separate.
+storage. f2 activated the installed stack at schema `0013`.
 shared memory retains its separate delivery and recorded qualification/deferrals:
 no capture, dreaming or memory-schema change is implied, and selected
 dream-triggered turns remain deferred. budget and the broader search proposal
@@ -160,8 +160,9 @@ f1's [evidence](docs/mail-calendar-web-reads.md#implementation-evidence) records
 its implemented source, exact dependency pins and separate live candidate.
 f3 source and its separate candidate are qualified with unchanged cognition pins;
 skid v0.24.4 is published and adopted on macbook/dev-server. f2's isolated
-reliability/deployment repairs and final source integration pass; installed
-acceptance/reset remain pending. the historical `gpt-5.6-terra/high` qualification
+reliability/deployment repairs and final source integration pass. the [installed
+journey](docs/runtime-reliability-and-integration.md#recovered-final-and-reset-disposition)
+qualified the selected composition. the historical `gpt-5.6-terra/high` qualification
 remains evidence for its original/installed release. those qualifications alone
 do not establish current installed acceptance. the
 [roadmap](docs/implementation-plan.md#v2-finishing-prs) owns parallelism and final
@@ -174,7 +175,7 @@ f2's source transport adopts the exact qualified 2.7.1-derived discord.py fork
 its [evidence](docs/runtime-reliability-and-integration.md#implementation-evidence)
 owns the public lifecycle repair, asynchronous DNS, fixed pre-ingress catch-up cut
 and safe failure projection. historical dependency observations below retain their
-original artifacts; installed production acceptance remains separate.
+original artifacts. the f2 evidence records installed outcomes on each release.
 
 the owner selects a preliminary fresh reset → real production journey → final
 fresh reset under adr 0078. both clear configured discord/jarvis/all central

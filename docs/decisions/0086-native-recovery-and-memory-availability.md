@@ -1,6 +1,7 @@
 # adr 0086. bounded native recovery and independent shared memory
 
-accepted design, 2026-11-18. implementation and installed acceptance are pending.
+accepted 2026-11-18. this release implements units a–c at schema `0015`.
+unit d ships in the subsequent `0016` release.
 the deployed base is jarvis `05d1c33`, provider-runtime `0ebc1cb`, kernel `3afc584`,
 llm-tools `b25bd5f`, universal-memory `13ac202`, stock codex `0.160.0`, database migration
 `0013`.
@@ -140,8 +141,10 @@ resolve the executing invocation from its trusted position. require a current pe
 causal component. out-of-scope and missing ids return the same `NotFound`. keyset page
 ascending `(attempt_seq,ordinal)`. bind the cursor to revision, request, tool filter, first
 list invocation and last key. rederive its exclusive upper bound and validate scope on every
-page, including after restart. eligibility uses recorded invocation lineage at creation. later
-results may become available. filter before limit.
+page, including after restart. eligibility uses recorded invocation lineage at creation.
+when a callback records two delivered requests, either can address its receipt. this includes
+a waiting request delivered as context. the inventory describes those recorded associations.
+later results may become available. filter before limit.
 
 fetch previews only for the selected page. cap each at 160 utf-8 bytes in the stated field
 order, flag clipping. for `gmail.read_message` lead with message id, section and offset. use
@@ -298,3 +301,20 @@ independent `claude-opus-5-5` at high effort challenged the contracts in session
 gmail header order, paid-search uncertainty, control races and the pre-start hold. opus found
 no remaining implementation blocker. the owner separately approved the exact stopped repair.
 the acceptance figures above are implementation targets.
+
+## implementation evidence
+
+**a · recovery.** on the predecessor, one inert incident-sized request transferred
+7,325,471 bytes. the isolated correction `c0df456` used a linux service cgroup
+with the deployment's 2 gib high and 3 gib max. with zero versus 108 inert
+requests, recovery traffic was 17,534 versus 17,554 bytes. peak rss was
+231,376 versus 230,984 kib. the authenticated reads finished inside recovery
+in 16.28 and 15.05 ms. sql traces identified both actionable seals and zero
+inert request bytes. these are client traffic and process rss measurements.
+
+restarts before and after publication each ended with one conclusion. a newer
+delivery superseded the older product. five control/seal/reply orderings
+preserved original evidence. invalid model content parks its inputs, including
+a completion hiding an open action or decoded nul in response text. a failed
+storage transaction preserves the seal and identifies the attempt for repair.
+independent opus approved the correction after its final live and crash runs.

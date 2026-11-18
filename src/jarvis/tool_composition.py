@@ -32,6 +32,7 @@ from sqlalchemy import text
 
 from jarvis.action_requests import bind_action_requests
 from jarvis.actions import ActionStore
+from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
 from jarvis.approval_tools import approval_family
@@ -50,6 +51,7 @@ from jarvis.read_tools import (
     ATTACHMENT_SOCKET_SECONDS,
     maps_family,
 )
+from jarvis.receipt_tools import receipt_family
 from jarvis.settings import Settings
 from jarvis.work import WorkStore
 from jarvis.work_tools import work_family
@@ -69,6 +71,7 @@ class ToolComposition:
 
 def build_tool_composition(
     *,
+    owner: JarvisOwner,
     settings: Settings,
     google_oauth_http: httpx.AsyncClient,
     google_api_http: httpx.AsyncClient,
@@ -133,6 +136,7 @@ def build_tool_composition(
             ),
             memory_family(memory),
             approval_family(),
+            receipt_family(owner),
             _bind_write_policy(work_family(work), calendar_ids_digest=None),
             _bind_write_policy(events_family(events), calendar_ids_digest=None),
             _bind_write_policy(

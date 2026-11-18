@@ -144,6 +144,14 @@ class Preview(_Closed):
         return self
 
 
+def text_preview(value: str, max_bytes: int) -> Preview:
+    encoded = value.replace("\0", "").encode()
+    return Preview(
+        text=encoded[:max_bytes].decode("utf-8", errors="ignore"),
+        truncated=len(encoded) > max_bytes,
+    )
+
+
 class EventProjection(_Closed):
     calendar_id: ProviderId
     calendar_name: Preview | None

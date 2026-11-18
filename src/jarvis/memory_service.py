@@ -345,7 +345,13 @@ class MemoryService:
                             if call
                             else cast(str, payload)
                         )
-                        if str(row["tool_id"]).startswith("memory."):
+                        if row["tool_id"] == "receipt.read":
+                            kind, text = "memory_reference", ""
+                            attributes = cast(
+                                dict[str, object],
+                                memory_reference_attributes("receipt.read", None),
+                            )
+                        elif str(row["tool_id"]).startswith("memory."):
                             kind = "memory_reference"
                             references = payload
                             if not call:

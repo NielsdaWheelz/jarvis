@@ -41,7 +41,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0013"
+APPLICATION_SCHEMA_REVISION = "0015"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -69,6 +69,7 @@ message = Table(
         server_default=text("0"),
     ),
     Column("processing_parked_at", DateTime(timezone=True)),
+    Column("native_retry_after", DateTime(timezone=True)),
     Column("memory_admitted", Boolean, nullable=False, server_default=text("false")),
     Column(
         "parent_request_id",
@@ -410,6 +411,7 @@ native_attempt = Table(
     Column("armed_at", DateTime(timezone=True), nullable=False),
     Column("fenced_at", DateTime(timezone=True)),
     Column("terminal_at", DateTime(timezone=True)),
+    Column("recovery_pending", Boolean, nullable=False, server_default=text("false")),
     UniqueConstraint("conversation_id", "attempt_seq"),
     CheckConstraint("attempt_seq > 0", name="sequence_positive"),
     CheckConstraint("request_fingerprint ~ '^[0-9a-f]{64}$'", name="fingerprint"),
@@ -439,6 +441,14 @@ Index(
         native_attempt.c.fenced_at.is_(None)
         & native_attempt.c.product_outcome.is_(None)
     ),
+)
+
+Index(
+    "ix_native_attempt_pending_loss",
+    native_attempt.c.conversation_id,
+    native_attempt.c.attempt_seq,
+    postgresql_where=native_attempt.c.recovery_pending
+    & native_attempt.c.fenced_at.is_not(None),
 )
 
 Index(
@@ -528,6 +538,7 @@ native_input_delivery = Table(
     ),
     Column("ordinal", Integer, nullable=False),
     Column("delivery_id", Text, nullable=False),
+    Column("was_waking", Boolean, nullable=False, server_default=text("false")),
     Column("mode", Text, nullable=False),
     Column("state", Text, nullable=False),
     Column("provider_evidence", JSONB(none_as_null=True)),

@@ -64,14 +64,15 @@ from jarvis.agent_tools import AGENT_READ_IDS, AGENT_WRITE_IDS
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC
 from jarvis.attachment_tools import ATTACHMENT_READ_IDS, ATTACHMENT_WRITE_IDS
 from jarvis.event_tools import EVENT_MUTATION_IDS, EVENT_READ_IDS
+from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.terminal import JarvisNativeMessage
 from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "3afc58415a05321f11412114f01ac4eed6e1013d",
+    "llm-agent-kernel": "eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
-    "provider-runtime": "0ebc1cb07f6320afb4af6e30f3661c36b76a2529",
+    "provider-runtime": "f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36",
     "universal-memory": "13ac202f844110c74559f15c04872c7d0737fc03",
 }
 MAIN_CODEX_MODEL = "gpt-6-astra"
@@ -202,8 +203,8 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "existing_action_ref is null for a genuinely new invocation, even with equal "
     "arguments; name an original action explicitly to recover its result/pending "
     "state within the same causal component. do not replay uncertain effects or "
-    "unknown billed-once reads. receipts and pending commitments remain operative "
-    "after session loss. continue independent work while awaiting an outcome. "
+    "unknown billed-once reads. use receipt.read for original causal observations "
+    "after session loss. continue independent work while waiting. "
     "stored arguments never change. deny an undecided proposal before replacing "
     "it; judge whether prior consent covers the replacement. approved/automatic "
     "queued work has no individual edit/revoke tool. scoped stop cancels all "
@@ -597,6 +598,7 @@ def build_definitions(
                 *MAIN_WRITE_IDS,
                 *AGENT_READ_IDS,
                 *WORK_READ_IDS,
+                RECEIPT_READ_ID,
                 *EVENT_READ_IDS,
             )
         )

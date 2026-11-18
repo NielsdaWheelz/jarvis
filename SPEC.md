@@ -14,7 +14,8 @@ and independent shared-memory serving. its four contracts supersede conflicting
 full-receipt, retry and in-process ownership rules below. the owner approved the
 verified stopped `0013→0015` incident repair if the old process cannot record a
 pause. `0015→0016` retains the ordinary owner pause. the roadmap owns delivery.
-implementation and installed acceptance are pending.
+this release implements bounded recovery, request retries and receipt access at `0015`.
+the subsequent `0016` cut moves external memory serving to its own unit.
 
 ## accepted v2 target
 

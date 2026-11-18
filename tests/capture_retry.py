@@ -338,13 +338,14 @@ async def check(url: str) -> None:
             context = await native_receipt_context(
                 owner,
                 input_ids=(InputId(str(original.message.id)),),
-                fits=lambda _: True,
             )
-            assert context is not None
-            sections, _ = context
-            body = sections.sections[0].body
+            body = context.sections[0].body
             assert isinstance(body, PromptJson)
             records = cast(list[dict[str, Any]], body.value)
+            inventory = next(
+                item for item in records if item["kind"] == "receipt_inventory"
+            )
+            assert inventory["counts"]["memory.save_note"] == len(receipts) + 1
             async with database.connect() as connection:
                 assert counts == [
                     await connection.scalar(select(func.count()).select_from(table))
@@ -383,12 +384,9 @@ async def check(url: str) -> None:
                     else:
                         assert row["read_position"] == str(position)
                         assert original_position["state"] == "completed"
-                        recorded = next(
-                            item
-                            for item in records
-                            if item["invocation_id"] == str(invocation)
-                        )
-                        assert json.loads(recorded["reply"]["wire_text"])["result"] == {
+                        assert json.loads(row["reply_receipt"]["wire_text"])[
+                            "result"
+                        ] == {
                             "type": "Success",
                             "value": note.model_dump(mode="json"),
                         }

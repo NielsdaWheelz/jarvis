@@ -179,6 +179,18 @@ async def append_waking_input(
     return InboundInsert(stored, inserted=False)
 
 
+def latest_control(scope: str):
+    return (
+        select(message.c.control_kind)
+        .where(
+            message.c.source_conversation_id == scope,
+            message.c.control_kind.is_not(None),
+        )
+        .order_by(message.c.control_sequence.desc())
+        .limit(1)
+    )
+
+
 async def causal_component_ids(
     connection: AsyncConnection, request_ids: tuple[UUID, ...]
 ) -> tuple[UUID, ...]:
@@ -394,13 +406,7 @@ class MessageStore:
         previous = (
             (
                 await connection.execute(
-                    select(message.c.control_kind, message.c.control_targets)
-                    .where(
-                        message.c.source_conversation_id == scope,
-                        message.c.control_kind.is_not(None),
-                    )
-                    .order_by(message.c.control_sequence.desc())
-                    .limit(1)
+                    latest_control(scope).add_columns(message.c.control_targets)
                 )
             )
             .mappings()
@@ -491,6 +497,7 @@ class MessageStore:
                     .where(message.c.id.in_(targets))
                     .values(
                         request_state="stopped",
+                        native_retry_after=None,
                         wait_reason=None,
                         processed_at=timestamp,
                         trace=message.c.trace.op("-")("waiting_action_ids"),
@@ -531,15 +538,22 @@ class MessageStore:
         *,
         source_conversation_id: str,
         limit: int,
+        steer: bool = False,
         exclude_ids: tuple[UUID, ...] = (),
     ) -> tuple[StoredMessage, ...]:
-        """Pending work starts a batch; remaining space carries waiting context."""
+        """Only opening batches may include due retries."""
         _positive(limit, "input limit")
         query = select(message).where(
             message.c.source_conversation_id == source_conversation_id,
             message.c.role.in_(("owner", "host")),
             message.c.request_state.in_(("pending", "waiting")),
             message.c.control_kind.is_(None),
+            message.c.native_retry_after.is_(None)
+            if steer
+            else (
+                message.c.native_retry_after.is_(None)
+                | (message.c.native_retry_after <= func.now())
+            ),
             message.c.processing_parked_at.is_(None),
             message.c.id.not_in(exclude_ids),
             ~select(attachment.c.id)
@@ -593,16 +607,7 @@ class MessageStore:
 
     async def current_control(self, source_conversation_id: str) -> str | None:
         async with self._engine.connect() as connection:
-            kind = await connection.scalar(
-                select(message.c.control_kind)
-                .where(
-                    message.c.source_conversation_id == source_conversation_id,
-                    message.c.control_kind.is_not(None),
-                )
-                .order_by(message.c.control_sequence.desc())
-                .limit(1)
-            )
-        return kind
+            return await connection.scalar(latest_control(source_conversation_id))
 
     async def paused(self, source_conversation_id: str) -> bool:
         return await self.current_control(source_conversation_id) == "pause"
@@ -673,15 +678,28 @@ class MessageStore:
                 raise PersistenceDefect(
                     "operator repair requires live configuration-parked input"
                 )
+            release_cut = (
+                select(func.coalesce(func.max(native_attempt.c.attempt_seq), 0))
+                .where(
+                    native_attempt.c.conversation_id == message.c.source_conversation_id
+                )
+                .correlate(message)
+                .scalar_subquery()
+            )
             await connection.execute(
                 update(message)
                 .where(message.c.id.in_(message_ids))
                 .values(
                     processing_parked_at=None,
+                    native_retry_after=None,
                     request_state="pending",
                     wait_reason=None,
                     processed_at=None,
-                    trace=message.c.trace.op("-")("waiting_action_ids"),
+                    trace=message.c.trace.op("-")("waiting_action_ids").op("||")(
+                        func.jsonb_build_object(
+                            "released_through_native_attempt", release_cut
+                        )
+                    ),
                 )
             )
 

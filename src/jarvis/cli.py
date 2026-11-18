@@ -82,7 +82,7 @@ from jarvis.native_cutover import (
 from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_runtime import (
     NativeRunner,
-    recover_native_products,
+    fence_abandoned_native_attempt,
 )
 from jarvis.ownership import (
     Database,
@@ -425,6 +425,7 @@ async def run_service(
 
 async def _compose_main(
     *,
+    owner: JarvisOwner,
     settings: Settings,
     host: CodexHostConfig,
     agent_runtime: AgentRuntime,
@@ -457,6 +458,7 @@ async def _compose_main(
         source_conversation_id=str(settings.discord.channel_id),
     )
     composition = build_tool_composition(
+        owner=owner,
         settings=settings,
         google_oauth_http=google_oauth_http,
         google_api_http=google_api_http,
@@ -512,7 +514,10 @@ async def _serve(
                 store = MessageStore(database)
                 owner = JarvisOwner(database, str(settings.discord.channel_id))
                 await require_native_data(database, conversation_id=owner.scope_id)
-                await recover_native_products(owner)
+                if await fence_abandoned_native_attempt(owner):
+                    LOGGER.info(
+                        "native recovery: fenced=1 committed=0 failed=0 stale=0"
+                    )
                 paused = PausedState(store, owner.scope_id)
                 dispatch_lane = asyncio.Lock()
                 async with AsyncExitStack() as clients:
@@ -550,6 +555,7 @@ async def _serve(
                         codex_endpoints=host.endpoints,
                     )
                     composition, definitions, agents = await _compose_main(
+                        owner=owner,
                         settings=settings,
                         host=host,
                         agent_runtime=agent_runtime,
@@ -823,6 +829,7 @@ async def check_activation(
 
                     # No connector dispatches during the activation check.
                     _, definitions, _ = await _compose_main(
+                        owner=JarvisOwner(database, scope),
                         settings=settings,
                         host=host,
                         agent_runtime=agent_runtime,

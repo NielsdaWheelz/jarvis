@@ -51,6 +51,7 @@ from jarvis.db import (
 from jarvis.event_tools import EVENT_READ_IDS
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
+from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.tool_results import completed_tool_result
 from jarvis.work_tools import WORK_READ_IDS
 
@@ -65,6 +66,7 @@ FRESH_READ_IDS = (
     | ATTACHMENT_READ_IDS
     | {
         ToolId("gmail.search"),
+        RECEIPT_READ_ID,
         ToolId("gmail.list_thread_messages"),
         ToolId("gmail.list_attachments"),
         ToolId("gmail.read_message"),

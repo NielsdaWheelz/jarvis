@@ -66,7 +66,7 @@ integrate a (bounded recovery), b (provider → kernel → jarvis retry), then c
 cutover and normal admission of the pending owner work. d (independent memory)
 owns the next stopped cutover after its isolated all-client proof. each unit
 has a content designer, independent opus challenge and temporary red/green/refactor
-proof. all four units are design-only. the owner approved the verified stopped
+proof. this release implements a–c at `0015`. the owner approved the verified stopped
 repair for the first incident cut. the later grant/service cut requires the ordinary pause.
 
 ## memory orientation

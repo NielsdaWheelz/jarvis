@@ -43,6 +43,7 @@ from jarvis.event_tools import (
     attention_due,
     calendar_zone,
     provider_id,
+    text_preview,
 )
 from jarvis.events import CalendarResource, Cursor, EventStore, Failure, Observation
 from jarvis.read_tools import (
@@ -89,12 +90,7 @@ def _preview(value: object) -> Preview | None:
         return None
     if not isinstance(value, str):
         raise ValueError("source preview is malformed")
-    value = value.replace("\0", "")
-    encoded = value.encode()
-    return Preview(
-        text=encoded[:240].decode("utf-8", errors="ignore"),
-        truncated=len(encoded) > 240,
-    )
+    return text_preview(value, 240)
 
 
 def _page_token(payload: dict[str, object], name: str = "nextPageToken") -> str | None:

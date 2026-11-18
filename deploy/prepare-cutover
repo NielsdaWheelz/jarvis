@@ -6,12 +6,12 @@ import asyncio
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
@@ -148,6 +148,42 @@ async def inventory(conn, channel):
     }
 
 
+def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    require(not destination.exists(), "snapshot exists; verify it or inspect it")
+    stage = Path(tempfile.mkdtemp(prefix=".incomplete-", dir=destination.parent))
+    try:
+        dump = stage / "database.dump"
+        with dump.open("xb") as out:
+            subprocess.run(
+                ["pg_dump", "-Fc", "--snapshot", sql_snapshot], stdout=out, **args
+            )
+        subprocess.run(["pg_restore", "--file=/dev/null", str(dump)], **args)
+        copies = {}
+        for name, path in (
+            ("private-state", STATE),
+            ("declarations", DECLARATIONS),
+        ):
+            subprocess.run(["cp", "-a", "--", str(path), str(stage / name)], check=True)
+            copies[name] = copy_digest(stage / name)
+            require(copies[name] == copy_digest(path), "private copy mismatch")
+        replace_private_json(
+            stage / "SNAPSHOT.json",
+            {
+                **evidence,
+                "copies": copies,
+                "dump_sha256": file_digest(dump),
+                "system_stop": system_stop,
+            },
+        )
+        os.sync()
+        stage.rename(destination)
+        os.sync()
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
 async def cut(operation, destination, target, system_stop):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
@@ -190,7 +226,7 @@ async def cut(operation, destination, target, system_stop):
     )
     args = dict(
         env={
-            **{k: v for k, v in os.environ.items() if not k.startswith("PG")},
+            "PATH": os.defpath,
             "PGHOST": migrator.host,
             "PGPORT": str(migrator.port or 5432),
             "PGDATABASE": migrator.database,
@@ -208,6 +244,10 @@ async def cut(operation, destination, target, system_stop):
     engine = create_engine(migration_url)
     try:
         async with deployment_ownership(engine) as db, db.begin() as conn:
+            if operation == "snapshot":
+                await conn.execute(
+                    text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             require(
                 version == (TARGET if operation == "verify-target" else SOURCE),
@@ -223,47 +263,8 @@ async def cut(operation, destination, target, system_stop):
                 "facts": await inventory(conn, channel),
             }
             if operation == "snapshot":
-                destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                require(
-                    not destination.exists(), "snapshot exists; verify it or inspect it"
-                )
-                stage = Path(
-                    tempfile.mkdtemp(prefix=".incomplete-", dir=destination.parent)
-                )
-                try:
-                    dump = stage / "database.dump"
-                    with dump.open("xb") as out:
-                        subprocess.run(["pg_dump", "-Fc"], stdout=out, **args)
-                    subprocess.run(
-                        ["pg_restore", "--file=/dev/null", str(dump)], **args
-                    )
-                    copies = {}
-                    for name, path in (
-                        ("private-state", STATE),
-                        ("declarations", DECLARATIONS),
-                    ):
-                        subprocess.run(
-                            ["cp", "-a", "--", str(path), str(stage / name)], check=True
-                        )
-                        copies[name] = copy_digest(stage / name)
-                        require(
-                            copies[name] == copy_digest(path), "private copy mismatch"
-                        )
-                    replace_private_json(
-                        stage / "SNAPSHOT.json",
-                        {
-                            **evidence,
-                            "copies": copies,
-                            "dump_sha256": file_digest(dump),
-                            "system_stop": system_stop,
-                        },
-                    )
-                    os.sync()
-                    stage.rename(destination)
-                    os.sync()
-                finally:
-                    if stage.exists():
-                        shutil.rmtree(stage)
+                sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
+                write_snapshot(destination, evidence, system_stop, args, sql_snapshot)
                 return
             manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
             require(

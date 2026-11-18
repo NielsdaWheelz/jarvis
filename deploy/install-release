@@ -95,7 +95,8 @@ if sys.version_info[:3] != expected or not pathlib.Path(
     raise RuntimeError("release must contain its exact managed Python")
 verify_runtime_dependencies()
 PY
-  sudo -n -u jarvis "$release/.venv/bin/jarvis" --help >/dev/null
+  sudo -n -u jarvis "$release/.venv/bin/jarvis" serve-memory --help >/dev/null
+  sudo -n test -f "$release/deploy/jarvis-memory.service"
 }
 
 if sudo -n test -e "$release"; then

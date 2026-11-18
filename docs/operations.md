@@ -1,13 +1,19 @@
 # production operations
 
-jarvis is one cpython 3.12 process, one postgres database, a separate contained
-native host and one configured discord channel. it hosts the shared memory
-endpoint on loopback; dev-server owns private tailnet routing and native client
-configuration. [universal memory](universal-memory.md) owns the core contract;
-[current delivery](memory-delivery.md) owns nexus capture and remaining integration
-qualification. historical evidence qualifies only its named artifacts.
-source implementation and isolated qualification do not authorize production
-activation or fleet installation.
+at schema `0016`, two cpython 3.12 services run one selected release against
+the same postgres database. `jarvis.service` owns the configured discord channel,
+canonical work and derived memory jobs. it uses the separate contained native
+host for cognition. `jarvis-memory.service` owns external capture, the shared
+memory endpoint on loopback port 8768 and the private search/index socket.
+its os identity, database role, lock and cgroup let reads, capture and note
+saves continue while the assistant and native host are stopped.
+
+dev-server owns private tailnet routing on port 8443 and native client
+configuration. [universal memory](universal-memory.md) owns the archive
+contract. [memory delivery](memory-delivery.md) owns nexus capture.
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) defines
+the two stopped release cuts. candidate evidence and production acceptance
+are recorded separately.
 
 all owner and host requests use one full main plan with shared memory reads
 and optional note saving. the isolated dreamer receives memory reads; compactor
@@ -20,7 +26,7 @@ processors and bearer hashes. admission and connection are independent, omitted
 lanes deny, and bearer rotation is explicit. native lanes activate online after
 complete inventory; incomplete inventory retries without inventing a boundary.
 oversized/conflicting history parks without moving its checkpoint. operator
-status is cli-only. no ongoing backup or separate memory daemon is added.
+status is cli-only. the private cutover copy covers the stopped transition.
 
 nexus capture is future-only for new admitted owner-librarian runs. its durable
 pending export retains the approved question/answer, saved citation/attachment
@@ -317,29 +323,23 @@ to the trusted native domain. `ProtectKernelTunables=true`,
 `ProtectProc=ptraceable`, no-new-privileges and empty capabilities remain.
 no change to the shared coding daemon, rpc relay or copied account is involved.
 
-From a clean, committed Jarvis checkout, provision the dedicated database and
-transfer only the already-qualified private application state:
+for an empty installation, bootstrap with the a–c release and its existing
+private installer before the two-release memory cut below. no-argument
+`deploy/provision-database` creates the migrator and assistant runtime roles
+and installs their root-owned mode-0600 environment files.
 
-```sh
-deploy/provision-database
-deploy/install-private-state
-```
-
-`deploy/provision-database` creates `jarvis_migrator` and `jarvis_runtime`, a
-database owned by the migrator, and two split root-owned mode-0600 credential
-files. The service identity cannot read either file directly. systemd reads
-`database-runtime.env` for the service and a bounded transient migration unit
-reads `migration.env`. It refuses a partial credential state or an existing
-database whose credentials are unknown.
-
-`deploy/install-private-state` defaults to the ignored, mode-0600 qualified
-files under `.secrets/`. It validates the exact key roster, builds the static
-production settings, and installs root-owned mode-0600
-`/etc/jarvis/jarvis.env`, encrypted Google
-connector state and the stable installation identity without printing their
-values. Override its `JARVIS_SOURCE_*` paths only to name an equivalent private
-source. Codex authentication and native history remain exclusively in the
-authoritative personal development-user account home; never copy either into Jarvis state.
+on an established `0016` deployment, `deploy/install-private-state` publishes
+an explicit private-configuration change with both services stopped and the
+recorded pause in force. use the qualified workstation `.secrets/jarvis.slice0.env`
+(or `JARVIS_SOURCE_ENVIRONMENT`) as the input. this is one private project file
+containing the installer's required secret/authority assignments, including
+the embedding project key. the installer supplies the static model, dimension,
+database-independent paths and listener port, then separates the service
+environments. `.env.example` and `.env.memory.example` show the two **runtime**
+environments for local development. the private project file has its own key
+roster in `deploy/install-private-state`. use the matching current
+`JARVIS_SOURCE_GOOGLE_STATE` and original `JARVIS_SOURCE_MEMORY_CONFIG` for a
+private-state publication. the `0015→0016` cut reads the installed files directly.
 
 remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.
@@ -349,7 +349,7 @@ needed. source and installed environments passed this cutover in the
 [current rollout](universal-memory.md#native-memory-installed-qualification).
 
 the private installer validates `JARVIS_SOURCE_MEMORY_CONFIG` before copying it
-to `/etc/jarvis/memory.json` as jarvis-owned mode 0600. its default is the checked-in
+to `/etc/jarvis/memory.json` as root:jarvis-memory mode 0640. its default is the checked-in
 [deny-all example](../deploy/memory-config.example.json), not an implicit grant.
 set `JARVIS_MEMORY_CONFIG_PATH=/etc/jarvis/memory.json`,
 `JARVIS_MEMORY_HTTP_PORT=8768` and `JARVIS_MEMORY_NIGHTLY_TIME=03:00` in the private
@@ -380,73 +380,81 @@ the later `0015→0016` grant/service cut requires the ordinary recorded pause a
 both writers stopped. the adr also defines memory command locks. installed acceptance
 is pending.
 
-### stopped incident cut from 0013 to 0015
+### stopped memory cut from 0015 to 0016
 
-use the **qualified a–c-only commit**. its installer archives that commit, builds the
-locked dependencies and records the git commit, tree and lockfile digest under
-`/opt/jarvis/releases`. the workstation activator independently derives that receipt.
-the only accepted source is `05d1c33b5dc31db96f9aef6318591ded786c3c4f`.
-the installed incident's owner request is `0d3bcc75-749d-4014-a0df-3cdf545366b3`.
-the snapshot verifies its link to attempt 19 and the original 108 fenced, unbound,
-unsealed attempts through 126. it records their ids, sequences and mail links.
-the default selects this uuid. isolated qualification supplies its fixture's
-own `--mail-request UUID` for both prepare and activate. leave the existing
-recovery artifact, database, google state and source cuts in place.
+use the separately qualified a–c release for the first incident cut. its
+[original instructions](decisions/0086-native-recovery-and-memory-availability.md#delivery-ownership-and-cost)
+bind the stopped `0013` source and preserve existing control. this release accepts
+`0015` as its migration source and requires the latest recorded control to be
+pause. select the exact qualified a–c and d commits on the operator workstation.
 
-1. ask for an ordinary pause if the old service can record it. the owner approved
-   preserving the last actual control if the wedged release cannot record a pause.
-   drain where feasible. select the qualified target commit on the operator workstation.
-2. install the inactive release. prepare installs the root-owned hold and persistent
-   systemd condition, reloads the manager, stops the assistant, and records its actual
-   stop result. a skipped systemd start can return success. the loaded condition, empty
-   cgroup, zero main/control pids, cleared job and exclusive database lock establish
-   the stopped boundary. a reboot retains the condition.
+for the earlier incident cut, rehearse the exact production snapshot privately
+before migrating the live database. restore its verified dump to a separate
+postgres database, migrate that copy to `0015`, and run the a–c release's stopped
+`check-activation --fit-pending-mail 0d3bcc75-749d-4014-a0df-3cdf545366b3`
+there with the same source declaration, original scope and qualified native
+catalog. use only the scratch database credentials. check both the actual
+ready-view fit and every unfinished action verdict. the isolated candidate had
+a different ready prefix. a genuine predecessor `work.create` failed on that
+target because its frozen main plan changed. preserve the actual action and
+resolve any refusal before committing the live migration.
 
-   ```sh
-   deploy/install-release "$commit"
-   deploy/activate-release --prepare "$commit"
-   ```
-
-3. find the new private copy in `/var/lib/jarvis-cutover/adr0086/$commit`. its
-   manifest records both releases, database, channel, actual last control and ordered
-   original-row fingerprints across all eighteen tables, including pending mail,
-   actions, original paid reads, outbox, attempts, capture checkpoints, event cursors,
-   notes and leaf positions. the dump is streamed through pg_restore and checksummed.
-   copied declaration/state trees retain file bytes, ownership, modes and symlink targets.
-   an interruption before publication can leave a private `.incomplete-*` directory.
-   repeat prepare to create or verify the completed snapshot under the same hold.
-4. install the contained host for the target using the existing private mapping, then
-   activate. verification and migration to exactly `0015` share a locked database
-   transaction. the target verifier compares originals and checks that every old
-   deadline is null and every waking/pending flag false. the activation check lists
-   queued authorized effects by id and tool before startup recovery can dispatch them.
-   each run retains a private `activation-*.log` in the snapshot directory. it fits pending
-   mail using the selected release without submitting a turn.
+1. install d inactive. drain work where feasible, record the owner's pause
+   through discord and cleanly stop the assistant. if memory already has a unit,
+   stop it too. leave the original recovery copies and selected release in place.
+2. prepare a private snapshot. provision the memory login and os identity under
+   that verified stopped cut. this stages the three memory environment files.
+   the selected `0015` release keeps its existing settings and declaration access.
+3. run `--migrate` before replacing the native host. snapshot verification and
+   migration share one transaction holding both database keys, assistant first.
+   after commit, the helper verifies `0016`, publishes shared declaration access
+   and removes the embedding key from the assistant environment. it can repeat
+   this handoff with the staged credentials after an interruption. install the
+   same-release native host and activate with both exact commits. both services
+   start from the selected release with the same pause and preserved original-row
+   digests across all eighteen tables.
+   the unchanged tailnet proxy forwards to the memory listener on loopback 8768.
 
    ```sh
-   deploy/install-contained-host "$commit"
-   deploy/activate-release "$commit"
+   deploy/install-release "$to"
+   deploy/activate-release --prepare "$from" "$to"
+   deploy/provision-database "$from" "$to"
+   deploy/activate-release --migrate "$from" "$to"
+   deploy/install-contained-host "$to"
+   deploy/activate-release "$from" "$to"
+   deploy/verify-containment
    ```
 
-   failure before release selection leaves the hold in place. correct the reported
-   cause and rerun activation. preserve any older verified recovery copy until the
-   replacement has been verified. manual removal of the hold discards the
-   pre-start exclusion. verify a host recovery by restarting the application to
-   mount its new socket inode. never restore the old database after new work starts.
+   if a check fails before start, keep the hold and inspect its diagnostic. an
+   interrupted snapshot may leave an unpublished private `.incomplete-*`
+   directory. repeat prepare to take or verify the named snapshot. after a
+   committed migration, retry `--migrate` to finish the credential handoff,
+   then install the host and activate with the original two receipts. the
+   verified copy stays in `/var/lib/jarvis-cutover/adr0086/$to`. pg_restore
+   traverses the dump at creation. verification checks the full dump checksum,
+   copied declarations/state and original receipt, checkpoint and retry facts.
 
-5. after validated discord catch-up, verify the pending mail against its original
-   receipts. if the retained control is pause, the owner resumes through discord.
-   the originating macbook codex-work2 client retries the original 928-byte note
-   with submission id `fd0098ef-0dc3-42e7-abf8-8b50147f290b`, identical text
-   (sha256 `1ffb02e2abd6cab51f8c6621a45a7c4097cdabc62510f421970a43148e56f6d9`)
-   and omitted conversation id. inspect the returned note id, one original row
-   and one tree leaf. a client timeout leaves commit status unknown.
+4. check that the paused assistant and memory each have a live pid in the same
+   release. stop the assistant and native host to verify authenticated memory
+   save/open and capture. start the host, then the assistant to remount its socket.
+   resume through ordinary owner conversation after checking retained control.
 
-ordinary same-schema release replacement requires a clean stop, a matching
-installed receipt and a verified same-release contained host. the service starts
-only after the stopped activation check. one selected release and one installation
-candidate are retained. run `deploy/verify-containment` after startup.
-the later memory cut requires a genuine owner pause.
+for subsequent same-schema updates, cleanly stop both services, install the
+target and its native host, then run `deploy/activate-release "$to"`. routine
+activation preserves canonical control. pruning retains the selected artifact
+and one candidate while checking each running process.
+
+the memory unit runs as `jarvis-memory` using the login `jarvis_memory`.
+`/etc/jarvis/database-memory.env`, `memory.env` and `embedding.env` supply its
+role, declaration/listener settings and embedding project respectively. the
+assistant uses `database-runtime.env` and `jarvis.env`. systemd reads the
+root-owned credential files. the assistant reaches private search and indexing
+through `/run/jarvis-memory/internal.sock`, mode 0660 in a service-owned mode
+0750 directory. only the assistant and memory identities have the group.
+memory stays online through assistant/native host stops. its process restart
+invalidates disposable cursors. new originals can open while ready coverage
+and indexing lag. verify the memory pressure limit and postgres headroom before
+production acceptance on the actual host.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.
@@ -468,12 +476,12 @@ remain opaque evidence, never an execution route. old unknown paid reads and
 unfinished isolated cognition require their original release's disposition.
 current unknown effects retain their existing reconciliation and causal barriers.
 
-for a fresh database, migrate and run `jarvis initialize-state` once under the
-runtime identity/environment. this creates canonical paused state, with no
-provider call or action. repeated initialization refuses rather than resetting
-existing requests. later release activation preserves that control state. never
-edit database request rows or synthesize an empty execution journal to bypass a
-failed check.
+for a fresh database, use a–c to migrate through `0015`, load the deployment
+channel and memory declaration, and run its `jarvis initialize-state` once.
+that creates the canonical initial pause. supply the same
+`JARVIS_DISCORD_CHANNEL_ID` to the d migration environment. advance to `0016`
+only after provisioning the memory login. the same sequence applies to isolated
+test databases. never initialize or reset an existing populated database.
 
 `verify-containment` runs after activation without printing secret values. It
 proves the three environment files are root-owned mode 0600 and unreadable by
@@ -827,15 +835,20 @@ qualify current consumers. source, artifact publication, installation, capture
 activation and owner resumption require distinct receipts. hard-cut replaced
 paths without rewriting originals or moving activation boundaries backward.
 
-repair and retry only while the service is stopped, after correcting the cause:
+use matching os and database identities for maintenance commands. ordinary
+service stops are independent. select the owning service before stopping it.
 
-```sh
-uv run jarvis memory retry-capture SOURCE_CONVERSATION_UUID
-uv run jarvis memory retry-compression
-uv run jarvis rebuild-memory --node START+COUNT
-uv run jarvis rebuild-memory
-uv run jarvis dream
-```
+| operation | stop and acquire | process and credentials |
+| --- | --- | --- |
+| `memory status` | neither | read-only status |
+| `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
+| `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
+| schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT]` | both, assistant key then memory key | offline rebuild runs as jarvis with `embedding.env`. full rebuild also needs the migrator for reindexing |
+
+the private unix socket is available to assistant jobs in group `jarvis-memory`.
+the memory service owns the one embedding slot and search-rate limit. failure
+after possible transmission retains paid-read uncertainty. while the memory
+unit is down the assistant can still open committed originals locally.
 
 capture retry clears only its diagnostic; it preserves the original activation
 boundary and checkpoint. compression retry clears only the parked construction.

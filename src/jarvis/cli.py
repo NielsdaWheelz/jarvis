@@ -74,7 +74,6 @@ from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, MemoryWorker
 from jarvis.messages import MessageStore
 from jarvis.native_cutover import (
-    check_pending_mail_opening,
     cutover_native,
     require_native_data,
     require_native_files,
@@ -811,8 +810,6 @@ async def check_paused(settings: PausedSettings) -> None:
 async def check_activation(
     settings: Settings,
     host: CodexHostConfig,
-    *,
-    fit_pending_mail: UUID | None = None,
 ) -> tuple[tuple[UUID, str, str, str], ...]:
     """Classify unfinished execution authority; read-only."""
 
@@ -856,15 +853,6 @@ async def check_activation(
                         maps_http=http,
                         brave_http=http,
                     )
-                    if fit_pending_mail is not None:
-                        await check_pending_mail_opening(
-                            database=database,
-                            scope=scope,
-                            definition=definitions.main,
-                            memory=memory,
-                            batch_size=settings.maximum_batch_size,
-                            mail_request=fit_pending_mail,
-                        )
                     plan = definitions.plans["main"]
                     return await _action_activation_verdicts(
                         actions,
@@ -1171,15 +1159,9 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("serve-memory", help="serve shared memory and capture")
     commands.add_parser("initialize-state", help="initialize private host state")
     commands.add_parser("check-paused", help="check the stopped canonical pause")
-    activation = commands.add_parser(
+    commands.add_parser(
         "check-activation",
         help="check unfinished actions against this release while stopped",
-    )
-    activation.add_argument(
-        "--fit-pending-mail",
-        type=UUID,
-        metavar="REQUEST_UUID",
-        help="measure the pending incident mail opening under stopped ownership",
     )
     commands.add_parser(
         "cutover-native",
@@ -1309,7 +1291,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     check_activation(
                         settings,
                         settings.codex_host_config,
-                        fit_pending_mail=arguments.fit_pending_mail,
                     )
                 )
             except DeploymentAlreadyOwned:

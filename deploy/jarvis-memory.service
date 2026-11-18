@@ -1,0 +1,52 @@
+[Unit]
+Description=Jarvis shared memory
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=jarvis-memory
+Group=jarvis-memory
+WorkingDirectory=/opt/jarvis/current
+EnvironmentFile=/etc/jarvis/database-memory.env
+EnvironmentFile=/etc/jarvis/memory.env
+EnvironmentFile=/etc/jarvis/embedding.env
+Environment=TZ=UTC
+Environment=PYTHONUNBUFFERED=1
+RuntimeDirectory=jarvis-memory
+RuntimeDirectoryMode=0750
+ExecStart=/opt/jarvis/current/.venv/bin/jarvis serve-memory
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+SuccessExitStatus=130
+TimeoutStopSec=360
+UMask=0077
+NoNewPrivileges=true
+AmbientCapabilities=
+CapabilityBoundingSet=
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=ptraceable
+ProcSubset=pid
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+TasksMax=128
+MemoryHigh=768M
+MemoryMax=1G
+MemorySwapMax=0
+LimitCORE=0
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

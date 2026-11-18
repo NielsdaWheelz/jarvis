@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if (($# == 2)); then
+  exec "$(dirname "${BASH_SOURCE[0]}")/activate-release" --provision "$@"
+elif (($# != 0)); then
+  printf 'usage: deploy/provision-database [FROM_COMMIT TO_COMMIT]\n' >&2
+  exit 64
+fi
 target=dev-server-deploy
 
-ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n bash -s <<'REMOTE'
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s <<'REMOTE'
 set -euo pipefail
 files=(
   /etc/jarvis/database-runtime.env
@@ -22,6 +28,11 @@ if ((present != 0 && present != ${#files[@]})); then
   exit 1
 fi
 
+if ((present == 2)) && [[ "$(sudo -n -u postgres psql -XAtd jarvis -c \
+    "SELECT count(*) FROM pg_tables WHERE schemaname='public'")" != 0 ]]; then
+  printf 'existing deployment requires the verified stopped source/target cut\n' >&2
+  exit 1
+fi
 if ((present == 0)); then
   if sudo -n -u postgres psql -Atd postgres -c \
     "SELECT 1 FROM pg_database WHERE datname = 'jarvis'" | grep -Fxq 1; then

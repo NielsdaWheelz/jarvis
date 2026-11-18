@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from uuid import UUID
 
 from alembic import command
 from alembic.config import Config
@@ -21,12 +20,10 @@ from sqlalchemy.engine import make_url
 
 from jarvis._atomic_json import replace_private_json
 from jarvis.db import APPLICATION_SCHEMA_REVISION, create_engine, normalize_database_url
-from jarvis.ownership import deployment_ownership
+from jarvis.ownership import maintenance_ownership
 
-SOURCE = "0013"
-TARGET = "0015"
-SOURCE_LOCK = "0f57db5aba00bbf501d033073ccafa7c13e026de8813bdd3f113960f6e2e7e81"
-SOURCE_COMMIT = "05d1c33b5dc31db96f9aef6318591ded786c3c4f"
+SOURCE = "0015"
+TARGET = "0016"
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
@@ -49,11 +46,6 @@ KEYS = {
     "memory_leaf": "position",
     "memory_node": "level, node_index",
     "memory_state": "id",
-}
-ADDED = {
-    "message": "native_retry_after",
-    "native_input_delivery": "was_waking",
-    "native_attempt": "recovery_pending",
 }
 
 
@@ -90,7 +82,7 @@ def copy_digest(root):
     return digest.hexdigest()
 
 
-async def inventory(conn, channel, mail_request):
+async def inventory(conn, channel):
     # Hash original database projections on the server. json (including escaped
     # NUL) and ordered keys survive. Only fixed-size hashes cross the connection.
     await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
@@ -108,9 +100,7 @@ async def inventory(conn, channel, mail_request):
                 )
             ).scalars()
         )
-        cols = ", ".join(
-            '"' + c.replace('"', '""') + '"' for c in columns if c != ADDED.get(table)
-        )
+        cols = ", ".join('"' + c.replace('"', '""') + '"' for c in columns)
         require(cols, "missing application table")
         query = f"""SELECT sha256(convert_to(row_to_json(original)::text, 'UTF8'))
                     FROM (SELECT {cols} FROM public.{table}) original ORDER BY {keys}"""
@@ -130,42 +120,7 @@ async def inventory(conn, channel, mail_request):
         )
     ).one_or_none()
     require(control is not None, "canonical control is uninitialized")
-    owner = (
-        await conn.execute(
-            text("""
-        SELECT id::text, request_state FROM message
-        WHERE source_conversation_id=:channel AND role='owner' AND control_kind IS NULL
-          AND id=CAST(:mail AS uuid)
-    """),
-            {"channel": channel, "mail": str(mail_request)},
-        )
-    ).one_or_none()
-    require(owner is not None, "selected incident owner request is absent")
-    incident = (
-        await conn.execute(
-            text("""
-        SELECT a.id::text, a.attempt_seq,
-               a.request->'input_ids' @> jsonb_build_array(CAST(:mail AS text)) linked
-        FROM native_attempt a WHERE a.conversation_id=:channel
-          AND a.attempt_seq BETWEEN 19 AND 126
-          AND a.fenced_at IS NOT NULL AND a.terminal_at IS NULL
-          AND a.product_outcome IS NULL AND a.native_binding IS NULL
-          AND NOT EXISTS (SELECT FROM native_invocation i WHERE i.attempt_id=a.id)
-        ORDER BY a.attempt_seq
-    """),
-            {"channel": channel, "mail": str(mail_request)},
-        )
-    ).all()
-    require(
-        len(incident) == 108 and incident[0].linked,
-        "selected request or original fenced incident cohort differs",
-    )
-    return {
-        "tables": facts,
-        "last_control": list(control),
-        "mail_owner": list(owner),
-        "incident_attempts": [list(row) for row in incident],
-    }
+    return {"tables": facts, "last_control": list(control)}
 
 
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
@@ -204,7 +159,7 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
             shutil.rmtree(stage)
 
 
-async def cut(operation, destination, target, mail_request, system_stop):
+async def cut(operation, destination, source, target, system_stop):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrator = make_url(migration_url)
@@ -222,20 +177,14 @@ async def cut(operation, destination, target, mail_request, system_stop):
         APPLICATION_SCHEMA_REVISION == TARGET and destination.name == target["commit"],
         "target release or schema mismatch",
     )
-    source_file = ROOT / "releases" / SOURCE_COMMIT / "RELEASE.json"
-    source = json.loads(source_file.read_bytes())
+    source_file = ROOT / "releases" / source["commit"] / "RELEASE.json"
     require(
-        source
-        == {
-            "commit": SOURCE_COMMIT,
-            "tree": "b336e5c839323f4b1737b9d3b3b5c7773a0f0dd1",
-            "uv_lock_sha256": SOURCE_LOCK,
-        },
+        json.loads(source_file.read_bytes()) == source,
         "source release receipt mismatch",
     )
     selected = (ROOT / "current").resolve(strict=True)
     allowed = [source_file.parent]
-    if operation == "verify-target":
+    if operation in {"verify-target", "commit-settings"}:
         allowed.append(ROOT / "releases" / target["commit"])
     require(selected in allowed, "selected source changed")
     target_dir = ROOT / "releases" / target["commit"]
@@ -263,14 +212,19 @@ async def cut(operation, destination, target, mail_request, system_stop):
     )
     engine = create_engine(migration_url)
     try:
-        async with deployment_ownership(engine) as db, db.begin() as conn:
+        async with maintenance_ownership(engine) as db, db.begin() as conn:
             if operation == "snapshot":
                 await conn.execute(
                     text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             require(
-                version == (TARGET if operation == "verify-target" else SOURCE),
+                version
+                == (
+                    TARGET
+                    if operation in {"verify-target", "commit-settings"}
+                    else SOURCE
+                ),
                 "unexpected stopped schema",
             )
             evidence = {
@@ -280,8 +234,12 @@ async def cut(operation, destination, target, mail_request, system_stop):
                 "channel": channel,
                 "database": endpoint,
                 "schemas": [SOURCE, TARGET],
-                "facts": await inventory(conn, channel, mail_request),
+                "facts": await inventory(conn, channel),
             }
+            require(
+                evidence["facts"]["last_control"][1] == "pause",
+                "memory service cut requires an ordinary recorded owner pause",
+            )
             if operation == "snapshot":
                 sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
                 write_snapshot(destination, evidence, system_stop, args, sql_snapshot)
@@ -299,6 +257,14 @@ async def cut(operation, destination, target, mail_request, system_stop):
                 ),
                 "damaged recovery copy",
             )
+            if operation == "provision":
+                from memory_credentials import provision_memory
+
+                provision_memory()
+            if operation == "commit-settings":
+                from memory_credentials import activate_memory
+
+                activate_memory()
             if operation == "migrate":
                 # Alembic uses this exact connection and transaction. There is
                 # no unlock between the final comparison and the schema change.
@@ -309,19 +275,6 @@ async def cut(operation, destination, target, mail_request, system_stop):
 
                 await conn.run_sync(upgrade)
             if operation in {"migrate", "verify-target"}:
-                require(
-                    not await conn.scalar(
-                        text("""
-                    SELECT EXISTS (SELECT FROM message
-                                   WHERE native_retry_after IS NOT NULL)
-                        OR EXISTS (SELECT FROM native_input_delivery
-                                   WHERE was_waking IS DISTINCT FROM false)
-                        OR EXISTS (SELECT FROM native_attempt
-                                   WHERE recovery_pending IS DISTINCT FROM false)
-                """)
-                    ),
-                    "existing retry state was charged",
-                )
                 require(
                     await conn.scalar(text("SELECT version_num FROM alembic_version"))
                     == TARGET,
@@ -334,11 +287,19 @@ async def cut(operation, destination, target, mail_request, system_stop):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "operation", choices=["snapshot", "verify", "migrate", "verify-target"]
+        "operation",
+        choices=[
+            "snapshot",
+            "verify",
+            "provision",
+            "migrate",
+            "verify-target",
+            "commit-settings",
+        ],
     )
     parser.add_argument("destination", type=Path)
+    parser.add_argument("source_receipt", type=json.loads)
     parser.add_argument("target_receipt", type=json.loads)
-    parser.add_argument("mail_request", type=UUID)
     args = parser.parse_args()
     stop = json.loads(
         subprocess.check_output(
@@ -354,8 +315,8 @@ def main():
         cut(
             args.operation,
             args.destination,
+            args.source_receipt,
             args.target_receipt,
-            args.mail_request,
             stop,
         )
     )

@@ -6,11 +6,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from llm_agent_kernel import NativeDefinition
 from sqlalchemy import and_, or_, select, text
 
 from jarvis._atomic_json import replace_private_json
-from jarvis.admission import JarvisOwner
 from jarvis.agent_tools import AGENT_IMPLEMENTATION_REVISION
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
@@ -21,11 +19,8 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.memory_service import MemoryService
-from jarvis.messages import MessageStore, causal_component_ids
-from jarvis.native_runtime import fit_native_inputs, opening_memory_prefix
+from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, lock_conversation
-from jarvis.receipt_tools import receipt_scope
 
 
 async def require_native_data(database: Database, *, conversation_id: str) -> None:
@@ -136,89 +131,6 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             raise RuntimeError(
                 "unfinished retired inference requires original-release disposition"
             )
-
-
-async def check_pending_mail_opening(
-    *,
-    database: Database,
-    scope: str,
-    definition: NativeDefinition,
-    memory: MemoryService,
-    batch_size: int,
-    mail_request: UUID,
-) -> None:
-    """Measure pending incident mail through the live selection and fitter."""
-    async with database.connect() as connection:
-        state = await connection.scalar(
-            select(message.c.request_state).where(
-                message.c.id == mail_request,
-                message.c.source_conversation_id == scope,
-                message.c.role == "owner",
-                message.c.control_kind.is_(None),
-            )
-        )
-        if state is None:
-            print(f"mail request {mail_request} missing in the configured channel")
-            raise RuntimeError("selected mail request is absent")
-        print(f"mail_request={mail_request} state={state}")
-        if state != "pending":
-            return
-        component = await causal_component_ids(connection, (mail_request,))
-        original = await connection.scalar(
-            select(native_invocation.c.id)
-            .join(native_attempt, native_attempt.c.id == native_invocation.c.attempt_id)
-            .where(
-                *receipt_scope(scope, component),
-                native_invocation.c.tool_id.in_(("gmail.search", "gmail.read_message")),
-                native_invocation.c.validation == "accepted",
-            )
-            .limit(1)
-        )
-        if original is None:
-            print(f"mail request {mail_request} has no recorded gmail lineage")
-            raise RuntimeError("pending mail lineage differs from the incident")
-    store = MessageStore(database)
-    owner = JarvisOwner(database, scope)
-    cutoff, prefix = await opening_memory_prefix(memory)
-    as_of = datetime.now(UTC)
-    print(f"stopped opening cutoff={cutoff}")
-    checked: set[UUID] = set()
-    split: set[UUID] = set()
-    batch = 0
-    while mail_request not in checked:
-        pending = await store.pending_inputs(
-            source_conversation_id=scope, limit=batch_size, exclude_ids=tuple(checked)
-        )
-        if not pending:
-            print(f"mail request {mail_request} is ineligible for admission")
-            raise RuntimeError("pending mail is ineligible for opening")
-        inputs, _, size = await fit_native_inputs(
-            owner,
-            store,
-            definition,
-            pending,
-            as_of,
-            prefix=prefix,
-            exclude_ids=tuple(checked),
-        )
-        batch += 1
-        selected = {UUID(item.input_id) for item in inputs}
-        waking = {item.id for item in pending if item.request_state == "pending"}
-        for identifier in sorted(selected & waking):
-            verdict = "fits" if size.fits else "would-park"
-            if size.fits and identifier in split:
-                verdict = "would-split"
-            print(
-                f"input={identifier} batch={batch} verdict={verdict} "
-                f"chars={size.actual_chars}/{size.max_chars} "
-                f"wire_bytes={size.wire_bytes}/{size.max_bytes}"
-            )
-        if mail_request in selected and not size.fits:
-            raise RuntimeError("pending mail would park at admission")
-        split.update(waking - selected)
-        # An earlier batch's eventual answers are unknown. Measure later batches
-        # against the same stopped facts, preserving still-waiting context.
-        checked.update(selected & waking)
 
 
 async def cutover_native(

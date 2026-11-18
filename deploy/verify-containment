@@ -6,18 +6,42 @@ ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n bash -s <<'REMOTE'
 set -euo pipefail
 
 for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
-  /etc/jarvis/migration.env; do
+  /etc/jarvis/migration.env /etc/jarvis/database-memory.env /etc/jarvis/embedding.env \
+  /etc/jarvis/memory.env; do
   sudo -n test -f "$file"
   sudo -n test ! -L "$file"
   observed="$(sudo -n stat -c '%U:%G:%a' "$file")"
   [[ "$observed" == root:root:600 ]]
-  if sudo -n -u jarvis test -r "$file"; then
+  if sudo -n -u jarvis test -r "$file" || sudo -n -u jarvis-memory test -r "$file"; then
     printf 'Jarvis service identity can read root-managed secret file: %s\n' \
       "$file" >&2
     exit 1
   fi
 done
 
+systemctl is-active --quiet jarvis-memory.service
+memory_pid="$(systemctl show -p MainPID --value jarvis-memory.service)"
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-memory/internal.sock)" == jarvis-memory:jarvis-memory:660 ]]
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-memory)" == jarvis-memory:jarvis-memory:750 ]]
+[[ "$(readlink -e "/proc/$memory_pid/cwd")" == "$(readlink -e /opt/jarvis/current)" ]]
+[[ "$(systemctl show -p MemorySwapMax --value jarvis-memory.service)" == 0 ]]
+[[ "$(systemctl show -p MemorySwapMax --value jarvis.service)" == 536870912 ]]
+app_pid="$(systemctl show -p MainPID --value jarvis.service)"
+python3 - "$memory_pid" "$app_pid" <<'PYCODE'
+from pathlib import Path
+import sys
+
+def names(pid):
+    return {e.partition(b"=")[0].decode() for e in (Path("/proc")/pid/"environ").read_bytes().split(b"\0")
+            if e.startswith(b"JARVIS_")}
+
+expected = {"JARVIS_DATABASE_URL", "JARVIS_MEMORY_CONFIG_PATH", "JARVIS_MEMORY_HTTP_PORT",
+            "JARVIS_EMBEDDING_OPENAI_API_KEY", "JARVIS_EMBEDDING_MODEL", "JARVIS_EMBEDDING_DIMENSION"}
+if names(sys.argv[1]) != expected or any(k.startswith("JARVIS_EMBEDDING_") for k in names(sys.argv[2])):
+    raise SystemExit("installed service credential environment differs")
+PYCODE
+sudo -n -u jarvis-memory test -r /etc/jarvis/memory.json
+sudo -n -u jarvis-memory test ! -r /var/lib/jarvis/connectors/google-oauth-state.json
 sudo -n systemctl is-active --quiet jarvis.service
 pid="$(sudo -n systemctl show --property=MainPID --value jarvis.service)"
 [[ "$pid" =~ ^[1-9][0-9]*$ ]]

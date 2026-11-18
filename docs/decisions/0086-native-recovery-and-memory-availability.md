@@ -448,3 +448,10 @@ resume 14 preserved. the first fresh attempt was 127. hashes of the original
 `d49b3799adc2eceea41ec5006c5a4374591dbcb7` pins both snapshot commands to
 the deployed postgres major. an independent mixed-client restore matched all
 18 tables on postgres 16. opus approved that deployment-only change.
+
+**original save.** macbook `codex-work2` submitted the same id and exact text
+with the conversation id omitted. its authenticated receipt was
+`2c6e0e41-4720-5d33-b670-2425d9cbf84d`, created at
+`2026-11-18T23:47:54.962773Z`. the same client reopened the text exactly.
+postgres held one 928-byte original and one leaf at position 3,245. its sha256
+matched the original submission, and its native conversation id was null.

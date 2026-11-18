@@ -793,7 +793,7 @@ async def check_activation(
     settings: Settings,
     host: CodexHostConfig,
     *,
-    fit_pending_mail: bool = False,
+    fit_pending_mail: UUID | None = None,
 ) -> tuple[tuple[UUID, str, str, str], ...]:
     """Classify unfinished execution authority; read-only."""
 
@@ -836,13 +836,14 @@ async def check_activation(
                         maps_http=http,
                         brave_http=http,
                     )
-                    if fit_pending_mail:
+                    if fit_pending_mail is not None:
                         await check_pending_mail_opening(
                             database=database,
                             scope=scope,
                             definition=definitions.main,
                             memory=memory,
                             batch_size=settings.maximum_batch_size,
+                            mail_request=fit_pending_mail,
                         )
                     plan = definitions.plans["main"]
                     return await _action_activation_verdicts(
@@ -1151,7 +1152,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     activation.add_argument(
         "--fit-pending-mail",
-        action="store_true",
+        type=UUID,
+        metavar="REQUEST_UUID",
         help="measure the pending incident mail opening under stopped ownership",
     )
     commands.add_parser(

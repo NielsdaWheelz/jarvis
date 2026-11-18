@@ -562,6 +562,12 @@ native_input_delivery = Table(
     ),
 )
 
+# A start accepts its opening. A steer only joins the turn at its recorded item.
+proven_native_delivery = (native_input_delivery.c.state == "recorded") | (
+    (native_input_delivery.c.mode == "initial")
+    & (native_input_delivery.c.state == "sent")
+)
+
 
 work = Table(
     "work",

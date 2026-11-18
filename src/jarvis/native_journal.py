@@ -79,6 +79,7 @@ from jarvis.db import (
     native_attempt,
     native_input_delivery,
     native_invocation,
+    proven_native_delivery,
     read_position,
 )
 from jarvis.memory_service import MemoryService
@@ -517,9 +518,7 @@ class PostgresNativeJournal:
                     select(native_input_delivery.c.message_id).where(
                         native_input_delivery.c.attempt_id == UUID(proposal.attempt_id),
                         native_input_delivery.c.message_id == request_id,
-                        native_input_delivery.c.state.in_(
-                            ("sent", "queued", "recorded")
-                        ),
+                        proven_native_delivery,
                     )
                 )
                 if (
@@ -809,9 +808,7 @@ class PostgresNativeJournal:
                     )
                     .where(
                         native_input_delivery.c.attempt_id == invocation["attempt_id"],
-                        native_input_delivery.c.state.in_(
-                            ("sent", "queued", "recorded")
-                        ),
+                        proven_native_delivery,
                         message.c.id.in_(input_ids),
                         message.c.source_conversation_id == self.owner.scope_id,
                         message.c.role.in_(("owner", "host")),
@@ -1394,7 +1391,7 @@ async def commit_product(
             .select_from(native_input_delivery)
             .where(
                 native_input_delivery.c.attempt_id == attempt["id"],
-                native_input_delivery.c.state.in_(("sent", "queued", "recorded")),
+                proven_native_delivery,
             )
         )
         if not inputs or len(inputs) != delivered_count:
@@ -1474,9 +1471,7 @@ async def commit_product(
                                     select(native_input_delivery.c.message_id).where(
                                         native_input_delivery.c.attempt_id
                                         == attempt["id"],
-                                        native_input_delivery.c.state.in_(
-                                            ("sent", "queued", "recorded")
-                                        ),
+                                        proven_native_delivery,
                                     )
                                 ),
                             )
@@ -1583,9 +1578,7 @@ async def _product_inputs(
                         & native_input_delivery.c.delivery_id.not_in(unsent_steers)
                     )
                     if waking_loss
-                    else native_input_delivery.c.state.in_(
-                        ("sent", "queued", "recorded")
-                    ),
+                    else proven_native_delivery,
                 )
             )
         ).scalars()

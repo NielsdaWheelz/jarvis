@@ -65,6 +65,7 @@ from jarvis.db import (
     native_attempt,
     native_input_delivery,
     native_invocation,
+    proven_native_delivery,
     read_position,
 )
 from jarvis.definitions import RoleDefinitions
@@ -783,7 +784,8 @@ async def native_receipt_context(
             (
                 await connection.execute(
                     select(native_input_delivery.c.message_id).where(
-                        native_input_delivery.c.attempt_id.in_(stop_attempts)
+                        native_input_delivery.c.attempt_id.in_(stop_attempts),
+                        proven_native_delivery,
                     )
                 )
             ).scalars()

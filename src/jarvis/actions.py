@@ -73,6 +73,7 @@ from jarvis.db import (
     native_attempt,
     native_input_delivery,
     native_invocation,
+    proven_native_delivery,
 )
 from jarvis.event_tools import EVENT_MUTATION_IDS, validate_event_result
 from jarvis.messages import (
@@ -1479,7 +1480,7 @@ async def _lock_new_action(
         select(native_input_delivery.c.message_id).where(
             native_input_delivery.c.attempt_id == attempt_id,
             native_input_delivery.c.message_id == origin_id,
-            native_input_delivery.c.state.in_(("sent", "queued", "recorded")),
+            proven_native_delivery,
         )
     )
     if delivered is None:

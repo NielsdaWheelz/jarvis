@@ -88,6 +88,10 @@ idle host. due retries must open a turn. a second loss before this input’s own
 it. return `progressed` on the failure path only after a durable transition excludes the same
 selection. otherwise yield `blocked`.
 
+an accepted opening delivers its initial inputs. a steer joins the turn’s delivered
+inputs only when the provider records it. queued or uncertain steers can incur a
+loss without authorizing a disposition, callback origin or notification acknowledgment.
+
 migration `0015` adds three fields.
 
 | field | transition |

@@ -27,3 +27,36 @@ preserves unfinished work. compare the stock seal to the canonical reply.
 keep the single-message budget and lossless host rendering so every new final
 can be persisted and delivered as authored. retain the original seal and its
 settlement. [main response contract](../../SPEC.md#42-conversation-is-natural)
+
+## paired stock qualification
+
+two uninstalled candidates on `fix/adr0086-partial-content` were exercised with
+personal-subscription `gpt-6-astra` at max effort on stock `0.160.0`. the
+synthetic owner requested a six-gallery handover, material source links and an
+open purchasing review. each fresh postgres 16 fixture began with the same 18
+original receipts and no prior follow-up. each run made one inventory call and
+18 local receipt opens. the 48-tool plan was unchanged.
+
+- `84e7dd0` restored generation guidance to both partial branches. the runtime
+  source matched its parent `7f39750`. stock selected `answered`. the
+  2,000-character reply ended inside its fifth link. three galleries and two
+  duplicate-payment warnings were missing without a coverage notice. canonical
+  outbox `36de0d05-077f-5b6d-a5e2-093e7ccf93d7` matched the seal.
+- `400b555` added shared main guidance to budget the ending and full links
+  before drafting, group related topics and drop optional detail early.
+  all four selected links were intact. the 2,000-character `answered` reply
+  ended mid-sentence and omitted the same material scope. canonical outbox
+  `a5339ee3-2b4e-5bde-8f0e-8195e0ec0c66` matched the seal.
+
+independent opus review failed both replies for content. each run created a
+blocked work item that kept the purchasing review open, satisfying the
+follow-through requirement. these observations qualify neither candidate.
+the independent memory release remains `e6ebc31`.
+
+before changing the product contract, settle what the owner should receive
+when the requested findings, useful links and material caveats cannot all fit
+in one message. the current authoring test requires an intelligible ending,
+intact selected links and an explicit account of material uncovered scope
+across visible final forms. delivering a separate full report would require
+its own product and delivery decision. the sealed original and canonical reply
+remain available for comparison.

@@ -78,8 +78,6 @@ if len(names) != len(set(names)) or set(names) - allowed or required - set(names
     raise SystemExit("private environment key roster is incompatible")
 
 static = f"""\
-JARVIS_DISCORD_REQUEST_TIMEOUT_SECONDS=10
-JARVIS_DISCORD_DELIVERY_RETRY_DELAYS_SECONDS=0.5,2.0
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles
 JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_MODEL={MAIN_CODEX_MODEL}

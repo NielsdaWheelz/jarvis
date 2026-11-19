@@ -78,6 +78,8 @@ def web_environment(raw):
             b"JARVIS_DISCORD_GUILD_ID",
             b"JARVIS_DISCORD_OWNER_USER_ID",
             b"JARVIS_DISCORD_CATCH_UP_LIMIT",
+            b"JARVIS_DISCORD_REQUEST_TIMEOUT_SECONDS",
+            b"JARVIS_DISCORD_DELIVERY_RETRY_DELAYS_SECONDS",
         }:
             keep.append(row)
     channel = values[b"JARVIS_DISCORD_CHANNEL_ID"]

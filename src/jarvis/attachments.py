@@ -90,6 +90,10 @@ class WebUpload:
         }
 
 
+def upload_spool_name(identifier: UUID, sha256: str) -> str:
+    return f"{identifier}.{sha256}"
+
+
 def ingress_manifest(
     uploads: tuple[WebUpload, ...],
 ) -> tuple[dict[str, object], ...]:
@@ -409,7 +413,9 @@ class AttachmentStore:
                     attachment.c.state.not_in(("ready", "deleted")),
                 )
             )
-            retain = {f"{identifier}.{digest}" for identifier, digest in rows}
+            retain = {
+                upload_spool_name(identifier, digest) for identifier, digest in rows
+            }
         for path in self._spool.iterdir():
             if path.name not in retain:
                 path.unlink()
@@ -463,7 +469,9 @@ class AttachmentStore:
             return ReadResponse(result, attempts)
         web = row["source"]["kind"] == "web"
         staging = (
-            self._spool / f"{identifier}.{row['sha256']}" if web else self._stage()
+            self._spool / upload_spool_name(identifier, row["sha256"])
+            if web
+            else self._stage()
         )
         try:
             try:
@@ -715,7 +723,9 @@ class AttachmentStore:
             )
         if row["source"]["kind"] == "web":
             try:
-                (self._spool / f"{identifier}.{row['sha256']}").unlink(missing_ok=True)
+                (self._spool / upload_spool_name(identifier, row["sha256"])).unlink(
+                    missing_ok=True
+                )
             except OSError:
                 logging.getLogger(__name__).warning(
                     "stored original %s needs spool cleanup", identifier
@@ -1138,7 +1148,9 @@ class AttachmentStore:
 
     def _remove_local_original(self, row: RowMapping) -> None:
         if row["source"]["kind"] == "web":
-            (self._spool / f"{row['id']}.{row['sha256']}").unlink(missing_ok=True)
+            (self._spool / upload_spool_name(row["id"], row["sha256"])).unlink(
+                missing_ok=True
+            )
         directory = self._cache / str(row["id"])
         if directory.exists():
             shutil.rmtree(directory)
@@ -1234,7 +1246,9 @@ class AttachmentStore:
                 and not (self._cache / str(identifier)).exists()
                 and not (
                     row["source"]["kind"] == "web"
-                    and (self._spool / f"{identifier}.{row['sha256']}").exists()
+                    and (
+                        self._spool / upload_spool_name(identifier, row["sha256"])
+                    ).exists()
                 )
             ):
                 async with self._database.begin() as connection:

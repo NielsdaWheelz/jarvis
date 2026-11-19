@@ -19,7 +19,7 @@ from starlette.responses import Response, StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from jarvis._thread_io import joined_thread
-from jarvis.attachments import AttachmentStore, WebUpload
+from jarvis.attachments import AttachmentStore, WebUpload, upload_spool_name
 
 BODY_LIMIT = 90 * 1024 * 1024
 TEXT_LIMIT = 16 * 1024
@@ -73,7 +73,9 @@ def _stage(
                     _media_type(header),
                 )
                 try:
-                    os.link(output.name, spool / f"{upload.id}.{upload.sha256}")
+                    os.link(
+                        output.name, spool / upload_spool_name(upload.id, upload.sha256)
+                    )
                 except FileExistsError:
                     pass
                 uploads.append(upload)

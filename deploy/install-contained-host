@@ -122,9 +122,10 @@ if notes.exists() or notes.is_symlink():
         raise SystemExit("existing notes directory needs ownership/mode repair")
 print(config.development_user)
 print(account)
+print(config.binary)
 PY
 )
-[[ "${#layout[@]}" == 2 ]]
+[[ "${#layout[@]}" == 3 ]]
 host_user="${layout[0]}"
 account_home="${layout[1]}"
 sudo -n -u "$host_user" test -r "$account_home/auth.json"
@@ -137,6 +138,24 @@ sudo -n systemd-analyze verify "$remote/jarvis.service"
 sudo -n systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
 if sudo -n systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
   sudo -n systemctl stop jarvis-codex-contained.service
+fi
+# Stock dispatches shell and file tools through its sibling code-mode host.
+binary="$(realpath -m -- "${layout[2]}")"
+[[ "$(uname -m)" == x86_64 && "${binary##*/}" == codex ]]
+stock_dir="${binary%/*}"
+cat >"$remote/stock.sha256" <<'SUMS'
+12eb3e81114588aca3b7998f4f19e8997b056aca08e57a7ca7c8a3ec8c652aad  codex
+37cab1584302611e9936902219640ab5e7a79fcfccd2504c6e85ea8cb97d0e10  codex-code-mode-host
+SUMS
+if ! (cd "$stock_dir" && sha256sum -c --status "$remote/stock.sha256" &&
+      test -x codex && test -x codex-code-mode-host) 2>/dev/null; then
+  curl -fsSL https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-linux-x64.tgz -o "$remote/stock.tgz"
+  for file in codex codex-code-mode-host; do
+    tar -xzOf "$remote/stock.tgz" "package/vendor/x86_64-unknown-linux-musl/bin/$file" >"$remote/$file"
+  done
+  (cd "$remote" && sha256sum -c --status stock.sha256)
+  if [[ ! -d "$stock_dir" ]]; then install -d -m 0755 -o root -g root "$stock_dir"; fi
+  install -m 0755 -o root -g root "$remote"/{codex,codex-code-mode-host} "$stock_dir/"
 fi
 sudo -n install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
 sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec

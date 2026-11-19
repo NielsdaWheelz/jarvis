@@ -284,6 +284,13 @@ schema 4 is rejected. the installed mapping is `/etc/jarvis/codex-host.json`. th
 that single public file at `/run/jarvis-contained/codex-host.json` through a
 read-only bind; `/etc/jarvis` keeps its private traversal permissions.
 
+on the x86-64 host, `install-contained-host` installs and verifies the two
+executables from the pinned official linux x64 `@openai/codex` 0.160.0 package
+in the mapped binary directory. stock dispatches native tools through its sibling
+`codex-code-mode-host`. a working subscription or model reply alone cannot qualify
+authoring. verify a real publication from the notes checkout during the installed
+journey. [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.160.0-linux-x64)
+
 the contained endpoint requires stock 0.160.0 and the provider-owned complete
 restricted model catalogue at HOST STARTUP. unsupported versions and missing
 startup policy fail before thread creation. per-thread overrides do not provide

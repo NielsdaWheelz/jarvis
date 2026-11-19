@@ -286,7 +286,10 @@ read-only bind; `/etc/jarvis` keeps its private traversal permissions.
 
 on the x86-64 host, `install-contained-host` installs and verifies the two
 executables from the pinned official linux x64 `@openai/codex` 0.160.0 package
-in the mapped binary directory. stock dispatches native tools through its sibling
+in the dedicated `/opt/jarvis-codex/0.160.0` directory. the installer checks the
+mapped path before stopping the native host, then verifies both installed digests
+before starting it. if interrupted, leave the services stopped and repeat
+`deploy/install-contained-host "$to"`. stock dispatches native tools through its sibling
 `codex-code-mode-host`. a working subscription or model reply alone cannot qualify
 authoring. verify a real publication from the notes checkout during the installed
 journey. [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.160.0-linux-x64)

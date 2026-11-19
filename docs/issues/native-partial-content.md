@@ -51,7 +51,8 @@ original receipts and no prior follow-up. each run made one inventory call and
 independent opus review failed both replies for content. each run created a
 blocked work item that kept the purchasing review open, satisfying the
 follow-through requirement. these observations qualify neither candidate.
-the independent memory release remains `e6ebc31`.
+the owner chose to ship the qualified independent memory release `e6ebc31`
+and leave long-report delivery for a separate decision.
 
 before changing the product contract, settle what the owner should receive
 when the requested findings, useful links and material caveats cannot all fit

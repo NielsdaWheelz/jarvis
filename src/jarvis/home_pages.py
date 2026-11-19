@@ -21,8 +21,8 @@ PAGE_CSP = (
     "style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; "
     "form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
 )
-_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-_REV = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+SLUG_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+REV_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 
 
 class _Work(TypedDict):
@@ -70,7 +70,7 @@ class HomePages:
 def _publish(
     notes: Path, slug: str, rev: str | None, home: bool
 ) -> dict[str, str | bool]:
-    if not _SLUG.fullmatch(slug) or len(slug) > 64:
+    if not re.fullmatch(SLUG_PATTERN, slug) or len(slug) > 64:
         raise ValueError("invalid page slug")
     root = notes / ".git/jarvis-pages"
     body: bytes | None = None
@@ -80,7 +80,7 @@ def _publish(
             return subprocess.check_output(["git", "-C", str(notes), *args])
 
         if (
-            not _REV.fullmatch(rev)
+            not re.fullmatch(REV_PATTERN, rev)
             or git("rev-parse", "--verify", f"{rev}^{{commit}}").decode().strip() != rev
             or not git("for-each-ref", "--count=1", "--contains", rev, "refs/heads")
         ):

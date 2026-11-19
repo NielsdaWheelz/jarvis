@@ -69,7 +69,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.definitions import RoleDefinitions
-from jarvis.input_framing import host_input
+from jarvis.input_framing import home_context, host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
@@ -326,7 +326,6 @@ class NativeRunner:
             raise NativeDefect("public message has no active native journal")
         await self._journal.record(attempt_id, message)
         await self.memory.publish()
-        self.notify_delivery()
 
     async def recover(self) -> None:
         await recover_native_products(self.owner)
@@ -371,6 +370,8 @@ class NativeRunner:
                 actual, limit, unit = size.wire_bytes, size.max_bytes, "wire bytes"
             reason = f"the opening needed {actual} {unit}, limit {limit}"
             parked = await park_oversized_input(self.owner, pending[0].id, reason)
+            if parked:
+                self.notify_delivery()
             return NativeRunOutcome("progressed" if parked else "blocked")
         attempt_id = str(uuid4())
         permit = self.owner.permit("jarvis-native:" + attempt_id)
@@ -411,6 +412,7 @@ class NativeRunner:
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
+                dispatcher.on_approval_pending = self.notify_delivery
                 self._dispatchers.append(dispatcher)
                 terminal = await run_native(
                     definition=self.definitions.main,
@@ -498,7 +500,7 @@ async def _settle_failed_opening(
 
 
 async def fence_abandoned_native_attempt(owner: JarvisOwner) -> bool:
-    """End old dispatch authority immediately, even before Discord catch-up."""
+    """End old dispatch authority before accepting new input."""
     async with owner.database.begin() as connection:
         await lock_conversation(connection, owner.scope_id)
         fenced = await connection.scalar(
@@ -515,7 +517,7 @@ async def fence_abandoned_native_attempt(owner: JarvisOwner) -> bool:
 
 
 async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
-    """After catch-up, drain original seals and then account for lost turns."""
+    """Drain original seals and then account for lost turns."""
     fenced = await fence_abandoned_native_attempt(owner)
     completed: list[UUID] = []
     counts: Counter[str] = Counter()
@@ -607,7 +609,7 @@ async def _settle_native_product(
         raise NativeDefect("original output schema is absent")
     try:
         value = decode_agent_output(turn.output, turn.terminal)
-        final = JarvisTerminal.model_validate(thaw_json_value(value))
+        final = JarvisTerminal.from_seal(turn.output.name, thaw_json_value(value))
         rendered = render_terminal(final)
     except (TypeError, ValueError, OutputSchemaMismatch) as error:
         log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
@@ -836,6 +838,7 @@ async def native_receipt_context(
                 else None,
                 "control_kind": row["control_kind"],
                 "trace": row["trace"],
+                **home_context(row["home"]),
                 "text": row["text"],
             }
             for row in (*requests, *stop_context)

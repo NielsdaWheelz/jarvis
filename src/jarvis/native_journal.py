@@ -82,6 +82,9 @@ from jarvis.db import (
     proven_native_delivery,
     read_position,
 )
+from jarvis.home_notices import enqueue_notice
+from jarvis.home_pages import DEFAULT_EXPORT
+from jarvis.home_reads import reference_exists
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
     MAX_TRACE_BYTES,
@@ -92,8 +95,10 @@ from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 from jarvis.terminal import (
     JarvisNativeMessage,
     JarvisTerminal,
+    Presentation,
     Progress,
     RenderedTerminal,
+    Silent,
 )
 from jarvis.tool_results import completed_tool_result, host_rejected
 
@@ -1305,7 +1310,10 @@ class PostgresNativeJournal:
                 .one_or_none()
             )
             if existing is None:
-                await connection.execute(insert(message).values(**values))
+                home = await _presentation_home(
+                    connection, self.owner.scope_id, row["id"], value.response.present
+                )
+                await connection.execute(insert(message).values(**values, home=home))
             elif (
                 existing["text"] != value.response.text
                 or existing["trace"] != values["trace"]
@@ -1366,6 +1374,56 @@ async def _locked_attempt(
     return row
 
 
+async def _presentation_home(
+    connection: AsyncConnection,
+    scope: str,
+    attempt_id: UUID,
+    present: Presentation | None,
+    stopping: tuple[UUID, ...] = (),
+) -> dict[str, object] | None:
+    """Walk only proven deliveries' parent chains under the conversation lock."""
+    if present is None:
+        return None
+    eligible = (
+        (message.c.source_conversation_id == scope)
+        & message.c.request_state.in_(("pending", "waiting", "completed"))
+        & message.c.control_kind.is_(None)
+    )
+    if stopping:
+        eligible &= message.c.id.not_in(stopping)
+    delivered = select(native_input_delivery.c.message_id).where(
+        native_input_delivery.c.attempt_id == attempt_id, proven_native_delivery
+    )
+    ancestors = (
+        select(message.c.id, message.c.parent_request_id)
+        .where(eligible, message.c.id.in_(delivered))
+        .cte("ancestors", recursive=True)
+    )
+    ancestors = ancestors.union(
+        select(message.c.id, message.c.parent_request_id)
+        .join(ancestors, message.c.id == ancestors.c.parent_request_id)
+        .where(eligible)
+    )
+    request = await connection.scalar(
+        select(message.c.id)
+        .join(ancestors, ancestors.c.id == message.c.id)
+        .where(
+            message.c.id == UUID(present.request_id),
+            message.c.role == "owner",
+            message.c.source == "web",
+        )
+    )
+    if request is None:
+        raise NativeContentDefect(
+            "presentation lacks its delivered web request lineage"
+        )
+    if not await reference_exists(
+        connection, scope, present.ref.model_dump(mode="json"), DEFAULT_EXPORT
+    ):
+        raise NativeContentDefect("presentation target is unavailable")
+    return {"present": present.model_dump(mode="json")}
+
+
 async def commit_product(
     database: Database,
     owner: JarvisOwner,
@@ -1409,6 +1467,13 @@ async def commit_product(
             raise NativeContentDefect(
                 "final dispositions name input without live delivered authority"
             )
+        home = await _presentation_home(
+            connection,
+            owner.scope_id,
+            attempt["id"],
+            None if isinstance(final.response, Silent) else final.response.present,
+            tuple(key for key, item in statuses.items() if item.disposition == "stop"),
+        )
         timestamp = datetime.now(UTC)
         for identifier, disposition in statuses.items():
             target = inputs[identifier]
@@ -1531,11 +1596,17 @@ async def commit_product(
                     role="assistant",
                     text=rendered.content,
                     source="native_final",
+                    home=home,
                     memory_admitted=memory_is_admitted(connection),
                     source_conversation_id=owner.scope_id,
                     processed_at=timestamp,
                     trace={"native_attempt_id": turn.attempt_id},
                 )
+            )
+            await enqueue_notice(
+                connection,
+                "question" if final.waits_for_owner and final.has_question else "reply",
+                conclusion_id,
             )
         await connection.execute(
             update(native_attempt)
@@ -1724,9 +1795,10 @@ async def _park_inputs(
                 trace=trace,
             )
         )
+        failure_id = uuid4()
         await connection.execute(
             insert(message).values(
-                id=uuid4(),
+                id=failure_id,
                 role="assistant",
                 text=(
                     f"{reason} on request {identifier}. "
@@ -1742,6 +1814,7 @@ async def _park_inputs(
                 else {},
             )
         )
+        await enqueue_notice(connection, "reply", failure_id)
 
 
 async def park_oversized_input(

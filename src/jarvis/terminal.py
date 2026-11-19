@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
+from jarvis.home_refs import ViewRef
 
 type TerminalOutcome = Literal[
     "answered",
@@ -20,15 +29,16 @@ type TerminalOutcome = Literal[
 ]
 type ConclusionKind = Literal["conversation", "silent"]
 
-DISCORD_CONTENT_MAX_CHARACTERS = 2_000
+CHAT_MAX_CHARACTERS = 2_000
 _PARTIAL_PREFIX = "partial result — "
 _FAILED_PREFIX = "i couldn't complete this: "
 _PARAGRAPH = "\n\n"
 _DETAIL_MAX = 500
 _PARTIAL_BODY_MAX = (
-    DISCORD_CONTENT_MAX_CHARACTERS - len(_PARTIAL_PREFIX + _PARAGRAPH) - _DETAIL_MAX
+    CHAT_MAX_CHARACTERS - len(_PARTIAL_PREFIX + _PARAGRAPH) - _DETAIL_MAX
 )
 PROGRESS_MAX_BYTES = 2_000
+NATIVE_OUTPUT_NAME = "jarvis_home_message"
 
 
 class _StrictModel(BaseModel):
@@ -47,18 +57,37 @@ def _terminal_text(value: str) -> str:
     return value
 
 
-class Answered(_StrictModel):
+# Stock requires every declared property. Whole files omit page entirely.
+class _FileRef(_StrictModel):
+    kind: Literal["file"]
+    id: CanonicalUuid
+
+
+class _FilePageRef(_FileRef):
+    page: Annotated[int, Field(strict=True, ge=1)]
+
+
+class Presentation(_StrictModel):
+    request_id: CanonicalUuid
+    ref: ViewRef | _FileRef | _FilePageRef
+
+
+class _Visible(_StrictModel):
+    present: Presentation | None
+
+
+class Answered(_Visible):
     """A complete answer from observed facts with no uncommitted later-work promise."""
 
     type: Literal["answered"]
-    text: Annotated[str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)]
+    text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
 
     _valid_text = field_validator("text")(_terminal_text)
 
 
-class _PartialFields(_StrictModel):
+class _PartialFields(_Visible):
     type: Literal["partial"]
-    text: Annotated[str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)]
+    text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
     limitation: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
     _valid_text = field_validator("text")(_terminal_text)
@@ -76,7 +105,7 @@ class Partial(_PartialFields):
     question: Annotated[str | None, Field(min_length=1, max_length=_DETAIL_MAX)]
 
 
-# A new opening reserves space for every field in its complete Discord message.
+# A new opening reserves space for every field in its complete chat message.
 # Frozen seals still use their own wire schema and the full semantic Partial.
 class _PartialWithoutQuestion(_PartialFields):
     text: Annotated[str, Field(min_length=1, max_length=_PARTIAL_BODY_MAX)]
@@ -93,7 +122,7 @@ class _PartialWithQuestion(_PartialFields):
     question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
 
-class NeedsInput(_StrictModel):
+class NeedsInput(_Visible):
     """One concrete owner detail required to answer the request."""
 
     type: Literal["needs_input"]
@@ -104,13 +133,11 @@ class NeedsInput(_StrictModel):
     _valid_question = field_validator("question")(_terminal_text)
 
 
-class Failed(_StrictModel):
+class Failed(_Visible):
     """An honest explanation that the request could not be completed."""
 
     type: Literal["failed"]
-    explanation: Annotated[
-        str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)
-    ]
+    explanation: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
 
     _valid_explanation = field_validator("explanation")(_terminal_text)
 
@@ -120,7 +147,7 @@ class _GeneratedFailed(Failed):
         str,
         Field(
             min_length=1,
-            max_length=DISCORD_CONTENT_MAX_CHARACTERS - len(_FAILED_PREFIX),
+            max_length=CHAT_MAX_CHARACTERS - len(_FAILED_PREFIX),
         ),
     ]
 
@@ -132,14 +159,14 @@ class Silent(_StrictModel):
     reason: Literal["no_owner_notice_needed"]
 
 
-class Waiting(_StrictModel):
+class Waiting(_Visible):
     type: Literal["waiting"]
-    text: Annotated[str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)]
+    text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
 
     _valid_text = field_validator("text")(_terminal_text)
 
 
-class Progress(_StrictModel):
+class Progress(_Visible):
     """Useful commentary; it grants no completion or action authority."""
 
     type: Literal["progress"]
@@ -193,30 +220,61 @@ class InputOutcome(_StrictModel):
         return self
 
 
-class _InputDispositions(_StrictModel):
+class _Message[ResponseT: _StrictModel](_StrictModel):
+    response: ResponseT
     input_outcomes: list[InputOutcome]
 
     @model_validator(mode="after")
-    def unique_inputs(self) -> Self:
+    def valid_outcomes(self, info: ValidationInfo) -> Self:
         ids = [item.input_id for item in self.input_outcomes]
         if len(ids) != len(set(ids)):
             raise PydanticCustomError(
                 "jarvis_input_dispositions_duplicate",
                 "input dispositions must be unique",
             )
+        if (
+            self.waits_for_owner
+            and not self.has_question
+            and info.context != "historical_seal"
+        ):
+            raise ValueError(
+                "owner_input wait requires a needs_input or partial question"
+            )
         return self
 
+    @property
+    def waits_for_owner(self) -> bool:
+        return any(item.wait_reason == "owner_input" for item in self.input_outcomes)
 
-class JarvisTerminal(_InputDispositions):
+    @property
+    def has_question(self) -> bool:
+        return isinstance(
+            self.response, NeedsInput | Partial | _PartialWithQuestion
+        ) and bool(self.response.question and self.response.question.strip())
+
+
+class JarvisTerminal(
+    _Message[Answered | Partial | NeedsInput | Failed | Silent | Waiting]
+):
     """One validated, terminal Main response."""
 
-    response: Answered | Partial | NeedsInput | Failed | Silent | Waiting
+    @classmethod
+    def from_seal(cls, name: str, value: object) -> Self:
+        if name == NATIVE_OUTPUT_NAME:
+            return cls.model_validate(value)
+        if name != "jarvis_native_message" or not isinstance(value, dict):
+            raise ValueError("unrecognized native seal contract")
+        document = cast(dict[str, JsonValue], value)
+        response = document.get("response")
+        if not isinstance(response, dict) or "present" in response:
+            raise ValueError("invalid historical native response")
+        if response.get("type") != "silent":
+            document = {**document, "response": {**response, "present": None}}
+        return cls.model_validate(document, context="historical_seal")
 
 
-class JarvisNativeMessage(_InputDispositions):
-    """The native schema applies to both commentary and final responses."""
-
-    response: (
+class JarvisNativeMessage(
+    _Message[
         Progress
         | Answered
         | _PartialWithoutQuestion
@@ -225,7 +283,9 @@ class JarvisNativeMessage(_InputDispositions):
         | _GeneratedFailed
         | Silent
         | Waiting
-    )
+    ]
+):
+    """The native schema applies to both commentary and final responses."""
 
     @model_validator(mode="after")
     def progress_has_no_dispositions(self) -> Self:
@@ -256,8 +316,8 @@ class RenderedTerminal:
             self.content.encode("utf-8")
         except UnicodeEncodeError as exc:
             raise ValueError("rendered terminal must be valid UTF-8") from exc
-        if len(self.content) > DISCORD_CONTENT_MAX_CHARACTERS:
-            raise ValueError("rendered terminal exceeds the Discord character bound")
+        if len(self.content) > CHAT_MAX_CHARACTERS:
+            raise ValueError("rendered terminal exceeds the chat character bound")
 
 
 def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
@@ -288,10 +348,13 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
 
 
 __all__ = [
+    "NATIVE_OUTPUT_NAME",
     "PROGRESS_MAX_BYTES",
     "JarvisNativeMessage",
     "JarvisTerminal",
+    "Presentation",
     "Progress",
     "RenderedTerminal",
+    "Silent",
     "render_terminal",
 ]

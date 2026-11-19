@@ -31,20 +31,40 @@ def render_attachment_manifest(trace: dict[str, object]) -> str | None:
     ).decode()
 
 
-def archive_message_text(text: str, trace: dict[str, object], input_id: UUID) -> str:
-    """Old text remains byte-identical; uploads add labelled host references."""
+def home_context(home: dict[str, object] | None) -> dict[str, object]:
+    """Only the public reference or presentation belongs in model context."""
+    if home is None:
+        return {}
+    return {key: home[key] for key in ("ref", "present") if home.get(key) is not None}
+
+
+def archive_message_text(
+    text: str,
+    trace: dict[str, object],
+    input_id: UUID,
+    home: dict[str, object] | None = None,
+) -> str:
+    """Preserve historical projection bytes and label new host-supplied metadata."""
     manifest = render_attachment_manifest(trace)
-    if manifest is None:
-        return text
-    caption = (
-        f'<owner_input input_id="{input_id}">\n{text}\n</owner_input>\n' if text else ""
-    )
-    return (
-        caption
-        + f'<attachment_manifest input_id="{input_id}" role="host">\n'
-        + manifest
-        + "\n</attachment_manifest>"
-    )
+    if manifest is not None:
+        caption = (
+            f'<owner_input input_id="{input_id}">\n{text}\n</owner_input>\n'
+            if text
+            else ""
+        )
+        text = (
+            caption
+            + f'<attachment_manifest input_id="{input_id}" role="host">\n'
+            + manifest
+            + "\n</attachment_manifest>"
+        )
+    if context := home_context(home):
+        metadata = canonical_json_bytes(cast(JsonValue, context)).decode()
+        text += (
+            f'\n<home_context input_id="{input_id}" role="host">\n'
+            f"{metadata}\n</home_context>"
+        )
+    return text
 
 
 def host_input(value: StoredMessage) -> HostInput:
@@ -75,21 +95,27 @@ def host_input(value: StoredMessage) -> HostInput:
                 PromptText(value.text),
             )
         )
+    host_attributes = tuple(
+        PromptAttribute(attribute.name, "host")
+        if attribute.name == PromptAttributeName("role")
+        else attribute
+        for attribute in attributes
+    )
     manifest = render_attachment_manifest(value.trace)
     if manifest is not None:
         sections.append(
             PromptSection(
                 PromptSectionKind("attachment_manifest"),
-                tuple(
-                    PromptAttribute(
-                        attribute.name,
-                        "host"
-                        if attribute.name == PromptAttributeName("role")
-                        else attribute.value,
-                    )
-                    for attribute in attributes
-                ),
+                host_attributes,
                 PromptText(manifest),
+            )
+        )
+    if context := home_context(value.home):
+        sections.append(
+            PromptSection(
+                PromptSectionKind("home_context"),
+                host_attributes,
+                PromptText(canonical_json_bytes(cast(JsonValue, context)).decode()),
             )
         )
     return HostInput(

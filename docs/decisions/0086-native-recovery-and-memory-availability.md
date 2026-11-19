@@ -455,3 +455,41 @@ with the conversation id omitted. its authenticated receipt was
 `2026-11-18T23:47:54.962773Z`. the same client reopened the text exactly.
 postgres held one 928-byte original and one leaf at position 3,245. its sha256
 matched the original submission, and its native conversation id was null.
+
+**production attempt 127.** the fresh opening reached the model. it used
+`receipt.read` 19 times, made fresh observations and recorded two successful
+`work.create` actions. the terminal sealed at `2026-11-18T23:58:09.036305Z`.
+its partial had 2,000 characters of text, a 143-character limitation and no
+question. the author schema admitted those fields. the host label and separator
+brought the rendered answer to 2,162 characters against a 2,000-character limit.
+at `23:58:09.105763Z` the product parked all 27 delivered waking inputs. eight
+arrived in the opening and 19 by recorded steer. seven belonged to the original
+stopped inventory. the disposition checks had yet to run. no final entered the
+outbox. the original terminal, action receipts and 339 older gmail originals
+survived. this second failure arose during local rendering after the opening-size
+and recovery-scan repairs had already admitted the mail request.
+
+**h · single-message finals.** the 0015 correction
+`e34608e55edd31055431a4c9f939d8e160d6b480` and the combined 0016 candidate
+`e6ebc314775f283e8be362f3df1b73a925b5cf96` were committed on 2026-11-19
+at 00:04 utc. new partials allow 1,481 body characters without a question and
+979 with one. a failed explanation allows 1,974. reserving the full space for
+labels, separators and adjacent fields leaves some capacity unused when the
+limitation or question is short. at all three maxima the full render occupied
+exactly 2,000 characters. the generation schema rejected one more in each case.
+the host preserved the single canonical reply and checked its actual length.
+
+on disposable postgres 16, a renderable old-schema partial committed unchanged.
+the 2,162-character incident shape retained its original seal and failed product
+outcome across replay, with zero final replies. on the combined candidate a
+1,690-character historical body rendered to 1,723 and committed from its frozen
+schema. new stock
+`gpt-6-astra`/max turns committed one 207-character partial and one 162-character
+failed reply through the normal outbox. the failed sample chose `stop`.
+inspection matched each stored disposition and the exact rendered text to its
+seal. main instructions grew from 16,147 to 16,274 of 16,384 bytes. the output
+schema grew from 3,802 to 4,141 of 32,768 bytes. the 48-tool plan retained
+revision `dc9286a74681727f8fd2b8435c0d83d6aff1ce32e1a93e6e58cc538e9293b1f6`.
+opus approved the source. these candidate results cover synthetic requests and
+canonical persistence. installed activation, named release and delivery of the
+real mail reply require separate production receipts.

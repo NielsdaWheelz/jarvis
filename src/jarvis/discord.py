@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -72,7 +73,7 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
             value = float(header)
         except ValueError:
             value = -1.0
-        if value >= 0.0:
+        if math.isfinite(value) and value >= 0.0:
             return value
     try:
         raw_body = cast(object, response.json())
@@ -82,7 +83,12 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
         return None
     body = cast("dict[str, object]", raw_body)
     value = body.get("retry_after")
-    if isinstance(value, int | float) and not isinstance(value, bool) and value >= 0:
+    if (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    ):
         return float(value)
     return None
 
@@ -107,28 +113,30 @@ class DiscordCreateMessageClient:
         persisted_message_id: UUID | str,
         content: str,
     ) -> DeliveryResult:
-        """Create or recently deduplicate one persisted assistant message."""
+        """Create or recently deduplicate one notification."""
 
         if not content or len(content) > DISCORD_MAX_CONTENT_CHARACTERS:
             raise ValueError("Discord content must contain 1 to 2000 characters")
 
         nonce = discord_nonce(persisted_message_id)
-        return await self._deliver(
-            lambda: self._create_request(
-                content=content,
-                nonce=nonce,
-            )
-        )
-
-    async def _deliver(
-        self,
-        request: Callable[[], Awaitable[httpx.Response]],
-    ) -> DeliveryResult:
-        """Apply one bounded response and retry policy to host-owned requests."""
-
         for attempt in range(1, self._settings.delivery_max_attempts + 1):
             try:
-                response = await request()
+                response = await self._http_client.post(
+                    f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}/messages",
+                    headers={
+                        "Authorization": "Bot "
+                        + self._settings.bot_token.get_secret_value(),
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "content": content,
+                        "nonce": nonce,
+                        "enforce_nonce": True,
+                        "allowed_mentions": {"parse": []},
+                        "flags": SUPPRESS_EMBEDS,
+                    },
+                    timeout=self._settings.request_timeout_seconds,
+                )
             except httpx.RequestError:
                 failure = DeliveryFailed(
                     kind=DeliveryFailureKind.TRANSPORT,
@@ -195,20 +203,3 @@ class DiscordCreateMessageClient:
                 delay = max(delay, failure.retry_after_seconds)
             await self._sleep(delay)
         raise AssertionError("delivery policy made no attempt")  # pragma: no cover
-
-    async def _create_request(self, *, content: str, nonce: str) -> httpx.Response:
-        return await self._http_client.post(
-            f"{DISCORD_API_BASE_URL}/channels/{self._settings.channel_id}/messages",
-            headers={
-                "Authorization": "Bot " + self._settings.bot_token.get_secret_value(),
-                "Content-Type": "application/json",
-            },
-            json={
-                "content": content,
-                "nonce": nonce,
-                "enforce_nonce": True,
-                "allowed_mentions": {"parse": []},
-                "flags": SUPPRESS_EMBEDS,
-            },
-            timeout=self._settings.request_timeout_seconds,
-        )

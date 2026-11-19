@@ -149,7 +149,6 @@ class JarvisService:
         self._agent_waits.notify_wait_changed()
         self._work_timer.notify_changed()
         self._event_poller.notify_changed()
-        await self._memory.publish()
         return result.message.id, True
 
     async def _waits_inactive(self) -> bool:
@@ -252,7 +251,6 @@ class JarvisService:
                 not self._shutdown.is_set()
                 and await self._attachments.capture_pending()
             ):
-                await self._memory.publish()
                 self.request_work()
 
     def _timer_stopped(self, task: asyncio.Task[None]) -> None:
@@ -301,10 +299,20 @@ class JarvisService:
         while not self._shutdown.is_set():
             await self._delivery_work.wait()
             self._delivery_work.clear()
-            if not await deliver_pending(
+            failure = await deliver_pending(
                 self._database, self._delivery, self._settings.delivery_batch_size
-            ):
-                await self._sleep(2)
+            )
+            if failure is not None:
+                delay = max(
+                    failure.retry_after_seconds or 0, 2 if failure.retryable else 60
+                )
+                LOGGER.warning(
+                    "notification pending: kind=%s status=%s retry_in=%ss",
+                    failure.kind,
+                    failure.http_status,
+                    delay,
+                )
+                await self._sleep(delay)
                 self.request_delivery()
 
     async def _drain(self) -> None:
@@ -314,6 +322,7 @@ class JarvisService:
             inactive = await self._paused.is_paused()
             recovered = await self._recover_actions(allow_queued_execution=not inactive)
             if inactive:
+                await self._memory.publish()
                 return
             if recovered:
                 continue

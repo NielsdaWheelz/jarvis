@@ -1,6 +1,5 @@
 """Persist a private notification with the fact that earned it."""
 
-import logging
 from typing import Literal
 from uuid import UUID, uuid5
 
@@ -30,7 +29,7 @@ async def enqueue_notice(
 
 async def deliver_pending(
     database: Database, sender: DiscordCreateMessageClient, limit: int
-) -> bool:
+) -> DeliveryFailed | None:
     """Drain committed notices in order. An unacknowledged send stays pending."""
     while True:
         async with database.connect() as connection:
@@ -65,10 +64,7 @@ async def deliver_pending(
                 content=f"{label}\n{HOME_ORIGIN}{path}",
             )
             if isinstance(result, DeliveryFailed):
-                logging.getLogger(__name__).warning(
-                    "notification pending: %s", result.kind
-                )
-                return False
+                return result
             async with database.begin() as connection:
                 await connection.execute(
                     update(home_notice)
@@ -76,4 +72,4 @@ async def deliver_pending(
                     .values(discord_message_id=result.discord_message_id)
                 )
         if len(notices) < limit:
-            return True
+            return None

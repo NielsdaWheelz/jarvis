@@ -175,7 +175,9 @@ async def attachment_response(
     if result["type"] == "Failure":
         code = result["error"]["type"]
         raise HTTPException(
-            {"NotFound": 404, "Deleted": 410}.get(str(code), 409), str(code)
+            {"NotFound": 404, "Deleted": 410}.get(str(code), 409),
+            str(code),
+            headers={"X-Jarvis-File-State": str(code)},
         )
     value = cast(dict[str, object], result["value"])
     descriptor = cast(dict[str, object], value["attachment"])
@@ -189,7 +191,9 @@ def _original_response(path: Path, name: str, head: bool) -> Response:
         stream = path.open("rb")
     except FileNotFoundError:
         # A deletion can remove the cache between verification and opening the fd.
-        raise HTTPException(409, "original unavailable") from None
+        raise HTTPException(
+            409, "original unavailable", headers={"X-Jarvis-File-State": "Unavailable"}
+        ) from None
     try:
         media_type = _media_type(stream.read(16))
         stream.seek(0)

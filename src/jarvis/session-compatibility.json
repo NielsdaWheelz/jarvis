@@ -13,7 +13,7 @@
   "role_contract_revisions": {
     "compactor": "jarvis-memory-compactor-v5",
     "dreamer": "jarvis-memory-dreamer-v7",
-    "main": "jarvis-main-causal-receipts-v6"
+    "main": "jarvis-main-renderable-finals-v7"
   },
   "schema_version": "jarvis-session-compatibility.v3"
 }

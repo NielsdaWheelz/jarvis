@@ -845,6 +845,10 @@ explanation retain the existing
 Discord response limit. The host renders complete answers unchanged and owns
 the fixed labels for every other visible branch, checking the final rendered
 Discord bound before persistence. model text is never silently cropped to fit.
+new main openings reserve the fixed labels, separators and maximum adjacent fields
+in the generation schema. a partial body allows 1,481 characters with a null question
+and 979 with a question. a failed explanation allows 1,974. the fully rendered
+limit still governs settlement of seals validated against their original schema.
 
 final dispositions name delivered inputs as `complete`, `continue`, or `waiting`;
 omitted requests keep their state. only `complete` closes a request. `waiting`

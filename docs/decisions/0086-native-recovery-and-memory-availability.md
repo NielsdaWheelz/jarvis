@@ -490,6 +490,15 @@ inspection matched each stored disposition and the exact rendered text to its
 seal. main instructions grew from 16,147 to 16,274 of 16,384 bytes. the output
 schema grew from 3,802 to 4,141 of 32,768 bytes. the 48-tool plan retained
 revision `dc9286a74681727f8fd2b8435c0d83d6aff1ce32e1a93e6e58cc538e9293b1f6`.
-opus approved the source. these candidate results cover synthetic requests and
-canonical persistence. installed activation, named release and delivery of the
-real mail reply require separate production receipts.
+stock also condensed 80 synthetic records into a partial with a limitation and
+a question. postgres persisted all 897 rendered characters, including the
+requested closing reference. opus approved the source and final evidence.
+
+on 2026-11-19 utc, production selected the corrected 0015 release. activation
+found zero unfinished actions. a clean second stop allowed the operator to
+verify all 27 named inputs against the failed seal, delivery lineage and current
+control. one transaction released the 27. all had pending state, a cleared
+park and the release watermark at attempt 128. the failed product remained
+immutable. all 45 invocation receipts, both one-entry work actions and the
+339 earlier gmail receipts still matched their original hashes. the assistant
+then restarted under the same owner resume.

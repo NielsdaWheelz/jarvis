@@ -6,6 +6,15 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## next target — private web home
+
+[adr 0087](docs/decisions/0087-private-web-home.md) specifies the successor to
+the single discord chat. the private website owns conversation, uploads and
+decisions. jarvis publishes the main canvas from its notes workspace. discord
+delivers notification links. the adr supersedes conflicting client, readiness,
+delivery and presentation rules below at cutover. the installed behavior remains
+the 0086 baseline until that cut.
+
 ## accepted native recovery and memory availability target
 
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)

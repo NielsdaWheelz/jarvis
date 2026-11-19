@@ -57,6 +57,14 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
   contract. distinguish source merged, dependency pinned, fleet installed, live
   behavior verified and owner-resumed service.
 
+## private web home
+
+the next delivery follows [adr 0087](decisions/0087-private-web-home.md) for the
+contract, file boundaries, designer briefs and temporary red/green/refactor proofs. build
+the owner conversation, browser, originals, authored canvas and notification cut
+against the same schema, then qualify them together before a single cutover.
+the native client and native notifications belong to the following pr.
+
 ## native recovery and memory availability
 
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the

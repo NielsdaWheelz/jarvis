@@ -136,14 +136,19 @@ def main() -> None:
     publish.add_argument("commit")
     publish.add_argument("--home", action="store_true")
     commands.add_parser("withdraw").add_argument("slug")
+    resolve = commands.add_parser("resolve")
+    resolve.add_argument("slug")
+    resolve.add_argument("rev", nargs="?")
     args = parser.parse_args()
     try:
-        result = _publish(
-            NOTES_ROOT,
-            args.slug,
-            getattr(args, "commit", None),
-            getattr(args, "home", False),
-        )
+        if args.command == "resolve":
+            result = HomePages().view(args.slug, args.rev)
+            if result is None:
+                raise ValueError("page is not published")
+        elif args.command == "publish":
+            result = _publish(NOTES_ROOT, args.slug, args.commit, args.home)
+        else:
+            result = _publish(NOTES_ROOT, args.slug, None, False)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"jarvis-page: {error}\n")
     print(json.dumps(result))

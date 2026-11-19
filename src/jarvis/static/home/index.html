@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>jarvis</title>
+    <link rel="stylesheet" href="/static/home/home.css" />
+    <script type="module" src="/static/home/home.js"></script>
+  </head>
+  <body>
+    <main id="workspace">
+      <header class="bar">
+        <a class="wordmark" href="/" aria-label="jarvis home">jarvis</a>
+        <span id="location"></span>
+        <button id="sidebar-open" aria-label="open sidebar" aria-controls="sidebar">
+          conversation
+        </button>
+      </header>
+      <section id="canvas" aria-label="workspace"></section>
+      <footer id="object-tools" hidden></footer>
+    </main>
+    <aside id="sidebar" aria-label="conversation and work">
+      <header class="bar">
+        <span class="sidebar-title">workspace</span>
+        <button id="sidebar-close" aria-label="close sidebar">close</button>
+      </header>
+      <nav aria-label="workspace sections">
+        <button data-tab="chat" aria-pressed="true">chat</button>
+        <button data-tab="decisions">decisions</button>
+        <button data-tab="todos">todos</button>
+      </nav>
+      <section id="chat" class="panel" aria-label="chat">
+        <button id="older" hidden>earlier messages</button>
+        <div id="messages"></div>
+      </section>
+      <section id="records" class="panel" aria-label="work records" hidden></section>
+      <form id="composer">
+        <div id="context" hidden></div>
+        <label class="sr-only" for="message">message jarvis</label>
+        <textarea id="message" rows="2" placeholder="message jarvis…"></textarea>
+        <div id="file-list"></div>
+        <div class="compose-actions">
+          <label class="attach">attach<input id="files" type="file" multiple /></label>
+          <button id="send" type="submit">send</button>
+        </div>
+        <div id="receipt" role="status"></div>
+      </form>
+    </aside>
+    <div id="connection" role="status" hidden></div>
+  </body>
+</html>

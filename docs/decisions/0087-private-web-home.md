@@ -18,7 +18,7 @@ side from ordinary files in its private notes repo. a release of jarvis is unnec
   other work offers a link. a new tab opens the current shared home. an existing tab
   keeps its object, scroll position and draft when another tab or jarvis changes home.
 - **interaction.** a slider or star belongs to the open view. ask jarvis in chat to
-  save a choice. on a phone the canvas fills the screen, one labelled control opens
+  save a choice by naming it, e.g. “save four stars for the odyssey.” on a phone the canvas fills the screen, one labelled control opens
   the sidebar, and back returns to the object. opening a decision never executes it.
 - **withdrawal.** “take this down” closes the page and all its revision links. the
   private git source survives. a person who already received bytes can keep them.
@@ -328,7 +328,7 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   input, model and resolver, changing only the order to put the response type first
   changed silence to an answer with the requested canonical id and revision.
   v12 rotates the main fingerprint because the canonical schema digest ignores order.
-  48 tools fit. the longest supported zone used 16,334 of 16,384 instruction bytes;
+  48 tools fit. the longest supported zone used 16,334 of 16,384 instruction bytes.
   the output schema used 6,088 of 32,768. changing instructions requires remeasuring.
 - **operator rehearsal.** native linux authoring failed when only the stock codex
   executable was installed. the matching 0.160.0 helper enabled the same stock
@@ -336,6 +336,18 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   qualified fresh install, missing-helper repair and a warm run without a download.
   the production binary's dedicated directory was root-owned, mode 0755, on the
   read-only preflight. installing the pair is part of the authorized stopped cut.
+
+### authored pages
+
+stock main wrote, committed and published a mechanical vise viewer at
+`4cc89b9cc71b137a3358f3ff711aaea472c2def7` in disposable private notes. the
+dated viewer named the moving jaw, displayed travel in millimetres, and responded
+to the keyboard in 0.25 mm increments. v12 then authored the comparison at
+`dc2a48b5b076c52036ffa53d6271e5b4f23949e1` and selected it as home. desktop
+chromium and mobile-sized webkit rendered both pins inside the production iframe
+policy. eight turns gave 16 and 12 mm of travel. sixteen turns gave 32 and 24 mm.
+both engines kept the page within the viewport and made zero external requests.
+the clean interaction produced zero browser or content-policy errors.
 
 ### combined candidate, 2026-11-19 utc
 
@@ -351,19 +363,20 @@ traffic. the second used the direct socket at `05849c6`.
   a second tab retained its pdf and draft. withdrawal closed both revision links.
 - the decision linked to `37e8eb07-1530-44fb-8fd4-73b1b212b7c2` showed the actual
   filename and remained readable after settlement. the exact owner answer authorized
-  one delete executor entry. the image returned 410; the retained pdf returned 200.
+  one delete executor entry. the image returned 410 and the retained pdf returned 200.
   five committed notices matched five private posts to the isolated receiver.
 - stopping the application under its canonical pause yielded 503 while the independent
   memory unit still answered 200. the direct run's before/after snapshot digest was
   `d1e54a60ba3f2f5a4f8437602828a5e01abf05897b94ba950ffc28fc4428f205`.
   it retained receipts, scope, archive identity, originals and the pause. all 17
   admitted memory leaves remained, with 15 in the ready view. replay after deletion
-  returned the original id. an earlier provider-capacity failure parked inputs with
-  zero executor entries and preserved the undecided action.
+  returned the original id. a fresh native request read words supplied only by the
+  retained pdf and cited its page and original id. an earlier provider-capacity
+  failure parked inputs with zero executor entries and preserved the undecided action.
 - the repository build, clean wheel install, lint, typing and documentation checks
   passed. the retained jarvis capture/retry check and all four checks from the pinned
   memory dependency passed against disposable postgres. the dependency audit had no
-  known findings; its public index cannot assess the three private git packages.
+  known findings. its public index cannot assess the three private git packages.
 
 the production deployment still runs `0016`. its actual login, phone alert, pdf print,
 captionless upload and owner decision belong to the [installed journey](../issues/private-web-home-installed.md).

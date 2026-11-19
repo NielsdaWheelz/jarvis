@@ -409,5 +409,9 @@ client reopened a pre-cut owner record and read all nine pages of its frozen
 view, covering 2,978 of 26,726 admitted leaves. containment passed on macbook
 and dev-server with arch unavailable. the workstation declaration matches the
 installed owner identities and credentials. the bot's message-content intent is
-off. the remaining [installed journey](../issues/private-web-home-installed.md)
-requires actual owner interactions.
+off. the owner sent `resume` in discord after cutover. zero owner messages from
+discord were admitted after the new service became active. the subsequent web
+`resume` at 16:47 utc committed as control 18, input `8bdbb816-4b89-481f-a632-6e75f7fdc914`.
+its canonical reply `6b144c91-50d7-5896-acaf-b7a82587247b` produced one notice
+with a discord message receipt. the remaining [installed journey](../issues/private-web-home-installed.md)
+includes physical phone delivery and printing.

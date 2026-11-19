@@ -62,21 +62,21 @@ class Presentation(_StrictModel):
     ref: ViewRef | FilePageRef | FileRef
 
 
-class _Visible(_StrictModel):
+class _Visible[KindT: str](_StrictModel):
+    # Stock emits fields in schema order. Every response must choose its type first.
+    type: KindT
     present: Presentation | None
 
 
-class Answered(_Visible):
+class Answered(_Visible[Literal["answered"]]):
     """A complete answer from observed facts with no uncommitted later-work promise."""
 
-    type: Literal["answered"]
     text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
 
     _valid_text = field_validator("text")(_terminal_text)
 
 
-class _PartialFields(_Visible):
-    type: Literal["partial"]
+class _PartialFields(_Visible[Literal["partial"]]):
     text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
     limitation: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
@@ -112,10 +112,9 @@ class _PartialWithQuestion(_PartialFields):
     question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
 
-class NeedsInput(_Visible):
+class NeedsInput(_Visible[Literal["needs_input"]]):
     """One concrete owner detail required to answer the request."""
 
-    type: Literal["needs_input"]
     context: Annotated[str, Field(max_length=1_000)]
     question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
@@ -123,10 +122,9 @@ class NeedsInput(_Visible):
     _valid_question = field_validator("question")(_terminal_text)
 
 
-class Failed(_Visible):
+class Failed(_Visible[Literal["failed"]]):
     """An honest explanation that the request could not be completed."""
 
-    type: Literal["failed"]
     explanation: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
 
     _valid_explanation = field_validator("explanation")(_terminal_text)
@@ -149,17 +147,15 @@ class Silent(_StrictModel):
     reason: Literal["no_owner_notice_needed"]
 
 
-class Waiting(_Visible):
-    type: Literal["waiting"]
+class Waiting(_Visible[Literal["waiting"]]):
     text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
 
     _valid_text = field_validator("text")(_terminal_text)
 
 
-class Progress(_Visible):
+class Progress(_Visible[Literal["progress"]]):
     """Useful commentary; it grants no completion or action authority."""
 
-    type: Literal["progress"]
     text: Annotated[str, Field(min_length=1, max_length=PROGRESS_MAX_BYTES)]
 
     @field_validator("text")

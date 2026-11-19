@@ -568,3 +568,17 @@ a containment check started during interpreter initialization reached its
 same-identity inspection timeout. after application startup the check passed
 on the same pid, including the native host and the available worker gateways.
 arch remained unavailable under its existing fleet deferral.
+
+**restored operation.** the owner resumed through discord at 01:43:43 utc,
+control 16, message `05e29d8d-0517-4b49-8160-2c89656fd6ce`. the assistant and
+memory process both owned the selected release with zero automatic restarts.
+the mail request remained complete with the original delivery acknowledgment,
+and the note, 339 original gmail receipts and attempt 127's receipts still
+matched. there were no pending or waiting inputs and no fenced attempt
+awaiting recovery at the check.
+
+by 01:45:32 the ordinary scheduler had advanced the ready prefix from 1,174
+to 1,187 of 14,997 admitted leaves, with no compaction error. the production
+witness remained one original and one leaf. its vector was still pending.
+the installed check establishes resumed progress; full derived catch-up and
+forced load were exercised on the isolated candidate.

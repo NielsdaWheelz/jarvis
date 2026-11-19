@@ -1,8 +1,9 @@
 # adr 0086. bounded native recovery and independent shared memory
 
 accepted 2026-11-18. the first release implements a–c at schema `0015`.
-this release implements d at `0016`. production acceptance is pending.
-the deployed base is jarvis `05d1c33`, provider-runtime `0ebc1cb`, kernel `3afc584`,
+the separate service runs at `0016`. production is on the corrected `0015`
+release. the ordinary paused cut to `0016` remains pending.
+the incident release was jarvis `05d1c33`, provider-runtime `0ebc1cb`, kernel `3afc584`,
 llm-tools `b25bd5f`, universal-memory `13ac202`, stock codex `0.160.0`, database migration
 `0013`.
 
@@ -15,7 +16,14 @@ native host are stopped.
 
 of the first opening’s 2,326,106 characters, 2,249,631 came from receipts for 302 gmail message
 reads and 37 searches. recovery fetched 394 mb for 108 inert attempts on the serialized owner
-connection. the same event loop served the station-enclosure save.
+connection. stock had rejected the opening at its 1,048,576-character limit.
+the adapter classified the rejection as uncertain and the service immediately
+opened another attempt. all 108 had zero native turn bindings or invocations.
+the recovery query completed on postgres, but its client was still consuming
+the rows under cgroup memory reclaim. the assistant had 2.06 gib resident and
+2.94 gib swapped. the same event loop served memory. tcp still connected,
+97 connections waited at the loopback listener, and the station-enclosure save
+reached its 300-second deadline without a receipt.
 [incident record](../issues/native-recovery-memory-outage.md)
 
 amends adrs 0065, 0066, 0071 and 0081. retain original evidence, effect and paid-read barriers,

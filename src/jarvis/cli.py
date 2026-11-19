@@ -28,7 +28,7 @@ from provider_runtime.agent_runtime import (
     AgentRuntimeError,
 )
 from pydantic import SecretStr
-from sqlalchemy import literal, select, text
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from universal_memory import MemoryError, MemoryStore
@@ -43,13 +43,8 @@ from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
 from jarvis.db import (
     ASSISTANT_MEMORY_READS,
-    action,
-    attachment,
     create_engine,
-    message,
-    native_attempt,
     normalize_database_url,
-    read_position,
 )
 from jarvis.definitions import (
     MEMORY_CODEX_MODEL,
@@ -328,7 +323,7 @@ def _validate_runtime_layout(
 async def initialize_state(
     settings: NativeStateSettings, host: CodexHostConfig
 ) -> None:
-    """Pause a fresh database once; refuse any existing history or effect evidence."""
+    """Pause a fresh 0015 database once; initialize_paused refuses any message."""
 
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     directory = settings.runtime_state_directory
@@ -349,24 +344,11 @@ async def initialize_state(
                 revision = await connection.scalar(
                     text("SELECT version_num FROM alembic_version")
                 )
-                if revision != BOOTSTRAP_SCHEMA_REVISION:
-                    raise StartupDefect(
-                        "initialize-state requires a fresh database at schema "
-                        + BOOTSTRAP_SCHEMA_REVISION
-                    )
-                for table in (
-                    message,
-                    action,
-                    read_position,
-                    native_attempt,
-                    attachment,
-                ):
-                    if await connection.scalar(
-                        select(literal(1)).select_from(table).limit(1)
-                    ):
-                        raise StartupDefect(
-                            f"initialize-state requires an empty {table.name} table"
-                        )
+            if revision != BOOTSTRAP_SCHEMA_REVISION:
+                raise StartupDefect(
+                    "initialize-state requires a fresh database at schema "
+                    + BOOTSTRAP_SCHEMA_REVISION
+                )
             await MessageStore(database).initialize_paused(settings.owner_scope)
     finally:
         await engine.dispose()
@@ -410,6 +392,10 @@ def _bind_home_socket(path: Path, group: str) -> socket.socket:
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         listener.bind(str(path))
+    except BaseException:
+        listener.close()
+        raise
+    try:
         os.chmod(path, 0o660)
         if path.stat().st_gid != group_id:
             raise StartupDefect(f"home socket must inherit group {group}")

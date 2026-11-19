@@ -394,9 +394,10 @@ it owns the `jarvis-tunnel` user, `jarvis-home` socket group,
 `jarvis-home-tunnel.service`. the local connector validates access tokens before
 forwarding through `/run/jarvis-home/http.sock`. a stopped assistant or unready
 socket yields an edge outage. connector availability never gates local recovery.
-an anonymous visit to both the root and raw content must require login. verify
-an unrelated google identity is denied. authenticated owner login must return to
-the exact pinned page/file. [connector validation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
+before activating the application, record signed-out challenges at the root, raw
+content and file routes, and an explicit access denial for an unrelated google
+account. the allowed owner can reach the edge outage at this stage. after
+activation, verify that owner login returns to the exact pinned page/file. [connector validation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
 
 ### stopped web cut from 0016 to 0017
 
@@ -415,18 +416,39 @@ the exact pinned page/file. [connector validation](https://developers.cloudflare
    original pdf link, sign in and print. send an ordinary web `resume`, inspect its
    canonical control and finish the [installed journey](decisions/0087-private-web-home.md#ownership-and-proof).
    keep the verified private recovery copy at `/var/lib/jarvis-cutover/adr0087/$to`.
+   after installed acceptance, retire a superseded secret-bearing snapshot only
+   after verifying its replacement and retaining original unknown-effect evidence.
 
 ```sh
 deploy/install-release "$to"
+# the exact-email google access app, cache rule and dedicated tunnel must exist.
+deploy/install-home-ingress "$tunnel_credentials_json" "$access_team_slug" "$access_application_audience"
+# after the edge denial checks, acknowledged old discord pause and drained old work
+ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
 deploy/activate-release --prepare "$from" "$to"
+# qualify check-activation against a private restored copy before the live migration
 deploy/activate-release --migrate "$from" "$to"
 deploy/install-contained-host "$to"
 deploy/activate-release "$from" "$to"
 deploy/verify-containment
 ```
 
-main can run its release's `jarvis-page publish SLUG COMMIT --home` or
-`jarvis-page withdraw SLUG` from the private notes workspace. publish self-contained
+if startup fails after switching the selected release and releasing the hold, the
+installer stops both units. check its journal, repair forward and rerun
+`deploy/activate-release "$to"`. the installer waits up to five minutes for the
+private http endpoint and checks both units before pruning.
+
+before the next private settings installation, update the workstation's protected
+assistant declaration with the exact installed `JARVIS_OWNER_SCOPE` and
+`JARVIS_OWNER_ARCHIVE_KEY`. remove the discord guild, owner-user and catch-up
+settings. keep the channel and credential for outbound alerts. remove the bot's
+privileged message-content intent and restrict its channel permissions to viewing
+the channel and sending messages. pin a short owner-authored channel note saying
+“chat and pause/resume have moved to <https://jarvis.nielseriknandal.com/>.”
+
+from the private notes workspace, main runs
+`/opt/jarvis/current/deploy/jarvis-page publish SLUG COMMIT --home` or its
+`withdraw SLUG` command. publish self-contained
 html at `site/SLUG/index.html` with inline javascript/css and embedded images.
 time-sensitive data carries its preparation time. the sandbox omits downloaded
 libraries, fonts, media and workers. withdrawal closes all links, including raw

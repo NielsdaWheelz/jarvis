@@ -83,16 +83,16 @@ def web_environment(raw):
     channel = values[b"JARVIS_DISCORD_CHANNEL_ID"]
     guild = values[b"JARVIS_DISCORD_GUILD_ID"]
     body = b"".join(keep).rstrip(b"\r\n") + b"\n"
+    archive_key = b"discord:" + guild + b":" + channel
     return (
         body
         + b"JARVIS_OWNER_SCOPE="
         + channel
-        + b"\nJARVIS_OWNER_ARCHIVE_KEY=discord:"
-        + guild
-        + b":"
-        + channel
+        + b"\nJARVIS_OWNER_ARCHIVE_KEY="
+        + archive_key
         + b"\n",
         channel.decode("ascii"),
+        archive_key.decode("ascii"),
     )
 
 
@@ -221,7 +221,8 @@ async def cut(operation, destination, source, target, system_stop):
     source_env = (
         destination / "declarations" if destination.is_dir() else DECLARATIONS
     ) / "jarvis.env"
-    new_environment, channel = web_environment(source_env.read_bytes())
+    source_environment = source_env.read_bytes()
+    new_environment, channel, archive_key = web_environment(source_environment)
     os.environ["JARVIS_OWNER_SCOPE"] = channel
     require(
         APPLICATION_SCHEMA_REVISION == TARGET and destination.name == target["commit"],
@@ -291,6 +292,20 @@ async def cut(operation, destination, source, target, system_stop):
                 "web cut requires the recorded owner pause",
             )
             if version == SOURCE:
+                require(
+                    (DECLARATIONS / "jarvis.env").read_bytes() == source_environment,
+                    "installed assistant declaration changed during cut",
+                )
+                require(
+                    not await conn.scalar(
+                        text("""
+                        SELECT EXISTS(SELECT FROM source_conversation
+                            WHERE provider='jarvis' AND native_id<>:archive_key)
+                        """),
+                        {"archive_key": archive_key},
+                    ),
+                    "owner archive key differs from the stored conversation",
+                )
                 source_boundary = await conn.scalar(
                     text("""
                     SELECT COALESCE((SELECT role='owner' AND source='discord'
@@ -345,7 +360,7 @@ async def cut(operation, destination, source, target, system_stop):
 
                 current = (DECLARATIONS / "jarvis.env").read_bytes()
                 require(
-                    current in (source_env.read_bytes(), new_environment),
+                    current in (source_environment, new_environment),
                     "installed assistant declaration changed during cut",
                 )
                 if current != new_environment:

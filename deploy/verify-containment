@@ -22,7 +22,7 @@ done
 systemctl is-active --quiet jarvis-home-tunnel.service
 [[ "$(stat -c '%U:%G:%a' /run/jarvis-home)" == jarvis:jarvis-home:2750 ]]
 [[ "$(stat -c '%U:%G:%a' /run/jarvis-home/http.sock)" == jarvis:jarvis-home:660 ]]
-sudo -n -u jarvis-tunnel curl -fsS --unix-socket /run/jarvis-home/http.sock http://jarvis.nielseriknandal.com/api/home >/dev/null
+sudo -n -u jarvis-tunnel curl -fsS --max-time 5 --noproxy '*' --unix-socket /run/jarvis-home/http.sock http://jarvis.nielseriknandal.com/api/home >/dev/null
 sudo -n -u jarvis-memory test ! -w /run/jarvis-home/http.sock
 sudo -n -u jarvis test ! -r /etc/jarvis-home/credential.json
 pages=/var/lib/jarvis-notes/.git/jarvis-pages
@@ -100,6 +100,9 @@ app_write_paths="$(sudo -n systemctl show --property=ReadWritePaths --value jarv
 [[ " $app_write_paths " == *" $cache "* ]]
 host_pid="$(sudo -n systemctl show --property=MainPID --value jarvis-codex-contained.service)"
 [[ "$host_pid" =~ ^[1-9][0-9]*$ ]]
+host_user="$(systemctl show -p User --value jarvis-codex-contained.service)"
+sudo -n -u "$host_user" -g codex-clients test -w "$pages"
+sudo -n -u "$host_user" -g codex-clients test ! -x /run/jarvis-home
 cache_mount_options="$(sudo -n nsenter --target "$host_pid" --mount \
   findmnt --target "$cache" --noheadings --output VFS-OPTIONS)"
 [[ ",$cache_mount_options," == *,ro,* ]]

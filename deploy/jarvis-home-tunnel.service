@@ -16,6 +16,7 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
+RestrictSUIDSGID=true
 NoNewPrivileges=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

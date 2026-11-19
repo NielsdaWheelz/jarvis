@@ -10,7 +10,6 @@ Type=exec
 User=@HOST_USER@
 Group=codex-clients
 WorkingDirectory=/
-Environment=PATH=@RELEASE@/deploy:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/run/jarvis-contained/codex-host.json
 ExecStart=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host start
 ExecStartPost=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host publish

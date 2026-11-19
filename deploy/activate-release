@@ -185,7 +185,13 @@ sudo -n mv -Tf "$temporary" /opt/jarvis/current
 if [[ -e "$hold" ]]; then "$release/deploy/cutover-hold" release "$commit"; fi
 started=1
 sudo -n systemctl enable --now jarvis-memory.service jarvis.service
-sleep 10
+deadline=$((SECONDS + 300))
+until sudo -n -u jarvis-tunnel curl --silent --fail --max-time 2 --noproxy '*' \
+  --unix-socket /run/jarvis-home/http.sock http://jarvis.nielseriknandal.com/api/home >/dev/null; do
+  systemctl is-active --quiet jarvis.service || refuse "assistant stopped before its web listener was ready"
+  (( SECONDS < deadline )) || refuse "assistant web listener was unready after five minutes"
+  sleep 1
+done
 for unit in jarvis-memory.service jarvis.service; do
   [[ "$(systemctl show --property=SubState --value "$unit")" == running &&
      "$(systemctl show --property=NRestarts --value "$unit")" == 0 ]] ||
@@ -196,10 +202,10 @@ for unit in jarvis-memory.service jarvis.service; do
 done
 [[ "$(stat -c '%U:%G:%a' /run/jarvis-memory/internal.sock)" == jarvis-memory:jarvis-memory:660 ]] ||
   refuse "private memory socket is missing or incorrectly published"
-prune_releases
-printf 'activated jarvis release: %s\n' "$commit"
 [[ "$(stat -c '%U:%G:%a' /run/jarvis-home/http.sock)" == jarvis:jarvis-home:660 ]] ||
   refuse "private web socket is missing or incorrectly published"
+prune_releases
+printf 'activated jarvis release: %s\n' "$commit"
 printf 'canonical control was retained; owner chat is on the private web home.\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \

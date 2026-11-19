@@ -1,7 +1,9 @@
 # private web home installed acceptance
 
-on 2026-11-19 utc, release `0e6e1ac` was staged on the production host. `e6ebc31`
-still serves discord at schema `0016`, with the assistant and memory services active.
+on 2026-11-19 utc, release `344abf9` replaced `0e6e1ac` as the installed candidate.
+the installed chat asset matched the browser-tested and opus-reviewed citation fix.
+`e6ebc31` still serves discord at schema `0016`, with the assistant and memory
+services active.
 the dedicated `jarvis-home` tunnel, exact-email allow policy and hostname cache
 bypass were created and verified. the zone accepts 100 mb uploads. the whole
 hostname now uses the supplied google client and the sole owner policy. the

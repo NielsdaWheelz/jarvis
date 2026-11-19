@@ -63,8 +63,11 @@ fresh observations. its partial response had 2,000 body characters and a
 143-character limitation. the published field schema accepted both. their
 rendered combination exceeded the single discord message bound. the failed
 product parked 27 proven deliveries, including the original mail request.
-two successful work actions retain their original receipts. preserve this
-seal and resolve the schema mismatch before named operator release.
+the corrected generation schema subsequently qualified on stock and postgres.
+a stopped operator release preserved the failed seal, all 339 original gmail
+receipts and both successful work actions. on 2026-11-19 attempt 136 completed
+the original owner request. discord acknowledged its partial-coverage answer.
+the independent memory service's ordinary paused cut remains outstanding.
 [production evidence](../decisions/0086-native-recovery-and-memory-availability.md#production-cutover-evidence)
 
 ## closure

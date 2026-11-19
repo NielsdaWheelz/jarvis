@@ -1414,14 +1414,17 @@ async def _presentation_home(
         )
     )
     if request is None:
-        raise NativeContentDefect(
-            "presentation lacks its delivered web request lineage"
-        )
-    if not await reference_exists(
+        reason = "unproven_lineage"
+    elif await reference_exists(
         connection, scope, present.ref.model_dump(mode="json"), DEFAULT_EXPORT
     ):
-        raise NativeContentDefect("presentation target is unavailable")
-    return {"present": present.model_dump(mode="json")}
+        return {"present": present.model_dump(mode="json")}
+    else:
+        reason = "unavailable_target"
+    LOGGER.warning(
+        "native presentation omitted: attempt=%s reason=%s", attempt_id, reason
+    )
+    return None
 
 
 async def commit_product(

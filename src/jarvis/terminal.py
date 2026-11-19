@@ -64,7 +64,7 @@ class _FileRef(_StrictModel):
 
 
 class _FilePageRef(_FileRef):
-    page: Annotated[int, Field(strict=True, ge=1)]
+    page: Annotated[int, Field(strict=True, ge=1, le=2**53 - 1)]
 
 
 class Presentation(_StrictModel):

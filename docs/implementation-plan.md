@@ -61,8 +61,8 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
-records the source and candidate proofs. production runs `0016`; the single stopped
-cut and the owner's phone journey are [open](issues/private-web-home-installed.md).
+records the source, candidate and stopped production proofs. production runs
+`0017`. [installed acceptance](issues/private-web-home-installed.md) tracks the owner's phone and web journey.
 the native client and native notifications belong to the following pr.
 
 ## native recovery and memory availability

@@ -386,5 +386,28 @@ independent opus 5.5 reviews accepted all five units at the source and candidate
 boundaries. the temporary probes and isolated services were removed after the final
 checks. the retained regression groups remain in their owning repositories.
 
-the production deployment still runs `0016`. its actual login, phone alert, pdf print,
-captionless upload and owner decision belong to the [installed journey](../issues/private-web-home-installed.md).
+### production cut, 2026-11-19 utc
+
+the owner observed cloudflare denying the other account. the access audit recorded
+google admitting the owner. signed-out home, raw content and original-file routes
+challenged through the same access application and preserved their return paths. the zone accepts
+100 mb and bypasses shared caching for this hostname.
+
+discord pause 17 drained at `0016`. rehearsal from its private postgres dump
+rejected two retired discord sender settings. release `9b96667` removes them in
+both the stopped conversion and the private installer. both paths passed their
+configuration probes and independent opus review. a fresh restore migrated and
+passed runtime activation with zero incompatible or in-flight actions. both
+snapshots matched on all 18 original table inventories and both private copies.
+the installed migration verified those inventories again at `0017`, before
+either writer restarted. selected dump sha256
+`62c92c7d0a8e2effea6e168156a8c1da44e8568538a75290e883271e426c9fe4`.
+
+assistant and memory started on that release under the same pause. the connector
+identity fetched the retained 125,791-byte pdf over its private socket with the original sha256. the native memory
+client reopened a pre-cut owner record and read all nine pages of its frozen
+view, covering 2,978 of 26,726 admitted leaves. containment passed on macbook
+and dev-server with arch unavailable. the workstation declaration matches the
+installed owner identities and credentials. the bot's message-content intent is
+off. the remaining [installed journey](../issues/private-web-home-installed.md)
+requires actual owner interactions.

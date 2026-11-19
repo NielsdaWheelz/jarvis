@@ -12,8 +12,8 @@ audience: product, engineering, design, operations, and future coding agents
 the single discord chat. the private website owns conversation, uploads and
 decisions. jarvis publishes the main canvas from its notes workspace. discord
 delivers notification links. the adr supersedes conflicting client, readiness,
-delivery and presentation rules below at cutover. the web release implements schema `0017`. production still runs the 0086 baseline
-at `0016`. [installation status](docs/issues/private-web-home-installed.md)
+delivery and presentation rules below. production runs the web release at schema
+`0017`. [installed journey](docs/issues/private-web-home-installed.md)
 
 ## accepted native recovery and memory availability target
 

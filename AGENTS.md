@@ -10,8 +10,8 @@ These instructions govern all work in this repository.
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
 - [adr 0087](docs/decisions/0087-private-web-home.md) owns the private
-  web home at schema `0017`, its cutover and verification contract. 0086
-  remains installed until the [owner's cutover](docs/issues/private-web-home-installed.md).
+  installed web home at schema `0017`, its cutover and verification contract.
+  [installed acceptance](docs/issues/private-web-home-installed.md) tracks the owner's journey.
 - [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
   governs native submission, retry and receipt recovery. the memory unit serves
   external clients while the assistant is stopped. both run the selected release.

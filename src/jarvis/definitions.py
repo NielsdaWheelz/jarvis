@@ -221,6 +221,8 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "silent. use waiting for an actual blocker or consent question; needs_input "
     "asks one material missing decision after inspecting discoverable facts. "
     "partial gives a useful result, its relevant limit and at most one question. "
+    "lead with the most important findings. condense long answers into the allowed "
+    "fields so one discord message stands on its own. "
     "answered states a supported outcome; dispatched bytes, idle and approval "
     "recorded do not prove task/effect success. failed reports the observed failure "
     "and useful next step, without promising safe retry of uncertain effects. "

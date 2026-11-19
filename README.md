@@ -1,7 +1,7 @@
 # Jarvis
 
-jarvis is a persistent personal assistant. in this release the owner talks to it at
-`jarvis.nielseriknandal.com` behind google sign-in. the sidebar holds conversation,
+jarvis is a persistent personal assistant. this branch implements its private home at
+`jarvis.nielseriknandal.com` behind google sign-in. production still uses discord chat. the sidebar holds conversation,
 todos and decisions. jarvis publishes the main canvas from its private notes repo.
 discord delivers short private links. [web home and release status](docs/decisions/0087-private-web-home.md)
 

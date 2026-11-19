@@ -6,14 +6,14 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
-## next target — private web home
+## private web home
 
 [adr 0087](docs/decisions/0087-private-web-home.md) specifies the successor to
 the single discord chat. the private website owns conversation, uploads and
 decisions. jarvis publishes the main canvas from its notes workspace. discord
 delivers notification links. the adr supersedes conflicting client, readiness,
-delivery and presentation rules below at cutover. the installed behavior remains
-the 0086 baseline until that cut.
+delivery and presentation rules below at cutover. the web release implements schema `0017`. production still runs the 0086 baseline
+at `0016`. [installation status](docs/issues/private-web-home-installed.md)
 
 ## accepted native recovery and memory availability target
 

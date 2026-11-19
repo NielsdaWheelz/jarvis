@@ -145,8 +145,11 @@ from a full commit reachable from a local notes branch. one self-contained html 
 16 mib maximum. slug matches `[a-z0-9]+(-[a-z0-9]+)*` up to 64 characters. return
 `{slug,rev,url,is_home}`. publishing selects the new current revision for that slug.
 `--home` also selects the shared front page. local publication requires no remote
-push. `withdraw SLUG` atomically removes every published revision and clears home if
-selected. only a deliberate later publish can reopen a revision.
+push. `resolve SLUG [REV]` returns the published view reference, using the current
+revision when omitted. an unavailable work or revision exits nonzero. resolving an
+old revision leaves the current revision and home in place. use this read when an
+owner requests an existing publication. `withdraw SLUG` atomically removes every
+published revision and clears home if selected. only a deliberate later publish can reopen a revision.
 
 the installer creates `/var/lib/jarvis-notes/.git/jarvis-pages` inside the already
 granted native git root. native uid and group `codex-clients` own the directory.

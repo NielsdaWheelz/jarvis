@@ -18,7 +18,7 @@ from jarvis.discord import DiscordCreateMessageClient
 from jarvis.event_polling import EventPoller
 from jarvis.home_notices import deliver_pending
 from jarvis.memory_service import MemoryService
-from jarvis.messages import MessageStore
+from jarvis.messages import IngressUnavailable, MessageStore
 from jarvis.native_runtime import NativeRunOutcome
 from jarvis.ownership import Database
 from jarvis.proactivity import WorkWakeTimer
@@ -127,6 +127,8 @@ class JarvisService:
         uploads: tuple[WebUpload, ...],
     ) -> tuple[UUID, bool]:
         async with self._active_lock:
+            if not self.events_publication_allowed():
+                raise IngressUnavailable("jarvis is offline")
             result = await self._store.submit(
                 submission_id,
                 text,

@@ -37,6 +37,10 @@ class PersistenceDefect(RuntimeError):
     """Canonical message state is missing or internally inconsistent."""
 
 
+class IngressUnavailable(RuntimeError):
+    """The owner listener is starting or shutting down."""
+
+
 class SubmissionConflict(ValueError):
     """A submission id was reused for a different owner message."""
 

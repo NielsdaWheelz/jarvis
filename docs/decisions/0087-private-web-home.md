@@ -256,3 +256,19 @@ and installed outcomes separately. production mutation needs its own authorizati
 **design review.** conversation, canvas and browser designers reviewed the boundaries.
 after two rounds of corrections against `ae487ca`, claude opus 5.5 accepted the
 snapshot design for implementation. runtime and installed proofs belong to delivery.
+
+## implementation evidence
+
+the branch starts at `ae487ca`. the following checks used isolated fixtures.
+
+- **conversation and notices.** postgres 16 with the runtime role accepted concurrent
+  equal submissions once. reusing the id with different text returned a conflict. one
+  control generated one acknowledgement and notice. a real http sink created an alert,
+  then closed the connection before acknowledging it. the bounded rest retry reused the
+  nonce. the web committed a second control during the outage. recovery delivered both
+  distinct alerts with their exact links and no mentions or previews.
+- **migration.** a fresh database advanced to `0015`, recorded its initial pause and
+  reached `0017`. a populated `0016` fixture refused both a held memory writer and an
+  undelivered predecessor reply. after settlement the migration preserved every original
+  message field and produced zero historical notices. the runtime role cannot update
+  either the new reference metadata or historical discord message ids.

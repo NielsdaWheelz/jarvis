@@ -55,6 +55,18 @@ snapshot rechecks the original request and cohort under deployment ownership.
    http request was logged at 20:49:02. by 21:12 the loopback listener had 97
    connections waiting to be accepted.
 
+## production repair progress
+
+the verified stopped cut restored memory on 0015 and the original client
+received and reopened its note. attempt 127 used original mail receipts and
+fresh observations. its partial response had 2,000 body characters and a
+143-character limitation. the published field schema accepted both. their
+rendered combination exceeded the single discord message bound. the failed
+product parked 27 proven deliveries, including the original mail request.
+two successful work actions retain their original receipts. preserve this
+seal and resolve the schema mismatch before named operator release.
+[production evidence](../decisions/0086-native-recovery-and-memory-availability.md#production-cutover-evidence)
+
 ## closure
 
 close after installed proof of the four contracts in adr 0086. verify the old

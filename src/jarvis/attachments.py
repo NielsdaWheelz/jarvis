@@ -6,6 +6,7 @@ import asyncio
 import base64
 import grp
 import hashlib
+import logging
 import os
 import shutil
 import tempfile
@@ -66,83 +67,55 @@ class _StreamingBody(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class DiscordUpload:
-    source: dict[str, object]
-    filename: str | None
-    media_type: str | None
-    advertised_size: int | None
+class WebUpload:
+    submission_id: UUID
+    slot: int
+    filename: str
+    size: int
+    sha256: str
+    media_type: str
 
+    @property
+    def id(self) -> UUID:
+        return uuid5(
+            NAMESPACE_URL, f"jarvis:web-attachment:{self.submission_id}:{self.slot}"
+        )
 
-def _automatic_id(upload: DiscordUpload) -> UUID:
-    source = upload.source
-    if (
-        set(source) != {"kind", "guild_id", "channel_id", "message_id", "attachment_id"}
-        or source["kind"] != "discord"
-    ):
-        raise ValueError("Discord upload source is malformed")
-    for name in ("guild_id", "channel_id", "message_id", "attachment_id"):
-        value = source[name]
-        if (
-            not isinstance(value, str)
-            or not value.isascii()
-            or not value.isdecimal()
-            or not 0 < int(value) < 2**64
-            or str(int(value)) != value
-        ):
-            raise ValueError("Discord upload identity is malformed")
-    return uuid5(
-        NAMESPACE_URL,
-        "jarvis:discord-attachment:"
-        + ":".join(
-            str(source[key])
-            for key in ("guild_id", "channel_id", "message_id", "attachment_id")
-        ),
-    )
+    @property
+    def source(self) -> dict[str, object]:
+        return {
+            "kind": "web",
+            "submission_id": str(self.submission_id),
+            "slot": self.slot,
+        }
 
 
 def ingress_manifest(
-    uploads: tuple[DiscordUpload, ...],
+    uploads: tuple[WebUpload, ...],
 ) -> tuple[dict[str, object], ...]:
-    if len(uploads) > 10:
-        raise ValueError("Discord upload manifest exceeds supported upload count")
-    identifiers: set[UUID] = set()
-    manifest: list[dict[str, object]] = []
-    for upload in uploads:
-        identifier = _automatic_id(upload)
-        if identifier in identifiers:
-            raise ValueError("Discord upload IDs are duplicated")
-        identifiers.add(identifier)
-        if upload.media_type is not None and (len(upload.media_type.encode()) > 255):
-            raise ValueError("Discord upload type is malformed")
-        size = upload.advertised_size
-        if size is not None and (type(size) is not int or not 0 <= size <= 2**63 - 1):
-            raise ValueError("Discord upload size is malformed")
-        manifest.append(
-            {
-                "id": str(identifier),
-                **display_descriptor(
-                    upload.filename, upload.media_type, upload.advertised_size
-                ),
-            }
-        )
-    return tuple(manifest)
+    return tuple(
+        {
+            "id": str(upload.id),
+            **display_descriptor(upload.filename, upload.media_type, upload.size),
+        }
+        for upload in uploads
+    )
 
 
 async def register_ingress(
     connection: AsyncConnection,
     origin_message_id: UUID,
-    uploads: tuple[DiscordUpload, ...],
+    uploads: tuple[WebUpload, ...],
     *,
     r2_account: str,
     bucket: str,
-) -> tuple[dict[str, object], ...]:
+) -> None:
     if not r2_account or not bucket:
         raise ValueError("attachment storage location is missing")
-    manifest = ingress_manifest(uploads)
-    for upload, item in zip(uploads, manifest, strict=True):
+    for upload in uploads:
         await connection.execute(
             insert(attachment).values(
-                id=UUID(str(item["id"])),
+                id=upload.id,
                 source=upload.source,
                 source_key=hashlib.sha256(
                     canonical_json_bytes(upload.source)
@@ -152,12 +125,13 @@ async def register_ingress(
                 origin_message_id=origin_message_id,
                 filename=upload.filename,
                 media_type=upload.media_type,
-                advertised_size=upload.advertised_size,
+                advertised_size=upload.size,
+                size_bytes=upload.size,
+                sha256=upload.sha256,
                 state="pending",
                 created_at=datetime.now(UTC),
             )
         )
-    return manifest
 
 
 async def _locked_attachment(
@@ -268,17 +242,24 @@ class AttachmentStore:
         r2_account: str,
         bucket: str,
         cache_directory: Path,
+        spool_directory: Path,
         s3_client: S3Client,
         sources: AttachmentSources,
         mutation_admitted: Callable[[], Awaitable[None]],
     ) -> None:
-        if not r2_account or not bucket or not cache_directory.is_absolute():
+        if (
+            not r2_account
+            or not bucket
+            or not cache_directory.is_absolute()
+            or not spool_directory.is_absolute()
+        ):
             raise ValueError("attachment storage configuration is invalid")
         self._database = database
         self._actions = ActionStore(database)
         self._conversation_id = conversation_id
         self._account = r2_account
         self._bucket = bucket
+        self._spool = spool_directory
         self._cache = cache_directory
         self._s3 = s3_client
         self._sources = sources
@@ -418,24 +399,39 @@ class AttachmentStore:
             source_deadline=source_deadline,
         )
 
-    async def capture_next(self) -> bool:
-        if self._captures_stopped:
-            return False
+    async def clean_spool(self) -> None:
+        """Remove disposable staging while web ingress and capture are stopped."""
+        self._spool.mkdir(mode=0o700, exist_ok=True)
         async with self._database.begin() as connection:
-            identifier = await connection.scalar(
-                select(attachment.c.id)
-                .where(
-                    attachment.c.capture_action_id.is_(None),
-                    attachment.c.state == "pending",
-                    attachment.c.error.is_(None),
+            rows = await connection.execute(
+                select(attachment.c.id, attachment.c.sha256).where(
+                    attachment.c.source["kind"].as_string() == "web",
+                    attachment.c.state.not_in(("ready", "deleted")),
                 )
-                .order_by(attachment.c.created_at, attachment.c.id)
-                .limit(1)
             )
-        if identifier is None:
-            return False
-        await self._capture(identifier, None)
-        return True
+            retain = {f"{identifier}.{digest}" for identifier, digest in rows}
+        for path in self._spool.iterdir():
+            if path.name not in retain:
+                path.unlink()
+
+    async def capture_pending(self) -> bool:
+        async with self._database.begin() as connection:
+            identifiers = (
+                await connection.scalars(
+                    select(attachment.c.id)
+                    .where(
+                        attachment.c.capture_action_id.is_(None),
+                        attachment.c.state == "pending",
+                        attachment.c.error.is_(None),
+                    )
+                    .order_by(attachment.c.created_at, attachment.c.id)
+                )
+            ).all()
+        for identifier in identifiers:
+            if self._captures_stopped:
+                break
+            await self._capture(identifier, None)
+        return bool(identifiers)
 
     async def _capture(
         self,
@@ -465,7 +461,10 @@ class AttachmentStore:
         ):
             result = await self._capture_failed(identifier, action_id, "TooLarge")
             return ReadResponse(result, attempts)
-        staging = self._stage()
+        web = row["source"]["kind"] == "web"
+        staging = (
+            self._spool / f"{identifier}.{row['sha256']}" if web else self._stage()
+        )
         try:
             try:
                 deadline = (
@@ -476,9 +475,10 @@ class AttachmentStore:
                 if time.monotonic() >= deadline:
                     raise TimeoutError("source preparation deadline exceeded")
                 async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
-                    attempts += await self._sources.download(
-                        cast(dict[str, object], row["source"]), staging
-                    )
+                    if not web:
+                        attempts += await self._sources.download(
+                            cast(dict[str, object], row["source"]), staging
+                        )
                     size, digest, md5 = await joined_thread(
                         _byte_facts, staging, deadline
                     )
@@ -487,9 +487,11 @@ class AttachmentStore:
                     identifier, action_id, _source_error(exc)
                 )
                 return ReadResponse(result, attempts + exc.attempts)
-            except (OSError, ValueError, TimeoutError):
+            except (OSError, ValueError, TimeoutError) as exc:
+                if web and isinstance(exc, OSError):
+                    return ReadResponse(_failure("Pending", identifier), attempts)
                 result = await self._capture_failed(
-                    identifier, action_id, "Unavailable"
+                    identifier, action_id, "SourceChanged" if web else "Unavailable"
                 )
                 return ReadResponse(result, attempts)
             if action_id is None and self._captures_stopped:
@@ -582,7 +584,8 @@ class AttachmentStore:
             result, observed = await self._reconcile_put(current)
             return ReadResponse(result, attempts + observed)
         finally:
-            staging.unlink(missing_ok=True)
+            if not web:
+                staging.unlink(missing_ok=True)
 
     @staticmethod
     def _key(identifier: UUID) -> str:
@@ -710,7 +713,14 @@ class AttachmentStore:
                 manual=manual,
                 publish_fact=publish_fact,
             )
-            return result
+        if row["source"]["kind"] == "web":
+            try:
+                (self._spool / f"{identifier}.{row['sha256']}").unlink(missing_ok=True)
+            except OSError:
+                logging.getLogger(__name__).warning(
+                    "stored original %s needs spool cleanup", identifier
+                )
+        return result
 
     async def _settle(
         self,
@@ -1088,7 +1098,7 @@ class AttachmentStore:
         self, row: RowMapping, attempts: int
     ) -> ReadResponse[ToolResult]:
         try:
-            await joined_thread(self._remove_cache, row["id"])
+            await joined_thread(self._remove_local_original, row)
         except OSError:
             async with self._database.begin() as connection:
                 current = await _locked_attachment(connection, row["id"])
@@ -1126,8 +1136,10 @@ class AttachmentStore:
             )
             return ReadResponse(result, attempts)
 
-    def _remove_cache(self, identifier: UUID) -> None:
-        directory = self._cache / str(identifier)
+    def _remove_local_original(self, row: RowMapping) -> None:
+        if row["source"]["kind"] == "web":
+            (self._spool / f"{row['id']}.{row['sha256']}").unlink(missing_ok=True)
+        directory = self._cache / str(row["id"])
         if directory.exists():
             shutil.rmtree(directory)
 
@@ -1217,7 +1229,14 @@ class AttachmentStore:
             )
         elif row["state"] == "deleting":
             state, _ = await self._observations(row, deleted=True)
-            if state == "absent" and not (self._cache / str(identifier)).exists():
+            if (
+                state == "absent"
+                and not (self._cache / str(identifier)).exists()
+                and not (
+                    row["source"]["kind"] == "web"
+                    and (self._spool / f"{identifier}.{row['sha256']}").exists()
+                )
+            ):
                 async with self._database.begin() as connection:
                     current = await _locked_attachment(connection, identifier)
                     current = (

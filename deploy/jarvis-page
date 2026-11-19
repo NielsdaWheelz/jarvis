@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+release=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+exec "$release/.venv/bin/python" -I -m jarvis.home_pages "$@"

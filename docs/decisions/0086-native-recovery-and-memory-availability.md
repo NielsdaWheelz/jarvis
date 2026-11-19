@@ -527,3 +527,44 @@ as `1572782038371795075`. no requests were pending or waiting at this check.
 the original 339 gmail receipts and the failed attempt's 45 invocation receipts
 still matched their pre-release hashes. both original work actions retained
 one executor entry.
+
+**0015→0016.** the ordinary discord owner pause was control 15 at 01:26:58 utc,
+after the original mail reply. the assistant stopped cleanly. the verified
+production dump sha256 was
+`eb53b7b1d189f7cdf69bb8972f8f4300473704db5b7029557b81de9b03243ddf`.
+a strict pg16 restore matched all 18 table inventories, schema and grants,
+extension versions and sequence call states. the scratch copy migrated to
+`0016`. both actual service credentials independently authenticated to that
+copy, with their expected grants and denials. the rehearsal removed its scratch
+databases and temporary credentials. the retained recovery directory contains
+the original manifest, dump, private-state copies and rehearsal log.
+
+the live two-lock migration, credential handoff and target verification passed.
+both units ran from `e6ebc314775f283e8be362f3df1b73a925b5cf96`; the private
+socket was owned by `jarvis-memory:jarvis-memory` at mode 0660. the source release
+was pruned after activation. the private deployment hold was released. pause 15
+remained canonical.
+
+**independent serving.** with the assistant and stock host stopped at zero pids,
+the original macbook client received the same note receipt and reopened its
+exact text. a real authenticated semantic/lexical search found that note.
+the original submission still had one row and one leaf. during this interval,
+the macbook work2 collector committed 75 source records from two conversations.
+one new 1,757-byte owner message occupied position 14,704 and reopened exactly
+as `48bc4bb8-35fe-4511-a4e8-db2ff1e45eff`. its utf-8 hash matched the sent
+message. the producer head equaled that conversation's central checkpoint, and a
+native reread matched its checkpoint digest. this proves the observed cut for
+that conversation. a fresh view still covered [0,1174) while its admitted
+bound advanced from 14,636 to 14,775. the new original opened immediately
+beyond the ready prefix.
+
+the memory unit kept its original pid throughout, peaked at 243,843,072 bytes
+during this check and used zero swap. it recorded zero high, max or oom events.
+the 7.57 gib host had 4.41 gib available during independent serving, and a
+postgres revision query took 0.646 ms. these are observed production values;
+the forced-pressure and maximum-ingest measurements above were isolated.
+after the stock host and assistant restarted, discord catch-up completed.
+a containment check started during interpreter initialization reached its
+same-identity inspection timeout. after application startup the check passed
+on the same pid, including the native host and the available worker gateways.
+arch remained unavailable under its existing fleet deferral.

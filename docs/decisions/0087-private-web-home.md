@@ -61,7 +61,8 @@ the canonical web request id under the settlement lock *before* applying disposi
 the current attempt must have received the web request itself or a descendant with
 proven `parent_request_id` links back to it. a completed parent remains eligible for a
 later worker result. a stopped lineage, unrelated event or unparented wake can offer
-a link. presentation confers no execution authority. retain bounded chat prose and
+a link. if a request lacks that lineage or the target disappeared, keep the reply and
+its dispositions and omit automatic navigation. presentation confers no execution authority. retain bounded chat prose and
 put longer work in a document. rotate affected fingerprints and prove provider fit.
 
 the sidebar reads visible owner/assistant messages, excluding the synthetic initializer.
@@ -104,13 +105,14 @@ a `ref` is exactly one of `{kind:"view",slug,rev}`, `{kind:"file",id,page?}` (on
 `{kind:"todo",id}` or `{kind:"decision",type,id}` with type `action` or `question`. ids are canonical uuids.
 validate in owner scope. display “discuss this” as a removable composer reference.
 let the owner specify a pdf page when the native viewer cannot report one.
-`/m/{id}`, `/d/{kind}/{id}`, `/f/{id}` and `/v/{slug}[/{rev}]` open the shell at their
+`/m/{id}`, `/d/{kind}/{id}`, `/t/{id}`, `/f/{id}` and `/v/{slug}[/{rev}]` open the shell at their
 target after login. render historical `attachment:<uuid>` into a link at display time.
 
 ## originals
 
 accept ten files and 90 mib of encoded body per submission, below the configured
-edge limit. cap text at 16 kib utf-8. stream and bound actual bytes, independently
+edge limit. cap text at 16 kib utf-8 and its encoded json envelope at 128 kib,
+including in multipart. this admits fully escaped text without buffering a file-sized message. stream and bound actual bytes, independently
 of headers. preserve source filenames as display data. each web original has
 `{kind:"web",submission_id,slot}` with zero-based slot and a deterministic attachment
 uuid. extend the existing source-key, db manifest and capture contracts. gmail keeps
@@ -132,7 +134,8 @@ after capture the owner can request the ordinary approved deletion.
 reuse `AttachmentStore.open`'s verified read. stream from a held descriptor, with a
 safe filename and `nosniff`. inline verified pdf and supported raster images. offer
 other types, including html/svg, as downloads. show the capture state and native
-print/download. a read admitted before deletion may finish.
+print/download. the preview checks the verified original for its headers and checks it
+again when serving the bytes. this costs a second hash on a ready local file. a read admitted before deletion may finish.
 
 ## authored canvas
 
@@ -153,7 +156,8 @@ the standalone publisher needs no database or secrets. under one shared writer l
 write/fsync immutable exports first, then atomically replace and fsync the catalog
 `{home:slug|null,works:{slug:{current:rev,revisions:[rev,…]}}}`. compare and update
 under that lock. repeated operations are idempotent. a failed publication leaves the
-old catalog usable. every lookup, including raw bytes, checks current membership.
+old catalog usable. every lookup, including raw bytes, checks current membership. withdrawal closes the
+links immediately. private immutable exports and git source remain on disk.
 
 resolve `/` and latest links once to a pinned URL using browser history. an empty
 home offers the composer. an unpublished link says “this page is no longer available.”
@@ -272,3 +276,39 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   undelivered predecessor reply. after settlement the migration preserved every original
   message field and produced zero historical notices. the runtime role cannot update
   either the new reference metadata or historical discord message ids.
+
+- **web.** real chromium and mobile-sized webkit exercised two tabs, pinned revisions,
+  withdrawal, keyboard navigation, lost receipts, signed-out return and pdf page selection.
+  a duplicated tab formerly cleared a different draft on conflict. granting an id at send
+  and preserving the conflicting draft fixed it. postgres verified all five consent
+  projections, a settled question, a retired argument shape and the 50-message boundary.
+  phone-sized webkit exercised the native-print link. the physical print is still open.
+- **originals.** postgres 16 and a disposable s3-compatible server received captionless
+  files with duplicate names. changed mime hints replayed and changed bytes conflicted.
+  the parser rejected a streamed body one byte over 90 mib despite its claimed length.
+  interrupting the process after the put produced one stored original across restart.
+  a missing committed spool failed visibly, transient reads left the row pending, and
+  a stuck row allowed its sibling to finish. a deletion returned 410 while a reader
+  already holding the descriptor finished. linux verified the digest and 0640 cache
+  under the real user/group boundary. retry staging can consume space until the next
+  exclusive startup. unrecognized formats, including heic, download as originals.
+- **publication.** 80 concurrent operations on two works retained both revision sets.
+  interrupting publication after the export and before catalog replacement left the old
+  home intact. exact retry succeeded. withdrawal closed both revision links, and deliberate
+  republication reopened only the selected revision. stock codex 0.160.0 on linux,
+  under the native sandbox and umask 0077, published
+  `29a50ac231da03787b19c6b402dc3d719b201567` in a disposable notes checkout.
+  the application identity read the 0640 catalog. the shell, native validation and
+  publisher all use the same installed notes root.
+- **delivery boundaries.** a first web send previously returned 500 after its receipt
+  committed when archive publication failed. the committed send now returns 201 and
+  equal replay returns its id. archive projection follows on the worker. a real 429
+  with a 90-second retry horizon formerly retried in two seconds. it now observes
+  that horizon. a permanent channel rejection leaves its notice pending, logs the
+  status and backs off for one minute. an outage preserves notification order.
+- **installation rehearsal.** a stopped linux postgres 16.16 database was dumped,
+  restored and migrated. the cut refused a synthetic initializer as the final owner
+  pause. repeated preparation checked the same state. an independent cold bootstrap
+  under the application uid refused a second initialization. the pinned 2026.10.4
+  connector validated its generated rule, matched the private socket and rejected an
+  unrelated hostname. these checks used disposable resources. [installed acceptance](../issues/private-web-home-installed.md)

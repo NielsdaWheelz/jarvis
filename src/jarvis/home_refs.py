@@ -21,7 +21,10 @@ class ViewRef(_Ref):
 class FileRef(_Ref):
     kind: Literal["file"]
     id: CanonicalUuid
-    page: Annotated[int, Field(ge=1)] | None = None
+
+
+class FilePageRef(FileRef):
+    page: Annotated[int, Field(ge=1, le=2**53 - 1)]
 
 
 class TodoRef(_Ref):
@@ -35,7 +38,5 @@ class DecisionRef(_Ref):
     id: CanonicalUuid
 
 
-type HomeRef = Annotated[
-    ViewRef | FileRef | TodoRef | DecisionRef, Field(discriminator="kind")
-]
+type HomeRef = ViewRef | FilePageRef | FileRef | TodoRef | DecisionRef
 HOME_REF_ADAPTER = TypeAdapter[HomeRef](HomeRef)

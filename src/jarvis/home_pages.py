@@ -14,8 +14,8 @@ from typing import TypedDict, cast
 from jarvis._atomic_json import replace_bytes
 
 HOME_ORIGIN = "https://jarvis.nielseriknandal.com"
-_NOTES = Path("/var/lib/jarvis-notes")
-DEFAULT_EXPORT = _NOTES / ".git/jarvis-pages"
+NOTES_ROOT = Path("/var/lib/jarvis-notes")
+DEFAULT_EXPORT = NOTES_ROOT / ".git/jarvis-pages"
 PAGE_CSP = (
     "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; "
     "style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; "
@@ -139,7 +139,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         result = _publish(
-            _NOTES,
+            NOTES_ROOT,
             args.slug,
             getattr(args, "commit", None),
             getattr(args, "home", False),

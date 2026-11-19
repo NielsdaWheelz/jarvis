@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
@@ -72,9 +71,6 @@ class JarvisService:
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
-        self._pages = (
-            Path(settings.codex_host_config.notes_repository) / ".git/jarvis-pages"
-        )
         self._attachments = attachments
         self._attachment_work = asyncio.Event()
         self._attachment_task: asyncio.Task[None] | None = None
@@ -137,7 +133,6 @@ class JarvisService:
                 scope=self._settings.owner_scope,
                 r2_account=self._settings.attachment_r2_account_id,
                 bucket=self._settings.attachment_r2_bucket,
-                pages=self._pages,
             )
             if not result.inserted:
                 return result.message.id, False

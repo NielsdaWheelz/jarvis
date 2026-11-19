@@ -57,6 +57,7 @@ from jarvis.discord import DiscordCreateMessageClient
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.events import EventStore
 from jarvis.home_http import create_home_app
+from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
     build_agent_runtime,
     build_kernel_runtime,
@@ -534,6 +535,8 @@ async def _serve(
 ) -> None:
     """Own the deployment, recover, then serve the private home."""
 
+    if Path(host.notes_repository) != NOTES_ROOT:
+        raise StartupDefect(f"the web home requires the notes checkout at {NOTES_ROOT}")
     deny_same_identity_process_inspection()
     _validate_runtime_layout(settings, host)
     require_native_files(settings.runtime_state_directory)
@@ -724,7 +727,7 @@ async def _serve(
                         attachments=composition.attachments,
                         submit=service.submit,
                         spool=settings.runtime_state_directory / "uploads",
-                        pages=Path(host.notes_repository) / ".git" / "jarvis-pages",
+                        pages=DEFAULT_EXPORT,
                     )
                     await run_service(service, app, settings.home_socket_path, shutdown)
             finally:

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Install one locally managed connector after its Access application has been configured.
+set -euo pipefail
+if [[ $# != 3 || ! -f "$1" || ! "$2" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ || ! "$3" =~ ^[0-9a-f]{64}$ ]]; then
+  echo 'usage: deploy/install-home-ingress TUNNEL_CREDENTIALS_JSON ACCESS_TEAM ACCESS_APP_AUDIENCE' >&2
+  exit 64
+fi
+target=dev-server-deploy
+repo="$(cd "$(dirname "$0")" && pwd -P)"
+remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" mktemp -d /tmp/jarvis-home.XXXXXXXX)"
+[[ "$remote" =~ ^/tmp/jarvis-home\.[a-zA-Z0-9]+$ ]]
+trap 'ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" rm -rf -- "$remote"' EXIT
+scp -q -o BatchMode=yes -o ForwardAgent=no "$1" "$target:$remote/credential.json"
+scp -q -o BatchMode=yes -o ForwardAgent=no "$repo/jarvis-home-tunnel.service" "$target:$remote/"
+
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$remote" "$2" "$3" <<'REMOTE'
+set -euo pipefail
+stage="$1"
+umask 077
+getent group jarvis-home >/dev/null || groupadd --system jarvis-home
+id jarvis-tunnel >/dev/null 2>&1 || useradd --system --gid jarvis-home --no-create-home \
+  --home-dir /nonexistent --shell /usr/sbin/nologin jarvis-tunnel
+[[ "$(id -Gn jarvis-tunnel)" == jarvis-home ]]
+python3 - "$stage" "$2" "$3" <<'PY'
+import base64, grp, json, pathlib, pwd, sys, uuid
+root = pathlib.Path(sys.argv[1])
+group = grp.getgrnam("jarvis-home")
+members = set(group.gr_mem) | {u.pw_name for u in pwd.getpwall() if u.pw_gid == group.gr_gid}
+if members != {"jarvis-tunnel"}:
+    raise SystemExit("private web socket group must contain only the tunnel identity")
+credentials = json.loads((root / "credential.json").read_bytes())
+tunnel = str(uuid.UUID(credentials["TunnelID"]))
+if not credentials.get("AccountTag") or not base64.b64decode(credentials["TunnelSecret"], validate=True):
+    raise SystemExit("invalid tunnel credential")
+settings = {"tunnel": tunnel, "credentials-file": "/etc/jarvis-home/credential.json", "ingress": [
+    {"hostname": "jarvis.nielseriknandal.com", "service": "unix:/run/jarvis-home/http.sock",
+     "originRequest": {"access": {"required": True, "teamName": sys.argv[2], "audTag": [sys.argv[3]]}}},
+    {"service": "http_status:404"}]}
+(root / "config.yml").write_text(json.dumps(settings))
+PY
+# Same pinned distribution qualified on this host for the independent Nexus tunnel.
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-linux-amd64 -o "$stage/cloudflared"
+echo "ae5e8add7884b0531d66bbca4570d1de491ff6da51e4ebe7eb160cdf241d9e42  $stage/cloudflared" | sha256sum --status -c
+install -m 0755 -o root -g root "$stage/cloudflared" /usr/local/libexec/jarvis-cloudflared
+install -d -m 0750 -o root -g jarvis-home /etc/jarvis-home
+install -m 0640 -o root -g jarvis-home "$stage/credential.json" /etc/jarvis-home/credential.json
+install -m 0640 -o root -g jarvis-home "$stage/config.yml" /etc/jarvis-home/config.yml
+echo 'd /run/jarvis-home 2750 jarvis jarvis-home -' >/etc/tmpfiles.d/jarvis-home.conf
+chmod 0644 /etc/tmpfiles.d/jarvis-home.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/jarvis-home.conf
+sudo -n -u jarvis-tunnel /usr/local/libexec/jarvis-cloudflared tunnel --config /etc/jarvis-home/config.yml ingress validate
+install -m 0644 -o root -g root "$stage/jarvis-home-tunnel.service" /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/jarvis-home-tunnel.service
+systemctl daemon-reload
+systemctl enable jarvis-home-tunnel.service
+systemctl restart jarvis-home-tunnel.service
+REMOTE

@@ -32,9 +32,11 @@ sudo -n test -f "$release/RELEASE.json"
 if [[ -e /etc/systemd/system/jarvis-cutover.hold ]]; then
   "$release/deploy/cutover-hold" check "$commit"
 else
-  [[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
-  [[ "$(sudo -n systemctl show --property=Result --value jarvis.service)" == success ]]
-  [[ "$(sudo -n systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+  if [[ -e /opt/jarvis/current || "$(systemctl show -p LoadState --value jarvis.service)" != not-found ]]; then
+    [[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+    [[ "$(sudo -n systemctl show --property=Result --value jarvis.service)" == success ]]
+    [[ "$(sudo -n systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+  fi
 fi
 candidate="$(sudo -n mktemp /etc/jarvis/.codex-host.XXXXXX)"
 cleanup_candidate() { sudo -n rm -f -- "$candidate"; cleanup; }
@@ -158,6 +160,7 @@ sudo -n systemctl daemon-reload
 sudo -n systemctl start jarvis-notes-bootstrap.service
 sudo -n systemctl stop jarvis-notes-bootstrap.service
 sudo -n rm -f -- "$bootstrap_unit"
+sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-pages
 sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes
 sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes
 sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes/.git

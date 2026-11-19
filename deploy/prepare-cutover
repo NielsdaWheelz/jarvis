@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -22,8 +23,8 @@ from jarvis._atomic_json import replace_private_json
 from jarvis.db import APPLICATION_SCHEMA_REVISION, create_engine, normalize_database_url
 from jarvis.ownership import maintenance_ownership
 
-SOURCE = "0015"
-TARGET = "0016"
+SOURCE = "0016"
+TARGET = "0017"
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
@@ -53,6 +54,46 @@ KEYS = {
 def require(condition, reason):
     if not condition:
         raise RuntimeError(reason)
+
+
+def web_environment(raw):
+    """Derive immutable owner identities from the stopped 0016 declaration once."""
+    rows = raw.splitlines(keepends=True)
+    values = {}
+    keep = []
+    for row in rows:
+        key, sep, value = row.partition(b"=")
+        if key in {b"JARVIS_DISCORD_CHANNEL_ID", b"JARVIS_DISCORD_GUILD_ID"}:
+            value = value.rstrip(b"\r\n")
+            require(
+                sep and key not in values and re.fullmatch(rb"[1-9][0-9]*", value),
+                "invalid source discord identity",
+            )
+            values[key] = value
+        require(
+            key not in {b"JARVIS_OWNER_SCOPE", b"JARVIS_OWNER_ARCHIVE_KEY"},
+            "owner identities already set in source declaration",
+        )
+        if key not in {
+            b"JARVIS_DISCORD_GUILD_ID",
+            b"JARVIS_DISCORD_OWNER_USER_ID",
+            b"JARVIS_DISCORD_CATCH_UP_LIMIT",
+        }:
+            keep.append(row)
+    channel = values[b"JARVIS_DISCORD_CHANNEL_ID"]
+    guild = values[b"JARVIS_DISCORD_GUILD_ID"]
+    body = b"".join(keep).rstrip(b"\r\n") + b"\n"
+    return (
+        body
+        + b"JARVIS_OWNER_SCOPE="
+        + channel
+        + b"\nJARVIS_OWNER_ARCHIVE_KEY=discord:"
+        + guild
+        + b":"
+        + channel
+        + b"\n",
+        channel.decode("ascii"),
+    )
 
 
 def file_digest(path):
@@ -95,6 +136,7 @@ async def inventory(conn, channel):
                     text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema='public' AND table_name=:table
+              AND NOT (table_name='message' AND column_name='home')
             ORDER BY ordinal_position
         """),
                     {"table": table},
@@ -176,8 +218,11 @@ async def cut(operation, destination, source, target, system_stop):
         and not (set(migrator.query) - {"sslmode"}),
         "migration and runtime database endpoints differ or are unsupported",
     )
-    channel = os.environ["JARVIS_DISCORD_CHANNEL_ID"]
-    require(channel.isdecimal() and int(channel) > 0, "invalid channel")
+    source_env = (
+        destination / "declarations" if destination.is_dir() else DECLARATIONS
+    ) / "jarvis.env"
+    new_environment, channel = web_environment(source_env.read_bytes())
+    os.environ["JARVIS_OWNER_SCOPE"] = channel
     require(
         APPLICATION_SCHEMA_REVISION == TARGET and destination.name == target["commit"],
         "target release or schema mismatch",
@@ -233,7 +278,7 @@ async def cut(operation, destination, source, target, system_stop):
                 "unexpected stopped schema",
             )
             evidence = {
-                "format": "jarvis-stopped-cut.v2",
+                "format": "jarvis-stopped-cut.v3",
                 "source": source,
                 "target": target,
                 "channel": channel,
@@ -243,8 +288,41 @@ async def cut(operation, destination, source, target, system_stop):
             }
             require(
                 evidence["facts"]["last_control"][1] == "pause",
-                "memory service cut requires an ordinary recorded owner pause",
+                "web cut requires the recorded owner pause",
             )
+            if version == SOURCE:
+                source_boundary = await conn.scalar(
+                    text("""
+                    SELECT COALESCE((SELECT role='owner' AND source='discord'
+                        FROM message WHERE source_conversation_id=:scope
+                        AND control_kind IS NOT NULL
+                        ORDER BY control_sequence DESC LIMIT 1),false)
+                    AND NOT EXISTS(SELECT FROM message
+                        WHERE source_conversation_id=:scope
+                        AND role='assistant' AND source_message_id IS NULL)
+                    AND NOT EXISTS(SELECT FROM attachment
+                        WHERE source->>'kind'='discord' AND state='pending')
+                    AND NOT EXISTS(SELECT FROM native_attempt
+                        WHERE conversation_id=:scope
+                        AND (recovery_pending OR (terminal_at IS NOT NULL
+                        AND product_outcome IS NULL)))
+                """),
+                    {"scope": channel},
+                )
+                require(
+                    source_boundary,
+                    "settle old deliveries, captures and seals; require an owner pause",
+                )
+            else:
+                require(
+                    not await conn.scalar(
+                        text("""
+                    SELECT EXISTS(SELECT FROM home_notice)
+                        OR EXISTS(SELECT FROM message WHERE home IS NOT NULL)
+                """)
+                    ),
+                    "target received web work during a held cut",
+                )
             if operation == "snapshot":
                 sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
                 write_snapshot(destination, evidence, system_stop, args, sql_snapshot)
@@ -262,14 +340,21 @@ async def cut(operation, destination, source, target, system_stop):
                 ),
                 "damaged recovery copy",
             )
-            if operation == "provision":
-                from memory_credentials import provision_memory
-
-                provision_memory()
             if operation == "commit-settings":
-                from memory_credentials import activate_memory
+                from memory_credentials import publish
 
-                activate_memory()
+                current = (DECLARATIONS / "jarvis.env").read_bytes()
+                require(
+                    current in (source_env.read_bytes(), new_environment),
+                    "installed assistant declaration changed during cut",
+                )
+                if current != new_environment:
+                    publish(DECLARATIONS / "jarvis.env", new_environment)
+            if operation == "verify-target":
+                require(
+                    (DECLARATIONS / "jarvis.env").read_bytes() == new_environment,
+                    "target owner declaration differs from source-bound handoff",
+                )
             if operation == "migrate":
                 # Alembic uses this exact connection and transaction. There is
                 # no unlock between the final comparison and the schema change.
@@ -296,7 +381,6 @@ def main():
         choices=[
             "snapshot",
             "verify",
-            "provision",
             "migrate",
             "verify-target",
             "commit-settings",

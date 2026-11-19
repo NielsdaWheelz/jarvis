@@ -25,9 +25,11 @@ state=/run/jarvis-skid-state
 cli=/usr/local/libexec/skidbladnir
 unit="$(systemd-escape --path --suffix=mount "$state")"
 
-[[ "$(systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
-[[ "$(systemctl show --property=Result --value jarvis.service)" == success ]]
-[[ "$(systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+if [[ -e /opt/jarvis/current || "$(systemctl show -p LoadState --value jarvis.service)" != not-found ]]; then
+  [[ "$(systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
+  [[ "$(systemctl show --property=Result --value jarvis.service)" == success ]]
+  [[ "$(systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+fi
 owner_uid="$(id -u "$owner")"
 owner_gid="$(id -g "$owner")"
 service_uid="$(id -u jarvis)"

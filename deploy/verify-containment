@@ -19,6 +19,17 @@ for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
   fi
 done
 
+systemctl is-active --quiet jarvis-home-tunnel.service
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-home)" == jarvis:jarvis-home:2750 ]]
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-home/http.sock)" == jarvis:jarvis-home:660 ]]
+sudo -n -u jarvis-tunnel curl -fsS --unix-socket /run/jarvis-home/http.sock http://jarvis.nielseriknandal.com/api/home >/dev/null
+sudo -n -u jarvis-memory test ! -w /run/jarvis-home/http.sock
+sudo -n -u jarvis test ! -r /etc/jarvis-home/credential.json
+pages=/var/lib/jarvis-notes/.git/jarvis-pages
+[[ "$(stat -c '%G:%a' "$pages")" == codex-clients:750 ]]
+sudo -n -u jarvis -g codex-clients test -r "$pages"
+sudo -n -u jarvis -g codex-clients test ! -w "$pages"
+
 systemctl is-active --quiet jarvis-memory.service
 memory_pid="$(systemctl show -p MainPID --value jarvis-memory.service)"
 [[ "$(stat -c '%U:%G:%a' /run/jarvis-memory/internal.sock)" == jarvis-memory:jarvis-memory:660 ]]

@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
 
 ETC = Path("/etc/jarvis")
 MEMORY_USER = "jarvis-memory"
@@ -200,42 +199,7 @@ def publish_assistant(assistant, declaration):
     publish(ETC / "jarvis.env", assistant)
 
 
-def provision_memory():
-    """The exact 0015 cut has verified its receipts, snapshot, pause and both locks."""
-    endpoint = urlsplit(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
-    if (endpoint.hostname, endpoint.port or 5432, endpoint.path) != (
-        "127.0.0.1",
-        5432,
-        "/jarvis",
-    ):
-        raise RuntimeError(
-            "memory role provisioning requires the configured local jarvis database"
-        )
-    _, embedding, memory = split_environment((ETC / "jarvis.env").read_bytes())
-    memory_login()
-    memory_identity()
-    publish(ETC / "embedding.env", embedding)
-    publish(ETC / "memory.env", memory)
-
-
-def activate_memory():
-    """Transfer the assistant configuration only after the 0016 migration commits."""
-    raw = (ETC / "jarvis.env").read_bytes()
-    embedding = (ETC / "embedding.env").read_bytes()
-    # Parse each environment line independently. A completed handoff can replay
-    # without changing the assistant file's final newline or credential.
-    has_embedding = any(
-        line.startswith(b"JARVIS_EMBEDDING_OPENAI_API_KEY=")
-        for line in raw.splitlines()
-    )
-    combined = raw if has_embedding else embedding + raw
-    assistant, expected_embedding, memory = split_environment(combined)
-    if embedding != expected_embedding or (ETC / "memory.env").read_bytes() != memory:
-        raise RuntimeError("staged memory settings differ from the source deployment")
-    publish_assistant(assistant, (ETC / "memory.json").read_bytes())
-
-
-async def install_staged(stage):
+async def install_staged(stage, bootstrap):
     from sqlalchemy import text
 
     from jarvis.db import create_engine
@@ -245,23 +209,55 @@ async def install_staged(stage):
     engine = create_engine(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     try:
         async with maintenance_ownership(engine) as db:
-            async with db.connect() as conn:
+            async with db.begin() as conn:
+                if (
+                    bootstrap
+                    and await conn.scalar(text("SELECT to_regclass('alembic_version')"))
+                    is None
+                ):
+                    from alembic import command
+                    from alembic.config import Config
+
+                    os.environ["JARVIS_MEMORY_CONFIG_PATH"] = str(stage / "memory.json")
+
+                    def migrate_empty(connection):
+                        config = Config(
+                            str(Path(__file__).resolve().parents[1] / "alembic.ini")
+                        )
+                        config.attributes["connection"] = connection
+                        command.upgrade(config, "0015")
+
+                    await conn.run_sync(migrate_empty)
                 revision = await conn.scalar(
                     text("SELECT version_num FROM alembic_version")
                 )
-            if (
-                revision != "0016"
-                or await MessageStore(db).current_control(
-                    os.environ["JARVIS_DISCORD_CHANNEL_ID"]
-                )
-                != "pause"
-            ):
-                raise RuntimeError(
-                    "private state changes require schema 0016 and a canonical pause"
-                )
+                if bootstrap and (
+                    revision != "0015"
+                    or await conn.scalar(text("SELECT EXISTS (SELECT FROM message)"))
+                ):
+                    raise RuntimeError("bootstrap requires empty schema 0015")
             assistant, embedding, memory = split_environment(
                 (stage / "jarvis.env").read_bytes()
             )
+            if not bootstrap:
+                old = {
+                    key: os.environ[key].encode()
+                    for key in ("JARVIS_OWNER_SCOPE", "JARVIS_OWNER_ARCHIVE_KEY")
+                }
+                entries = dict(
+                    row.split(b"=", 1) for row in assistant.splitlines() if b"=" in row
+                )
+                if (
+                    revision != "0017"
+                    or any(entries.get(k.encode()) != v for k, v in old.items())
+                    or await MessageStore(db).current_control(
+                        os.environ["JARVIS_OWNER_SCOPE"]
+                    )
+                    != "pause"
+                ):
+                    raise RuntimeError(
+                        "need schema 0017, original owner identities and pause"
+                    )
             publish(ETC / "embedding.env", embedding)
             publish(ETC / "memory.env", memory)
             publish_assistant(assistant, (stage / "memory.json").read_bytes())
@@ -279,7 +275,13 @@ async def install_staged(stage):
 
 if __name__ == "__main__":
     try:
-        asyncio.run(install_staged(Path(sys.argv[1])))
+        if sys.argv[1:] == ["bootstrap-memory-login"]:
+            memory_login()
+            memory_identity()
+        elif len(sys.argv) in (2, 3) and sys.argv[2:] in ([], ["--bootstrap"]):
+            asyncio.run(install_staged(Path(sys.argv[1]), bool(sys.argv[2:])))
+        else:
+            raise RuntimeError("invalid private state operation")
     except Exception as error:
         # Database exceptions and environment contents are private.
         print(

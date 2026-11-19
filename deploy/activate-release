@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 operation=activate
-case "${1:-}" in --prepare|--provision|--migrate) operation="${1#--}"; shift ;; esac
+case "${1:-}" in --prepare|--migrate) operation="${1#--}"; shift ;; esac
 if [[ $# != 2 && ( $# != 1 || "$operation" != activate ) ]]; then
-  printf 'usage: deploy/activate-release [--prepare|--provision|--migrate] [SOURCE_COMMIT] TARGET_COMMIT\n' >&2
+  printf 'usage: deploy/activate-release [--prepare|--migrate] [SOURCE_COMMIT] TARGET_COMMIT\n' >&2
   exit 64
 fi
 commit="${!#}"
@@ -48,23 +48,22 @@ receipt="$(receipt_json "$2")"
 source_receipt=none
 if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
 operation="$4"
-snapshot="/var/lib/jarvis-cutover/adr0086/$commit"
+snapshot="/var/lib/jarvis-cutover/adr0087/$commit"
 hold=/etc/systemd/system/jarvis-cutover.hold
 source="/opt/jarvis/releases/${3%%:*}"
-selected="$(readlink -e /opt/jarvis/current)"
+selected=''
+if [[ -e /opt/jarvis/current || -L /opt/jarvis/current ]]; then
+  selected="$(readlink -e /opt/jarvis/current)"
+fi
 cutover() {
-  local channel
-  channel="$(sed -n 's/^JARVIS_DISCORD_CHANNEL_ID=//p' /etc/jarvis/jarvis.env)"
-  [[ "$channel" =~ ^[1-9][0-9]*$ ]] || refuse "invalid installed channel"
   systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
     "--property=WorkingDirectory=$release" \
     --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-    "--property=Environment=JARVIS_DISCORD_CHANNEL_ID=$channel" \
     --property=EnvironmentFile=/etc/jarvis/migration.env \
     "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" </dev/null
 }
 if [[ "$operation" == prepare ]]; then
-  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0015 source release"
+  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0016 source release"
   if [[ ! -e "$hold" ]]; then
     systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
       --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \
@@ -80,17 +79,15 @@ fi
 if [[ -e "$hold" ]]; then
   [[ "$source_receipt" != none ]] || refuse "supply both selected release commits for the held cut"
   "$release/deploy/cutover-hold" check "$commit"
-  if [[ "$operation" == provision ]]; then cutover provision; exit; fi
 elif [[ "$source_receipt" != none ]]; then
   refuse "first prepare the stopped schema cut"
 else
-  [[ "$(systemctl show -p ActiveState --value jarvis-memory.service)" == inactive &&
-     "$(systemctl show -p MainPID --value jarvis-memory.service)" == 0 ]] ||
-    refuse "stop memory for a two-service release change"
-  [[ "$(systemctl show -p ActiveState --value jarvis.service)" == inactive &&
-     "$(systemctl show -p Result --value jarvis.service)" == success &&
-     "$(systemctl show -p MainPID --value jarvis.service)" == 0 ]] ||
-    refuse "jarvis.service did not stop cleanly"
+  for unit in jarvis-memory.service jarvis.service; do
+    if [[ -z "$selected" && "$(systemctl show -p LoadState --value "$unit")" == not-found ]]; then continue; fi
+    [[ "$(systemctl show -p ActiveState --value "$unit")" == inactive &&
+       "$(systemctl show -p Result --value "$unit")" == success &&
+       "$(systemctl show -p MainPID --value "$unit")" == 0 ]] || refuse "cleanly stop $unit"
+  done
 fi
 
 for file in embedding.env database-memory.env memory.env; do
@@ -141,13 +138,15 @@ print(revision)
 PY
 )"
 if [[ "$operation" == migrate ]]; then
-  if [[ "$schema" == 0015 ]]; then cutover migrate; fi
+  if [[ "$schema" == 0016 ]]; then cutover migrate; fi
   cutover commit-settings
   cutover verify-target
   exit
 fi
-[[ "$schema" == 0016 ]] || refuse "commit the paused schema cut before replacing its native host"
+[[ "$schema" == 0017 ]] || refuse "commit the paused schema cut before replacing its native host"
 if [[ -e "$hold" ]]; then cutover verify-target; fi
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-home)" == jarvis:jarvis-home:2750 ]] ||
+  refuse "install the private home connector and runtime directory before activation"
 if grep -q '^JARVIS_EMBEDDING_' /etc/jarvis/jarvis.env; then
   refuse "finish the postmigration credential handoff before activation"
 fi
@@ -199,7 +198,9 @@ done
   refuse "private memory socket is missing or incorrectly published"
 prune_releases
 printf 'activated jarvis release: %s\n' "$commit"
-printf 'canonical control is unchanged; new reasoning waits for validated discord catch-up\n'
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-home/http.sock)" == jarvis:jarvis-home:660 ]] ||
+  refuse "private web socket is missing or incorrectly published"
+printf 'canonical control was retained; owner chat is on the private web home.\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
   sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$target_fields" "$source_fields" "$operation"

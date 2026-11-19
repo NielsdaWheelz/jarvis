@@ -6,6 +6,10 @@ open, 2026-11-19 utc. on release `e34608e`, production attempt 129
 the owner received an unfinished thought and no explanation of what remained
 unchecked. the turn completed 26 of 27 inputs and continued the original request.
 
+attempt 130 returned a substantive 221-character limitation. its 1,481-character
+body ended inside a markdown link. discord acknowledged all 1,721 rendered
+characters. the fresh turn again continued the unfinished request.
+
 the sealed stock final already contains those fields. the pinned adapter retains
 the completed native message verbatim. a read-only comparison verified that the
 1,504-character canonical reply matched the fixed label, separators and sealed

@@ -343,8 +343,8 @@ stock main wrote, committed and published a mechanical vise viewer at
 `4cc89b9cc71b137a3358f3ff711aaea472c2def7` in disposable private notes. the
 dated viewer named the moving jaw, displayed travel in millimetres, and responded
 to the keyboard in 0.25 mm increments. v12 then authored the comparison at
-`dc2a48b5b076c52036ffa53d6271e5b4f23949e1` and selected it as home. desktop
-chromium and mobile-sized webkit rendered both pins inside the production iframe
+`dc2a48b5b076c52036ffa53d6271e5b4f23949e1` and selected it as home. its visible final
+named that exact revision and the supplied synthetic request id. desktop chromium and mobile-sized webkit rendered both pins inside the production iframe
 policy. eight turns gave 16 and 12 mm of travel. sixteen turns gave 32 and 24 mm.
 both engines kept the page within the viewport and made zero external requests.
 the clean interaction produced zero browser or content-policy errors.

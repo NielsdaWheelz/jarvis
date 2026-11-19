@@ -23,6 +23,8 @@ from jarvis.attachments import AttachmentStore, WebUpload, upload_spool_name
 
 BODY_LIMIT = 90 * 1024 * 1024
 TEXT_LIMIT = 16 * 1024
+# A fully escaped 16 kib text and its typed reference fit in this envelope.
+MESSAGE_PART_LIMIT = 128 * 1024
 FILE_LIMIT = 10
 
 
@@ -99,6 +101,8 @@ async def read_submission(
         size = 0
         async for chunk in request.stream():
             size += len(chunk)
+            if media == "application/json" and size > MESSAGE_PART_LIMIT:
+                raise HTTPException(413, "message part is too large")
             if size > BODY_LIMIT:
                 raise HTTPException(413, "upload exceeds 90 mib")
             yield chunk
@@ -112,7 +116,11 @@ async def read_submission(
     try:
         if media == "multipart/form-data":
             parser = _Form(
-                request.headers, limited(), max_files=FILE_LIMIT + 1, max_fields=1
+                request.headers,
+                limited(),
+                max_files=FILE_LIMIT + 1,
+                max_fields=1,
+                max_part_size=MESSAGE_PART_LIMIT,
             )
             form = await parser.parse()
             messages = form.getlist("message")
@@ -174,28 +182,30 @@ async def attachment_response(
     attachments: AttachmentStore, identifier: UUID, *, head: bool = False
 ) -> Response:
     result = (await attachments.open(identifier)).value
-    if result["type"] == "Failure":
-        code = result["error"]["type"]
-        raise HTTPException(
-            {"NotFound": 404, "Deleted": 410}.get(str(code), 409),
-            str(code),
-            headers={"X-Jarvis-File-State": str(code)},
-        )
-    value = cast(dict[str, object], result["value"])
-    descriptor = cast(dict[str, object], value["attachment"])
-    return _original_response(
-        Path(str(value["local_path"])), str(descriptor.get("name") or identifier), head
+    if result["type"] == "Success":
+        value = cast(dict[str, object], result["value"])
+        descriptor = cast(dict[str, object], value["attachment"])
+        try:
+            return _original_response(
+                Path(str(value["local_path"])),
+                str(descriptor.get("name") or identifier),
+                head,
+            )
+        except FileNotFoundError:
+            # A concurrent removal may still be deleting or already deleted.
+            result = (await attachments.open(identifier)).value
+    code = (
+        str(result["error"]["type"]) if result["type"] == "Failure" else "Unavailable"
+    )
+    raise HTTPException(
+        {"NotFound": 404, "Deleted": 410}.get(code, 409),
+        code,
+        headers={"X-Jarvis-File-State": code},
     )
 
 
 def _original_response(path: Path, name: str, head: bool) -> Response:
-    try:
-        stream = path.open("rb")
-    except FileNotFoundError:
-        # A deletion can remove the cache between verification and opening the fd.
-        raise HTTPException(
-            409, "original unavailable", headers={"X-Jarvis-File-State": "Unavailable"}
-        ) from None
+    stream = path.open("rb")
     try:
         media_type = _media_type(stream.read(16))
         stream.seek(0)

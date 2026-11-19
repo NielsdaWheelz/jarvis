@@ -39,6 +39,7 @@ from jarvis.actions import (
 )
 from jarvis.attachment_sources import AttachmentSources
 from jarvis.attachment_tools import ATTACHMENT_EXTERNAL_ATTEMPTS, AttachmentDeleteResult
+from jarvis.connectors import OriginalTooLarge
 from jarvis.db import action, attachment, message
 from jarvis.messages import append_waking_input
 from jarvis.ownership import Database, lock_conversation
@@ -231,7 +232,7 @@ def _byte_facts(path: Path, deadline: float | None = None) -> tuple[int, str, st
                 break
             size += len(chunk)
             if size > ATTACHMENT_MAX_BYTES:
-                raise ValueError("original exceeds byte bound")
+                raise OriginalTooLarge("original exceeds byte bound")
             sha.update(chunk)
             md5.update(chunk)
     return size, sha.hexdigest(), base64.b64encode(md5.digest()).decode("ascii")
@@ -433,11 +434,14 @@ class AttachmentStore:
                     .order_by(attachment.c.created_at, attachment.c.id)
                 )
             ).all()
+        progressed = False
         for identifier in identifiers:
             if self._captures_stopped:
                 break
-            await self._capture(identifier, None)
-        return bool(identifiers)
+            result = (await self._capture(identifier, None)).value
+            if result["type"] == "Success" or result["error"]["type"] != "Pending":
+                progressed = True
+        return progressed
 
     async def _capture(
         self,
@@ -495,11 +499,17 @@ class AttachmentStore:
                     identifier, action_id, _source_error(exc)
                 )
                 return ReadResponse(result, attempts + exc.attempts)
-            except (OSError, ValueError, TimeoutError) as exc:
-                if web and isinstance(exc, OSError):
+            except (OSError, ValueError) as exc:
+                if (
+                    web
+                    and isinstance(exc, OSError)
+                    and not isinstance(exc, FileNotFoundError)
+                ):
                     return ReadResponse(_failure("Pending", identifier), attempts)
                 result = await self._capture_failed(
-                    identifier, action_id, "SourceChanged" if web else "Unavailable"
+                    identifier,
+                    action_id,
+                    "TooLarge" if isinstance(exc, OriginalTooLarge) else "Unavailable",
                 )
                 return ReadResponse(result, attempts)
             if action_id is None and self._captures_stopped:

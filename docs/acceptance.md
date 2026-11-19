@@ -1,5 +1,9 @@
 # V1 acceptance specification
 
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the
+new native recovery, receipt access and independent memory acceptance criteria.
+its temporary end-to-end/live checks are scoped to that delivery.
+
 the owner-approved [testing reset](decisions/0046-reset-testing.md) removes the
 previous suite, fixtures, evaluation corpus, and qualification runners. execution
 of the old test/qualification criteria is suspended pending the subsequent

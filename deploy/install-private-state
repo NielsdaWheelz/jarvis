@@ -137,6 +137,8 @@ trap cleanup EXIT HUP INT TERM
 [[ "$(systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
 [[ "$(systemctl show --property=Result --value jarvis.service)" == success ]]
 [[ "$(systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+[[ "$(systemctl show --property=ActiveState --value jarvis-memory.service)" == inactive ]]
+[[ "$(systemctl show --property=MainPID --value jarvis-memory.service)" == 0 ]]
 
 for file in jarvis.env google-oauth-state.json memory.json; do
   [[ -f "$remote/$file" && ! -L "$remote/$file" ]]
@@ -145,11 +147,9 @@ sudo -n install -d -m 0700 -o jarvis -g jarvis \
   /var/lib/jarvis/connectors
 sudo -n install -d -m 0750 -o jarvis -g codex-clients \
   /var/cache/jarvis /var/cache/jarvis/attachments
-sudo -n install -m 0600 -o root -g root "$remote/jarvis.env" /etc/jarvis/jarvis.env
-sudo -n install -m 0600 -o jarvis -g jarvis \
-  "$remote/memory.json" /etc/jarvis/memory.json
-sudo -n install -m 0600 -o jarvis -g jarvis \
-  "$remote/google-oauth-state.json" \
-  /var/lib/jarvis/connectors/google-oauth-state.json
-printf 'installed jarvis private state; worker installed-state access validated.\n'
+systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+  --property=EnvironmentFile=/etc/jarvis/migration.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  /opt/jarvis/current/.venv/bin/python /opt/jarvis/current/deploy/memory_credentials.py "$remote"
+printf 'installed private state under both maintenance locks.\n'
 REMOTE

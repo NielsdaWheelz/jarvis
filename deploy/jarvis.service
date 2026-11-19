@@ -11,7 +11,7 @@ StartLimitBurst=3
 Type=simple
 User=jarvis
 Group=jarvis
-SupplementaryGroups=codex-clients
+SupplementaryGroups=codex-clients jarvis-memory
 WorkingDirectory=/opt/jarvis/current
 EnvironmentFile=/etc/jarvis/database-runtime.env
 EnvironmentFile=/etc/jarvis/jarvis.env
@@ -49,6 +49,7 @@ TasksMax=256
 CPUQuota=200%
 MemoryHigh=2G
 MemoryMax=3G
+MemorySwapMax=512M
 LimitCORE=0
 OOMPolicy=stop
 

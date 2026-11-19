@@ -9,6 +9,10 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
+  governs native submission, retry and receipt recovery. the memory unit serves
+  external clients while the assistant is stopped. both run the selected release.
+  use each command's specified writer keys for stopped maintenance.
 - [orientation-first adr 0078](docs/decisions/0078-memory-orientation-first.md) adopts shared
   orientation-first guidance: view, relevant zoom, existing keyword/semantic
   search when no useful route remains, and complete retained originals through
@@ -644,8 +648,9 @@ These instructions govern all work in this repository.
   mechanisms into the standalone memory library; jarvis hosts it and supplies
   admitted inference. do not move product authority into the memory library or
   `llm-agent-kernel`.
-- Use one deployment-level PostgreSQL advisory lock and ordinary in-process
-  scheduling; do not invent redundant workflow coordination.
+- the assistant and memory service each hold their own postgres advisory lock.
+  operations that change the schema or rebuild the corpus acquire both in that
+  order. the assistant owns scheduling.
 - Require current-owner admission before provider I/O and effect entry. main's
   cumulative tool/model quotas are absent; finite per-operation, transport and
   buffer bounds remain. usage is observational, not authority. background memory

@@ -33,6 +33,9 @@ from universal_memory.policy import (
 )
 from universal_memory.schema import MEMORY_TABLES
 
+ASSISTANT_MEMORY_READS = 1
+SERVICE_MEMORY_READS = READ_POOL_SIZE - ASSISTANT_MEMORY_READS
+
 NAMING_CONVENTION = {
     "ck": "ck_%(table_name)s_%(constraint_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
@@ -41,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0013"
+APPLICATION_SCHEMA_REVISION = "0016"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -69,6 +72,7 @@ message = Table(
         server_default=text("0"),
     ),
     Column("processing_parked_at", DateTime(timezone=True)),
+    Column("native_retry_after", DateTime(timezone=True)),
     Column("memory_admitted", Boolean, nullable=False, server_default=text("false")),
     Column(
         "parent_request_id",
@@ -410,6 +414,7 @@ native_attempt = Table(
     Column("armed_at", DateTime(timezone=True), nullable=False),
     Column("fenced_at", DateTime(timezone=True)),
     Column("terminal_at", DateTime(timezone=True)),
+    Column("recovery_pending", Boolean, nullable=False, server_default=text("false")),
     UniqueConstraint("conversation_id", "attempt_seq"),
     CheckConstraint("attempt_seq > 0", name="sequence_positive"),
     CheckConstraint("request_fingerprint ~ '^[0-9a-f]{64}$'", name="fingerprint"),
@@ -437,6 +442,25 @@ Index(
     unique=True,
     postgresql_where=(
         native_attempt.c.fenced_at.is_(None)
+        & native_attempt.c.product_outcome.is_(None)
+    ),
+)
+
+Index(
+    "ix_native_attempt_pending_loss",
+    native_attempt.c.conversation_id,
+    native_attempt.c.attempt_seq,
+    postgresql_where=native_attempt.c.recovery_pending
+    & native_attempt.c.fenced_at.is_not(None),
+)
+
+Index(
+    "ix_native_attempt_unsettled_seal",
+    native_attempt.c.conversation_id,
+    native_attempt.c.attempt_seq,
+    postgresql_include=["id"],
+    postgresql_where=(
+        native_attempt.c.terminal_at.is_not(None)
         & native_attempt.c.product_outcome.is_(None)
     ),
 )
@@ -517,6 +541,7 @@ native_input_delivery = Table(
     ),
     Column("ordinal", Integer, nullable=False),
     Column("delivery_id", Text, nullable=False),
+    Column("was_waking", Boolean, nullable=False, server_default=text("false")),
     Column("mode", Text, nullable=False),
     Column("state", Text, nullable=False),
     Column("provider_evidence", JSONB(none_as_null=True)),
@@ -538,6 +563,12 @@ native_input_delivery = Table(
     CheckConstraint(
         "state IN ('prepared', 'sent', 'queued', 'recorded', 'rejected')", name="state"
     ),
+)
+
+# A start accepts its opening. A steer only joins the turn at its recorded item.
+proven_native_delivery = (native_input_delivery.c.state == "recorded") | (
+    (native_input_delivery.c.mode == "initial")
+    & (native_input_delivery.c.state == "sent")
 )
 
 
@@ -790,13 +821,13 @@ def normalize_database_url(database_url: str) -> str:
     raise ValueError(msg)
 
 
-def create_engine(database_url: str, *, memory_reads: bool = False) -> AsyncEngine:
+def create_engine(database_url: str, *, memory_reads: int = 0) -> AsyncEngine:
     return create_async_engine(
         normalize_database_url(database_url),
         pool_pre_ping=True,
         **(
             {
-                "pool_size": READ_POOL_SIZE,
+                "pool_size": memory_reads,
                 "max_overflow": 0,
                 "connect_args": {
                     "options": "-c default_transaction_read_only=on "

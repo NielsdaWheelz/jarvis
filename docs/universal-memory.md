@@ -1,5 +1,9 @@
 # universal memory: implementation contract
 
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns
+the target serving process, private search/index interface and maintenance
+ownership. this document continues to own archive, retrieval and readiness semantics.
+
 finite target exception: [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md),
 reordered by [fresh-corpus adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), authorizes
 the owner's preliminary reset → real journey → final reset, clearing central
@@ -214,7 +218,8 @@ or cannot be compared. historical import remains separately deferred.
 jarvis reconstructs context for each new top-level turn from a frozen fitting
 ready view with explicit coverage and admitted backlog under
 [adr 0081](decisions/0081-ready-memory-for-main.md),
-current input and exact active requests/receipts. a running turn retains its tool
+exact current requests, operative effect facts and addressable original receipts
+under [adr 0086](decisions/0086-native-recovery-and-memory-availability.md). a running turn retains its tool
 loop and compatible mid-run steering; a settled turn's native session is not
 reused for the next top-level turn. this supersedes cross-turn main-session reuse
 only when this target is implemented. it does not reset codex/claude/nexus sessions
@@ -1853,16 +1858,16 @@ columns. there is no second schema-version service or generic storage interface.
 
 entry-point names identify cohesive responsibilities, not an extensible plugin
 registry. the library takes plain normalized data, not native sessions, model
-clients, jarvis requests/actions, HTTP objects or credentials. one shared package
-instance serves in-process callers and transport adapters. provider qualification,
-authentication, policy admission and inference remain host responsibilities.
+clients, jarvis requests/actions, http objects or credentials. both processes use
+the same library and database. each supplies its own clients, grants and pool.
+the private socket routes online embedding work to the memory service.
 
 | boundary | files / owner |
 | --- | --- |
 | native history | provider-runtime `agent_runtime/archive.py` and provider codecs: enumeration, complete events, identity and suppression |
 | capture | jarvis adapters: stateless collection, admission/activation, normalization and status; call the library's atomic archive/checkpoint operation |
 | memory library | standalone package: postgres archive, note append, binary tree, compaction task/result validation, persisted views, navigation, search and repair; no jarvis imports or extra daemon |
-| jarvis memory integration | host inference/embedding execution, scheduling, dreaming and main-turn context; shared library instance behind internal tools and mcp/http |
+| jarvis memory integration | the assistant owns inference, scheduling, vector commits and main-turn context. the memory service owns external mcp/http, capture and online embedding calls |
 | shared policy | library memory constants/public schemas and portable `tools.py` declarations; jarvis `settings.py`/`definitions.py` own deployment configuration and cognitive role plans |
 | tool adapters | `memory_tools.py`, `memory_dispatch.py`, `read_dispatch.py`, `read_positions.py`, `write_dispatch.py`: consume shared declarations, enforce grants and main save recovery; production transient read recorder belongs to llm-tools |
 | integration | `db.py`/migration, `messages.py`/`native_journal.py`, `service.py`, `definitions.py`, `settings.py`, `cli.py`, `tool_composition.py`: source publication, role wiring and endpoints |

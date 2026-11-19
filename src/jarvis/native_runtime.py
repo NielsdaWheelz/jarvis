@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,12 +21,14 @@ from llm_agent_kernel import (
     NativeDefinition,
     NativeDispatchLineage,
     NativeRequest,
+    NativeRequestFit,
+    NativeSubmissionConflict,
     NativeUncertain,
     NoNewInput,
     Preempt,
     ProviderSessionLease,
     input_batch,
-    native_request_fits,
+    native_request_fit,
     run_native,
 )
 from llm_tools import (
@@ -41,28 +43,21 @@ from llm_tools import (
     PromptSections,
     PromptText,
     ReplayPolicy,
-    canonical_json_bytes,
     raw_input_digest,
 )
 from provider_runtime.agent_runtime import (
     AgentMessage,
     AgentNotSubmitted,
+    AgentSubmissionRejected,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
     decode_agent_output,
     thaw_json_value,
 )
-from sqlalchemy import func, or_, select, update
-from sqlalchemy.dialects.postgresql import array
+from sqlalchemy import case, func, or_, select, update
 from universal_memory import MemoryError, render_ready_view
 
-from jarvis.actions import (
-    ActionStore,
-    StoredAction,
-    action_context,
-    recorded_action,
-    retired_worker_revision,
-)
+from jarvis.actions import ActionStore, retired_worker_predicate
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import (
     action,
@@ -70,17 +65,29 @@ from jarvis.db import (
     native_attempt,
     native_input_delivery,
     native_invocation,
+    proven_native_delivery,
     read_position,
 )
 from jarvis.definitions import RoleDefinitions
 from jarvis.input_framing import host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
-from jarvis.messages import MessageStore, StoredMessage, causal_component_ids
+from jarvis.messages import (
+    MessageStore,
+    StoredMessage,
+    causal_component_ids,
+    latest_control,
+)
 from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_journal import (
+    NativeContentDefect,
     PostgresNativeJournal,
+    ProductSettlement,
+    StaleNativeProduct,
     commit_product,
+    consume_fenced_losses,
+    native_loss_product,
+    park_oversized_input,
     park_product,
     recover_sealed_turn,
 )
@@ -89,8 +96,9 @@ from jarvis.ownership import (
     lock_conversation,
 )
 from jarvis.read_positions import PostgresReadRecorder
+from jarvis.receipt_tools import original_read_position, receipt_scope
 from jarvis.settings import Settings
-from jarvis.terminal import JarvisTerminal
+from jarvis.terminal import JarvisTerminal, render_terminal
 from jarvis.tool_results import completed_tool_result
 from jarvis.write_dispatch import WriteToolDispatcher
 
@@ -128,7 +136,18 @@ def _host_inputs(
     )
 
 
-async def _fit_inputs(
+async def opening_memory_prefix(memory: MemoryService) -> tuple[int, PromptSections]:
+    cutoff = await memory.library.cutoff()
+    view = await memory.library.ready_view(cutoff)
+    prefix = PromptSection(
+        PromptSectionKind("historical_memory_view"),
+        (),
+        PromptText(render_ready_view(view)),
+    )
+    return cutoff, PromptSections((prefix,))
+
+
+async def fit_native_inputs(
     owner: JarvisOwner,
     store: MessageStore,
     definition: NativeDefinition,
@@ -137,42 +156,29 @@ async def _fit_inputs(
     *,
     prefix: PromptSections,
     exclude_ids: tuple[UUID, ...],
-    delivered_receipts: dict[str, bytes] | None = None,
-) -> tuple[tuple[HostInput, ...], dict[str, bytes]] | None:
-    while values:
+    steer: bool = False,
+) -> tuple[tuple[HostInput, ...], PromptSections, NativeRequestFit]:
+    while True:
         omitted = await store.waiting_input_count(
             owner.scope_id,
             exclude_ids=(*exclude_ids, *(item.id for item in values)),
         )
-
-        def fits(
-            receipts: PromptSections,
-            selected: tuple[StoredMessage, ...] = values,
-            omitted_count: int = omitted,
-        ) -> bool:
-            framed = _host_inputs(selected, receipts, omitted_count)
-            current = input_batch(
-                framed,
-                as_of,
-                render_source_timestamps=True,
-                render_batch_as_of=True,
-            )
-            return native_request_fits(
-                definition,
-                PromptSections((*prefix.sections, current)),
-            )
-
         receipts = await native_receipt_context(
-            owner,
-            input_ids=tuple(InputId(str(item.id)) for item in values),
-            fits=fits,
-            delivered_receipts=delivered_receipts,
+            owner, input_ids=tuple(InputId(str(item.id)) for item in values)
         )
-        if receipts is not None:
-            sections, versions = receipts
-            return _host_inputs(values, sections, omitted), versions
+        framed = _host_inputs(values, receipts, omitted)
+        current = input_batch(
+            framed, as_of, render_source_timestamps=True, render_batch_as_of=True
+        )
+        projected = PromptSections((*prefix.sections, current))
+        fit = native_request_fit(
+            definition,
+            projected,
+            operation="steer" if steer else "start",
+        )
+        if fit.fits or len(values) == 1:
+            return framed, projected, fit
         values = values[:-1]
-    return None
 
 
 class NativeInputs:
@@ -186,15 +192,14 @@ class NativeInputs:
         memory_cutoff: int,
         cancellation: CancellationToken,
         maximum_batch_size: int,
-        opening_receipts: dict[str, bytes],
     ) -> None:
         self.owner, self.store, self.plan = owner, store, plan
         self.definition = definition
         self.memory_cutoff = memory_cutoff
         # The kernel can prepare a steer before submit, but sends it only after
         # this opening request was accepted on the same native turn.
-        self._receipt_versions = opening_receipts
-        self._pending: tuple[tuple[UUID, ...], dict[str, bytes]] | None = None
+        self._pending: tuple[UUID, ...] = ()
+        self._opening_only: set[UUID] = set()
         self.cancellation, self.maximum_batch_size = cancellation, maximum_batch_size
 
     async def poll(self, request: NativeRequest, through_checkpoint: Checkpoint | None):
@@ -205,9 +210,9 @@ class NativeInputs:
             attempt = (
                 (
                     await connection.execute(
-                        select(native_attempt).where(
-                            native_attempt.c.id == UUID(request.attempt_id)
-                        )
+                        select(
+                            native_attempt.c.owner_epoch, native_attempt.c.fenced_at
+                        ).where(native_attempt.c.id == UUID(request.attempt_id))
                     )
                 )
                 .mappings()
@@ -229,24 +234,25 @@ class NativeInputs:
                     )
                 )
             }
-        if self._pending is not None:
-            pending_ids, versions = self._pending
-            states = {deliveries.get(identifier) for identifier in pending_ids}
-            if states == {"recorded"}:
-                self._receipt_versions.update(versions)
-            elif states != {"rejected"}:
+        if self._pending:
+            if any(
+                deliveries.get(i) not in {"recorded", "rejected"} for i in self._pending
+            ):
                 return NoNewInput()
-            self._pending = None
-        known = tuple(set(deliveries).union(map(UUID, request.input_ids)))
+            self._pending = ()
+        known = tuple(
+            self._opening_only.union(deliveries, map(UUID, request.input_ids))
+        )
         values = await self.store.pending_inputs(
             source_conversation_id=self.owner.scope_id,
             limit=self.maximum_batch_size,
             exclude_ids=known,
+            steer=True,
         )
         if not values:
             return NoNewInput()
         as_of = datetime.now(UTC)
-        fitted = await _fit_inputs(
+        inputs, _, size = await fit_native_inputs(
             self.owner,
             self.store,
             self.definition,
@@ -254,13 +260,12 @@ class NativeInputs:
             as_of,
             prefix=PromptSections(()),
             exclude_ids=known,
-            delivered_receipts=self._receipt_versions,
+            steer=True,
         )
-        if fitted is None:
-            LOGGER.warning("native append blocked: code=request_too_large")
+        if not size.fits:
+            self._opening_only.add(values[0].id)
             return NoNewInput()
-        inputs, versions = fitted
-        self._pending = tuple(UUID(item.input_id) for item in inputs), versions
+        self._pending = tuple(UUID(item.input_id) for item in inputs)
         return AppendInputs(inputs, Checkpoint(str(inputs[-1].input_id)), as_of)
 
     async def require_live_request(
@@ -344,24 +349,14 @@ class NativeRunner:
         try:
             pending_publication = await self.memory.pending_publication()
             await self.memory.project_pending(pending_publication)
-            cutoff = await self.memory.library.cutoff()
-            memory_view = await self.memory.library.ready_view(cutoff)
+            cutoff, source = await opening_memory_prefix(self.memory)
         except MemoryError as error:
             LOGGER.warning("memory preparation blocked: code=%s", error.code)
             return NativeRunOutcome("blocked")
         if cancellation.cancelled:
             return NativeRunOutcome("stopped")
-        source = PromptSections(
-            (
-                PromptSection(
-                    PromptSectionKind("historical_memory_view"),
-                    (),
-                    PromptText(render_ready_view(memory_view)),
-                ),
-            )
-        )
         as_of = datetime.now(UTC)
-        fitted = await _fit_inputs(
+        inputs, projected, size = await fit_native_inputs(
             self.owner,
             self.store,
             self.definitions.main,
@@ -370,17 +365,13 @@ class NativeRunner:
             prefix=source,
             exclude_ids=(),
         )
-        if fitted is None:
-            LOGGER.warning("native context blocked: code=request_too_large")
-            return NativeRunOutcome("blocked")
-        inputs, opening_receipts = fitted
-        current = input_batch(
-            inputs,
-            as_of,
-            render_source_timestamps=True,
-            render_batch_as_of=True,
-        )
-        projected = PromptSections((*source.sections, current))
+        if not size.fits:
+            actual, limit, unit = size.actual_chars, size.max_chars, "characters"
+            if actual <= limit:
+                actual, limit, unit = size.wire_bytes, size.max_bytes, "wire bytes"
+            reason = f"the opening needed {actual} {unit}, limit {limit}"
+            parked = await park_oversized_input(self.owner, pending[0].id, reason)
+            return NativeRunOutcome("progressed" if parked else "blocked")
         attempt_id = str(uuid4())
         permit = self.owner.permit("jarvis-native:" + attempt_id)
         request = NativeRequest(
@@ -395,82 +386,76 @@ class NativeRunner:
             None,
             Checkpoint(str(inputs[-1].input_id)),
         )
+        protocol_fault = False
         try:
-            self._session = await self.kernel.provider.acquire_native(
-                self.definitions.main, plan, permit, None
-            )
-            journal = PostgresNativeJournal(
-                self.owner.database,
-                definition=self.definitions.main,
-                plan=plan,
-                owner=self.owner,
-                memory=self.memory,
-            )
-            self._journal = journal
-            native_inputs = NativeInputs(
-                owner=self.owner,
-                store=self.store,
-                plan=plan,
-                definition=self.definitions.main,
-                memory_cutoff=cutoff,
-                cancellation=cancellation,
-                maximum_batch_size=self.settings.maximum_batch_size,
-                opening_receipts=opening_receipts,
-            )
-            dispatcher = self.dispatcher_factory(native_inputs, journal)
-            dispatcher.on_effect_settled = self.notify_work
-            self._dispatchers.append(dispatcher)
-            terminal = await run_native(
-                definition=self.definitions.main,
-                request=request,
-                provider=self.kernel.provider,
-                session=self._session,
-                owner=self.owner,
-                journal=journal,
-                inputs=native_inputs,
-                dispatch=dispatcher,
-                budgets=ExactToolBudgetFactory(),
-                messages=self,
-                cancellation=cancellation,
-            )
-            if isinstance(terminal, AgentNotSubmitted):
-                await _fail_native_product(
-                    self.owner,
-                    request.attempt_id,
-                    request.input_ids,
-                    "the native turn was not submitted",
+            try:
+                self._session = await self.kernel.provider.acquire_native(
+                    self.definitions.main, plan, permit, None
                 )
-                return NativeRunOutcome("blocked")
-            if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
-                if isinstance(terminal.evidence, NativeTerminalEvidence):
-                    await _mark_stale(self.owner, UUID(attempt_id), "owner_stopped")
+                journal = PostgresNativeJournal(
+                    self.owner.database,
+                    definition=self.definitions.main,
+                    plan=plan,
+                    owner=self.owner,
+                    memory=self.memory,
+                )
+                self._journal = journal
+                native_inputs = NativeInputs(
+                    owner=self.owner,
+                    store=self.store,
+                    plan=plan,
+                    definition=self.definitions.main,
+                    memory_cutoff=cutoff,
+                    cancellation=cancellation,
+                    maximum_batch_size=self.settings.maximum_batch_size,
+                )
+                dispatcher = self.dispatcher_factory(native_inputs, journal)
+                dispatcher.on_effect_settled = self.notify_work
+                self._dispatchers.append(dispatcher)
+                terminal = await run_native(
+                    definition=self.definitions.main,
+                    request=request,
+                    provider=self.kernel.provider,
+                    session=self._session,
+                    owner=self.owner,
+                    journal=journal,
+                    inputs=native_inputs,
+                    dispatch=dispatcher,
+                    budgets=ExactToolBudgetFactory(),
+                    messages=self,
+                    cancellation=cancellation,
+                )
+            except DeploymentOwnershipDefect:
+                raise
+            except (NativeUncertain, NativeSubmissionConflict):
+                terminal = None
+            except NativeDefect as error:
+                log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")
+                terminal = None
+                protocol_fault = True
+            if await self.store.paused(self.owner.scope_id):
+                await recover_native_products(self.owner)
                 return NativeRunOutcome("stopped")
-            if isinstance(terminal.evidence, NativeTerminalEvidence):
-                await _settle_native_product(self.owner, request.attempt_id)
+            if cancellation.cancelled:
+                return NativeRunOutcome("stopped")
+            if (
+                terminal is None
+                or isinstance(terminal, AgentNotSubmitted | AgentSubmissionRejected)
+                or not isinstance(terminal.evidence, NativeTerminalEvidence)
+            ):
+                result = await _settle_failed_opening(
+                    self.owner, request, protocol_fault
+                )
             else:
-                await _fail_native_product(
-                    self.owner,
-                    request.attempt_id,
-                    request.input_ids,
-                    "the native provider did not complete this turn",
-                )
-            return NativeRunOutcome("progressed")
-        except DeploymentOwnershipDefect:
-            raise
-        except NativeUncertain:
-            # run_native fences old callbacks; restart reasoning in a fresh thread.
-            return NativeRunOutcome("progressed")
-        except NativeDefect as error:
-            log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")
-            if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
-                return NativeRunOutcome("stopped")
-            await _fail_native_product(
-                self.owner,
-                request.attempt_id,
-                request.input_ids,
-                "native protocol requires repair",
-            )
-            return NativeRunOutcome("blocked")
+                try:
+                    result = await _settle_native_product(self.owner, attempt_id)
+                except Exception as error:
+                    log_native_failure(
+                        LOGGER, error, attempt_id=attempt_id, boundary="terminal"
+                    )
+                    raise
+            progressed = result.status == "committed" or result.eligibility_changed
+            return NativeRunOutcome("progressed" if progressed else "blocked")
         finally:
             self._journal = None
             session, self._session = self._session, None
@@ -487,57 +472,119 @@ class NativeRunner:
             self._session = None
 
 
-async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
-    """Fence old callback owners, then drain sealed terminals locally."""
-    async with owner.database.begin() as connection:
-        await lock_conversation(connection, owner.scope_id)
-        rows = (
-            (
-                await connection.execute(
-                    select(native_attempt)
-                    .where(
-                        native_attempt.c.conversation_id == owner.scope_id,
-                        native_attempt.c.product_outcome.is_(None),
-                    )
-                    .order_by(native_attempt.c.attempt_seq)
-                    .with_for_update()
+async def _settle_failed_opening(
+    owner: JarvisOwner, request: NativeRequest, protocol_fault: bool
+) -> ProductSettlement:
+    identifier = UUID(request.attempt_id)
+    async with owner.database.connect() as connection:
+        row = (
+            await connection.execute(
+                select(native_attempt.c.terminal_at, native_loss_product).where(
+                    native_attempt.c.id == identifier,
+                    native_attempt.c.conversation_id == owner.scope_id,
                 )
             )
-            .mappings()
-            .all()
+        ).one_or_none()
+    if row is None and protocol_fault:
+        return await _fail_native_product(
+            owner,
+            request.attempt_id,
+            request.input_ids,
+            "native protocol requires repair",
         )
-        for row in rows:
-            await connection.execute(
-                update(native_attempt)
-                .where(native_attempt.c.id == row["id"])
-                .values(fenced_at=func.coalesce(native_attempt.c.fenced_at, func.now()))
-            )
-    completed: list[UUID] = []
-    for row in rows:
-        if row["terminal"] is None:
-            continue
-        try:
-            completed.extend(
-                await _settle_native_product(owner, str(row["id"]), recovering=True)
-            )
-        except NativeDefect:
-            await _mark_stale(owner, row["id"], "request_authority_changed")
+    if row is not None and row[0] is not None and not row[1]:
+        return await _settle_native_product(owner, request.attempt_id, recovering=True)
+    return await consume_fenced_losses(owner, attempt_id=identifier)
 
+
+async def fence_abandoned_native_attempt(owner: JarvisOwner) -> bool:
+    """End old dispatch authority immediately, even before Discord catch-up."""
+    async with owner.database.begin() as connection:
+        await lock_conversation(connection, owner.scope_id)
+        fenced = await connection.scalar(
+            update(native_attempt)
+            .where(
+                native_attempt.c.conversation_id == owner.scope_id,
+                native_attempt.c.fenced_at.is_(None),
+                native_attempt.c.product_outcome.is_(None),
+            )
+            .values(fenced_at=func.now())
+            .returning(native_attempt.c.id)
+        )
+    return fenced is not None
+
+
+async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
+    """After catch-up, drain original seals and then account for lost turns."""
+    fenced = await fence_abandoned_native_attempt(owner)
+    completed: list[UUID] = []
+    counts: Counter[str] = Counter()
+    try:
+        while True:
+            async with owner.database.connect() as connection:
+                row = (
+                    await connection.execute(
+                        select(native_attempt.c.id, native_loss_product)
+                        .where(
+                            native_attempt.c.conversation_id == owner.scope_id,
+                            native_attempt.c.terminal_at.is_not(None),
+                            native_attempt.c.product_outcome.is_(None),
+                        )
+                        .order_by(native_attempt.c.attempt_seq)
+                        .limit(1)
+                    )
+                ).one_or_none()
+            if row is None:
+                break
+            identifier, lost = row
+            try:
+                if lost:
+                    result = await consume_fenced_losses(owner, attempt_id=identifier)
+                else:
+                    result = await _settle_native_product(
+                        owner, str(identifier), recovering=True
+                    )
+            except Exception as error:
+                log_native_failure(
+                    LOGGER, error, attempt_id=str(identifier), boundary="terminal"
+                )
+                error.add_note(f"recovering sealed native attempt {identifier}")
+                raise
+            if result.status is not None:
+                counts[result.status] += 1
+            completed.extend(result.completed)
+        await consume_fenced_losses(owner)
+    finally:
+        if fenced or counts:
+            LOGGER.info(
+                "native recovery: fenced=%d committed=%d failed=%d stale=%d",
+                int(fenced),
+                counts["committed"],
+                counts["failed"],
+                counts["stale"],
+            )
     return tuple(completed)
 
 
-async def _mark_stale(owner: JarvisOwner, attempt_id: UUID, reason: str) -> None:
+async def _mark_stale(
+    owner: JarvisOwner, attempt_id: UUID, reason: str
+) -> ProductSettlement:
     async with owner.database.begin() as connection:
         await lock_conversation(connection, owner.scope_id)
-        await connection.execute(
+        updated = await connection.scalar(
             update(native_attempt)
             .where(
                 native_attempt.c.id == attempt_id,
-                native_attempt.c.terminal.is_not(None),
+                native_attempt.c.terminal_at.is_not(None),
                 native_attempt.c.product_outcome.is_(None),
             )
-            .values(product_outcome={"status": "stale", "reason": reason})
+            .values(
+                product_outcome={"status": "stale", "reason": reason},
+                recovery_pending=False,
+            )
+            .returning(native_attempt.c.id)
         )
+    return ProductSettlement("stale" if updated is not None else None)
 
 
 async def _settle_native_product(
@@ -545,40 +592,42 @@ async def _settle_native_product(
     attempt_id: str,
     *,
     recovering: bool = False,
-) -> tuple[UUID, ...]:
+) -> ProductSettlement:
     turn = await recover_sealed_turn(owner.database, owner, attempt_id)
     if turn is None:
         raise NativeDefect("product settlement lacks a sealed native terminal")
+    if turn.terminal.status != "succeeded":
+        return await _fail_native_product(
+            owner,
+            attempt_id,
+            turn.input_ids,
+            "the native provider did not complete this turn",
+        )
+    if turn.output is None:
+        raise NativeDefect("original output schema is absent")
     try:
-        if turn.terminal.status != "succeeded":
-            await _fail_native_product(
-                owner,
-                turn.attempt_id,
-                turn.input_ids,
-                "the native provider did not complete this turn",
-            )
-            return ()
-        if turn.output is None:
-            raise ValueError("original output schema is absent")
         value = decode_agent_output(turn.output, turn.terminal)
         final = JarvisTerminal.model_validate(thaw_json_value(value))
-        completed = await commit_product(
-            owner.database,
-            owner,
-            turn,
-            final,
-            recovering=recovering,
-        )
+        rendered = render_terminal(final)
     except (TypeError, ValueError, OutputSchemaMismatch) as error:
         log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
-        await _fail_native_product(
+        return await _fail_native_product(
             owner,
-            turn.attempt_id,
+            attempt_id,
             turn.input_ids,
             "the final response did not meet its content contract",
         )
-        return ()
-    return completed
+    try:
+        return await commit_product(
+            owner.database, owner, turn, final, rendered, recovering=recovering
+        )
+    except NativeContentDefect as error:
+        log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
+        return await _fail_native_product(
+            owner, attempt_id, turn.input_ids, "native protocol requires repair"
+        )
+    except StaleNativeProduct:
+        return await _mark_stale(owner, UUID(attempt_id), "request_authority_changed")
 
 
 async def _fail_native_product(
@@ -586,8 +635,8 @@ async def _fail_native_product(
     attempt_id: str,
     input_ids: tuple[InputId, ...],
     reason: str,
-) -> None:
-    await park_product(owner.database, owner, attempt_id, input_ids, reason)
+) -> ProductSettlement:
+    return await park_product(owner.database, owner, attempt_id, input_ids, reason)
 
 
 async def _recover_native_note_saves(owner: JarvisOwner, memory: MemoryService) -> None:
@@ -674,10 +723,8 @@ async def native_receipt_context(
     owner: JarvisOwner,
     *,
     input_ids: tuple[InputId, ...],
-    fits: Callable[[PromptSections], bool],
-    delivered_receipts: dict[str, bytes] | None = None,
-) -> tuple[PromptSections, dict[str, bytes]] | None:
-    """Keep complete causal recovery facts; optional recent observations fit last."""
+) -> PromptSections:
+    """Frame operative facts and the inventory of recorded observations."""
     selected_ids = tuple(map(UUID, input_ids))
     async with owner.database.connect() as connection:
         component_ids = await causal_component_ids(connection, selected_ids)
@@ -704,7 +751,11 @@ async def native_receipt_context(
         seals = (
             (
                 await connection.execute(
-                    select(native_attempt)
+                    select(
+                        native_attempt.c.id,
+                        native_attempt.c.product_outcome,
+                        native_attempt.c.request["input_ids"].label("input_ids"),
+                    )
                     .where(
                         native_attempt.c.id.in_(stop_attempts),
                         native_attempt.c.conversation_id == owner.scope_id,
@@ -733,13 +784,14 @@ async def native_receipt_context(
             (
                 await connection.execute(
                     select(native_input_delivery.c.message_id).where(
-                        native_input_delivery.c.attempt_id.in_(stop_attempts)
+                        native_input_delivery.c.attempt_id.in_(stop_attempts),
+                        proven_native_delivery,
                     )
                 )
             ).scalars()
         )
         for seal in seals:
-            stop_input_ids.update(map(UUID, seal["request"]["input_ids"]))
+            stop_input_ids.update(map(UUID, seal["input_ids"]))
             if seal["product_outcome"].get("response_id") is not None:
                 stop_input_ids.add(UUID(seal["product_outcome"]["response_id"]))
         stop_context = (
@@ -753,6 +805,11 @@ async def native_receipt_context(
                                 tuple(stop_input_ids.difference(component_ids))
                             ),
                             message.c.control_targets.overlap(list(component_ids)),
+                            message.c.id
+                            == latest_control(owner.scope_id)
+                            .with_only_columns(message.c.id)
+                            .correlate(None)
+                            .scalar_subquery(),
                         ),
                     )
                     .order_by(message.c.created_at, message.c.id)
@@ -761,63 +818,6 @@ async def native_receipt_context(
             .mappings()
             .all()
         )
-        action_ids = tuple(
-            (
-                await connection.execute(
-                    select(action.c.id)
-                    .where(action.c.origin_message_id.in_(component_ids))
-                    .order_by(action.c.created_at, action.c.id)
-                )
-            ).scalars()
-        )
-        included = or_(
-            native_invocation.c.proposal["input_ids"].op("?|")(
-                array(tuple(map(str, component_ids)))
-            ),
-            native_invocation.c.action_id.in_(action_ids),
-        )
-        if delivered_receipts is None:
-            recent = (
-                select(native_invocation.c.id)
-                .join(
-                    native_attempt,
-                    native_attempt.c.id == native_invocation.c.attempt_id,
-                )
-                .where(native_attempt.c.conversation_id == owner.scope_id)
-                .order_by(
-                    native_attempt.c.attempt_seq.desc(),
-                    native_invocation.c.ordinal.desc(),
-                )
-                .limit(100)
-                .correlate(None)
-            )
-            included = or_(included, native_invocation.c.id.in_(recent))
-        rows = (
-            (
-                await connection.execute(
-                    select(native_invocation, native_attempt.c.attempt_seq)
-                    .join(
-                        native_attempt,
-                        native_attempt.c.id == native_invocation.c.attempt_id,
-                    )
-                    .where(
-                        native_attempt.c.conversation_id == owner.scope_id,
-                        included,
-                    )
-                    .order_by(native_attempt.c.attempt_seq, native_invocation.c.ordinal)
-                )
-            )
-            .mappings()
-            .all()
-        )
-        actions: dict[UUID, StoredAction] = {}
-        for identifier in dict.fromkeys(
-            (*action_ids, *(row["action_id"] for row in rows if row["action_id"]))
-        ):
-            stored = await recorded_action(connection, identifier)
-            if stored is None:
-                raise NativeDefect("native context references a missing action")
-            actions[identifier] = stored
         records: list[dict[str, object]] = [
             {
                 "kind": "canonical_request_context",
@@ -849,94 +849,133 @@ async def native_receipt_context(
             }
             for row in seals
         )
-        for identifier in action_ids:
-            records.append(action_context(actions[identifier]))
-        observations: list[tuple[dict[str, object], bool]] = []
-        versions: dict[str, bytes] = {}
-        component_text_ids = set(map(str, component_ids))
-        for row in rows:
-            stored = actions.get(row["action_id"])
-            if retired_worker_revision(
-                row["tool_id"], row["frozen_contract"]["implementation_revision"]
-            ):
-                continue
-            position = row["read_position"] or "native-invocation:" + str(row["id"])
-            read = (
-                (
-                    await connection.execute(
-                        select(read_position).where(
-                            read_position.c.position == position
-                        )
-                    )
+        retired = retired_worker_predicate(
+            action.c.tool_name,
+            action.c.execution_contract["implementation_revision"].as_string(),
+        )
+        action_ids: list[str] = []
+        for row in await connection.execute(
+            select(
+                action.c.id,
+                action.c.tool_name,
+                action.c.origin_message_id,
+                action.c.status,
+                action.c.attempts,
+                case(
+                    (
+                        or_(
+                            retired,
+                            action.c.execution_contract["schema_version"]
+                            .as_string()
+                            .is_(None),
+                        ),
+                        None,
+                    ),
+                    else_=action.c.arguments,
+                ).label("arguments"),
+            )
+            .where(action.c.origin_message_id.in_(component_ids))
+            .order_by(action.c.created_at, action.c.id)
+        ):
+            action_ids.append(str(row.id))
+            records.append(
+                dict(
+                    kind="accepted_action",
+                    action_ref=str(row.id),
+                    request_ref=str(row.origin_message_id),
+                    tool_id=row.tool_name,
+                    status=row.status,
+                    attempts=row.attempts,
+                    arguments=row.arguments,
                 )
-                .mappings()
-                .one_or_none()
             )
-            result = None
-            if row["reply_receipt"] is None:
-                if read is not None:
-                    result = read["result"]
-                elif stored is not None:
-                    result = action_context(stored).get("recorded_result")
-            identifier = str(row["id"])
-            record = {
-                "kind": "native_invocation",
-                "invocation_id": identifier,
-                "tool_id": row["tool_id"],
-                "proposal": row["proposal"],
-                "reply": row["reply_receipt"],
-                "read_state": None if read is None else read["state"],
-                "read_contract": None if read is None else read["contract"],
-                "recorded_result": result,
-            }
-            digest = hashlib.sha256(canonical_json_bytes(record)).digest()
-            versions[identifier] = digest
-            if (
-                delivered_receipts is not None
-                and delivered_receipts.get(identifier) == digest
-            ):
-                record = {"kind": "native_invocation_ref", "invocation_id": identifier}
-            operative = (
-                bool(component_text_ids.intersection(row["proposal"]["input_ids"]))
-                or row["action_id"] in action_ids
-            )
-            observations.append((record, operative))
-    required = tuple(record for record, operative in observations if operative)
-
-    def frame(values: tuple[dict[str, object], ...]) -> PromptSections:
-        return PromptSections(
-            (
-                PromptSection(
-                    PromptSectionKind("recorded_tool_observations"),
-                    (),
-                    PromptJson([*records, *values]),
+        joined = native_invocation.join(
+            native_attempt, native_attempt.c.id == native_invocation.c.attempt_id
+        )
+        scope = receipt_scope(owner.scope_id, component_ids)
+        # An owner can decide a commitment from a separate request. Either fact
+        # leads to the same immutable local receipt, including after replay.
+        reply = native_invocation.c.reply_receipt
+        decision = reply["result"]["value"]
+        approvals = await connection.scalars(
+            select(decision)
+            .select_from(joined)
+            .where(
+                native_attempt.c.conversation_id == owner.scope_id,
+                native_invocation.c.tool_id == "approval.respond",
+                reply["type"].as_string() == "local_result",
+                reply["result"]["type"].as_string() == "Success",
+                or_(
+                    decision["action_id"].as_string().in_(action_ids),
+                    decision["owner_message_id"]
+                    .as_string()
+                    .in_(tuple(map(str, component_ids))),
                 ),
             )
+            .distinct()
+            .order_by(decision)
         )
-
-    context = frame(required)
-    if not fits(context):
-        return None
-    selected = {str(record["invocation_id"]) for record in required}
-    for record, operative in reversed(observations):
-        if operative:
-            continue
-        identifier = str(record["invocation_id"])
-        selected.add(identifier)
-        candidate = frame(
-            tuple(item for item, _ in observations if item["invocation_id"] in selected)
+        records.extend(
+            {"kind": "approval_decision", **approval} for approval in approvals
         )
-        if not fits(candidate):
-            selected.remove(identifier)
-            break
-        context = candidate
-    return context, {key: versions[key] for key in selected}
+        counts = await connection.execute(
+            select(native_invocation.c.tool_id, func.count())
+            .select_from(joined)
+            .where(*scope)
+            .group_by(native_invocation.c.tool_id)
+            .order_by(native_invocation.c.tool_id)
+        )
+        records.append(
+            {
+                "kind": "receipt_inventory",
+                "counts": dict(counts.tuples().all()),
+                "lookup": (
+                    "use receipt.read with a delivered request_ref to page and open "
+                    "originals. inventory counts do not establish coverage."
+                ),
+            }
+        )
+        for row in await connection.execute(
+            select(
+                native_invocation.c.id,
+                native_invocation.c.tool_id,
+                native_invocation.c.proposal["arguments"].label("arguments"),
+                read_position.c.state,
+            )
+            .select_from(joined.join(read_position, original_read_position()))
+            .where(
+                *scope,
+                read_position.c.state.in_(("dispatched", "uncertain")),
+                read_position.c.contract["replay_policy"].as_string()
+                == ReplayPolicy.BilledOnce.value,
+            )
+            .order_by(native_attempt.c.attempt_seq, native_invocation.c.ordinal)
+        ):
+            records.append(
+                dict(
+                    kind="unresolved_paid_read",
+                    invocation_id=str(row.id),
+                    tool_id=row.tool_id,
+                    state=row.state,
+                    arguments=row.arguments,
+                )
+            )
+    return PromptSections(
+        (
+            PromptSection(
+                PromptSectionKind("recorded_tool_observations"), (), PromptJson(records)
+            ),
+        )
+    )
 
 
 __all__ = [
     "NativeInputs",
     "NativeRunOutcome",
     "NativeRunner",
+    "fence_abandoned_native_attempt",
+    "fit_native_inputs",
     "native_receipt_context",
+    "opening_memory_prefix",
     "recover_native_products",
 ]

@@ -73,6 +73,7 @@ from jarvis.db import (
     native_attempt,
     native_input_delivery,
     native_invocation,
+    proven_native_delivery,
 )
 from jarvis.event_tools import EVENT_MUTATION_IDS, validate_event_result
 from jarvis.messages import (
@@ -516,16 +517,7 @@ class ActionStore:
             ),
         )
         revision = action.c.execution_contract["implementation_revision"].as_string()
-        retired_worker = or_(
-            and_(
-                action.c.tool_name.like("agent.%"),
-                revision.in_(_RETIRED_AGENT_REVISIONS),
-            ),
-            and_(
-                action.c.tool_name.like("codex.%"),
-                revision.in_(_RETIRED_CODEX_REVISIONS),
-            ),
-        )
+        retired_worker = retired_worker_predicate(action.c.tool_name, revision)
         if retired_only:
             eligible = and_(
                 eligible,
@@ -1448,7 +1440,11 @@ async def _lock_new_action(
     attempt = (
         (
             await connection.execute(
-                select(native_attempt)
+                select(
+                    native_attempt.c.fenced_at,
+                    native_attempt.c.terminal_at,
+                    native_attempt.c.product_outcome.is_not(None).label("settled"),
+                )
                 .where(native_attempt.c.id == attempt_id)
                 .with_for_update()
             )
@@ -1469,8 +1465,8 @@ async def _lock_new_action(
     )
     if (
         attempt["fenced_at"] is not None
-        or attempt["terminal"] is not None
-        or attempt["product_outcome"] is not None
+        or attempt["terminal_at"] is not None
+        or attempt["settled"]
         or invocation["request_message_id"] != origin_id
         or contract.claim_id != str(attempt_id)
         or contract.model_step_ordinal != invocation["ordinal"]
@@ -1484,7 +1480,7 @@ async def _lock_new_action(
         select(native_input_delivery.c.message_id).where(
             native_input_delivery.c.attempt_id == attempt_id,
             native_input_delivery.c.message_id == origin_id,
-            native_input_delivery.c.state.in_(("sent", "queued", "recorded")),
+            proven_native_delivery,
         )
     )
     if delivered is None:
@@ -1999,24 +1995,6 @@ async def recorded_action_result(
     return action_replay_result(stored)
 
 
-def action_context(stored: StoredAction) -> dict[str, object]:
-    """Expose recovery facts to main while keeping execution authority private."""
-    context: dict[str, object] = {
-        "kind": "accepted_action",
-        "action_ref": str(stored.id),
-        "request_ref": str(stored.origin_message_id),
-        "tool_id": str(stored.tool_name),
-        "status": stored.status,
-        "attempts": stored.attempts,
-    }
-    if isinstance(stored.execution_contract, ExecutionContract):
-        context.update(
-            arguments=stored.arguments,
-            recorded_result=action_replay_result(stored),
-        )
-    return context
-
-
 def action_replay_result(stored: StoredAction) -> ToolResult | None:
     """Return the immutable callback result, independently of later host outcomes."""
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
@@ -2240,6 +2218,15 @@ async def _delivered_archived_actions(
         ):
             delivered.append(stored.id)
     return tuple(delivered)
+
+
+def retired_worker_predicate(
+    tool: ColumnElement[str], revision: ColumnElement[str]
+) -> ColumnElement[bool]:
+    return or_(
+        and_(tool.like("agent.%"), revision.in_(_RETIRED_AGENT_REVISIONS)),
+        and_(tool.like("codex.%"), revision.in_(_RETIRED_CODEX_REVISIONS)),
+    )
 
 
 def retired_worker_revision(tool: str, revision: str) -> bool:
@@ -2586,7 +2573,6 @@ __all__ = [
     "ResolutionInsert",
     "StoredAction",
     "TerminalActionStatus",
-    "action_context",
     "action_replay_result",
     "action_resolution_text",
     "agent_uncertainty_result",

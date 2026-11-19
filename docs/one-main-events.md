@@ -1,5 +1,9 @@
 # one main for every event — slice 1 / o6
 
+[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) governs
+the target opening and steer rules. the installed predecessor inlined receipts.
+the existing lineage, action authority and paid-read barriers still govern.
+
 status: accepted v2 implementation contract under [adr 0071](decisions/0071-simple-event-driven-v2.md),
 2026-11-15; source implemented and isolated-qualified, installed activation pending.
 source audit: `8c0bf36`; [implementation evidence](#implementation-evidence) below. the
@@ -129,22 +133,12 @@ retain one current executable decoder.
    blocker. one host `as_of` per selected/appended batch. preserve original dates.
    compatible input steers main; incompatible/bounded-out input queues durably.
    progress and omitted dispositions leave work unfinished.
-3. select required receipts for initial AND appended inputs. derive the causal
-   root through immutable parents, then its descendants: ancestors alone miss
-   siblings. reuse message/action/native queries, not a stored root or graph
-   service. retain operative receipts, pending decisions, stopped-parent state
-   and the canonical inputs/settlement establishing a stop. never trim a required
-   recovery fact; leave input pending and surface the context limit.
-
-   a fresh turn publishes full operative invocation records, then recent optional
-   observations that fit. on a steer, publish each new or changed operative
-   invocation in full. an unchanged invocation already delivered in this turn
-   carries `{kind: "native_invocation_ref", invocation_id}` to identify the
-   earlier body that applies to the new inputs. canonical request, action and
-   stop records still travel in full. the opening request precedes every steer.
-   a later batch earns receipt credit only when the native journal records its
-   delivery. fresh reasoning reconstructs the full opening from postgres.
-
+3. derive the causal root through immutable parents, then its descendants,
+   including siblings. both openings and steers carry current decision, action,
+   stop and uncertainty facts. the opening indexes eligible observations by tool.
+   main pages and opens originals through its local receipt reader. the first
+   opening precedes any steer. its existing delivery journal governs input lineage.
+   adr 0086 owns prompt fitting, oversize parking and the reader contract.
 4. replace blanket recovered-request write denial with concrete barriers. an
    entered action without its original effect receipt, or terminal `uncertain`,
    blocks new effect-bearing action admission in its causal component. local

@@ -25,6 +25,19 @@ prune_releases() {
     return 1
   fi
 
+  # Memory can outlive the assistant and its native host. Protect its cwd.
+  if systemctl cat jarvis-memory.service >/dev/null 2>&1; then
+    local memory_pid memory_release
+    memory_pid="$(systemctl show -p MainPID --value jarvis-memory.service)" || return 1
+    if [[ "$memory_pid" != 0 ]]; then
+      memory_release="$(readlink -e "/proc/$memory_pid/cwd")" || return 1
+      if [[ "$memory_release" != "$selected" && "$memory_release" != "/opt/jarvis/releases/$candidate" ]]; then
+        printf 'memory service still owns an unretained release\n' >&2
+        return 1
+      fi
+    fi
+  fi
+
   host_state="$(systemctl show --property=ActiveState --value jarvis-codex-contained.service)" || return 1
   host_pid="$(systemctl show --property=MainPID --value jarvis-codex-contained.service)" || return 1
   host_control_pid="$(systemctl show --property=ControlPID --value jarvis-codex-contained.service)" || return 1

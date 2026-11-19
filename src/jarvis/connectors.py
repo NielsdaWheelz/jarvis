@@ -1653,7 +1653,7 @@ def _calendar_event_projection(
     }
 
 
-def _raw_gmail_headers(part: Mapping[str, object]) -> list[dict[str, str]]:
+def gmail_headers(part: Mapping[str, object]) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for raw in provider_array(part.get("headers", []), "Gmail headers"):
         header = provider_object(raw, "Gmail header")
@@ -1704,7 +1704,7 @@ def _gmail_metadata(
     message: Mapping[str, object], parts: tuple[GmailPart, ...]
 ) -> dict[str, object]:
     root = provider_object(message.get("payload"), "Gmail payload")
-    headers = _raw_gmail_headers(root)
+    headers = gmail_headers(root)
     return {
         "message_id": provider_text(provider_string(message, "id"), 1_024),
         "thread_id": provider_text(provider_string(message, "threadId"), 1_024),
@@ -2363,7 +2363,7 @@ def _gmail_content_headers(
         is None
     ):
         raise ValueError("Gmail media type is malformed")
-    headers = _raw_gmail_headers(part)
+    headers = gmail_headers(part)
     content_types = [
         header["value"]
         for header in headers

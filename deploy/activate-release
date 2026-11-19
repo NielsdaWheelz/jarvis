@@ -2,11 +2,23 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-commit="${1:-}"
-if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
-  printf 'usage: deploy/activate-release FULL_GIT_COMMIT\n' >&2
+operation=activate
+case "${1:-}" in --prepare|--provision|--migrate) operation="${1#--}"; shift ;; esac
+if [[ $# != 2 && ( $# != 1 || "$operation" != activate ) ]]; then
+  printf 'usage: deploy/activate-release [--prepare|--provision|--migrate] [SOURCE_COMMIT] TARGET_COMMIT\n' >&2
   exit 64
 fi
+commit="${!#}"
+receipt_for() {
+  local sha="$1" tree lock
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
+  tree="$(git -C "$repo_dir" rev-parse --verify "$sha^{tree}")" || return 1
+  lock="$(git -C "$repo_dir" show "$sha:uv.lock" | shasum -a 256 | awk '{print $1}')" || return 1
+  printf '%s:%s:%s' "$sha" "$tree" "$lock"
+}
+target_fields="$(receipt_for "$commit")"
+source_fields=none
+if [[ $# == 2 ]]; then source_fields="$(receipt_for "$1")"; fi
 
 {
 cat "$repo_dir/deploy/release-functions"
@@ -22,35 +34,72 @@ refuse() {
 }
 
 sudo -n test -f "$release/RELEASE.json" || refuse "release is not installed"
-sudo -n python3 - "$release/RELEASE.json" "$commit" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-receipt = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
-if receipt.get("commit") != sys.argv[2] or any(
-    not isinstance(receipt.get(key), str)
-    or not re.fullmatch(pattern, receipt[key])
-    for key, pattern in (("tree", r"[0-9a-f]{40}"), ("uv_lock_sha256", r"[0-9a-f]{64}"))
-):
-    raise SystemExit("installed release receipt does not match the selected artifact")
-PY
-for file in /etc/jarvis/database-runtime.env /etc/jarvis/jarvis.env \
-  /etc/jarvis/migration.env; do
-  sudo -n test -f "$file" && sudo -n test ! -L "$file" ||
-    refuse "a required environment file is missing or is a symlink"
-done
-active_state="$(sudo -n systemctl show --property=ActiveState --value jarvis.service)"
-main_pid="$(sudo -n systemctl show --property=MainPID --value jarvis.service)"
-result="$(sudo -n systemctl show --property=Result --value jarvis.service)"
-if [[ "$active_state" != inactive || "$result" != success || "$main_pid" != 0 ]]; then
-  refuse "jarvis.service did not stop cleanly; inspect before activation"
+receipt_json() {
+  python3 - "$1" <<'PYCODE'
+import json, pathlib, sys
+commit, tree, lock = sys.argv[1].split(":")
+expected = {"commit": commit, "tree": tree, "uv_lock_sha256": lock}
+if json.loads((pathlib.Path("/opt/jarvis/releases") / commit / "RELEASE.json").read_bytes()) != expected:
+    raise SystemExit("installed receipt differs from externally selected release")
+print(json.dumps(expected, separators=(",", ":")))
+PYCODE
+}
+receipt="$(receipt_json "$2")"
+source_receipt=none
+if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
+operation="$4"
+snapshot="/var/lib/jarvis-cutover/adr0086/$commit"
+hold=/etc/systemd/system/jarvis-cutover.hold
+source="/opt/jarvis/releases/${3%%:*}"
+selected="$(readlink -e /opt/jarvis/current)"
+cutover() {
+  local channel
+  channel="$(sed -n 's/^JARVIS_DISCORD_CHANNEL_ID=//p' /etc/jarvis/jarvis.env)"
+  [[ "$channel" =~ ^[1-9][0-9]*$ ]] || refuse "invalid installed channel"
+  systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+    "--property=WorkingDirectory=$release" \
+    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+    "--property=Environment=JARVIS_DISCORD_CHANNEL_ID=$channel" \
+    --property=EnvironmentFile=/etc/jarvis/migration.env \
+    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" </dev/null
+}
+if [[ "$operation" == prepare ]]; then
+  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0015 source release"
+  if [[ ! -e "$hold" ]]; then
+    systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+      --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \
+      --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+      --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+      "$source/.venv/bin/jarvis" check-paused </dev/null ||
+      refuse "record the ordinary owner pause on the source release before preparing this cut"
+  fi
+  "$release/deploy/cutover-hold" stop "$commit"
+  if [[ -d "$snapshot" ]]; then cutover verify; else cutover snapshot; fi
+  exit
+fi
+if [[ -e "$hold" ]]; then
+  [[ "$source_receipt" != none ]] || refuse "supply both selected release commits for the held cut"
+  "$release/deploy/cutover-hold" check "$commit"
+  if [[ "$operation" == provision ]]; then cutover provision; exit; fi
+elif [[ "$source_receipt" != none ]]; then
+  refuse "first prepare the stopped schema cut"
+else
+  [[ "$(systemctl show -p ActiveState --value jarvis-memory.service)" == inactive &&
+     "$(systemctl show -p MainPID --value jarvis-memory.service)" == 0 ]] ||
+    refuse "stop memory for a two-service release change"
+  [[ "$(systemctl show -p ActiveState --value jarvis.service)" == inactive &&
+     "$(systemctl show -p Result --value jarvis.service)" == success &&
+     "$(systemctl show -p MainPID --value jarvis.service)" == 0 ]] ||
+    refuse "jarvis.service did not stop cleanly"
 fi
 
+for file in embedding.env database-memory.env memory.env; do
+  [[ "$(stat -c '%U:%G:%a' "/etc/jarvis/$file")" == root:root:600 ]] ||
+    refuse "provision the protected memory settings before activation"
+done
 runtime_properties=(
   --property=Type=oneshot --property=User=jarvis --property=Group=jarvis
-  --property=SupplementaryGroups=codex-clients
+  "--property=SupplementaryGroups=codex-clients jarvis-memory"
   --property=ProtectHome=true --property=ProtectSystem=strict
   --property=PrivateTmp=true --property=PrivateDevices=true
   --property=NoNewPrivileges=true
@@ -63,15 +112,6 @@ runtime_properties=(
   --property=EnvironmentFile=/etc/jarvis/database-runtime.env
   --property=EnvironmentFile=/etc/jarvis/jarvis.env
 )
-sudo -n systemctl is-active --quiet jarvis-codex-contained.service ||
-  refuse "the separate native host is not active; leave service stopped"
-host_check_unit="jarvis-host-check-${commit:0:12}-$RANDOM"
-sudo -n systemd-run --quiet --wait --pipe --collect --unit="$host_check_unit" \
-  "${runtime_properties[@]}" \
-  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
-  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null ||
-  refuse "the same-release native host did not qualify; leave service stopped"
-
 schema_unit="jarvis-schema-${commit:0:12}-$RANDOM"
 schema="$(sudo -n systemd-run --quiet --wait --pipe --collect \
   --unit="$schema_unit" --property=Type=oneshot \
@@ -100,31 +140,26 @@ except (KeyError, SQLAlchemyError, ValueError):
 print(revision)
 PY
 )"
-if [[ "$schema" == 0008a ]]; then
-  snapshot="/var/lib/jarvis-cutover/$commit"
-  snapshot_unit="jarvis-snapshot-${commit:0:12}-$RANDOM"
-  sudo -n systemd-run --quiet --wait --pipe --collect --unit="$snapshot_unit" \
-    --property=Type=oneshot "--property=WorkingDirectory=$release" \
-    --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-    --property=EnvironmentFile=/etc/jarvis/migration.env \
-    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" verify "$snapshot" </dev/null ||
-    refuse "the stopped pre-cutover snapshot did not validate; leave service stopped"
-  migration_unit="jarvis-migrate-${commit:0:12}-$RANDOM"
-  sudo -n systemd-run --quiet --wait --collect --unit="$migration_unit" \
-    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
-    "--property=WorkingDirectory=$release" \
-    --property=EnvironmentFile=/etc/jarvis/migration.env \
-    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-    "$release/.venv/bin/alembic" -c alembic.ini upgrade head ||
-    refuse "migration failed; leave service stopped for explicit repair"
-  cutover_unit="jarvis-cutover-${commit:0:12}-$RANDOM"
-  sudo -n systemd-run --quiet --wait --pipe --collect --unit="$cutover_unit" \
-    "${runtime_properties[@]}" "$release/.venv/bin/jarvis" cutover-native </dev/null ||
-    refuse "native cutover inventory failed; leave service stopped"
-elif [[ "$schema" != 0013 ]]; then
-  refuse "activation requires installed schema 0008a or current schema 0013"
+if [[ "$operation" == migrate ]]; then
+  if [[ "$schema" == 0015 ]]; then cutover migrate; fi
+  cutover commit-settings
+  cutover verify-target
+  exit
 fi
+[[ "$schema" == 0016 ]] || refuse "commit the paused schema cut before replacing its native host"
+if [[ -e "$hold" ]]; then cutover verify-target; fi
+if grep -q '^JARVIS_EMBEDDING_' /etc/jarvis/jarvis.env; then
+  refuse "finish the postmigration credential handoff before activation"
+fi
+
+sudo -n systemctl is-active --quiet jarvis-codex-contained.service ||
+  refuse "the separate native host is not active; leave service stopped"
+host_check_unit="jarvis-host-check-${commit:0:12}-$RANDOM"
+sudo -n systemd-run --quiet --wait --pipe --collect --unit="$host_check_unit" \
+  "${runtime_properties[@]}" \
+  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null ||
+  refuse "the same-release native host did not qualify; leave service stopped"
 
 check_unit="jarvis-check-${commit:0:12}-$RANDOM"
 sudo -n systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
@@ -135,33 +170,36 @@ started=0
 stop_failed_activation() {
   status=$?
   if ((status != 0 && started)); then
-    sudo -n systemctl stop jarvis.service || true
+    sudo -n systemctl stop jarvis.service jarvis-memory.service || true
   fi
   exit "$status"
 }
 trap stop_failed_activation EXIT
-sudo -n install -m 0644 -o root -g root \
-  "$release/deploy/jarvis.service" /etc/systemd/system/jarvis.service
+for unit in jarvis.service jarvis-memory.service; do
+  sudo -n install -m 0644 -o root -g root "$release/deploy/$unit" "/etc/systemd/system/$unit"
+done
 sudo -n systemctl daemon-reload
 temporary="/opt/jarvis/.current-$commit"
 sudo -n rm -f -- "$temporary"
 sudo -n ln -s "releases/$commit" "$temporary"
 sudo -n mv -Tf "$temporary" /opt/jarvis/current
+if [[ -e "$hold" ]]; then "$release/deploy/cutover-hold" release "$commit"; fi
 started=1
-sudo -n systemctl enable --now jarvis.service
+sudo -n systemctl enable --now jarvis-memory.service jarvis.service
 sleep 10
-[[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == active ]] ||
-  refuse "the selected service did not stay active; leave it stopped"
-[[ "$(sudo -n systemctl show --property=SubState --value jarvis.service)" == running ]] ||
-  refuse "the selected service is not running; leave it stopped"
-[[ "$(sudo -n systemctl show --property=NRestarts --value jarvis.service)" == 0 ]] ||
-  refuse "the selected service restarted during activation; leave it stopped"
-main_pid="$(sudo -n systemctl show --property=MainPID --value jarvis.service)"
-[[ "$main_pid" =~ ^[1-9][0-9]*$ ]] ||
-  refuse "the selected service has no live process; leave it stopped"
+for unit in jarvis-memory.service jarvis.service; do
+  [[ "$(systemctl show --property=SubState --value "$unit")" == running &&
+     "$(systemctl show --property=NRestarts --value "$unit")" == 0 ]] ||
+    refuse "$unit did not remain running"
+  pid="$(systemctl show -p MainPID --value "$unit")"
+  [[ "$pid" =~ ^[1-9][0-9]*$ && "$(readlink -e "/proc/$pid/cwd")" == "$release" ]] ||
+    refuse "$unit does not own the selected release"
+done
+[[ "$(stat -c '%U:%G:%a' /run/jarvis-memory/internal.sock)" == jarvis-memory:jarvis-memory:660 ]] ||
+  refuse "private memory socket is missing or incorrectly published"
 prune_releases
 printf 'activated jarvis release: %s\n' "$commit"
 printf 'canonical control is unchanged; new reasoning waits for validated discord catch-up\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit"
+  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$target_fields" "$source_fields" "$operation"

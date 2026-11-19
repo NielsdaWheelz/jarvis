@@ -53,7 +53,14 @@ class JarvisOwner:
                 attempt = (
                     (
                         await connection.execute(
-                            select(native_attempt).where(
+                            select(
+                                native_attempt.c.owner_epoch,
+                                native_attempt.c.fenced_at,
+                                native_attempt.c.terminal_at,
+                                native_attempt.c.product_outcome.is_not(None).label(
+                                    "settled"
+                                ),
+                            ).where(
                                 native_attempt.c.id
                                 == UUID(
                                     permit.operation_id.removeprefix("jarvis-native:")
@@ -67,8 +74,8 @@ class JarvisOwner:
                 if attempt is not None and (
                     attempt["owner_epoch"] != str(self.token)
                     or attempt["fenced_at"] is not None
-                    or attempt["terminal"] is not None
-                    or attempt["product_outcome"] is not None
+                    or attempt["terminal_at"] is not None
+                    or attempt["settled"]
                 ):
                     raise NativeDefect("native attempt authority is no longer current")
 

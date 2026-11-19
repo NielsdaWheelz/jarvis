@@ -7,10 +7,11 @@ import re
 from collections.abc import Mapping
 from datetime import time
 from pathlib import Path
-from typing import Final, Literal, Self, cast
+from typing import Annotated, Final, Literal, Self, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -29,49 +30,79 @@ EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
 MAXIMUM_BATCH_SIZE: Final[int] = 100
 
 
-class Settings(BaseModel):
-    """Strict application configuration composed with the Discord boundary."""
+def _absolute(path: Path) -> Path:
+    if not path.is_absolute():
+        raise ValueError("configured path must be absolute")
+    return path
 
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        hide_input_in_errors=True,
-    )
 
+AbsolutePath = Annotated[Path, AfterValidator(_absolute)]
+MEMORY_SOCKET_PATH = Path("/run/jarvis-memory/internal.sock")
+
+
+class DatabaseSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     database_url: SecretStr = Field(repr=False)
-    discord: DiscordSettings
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
+        source = os.environ if environ is None else environ
+        return cls.model_validate(
+            {
+                field: source[name]
+                for field in cls.model_fields
+                if (name := "JARVIS_" + field.upper()) in source
+            }
+        )
+
+    @field_validator("database_url")
+    @classmethod
+    def _valid_database_url(cls, value: SecretStr) -> SecretStr:
+        raw = value.get_secret_value()
+        if not raw or raw != raw.strip():
+            raise ValueError("database URL must be non-empty without edge whitespace")
+        return value
+
+
+class SharedMemorySettings(DatabaseSettings):
+    memory_config_path: AbsolutePath
+    memory_socket_path: AbsolutePath = MEMORY_SOCKET_PATH
+
+
+class MemoryServerSettings(SharedMemorySettings):
+    memory_http_port: int = Field(default=8768, ge=1, le=65535)
+
+
+class MemoryStatusSettings(DatabaseSettings):
+    memory_config_path: AbsolutePath
+    discord_guild_id: int = Field(gt=0)
+    discord_channel_id: int = Field(gt=0)
+
+
+class PausedSettings(DatabaseSettings):
+    runtime_state_directory: AbsolutePath
+    discord_channel_id: int = Field(gt=0)
+
+
+class NativeStateSettings(PausedSettings):
+    codex_host_config_path: AbsolutePath
+
+
+class CutoverSettings(NativeStateSettings):
+    attachment_cache_directory: AbsolutePath
+
+
+class IsolatedRoleSettings(SharedMemorySettings):
     owner_timezone: str = Field(min_length=1, max_length=255)
     codex_profile_key: Literal["personal"]
-    codex_model: str = Field(min_length=1, max_length=255)
-    codex_host_config_path: Path
-    agent_cli_path: Path
-    agent_state_directory: Path
-    runtime_state_directory: Path
-    memory_config_path: Path
-    memory_http_port: int = Field(default=8768, ge=1, le=65535)
     memory_nightly_time: time = time(3)
-    google_oauth_state_path: Path
-    google_oauth_client_id: SecretStr = Field(repr=False)
-    google_oauth_client_secret: SecretStr = Field(repr=False)
-    connector_encryption_key_version: str = Field(min_length=1, max_length=32)
-    connector_encryption_secret: SecretStr = Field(repr=False)
-    maps_api_key: SecretStr = Field(repr=False)
-    brave_api_key: SecretStr = Field(repr=False)
-    embedding_openai_api_key: SecretStr = Field(repr=False)
-    attachment_r2_account_id: str
-    attachment_r2_bucket: str = Field(min_length=1, max_length=63)
-    attachment_r2_access_key_id: SecretStr = Field(repr=False)
-    attachment_r2_secret_access_key: SecretStr = Field(repr=False)
-    attachment_cache_directory: Path
-    verified_owner_only_calendar_ids: tuple[str, ...] = Field(
-        min_length=1,
-        max_length=32,
-        repr=False,
-    )
-    embedding_model: Literal["text-embedding-3-small"] = EMBEDDING_MODEL
-    embedding_dimension: Literal[1536] = EMBEDDING_DIMENSION
-    maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
-    delivery_batch_size: int = Field(default=20, ge=1, le=100)
+    codex_host_config_path: AbsolutePath
+    runtime_state_directory: AbsolutePath
+    attachment_cache_directory: AbsolutePath
+
+    @property
+    def codex_host_config(self) -> CodexHostConfig:
+        return CodexHostConfig.load(self.codex_host_config_path)
 
     @field_validator("memory_nightly_time")
     @classmethod
@@ -80,14 +111,69 @@ class Settings(BaseModel):
             raise ValueError("nightly time must be a local hour and minute")
         return value
 
+    @field_validator("owner_timezone")
+    @classmethod
+    def _valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(
+                "owner timezone must be an installed IANA timezone"
+            ) from exc
+        return value
+
+
+class MemoryJobSettings(IsolatedRoleSettings):
+    discord_guild_id: int = Field(gt=0)
+    discord_channel_id: int = Field(gt=0)
+
+
+def embedding_key_from_env(environ: Mapping[str, str] | None = None) -> SecretStr:
+    source = os.environ if environ is None else environ
+    if source.get("JARVIS_EMBEDDING_MODEL") != EMBEDDING_MODEL or source.get(
+        "JARVIS_EMBEDDING_DIMENSION"
+    ) != str(EMBEDDING_DIMENSION):
+        raise ConfigurationError(
+            "embedding settings must match the qualified model and dimension"
+        )
+    key = source.get("JARVIS_EMBEDDING_OPENAI_API_KEY")
+    if not key or key.strip() != key:
+        raise ConfigurationError("invalid embedding credential")
+    return SecretStr(key)
+
+
+class Settings(IsolatedRoleSettings):
+    """Assistant runtime configuration."""
+
+    discord: DiscordSettings
+    codex_model: str = Field(min_length=1, max_length=255)
+    agent_cli_path: Path
+    agent_state_directory: Path
+    google_oauth_state_path: Path
+    google_oauth_client_id: SecretStr = Field(repr=False)
+    google_oauth_client_secret: SecretStr = Field(repr=False)
+    connector_encryption_key_version: str = Field(min_length=1, max_length=32)
+    connector_encryption_secret: SecretStr = Field(repr=False)
+    maps_api_key: SecretStr = Field(repr=False)
+    brave_api_key: SecretStr = Field(repr=False)
+    attachment_r2_account_id: str
+    attachment_r2_bucket: str = Field(min_length=1, max_length=63)
+    attachment_r2_access_key_id: SecretStr = Field(repr=False)
+    attachment_r2_secret_access_key: SecretStr = Field(repr=False)
+    verified_owner_only_calendar_ids: tuple[str, ...] = Field(
+        min_length=1,
+        max_length=32,
+        repr=False,
+    )
+    maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
+    delivery_batch_size: int = Field(default=20, ge=1, le=100)
+
     @field_validator(
-        "database_url",
         "google_oauth_client_id",
         "google_oauth_client_secret",
         "connector_encryption_secret",
         "maps_api_key",
         "brave_api_key",
-        "embedding_openai_api_key",
         "attachment_r2_access_key_id",
         "attachment_r2_secret_access_key",
     )
@@ -114,17 +200,6 @@ class Settings(BaseModel):
             raise ValueError("R2 bucket must be an ordinary S3 bucket name")
         return value
 
-    @field_validator("owner_timezone")
-    @classmethod
-    def _valid_timezone(cls, value: str) -> str:
-        try:
-            ZoneInfo(value)
-        except ZoneInfoNotFoundError as exc:
-            raise ValueError(
-                "owner timezone must be an installed IANA timezone"
-            ) from exc
-        return value
-
     @field_validator("codex_profile_key", "connector_encryption_key_version")
     @classmethod
     def _nonempty_text(cls, value: str) -> str:
@@ -141,13 +216,9 @@ class Settings(BaseModel):
         return value
 
     @field_validator(
-        "codex_host_config_path",
         "agent_cli_path",
         "agent_state_directory",
-        "runtime_state_directory",
-        "memory_config_path",
         "google_oauth_state_path",
-        "attachment_cache_directory",
     )
     @classmethod
     def _absolute_runtime_directory(cls, value: Path) -> Path:
@@ -156,8 +227,12 @@ class Settings(BaseModel):
         return value
 
     @property
-    def codex_host_config(self) -> CodexHostConfig:
-        return CodexHostConfig.load(self.codex_host_config_path)
+    def discord_channel_id(self) -> int:
+        return self.discord.channel_id
+
+    @property
+    def discord_guild_id(self) -> int:
+        return self.discord.guild_id
 
     @property
     def host_secrets(self) -> tuple[str, ...]:
@@ -169,7 +244,6 @@ class Settings(BaseModel):
             self.connector_encryption_secret.get_secret_value(),
             self.maps_api_key.get_secret_value(),
             self.brave_api_key.get_secret_value(),
-            self.embedding_openai_api_key.get_secret_value(),
             self.attachment_r2_access_key_id.get_secret_value(),
             self.attachment_r2_secret_access_key.get_secret_value(),
         )
@@ -226,20 +300,6 @@ class Settings(BaseModel):
                 "non-empty comma-separated list"
             )
 
-        embedding_model = required("JARVIS_EMBEDDING_MODEL")
-        if embedding_model != EMBEDDING_MODEL:
-            raise ConfigurationError(
-                f"JARVIS_EMBEDDING_MODEL must be {EMBEDDING_MODEL}"
-            )
-        required("JARVIS_EMBEDDING_DIMENSION")
-        embedding_dimension = positive_int(
-            "JARVIS_EMBEDDING_DIMENSION", EMBEDDING_DIMENSION
-        )
-        if embedding_dimension != EMBEDDING_DIMENSION:
-            raise ConfigurationError(
-                f"JARVIS_EMBEDDING_DIMENSION must be {EMBEDDING_DIMENSION}"
-            )
-
         try:
             return cls(
                 database_url=SecretStr(required("JARVIS_DATABASE_URL")),
@@ -256,7 +316,9 @@ class Settings(BaseModel):
                     required("JARVIS_RUNTIME_STATE_DIRECTORY")
                 ),
                 memory_config_path=Path(required("JARVIS_MEMORY_CONFIG_PATH")),
-                memory_http_port=positive_int("JARVIS_MEMORY_HTTP_PORT", 8768),
+                memory_socket_path=Path(
+                    source.get("JARVIS_MEMORY_SOCKET_PATH", str(MEMORY_SOCKET_PATH))
+                ),
                 memory_nightly_time=time.fromisoformat(
                     source.get("JARVIS_MEMORY_NIGHTLY_TIME", "03:00")
                 ),
@@ -277,9 +339,6 @@ class Settings(BaseModel):
                 ),
                 maps_api_key=SecretStr(required("JARVIS_MAPS_API_KEY")),
                 brave_api_key=SecretStr(required("JARVIS_BRAVE_API_KEY")),
-                embedding_openai_api_key=SecretStr(
-                    required("JARVIS_EMBEDDING_OPENAI_API_KEY")
-                ),
                 attachment_r2_account_id=required("JARVIS_ATTACHMENT_R2_ACCOUNT_ID"),
                 attachment_r2_bucket=required("JARVIS_ATTACHMENT_R2_BUCKET"),
                 attachment_r2_access_key_id=SecretStr(
@@ -292,8 +351,6 @@ class Settings(BaseModel):
                     required("JARVIS_ATTACHMENT_CACHE_DIRECTORY")
                 ),
                 verified_owner_only_calendar_ids=calendar_ids,
-                embedding_model=EMBEDDING_MODEL,
-                embedding_dimension=EMBEDDING_DIMENSION,
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),
             )

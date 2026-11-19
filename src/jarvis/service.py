@@ -253,7 +253,9 @@ class JarvisService:
         result = await self._require_gateway().catch_up(after_source_message_id)
         if self._shutdown.is_set():
             return result
-        self._startup_ready = True
+        if not self._startup_ready:
+            await self._runner.recover()
+            self._startup_ready = True
         self._event_poller.notify_changed()
         self._work.set()
         return result
@@ -305,7 +307,6 @@ class JarvisService:
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
-        await self._runner.recover()
         self._attachment_work.set()
         self._attachment_task = asyncio.create_task(
             self._capture_attachments(), name="jarvis-attachment-capture"

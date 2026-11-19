@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.migration.example
+!.env.memory.example
 .secrets/
 .venv/
 __pycache__/

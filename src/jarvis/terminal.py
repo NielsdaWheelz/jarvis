@@ -21,6 +21,13 @@ type TerminalOutcome = Literal[
 type ConclusionKind = Literal["conversation", "silent"]
 
 DISCORD_CONTENT_MAX_CHARACTERS = 2_000
+_PARTIAL_PREFIX = "partial result — "
+_FAILED_PREFIX = "i couldn't complete this: "
+_PARAGRAPH = "\n\n"
+_DETAIL_MAX = 500
+_PARTIAL_BODY_MAX = (
+    DISCORD_CONTENT_MAX_CHARACTERS - len(_PARTIAL_PREFIX + _PARAGRAPH) - _DETAIL_MAX
+)
 PROGRESS_MAX_BYTES = 2_000
 
 
@@ -28,7 +35,9 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
-def _utf8(value: str) -> str:
+def _terminal_text(value: str) -> str:
+    if "\x00" in value:
+        raise PydanticCustomError("jarvis_text_nul", "terminal text contains nul")
     try:
         value.encode("utf-8")
     except UnicodeEncodeError as exc:
@@ -42,26 +51,46 @@ class Answered(_StrictModel):
     """A complete answer from observed facts with no uncommitted later-work promise."""
 
     type: Literal["answered"]
-    text: Annotated[str, Field(min_length=1, max_length=2_000)]
+    text: Annotated[str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)]
 
-    _valid_text = field_validator("text")(_utf8)
+    _valid_text = field_validator("text")(_terminal_text)
 
 
-class Partial(_StrictModel):
-    """A useful incomplete answer naming one material limit and at most one question."""
-
+class _PartialFields(_StrictModel):
     type: Literal["partial"]
-    text: Annotated[str, Field(min_length=1, max_length=2_000)]
-    limitation: Annotated[str, Field(min_length=1, max_length=500)]
-    question: Annotated[str | None, Field(min_length=1, max_length=500)]
+    text: Annotated[str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)]
+    limitation: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
-    _valid_text = field_validator("text")(_utf8)
-    _valid_limitation = field_validator("limitation")(_utf8)
+    _valid_text = field_validator("text")(_terminal_text)
+    _valid_limitation = field_validator("limitation")(_terminal_text)
 
-    @field_validator("question")
+    @field_validator("question", check_fields=False)
     @classmethod
     def _valid_question(cls, value: str | None) -> str | None:
-        return None if value is None else _utf8(value)
+        return None if value is None else _terminal_text(value)
+
+
+class Partial(_PartialFields):
+    """A useful incomplete answer naming one material limit and at most one question."""
+
+    question: Annotated[str | None, Field(min_length=1, max_length=_DETAIL_MAX)]
+
+
+# A new opening reserves space for every field in its complete Discord message.
+# Frozen seals still use their own wire schema and the full semantic Partial.
+class _PartialWithoutQuestion(_PartialFields):
+    text: Annotated[str, Field(min_length=1, max_length=_PARTIAL_BODY_MAX)]
+    question: None
+
+
+class _PartialWithQuestion(_PartialFields):
+    text: Annotated[
+        str,
+        Field(
+            min_length=1, max_length=_PARTIAL_BODY_MAX - len(_PARAGRAPH) - _DETAIL_MAX
+        ),
+    ]
+    question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
 
 class NeedsInput(_StrictModel):
@@ -69,19 +98,31 @@ class NeedsInput(_StrictModel):
 
     type: Literal["needs_input"]
     context: Annotated[str, Field(max_length=1_000)]
-    question: Annotated[str, Field(min_length=1, max_length=500)]
+    question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
 
-    _valid_context = field_validator("context")(_utf8)
-    _valid_question = field_validator("question")(_utf8)
+    _valid_context = field_validator("context")(_terminal_text)
+    _valid_question = field_validator("question")(_terminal_text)
 
 
 class Failed(_StrictModel):
     """An honest explanation that the request could not be completed."""
 
     type: Literal["failed"]
-    explanation: Annotated[str, Field(min_length=1, max_length=2_000)]
+    explanation: Annotated[
+        str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)
+    ]
 
-    _valid_explanation = field_validator("explanation")(_utf8)
+    _valid_explanation = field_validator("explanation")(_terminal_text)
+
+
+class _GeneratedFailed(Failed):
+    explanation: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=DISCORD_CONTENT_MAX_CHARACTERS - len(_FAILED_PREFIX),
+        ),
+    ]
 
 
 class Silent(_StrictModel):
@@ -93,21 +134,21 @@ class Silent(_StrictModel):
 
 class Waiting(_StrictModel):
     type: Literal["waiting"]
-    text: Annotated[str, Field(min_length=1, max_length=2_000)]
+    text: Annotated[str, Field(min_length=1, max_length=DISCORD_CONTENT_MAX_CHARACTERS)]
 
-    _valid_text = field_validator("text")(_utf8)
+    _valid_text = field_validator("text")(_terminal_text)
 
 
 class Progress(_StrictModel):
     """Useful commentary; it grants no completion or action authority."""
 
     type: Literal["progress"]
-    text: Annotated[str, Field(min_length=1, max_length=2_000)]
+    text: Annotated[str, Field(min_length=1, max_length=PROGRESS_MAX_BYTES)]
 
     @field_validator("text")
     @classmethod
     def bounded_text(cls, value: str) -> str:
-        _utf8(value)
+        _terminal_text(value)
         if len(value.encode("utf-8")) > PROGRESS_MAX_BYTES:
             raise PydanticCustomError(
                 "jarvis_progress_bytes_exceeded",
@@ -175,7 +216,16 @@ class JarvisTerminal(_InputDispositions):
 class JarvisNativeMessage(_InputDispositions):
     """The native schema applies to both commentary and final responses."""
 
-    response: Progress | Answered | Partial | NeedsInput | Failed | Silent | Waiting
+    response: (
+        Progress
+        | Answered
+        | _PartialWithoutQuestion
+        | _PartialWithQuestion
+        | NeedsInput
+        | _GeneratedFailed
+        | Silent
+        | Waiting
+    )
 
     @model_validator(mode="after")
     def progress_has_no_dispositions(self) -> Self:
@@ -219,9 +269,9 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
     if response.type == "waiting":
         return RenderedTerminal("waiting", "conversation", response.text)
     if response.type == "partial":
-        content = f"partial result — {response.limitation}\n\n{response.text}"
+        content = f"{_PARTIAL_PREFIX}{response.limitation}{_PARAGRAPH}{response.text}"
         if response.question is not None:
-            content += f"\n\n{response.question}"
+            content += f"{_PARAGRAPH}{response.question}"
         return RenderedTerminal("partial", "conversation", content)
     if response.type == "needs_input":
         content = f"i need one detail: {response.question}"
@@ -232,7 +282,7 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
         return RenderedTerminal(
             "failed",
             "conversation",
-            f"i couldn't complete this: {response.explanation}",
+            f"{_FAILED_PREFIX}{response.explanation}",
         )
     return RenderedTerminal("silent", "silent", None)
 

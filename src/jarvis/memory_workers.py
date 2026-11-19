@@ -56,9 +56,9 @@ from universal_memory.policy import (
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import message
 from jarvis.definitions import CompactionResult
-from jarvis.embeddings import MAX_EMBEDDING_BATCH_SIZE, EmbeddingBusy, EmbeddingFailure
 from jarvis.kernel import EmptyToolDispatcher
 from jarvis.memory_dispatch import MemoryToolDispatcher
+from jarvis.memory_rpc import MemoryRequestStopped
 from jarvis.memory_service import MemoryService
 
 LOGGER = logging.getLogger(__name__)
@@ -355,27 +355,29 @@ class MemoryWorker:
             return False
 
     async def index_one(self, cancellation: CancellationToken) -> bool:
-        rows = await self.memory.library.embedding_candidates(MAX_EMBEDDING_BATCH_SIZE)
-        if not rows or cancellation.cancelled:
+        if cancellation.cancelled:
             return False
         permit = self.owner.permit("jarvis-memory-index:" + str(uuid4()))
         await self.owner.require_current(permit)
-        try:
-            vectors = await self.memory.embedder.embed(tuple(row.text for row in rows))
-        except (EmbeddingBusy, EmbeddingFailure):
-            return False
-        if len(vectors) != len(rows):
-            raise EmbeddingFailure("embedding result count differs")
         if cancellation.cancelled:
+            return False
+        try:
+            batch = await self.memory.index_batch(stop=cancellation.wait)
+        except (MemoryError, MemoryRequestStopped):
+            return False
+        if not batch.rows or cancellation.cancelled:
             return False
         await self.owner.require_current(permit)
         async with self.memory.database.begin() as connection:
-            if cancellation.cancelled:
-                return False
-            for row, vector in zip(rows, vectors, strict=True):
+            for row in batch.rows:
+                if cancellation.cancelled:
+                    break
                 await self.memory.library.update_embedding(
-                    connection, row.reference, vector
+                    connection, row.ref, row.vector
                 )
+            if cancellation.cancelled:
+                await connection.rollback()
+                return False
         return True
 
 

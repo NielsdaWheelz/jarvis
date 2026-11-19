@@ -51,6 +51,7 @@ from jarvis.db import (
 from jarvis.event_tools import EVENT_READ_IDS
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
+from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.tool_results import completed_tool_result
 from jarvis.work_tools import WORK_READ_IDS
 
@@ -65,6 +66,7 @@ FRESH_READ_IDS = (
     | ATTACHMENT_READ_IDS
     | {
         ToolId("gmail.search"),
+        RECEIPT_READ_ID,
         ToolId("gmail.list_thread_messages"),
         ToolId("gmail.list_attachments"),
         ToolId("gmail.read_message"),
@@ -586,7 +588,9 @@ class PostgresReadRecorder:
                 attempt = (
                     (
                         await connection.execute(
-                            select(native_attempt)
+                            select(
+                                native_attempt.c.id, native_attempt.c.conversation_id
+                            )
                             .join(
                                 native_invocation,
                                 native_invocation.c.attempt_id == native_attempt.c.id,
@@ -601,7 +605,13 @@ class PostgresReadRecorder:
                 current = (
                     (
                         await connection.execute(
-                            select(native_attempt)
+                            select(
+                                native_attempt.c.fenced_at,
+                                native_attempt.c.terminal_at,
+                                native_attempt.c.product_outcome.is_not(None).label(
+                                    "settled"
+                                ),
+                            )
                             .where(native_attempt.c.id == attempt["id"])
                             .with_for_update()
                         )
@@ -611,8 +621,8 @@ class PostgresReadRecorder:
                 )
                 if (
                     current["fenced_at"] is not None
-                    or current["terminal"] is not None
-                    or current["product_outcome"] is not None
+                    or current["terminal_at"] is not None
+                    or current["settled"]
                 ):
                     raise DeploymentOwnershipDefect(
                         "native read authority is no longer live"

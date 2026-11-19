@@ -17,7 +17,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
-from jarvis.home_refs import ViewRef
+from jarvis.home_refs import FilePageRef, FileRef, ViewRef
 
 type TerminalOutcome = Literal[
     "answered",
@@ -57,19 +57,9 @@ def _terminal_text(value: str) -> str:
     return value
 
 
-# Stock requires every declared property. Whole files omit page entirely.
-class _FileRef(_StrictModel):
-    kind: Literal["file"]
-    id: CanonicalUuid
-
-
-class _FilePageRef(_FileRef):
-    page: Annotated[int, Field(strict=True, ge=1, le=2**53 - 1)]
-
-
 class Presentation(_StrictModel):
     request_id: CanonicalUuid
-    ref: ViewRef | _FileRef | _FilePageRef
+    ref: ViewRef | FilePageRef | FileRef
 
 
 class _Visible(_StrictModel):

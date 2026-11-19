@@ -564,10 +564,13 @@ the 7.57 gib host had 4.41 gib available during independent serving, and a
 postgres revision query took 0.646 ms. these are observed production values;
 the forced-pressure and maximum-ingest measurements above were isolated.
 after the stock host and assistant restarted, discord catch-up completed.
-a containment check started during interpreter initialization reached its
-same-identity inspection timeout. after application startup the check passed
-on the same pid, including the native host and the available worker gateways.
-arch remained unavailable under its existing fleet deferral.
+during interpreter initialization the service uid could read the process
+environment on all ten probes over roughly five seconds. the verifier discarded
+the bytes. after application initialization the same uid was denied access on
+the same pid, 2819653. the native host and available worker gateways passed.
+the specification requires the process to mark itself non-dumpable before
+provider attachment. these observations distinguish startup exposure from the
+initialized service boundary. arch retained its existing fleet deferral.
 
 **restored operation.** the owner resumed through discord at 01:43:43 utc,
 control 16, message `05e29d8d-0517-4b49-8160-2c89656fd6ce`. the assistant and

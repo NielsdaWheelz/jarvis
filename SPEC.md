@@ -16,7 +16,9 @@ verified stopped `0013→0015` incident repair if the old process cannot record 
 pause. `0015→0016` retains the ordinary owner pause. the roadmap owns delivery.
 the first release implements bounded recovery, request retries and receipt access
 at `0015`. this release implements the independent memory service at `0016`.
-the incident remains open until both installed cuts and the original requests are verified.
+both releases were installed in sequence. the original mail request settled and
+discord acknowledged its partial-coverage reply. the original note and a new
+capture reopened with the assistant and native host stopped.
 
 ## accepted v2 target
 

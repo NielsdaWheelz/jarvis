@@ -67,8 +67,11 @@ cutover and normal admission of the pending owner work. d (independent memory)
 owns the next stopped cutover after its isolated all-client proof. each unit
 has a content designer, independent opus challenge and temporary red/green/refactor
 proof. the two source releases implement a–c at `0015` and d at `0016`.
-the first production cut requires the verified stopped repair. the second requires
-the ordinary pause. installed acceptance tracks the original mail and note.
+the first production cut preserved the original resume. the second used
+ordinary owner pause 15. the original mail request settled and discord
+acknowledged its qualified answer. production verified the original note and
+a new source record while the assistant and its host were stopped.
+[installed receipts](decisions/0086-native-recovery-and-memory-availability.md#production-cutover-evidence)
 
 ## memory orientation
 

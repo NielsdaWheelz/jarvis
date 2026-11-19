@@ -1,8 +1,8 @@
 # adr 0086. bounded native recovery and independent shared memory
 
 accepted 2026-11-18. the first release implements a–c at schema `0015`.
-the separate service runs at `0016`. production is on the corrected `0015`
-release. the ordinary paused cut to `0016` remains pending.
+the separate service runs at `0016`. both cuts are installed. production
+acceptance and the exact observed limits are recorded below.
 the incident release was jarvis `05d1c33`, provider-runtime `0ebc1cb`, kernel `3afc584`,
 llm-tools `b25bd5f`, universal-memory `13ac202`, stock codex `0.160.0`, database migration
 `0013`.
@@ -24,7 +24,7 @@ the rows under cgroup memory reclaim. the assistant had 2.06 gib resident and
 2.94 gib swapped. the same event loop served memory. tcp still connected,
 97 connections waited at the loopback listener, and the station-enclosure save
 reached its 300-second deadline without a receipt.
-[incident record](../issues/native-recovery-memory-outage.md)
+[installed evidence](#production-cutover-evidence)
 
 amends adrs 0065, 0066, 0071 and 0081. retain original evidence, effect and paid-read barriers,
 grants, frozen orientation, model pins and public protocols. add one main tool, one unit, two

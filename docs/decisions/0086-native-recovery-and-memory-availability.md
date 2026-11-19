@@ -510,3 +510,20 @@ park and the release watermark at attempt 128. the failed product remained
 immutable. all 45 invocation receipts, both one-entry work actions and the
 339 earlier gmail receipts still matched their original hashes. the assistant
 then restarted under the same owner resume.
+
+**original mail.** the ordinary owner request `0d3bcc75-749d-4014-a0df-3cdf545366b3`
+continued through fresh admissions. attempt 129 completed the other 26 released
+inputs and published an interim answer. its 1,481-character body ended mid-word;
+attempt 130 ended inside a source link. each discord message matched its sealed
+fields. two isolated wording changes subsequently failed a broad-report
+evaluation. the owner kept long-report delivery separate from the memory cut.
+[content issue](../issues/native-partial-content.md)
+
+at 01:14:18 utc on 2026-11-19, attempt 136 committed the original request's
+`complete` disposition. its `partial` reply described bulk mail outside its
+coverage and limits on verifying actions taken outside email. discord
+acknowledged the 1,747-character reply `f35ad93e-b6b7-5d82-a53d-22c797c62b7b`
+as `1572782038371795075`. no requests were pending or waiting at this check.
+the original 339 gmail receipts and the failed attempt's 45 invocation receipts
+still matched their pre-release hashes. both original work actions retained
+one executor entry.

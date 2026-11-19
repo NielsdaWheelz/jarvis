@@ -377,8 +377,8 @@ ordinary conversational consent recorded by main through `approval.respond`.
 owner-approved, verified stopped `0013→0015` incident repair. only that exact cut
 may preserve the last actual control when the stalled release cannot record a pause.
 the later `0015→0016` grant/service cut requires the ordinary recorded pause and
-both writers stopped. the adr also defines memory command locks. installed acceptance
-is pending.
+both writers stopped. the adr records the installed cuts and defines memory
+command locks.
 
 ### stopped memory cut from 0015 to 0016
 
@@ -437,7 +437,9 @@ resolve any refusal before committing the live migration.
 4. check that the paused assistant and memory each have a live pid in the same
    release. stop the assistant and native host to verify authenticated memory
    save/open and capture. start the host, then the assistant to remount its socket.
-   resume through ordinary owner conversation after checking retained control.
+   wait for the restarted assistant's discord catch-up before running
+   `deploy/verify-containment` against its initialized process. resume through
+   ordinary owner conversation after checking retained control.
 
 for subsequent same-schema updates, cleanly stop both services, install the
 target and its native host, then run `deploy/activate-release "$to"`. routine

@@ -90,6 +90,10 @@ class Publication:
     id: UUID
 
 
+class ArchiveIdentityDefect(RuntimeError):
+    """The configured archive key differs from the stored canonical archive."""
+
+
 class MemoryService:
     def __init__(
         self,
@@ -100,23 +104,23 @@ class MemoryService:
         remote: MemoryRPC | None = None,
         owner_available: Callable[[], Awaitable[bool]] | None = None,
         admitted_lanes: frozenset[tuple[str, str]],
-        guild_id: int | None = None,
-        channel_id: int | None = None,
+        owner_scope: str | None = None,
+        owner_archive_key: str | None = None,
         nexus_admitted_owner: UUID | None = None,
     ) -> None:
         if embedder is not None and remote is not None:
             raise ValueError("memory inference must have one owner")
-        if (guild_id is None) != (channel_id is None):
-            raise ValueError("canonical projection requires both Discord ids")
+        if (owner_scope is None) != (owner_archive_key is None):
+            raise ValueError("canonical projection requires both owner identities")
         self.library, self.database = library, database
         self._embedder, self._remote = embedder, remote
         self._owner_available = owner_available
         self.admitted_lanes = admitted_lanes
         self.jarvis_admitted = ("devbox", "jarvis") in admitted_lanes
-        self.native_id = (
-            f"discord:{guild_id}:{channel_id}" if channel_id is not None else None
-        )
-        self.channel_id = str(channel_id) if channel_id is not None else None
+        # The archive key stays the historical Discord identity so canonical
+        # memory is never republished under a new conversation.
+        self.native_id = owner_archive_key
+        self.owner_scope = owner_scope
         self.nexus_admitted_owner = nexus_admitted_owner
         self._search_starts: deque[float] = deque()
 
@@ -265,7 +269,7 @@ class MemoryService:
                         select(message.c.id)
                         .where(
                             message.c.memory_admitted,
-                            message.c.source_conversation_id == self.channel_id,
+                            message.c.source_conversation_id == self.owner_scope,
                             ~exists().where(
                                 source_record.c.conversation_id == conversation_id,
                                 source_record.c.native_event_id
@@ -283,7 +287,7 @@ class MemoryService:
             for kind in ("call", "reply"):
                 conditions = [
                     native_attempt.c.memory_admitted,
-                    native_attempt.c.conversation_id == self.channel_id,
+                    native_attempt.c.conversation_id == self.owner_scope,
                     ~exists().where(
                         source_record.c.conversation_id == conversation_id,
                         source_record.c.native_event_id
@@ -334,6 +338,19 @@ class MemoryService:
             async with self.database.begin() as connection:
                 now = datetime.now(UTC)
                 await self.library.activate_lane(connection, lane, (), now)
+                # One owner has one canonical archive. A different stored key means
+                # a mistyped setting; registering it would republish the corpus.
+                if await connection.scalar(
+                    select(literal(1))
+                    .where(
+                        source_conversation.c.provider == "jarvis",
+                        source_conversation.c.native_id != self.native_id,
+                    )
+                    .limit(1)
+                ):
+                    raise ArchiveIdentityDefect(
+                        "configured owner archive key differs from the stored archive"
+                    )
                 receipts = await self.library.sync_conversations(
                     connection,
                     lane,
@@ -376,7 +393,7 @@ class MemoryService:
                             .one()
                         )
                         text = archive_message_text(
-                            row["text"], row["trace"], row["id"]
+                            row["text"], row["trace"], row["id"], row["home"]
                         )
                         data = {
                             "id": event_id,

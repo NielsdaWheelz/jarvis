@@ -8,19 +8,18 @@ import grp
 import json
 import logging
 import os
+import socket
 import stat
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
-import aiohttp
-import discord as discord_sdk
 import httpx
+import uvicorn
 from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 from provider_runtime.agent_runtime import (
@@ -29,7 +28,7 @@ from provider_runtime.agent_runtime import (
     AgentRuntimeError,
 )
 from pydantic import SecretStr
-from sqlalchemy import select, text
+from sqlalchemy import literal, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from universal_memory import MemoryError, MemoryStore
@@ -42,7 +41,16 @@ from jarvis.agent_control import AgentController
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
-from jarvis.db import ASSISTANT_MEMORY_READS, create_engine, normalize_database_url
+from jarvis.db import (
+    ASSISTANT_MEMORY_READS,
+    action,
+    attachment,
+    create_engine,
+    message,
+    native_attempt,
+    normalize_database_url,
+    read_position,
+)
 from jarvis.definitions import (
     MEMORY_CODEX_MODEL,
     RoleDefinitions,
@@ -50,16 +58,10 @@ from jarvis.definitions import (
     build_definitions,
     build_dreamer,
 )
-from jarvis.discord import (
-    NETWORK_FAILURES,
-    DiscordCreateMessageClient,
-    DiscordGateway,
-    DiscordStopped,
-    interruptible_network,
-    network_retry_delay,
-)
+from jarvis.discord import DiscordCreateMessageClient
 from jarvis.embeddings import OpenAIEmbedder
 from jarvis.events import EventStore
+from jarvis.home_http import create_home_app
 from jarvis.kernel import (
     build_agent_runtime,
     build_kernel_runtime,
@@ -126,6 +128,9 @@ from jarvis.write_dispatch import (
 from jarvis.write_tools import GmailSendDraftInput
 
 LOGGER = logging.getLogger(__name__)
+# initialize-state bootstraps only a fresh database stopped at this revision.
+BOOTSTRAP_SCHEMA_REVISION = "0015"
+HOME_SOCKET_GROUP = "jarvis-home"
 
 
 class StartupDefect(RuntimeError):
@@ -175,8 +180,8 @@ async def _memory_service(
                 remote=MemoryRPC(http) if offline_key is None else None,
                 admitted_lanes=config.admitted_lanes,
                 nexus_admitted_owner=config.nexus_admitted_owner,
-                guild_id=settings.discord_guild_id,
-                channel_id=settings.discord_channel_id,
+                owner_scope=settings.owner_scope,
+                owner_archive_key=settings.owner_archive_key,
             )
     finally:
         await reads.dispose()
@@ -323,7 +328,7 @@ def _validate_runtime_layout(
 async def initialize_state(
     settings: NativeStateSettings, host: CodexHostConfig
 ) -> None:
-    """Prepare private provider state and a canonical fresh deployment pause."""
+    """Pause a fresh database once; refuse any existing history or effect evidence."""
 
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
     directory = settings.runtime_state_directory
@@ -338,12 +343,31 @@ async def initialize_state(
     engine = create_engine(settings.database_url.get_secret_value())
     try:
         async with deployment_ownership(engine) as database:
-            await require_native_data(
-                database, conversation_id=str(settings.discord_channel_id)
-            )
-            await MessageStore(database).initialize_paused(
-                str(settings.discord_channel_id)
-            )
+            # This bootstrap check replaces the runtime head check: the stopped
+            # cut initializes at 0015, then migrates 0016 and 0017 under this pause.
+            async with database.connect() as connection:
+                revision = await connection.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                )
+                if revision != BOOTSTRAP_SCHEMA_REVISION:
+                    raise StartupDefect(
+                        "initialize-state requires a fresh database at schema "
+                        + BOOTSTRAP_SCHEMA_REVISION
+                    )
+                for table in (
+                    message,
+                    action,
+                    read_position,
+                    native_attempt,
+                    attachment,
+                ):
+                    if await connection.scalar(
+                        select(literal(1)).select_from(table).limit(1)
+                    ):
+                        raise StartupDefect(
+                            f"initialize-state requires an empty {table.name} table"
+                        )
+            await MessageStore(database).initialize_paused(settings.owner_scope)
     finally:
         await engine.dispose()
 
@@ -357,91 +381,95 @@ async def recover_startup_actions(
     return await action_recovery.recover(allow_queued_execution=not inactive)
 
 
+class _HomeListener(uvicorn.Server):
+    @contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        # The application owns signals; uvicorn would capture and re-raise them.
+        yield
+
+
+def _bind_home_socket(path: Path, group: str) -> socket.socket:
+    """Listen on a 0660 socket whose group comes from systemd's setgid directory."""
+    try:
+        directory = path.parent.stat()
+        group_id = grp.getgrnam(group).gr_gid
+    except (KeyError, OSError) as exc:
+        raise StartupDefect("home socket directory is unavailable") from exc
+    if (
+        not stat.S_ISDIR(directory.st_mode)
+        or not directory.st_mode & stat.S_ISGID
+        or directory.st_mode & 0o007
+        or directory.st_gid != group_id
+    ):
+        raise StartupDefect(
+            f"home socket directory must be setgid group {group} without world access"
+        )
+    # Deployment ownership excludes a live peer; a socket left by a crash is stale.
+    if path.is_socket():
+        path.unlink()
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener.bind(str(path))
+        os.chmod(path, 0o660)
+        if path.stat().st_gid != group_id:
+            raise StartupDefect(f"home socket must inherit group {group}")
+        listener.listen()
+    except BaseException:
+        listener.close()
+        path.unlink(missing_ok=True)
+        raise
+    return listener
+
+
 async def run_service(
     service: JarvisService,
-    gateway_factory: Callable[[], DiscordGateway],
-    token: str,
+    app: Callable[..., Awaitable[None]],
+    socket_path: Path,
     shutdown: asyncio.Event,
+    *,
+    group: str = HOME_SOCKET_GROUP,
 ) -> None:
-    """Own the worker and fresh login clients until drained."""
+    """Serve the home after startup; stop ingress before draining the worker."""
     if shutdown.is_set():
         return
+    listener_socket = _bind_home_socket(socket_path, group)
+    server = _HomeListener(
+        uvicorn.Config(
+            app,
+            lifespan="off",
+            ws="none",
+            log_config=None,
+            access_log=False,
+            proxy_headers=False,
+            server_header=False,
+            timeout_graceful_shutdown=30,
+        )
+    )
     worker = asyncio.create_task(service.run_worker(), name="jarvis-worker")
-    gateway: DiscordGateway | None = None
-    connect_task: asyncio.Task[None] | None = None
-
-    async def run_gateway() -> None:
-        nonlocal gateway, connect_task
-        attempt = 1
-        try:
-            while not shutdown.is_set():
-                gateway = gateway_factory()
-                try:
-                    await interruptible_network(
-                        partial(gateway.login, token), gateway.stopping
-                    )
-                except NETWORK_FAILURES as error:
-                    delay = network_retry_delay(error, phase="login", attempt=attempt)
-                    await gateway.close()
-                    await interruptible_network(
-                        partial(asyncio.sleep, delay), gateway.stopping
-                    )
-                    attempt += 1
-                    continue
-                if shutdown.is_set() or gateway.stopping.is_set():
-                    return
-                service.bind_gateway(gateway)
-                if attempt > 1:
-                    LOGGER.info("discord recovered: phase=login attempts=%d", attempt)
-                connect_task = asyncio.create_task(
-                    gateway.connect(reconnect=True), name="jarvis-discord-connect"
-                )
-                stopped = asyncio.create_task(gateway.stopping.wait())
-                try:
-                    done, _ = await asyncio.wait(
-                        (connect_task, stopped), return_when=asyncio.FIRST_COMPLETED
-                    )
-                    if connect_task in done:
-                        connect_task.result()
-                    return
-                finally:
-                    stopped.cancel()
-                    await asyncio.gather(stopped, return_exceptions=True)
-        except DiscordStopped:
-            return
-
-    gateway_task = asyncio.create_task(run_gateway(), name="jarvis-discord-gateway")
+    serving = asyncio.create_task(
+        server.serve(sockets=[listener_socket]), name="jarvis-home"
+    )
     stopping = asyncio.create_task(shutdown.wait(), name="jarvis-shutdown-request")
     try:
         done, _ = await asyncio.wait(
-            {worker, gateway_task, stopping},
-            return_when=asyncio.FIRST_COMPLETED,
+            {worker, serving, stopping}, return_when=asyncio.FIRST_COMPLETED
         )
         for task in done:
             task.result()
-        if gateway_task in done and not shutdown.is_set():
-            raise RuntimeError("Discord gateway stopped before application shutdown")
+        if not shutdown.is_set():
+            raise RuntimeError("home listener or worker stopped before shutdown")
     finally:
-        if gateway is not None:
-            gateway.stop_ingress()
+        server.should_exit = True
+        results = list(await asyncio.gather(serving, return_exceptions=True))
         service.request_shutdown()
         stopping.cancel()
         await asyncio.gather(stopping, return_exceptions=True)
-        results = await asyncio.gather(gateway_task, worker, return_exceptions=True)
-        if gateway is not None:
-            await gateway.drain_callbacks()
-            try:
-                await gateway.close()
-            finally:
-                if connect_task is not None:
-                    results.extend(
-                        await asyncio.gather(connect_task, return_exceptions=True)
-                    )
+        results.extend(await asyncio.gather(worker, return_exceptions=True))
+        listener_socket.close()
+        socket_path.unlink(missing_ok=True)
         for result in results:
             if isinstance(result, BaseException):
                 raise result
-        if gateway is not None and gateway.event_failed:
-            raise RuntimeError("Discord event processing failed")
 
 
 async def _compose_main(
@@ -476,7 +504,7 @@ async def _compose_main(
         cli_path=settings.agent_cli_path,
         state_directory=settings.agent_state_directory,
         actions=actions,
-        source_conversation_id=str(settings.discord.channel_id),
+        source_conversation_id=settings.owner_scope,
     )
     composition = build_tool_composition(
         owner=owner,
@@ -518,7 +546,7 @@ async def serve(settings: Settings, host: CodexHostConfig) -> None:
 async def _serve(
     settings: Settings, host: CodexHostConfig, shutdown: asyncio.Event
 ) -> None:
-    """Own the deployment and run the one Discord channel service."""
+    """Own the deployment, recover, then serve the private home."""
 
     deny_same_identity_process_inspection()
     _validate_runtime_layout(settings, host)
@@ -533,8 +561,11 @@ async def _serve(
         ) as database:
             try:
                 store = MessageStore(database)
-                owner = JarvisOwner(database, str(settings.discord.channel_id))
+                owner = JarvisOwner(database, settings.owner_scope)
                 await require_native_data(database, conversation_id=owner.scope_id)
+                # A scope without canonical control would read as unpaused.
+                if await store.current_control(owner.scope_id) is None:
+                    raise StartupDefect("serve requires initialized canonical control")
                 if await fence_abandoned_native_attempt(owner):
                     LOGGER.info(
                         "native recovery: fenced=1 committed=0 failed=0 stale=0"
@@ -561,9 +592,9 @@ async def _serve(
                         _memory_service(settings, config, database)
                     )
                     actions = ActionStore(database)
-                    work = WorkStore(database, str(settings.discord.channel_id))
+                    work = WorkStore(database, settings.owner_scope)
                     await work.recompute_calendar_wakes()
-                    events = EventStore(database, str(settings.discord.channel_id))
+                    events = EventStore(database, settings.owner_scope)
 
                     async def event_admitted() -> bool:
                         return await service.events_admitted()
@@ -639,7 +670,7 @@ async def _serve(
                                     memory=memory,
                                     cutoff=checkpoint.memory_cutoff,
                                 ),
-                                source_conversation_id=str(settings.discord.channel_id),
+                                source_conversation_id=settings.owner_scope,
                                 verified_owner_only_calendar_ids=(
                                     settings.verified_owner_only_calendar_ids
                                 ),
@@ -658,7 +689,7 @@ async def _serve(
                         events=events,
                         attachments=composition.attachments,
                         plan=definitions.plans["main"],
-                        source_conversation_id=str(settings.discord.channel_id),
+                        source_conversation_id=settings.owner_scope,
                         wait_changed=agents.notify_wait_changed,
                     )
 
@@ -668,7 +699,7 @@ async def _serve(
                     work.notify_changed = work_timer.notify_changed
                     service = JarvisService(
                         settings=settings,
-                        store=store,
+                        database=database,
                         paused=paused,
                         delivery=delivery,
                         runner=runner,
@@ -697,33 +728,19 @@ async def _serve(
                             recovered_actions,
                         )
 
-                    catch_up_after = await store.latest_discord_owner_source_message_id(
-                        source_conversation_id=str(settings.discord.channel_id)
+                    await service.startup()
+                    if shutdown.is_set():
+                        return
+                    app = create_home_app(
+                        database=database,
+                        scope=settings.owner_scope,
+                        work=work,
+                        attachments=composition.attachments,
+                        submit=service.submit,
+                        spool=settings.runtime_state_directory / "uploads",
+                        pages=Path(host.notes_repository) / ".git" / "jarvis-pages",
                     )
-
-                    async def ready() -> None:
-                        result = await service.gateway_ready(catch_up_after)
-                        LOGGER.info(
-                            "Discord catch-up completed: "
-                            "scanned=%d accepted=%d bounded=%s",
-                            result.scanned,
-                            result.accepted,
-                            result.reached_scan_limit,
-                        )
-
-                    def gateway_factory() -> DiscordGateway:
-                        return DiscordGateway(
-                            settings.discord,
-                            service.receive_owner_message,
-                            ready_handler=ready,
-                        )
-
-                    await run_service(
-                        service,
-                        gateway_factory,
-                        settings.discord.bot_token.get_secret_value(),
-                        shutdown,
-                    )
+                    await run_service(service, app, settings.home_socket_path, shutdown)
             finally:
                 if kernel_runtime is not None:
                     await kernel_runtime.close()
@@ -747,7 +764,6 @@ async def reconcile_attachment(
             store = build_attachment_store(
                 settings=settings,
                 database=database,
-                http=http,
                 google=GoogleReadConnector(
                     client=http, tokens=google_tokens(settings, http)
                 ),
@@ -783,7 +799,7 @@ async def stopped_native_cutover(
             return await cutover_native(
                 database,
                 directory=settings.runtime_state_directory,
-                conversation_id=str(settings.discord_channel_id),
+                conversation_id=settings.owner_scope,
             )
     finally:
         await engine.dispose()
@@ -791,7 +807,7 @@ async def stopped_native_cutover(
 
 async def _require_paused(database: Database, settings: PausedSettings) -> None:
     require_native_files(settings.runtime_state_directory)
-    scope = str(settings.discord_channel_id)
+    scope = settings.owner_scope
     await require_native_data(database, conversation_id=scope)
     if not await MessageStore(database).paused(scope):
         raise StartupDefect("activation requires a canonical deployment pause")
@@ -822,7 +838,7 @@ async def check_activation(
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
             require_native_files(settings.runtime_state_directory)
-            scope = str(settings.discord.channel_id)
+            scope = settings.owner_scope
             await require_native_data(database, conversation_id=scope)
             if await MessageStore(database).current_control(scope) is None:
                 raise StartupDefect("activation requires initialized canonical control")
@@ -971,7 +987,7 @@ async def dream_once(
                 config=config,
                 host=host,
                 database=database,
-                owner=JarvisOwner(database, str(settings.discord_channel_id)),
+                owner=JarvisOwner(database, settings.owner_scope),
             ) as runtime:
                 return await runtime.dreamer.run_at(
                     as_of=datetime.now(UTC), cancellation=CancellationToken()
@@ -1027,7 +1043,7 @@ async def rebuild_memory(
                 config=config,
                 host=host,
                 database=database,
-                owner=JarvisOwner(database, str(settings.discord_channel_id)),
+                owner=JarvisOwner(database, settings.owner_scope),
             ) as runtime:
                 async with database.begin() as connection:
                     await runtime.memory.library.rebuild(connection, start, count)
@@ -1061,8 +1077,8 @@ async def memory_status(settings: MemoryStatusSettings) -> dict[str, object]:
             database=engine,
             admitted_lanes=config.admitted_lanes,
             nexus_admitted_owner=config.nexus_admitted_owner,
-            guild_id=settings.discord_guild_id,
-            channel_id=settings.discord_channel_id,
+            owner_scope=settings.owner_scope,
+            owner_archive_key=settings.owner_archive_key,
         )
         declared = {(lane.machine, lane.account): lane for lane in config.lanes}
         registration = None
@@ -1155,7 +1171,7 @@ async def retry_memory(settings: DatabaseSettings, conversation: str | None) -> 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("serve", help="run the Jarvis Discord service")
+    commands.add_parser("serve", help="run the Jarvis private home service")
     commands.add_parser("serve-memory", help="serve shared memory and capture")
     commands.add_parser("initialize-state", help="initialize private host state")
     commands.add_parser("check-paused", help="check the stopped canonical pause")
@@ -1201,10 +1217,6 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    sdk_logger = logging.getLogger("discord")
-    sdk_logger.handlers.clear()
-    sdk_logger.addHandler(logging.NullHandler())
-    sdk_logger.propagate = False
     logging.getLogger("httpx").setLevel(logging.WARNING)
     parser = _parser()
     arguments = parser.parse_args(argv)
@@ -1323,8 +1335,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     except (
         ConfigurationError,
-        discord_sdk.DiscordException,
-        aiohttp.ClientError,
         RuntimeError,
         OSError,
         ValueError,

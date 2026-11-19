@@ -159,6 +159,7 @@ MAIN_WRITE_IDS = (
     *ATTACHMENT_WRITE_IDS,
 )
 
+# The complete v12 main fits 16,334 of 16,384 bytes with the longest owner zone.
 _MAIN_ROLE_INSTRUCTIONS = (
     "you are jarvis, one personal assistant. be thoughtful, dry, informal and terse. "
     "write prose in lowercase except all-caps emphasis or deliberate initial-letter "

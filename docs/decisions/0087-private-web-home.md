@@ -315,3 +315,24 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   under the application uid refused a second initialization. the pinned 2026.10.4
   connector validated its generated rule, matched the private socket and rejected an
   unrelated hostname. these checks used disposable resources. [installed acceptance](../issues/private-web-home-installed.md)
+
+- **native conversation.** opening, steer and replay kept owner speech apart from its
+  typed object. a descendant could present an already completed owner's result.
+  stopped or unrelated lineages and unavailable objects kept their valid replies with
+  no automatic navigation. two inputs waiting on one question produced one decision,
+  and a later wait left the old link settled. repeating archive projection added zero
+  duplicates after 62 new fixture records. historical message digests stayed identical.
+- **native wire format.** the integrated app unexpectedly completed an explicit
+  request in silence. the first isolated probe had sorted the output schema's
+  properties. the native service sends them in declaration order. using the captured
+  input, model and resolver, changing only the order to put the response type first
+  changed silence to an answer with the requested canonical id and revision.
+  v12 rotates the main fingerprint because the canonical schema digest ignores order.
+  48 tools fit. the longest supported zone used 16,334 of 16,384 instruction bytes;
+  the output schema used 6,088 of 32,768. changing instructions requires remeasuring.
+- **operator rehearsal.** native linux authoring failed when only the stock codex
+  executable was installed. the matching 0.160.0 helper enabled the same stock
+  session to issue native file and shell operations. an isolated x86-64 installation
+  qualified fresh install, missing-helper repair and a warm run without a download.
+  the production binary's dedicated directory was root-owned, mode 0755, on the
+  read-only preflight. installing the pair is part of the authorized stopped cut.

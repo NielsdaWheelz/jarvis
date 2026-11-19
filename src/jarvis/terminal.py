@@ -63,7 +63,8 @@ class Presentation(_StrictModel):
 
 
 class _Visible[KindT: str](_StrictModel):
-    # Stock emits fields in schema order. Every response must choose its type first.
+    # Stock chooses a branch as it emits fields. Keep its discriminator first.
+    # Canonical hashing ignores property order; rotate main on a wire reordering.
     type: KindT
     present: Presentation | None
 

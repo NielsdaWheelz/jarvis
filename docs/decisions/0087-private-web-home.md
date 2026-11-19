@@ -336,3 +336,34 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   qualified fresh install, missing-helper repair and a warm run without a download.
   the production binary's dedicated directory was root-owned, mode 0755, on the
   read-only preflight. installing the pair is part of the authorized stopped cut.
+
+### combined candidate, 2026-11-19 utc
+
+two isolated linux runs exercised normal application and memory entry points, postgres
+16 at `0017`, stock codex 0.160.0 on the personal subscription, s3-compatible originals
+and an https notification receiver. the first observed the unmodified native socket
+traffic. the second used the direct socket at `05849c6`.
+
+- a captionless png/pdf submission returned 201, equal replay 200 and changed bytes
+  409. the browser retrieved the original bytes. after web resume, stock returned
+  the exact requested revision for owner input `73bc7a51-7766-4602-b4a2-d59306148d87`.
+  reply `9398d72e-435d-5b2e-b577-629f15218654` opened it only in the sending tab.
+  a second tab retained its pdf and draft. withdrawal closed both revision links.
+- the decision linked to `37e8eb07-1530-44fb-8fd4-73b1b212b7c2` showed the actual
+  filename and remained readable after settlement. the exact owner answer authorized
+  one delete executor entry. the image returned 410; the retained pdf returned 200.
+  five committed notices matched five private posts to the isolated receiver.
+- stopping the application under its canonical pause yielded 503 while the independent
+  memory unit still answered 200. the direct run's before/after snapshot digest was
+  `d1e54a60ba3f2f5a4f8437602828a5e01abf05897b94ba950ffc28fc4428f205`.
+  it retained receipts, scope, archive identity, originals and the pause. all 17
+  admitted memory leaves remained, with 15 in the ready view. replay after deletion
+  returned the original id. an earlier provider-capacity failure parked inputs with
+  zero executor entries and preserved the undecided action.
+- the repository build, clean wheel install, lint, typing and documentation checks
+  passed. the retained jarvis capture/retry check and all four checks from the pinned
+  memory dependency passed against disposable postgres. the dependency audit had no
+  known findings; its public index cannot assess the three private git packages.
+
+the production deployment still runs `0016`. its actual login, phone alert, pdf print,
+captionless upload and owner decision belong to the [installed journey](../issues/private-web-home-installed.md).

@@ -378,5 +378,9 @@ traffic. the second used the direct socket at `05849c6`.
   memory dependency passed against disposable postgres. the dependency audit had no
   known findings. its public index cannot assess the three private git packages.
 
+independent opus 5.5 reviews accepted all five units at the source and candidate
+boundaries. the temporary probes and isolated services were removed after the final
+checks. the retained regression groups remain in their owning repositories.
+
 the production deployment still runs `0016`. its actual login, phone alert, pdf print,
 captionless upload and owner decision belong to the [installed journey](../issues/private-web-home-installed.md).

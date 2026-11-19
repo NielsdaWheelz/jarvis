@@ -286,6 +286,10 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   and preserving the conflicting draft fixed it. postgres verified all five consent
   projections, a settled question, a retired argument shape and the 50-message boundary.
   phone-sized webkit exercised the native-print link. the physical print is still open.
+  chrome 157 reproduced a chat citation opening `/collection_(east` (404). after
+  repair, clicking it loaded the evidence at `/collection_(east)`. ordinary, nested,
+  adjacent and escaped links reached their exact destinations. attachment links and
+  literal message text survived. the temporary browser probe was deleted.
 - **originals.** postgres 16 and a disposable s3-compatible server received captionless
   files with duplicate names. changed mime hints replayed and changed bytes conflicted.
   the parser rejected a streamed body one byte over 90 mib despite its claimed length.

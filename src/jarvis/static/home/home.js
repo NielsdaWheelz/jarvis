@@ -258,17 +258,44 @@ $("message").onkeydown = (e) => {
     $("composer").requestSubmit();
 };
 
+function linkDestination(text, start) {
+  let href = "";
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (/[\s<>]/.test(c)) break;
+    if (c === ")" && depth === 0) return { href, end: i + 1 };
+    if (c === "\\" && /[()\\]/.test(text[i + 1] || "")) {
+      i++;
+      href += text[i];
+      continue;
+    }
+    if (c === "(") depth++;
+    if (c === ")") depth--;
+    href += c;
+  }
+  return null;
+}
+
 function prose(text) {
   const p = el("p", undefined, "prose");
   // Recognise links without interpreting the rest of a message as markup.
   const pattern =
-    /\[([^\]\n]+)\]\((https?:\/\/[^\s<>)]+|\/(?:[mdftv]\/)[^\s<>)]+)\)|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?:\/\/|\/(?:[mdftv]\/))[^\s<>]+/gi;
+    /\[([^\]\n]+)\]\((?=https?:\/\/|\/[mdftv]\/)|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?:\/\/|\/[mdftv]\/)[^\s<>]+/gi;
   let end = 0;
-  for (const match of text.matchAll(pattern)) {
-    p.append(text.slice(end, match.index));
+  for (let match; (match = pattern.exec(text)); ) {
+    const [token, label, attachment] = match;
     let tail = "";
-    let href = match[2] || (match[3] ? "/f/" + match[3] : match[0]);
-    if (!match[2] && !match[3]) {
+    let href;
+    if (label) {
+      const destination = linkDestination(text, pattern.lastIndex);
+      if (!destination) continue;
+      href = destination.href;
+      pattern.lastIndex = destination.end;
+    } else if (attachment) {
+      href = "/f/" + attachment;
+    } else {
+      href = token;
       tail = /[.,;:!?'"\]}]+$/.exec(href)?.[0] || "";
       href = href.slice(0, href.length - tail.length);
       if (href.endsWith(")") && href.split(")").length > href.split("(").length) {
@@ -276,13 +303,13 @@ function prose(text) {
         tail = ")" + tail;
       }
     }
-    const a = link(match[1] || (match[3] ? "original file" : href), href);
+    const a = link(label || (attachment ? "original file" : href), href);
     if (a.origin !== location.origin) {
       a.target = "_blank";
       a.rel = "noopener noreferrer";
     }
-    p.append(a, tail);
-    end = match.index + match[0].length;
+    p.append(text.slice(end, match.index), a, tail);
+    end = pattern.lastIndex;
   }
   p.append(text.slice(end));
   return p;

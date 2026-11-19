@@ -56,9 +56,11 @@ def upgrade() -> None:
       DROP INDEX ix_message_delivery_pending;
       REVOKE UPDATE(source_message_id) ON message FROM jarvis_runtime;
       CREATE TABLE home_notice(
-        id uuid PRIMARY KEY, kind text NOT NULL,
-        message_id uuid UNIQUE REFERENCES message,
-        action_id uuid UNIQUE REFERENCES action,
+        id uuid CONSTRAINT pk_home_notice PRIMARY KEY, kind text NOT NULL,
+        message_id uuid CONSTRAINT uq_home_notice_message_id UNIQUE
+          CONSTRAINT fk_home_notice_message_id_message REFERENCES message,
+        action_id uuid CONSTRAINT uq_home_notice_action_id UNIQUE
+          CONSTRAINT fk_home_notice_action_id_action REFERENCES action,
         created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
         discord_message_id text,
         CONSTRAINT ck_home_notice_target CHECK (

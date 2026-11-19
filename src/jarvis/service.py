@@ -5,94 +5,27 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Literal, Protocol
+from pathlib import Path
+from typing import Protocol
 from uuid import UUID
 
 from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 
 from jarvis.agent_control import AgentController
-from jarvis.attachments import AttachmentStore, DiscordUpload
-from jarvis.discord import (
-    CatchUpResult,
-    Control,
-    DeliveryFailed,
-    DeliveryResult,
-    DiscordOwnerMessage,
-)
+from jarvis.attachments import AttachmentStore, WebUpload
+from jarvis.discord import DiscordCreateMessageClient
 from jarvis.event_polling import EventPoller
+from jarvis.home_notices import deliver_pending
 from jarvis.memory_service import MemoryService
-from jarvis.messages import InboundInsert, StoredMessage
+from jarvis.messages import MessageStore
 from jarvis.native_runtime import NativeRunOutcome
+from jarvis.ownership import Database
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
 
 LOGGER = logging.getLogger(__name__)
-
-
-class PendingDeliveryStore(Protocol):
-    async def pending_delivery(
-        self,
-        *,
-        source_conversation_id: str,
-        limit: int,
-    ) -> tuple[StoredMessage, ...]: ...
-
-    async def mark_delivered(
-        self,
-        *,
-        message_id: UUID,
-        source_message_id: str,
-    ) -> None: ...
-
-
-class CreateMessagePort(Protocol):
-    async def create_message(
-        self,
-        *,
-        persisted_message_id: UUID | str,
-        content: str,
-    ) -> DeliveryResult: ...
-
-
-@dataclass(frozen=True, slots=True)
-class DeliveryFlushResult:
-    selected: int
-    delivered: int
-    failure: DeliveryFailed | None
-
-
-async def flush_pending_deliveries(
-    *,
-    store: PendingDeliveryStore,
-    delivery: CreateMessagePort,
-    source_conversation_id: str,
-    limit: int,
-) -> DeliveryFlushResult:
-    """Deliver pending assistant rows in order and stop at the first failure."""
-
-    pending = await store.pending_delivery(
-        source_conversation_id=source_conversation_id,
-        limit=limit,
-    )
-    delivered = 0
-    for message in pending:
-        result = await delivery.create_message(
-            persisted_message_id=message.id,
-            content=message.text,
-        )
-        if isinstance(result, DeliveryFailed):
-            return DeliveryFlushResult(len(pending), delivered, result)
-        await store.mark_delivered(
-            message_id=message.id,
-            source_message_id=result.discord_message_id,
-        )
-        delivered += 1
-    return DeliveryFlushResult(len(pending), delivered, None)
 
 
 class NativeRunnerPort(Protocol):
@@ -110,44 +43,20 @@ class BackgroundWorkerPort(Protocol):
     def request_interrupt(self, cancellation: CancellationToken) -> None: ...
 
 
-class IngressStore(PendingDeliveryStore, Protocol):
-    async def insert_waking(
-        self,
-        *,
-        role: Literal["owner", "host"],
-        text: str,
-        source: str,
-        source_conversation_id: str,
-        source_message_id: str,
-        created_at: datetime,
-        message_id: UUID | None = None,
-        control_kind: Literal["pause", "resume"] | None = None,
-        uploads: tuple[DiscordUpload, ...] = (),
-        attachment_r2_account: str | None = None,
-        attachment_r2_bucket: str | None = None,
-    ) -> InboundInsert: ...
-
-
-class GatewayPort(Protocol):
-    async def catch_up(self, after_source_message_id: str | None) -> CatchUpResult: ...
-
-    def typing(self) -> AbstractAsyncContextManager[None]: ...
-
-
 class ActionRecoveryPort(Protocol):
     async def recover(self, *, allow_queued_execution: bool = True) -> int: ...
 
 
 class JarvisService:
-    """Serial host coordinator for Gateway ingress, kernel work, and delivery."""
+    """Coordinate owner submissions, background work and notification delivery."""
 
     def __init__(
         self,
         *,
         settings: Settings,
-        store: IngressStore,
+        database: Database,
         paused: PausedState,
-        delivery: CreateMessagePort,
+        delivery: DiscordCreateMessageClient,
         runner: NativeRunnerPort,
         background: BackgroundWorkerPort,
         dreamer: BackgroundWorkerPort,
@@ -159,11 +68,13 @@ class JarvisService:
         work_timer: WorkWakeTimer,
         event_poller: EventPoller,
         attachments: AttachmentStore,
-        gateway: GatewayPort | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
+        self._pages = (
+            Path(settings.codex_host_config.notes_repository) / ".git/jarvis-pages"
+        )
         self._attachments = attachments
         self._attachment_work = asyncio.Event()
         self._attachment_task: asyncio.Task[None] | None = None
@@ -172,7 +83,8 @@ class JarvisService:
         self._event_poller = event_poller
         self._event_poll_task: asyncio.Task[None] | None = None
         self._work_timer_task: asyncio.Task[None] | None = None
-        self._store = store
+        self._database = database
+        self._store = MessageStore(database)
         self._paused = paused
         self._delivery = delivery
         self._runner = runner
@@ -181,14 +93,12 @@ class JarvisService:
         self._action_plan = action_plan
         self._action_recovery = action_recovery
         self._agent_waits = agent_waits
-        self._gateway = gateway
         self._sleep = sleep
         self._dream_sleep = dream_sleep
         self._work = asyncio.Event()
         self._shutdown = asyncio.Event()
         self._dispatch_lane = dispatch_lane
         self._delivery_work = asyncio.Event()
-        self._delivery_lock = asyncio.Lock()
         self._delivery_task: asyncio.Task[None] | None = None
         self._runner.notify_delivery = self.request_delivery
         self._runner.notify_work = self.request_work
@@ -202,95 +112,43 @@ class JarvisService:
         self._dream_due = False
         self._startup_ready = False
 
-    def bind_gateway(self, gateway: GatewayPort) -> None:
-        """Resolve the one callback cycle between the service and Gateway."""
+    async def startup(self) -> None:
+        await self._attachments.clean_spool()
+        await self._runner.recover()
+        self._startup_ready = True
+        self._event_poller.notify_changed()
+        self._work.set()
 
-        if self._gateway is not None:
-            raise RuntimeError("the Discord Gateway is already bound")
-        self._gateway = gateway
-
-    async def receive_owner_message(self, incoming: DiscordOwnerMessage) -> None:
-        """Persist/deduplicate ingress before applying host control."""
-
+    async def submit(
+        self,
+        submission_id: UUID,
+        text: str,
+        ref: dict[str, object] | None,
+        uploads: tuple[WebUpload, ...],
+    ) -> tuple[UUID, bool]:
         async with self._active_lock:
-            inserted = await self._store.insert_waking(
-                role="owner",
-                text=incoming.text,
-                source="discord",
-                source_conversation_id=incoming.source_conversation_id,
-                source_message_id=incoming.source_message_id,
-                created_at=incoming.created_at,
-                uploads=incoming.uploads,
-                attachment_r2_account=self._settings.attachment_r2_account_id,
-                attachment_r2_bucket=self._settings.attachment_r2_bucket,
-                control_kind=incoming.control.value
-                if incoming.control is not None
-                else None,
+            result = await self._store.submit(
+                submission_id,
+                text,
+                ref,
+                uploads,
+                scope=self._settings.owner_scope,
+                r2_account=self._settings.attachment_r2_account_id,
+                bucket=self._settings.attachment_r2_bucket,
+                pages=self._pages,
             )
-            if not inserted.inserted:
-                return
-            self._attachment_work.set()
-
-            active = self._active_cancellation
-            background = self._background_cancellation
-            background_worker = self._active_background
-            if background is not None and background_worker is not None:
-                background_worker.request_interrupt(background)
-            if incoming.control is Control.PAUSE:
-                if active is not None:
-                    active.cancel()
-
+            if not result.inserted:
+                return result.message.id, False
+            if result.message.control_kind == "pause" and self._active_cancellation:
+                self._active_cancellation.cancel()
+        self._attachment_work.set()
+        self.request_work()
         self.request_delivery()
-        await self._memory.publish()
         self._agent_waits.notify_wait_changed()
         self._work_timer.notify_changed()
         self._event_poller.notify_changed()
-        self._work.set()
-
-    async def gateway_ready(self, after_source_message_id: str | None) -> CatchUpResult:
-        """Catch up from the canonical cut captured before this process's ingress."""
-
-        result = await self._require_gateway().catch_up(after_source_message_id)
-        if self._shutdown.is_set():
-            return result
-        if not self._startup_ready:
-            await self._runner.recover()
-            self._startup_ready = True
-        self._event_poller.notify_changed()
-        self._work.set()
-        return result
-
-    async def flush_delivery(self) -> DeliveryFlushResult:
-        async with self._delivery_lock:
-            return await self._flush_delivery()
-
-    async def _flush_delivery(self) -> DeliveryFlushResult:
-        selected = 0
-        delivered = 0
-        while not self._shutdown.is_set():
-            result = await flush_pending_deliveries(
-                store=self._store,
-                delivery=self._delivery,
-                source_conversation_id=str(self._settings.discord.channel_id),
-                limit=self._settings.delivery_batch_size,
-            )
-            selected += result.selected
-            delivered += result.delivered
-            if result.failure is not None:
-                LOGGER.warning(
-                    "Discord delivery stopped: kind=%s attempts=%d "
-                    "status=%s ambiguous=%s",
-                    result.failure.kind.value,
-                    result.failure.attempts,
-                    result.failure.http_status,
-                    result.failure.ambiguous,
-                )
-                return DeliveryFlushResult(selected, delivered, result.failure)
-            if result.selected < self._settings.delivery_batch_size:
-                if delivered:
-                    LOGGER.info("Discord delivery completed: count=%d", delivered)
-                return DeliveryFlushResult(selected, delivered, None)
-        return DeliveryFlushResult(selected, delivered, None)
+        await self._memory.publish()
+        return result.message.id, True
 
     async def _waits_inactive(self) -> bool:
         return await self._paused.is_paused()
@@ -299,7 +157,7 @@ class JarvisService:
         return self._startup_ready and not self._shutdown.is_set()
 
     async def events_admitted(self) -> bool:
-        """Provider work waits for catch-up and current unpaused ownership."""
+        """Provider work requires startup recovery and current unpaused ownership."""
         if not self.events_publication_allowed():
             return False
         return not await self._paused.is_paused()
@@ -383,10 +241,14 @@ class JarvisService:
 
     async def _capture_attachments(self) -> None:
         while not self._shutdown.is_set():
-            await self._attachment_work.wait()
+            try:
+                await asyncio.wait_for(self._attachment_work.wait(), timeout=30)
+            except TimeoutError:
+                pass
             self._attachment_work.clear()
-            while (
-                not self._shutdown.is_set() and await self._attachments.capture_next()
+            if (
+                not self._shutdown.is_set()
+                and await self._attachments.capture_pending()
             ):
                 await self._memory.publish()
                 self.request_work()
@@ -437,10 +299,11 @@ class JarvisService:
         while not self._shutdown.is_set():
             await self._delivery_work.wait()
             self._delivery_work.clear()
-            result = await self.flush_delivery()
-            if result.failure is not None and not self._shutdown.is_set():
-                await self._sleep(2.0)
-                self._delivery_work.set()
+            if not await deliver_pending(
+                self._database, self._delivery, self._settings.delivery_batch_size
+            ):
+                await self._sleep(2)
+                self.request_delivery()
 
     async def _drain(self) -> None:
         if not self._startup_ready:
@@ -458,8 +321,7 @@ class JarvisService:
                     return
                 self._active_cancellation = cancellation
             try:
-                async with self._require_gateway().typing():
-                    outcome = await self._runner.run(cancellation)
+                outcome = await self._runner.run(cancellation)
             finally:
                 async with self._active_lock:
                     self._active_cancellation = None
@@ -492,7 +354,7 @@ class JarvisService:
                 "Recovered interrupted actions: count=%d",
                 recovered_actions,
             )
-            await self.flush_delivery()
+            self.request_delivery()
         return recovered_actions
 
     async def _run_background_once(
@@ -520,16 +382,3 @@ class JarvisService:
             self._dream_due = True
             self._work.set()
             await self._dream_sleep(60)
-
-    def _require_gateway(self) -> GatewayPort:
-        if self._gateway is None:
-            raise RuntimeError("the Discord Gateway is not bound")
-        return self._gateway
-
-
-__all__ = [
-    "ActionRecoveryPort",
-    "DeliveryFlushResult",
-    "JarvisService",
-    "flush_pending_deliveries",
-]

@@ -14,9 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    channel_id = os.environ.get("JARVIS_DISCORD_CHANNEL_ID")
-    if not channel_id:
-        raise RuntimeError("JARVIS_DISCORD_CHANNEL_ID is required for the pause check")
+    scope = os.environ.get("JARVIS_OWNER_SCOPE")
+    if not scope:
+        raise RuntimeError("JARVIS_OWNER_SCOPE is required for the pause check")
     connection = op.get_bind()
     for key in (DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY):
         if not connection.scalar(
@@ -29,7 +29,7 @@ def upgrade() -> None:
             WHERE source_conversation_id = :scope AND control_kind IS NOT NULL
             ORDER BY control_sequence DESC LIMIT 1
         """),
-        {"scope": channel_id},
+        {"scope": scope},
     )
     if control != "pause":
         raise RuntimeError("memory grants require the canonical deployment pause")

@@ -9,12 +9,9 @@ description = "A small personal agent with durable conversation history"
 readme = "README.md"
 requires-python = ">=3.12.13,<3.13"
 dependencies = [
-  "aiodns==4.0.4",
-  "aiohttp==3.14.4",
   "alembic==1.16.5",
   "boto3==1.44.3",
   "cryptography==50.0.1",
-  "discord.py @ git+https://github.com/NielsdaWheelz/discord.py.git@4c137a2de1c8aa36ac1df19f654afb99856824f2",
   "fastapi==0.143.0",
   "httpx==0.28.1",
   "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff",
@@ -23,6 +20,7 @@ dependencies = [
   "pgvector==0.4.1",
   "psycopg[binary,pool]==3.2.9",
   "pydantic==2.12.5",
+  "python-multipart==0.0.32",
   "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36",
   "sqlalchemy[asyncio]==2.0.43",
   "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@13ac202f844110c74559f15c04872c7d0737fc03",

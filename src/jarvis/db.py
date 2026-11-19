@@ -44,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0016"
+APPLICATION_SCHEMA_REVISION = "0017"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -58,6 +58,7 @@ message = Table(
     Column("source", Text, nullable=False),
     Column("source_conversation_id", Text, nullable=False),
     Column("source_message_id", Text),
+    Column("home", JSONB(none_as_null=True)),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -95,13 +96,13 @@ message = Table(
         name="role",
     ),
     CheckConstraint(
-        "length(text) > 0 OR (role = 'owner' AND source = 'discord' AND "
+        "length(text) > 0 OR (role = 'owner' AND source IN ('discord','web') AND "
         "jarvis_attachment_manifest_valid(trace->'attachment_manifest')) IS TRUE",
         name="text_nonempty",
     ),
     CheckConstraint(
         "NOT trace ? 'attachment_manifest' OR (role = 'owner' AND "
-        "source = 'discord' AND "
+        "source IN ('discord','web') AND "
         "jarvis_attachment_manifest_valid(trace->'attachment_manifest')) IS TRUE",
         name="attachment_manifest",
     ),
@@ -161,15 +162,6 @@ Index(
         & message.c.processing_parked_at.is_(None)
     ),
 )
-Index(
-    "ix_message_delivery_pending",
-    message.c.created_at,
-    message.c.id,
-    postgresql_where=(
-        (message.c.role == "assistant") & message.c.source_message_id.is_(None)
-    ),
-)
-
 memory_log = Table(
     "memory_log",
     metadata,
@@ -310,6 +302,33 @@ action = Table(
     ),
 )
 
+home_notice = Table(
+    "home_notice",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("message_id", UUID(as_uuid=True), ForeignKey("message.id"), unique=True),
+    Column("action_id", UUID(as_uuid=True), ForeignKey("action.id"), unique=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    ),
+    Column("discord_message_id", Text),
+    CheckConstraint(
+        "(kind IN ('reply','question') AND message_id IS NOT NULL "
+        "AND action_id IS NULL) OR "
+        "(kind = 'approval' AND message_id IS NULL AND action_id IS NOT NULL)",
+        name="target",
+    ),
+)
+Index(
+    "ix_home_notice_pending",
+    home_notice.c.created_at,
+    home_notice.c.id,
+    postgresql_where=home_notice.c.discord_message_id.is_(None),
+)
 Index("ix_action_status_execute_after", action.c.status, action.c.execute_after)
 
 
@@ -758,7 +777,11 @@ attachment = Table(
         name="error",
     ),
     CheckConstraint(
-        "capture_action_id IS NOT NULL OR source->>'kind' = 'discord'", name="capture"
+        "CASE WHEN source->>'kind' = 'web' THEN capture_action_id IS NULL "
+        "AND size_bytes IS NOT NULL "
+        "AND advertised_size IS NOT DISTINCT FROM size_bytes "
+        "ELSE capture_action_id IS NOT NULL OR source->>'kind' = 'discord' END",
+        name="capture",
     ),
     CheckConstraint(
         "((size_bytes IS NULL AND sha256 IS NULL) OR (size_bytes BETWEEN 0 AND "

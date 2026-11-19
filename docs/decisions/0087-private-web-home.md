@@ -163,11 +163,9 @@ only the sending document arms auto-open. match its submission receipt's canonic
 id to `present.request_id`, including when the presentation arrives first. manual
 navigation or a later send disarms it. a historical link never claims focus.
 
-**one open product choice.** the proposed contract embeds data when jarvis publishes.
-a custom todo chart labels its preparation time and changes when jarvis republishes.
-the sidebar always reads current todos and decisions. a live feed into custom pages
-would require a separate, read-only browser interface. choosing it changes unit d's
-contract and proof before implementation.
+**published data.** the owner selected dated snapshots. a custom chart labels when
+jarvis prepared its data. republishing updates it. the sidebar always reads current
+todos and decisions.
 
 the shell owns real files, chat and decisions. published html runs in an opaque-origin
 iframe with `sandbox="allow-scripts"`. apply the same restrictions on direct raw reads

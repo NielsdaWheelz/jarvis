@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4, uuid5
 
+from llm_tools import canonical_json_bytes
 from sqlalchemy import RowMapping, case, func, select, update
 from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -18,19 +21,28 @@ from jarvis.db import (
     native_attempt,
     native_invocation,
 )
+from jarvis.home_notices import enqueue_notice
+from jarvis.home_pages import DEFAULT_EXPORT
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 
 if TYPE_CHECKING:
-    from jarvis.attachments import DiscordUpload
+    from jarvis.attachments import WebUpload
 
 MessageRole = Literal["owner", "assistant", "host"]
 
 MAX_TRACE_BYTES = 16_384
-MAX_DISCORD_MESSAGE_CHARACTERS = 2_000
 
 
 class PersistenceDefect(RuntimeError):
     """Canonical message state is missing or internally inconsistent."""
+
+
+class SubmissionConflict(ValueError):
+    """A submission id was reused for a different owner message."""
+
+
+class InvalidReference(ValueError):
+    """The submitted reference is unavailable in this owner conversation."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +63,7 @@ class StoredMessage:
     request_state: str | None
     wait_reason: str | None
     control_kind: str | None
+    home: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,14 +84,15 @@ async def append_waking_input(
     parent_request_id: UUID | None = None,
     action_id: UUID | None = None,
     message_id: UUID | None = None,
+    home: dict[str, object] | None = None,
     attachment_manifest: tuple[dict[str, object], ...] = (),
 ) -> InboundInsert:
     """Append one source fact within the producer's existing transaction."""
     if role not in {"owner", "host"}:
         raise ValueError("waking input must be owner or host")
     if attachment_manifest:
-        if role != "owner" or source != "discord":
-            raise ValueError("upload manifests require owner discord input")
+        if role != "owner" or source != "web":
+            raise ValueError("upload manifests require owner web input")
     else:
         _nonempty(text, "message text")
     _nonempty(source, "message source")
@@ -126,6 +140,7 @@ async def append_waking_input(
                 .values(
                     id=message_id or uuid4(),
                     role=role,
+                    home=home,
                     text=text,
                     source=source,
                     source_conversation_id=source_conversation_id,
@@ -273,11 +288,7 @@ class MessageStore:
         _nonempty(source_conversation_id, "source conversation id")
         async with self._engine.begin() as connection:
             await lock_conversation(connection, source_conversation_id)
-            existing = await connection.scalar(
-                select(message.c.id)
-                .where(message.c.source_conversation_id == source_conversation_id)
-                .limit(1)
-            )
+            existing = await connection.scalar(select(message.c.id).limit(1))
             if existing is not None:
                 raise PersistenceDefect("conversation state is already initialized")
             timestamp, identifier = datetime.now(UTC), uuid4()
@@ -299,85 +310,80 @@ class MessageStore:
                 )
             )
 
-    async def insert_waking(
+    async def submit(
         self,
-        *,
-        role: Literal["owner", "host"],
+        submission_id: UUID,
         text: str,
-        source: str,
-        source_conversation_id: str,
-        source_message_id: str,
-        created_at: datetime,
-        parent_request_id: UUID | None = None,
-        action_id: UUID | None = None,
-        message_id: UUID | None = None,
-        control_kind: Literal["pause", "resume"] | None = None,
-        uploads: tuple[DiscordUpload, ...] = (),
-        attachment_r2_account: str | None = None,
-        attachment_r2_bucket: str | None = None,
+        ref: dict[str, object] | None,
+        uploads: tuple[WebUpload, ...],
+        *,
+        scope: str,
+        r2_account: str,
+        bucket: str,
+        pages: Path = DEFAULT_EXPORT,
     ) -> InboundInsert:
+        from jarvis.attachments import ingress_manifest, register_ingress
+
+        digest = hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "text": text,
+                    "ref": ref,
+                    "files": [
+                        [item.filename, item.size, item.sha256] for item in uploads
+                    ],
+                }
+            )
+        ).hexdigest()
         async with self._engine.begin() as connection:
-            await lock_conversation(connection, source_conversation_id)
-            if source == "discord":
-                existing = (
-                    (
-                        await connection.execute(
-                            select(message).where(
-                                message.c.source == source,
-                                message.c.source_message_id == source_message_id,
-                            )
+            await lock_conversation(connection, scope)
+            existing = (
+                (
+                    await connection.execute(
+                        select(message).where(
+                            message.c.source == "web",
+                            message.c.source_message_id == str(submission_id),
                         )
                     )
-                    .mappings()
-                    .one_or_none()
                 )
-                if existing is not None:
-                    if (existing["role"], existing["source_conversation_id"]) != (
-                        role,
-                        source_conversation_id,
-                    ):
-                        raise PersistenceDefect("discord source identity changed scope")
-                    return InboundInsert(_stored_message(existing), inserted=False)
-            manifest: tuple[dict[str, object], ...] = ()
-            if uploads:
-                from jarvis.attachments import ingress_manifest
+                .mappings()
+                .one_or_none()
+            )
+            if existing is not None:
+                if (
+                    existing["source_conversation_id"] != scope
+                    or existing["home"]["request_sha256"] != digest
+                ):
+                    raise SubmissionConflict("submission id is already committed")
+                return InboundInsert(_stored_message(existing), False)
+            if ref is not None:
+                from jarvis.home_reads import reference_exists
 
-                if role != "owner" or source != "discord":
-                    raise ValueError("uploads require owner discord input")
-                if not attachment_r2_account or not attachment_r2_bucket:
-                    raise ValueError("uploads require the configured storage location")
-                manifest = ingress_manifest(uploads)
+                if not await reference_exists(connection, scope, ref, pages):
+                    raise InvalidReference("that reference is no longer available")
             result = await append_waking_input(
                 connection,
-                role=role,
+                role="owner",
+                source="web",
                 text=text,
-                source=source,
-                source_conversation_id=source_conversation_id,
-                source_message_id=source_message_id,
-                created_at=created_at,
-                parent_request_id=parent_request_id,
-                action_id=action_id,
-                message_id=message_id,
-                attachment_manifest=manifest,
+                source_conversation_id=scope,
+                source_message_id=str(submission_id),
+                created_at=datetime.now(UTC),
+                attachment_manifest=ingress_manifest(uploads),
+                home={"request_sha256": digest, "ref": ref},
             )
-            if result.inserted and uploads:
-                from jarvis.attachments import register_ingress
-
-                assert attachment_r2_account is not None
-                assert attachment_r2_bucket is not None
+            if uploads:
                 await register_ingress(
                     connection,
                     result.message.id,
                     uploads,
-                    r2_account=attachment_r2_account,
-                    bucket=attachment_r2_bucket,
+                    r2_account=r2_account,
+                    bucket=bucket,
                 )
-            if result.inserted and control_kind is not None:
-                from jarvis.discord import classify_control
-
-                if role != "owner" or classify_control(text) != control_kind:
-                    raise PersistenceDefect("control must match the raw owner caption")
-                row = (
+            control = text.strip().lower()
+            if ref is None and not uploads and control in {"pause", "resume"}:
+                await self._apply_control(connection, result.message.id, scope, control)
+                updated = (
                     (
                         await connection.execute(
                             select(message).where(message.c.id == result.message.id)
@@ -386,23 +392,12 @@ class MessageStore:
                     .mappings()
                     .one()
                 )
-                await self._apply_control(connection, row, control_kind)
-                row = (
-                    (
-                        await connection.execute(
-                            select(message).where(message.c.id == result.message.id)
-                        )
-                    )
-                    .mappings()
-                    .one()
-                )
-                return InboundInsert(_stored_message(row), inserted=True)
+                return InboundInsert(_stored_message(updated), True)
             return result
 
     async def _apply_control(
-        self, connection: AsyncConnection, control: RowMapping, kind: str
+        self, connection: AsyncConnection, control_id: UUID, scope: str, kind: str
     ) -> None:
-        scope = control["source_conversation_id"]
         previous = (
             (
                 await connection.execute(
@@ -427,7 +422,7 @@ class MessageStore:
                         .where(
                             message.c.source_conversation_id == scope,
                             message.c.role.in_(("owner", "host")),
-                            message.c.id != control["id"],
+                            message.c.id != control_id,
                             message.c.control_kind.is_(None),
                             message.c.request_state.in_(("pending", "waiting")),
                         )
@@ -508,7 +503,7 @@ class MessageStore:
         sequence = await connection.scalar(control_sequence.next_value())
         await connection.execute(
             update(message)
-            .where(message.c.id == control["id"])
+            .where(message.c.id == control_id)
             .values(
                 control_kind=kind,
                 control_sequence=sequence,
@@ -517,9 +512,10 @@ class MessageStore:
                 processed_at=timestamp,
             )
         )
+        conclusion_id = uuid5(control_id, "control-conclusion")
         await connection.execute(
             postgresql_insert(message).values(
-                id=uuid5(control["id"], "control-conclusion"),
+                id=conclusion_id,
                 role="assistant",
                 text=text,
                 source="native_control",
@@ -527,11 +523,13 @@ class MessageStore:
                 source_conversation_id=scope,
                 processed_at=timestamp,
                 trace={
-                    "control_message_id": str(control["id"]),
+                    "control_message_id": str(control_id),
                     "control_sequence": sequence,
                 },
             )
         )
+
+        await enqueue_notice(connection, "reply", conclusion_id)
 
     async def pending_inputs(
         self,
@@ -703,89 +701,6 @@ class MessageStore:
                 )
             )
 
-    async def latest_discord_owner_source_message_id(
-        self,
-        *,
-        source_conversation_id: str,
-    ) -> str | None:
-        _nonempty(source_conversation_id, "source conversation id")
-        async with self._engine.connect() as connection:
-            value = await connection.scalar(
-                select(message.c.source_message_id)
-                .where(
-                    message.c.role == "owner",
-                    message.c.source == "discord",
-                    message.c.source_conversation_id == source_conversation_id,
-                    message.c.source_message_id.is_not(None),
-                )
-                .order_by(message.c.created_at.desc(), message.c.id.desc())
-                .limit(1)
-            )
-        return cast(str | None, value)
-
-    async def pending_delivery(
-        self,
-        *,
-        source_conversation_id: str,
-        limit: int,
-    ) -> tuple[StoredMessage, ...]:
-        _positive(limit, "delivery limit")
-        async with self._engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(message)
-                        .where(
-                            message.c.role == "assistant",
-                            message.c.source_conversation_id == source_conversation_id,
-                            message.c.source_message_id.is_(None),
-                        )
-                        .order_by(message.c.created_at, message.c.id)
-                        .limit(limit)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        return tuple(map(_stored_message, rows))
-
-    async def mark_delivered(
-        self,
-        *,
-        message_id: UUID,
-        source_message_id: str,
-    ) -> None:
-        _nonempty(source_message_id, "delivered source message id")
-        async with self._engine.begin() as connection:
-            row = (
-                (
-                    await connection.execute(
-                        select(message)
-                        .where(message.c.id == message_id)
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if row is None:
-                msg = "delivery references a missing message"
-                raise PersistenceDefect(msg)
-            stored = _stored_message(row)
-            if stored.role != "assistant":
-                msg = "only assistant messages can be delivered"
-                raise PersistenceDefect(msg)
-            if stored.source_message_id is not None:
-                if stored.source_message_id != source_message_id:
-                    msg = "delivery conflicts with the stored source message id"
-                    raise PersistenceDefect(msg)
-                return
-            await connection.execute(
-                update(message)
-                .where(message.c.id == message_id)
-                .values(source_message_id=source_message_id)
-            )
-
 
 def _stored_message(row: RowMapping) -> StoredMessage:
     return StoredMessage(
@@ -805,6 +720,7 @@ def _stored_message(row: RowMapping) -> StoredMessage:
         request_state=row["request_state"],
         wait_reason=row["wait_reason"],
         control_kind=row["control_kind"],
+        home=row["home"],
     )
 
 

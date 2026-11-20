@@ -11,8 +11,6 @@ from universal_memory.policy import canonical_json, encoded_size
 from universal_memory.retrieval import open_records
 from universal_memory.types import Missing, OpenInput
 
-from jarvis.db import APPLICATION_SCHEMA_REVISION
-
 POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
 STOPPED_TABLE_KEYS = {
     "message": "id",
@@ -49,6 +47,8 @@ SEQUENCES = (
     "memory_state_id_seq",
     "message_control_sequence",
 )
+# A new app schema can ship before its restore boundary is qualified.
+SCHEMA_REVISION = "0017"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
@@ -151,7 +151,7 @@ async def database_inventory(conn):
         WHERE extname = 'vector' AND nspname = 'public'
     """)
     )
-    if (revision, version, vector) != (APPLICATION_SCHEMA_REVISION, 16, VECTOR_VERSION):
+    if (revision, version, vector) != (SCHEMA_REVISION, 16, VECTOR_VERSION):
         raise RuntimeError(
             "unsupported PostgreSQL, vector extension, or Alembic revision"
         )

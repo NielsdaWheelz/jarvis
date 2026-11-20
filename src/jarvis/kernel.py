@@ -17,60 +17,54 @@ from llm_tools import BudgetState, FrozenToolPlan, ToolBinding
 from provider_runtime.agent_runtime import (
     AgentRuntime,
     AgentRuntimeConfig,
+    CodexUnixEndpoint,
     CredentialRef,
     PermissionPolicy,
     UnsafeConfirmation,
 )
 
 from jarvis.codex_config import canonical_absolute_path
-from jarvis.definitions import (
-    QUALIFIED_CODEX_MODELS,
-    verify_runtime_dependencies,
-)
+from jarvis.definitions import load_session_manifest, verify_runtime_dependencies
 
 
-async def resolve_provider_configuration(
-    *,
-    runtime: AgentRuntime,
-    profile_key: str,
-    model_key: str,
-) -> ProviderConfiguration:
-    """Freeze one qualified selection from the owner's authenticated native catalog."""
+async def resolve_role_providers(
+    runtime: AgentRuntime, profile_key: str, *role_ids: str
+) -> dict[str, ProviderConfiguration]:
+    """Resolve the release roles against one authenticated personal catalog."""
     if profile_key != "personal":
-        raise ValueError(
-            "codex model selection requires the personal subscription profile"
-        )
-    if model_key not in QUALIFIED_CODEX_MODELS:
-        raise ValueError("select a release-qualified jarvis subscription model key")
-    dispatch_model, reasoning = QUALIFIED_CODEX_MODELS[model_key]
+        raise ValueError("codex model selection requires the personal subscription")
     auth = CredentialRef("local_account", profile_key)
     catalog = await runtime.model_catalog("codex", auth, transport="sdk")
-    matches = tuple(row for row in catalog.models if row.key == model_key)
-    if len(matches) != 1:
-        raise ValueError(
-            f"personal codex catalog must contain exactly one {model_key} row; "
-            "repair the personal codex endpoint"
+    roles = load_session_manifest().roles
+    providers: dict[str, ProviderConfiguration] = {}
+    for role_id in role_ids:
+        role = roles[role_id]
+        rows = [row for row in catalog.models if row.key == role.model]
+        if (
+            len(rows) != 1
+            or not rows[0].offered
+            or rows[0].dispatch_model != role.model
+        ):
+            raise ValueError(
+                f"personal codex catalog requires one offered {role.model} "
+                f"row with identical dispatch for {role_id}"
+            )
+        row = rows[0]
+        options = [option for option in row.reasoning if option.key == role.effort]
+        if len(options) != 1 or options[0].native_wire_value != role.effort:
+            raise ValueError(
+                f"personal codex catalog requires exact {role.effort} effort "
+                f"for {role_id} on {role.model}"
+            )
+        providers[role_id] = ProviderConfiguration(
+            auth=auth,
+            model_key=row.key,
+            reasoning=role.effort,
+            agent_definition_revision=catalog.definition_revision,
+            row_fingerprint=row.row_fingerprint,
+            native=replace(CODEX_NATIVE_OPTIONS, archive_internal=True),
         )
-    row = matches[0]
-    if row.dispatch_model != dispatch_model:
-        raise ValueError(
-            f"personal codex catalog {model_key} must dispatch {dispatch_model}; "
-            "repair the personal codex endpoint"
-        )
-    options = tuple(option for option in row.reasoning if option.key == reasoning)
-    if len(options) != 1 or options[0].native_wire_value != reasoning:
-        raise ValueError(
-            f"personal codex catalog {model_key} requires exact {reasoning} effort; "
-            "repair the personal codex endpoint"
-        )
-    return ProviderConfiguration(
-        auth=auth,
-        model_key=row.key,
-        reasoning=reasoning,
-        agent_definition_revision=catalog.definition_revision,
-        row_fingerprint=row.row_fingerprint,
-        native=replace(CODEX_NATIVE_OPTIONS, archive_internal=True),
-    )
+    return providers
 
 
 def main_provider_configuration(
@@ -129,7 +123,9 @@ def build_agent_runtime(
     return AgentRuntime(
         AgentRuntimeConfig(
             state_root_base=provider_state_root,
-            codex_endpoints=codex_endpoints,
+            codex_endpoints={
+                name: CodexUnixEndpoint(path) for name, path in codex_endpoints.items()
+            },
             max_turn_seconds=300.0,
         )
     )
@@ -154,5 +150,5 @@ __all__ = [
     "build_agent_runtime",
     "build_kernel_runtime",
     "main_provider_configuration",
-    "resolve_provider_configuration",
+    "resolve_role_providers",
 ]

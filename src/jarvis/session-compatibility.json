@@ -1,19 +1,27 @@
 {
-  "application_session_contract_revision": "jarvis-subscription-roles-v2",
+  "application_session_contract_revision": "jarvis-subscription-roles-v3",
   "dependencies": {
-    "llm-agent-kernel": "eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff",
+    "llm-agent-kernel": "72b4c331eed16ee1b7cb1e9e33ee938edb5771da",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
-    "provider-runtime": "f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36",
+    "provider-runtime": "c9f120513c4f49819c2534c4b3fc410ece8d1121",
     "universal-memory": "25ed86556f9580154806d901375ec06e8902ecaa"
   },
-  "qualified_models": [
-    "gpt-6-astra",
-    "gpt-6.1-sol"
-  ],
-  "role_contract_revisions": {
-    "compactor": "jarvis-memory-compactor-v5",
-    "dreamer": "jarvis-memory-dreamer-v8",
-    "main": "jarvis-main-private-home-v15"
+  "roles": {
+    "compactor": {
+      "effort": "medium",
+      "model": "gpt-6.2-sol",
+      "revision": "jarvis-memory-compactor-v6"
+    },
+    "dreamer": {
+      "effort": "xhigh",
+      "model": "gpt-6.2-sol",
+      "revision": "jarvis-memory-dreamer-v9"
+    },
+    "main": {
+      "effort": "max",
+      "model": "gpt-6.2-astra",
+      "revision": "jarvis-main-private-home-v16"
+    }
   },
-  "schema_version": "jarvis-session-compatibility.v3"
+  "schema_version": "jarvis-session-compatibility.v4"
 }

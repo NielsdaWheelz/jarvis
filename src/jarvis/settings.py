@@ -23,7 +23,6 @@ from universal_memory.policy import EMBEDDING_DIMENSIONS
 
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError, DiscordSettings
-from jarvis.definitions import MAIN_CODEX_MODEL
 
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
 EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
@@ -164,7 +163,6 @@ class Settings(MemoryJobSettings):
 
     discord: DiscordSettings
     home_socket_path: AbsolutePath = HOME_SOCKET_PATH
-    codex_model: str = Field(min_length=1, max_length=255)
     agent_cli_path: Path
     agent_state_directory: Path
     google_oauth_state_path: Path
@@ -225,14 +223,6 @@ class Settings(MemoryJobSettings):
             raise ValueError("setting must be non-empty without edge whitespace")
         return value
 
-    @field_validator("codex_model")
-    @classmethod
-    def _qualified_codex_model(cls, value: str) -> str:
-        del cls
-        if value != MAIN_CODEX_MODEL:
-            raise ValueError(f"JARVIS_CODEX_MODEL must be {MAIN_CODEX_MODEL}")
-        return value
-
     @field_validator(
         "agent_cli_path",
         "agent_state_directory",
@@ -265,6 +255,10 @@ class Settings(MemoryJobSettings):
         if "JARVIS_DREAM_INTERVAL_SECONDS" in source:
             raise ConfigurationError(
                 "dream intervals are retired; configure JARVIS_MEMORY_NIGHTLY_TIME"
+            )
+        if "JARVIS_CODEX_MODEL" in source:
+            raise ConfigurationError(
+                "remove JARVIS_CODEX_MODEL; the release manifest selects each role"
             )
         if "JARVIS_CODEX_STATE_ROOT" in source:
             raise ConfigurationError(
@@ -335,7 +329,6 @@ class Settings(MemoryJobSettings):
                 codex_profile_key=cast(
                     Literal["personal"], required("JARVIS_CODEX_PROFILE_KEY")
                 ),
-                codex_model=required("JARVIS_CODEX_MODEL"),
                 agent_cli_path=Path(required("JARVIS_AGENT_CLI_PATH")),
                 agent_state_directory=Path(required("JARVIS_AGENT_STATE_DIRECTORY")),
                 codex_host_config_path=Path(required("JARVIS_CODEX_HOST_CONFIG_PATH")),

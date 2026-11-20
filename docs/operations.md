@@ -289,7 +289,10 @@ for the [0093 candidate](decisions/0093-subscription-model-refresh.md), map
 verifies the official tarball, installs the package descriptor, cli, code-mode
 host, bundled `bwrap` and `rg` in their vendor layout, and verifies their
 installed digests before starting the host. the startup flags select the
-restricted catalog and standard service tier. if interrupted, leave the writers
+restricted catalog and standard service tier. on ubuntu, dev-server provisioning
+installs the distro bubblewrap and its apparmor profile. notes bootstrap runs
+`codex sandbox -- /bin/true` as the stock identity in the host namespace.
+if interrupted, leave the writers
 stopped, correct the failure and repeat `deploy/install-contained-host "$to"`.
 verify a native workspace operation during the installed journey.
 [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.171.0-linux-x64)
@@ -394,6 +397,19 @@ application. a failed preflight leaves both writers stopped. repair forward on
 the candidate. the predecessor requires the retired assignment. verify the
 retained owner pause and the exact parked range before any separately authorized
 retry and owner resumption. [burst recovery](compactor-burst-recovery.md)
+
+after the single authorized clear, read the stopped singleton. postgresql can
+store a cleared jsonb field as json `null` or sql `null`. use the same
+predicate when polling after resume.
+
+```sql
+select nullif(compaction_error, 'null'::jsonb) is null as cleared, view_through
+from memory_state;
+```
+
+if `cleared` is false, keep the assistant stopped and inspect the surviving
+mark. measure catch-up at the frozen cutoff even if later arrivals advance
+the prefix beyond it. [capacity observation](#chronological-capacity-observation)
 
 remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.

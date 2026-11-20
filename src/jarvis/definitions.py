@@ -72,9 +72,9 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "96a2357106ebf726ad5e96fc2bcb115ec0862856",
+    "llm-agent-kernel": "5f1b43c30e4ba78850ca202dd8f2502b7c1a37fe",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
-    "provider-runtime": "284322b9bbe657e7aead54eb6853cdd6fa737262",
+    "provider-runtime": "a383dab8708fa5ddd5e6d60c3099b29659ecba86",
     "universal-memory": "25ed86556f9580154806d901375ec06e8902ecaa",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;

@@ -525,11 +525,11 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.1" },
     { name = "fastapi", specifier = "==0.143.0" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=96a2357106ebf726ad5e96fc2bcb115ec0862856" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=5f1b43c30e4ba78850ca202dd8f2502b7c1a37fe" },
     { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=b25bd5f08bc82eb47eb4384139cfb2623ad12a68" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=284322b9bbe657e7aead54eb6853cdd6fa737262" },
+    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=a383dab8708fa5ddd5e6d60c3099b29659ecba86" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "python-multipart", specifier = "==0.0.32" },
@@ -623,7 +623,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=96a2357106ebf726ad5e96fc2bcb115ec0862856#96a2357106ebf726ad5e96fc2bcb115ec0862856" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=5f1b43c30e4ba78850ca202dd8f2502b7c1a37fe#5f1b43c30e4ba78850ca202dd8f2502b7c1a37fe" }
 dependencies = [
     { name = "llm-tools" },
     { name = "provider-runtime" },
@@ -904,7 +904,7 @@ wheels = [
 [[package]]
 name = "provider-runtime"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=284322b9bbe657e7aead54eb6853cdd6fa737262#284322b9bbe657e7aead54eb6853cdd6fa737262" }
+source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=a383dab8708fa5ddd5e6d60c3099b29659ecba86#a383dab8708fa5ddd5e6d60c3099b29659ecba86" }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai", extra = ["httpx"] },

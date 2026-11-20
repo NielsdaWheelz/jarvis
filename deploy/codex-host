@@ -45,6 +45,12 @@ def host_environment(config: CodexHostConfig) -> dict[str, str]:
 def bootstrap_notes(config: CodexHostConfig) -> None:
     _host_identity(config)
     environment = host_environment(config)
+    subprocess.run(
+        [config.binary, "sandbox", "--", "/bin/true"],
+        env=environment,
+        check=True,
+        timeout=10,
+    )
 
     def run(*arguments: str) -> str:
         try:

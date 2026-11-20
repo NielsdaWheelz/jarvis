@@ -16,6 +16,7 @@ from memory_snapshot import (
     RESTORE_ROLES,
     coverage,
     database_inventory,
+    lo_write_permission,
     pg_environment,
     schema_inventory,
     table_inventory,
@@ -153,11 +154,12 @@ async def verify(expected, password, report):
             if scope != expected["coverage"]:
                 failures.append("ready and admitted coverage")
             writable = await conn.scalar(
-                text("""
+                text(f"""
                 SELECT pg_has_role(current_user, 'jarvis_migrator', 'MEMBER')
                     OR has_database_privilege(current_database(), 'CREATE')
                     OR has_database_privilege(current_database(), 'TEMP')
                     OR has_schema_privilege('public', 'CREATE')
+                    OR {lo_write_permission("current_user")}
                     OR EXISTS(
                         SELECT FROM pg_class c
                         JOIN pg_namespace n ON n.oid = c.relnamespace

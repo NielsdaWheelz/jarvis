@@ -50,7 +50,25 @@ SEQUENCES = (
     "message_control_sequence",
 )
 VECTOR_VERSION = "0.8.6"
-RESTORE_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory", "jarvis_backup")
+WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
+RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
+LO_CONSTRUCTORS = (
+    "pg_catalog.lo_create(oid)",
+    "pg_catalog.lo_creat(integer)",
+    "pg_catalog.lo_from_bytea(oid,bytea)",
+)
+LO_GRANTS_SQL = f"""
+REVOKE EXECUTE ON FUNCTION {", ".join(LO_CONSTRUCTORS)} FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION {", ".join(LO_CONSTRUCTORS)} TO {", ".join(WRITER_ROLES)};
+"""
+
+
+def lo_write_permission(role_expression):
+    allowed = " OR ".join(
+        f"has_function_privilege({role_expression}, '{function}', 'EXECUTE')"
+        for function in LO_CONSTRUCTORS
+    )
+    return f"({allowed})"
 
 
 async def table_inventory(conn, *, stopped=False, exclude=()):
@@ -190,6 +208,9 @@ async def database_inventory(conn):
 async def schema_inventory(conn):
     # Pretty PostgreSQL expressions normalize redundant grouping introduced by
     # parse/dump/restore (for example, BETWEEN inside an AND).
+    constructors = ", ".join(
+        f"'{signature}'::regprocedure" for signature in LO_CONSTRUCTORS
+    )
     queries = {
         "schemas": """
             SELECT nspname, pg_get_userbyid(nspowner)
@@ -253,7 +274,7 @@ async def schema_inventory(conn):
             LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
             WHERE c.relnamespace = 'public'::regnamespace
         """,
-        "grants": """
+        "grants": f"""
             WITH acls(kind, name, item, acl) AS (
                 SELECT 'schema', nspname, '',
                     coalesce(nspacl, acldefault('n', nspowner))
@@ -271,10 +292,11 @@ async def schema_inventory(conn):
                 WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'
                     AND attnum > 0 AND NOT attisdropped AND attacl IS NOT NULL
                 UNION ALL
-                SELECT 'routine', proname,
+                SELECT 'routine', nspname || '.' || proname,
                     pg_get_function_identity_arguments(pg_proc.oid),
                     coalesce(proacl, acldefault('f', proowner))
-                FROM pg_proc WHERE pronamespace = 'public'::regnamespace
+                FROM pg_proc JOIN pg_namespace ON pg_namespace.oid = pronamespace
+                WHERE nspname = 'public' OR pg_proc.oid IN ({constructors})
             )
             SELECT kind, name, item, pg_get_userbyid(grantor),
                 CASE WHEN grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(grantee) END,
@@ -372,6 +394,8 @@ async def snapshot(conn):
     await conn.execute(
         text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
     )
+    if await conn.scalar(text(f"SELECT {lo_write_permission('current_user')}")):
+        raise RuntimeError("backup login can create large objects")
     snapshot_id, cut = (
         await conn.execute(text("SELECT pg_export_snapshot(), transaction_timestamp()"))
     ).one()

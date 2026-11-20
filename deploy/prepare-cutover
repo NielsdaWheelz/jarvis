@@ -16,6 +16,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from memory_snapshot import table_inventory
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
@@ -29,26 +30,6 @@ ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
 POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
-KEYS = {
-    "message": "id",
-    "action": "id",
-    "model_decision": "decision_id",
-    "read_position": "position",
-    "native_attempt": "conversation_id, attempt_seq",
-    "native_invocation": "id",
-    "native_input_delivery": "attempt_id, message_id",
-    "work": "id",
-    "attachment": "id",
-    "event_cursor": "kind, account_id, resource_id",
-    "memory_log": "id",
-    "memory_summary": "id",
-    "source_record": "id",
-    "source_conversation": "id",
-    "memory_lane": "machine, account",
-    "memory_leaf": "position",
-    "memory_node": "level, node_index",
-    "memory_state": "id",
-}
 
 
 def require(condition, reason):
@@ -127,33 +108,7 @@ def copy_digest(root):
 
 
 async def inventory(conn, channel):
-    # Hash original database projections on the server. json (including escaped
-    # NUL) and ordered keys survive. Only fixed-size hashes cross the connection.
-    await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
-    facts = {}
-    for table, keys in KEYS.items():
-        columns = list(
-            (
-                await conn.execute(
-                    text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema='public' AND table_name=:table
-              AND NOT (table_name='message' AND column_name='home')
-            ORDER BY ordinal_position
-        """),
-                    {"table": table},
-                )
-            ).scalars()
-        )
-        cols = ", ".join('"' + c.replace('"', '""') + '"' for c in columns)
-        require(cols, "missing application table")
-        query = f"""SELECT sha256(convert_to(row_to_json(original)::text, 'UTF8'))
-                    FROM (SELECT {cols} FROM public.{table}) original ORDER BY {keys}"""
-        digest, count = hashlib.sha256(), 0
-        async for row in (await conn.stream(text(query))).scalars():
-            digest.update(row)
-            count += 1
-        facts[table] = [count, digest.hexdigest()]
+    facts = await table_inventory(conn, stopped=True, exclude=(("message", "home"),))
     control = (
         await conn.execute(
             text("""

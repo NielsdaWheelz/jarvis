@@ -1,9 +1,9 @@
 {
   "application_session_contract_revision": "jarvis-subscription-roles-v3",
   "dependencies": {
-    "llm-agent-kernel": "e051181d325bf0e5a205841c6c12f67304c86ae6",
+    "llm-agent-kernel": "96a2357106ebf726ad5e96fc2bcb115ec0862856",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
-    "provider-runtime": "f2612a3f7c4e9579d3beed81efe2100145e4b87c",
+    "provider-runtime": "284322b9bbe657e7aead54eb6853cdd6fa737262",
     "universal-memory": "25ed86556f9580154806d901375ec06e8902ecaa"
   },
   "roles": {

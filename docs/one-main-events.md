@@ -84,7 +84,7 @@ keep existing tables and closed schemas except these explicit deltas:
 | `ExecutionContract` | add required `schema_version = "jarvis.action.v2"`; remove `write_gate_supporting_owner_message_ids`. retain attempt/callback identity, ordered input ids, tool/policy/plan revisions, digest, target and entry ceiling. |
 | native reply journal | one narrow `local_result` variant for `approval.respond`, below; no decision ledger. |
 | `InputOutcome.disposition` | `complete / continue / waiting / stop`; `stop` has null wait reason and empty action refs. other validation stays. |
-| silence / progress | `Silent.reason = no_owner_notice_needed`; progress is at most 2,000 utf-8 bytes with no input outcomes. assembled final discord content retains its 2,000-character bound. |
+| silence / progress | `Silent.reason = no_owner_notice_needed`; progress is at most 2,000 utf-8 bytes with no input outcomes. web finals follow [adr 0091](decisions/0091-source-backed-reports.md). |
 
 factor this from `MessageStore.insert_waking`; retain that method as its ordinary
 transaction-owning wrapper, not a second insertion implementation:

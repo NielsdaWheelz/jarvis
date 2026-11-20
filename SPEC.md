@@ -15,6 +15,12 @@ delivers notification links. the adr supersedes conflicting client, readiness,
 delivery and presentation rules below. production runs the web release at schema
 `0017`. [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
+the [web reply decision](docs/decisions/0091-source-backed-reports.md) removes
+the application character ceiling on final answers and makes chat the ordinary
+place for long work. jarvis chooses content and handles owner corrections in
+conversation. clickable sources stay with the findings in chat, including when
+the owner asks for a separate page.
+
 ## accepted native recovery and memory availability target
 
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
@@ -849,21 +855,15 @@ grant authority.
 final output MUST satisfy the closed final-only `JarvisTerminal` root, which also
 contains `response` and `input_outcomes` and excludes `Progress`.
 `response.type` is `answered`, `partial`, `needs_input`, `failed`, `silent`, or
-`waiting`. the host renders it deterministically. `answered` has non-empty
-`text`; `partial` has non-empty `text`, a
-non-empty at-most-500-character `limitation`, and a nullable non-empty
-at-most-500-character `question`; `needs_input` has at-most-1000-character
-`context` and one non-empty at-most-500-character `question`; `failed` has one
-non-empty `explanation`; and `silent` has only
-`reason = owner_needs_no_response`; `waiting` has non-empty `text`. text and
-explanation retain the existing
-Discord response limit. The host renders complete answers unchanged and owns
-the fixed labels for every other visible branch, checking the final rendered
-Discord bound before persistence. model text is never silently cropped to fit.
-new main openings reserve the fixed labels, separators and maximum adjacent fields
-in the generation schema. a partial body allows 1,481 characters with a null question
-and 979 with a question. a failed explanation allows 1,974. the fully rendered
-limit still governs settlement of seals validated against their original schema.
+`waiting`. the host renders it deterministically. under adr 0091, `answered`
+and `waiting` carry nonempty text. `partial` has nonempty text and limitation
+plus at most one nonempty question. `needs_input` has context (possibly empty)
+and one nonempty question. `failed` carries a nonempty explanation. `silent`
+has only `reason = no_owner_notice_needed`. visible final prose has no application
+character ceiling. the host preserves the text and its fixed labels in one web message.
+pending finals use the web text rule. settled outcomes retain their original
+evidence. adr 0086 records the preceding numeric limits. the discord adapter
+owns the size of its notification.
 
 final dispositions name delivered inputs as `complete`, `continue`, or `waiting`;
 omitted requests keep their state. only `complete` closes a request. `waiting`

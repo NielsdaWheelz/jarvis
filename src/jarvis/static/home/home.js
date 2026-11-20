@@ -33,6 +33,11 @@ function label(ref) {
 }
 const mobile = matchMedia("(max-width:720px)");
 const draftKey = "jarvis.home.draft";
+const readingKey = "jarvis.home.reading";
+let reloadReading = null;
+if (performance.getEntriesByType("navigation")[0]?.type === "reload")
+  reloadReading = JSON.parse(sessionStorage.getItem(readingKey) || "null");
+sessionStorage.removeItem(readingKey);
 const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: false });
 let draft = JSON.parse(sessionStorage.getItem(draftKey) || "null") || newDraft();
 let tab = "chat",
@@ -343,6 +348,10 @@ function renderMessage(m) {
   node.dataset.version = JSON.stringify(m);
   return node;
 }
+function selectedMessageOffset() {
+  const node = $("msg-" + selectedMessage);
+  return node.getBoundingClientRect().top - $("chat").getBoundingClientRect().top;
+}
 function merge(items) {
   const chat = $("chat"),
     list = $("messages");
@@ -389,7 +398,12 @@ async function messages() {
     data = await read("/api/messages?before=" + encodeURIComponent(data.next_before));
     chunks.push(data.items);
   }
+  // A direct link can render before the first page of surrounding messages.
+  let openingOffset = null;
   if (!initialized) {
+    if (selectedMessage)
+      openingOffset =
+        reloadReading?.id === selectedMessage ? reloadReading.offset : selectedMessageOffset();
     earliest = data.next_before;
     initialized = true;
   }
@@ -397,6 +411,10 @@ async function messages() {
   merge(rows);
   if (rows.length) latest = rows.at(-1).id;
   $("older").hidden = !earliest;
+  if (openingOffset !== null) {
+    $("chat").scrollTop += selectedMessageOffset() - openingOffset;
+    reloadReading = null;
+  }
 }
 $("older").onclick = async () => {
   const b = $("older");
@@ -462,6 +480,8 @@ async function renderRoute() {
     chooseTab("chat");
     const m = await read("/api/messages/" + key);
     if (!same()) return;
+    if (mobile.matches && !history.state?.drawer) history.replaceState({ panel: true }, "");
+    setPanel();
     if (m) {
       selectedMessage = m.id;
       const old = $("msg-" + m.id);
@@ -469,10 +489,10 @@ async function renderRoute() {
       document.querySelector(".selected")?.classList.remove("selected");
       const node = $("msg-" + m.id);
       node.classList.add("selected");
-      node.scrollIntoView({ block: "center" });
+      const offset = reloadReading?.id === m.id ? reloadReading.offset : 0;
+      $("chat").scrollTop += selectedMessageOffset() - offset;
+      if (initialized) reloadReading = null;
     } else $("receipt").textContent = "this message is no longer available.";
-    if (mobile.matches && !history.state?.drawer) history.replaceState({ panel: true }, "");
-    setPanel();
   } else selectedMessage = null;
   if (kind === "d" || kind === "t") {
     chooseTab(kind === "d" ? "decisions" : "todos");
@@ -716,6 +736,12 @@ async function refresh() {
 updateComposer();
 setPanel();
 renderRoute().catch(failure).finally(refresh);
+window.addEventListener("pagehide", () => {
+  if (selectedMessage && location.pathname === "/m/" + selectedMessage && $("chat").clientHeight) {
+    const offset = selectedMessageOffset();
+    sessionStorage.setItem(readingKey, JSON.stringify({ id: selectedMessage, offset }));
+  }
+});
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refresh();
 });

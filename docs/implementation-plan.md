@@ -70,11 +70,10 @@ the native client and native notifications belong to the following pr.
 
 ## full answers in web chat
 
-[adr 0091](decisions/0091-source-backed-reports.md) owns the final-reply change.
-use the landed web code, remove the discord-era writing limits, and qualify a
-real long answer, a partial and an ordinary correction. designers review content
-and reading behavior. retain red/green/refactor evidence and delete the temporary
-probes. implementation and installed acceptance are pending.
+[adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
+records the qualified source and isolated stock candidate. it removes the old
+final-reply limit and preserves reading position on direct message links.
+installed acceptance remains separate.
 independent opus 5.5 at max accepted the revised design on web-chat main
 `c9a9c67`, spec sha256 `f3c2e3e73cbf329ea5a8f8548f36913768d46089178072fe9f3626ad636d9e39`.
 

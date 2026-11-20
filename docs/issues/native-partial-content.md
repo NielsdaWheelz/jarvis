@@ -1,6 +1,6 @@
 # recovered partial ended mid-word and omitted its material limit
 
-open, 2026-11-19 utc. on release `e34608e`, production attempt 129
+open for installed verification. on release `e34608e`, production attempt 129
 (`fb21ee30-eb7e-45ae-a38a-6a5f522c1fbd`) returned a partial with a
 1,481-character body ending mid-word, the limitation `test` and a null question.
 the owner received an unfinished thought and no explanation of what remained
@@ -18,11 +18,10 @@ generation budget. the seal provides no evidence of how stock arrived at that
 ending. the earlier rendering overflow and its repair are recorded in
 [adr 0086](../decisions/0086-native-recovery-and-memory-availability.md).
 
-close when a comparable broad web request can deliver a single useful answer
-past the old 2,000-character limit. read it against the known case for material
-findings, complete prose, working citations and any real gap and consequence.
-the saved and displayed reply must preserve what stock produced. qualify the
-new reply and keep the original incident evidence. [web reply contract](../decisions/0091-source-backed-reports.md)
+close after the installed reply can deliver a single useful answer past 2,000
+characters, with material findings, complete prose, working citations and the
+consequences of any real gap. compare the saved and displayed reply to the seal.
+[adr 0091 isolated evidence](../decisions/0091-source-backed-reports.md#implementation-evidence)
 
 ## paired stock qualification
 
@@ -51,7 +50,9 @@ the owner chose to ship the qualified independent memory release `e6ebc31`
 and leave long-report delivery for a separate decision.
 
 after the move to web chat, the owner selected long answers in the conversation
-and ordinary follow-up when jarvis misses something. the broad-answer trial is open.
+and ordinary follow-up when jarvis misses something. the comparable isolated
+trial delivered all six galleries and both duplicate warnings in one
+6,539-character reply. all 18 citations opened. the installed result is pending.
 
 ## following a source from a web report
 
@@ -69,6 +70,6 @@ destination at the first closing parenthesis. clicking it requested
 this. its chrome qualification clicked through to `/collection_(east)` and
 also covered nested, adjacent and escaped destinations. this closes the
 chat defect. the owner chose clickable sources beside each finding in chat,
-including when a separate page is requested. qualify a click from the finding
-to the cited evidence there. a standalone page relies on its accompanying chat
-for sources.
+including when a separate page is requested. the isolated candidate confirmed
+both clicks from the reply accompanying an explicitly opened page. a standalone
+page relies on its accompanying chat for sources.

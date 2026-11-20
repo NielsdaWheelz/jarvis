@@ -70,8 +70,9 @@ the native client and native notifications belong to the following pr.
 [adr 0088](decisions/0088-storage-and-memory-recovery.md) owns the independent
 mac rehearsal workflow, host capacity signal and jarvis backup/restore units.
 deliver against the installed memory baseline. qualify the first isolated
-off-host restore before enabling the recurring job. implementation and live
-proof are pending. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
+off-host restore before enabling the recurring job. the source and isolated
+journeys passed, and local disk sampling is installed. hosted alerts and
+production recovery remain open. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
 
 ## native recovery and memory availability
 

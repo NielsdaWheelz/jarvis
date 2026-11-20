@@ -1,6 +1,6 @@
 # adr 0088. development storage and central memory recovery
 
-accepted design, 2026-11-19. implementation and installed acceptance are pending.
+accepted 2026-11-19. implemented in source. production recovery is open.
 this supersedes [0033](0033-defer-backups-and-host-reboot.md) for central memory
 backup only. [0086](0086-native-recovery-and-memory-availability.md) owns the
 installed `0016` baseline and its stopped migration copies.
@@ -88,10 +88,9 @@ stage a root-only credential. while the migrator holds both keys, use local
 tables and required sequences. a narrow pg_hba rule confines this login
 to jarvis through ipv4 loopback. deny durable large-object creation through
 postgres defaults, preserving that authority for the current writer roles.
-reload the cluster configuration and prove login and denial across the actual
-routes. reject extra grants or memberships. atomically publish
-the staged credential, verify its login and leave the timer
-disabled. retry uses the same staged identity. refuse a live writer, mismatched
+reload the cluster configuration, verify the allowed login and require
+rejection of an alternate database. the isolated proof covers all denied routes. reject extra grants or memberships. atomically publish
+the staged credential and leave the timer disabled. retry uses the same staged identity. refuse a live writer, mismatched
 release/schema or missing owner pause before changing authority. restart
 serving through the ordinary paused release procedure.
 
@@ -215,3 +214,30 @@ effect. live resumption requires separate reconciliation and authorization.
 recovery report. after revisions to cross-platform row ordering, read isolation
 and same-schema provisioning, `claude-opus-5-5` at high effort found no
 remaining implementation blocker. review session `b9b7b8f2-1aa1-46b0-83b2-e35913e1a9b2`.
+
+
+## implementation evidence
+
+2026-11-20 utc. source is split across the three `implement/adr0088`
+worktrees. each unit used the approved content brief and temporary probes.
+adversarial opus 5.5 review found the docker image identity mismatch and
+stopped credential gaps. the final pass cleared the repaired boundaries.
+temporary probes and disposable fixtures were removed. the private unit c
+receipt sits beside the unit a inventory under `~/.adr0088-inventory-x0ohbe8w/`.
+
+| unit | isolated or operator proof | installed proof |
+| --- | --- | --- |
+| a | 15 mac checks, including real docker mounts, interruption, dirty and detached work, escaped users and evidence reopening after git removal. the existing 279 roots were inventoried read-only. private receipt with hashes under `~/.adr0088-inventory-x0ohbe8w/`. | the committed mac checkout command exercised its ordinary path. shared guidance is available in source. |
+| b | exact ansible tasks on ubuntu's systemd with postgres 16 and a second mount; idempotent reapply. upstream healthchecks on a disposable network sent failure, overdue and recovery once per transition. | the real sampler is enabled on `/dev/sda1`. at 02:18 utc it logged 8,973,885,440 bytes available and reported the low-byte state. the hosted check credential and owner delivery remain open. |
+| c | live-service and unpaused refusal, exclusive-lock survival on controller disconnect, interrupted grant retry with identical credential, exact read-only grants and rejected cross-database access. a real pg16 snapshot survived concurrent writes. subprocess interruption left no completion marker, stale cuts signalled failure, and bad ciphertext, wrong identity and missing role failed. normal mac recovery from a disposable s3 endpoint and the held copy took 5.25 and 5.21 seconds, opening ten original parts and an explicit note with matching inventories. a proven successor replaced the prior held copy. | the installed schema is `0017`. live provisioning and the first provider-backed recovery remain open. |
+
+the reader uses the mac's arm64 docker desktop containerd store. it runs from a
+release-built image pinned by oci index digest. plaintext and postgres data
+use a filevault working directory. schema support is explicit so application
+migrations cannot silently assert recovery support. the new role sheds ambient
+access to other databases and large-object creation through a narrow hba block
+and jarvis-local grants. postgres retains ordinary session and advisory-lock
+behavior. archive transport and sender-loss proof used the real sdk and age
+against a disposable endpoint. verify the actual cloudflare lock and lifecycle,
+both hosted owner alerts and the first production recovery before enabling the
+schedule. [open restore issue](../issues/memory-backup-restore.md)

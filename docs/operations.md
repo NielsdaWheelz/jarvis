@@ -449,6 +449,8 @@ read are separate facts. use the mac for the following operations.
    through the ordinary paused release procedure and keep recurring backups
    disabled for the first drill. provisioning confines the backup login to
    the local jarvis database and reloads postgres configuration in place.
+   find its leading `jarvis backup connection scope` block via `SHOW hba_file`
+   and inspect `pg_hba_file_rules`. provisioning refuses a displaced block.
 
    ```sh
    JARVIS_BACKUP_SETTINGS="$producer_json" deploy/provision-memory-backup "$release"

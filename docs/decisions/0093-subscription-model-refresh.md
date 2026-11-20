@@ -49,3 +49,61 @@ compare one matched incumbent/target main turn as well. report root, delegated a
 isolate the installer’s ssh configuration and host key so `dev-server-deploy` addresses only the guest. run the actual release and contained-host installers there. rehearse owner pause, stopped writers, atomic removal of the retired env assignment, target mapping/host, application socket remount and ordinary `activate-release TARGET`. preserve unrelated protected settings, file ownership/mode, control, originals, checkpoints and effect barriers. failed preflight leaves the service stopped for forward repair. copy no credentials and never rerun broad private-state provisioning to remove one setting. retain the installable source/wheel, lock and verified x64 distribution. the evidence records commit/tree, binary/helper/catalog digests, actual role/policy receipts, blinded scores and cost/unknowns. reopen and hash build and evidence outside scratch. separately report fixture cleanup. retain one candidate. installed activation, ordinary owner resumption and explicit retry/readback of `8112+8` need a later owner-authorized cut. [existing release and custody rules](0088-storage-and-memory-recovery.md)
 
 **method.** each feature has a content designer. a specifies receipts with the observed tier source or queue stage, held bytes, incoming bytes and limit, without payloads. b specifies the scoring key. for example, preserve that an owner moved friday to thursday for a booking conflict, that receipt 17 confirms thursday, and that ‘looks good’ referred to the draft. reject a sibling’s receipt or unsupported assent. a dream cites both premises and names its proposed connection as a hypothesis. c specifies the operator report separating model, sample, missing usage, artifact and cleanup. for each, write temporary end-to-end/live red checks, show predecessor failure, implement, run green, refactor, rerun affected checks on final bytes and obtain adversarial opus review. delete only those temporary probes after review and keep existing regressions. small matched samples establish results on those inputs. they cannot guarantee population-wide fidelity, throughput or a share of weekly quota.
+
+## candidate evidence
+
+the x64 release is jarvis `7e9d88759910b1b73bf2b9b859e171c8b174a559`,
+tree `301cd2e1f77a4dda6a46f21257a8eb66c9206be8`, on stock `0.171.0`
+and schema `0018`. the wheel, lock, source tar and stock distribution are
+bound by candidate manifest sha-256
+`cd608597c44253529a35a0fcaed7068dd6da9d9d4b2c76ef770e3b6680f7b727`.
+the kernel is `d5bde65eb181d585b5cbae8c3f5eac76f50b6310` and the
+provider is `d20c75e13bae81d9ba80014c7611c44a50d625fd`.
+[provider change](https://github.com/NielsdaWheelz/llm-calling/pull/62) · [kernel change](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/35)
+
+the selected compactor is `gpt-6.1-terra/medium`. in three blind comparisons
+it retained the required facts at their source addresses and used 78.2% fewer
+standard-credit equivalents per inferred node than the installed sol/xhigh.
+six of twelve nodes exceeded the 512-byte target, with a maximum of 772.
+the quiet scheduler remains uncapped. [sample and costs](../issues/memory-model-refresh.md)
+
+the predecessor failed independently at its event-count and byte limits.
+the candidate drained preloaded and gated streams, recovered from a finite
+local stall and parked on retry exhaustion. true raw loss preserved the
+native seal and reported a protocol fault. the executor refused a previously
+queued callback after fencing. missing incorporated inputs stayed unresolved.
+a live interrupted response also exposed abandoned assistant display ids.
+the replacement provider retires observed ids on a validated same-turn stock
+retry. previously unseen completion-only output remains usable under the
+native seal. stock supplies no identifier for each upstream sampling attempt.
+
+the ordinary guest upgrade preserved the pause, unrelated settings,
+originals and parked range. the assistant remounted the new stock socket.
+one operator clear on synthetic `0+8` preceded `(3,0)` at xid 1179 and
+independent `(1,4)` at xid 1180. all eighteen nodes through ten were
+present, the old fourteen survived and the prefix grew from eight to ten.
+the journal recorded one terra turn and zero recovered waits. the four-node
+deficit closed in 11.43 quiet seconds. [installed closure criteria](../issues/compactor-native-event-buffer.md)
+
+the live astra/max main reopened an older original through the declared
+callback, wrote the notes file and created one git object under the
+checkout's `.git` root. its explicitly selected sol/medium child returned
+the expected result. a grounded sol/xhigh dream cited two reopened
+premises, labelled the inference as tentative and atomically advanced
+the seed with its note. the owner-message count stayed unchanged.
+a controlled interruption rolled back every write. valid empty completion
+advanced just the seed. at unchanged systemd limits, a quiet stock stop
+took 8.88 of ten seconds and start took 10.98 of twenty. two earlier starts
+timed out under contention. [host margin](../issues/codex-host-entrypoint-imports.md)
+
+the exact installed production range `8112+8`, subsequent historical
+progress, genuinely sourced owner recall and subscription use remain for
+a separately authorized cut.
+
+opus 5.5/high and the independent verifier both accepted this exact isolated
+candidate. the private mac record is
+`~/.local/state/jarvis/qualification/adr0093-implementation-20261120/qualification.md`.
+the joint functional disposition has sha-256
+`d08b0ffbaf4db31a4e0d3bf3f20b72931f301a99b8b23ae15406d8e21dfed3f2`.
+its component receipts are the opus verdict `84830ec4` and independent
+functional verdict `753917c1`. qualification probe cleanup has a separate receipt.

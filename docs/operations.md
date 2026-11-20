@@ -294,8 +294,14 @@ installs distro bubblewrap and its apparmor profile. the notes bootstrap runs
 `/bin/true` through stock in the notes directory with main’s workspace-write
 and unrestricted-network settings. on the qualified ubuntu host, masking distro
 bubblewrap keeps the bundled helper from establishing its uid map.
-if interrupted, leave the writers stopped, correct the failure and repeat
-`deploy/install-contained-host "$to"`.
+if the installer returns a stock startup error, keep the writers stopped.
+stock can recover on its own while the installer's verification is still
+outstanding. preserve the boot journal, unit result, restart counter and
+start-limit state. repair the cause. if the stock unit reached its three-start
+limit, wait out the 900-second window or reset the recorded failure on that
+unit alone with `systemctl reset-failed jarvis-codex-contained.service`.
+this also clears its start history. repeat `deploy/install-contained-host "$to"`
+and require its verification to finish before activating.
 verify a native workspace operation during the installed journey.
 [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.171.0-linux-x64)
 

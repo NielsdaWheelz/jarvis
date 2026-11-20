@@ -24,3 +24,9 @@ candidate drains the qualifying burst in order, and installed readback proves
 the parked parent completed and later historical construction advanced. the
 historical trigger remains unknown unless further incident evidence identifies
 it. [implementation and acceptance](../compactor-burst-recovery.md)
+
+the predecessor's count and byte failures and the candidate's ordered
+drain passed independent socket and ordinary compactor checks. the isolated
+`7e9d887` guest closed synthetic `0+8` after one clear, with xid 1179
+followed by independent xid 1180. the installed `8112+8` evidence remains
+open. [candidate evidence](../decisions/0093-subscription-model-refresh.md#candidate-evidence)

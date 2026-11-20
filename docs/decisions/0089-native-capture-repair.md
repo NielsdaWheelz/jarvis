@@ -252,9 +252,12 @@ text events matched their central digests and checkpoint. across both canaries,
 made no tool calls. original native chats retain their own histories.
 
 21 devbox baselines remain `unavailable` across the two missing native segment
-groups, 14 and seven. the fleet cleanup audit found no path to repair. an exact
-owner-designated source is required before the conditional restoration drill
-or original-lineage acceptance can run.
+groups, 14 and seven. the installed reader could see one newest-first page
+per thread, with a continuation cursor. each oldest-first request reported its
+missing rollout, and every full head read remained unavailable. the fleet
+cleanup audit found no path to repair. an exact owner-designated source is
+required before the conditional restoration drill or original-lineage
+acceptance can run.
 [remaining source issue](../issues/devbox-work2-native-source.md)
 
 the temporary integration and live probes, disposable postgres, canary working

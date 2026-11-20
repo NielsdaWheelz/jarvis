@@ -12,8 +12,8 @@ audience: product, engineering, design, operations, and future coding agents
 the single discord chat. the private website owns conversation, uploads and
 decisions. jarvis publishes the main canvas from its notes workspace. discord
 delivers notification links. the adr supersedes conflicting client, readiness,
-delivery and presentation rules below. the production web cut landed at schema
-`0017`. [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
+delivery and presentation rules below. the web cut introduced schema `0017`.
+[production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
 the [web reply decision](docs/decisions/0091-source-backed-reports.md) removes
 the application character ceiling on final answers and makes chat the ordinary
@@ -31,12 +31,12 @@ production off-host restore is verified. scheduled-run proof remains open.
 
 ## shared memory freshness after the private web home
 
-[adr 0092](docs/decisions/0092-memory-freshness.md) owns the installed memory
-freshness cut to `0018`. one frozen startup view combines the complete ready prefix with bounded,
+[adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
+`0018`. one frozen startup view combines the complete ready prefix with bounded,
 source-attributed recent owner exchanges. the memory service owns online vector
 writes, including during assistant pause. fixed-model historical catch-up has a
 separate measured acceptance result. these rules supersede conflicting startup
-and indexing rules below at that cut. each unit uses the owner's scoped temporary
+and indexing rules below. each unit uses the owner's scoped temporary
 end-to-end/live red/green/refactor exception to adr 0046.
 
 ## accepted native recovery and memory availability target

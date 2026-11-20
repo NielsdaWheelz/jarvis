@@ -4,6 +4,29 @@ the 2026-11-19 [freshness design](../decisions/0092-memory-freshness.md) takes
 on recent correction recall, index coverage and historical capacity. broader
 usefulness under ordinary work remains open.
 
+the [private replay](../decisions/0092-memory-freshness.md#partial-private-replay)
+ran for 17 minutes with the fixed model under favorable idle conditions. leaves
+arrived faster than the prefix advanced before an uncertain model outcome ended
+the authorized run. the full burst remains unqualified. installed measurement
+still requires a predeclared ordinary busy day and its following quiet period.
+
+## installed capacity observation
+
+the predeclared busy interval is `2026-11-20T17:00Z` to `2026-11-21T02:00Z`
+(friday 09:00–18:00 pacific). the quiet interval ends `2026-11-21T17:00Z`
+(saturday 09:00 pacific). judge whether the actual activity was representative
+before interpreting the result.
+
+the transient read-only observer `jarvis-0092-capacity-20261120.service`
+is scheduled to record all three samples in its journal. preflight at `2026-11-20T05:45:55Z`
+confirmed release `d16a5077`, schema `0018`, resume 20 and an unparked compactor.
+5,801 of 49,006 admitted leaves were covered, leaving 43,205 leaves and 86,427
+aligned nodes pending. the oldest uncovered arrival was almost 30 hours old.
+preflight is outside the measurement window. use the [operations procedure](../operations.md#chronological-capacity-observation)
+to assess scheduler time and the fixed cutoff after the final sample.
+
+## broader usefulness evaluation
+
 problem: current integration qualification cannot establish whether memory remains
 useful under the owner's realistic mixture and volume of scientific, personal,
 creative and coding work. bounded tree coverage and successful tool calls do not

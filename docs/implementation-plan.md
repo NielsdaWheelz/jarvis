@@ -64,8 +64,8 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
-records the source, candidate and stopped production proofs. production runs
-`0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
+records the source, candidate and stopped `0017` production proofs. the owner
+accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
 the native client and native notifications belong to the following pr.
 
 ## full answers in web chat
@@ -88,10 +88,9 @@ scheduled-run proof remains open. the [restore issue](issues/memory-backup-resto
 
 ## shared memory freshness
 
-after the separate web-home `0017` cut, deliver the three units in
-[adr 0092](decisions/0092-memory-freshness.md). qualify startup and service-owned
-indexing together and hard-cut both on one release. historical capacity and
-genuine installed recall earn separate evidence.
+[adr 0092](decisions/0092-memory-freshness.md#installed-cut) records the
+separate `0018` release for the startup view and service-owned indexing.
+historical capacity and genuine installed recall earn separate evidence.
 
 ## native recovery and memory availability
 

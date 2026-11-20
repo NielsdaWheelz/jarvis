@@ -102,4 +102,12 @@ the run ended on its first `model_decision_uncertain` after 1,019.952 seconds. t
 
 the runner, ram-resident postgres, socket volume and encrypted working image were removed. the retained redacted replay log has sha-256 `b82fb832632ced0ee6fdf942cb50354a11ccab61112e8273d15d2989a67f1fc0`; the disposal receipt has sha-256 `faed43edfe38d598479dd6ede1e00c7c99bdac28b47fc088d49e9bb909197bdb`.
 
-[installed acceptance](../issues/memory-freshness-installed.md) tracks the stopped cut and genuine correction.
+## installed cut
+
+on 2026-11-20 utc, owner web pause 19 was recorded on `95423ff`. both database writers stopped cleanly. the recovery copy at `/var/lib/jarvis-cutover/adr0092/d16a5077d6d6788e9738e206f9348b1a23a01526` has database dump sha-256 `8cf971fc0c9c8368cfbc5bc752757d71a2642d8681e19944ddcf2f353d0799c1`. the isolated pg16/vector 0.8.6 restore and its rehearsal migration matched all 19 stopped table inventories. rehearsal needed the live database ownership mirrored in the copy and a retry after a concurrent autoanalyze. the production transaction matched all 19 inventories again across `0017→0018`. the disposable ram-resident restore was removed.
+
+the installed grant check confirmed memory-role vector updates and denied runtime vector updates and vector inserts by both service roles in all three stores before startup. activation reported zero incompatible or in-flight actions, selected `d16a5077` for both units and kept pause 19. the memory unit started at 05:07:51 utc and logged commits of 32 vectors at 05:08:01 and 05:09:02 under the pause. the archive held 45 source vectors before the cut and 77 at the first readback.
+
+containment passed. the managed instructions from dev-server `144ba08` matched on all twelve online profile files. authenticated mcp exercised all twelve credentials, each reading the complete fitted view at 5,739 of 48,354 admitted positions, receiving four recent exchanges and reopening a displayed original. arch was unavailable. nexus remains deferred.
+
+[installed acceptance](../issues/memory-freshness-installed.md) tracks owner resumption and genuine correction. [historical capacity](../issues/memory-usefulness-evaluation.md) awaits an ordinary busy and quiet interval.

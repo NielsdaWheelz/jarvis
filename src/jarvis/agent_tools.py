@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Literal, cast
 from uuid import UUID
 
@@ -88,6 +89,7 @@ type AgentHandle = Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
 AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v11"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
+_STORED_EVIDENCE = object()
 
 
 class _Closed(BaseModel):
@@ -284,20 +286,35 @@ class Execution(_Wire):
     agent: ExecutionAgent | None = None
 
 
+class TerminalUsageWindow(_Wire):
+    usedPercent: int = Field(ge=0, le=100, strict=True)
+    resetsAt: str | None = Field(
+        default=None,
+        strict=True,
+        pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+    )
+
+    @field_validator("resetsAt")
+    @classmethod
+    def calendar_instant(cls, value: str) -> str:
+        datetime.fromisoformat(value)
+        return value
+
+
 class TerminalUsage(_Wire):
-    fiveHourUsedPercent: int | None = Field(default=None, ge=0, le=100, strict=True)
-    sevenDayUsedPercent: int | None = Field(default=None, ge=0, le=100, strict=True)
+    fiveHour: TerminalUsageWindow | None = None
+    sevenDay: TerminalUsageWindow | None = None
 
     @model_validator(mode="after")
     def observed_window(self) -> TerminalUsage:
-        if self.fiveHourUsedPercent is None and self.sevenDayUsedPercent is None:
+        if self.fiveHour is None and self.sevenDay is None:
             raise ValueError("terminal usage requires an observed window")
         return self
 
 
 class AgentTerminal(_Wire):
     terminalStatus: TerminalStatus
-    terminalUsage: TerminalUsage | None = None
+    terminalUsage: dict[str, object] | None = None
     terminalFooter: str | None = Field(default=None, min_length=1, max_length=1024)
     activePaneId: str
     name: str
@@ -312,6 +329,16 @@ class AgentTerminal(_Wire):
     connection: Connection | None = None
     execution: Execution | None = None
     group: str | None = None
+
+    @field_validator(
+        "terminalUsage", mode="before", json_schema_input_type=TerminalUsage
+    )
+    @classmethod
+    def displayed_usage(cls, value: object, info: ValidationInfo) -> object:
+        # Live replies use today's schema. Stored receipts retain their original object.
+        if info.context is not _STORED_EVIDENCE:
+            TerminalUsage.model_validate(value)
+        return value
 
     @field_validator("terminalFooter")
     @classmethod
@@ -629,8 +656,10 @@ def validate_agent_failure(operation: str, value: object) -> AgentError:
     return agent_error_type(operation).model_validate(value)
 
 
-def validate_agent_evidence(operation: str, value: object) -> AgentActionEvidence:
-    evidence = AgentActionEvidence.model_validate(value)
+def validate_stored_agent_evidence(
+    operation: str, value: object
+) -> AgentActionEvidence:
+    evidence = AgentActionEvidence.model_validate(value, context=_STORED_EVIDENCE)
     if isinstance(evidence.observed, WireStartResult) and operation != "start":
         raise ValueError("foreign launch evidence")
     if isinstance(evidence.observed, AgentCloseReceipt) and operation != "close":
@@ -792,6 +821,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
             policy_inputs={
                 "cli_path": str(controller.cli_path),
                 "state_directory": str(controller.state_directory),
+                "terminal_usage_wire": "grouped-v1",
                 "authority": "delivered-live-request",
                 "automatic_retry": False,
                 "action_max_attempts": 2 if spec.id in AGENT_LOCAL_IDS else 1,

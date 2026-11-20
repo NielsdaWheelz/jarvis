@@ -92,6 +92,17 @@ scheduled-run proof remains open. the [restore issue](issues/memory-backup-resto
 separate `0018` release for the startup view and service-owned indexing.
 historical capacity and genuine installed recall earn separate evidence.
 
+## subscription model refresh
+
+[adr 0093](decisions/0093-subscription-model-refresh.md) sequences provider
+qualification, role selection and startup recovery, then the isolated release
+build and upgrade rehearsal. the delivery boundary is a cutover-ready
+candidate at schema `0018`. installed activation and readback are separate.
+three feature designers defined the content and evidence. independent claude
+opus 5.5 at high effort accepted all three units on 2026-11-20, spec sha256
+`7eee4ab18fb79c1891df52ea4246e85027004999c719d4d9d44ab4aefde668c3`.
+
+
 ## native recovery and memory availability
 
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the

@@ -136,6 +136,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0089](0089-native-capture-repair.md) | native capture repair | corroborated boundary loss, claude archive capacity and targeted native source recovery |
 | [0091](0091-source-backed-reports.md) | full answers in web chat | remove discord-era final reply limits and let jarvis handle broad answers and corrections in conversation |
 | [0092](0092-memory-freshness.md) | fresh shared memory | recent owner exchanges, service-owned indexing and measured historical catch-up after web home |
+| [0093](0093-subscription-model-refresh.md) | subscription models and memory cost | target role selection, local startup recovery and an isolated 6.2 upgrade candidate |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

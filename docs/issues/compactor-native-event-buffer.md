@@ -19,6 +19,8 @@ contained stock logs showed an active stream. the account charge is unknown.
 
 inspect the original diagnostics with `journalctl -u jarvis.service --since
 '2026-11-20 14:16:30 UTC' --until '2026-11-20 14:16:38 UTC'` on dev-server.
-resolve when a bounded provider reproduction identifies the offending limit,
-the corrected candidate delivers the burst in order, and an installed readback
-shows the recorded range completed and historical construction advancing again.
+resolve when both predecessor limits have independent reproductions, the
+candidate drains the qualifying burst in order, and installed readback proves
+the parked parent completed and later historical construction advanced. the
+historical trigger remains unknown unless further incident evidence identifies
+it. [implementation and acceptance](../compactor-burst-recovery.md)

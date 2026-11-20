@@ -9,6 +9,13 @@ the [candidate](../decisions/0092-memory-freshness.md#candidate-evidence) passed
 fresh-session correction recall with a parked tree, indexing while the assistant
 was stopped, and a restored migration with preserved inputs and notices.
 
-resolve recall when a genuine owner correction reaches a fresh session and its exact original
-reopens. the [ordinary daily capacity observation](memory-usefulness-evaluation.md)
-has separate evidence.
+at `2026-11-20T05:44Z`, an enrolled codex personal client read every page of
+one live startup snapshot and reopened each of its four displayed owner-role
+originals. all four were beyond the compressed prefix of 5,801 of 49,002
+admitted leaves. the installed web submissions observed since the cut were
+pause and resume. no genuine correction and fresh answer were found in this
+check. native owner-role labels alone do not establish human authorship.
+
+resolve recall when a genuine owner correction reaches a fresh session, the
+answer uses it, and the exact original reopens. the [ordinary daily capacity
+observation](memory-usefulness-evaluation.md) has separate evidence.

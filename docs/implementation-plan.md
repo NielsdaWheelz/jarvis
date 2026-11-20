@@ -25,6 +25,7 @@ committed adr 0093 candidate. qualify existing worker behavior independently,
 then the typed provider seal, jarvis settlement and the combined live journey.
 on 2026-11-20, claude opus 5.5 passed both designs at spec sha256
 `6fec2a248511e6bbfb93e7e97d62164293f5d005877e02264705716849438d7d`.
+the accepted text was amended after review to record the reproduced late-seal and opening-framing defects.
 
 ## terminal-only worker cutover — source implemented and isolated-qualified
 

@@ -9,6 +9,10 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0093](docs/decisions/0093-subscription-model-refresh.md) governs the
+  subscription refresh candidate. the packaged role manifest selects each model
+  and effort. its [transport contract](docs/compactor-burst-recovery.md) owns
+  transient burst handling. installation and production retry need a separate cut.
 - [adr 0092](docs/decisions/0092-memory-freshness.md) owns the separate memory
   freshness cut after web home. preserve its startup, index-writer and historical
   capacity boundaries, including the per-feature designer and opus review.
@@ -538,7 +542,7 @@ These instructions govern all work in this repository.
 
 - Models never receive connector, Brave, or embedding credentials or direct
   execution authority.
-- Cognition uses the separately contained stock 0.160.0 endpoint and the
+- Cognition uses the separately contained endpoint pinned by adr 0093 and the
   provider-owned restricted startup catalogue, with public host preflight,
   private empty read-only cwd and approval deny. native shell/files/Web/network,
   MCP, subagents and unsolicited approvals remain disabled. main consumes
@@ -686,8 +690,8 @@ These instructions govern all work in this repository.
   replacement harness before the separately requested testing redesign. adr 0054's
   small universal-memory regression groups are the scoped exception, once implemented.
 - Library dependency and model upgrades remain explicit. the contained cognition
-  endpoint pins stock 0.160.0 and its provider-owned startup catalogue under
-  adr 0065; updates require explicit qualification. unrelated coding hosts retain
+  endpoint pins the stock version and provider-owned startup catalogue under
+  adr 0093. updates require explicit qualification. unrelated coding hosts retain
   their own installation policy. old replay gates remain suspended under 0046;
   current native protocol/authority contracts remain strict.
 - Avoid abstractions with one caller unless they enforce a stated boundary.

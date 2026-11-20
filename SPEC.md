@@ -39,6 +39,18 @@ separate measured acceptance result. these rules supersede conflicting startup
 and indexing rules below. each unit uses the owner's scoped temporary
 end-to-end/live red/green/refactor exception to adr 0046.
 
+## subscription model refresh
+
+[adr 0093](docs/decisions/0093-subscription-model-refresh.md) owns the next
+cutover-ready candidate. personal codex uses `gpt-6.2-astra/max` for main and
+`gpt-6.2-sol/xhigh` for dreaming at standard speed. one compactor wins the
+blinded sol, terra and luna comparison and is pinned at build time.
+the packaged role manifest owns model selection. startup
+settles sealed products locally before catalog discovery. production activation
+requires a separate owner decision. earlier role pins and capacity results
+describe their original releases.
+
+
 ## accepted native recovery and memory availability target
 
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
@@ -2166,7 +2178,8 @@ V1 dependency lock:
   `e1498d8382f192ae664ae9790b682a8e8a8b0d38`
 - `llm-tools`: `2adb9790fc7a54de5342effaca9391c2f3d24ff9`
 
-the separate contained cognition host requires stock 0.160.0 and the
+the separate contained cognition host uses the stock version selected in
+[adr 0093](docs/decisions/0093-subscription-model-refresh.md) and the
 provider-owned restricted complete catalogue at HOST STARTUP. `provider-runtime`
 checks public initialize version and config origin before creating a thread.
 unsupported native versions fail closed before submission. catalogue/binary

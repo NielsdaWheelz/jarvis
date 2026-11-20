@@ -33,7 +33,7 @@ class NativeRunnerPort(Protocol):
     notify_work: Callable[[], None]
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome: ...
-    async def recover(self) -> None: ...
+    async def recover_memory(self) -> None: ...
     async def close(self) -> None: ...
 
 
@@ -111,7 +111,7 @@ class JarvisService:
 
     async def startup(self) -> None:
         await self._attachments.clean_spool()
-        await self._runner.recover()
+        await self._runner.recover_memory()
         self._startup_ready = True
         self._event_poller.notify_changed()
         self._work.set()

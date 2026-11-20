@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import Protocol
 from uuid import UUID
 
@@ -314,12 +315,17 @@ class JarvisService:
         if not self._startup_ready:
             return
         while not self._shutdown.is_set():
+            foreground_started = perf_counter()
             inactive = await self._paused.is_paused()
             recovered = await self._recover_actions(allow_queued_execution=not inactive)
             if inactive:
                 await self._memory.publish()
                 return
             if recovered:
+                LOGGER.info(
+                    "foreground action recovery: elapsed_ms=%.3f",
+                    (perf_counter() - foreground_started) * 1000,
+                )
                 continue
             cancellation = CancellationToken()
             async with self._active_lock:
@@ -332,7 +338,11 @@ class JarvisService:
                 async with self._active_lock:
                     self._active_cancellation = None
             self.request_delivery()
-            LOGGER.info("native main completed: status=%s", outcome.status)
+            LOGGER.info(
+                "native main completed: status=%s elapsed_ms=%.3f",
+                outcome.status,
+                (perf_counter() - foreground_started) * 1000,
+            )
             if outcome.status in {"blocked", "stopped"}:
                 return
             if outcome.status != "no_work":
@@ -376,7 +386,17 @@ class JarvisService:
             if self._work.is_set():
                 cancellation.cancel()
         try:
-            return await worker.run_one(cancellation)
+            started = perf_counter()
+            progressed = await worker.run_one(cancellation)
+            LOGGER.info(
+                "memory idle opportunity: worker=%s elapsed_ms=%.3f "
+                "progressed=%s interrupted=%s",
+                "dreamer" if worker is self._dreamer else "compactor",
+                (perf_counter() - started) * 1000,
+                progressed,
+                cancellation.cancelled,
+            )
+            return progressed
         finally:
             async with self._active_lock:
                 if self._background_cancellation is cancellation:

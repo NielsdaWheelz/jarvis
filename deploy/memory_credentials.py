@@ -202,7 +202,7 @@ def publish_assistant(assistant, declaration):
 async def install_staged(stage, bootstrap):
     from sqlalchemy import text
 
-    from jarvis.db import create_engine
+    from jarvis.db import APPLICATION_SCHEMA_REVISION, create_engine
     from jarvis.messages import MessageStore
     from jarvis.ownership import maintenance_ownership
 
@@ -248,7 +248,7 @@ async def install_staged(stage, bootstrap):
                     row.split(b"=", 1) for row in assistant.splitlines() if b"=" in row
                 )
                 if (
-                    revision != "0017"
+                    revision != APPLICATION_SCHEMA_REVISION
                     or any(entries.get(k.encode()) != v for k, v in old.items())
                     or await MessageStore(db).current_control(
                         os.environ["JARVIS_OWNER_SCOPE"]
@@ -256,7 +256,7 @@ async def install_staged(stage, bootstrap):
                     != "pause"
                 ):
                     raise RuntimeError(
-                        "need schema 0017, original owner identities and pause"
+                        "need the installed schema, original owner identities and pause"
                     )
             publish(ETC / "embedding.env", embedding)
             publish(ETC / "memory.env", memory)

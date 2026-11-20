@@ -28,7 +28,8 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from universal_memory import RangeReference, RecordReference, Reference
-from universal_memory.tools import MEMORY_READ_IDS
+from universal_memory.tools import MEMORY_READ_IDS, MEMORY_VIEW_SPEC
+from universal_memory.types import ViewPage
 
 from jarvis.tool_results import NoTelemetry, completed_tool_result
 
@@ -100,6 +101,17 @@ class MemoryToolDispatcher:
             for node in output.get("nodes", ()):
                 reference = RangeReference(start=node["start"], count=node["count"])
                 self._references[reference] = None
+            if tool_id == MEMORY_VIEW_SPEC.id:
+                page = ViewPage.model_validate_json(canonical_json_bytes(output))
+                for exchange in page.recent:
+                    for excerpt in (
+                        exchange.preceding,
+                        *exchange.owner,
+                        exchange.following,
+                    ):
+                        if excerpt is not None:
+                            for fragment in excerpt.fragments:
+                                self._references[fragment.ref] = None
             if output.get("record") is not None:
                 row = output["record"]
                 reference = RecordReference.model_validate_json(

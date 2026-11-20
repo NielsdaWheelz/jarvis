@@ -121,16 +121,18 @@ async def serve_memory(settings: MemoryServerSettings, key: SecretStr) -> None:
                     asyncio.create_task(public.serve()),
                     asyncio.create_task(private.serve([listener])),
                 )
+                indexer = asyncio.create_task(memory.run_indexer(shutdown))
                 loss = asyncio.create_task(database.wait_for_loss(shutdown))
                 stopping = asyncio.create_task(shutdown.wait())
                 try:
                     done, _ = await asyncio.wait(
-                        (*servers, loss, stopping), return_when=asyncio.FIRST_COMPLETED
+                        (*servers, indexer, loss, stopping),
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
                     for task in done:
                         task.result()
                     if not shutdown.is_set():
-                        raise RuntimeError("memory endpoint stopped unexpectedly")
+                        raise RuntimeError("memory service task stopped unexpectedly")
                 finally:
                     if not shutdown.is_set():
                         # A dead owner cannot drain work. Cancel even stalled uploads.
@@ -140,7 +142,7 @@ async def serve_memory(settings: MemoryServerSettings, key: SecretStr) -> None:
                     shutdown.set()
                     stopping.cancel()
                     await asyncio.gather(
-                        *servers, loss, stopping, return_exceptions=True
+                        *servers, indexer, loss, stopping, return_exceptions=True
                     )
                     for sig in (signal.SIGTERM, signal.SIGINT):
                         loop.remove_signal_handler(sig)

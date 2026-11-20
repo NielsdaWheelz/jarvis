@@ -31,8 +31,10 @@ running under the existing owner pause. the backup-capable `0018` release
 `9538bc8` passed the full isolated pipeline including the held copy. its
 reader and producer settings are staged privately on the mac. the owner
 approved proceeding with the mac's only decryption identity and deferred a
-spare until the home workstation is ready. stage the release, record a current
-owner pause, install, and prove the first backup. the timer is uninstalled.
+spare until the home workstation is ready. the candidate `9538bc8` is staged
+on hetzner. production still selected `d16a507` with canonical web `resume`
+sequence 20 at the staging check. the next step requires a fresh owner
+`pause` through the web composer. the backup timer is uninstalled.
 
 resolved when the installed backup runs on schedule and the adr 0088 drill
 recovers a current generation on an isolated second machine. record actual cut

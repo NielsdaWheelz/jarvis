@@ -38,8 +38,6 @@ import pathlib
 import re
 import sys
 
-from jarvis.definitions import MAIN_CODEX_MODEL
-
 source = pathlib.Path(sys.argv[1])
 target = pathlib.Path(sys.argv[2])
 required = {
@@ -77,10 +75,9 @@ for line in text.splitlines():
 if len(names) != len(set(names)) or set(names) - allowed or required - set(names):
     raise SystemExit("private environment key roster is incompatible")
 
-static = f"""\
+static = """\
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles
 JARVIS_CODEX_PROFILE_KEY=personal
-JARVIS_CODEX_MODEL={MAIN_CODEX_MODEL}
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
 JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
 JARVIS_AGENT_STATE_DIRECTORY=/run/jarvis-skid-state

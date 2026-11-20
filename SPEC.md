@@ -2178,7 +2178,8 @@ V1 dependency lock:
   `e1498d8382f192ae664ae9790b682a8e8a8b0d38`
 - `llm-tools`: `2adb9790fc7a54de5342effaca9391c2f3d24ff9`
 
-the separate contained cognition host requires stock 0.160.0 and the
+the separate contained cognition host uses the stock version selected in
+[adr 0093](docs/decisions/0093-subscription-model-refresh.md) and the
 provider-owned restricted complete catalogue at HOST STARTUP. `provider-runtime`
 checks public initialize version and config origin before creating a thread.
 unsupported native versions fail closed before submission. catalogue/binary

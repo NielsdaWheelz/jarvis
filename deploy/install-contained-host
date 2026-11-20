@@ -134,10 +134,11 @@ if sudo -n -u jarvis test -r "$account_home/auth.json"; then
   exit 1
 fi
 # This installer owns only the dedicated production distribution, never an account's CLI.
-stock_dir=/opt/jarvis-codex/0.160.0
-if [[ "$(uname -m)" != x86_64 || "${layout[2]}" != "$stock_dir/codex" ||
+stock_version=0.171.0
+stock_dir="/opt/jarvis-codex/$stock_version"
+if [[ "$(uname -m)" != x86_64 || "${layout[2]}" != "$stock_dir/bin/codex" ||
       "$(realpath -m -- "${layout[2]}")" != "${layout[2]}" ]]; then
-  echo "map the dedicated x86-64 host binary $stock_dir/codex before installing" >&2
+  echo "map the dedicated x86-64 host binary $stock_dir/bin/codex before installing" >&2
   exit 1
 fi
 sudo -n systemd-analyze verify "$remote/jarvis-codex-contained.service"
@@ -146,21 +147,30 @@ sudo -n systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
 if sudo -n systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
   sudo -n systemctl stop jarvis-codex-contained.service
 fi
-# Stock dispatches shell and file tools through its sibling code-mode host.
+# Keep the vendor layout so stock locates its sandbox, tools and companion.
+executables=(bin/codex bin/codex-code-mode-host codex-resources/bwrap codex-path/rg)
 cat >"$remote/stock.sha256" <<'SUMS'
-12eb3e81114588aca3b7998f4f19e8997b056aca08e57a7ca7c8a3ec8c652aad  codex
-37cab1584302611e9936902219640ab5e7a79fcfccd2504c6e85ea8cb97d0e10  codex-code-mode-host
+b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0  bin/codex
+f49bd4f0c0cc73cf1ec3a719009e07ce5b6e100520d023c760cc203fb37e5c6f  bin/codex-code-mode-host
+91a245ea678a7ae642f383a22576c3c476d0d6d3e2321a553f3ed8d4d487ed74  codex-resources/bwrap
+e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849  codex-path/rg
+2e6a51972124359dbff670b008845d778dbf43d3cc9882c220a7e7f09f1a545d  codex-package.json
 SUMS
-if ! (cd "$stock_dir" && sha256sum -c --status "$remote/stock.sha256" &&
-      test -x codex && test -x codex-code-mode-host) 2>/dev/null; then
-  curl -fsSL https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-linux-x64.tgz -o "$remote/stock.tgz"
-  for file in codex codex-code-mode-host; do
-    tar -xzOf "$remote/stock.tgz" "package/vendor/x86_64-unknown-linux-musl/bin/$file" >"$remote/$file"
+verify_stock() (
+  cd "$1" && sha256sum -c --status "$remote/stock.sha256" || exit 1
+  for file in "${executables[@]}"; do test -x "$file" || exit 1; done
+)
+if ! verify_stock "$stock_dir" 2>/dev/null; then
+  curl -fsSL "https://registry.npmjs.org/@openai/codex/-/codex-$stock_version-linux-x64.tgz" -o "$remote/stock.tgz"
+  printf 'e13d67afb0533cc6160b5f4140e4ad07e2acd87adbaa081bbf69b82e90cf4e55  %s\n' "$remote/stock.tgz" | sha256sum -c --status
+  tar -xzf "$remote/stock.tgz" -C "$remote"
+  vendor="$remote/package/vendor/x86_64-unknown-linux-musl"
+  verify_stock "$vendor"
+  for file in "${executables[@]}"; do
+    install -D -m 0755 -o root -g root "$vendor/$file" "$stock_dir/$file"
   done
-  (cd "$remote" && sha256sum -c --status stock.sha256)
-  if [[ ! -d "$stock_dir" ]]; then install -d -m 0755 -o root -g root "$stock_dir"; fi
-  install -m 0755 -o root -g root "$remote"/{codex-code-mode-host,codex} "$stock_dir/"
-  (cd "$stock_dir" && sha256sum -c --status "$remote/stock.sha256")
+  install -m 0644 -o root -g root "$vendor/codex-package.json" "$stock_dir/"
+  verify_stock "$stock_dir"
 fi
 sudo -n install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
 sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec

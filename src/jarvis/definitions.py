@@ -64,6 +64,7 @@ from universal_memory.tools import (
 from jarvis.agent_tools import AGENT_READ_IDS, AGENT_WRITE_IDS
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC
 from jarvis.attachment_tools import ATTACHMENT_READ_IDS, ATTACHMENT_WRITE_IDS
+from jarvis.config import decode_config_json
 from jarvis.event_tools import EVENT_MUTATION_IDS, EVENT_READ_IDS
 from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.terminal import NATIVE_OUTPUT_NAME, JarvisNativeMessage
@@ -71,9 +72,9 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "72b4c331eed16ee1b7cb1e9e33ee938edb5771da",
+    "llm-agent-kernel": "666d812374bb504f3b5d0121e20158162855ed7f",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
-    "provider-runtime": "c9f120513c4f49819c2534c4b3fc410ece8d1121",
+    "provider-runtime": "e3648d28d3007f09863cb6447ab16f74bf9ab3e5",
     "universal-memory": "25ed86556f9580154806d901375ec06e8902ecaa",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
@@ -717,7 +718,7 @@ class _SessionManifest(BaseModel):
 @cache
 def load_session_manifest() -> _SessionManifest:
     raw = files("jarvis").joinpath(SESSION_MANIFEST_NAME).read_bytes()
-    manifest = _SessionManifest.model_validate_json(raw)
+    manifest = _SessionManifest.model_validate(decode_config_json(raw))
     if set(manifest.roles) != {"main", "compactor", "dreamer"}:
         raise ValueError("session compatibility manifest must declare all three roles")
     if manifest.dependencies != EXPECTED_GIT_PINS:

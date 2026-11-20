@@ -149,6 +149,10 @@ acceptance and reset remain pending.
 
 ## Authoritative documents
 
+the [subscription refresh](docs/decisions/0093-subscription-model-refresh.md)
+defines the next candidate's role models, standard service tier, compactor
+comparison and stopped upgrade. the packaged role manifest binds each release.
+
 1. [specification](SPEC.md) — normative baseline and accepted product targets.
 2. [Architecture](docs/architecture.md) — runtime, component, data, and tool
    boundaries.

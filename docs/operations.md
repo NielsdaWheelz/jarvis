@@ -284,17 +284,17 @@ schema 4 is rejected. the installed mapping is `/etc/jarvis/codex-host.json`. th
 that single public file at `/run/jarvis-contained/codex-host.json` through a
 read-only bind; `/etc/jarvis` keeps its private traversal permissions.
 
-on the x86-64 host, `install-contained-host` installs and verifies the two
-executables from the pinned official linux x64 `@openai/codex` 0.160.0 package
-in the dedicated `/opt/jarvis-codex/0.160.0` directory. the installer checks the
-mapped path before stopping the native host, then verifies both installed digests
-before starting it. if interrupted, leave the services stopped and repeat
-`deploy/install-contained-host "$to"`. stock dispatches native tools through its sibling
-`codex-code-mode-host`. a working subscription or model reply alone cannot qualify
-authoring. verify a real publication from the notes checkout during the installed
-journey. [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.160.0-linux-x64)
+for the [0093 candidate](decisions/0093-subscription-model-refresh.md), map
+`binary` to `/opt/jarvis-codex/0.171.0/bin/codex`. the x86-64 installer
+verifies the official tarball, installs the package descriptor, cli, code-mode
+host, bundled `bwrap` and `rg` in their vendor layout, and verifies their
+installed digests before starting the host. the startup flags select the
+restricted catalog and standard service tier. if interrupted, leave the writers
+stopped, correct the failure and repeat `deploy/install-contained-host "$to"`.
+verify a native workspace operation during the installed journey.
+[official distribution](https://www.npmjs.com/package/@openai/codex/v/0.171.0-linux-x64)
 
-the contained endpoint requires stock 0.160.0 and the provider-owned complete
+the contained endpoint requires stock 0.171.0 and the provider-owned complete
 restricted model catalogue at HOST STARTUP. unsupported versions and missing
 startup policy fail before thread creation. per-thread overrides do not provide
 containment. catalogue updates require explicit qualification; this supersedes
@@ -342,6 +342,58 @@ selects the alert destination. the installer rejects the retired gateway setting
 supply current `JARVIS_SOURCE_GOOGLE_STATE` and `JARVIS_SOURCE_MEMORY_CONFIG`
 for an intentional private-state change. the stopped web cut reads the installed
 source declarations directly and preserves both google authorization and cursors.
+
+### subscription refresh at schema `0018`
+
+stage the candidate with `deploy/install-release "$to"`. at the authorized
+cut, record the ordinary owner pause, then cleanly stop `jarvis.service` and
+`jarvis-memory.service`. in the operator's `dev-server-deploy` session, set
+`to` to the staged commit and run this once. the target's database ownership
+checks and atomic file publisher also make a retry safe after interruption.
+
+```bash
+release="/opt/jarvis/releases/$to"
+sudo -n flock /opt/jarvis/.deploy.lock systemd-run --quiet --wait --pipe --collect \
+  --property="WorkingDirectory=$release/deploy" \
+  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+  "$release/.venv/bin/python" - <<'PY'
+import asyncio
+import os
+import stat
+
+from jarvis.db import create_engine
+from jarvis.ownership import maintenance_ownership
+from memory_credentials import ETC, publish, require_owner_pause
+
+async def retire():
+    engine = create_engine(os.environ["JARVIS_DATABASE_URL"])
+    try:
+        async with maintenance_ownership(engine) as db:
+            await require_owner_pause(db)
+            path = ETC / "jarvis.env"
+            metadata = path.stat()
+            if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 0o600):
+                raise SystemExit("repair protected environment ownership or mode")
+            original = path.read_bytes()
+            remaining = b"".join(line for line in original.splitlines(keepends=True)
+                                 if not line.startswith(b"JARVIS_CODEX_MODEL="))
+            if remaining != original:
+                publish(path, remaining)
+    finally:
+        await engine.dispose()
+
+asyncio.run(retire())
+PY
+```
+
+from the workstation, supply the new non-secret host mapping and run
+`deploy/install-contained-host "$to"`, then `deploy/activate-release "$to"`.
+activation checks the same-release host and remounts its socket inside the
+application. a failed preflight leaves both writers stopped. repair forward on
+the candidate. the predecessor requires the retired assignment. verify the
+retained owner pause and the exact parked range before any separately authorized
+retry and owner resumption. [burst recovery](compactor-burst-recovery.md)
 
 remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.

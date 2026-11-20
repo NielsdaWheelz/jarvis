@@ -1,6 +1,7 @@
 # memory backup and restore
 
-status: owner-deferred; not part of the completed online rollout.
+status: open. [adr 0088](../decisions/0088-storage-and-memory-recovery.md)
+defines the accepted target. implementation and installed recovery proof are pending.
 
 problem: this delivery provides no qualified backup-and-restore path for the
 canonical memory archive, notes and capture progress.
@@ -8,11 +9,11 @@ canonical memory archive, notes and capture progress.
 impact: loss of the central store can lose admitted evidence and its capture
 boundaries. native files and rebuildable summaries are not equivalent backups.
 
-evidence: [memory delivery](../memory-delivery.md) explicitly defers backup/restore.
-its stopped/resumed preservation comparisons prove an installation retained data;
-they do not prove recovery after loss of that data.
+evidence: [memory delivery](../memory-delivery.md) deferred host-loss recovery.
+the [cutover rehearsal](../decisions/0086-native-recovery-and-memory-availability.md#production-cutover-evidence)
+restored the migration copy. recovery from current off-host material remains unverified.
 
-resolved when: a separately scoped backup is restored into an isolated target
-and demonstrates retained originals, notes, provenance, immutable cuts and
-checkpoint integrity, with required private configuration recoverable through
-its own protected path. record actual recovery limits without exposing secrets.
+resolved when the installed backup runs on schedule and the adr 0088 drill
+recovers a current generation on an isolated second machine. record actual cut
+age, time to verified reads, inventory and checkpoint comparisons, independent
+configuration recovery, external freshness reporting and the retained proven copy.

@@ -65,6 +65,14 @@ records the source, candidate and stopped production proofs. production runs
 `0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
 the native client and native notifications belong to the following pr.
 
+## storage and central memory recovery
+
+[adr 0088](decisions/0088-storage-and-memory-recovery.md) owns the independent
+mac rehearsal workflow, host capacity signal and jarvis backup/restore units.
+deliver against the installed memory baseline. qualify the first isolated
+off-host restore before enabling the recurring job. implementation and live
+proof are pending. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
+
 ## native recovery and memory availability
 
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the

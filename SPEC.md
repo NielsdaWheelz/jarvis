@@ -15,6 +15,14 @@ delivers notification links. the adr supersedes conflicting client, readiness,
 delivery and presentation rules below. production runs the web release at schema
 `0017`. [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
+## accepted operational target — storage and memory recovery
+
+[adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
+development to the mac and defines production headroom and off-host central
+memory recovery. it supersedes the v1 backup deferral for this scope and grants
+the named temporary integration/live proof exception to adr 0046. installed
+recovery remains unqualified. the private web home retains its own delivery.
+
 ## accepted native recovery and memory availability target
 
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)

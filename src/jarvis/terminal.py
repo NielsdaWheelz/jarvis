@@ -29,14 +29,6 @@ type TerminalOutcome = Literal[
 ]
 type ConclusionKind = Literal["conversation", "silent"]
 
-CHAT_MAX_CHARACTERS = 2_000
-_PARTIAL_PREFIX = "partial result — "
-_FAILED_PREFIX = "i couldn't complete this: "
-_PARAGRAPH = "\n\n"
-_DETAIL_MAX = 500
-_PARTIAL_BODY_MAX = (
-    CHAT_MAX_CHARACTERS - len(_PARTIAL_PREFIX + _PARAGRAPH) - _DETAIL_MAX
-)
 PROGRESS_MAX_BYTES = 2_000
 NATIVE_OUTPUT_NAME = "jarvis_home_message"
 
@@ -72,52 +64,32 @@ class _Visible[KindT: str](_StrictModel):
 class Answered(_Visible[Literal["answered"]]):
     """A complete answer from observed facts with no uncommitted later-work promise."""
 
-    text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
+    text: Annotated[str, Field(min_length=1)]
 
     _valid_text = field_validator("text")(_terminal_text)
 
 
-class _PartialFields(_Visible[Literal["partial"]]):
-    text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
-    limitation: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
+class Partial(_Visible[Literal["partial"]]):
+    """A useful incomplete answer naming one material limit and at most one question."""
+
+    text: Annotated[str, Field(min_length=1)]
+    limitation: Annotated[str, Field(min_length=1)]
+    question: Annotated[str, Field(min_length=1)] | None
 
     _valid_text = field_validator("text")(_terminal_text)
     _valid_limitation = field_validator("limitation")(_terminal_text)
 
-    @field_validator("question", check_fields=False)
+    @field_validator("question")
     @classmethod
     def _valid_question(cls, value: str | None) -> str | None:
         return None if value is None else _terminal_text(value)
 
 
-class Partial(_PartialFields):
-    """A useful incomplete answer naming one material limit and at most one question."""
-
-    question: Annotated[str | None, Field(min_length=1, max_length=_DETAIL_MAX)]
-
-
-# A new opening reserves space for every field in its complete chat message.
-# Frozen seals still use their own wire schema and the full semantic Partial.
-class _PartialWithoutQuestion(_PartialFields):
-    text: Annotated[str, Field(min_length=1, max_length=_PARTIAL_BODY_MAX)]
-    question: None
-
-
-class _PartialWithQuestion(_PartialFields):
-    text: Annotated[
-        str,
-        Field(
-            min_length=1, max_length=_PARTIAL_BODY_MAX - len(_PARAGRAPH) - _DETAIL_MAX
-        ),
-    ]
-    question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
-
-
 class NeedsInput(_Visible[Literal["needs_input"]]):
     """One concrete owner detail required to answer the request."""
 
-    context: Annotated[str, Field(max_length=1_000)]
-    question: Annotated[str, Field(min_length=1, max_length=_DETAIL_MAX)]
+    context: str
+    question: Annotated[str, Field(min_length=1)]
 
     _valid_context = field_validator("context")(_terminal_text)
     _valid_question = field_validator("question")(_terminal_text)
@@ -126,19 +98,9 @@ class NeedsInput(_Visible[Literal["needs_input"]]):
 class Failed(_Visible[Literal["failed"]]):
     """An honest explanation that the request could not be completed."""
 
-    explanation: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
+    explanation: Annotated[str, Field(min_length=1)]
 
     _valid_explanation = field_validator("explanation")(_terminal_text)
-
-
-class _GeneratedFailed(Failed):
-    explanation: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=CHAT_MAX_CHARACTERS - len(_FAILED_PREFIX),
-        ),
-    ]
 
 
 class Silent(_StrictModel):
@@ -149,7 +111,7 @@ class Silent(_StrictModel):
 
 
 class Waiting(_Visible[Literal["waiting"]]):
-    text: Annotated[str, Field(min_length=1, max_length=CHAT_MAX_CHARACTERS)]
+    text: Annotated[str, Field(min_length=1)]
 
     _valid_text = field_validator("text")(_terminal_text)
 
@@ -235,9 +197,9 @@ class _Message[ResponseT: _StrictModel](_StrictModel):
 
     @property
     def has_question(self) -> bool:
-        return isinstance(
-            self.response, NeedsInput | Partial | _PartialWithQuestion
-        ) and bool(self.response.question and self.response.question.strip())
+        return isinstance(self.response, NeedsInput | Partial) and bool(
+            self.response.question and self.response.question.strip()
+        )
 
 
 class JarvisTerminal(
@@ -261,16 +223,7 @@ class JarvisTerminal(
 
 
 class JarvisNativeMessage(
-    _Message[
-        Progress
-        | Answered
-        | _PartialWithoutQuestion
-        | _PartialWithQuestion
-        | NeedsInput
-        | _GeneratedFailed
-        | Silent
-        | Waiting
-    ]
+    _Message[Progress | Answered | Partial | NeedsInput | Failed | Silent | Waiting]
 ):
     """The native schema applies to both commentary and final responses."""
 
@@ -286,7 +239,7 @@ class JarvisNativeMessage(
 
 @dataclass(frozen=True, slots=True)
 class RenderedTerminal:
-    """The terminal disposition and bounded content persisted by the host."""
+    """The terminal disposition and content persisted by the host."""
 
     outcome: TerminalOutcome
     conclusion_kind: ConclusionKind
@@ -303,8 +256,6 @@ class RenderedTerminal:
             self.content.encode("utf-8")
         except UnicodeEncodeError as exc:
             raise ValueError("rendered terminal must be valid UTF-8") from exc
-        if len(self.content) > CHAT_MAX_CHARACTERS:
-            raise ValueError("rendered terminal exceeds the chat character bound")
 
 
 def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
@@ -316,9 +267,9 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
     if response.type == "waiting":
         return RenderedTerminal("waiting", "conversation", response.text)
     if response.type == "partial":
-        content = f"{_PARTIAL_PREFIX}{response.limitation}{_PARAGRAPH}{response.text}"
+        content = f"partial result — {response.limitation}\n\n{response.text}"
         if response.question is not None:
-            content += f"{_PARAGRAPH}{response.question}"
+            content += f"\n\n{response.question}"
         return RenderedTerminal("partial", "conversation", content)
     if response.type == "needs_input":
         content = f"i need one detail: {response.question}"
@@ -329,7 +280,7 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
         return RenderedTerminal(
             "failed",
             "conversation",
-            f"{_FAILED_PREFIX}{response.explanation}",
+            f"i couldn't complete this: {response.explanation}",
         )
     return RenderedTerminal("silent", "silent", None)
 

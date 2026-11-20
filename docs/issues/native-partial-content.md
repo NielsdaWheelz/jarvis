@@ -1,6 +1,6 @@
 # recovered partial ended mid-word and omitted its material limit
 
-open, 2026-11-19 utc. on release `e34608e`, production attempt 129
+open for installed verification. on release `e34608e`, production attempt 129
 (`fb21ee30-eb7e-45ae-a38a-6a5f522c1fbd`) returned a partial with a
 1,481-character body ending mid-word, the limitation `test` and a null question.
 the owner received an unfinished thought and no explanation of what remained
@@ -18,15 +18,10 @@ generation budget. the seal provides no evidence of how stock arrived at that
 ending. the earlier rendering overflow and its repair are recorded in
 [adr 0086](../decisions/0086-native-recovery-and-memory-availability.md).
 
-close this issue when a representative broad request reopened from original
-receipts produces a useful partial under comparable length pressure. give it
-more findings than one reply can hold and a known gap in coverage. check that
-the body prioritizes a supported finding and finishes its thought, the
-limitation names the actual gap and its consequence, and the disposition
-preserves unfinished work. compare the stock seal to the canonical reply.
-keep the single-message budget and lossless host rendering so every new final
-can be persisted and delivered as authored. retain the original seal and its
-settlement. [main response contract](../../SPEC.md#42-conversation-is-natural)
+close after the installed reply can deliver a single useful answer past 2,000
+characters, with material findings, complete prose, working citations and the
+consequences of any real gap. compare the saved and displayed reply to the seal.
+[adr 0091 isolated evidence](../decisions/0091-source-backed-reports.md#implementation-evidence)
 
 ## paired stock qualification
 
@@ -54,10 +49,27 @@ follow-through requirement. these observations qualify neither candidate.
 the owner chose to ship the qualified independent memory release `e6ebc31`
 and leave long-report delivery for a separate decision.
 
-before changing the product contract, settle what the owner should receive
-when the requested findings, useful links and material caveats cannot all fit
-in one message. the current authoring test requires an intelligible ending,
-intact selected links and an explicit account of material uncovered scope
-across visible final forms. delivering a separate full report would require
-its own product and delivery decision. the sealed original and canonical reply
-remain available for comparison.
+after the move to web chat, the owner selected long answers in the conversation
+and ordinary follow-up when jarvis misses something. the comparable isolated
+trial delivered all six galleries and both duplicate warnings in one
+6,539-character reply. all 18 citations opened. the installed result is pending.
+
+## following a source from a web report
+
+on 2026-11-19, chrome `157.0.8103.79` loaded the `0e6e1ac` candidate's web
+shell, javascript and both content security policies in a local browser fixture.
+the fixture supplied a synthetic pinned report, a chat reply and one source on
+a second origin. both surfaces used the same intact https url.
+
+clicking the report's ordinary link hit the shell's `default-src 'self'` frame
+restriction. clicking its `target="_blank"` link opened no tab. neither click
+requested the source. clicking the chat citation made one request and displayed
+the source in a new tab. the same chat renderer cut an intact markdown
+destination at the first closing parenthesis. clicking it requested
+`/collection_(east` and returned 404. web-home commit `344abf9` repaired
+this. its chrome qualification clicked through to `/collection_(east)` and
+also covered nested, adjacent and escaped destinations. this closes the
+chat defect. the owner chose clickable sources beside each finding in chat,
+including when a separate page is requested. the isolated candidate confirmed
+both clicks from the reply accompanying an explicitly opened page. a standalone
+page relies on its accompanying chat for sources.

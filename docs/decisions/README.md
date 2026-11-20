@@ -133,6 +133,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0086](0086-native-recovery-and-memory-availability.md) | bounded native recovery and independent shared memory | both cuts installed. original mail, note and independent capture verified |
 | [0087](0087-private-web-home.md) | private web home | installed and owner-accepted at `0017`. the owner chats on the web, jarvis publishes the canvas and discord delivers alerts |
 | [0089](0089-native-capture-repair.md) | native capture repair | corroborated boundary loss, claude archive capacity and targeted native source recovery |
+| [0091](0091-source-backed-reports.md) | full answers in web chat | remove discord-era final reply limits and let jarvis handle broad answers and corrections in conversation |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

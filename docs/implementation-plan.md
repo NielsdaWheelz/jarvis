@@ -68,6 +68,15 @@ records the source, candidate and stopped production proofs. production runs
 `0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
 the native client and native notifications belong to the following pr.
 
+## full answers in web chat
+
+[adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
+records the qualified source and isolated stock candidate. it removes the old
+final-reply limit and preserves reading position on direct message links.
+installed acceptance remains separate.
+independent opus 5.5 at max accepted the revised design on web-chat main
+`c9a9c67`, spec sha256 `f3c2e3e73cbf329ea5a8f8548f36913768d46089178072fe9f3626ad636d9e39`.
+
 ## native recovery and memory availability
 
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the

@@ -110,4 +110,6 @@ the installed grant check confirmed memory-role vector updates and denied runtim
 
 containment passed. the managed instructions from dev-server `144ba08` matched on all twelve online profile files. authenticated mcp exercised all twelve credentials, each reading the complete fitted view at 5,739 of 48,354 admitted positions, receiving four recent exchanges and reopening a displayed original. arch was unavailable. nexus remains deferred.
 
-[installed acceptance](../issues/memory-freshness-installed.md) tracks owner resumption and genuine correction. [historical capacity](../issues/memory-usefulness-evaluation.md) awaits an ordinary busy and quiet interval.
+owner web resume 20 committed at 05:32:51 utc as `1ab75e88-77cf-4e74-ba67-9912f78259a2`. canonical reply `c9901b68-5dde-5277-914e-5d1acc1775a5` has a discord notice receipt. a calendar-attention wake preempted compression, completed in native attempt `d1871393-d71f-4fc5-8d80-c82450f2aee1` at 05:33:21 utc, and returned through foreground admission to compression. both units remained active with zero restarts.
+
+[installed acceptance](../issues/memory-freshness-installed.md) tracks genuine correction recall. [historical capacity](../issues/memory-usefulness-evaluation.md) awaits an ordinary busy and quiet interval.

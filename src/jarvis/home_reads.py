@@ -201,9 +201,13 @@ async def decision(
             text(
                 _ACTION
                 + """
-              AND a.id=:id AND (a.status='awaiting_approval' OR a.decided_at IS NOT NULL
+              AND a.id=:id AND (a.status='awaiting_approval'
                 OR a.approval_message_id IS NOT NULL
-                OR EXISTS (SELECT FROM home_notice n WHERE n.action_id=a.id))
+                OR EXISTS (SELECT FROM home_notice n WHERE n.action_id=a.id)
+                OR EXISTS (SELECT FROM native_invocation i WHERE i.action_id=a.id
+                  AND (i.reply_receipt->>'type'='pending_action'
+                    OR (i.tool_id='approval.respond' AND i.reply_receipt @>
+                        '{"type": "local_result", "success": true}'))))
             """
             ),
             params,

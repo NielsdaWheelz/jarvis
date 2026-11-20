@@ -199,11 +199,28 @@ def publish_assistant(assistant, declaration):
     publish(ETC / "jarvis.env", assistant)
 
 
+async def require_owner_pause(db):
+    from sqlalchemy import text
+
+    from jarvis.db import APPLICATION_SCHEMA_REVISION
+    from jarvis.messages import MessageStore
+
+    async with db.connect() as conn:
+        revision = await conn.scalar(text("SELECT version_num FROM alembic_version"))
+    if (
+        revision != APPLICATION_SCHEMA_REVISION
+        or await MessageStore(db).current_control(os.environ["JARVIS_OWNER_SCOPE"])
+        != "pause"
+    ):
+        raise RuntimeError(
+            f"need schema {APPLICATION_SCHEMA_REVISION} and canonical owner pause"
+        )
+
+
 async def install_staged(stage, bootstrap):
     from sqlalchemy import text
 
     from jarvis.db import create_engine
-    from jarvis.messages import MessageStore
     from jarvis.ownership import maintenance_ownership
 
     engine = create_engine(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
@@ -228,14 +245,14 @@ async def install_staged(stage, bootstrap):
                         command.upgrade(config, "0015")
 
                     await conn.run_sync(migrate_empty)
-                revision = await conn.scalar(
-                    text("SELECT version_num FROM alembic_version")
-                )
-                if bootstrap and (
-                    revision != "0015"
-                    or await conn.scalar(text("SELECT EXISTS (SELECT FROM message)"))
-                ):
-                    raise RuntimeError("bootstrap requires empty schema 0015")
+                if bootstrap:
+                    revision = await conn.scalar(
+                        text("SELECT version_num FROM alembic_version")
+                    )
+                    if revision != "0015" or await conn.scalar(
+                        text("SELECT EXISTS (SELECT FROM message)")
+                    ):
+                        raise RuntimeError("bootstrap requires empty schema 0015")
             assistant, embedding, memory = split_environment(
                 (stage / "jarvis.env").read_bytes()
             )
@@ -247,17 +264,9 @@ async def install_staged(stage, bootstrap):
                 entries = dict(
                     row.split(b"=", 1) for row in assistant.splitlines() if b"=" in row
                 )
-                if (
-                    revision != "0017"
-                    or any(entries.get(k.encode()) != v for k, v in old.items())
-                    or await MessageStore(db).current_control(
-                        os.environ["JARVIS_OWNER_SCOPE"]
-                    )
-                    != "pause"
-                ):
-                    raise RuntimeError(
-                        "need schema 0017, original owner identities and pause"
-                    )
+                await require_owner_pause(db)
+                if any(entries.get(k.encode()) != v for k, v in old.items()):
+                    raise RuntimeError("need original owner identities")
             publish(ETC / "embedding.env", embedding)
             publish(ETC / "memory.env", memory)
             publish_assistant(assistant, (stage / "memory.json").read_bytes())

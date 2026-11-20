@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+directory="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+exec uv run --project "$directory" --offline --frozen --no-dev python \
+  "$directory/deploy/memory_backup_restore.py" "$@"

@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Publish a single verified read-only snapshot from the selected release."""
+
+import asyncio
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import threading
+from contextlib import ExitStack
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
+
+import httpx
+from memory_backup_storage import Bucket, producer_settings
+from memory_snapshot import POSTGRES_BIN, snapshot
+
+from jarvis.db import create_engine
+
+ROOT = Path("/opt/jarvis")
+DATABASE_URL = "postgresql+psycopg://jarvis_backup@127.0.0.1:5432/jarvis"
+
+
+def upload_database(bucket, key, snapshot_id, recipient):
+    dump_error = None
+
+    def copy_dump():
+        nonlocal dump_error
+        try:
+            with age.stdin, traverse.stdin:
+                while block := dump.stdout.read(128 * 1024):
+                    age.stdin.write(block)
+                    traverse.stdin.write(block)
+        except Exception as error:
+            dump_error = error
+
+    processes = []
+    with ExitStack() as stack:
+
+        def start(command, **pipes):
+            proc = stack.enter_context(
+                subprocess.Popen(command, stderr=subprocess.DEVNULL, **pipes)
+            )
+            processes.append(proc)
+            return proc
+
+        try:
+            dump = start(
+                [
+                    POSTGRES_BIN / "pg_dump",
+                    "-Fc",
+                    "--snapshot",
+                    snapshot_id,
+                    "--no-password",
+                ],
+                stdout=subprocess.PIPE,
+            )
+            age = start(
+                ["age", "--encrypt", "--recipient", recipient],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            )
+            traverse = start(
+                [POSTGRES_BIN / "pg_restore", "--exit-on-error", "--file=/dev/null"],
+                stdin=subprocess.PIPE,
+            )
+            pump = threading.Thread(target=copy_dump)
+            pump.start()
+
+            def require_valid_dump():
+                pump.join()
+                if dump_error or any(process.wait() for process in processes):
+                    raise RuntimeError("dump, encryption or traversal failed")
+
+            try:
+                return bucket.put_dump(key, age.stdout, require_valid_dump)
+            finally:
+                for process in processes:
+                    if process.poll() is None:
+                        process.kill()
+                pump.join()
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+
+
+async def backup(config, credentials):
+    os.environ.update(
+        PGHOST="127.0.0.1",
+        PGPORT="5432",
+        PGDATABASE="jarvis",
+        PGUSER="jarvis_backup",
+        PGPASSFILE=str(credentials / "database"),
+        PGCONNECT_TIMEOUT="10",
+    )
+    with (ROOT / ".deploy.lock").open("rb") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        release = (ROOT / "current").resolve(strict=True)
+        if release != Path.cwd() or release != Path(__file__).resolve().parent.parent:
+            raise RuntimeError("backup process does not own the selected release")
+        receipt = json.loads((release / "RELEASE.json").read_bytes())
+        if receipt["commit"] != release.name:
+            raise RuntimeError("release receipt differs from the selected release")
+        bucket = Bucket(config)
+        engine = create_engine(DATABASE_URL)
+        try:
+            async with engine.begin() as connection:
+                exported, facts = await snapshot(connection)
+                cut = datetime.fromisoformat(facts["cut_utc"])
+                generation = f"{cut.strftime('%Y%m%dT%H%M%S%fZ')}-{uuid4().hex}"
+                ciphertext = await asyncio.to_thread(
+                    upload_database,
+                    bucket,
+                    f"{generation}/database.age",
+                    exported,
+                    config["recipient"],
+                )
+        finally:
+            await engine.dispose()
+        manifest = {
+            **facts,
+            "version": 1,
+            "generation": generation,
+            "release_commit": receipt["commit"],
+            "uv_lock_sha256": receipt["uv_lock_sha256"],
+            "reader_image": config["reader_image"],
+            "ciphertext": ciphertext,
+        }
+        encrypted = await asyncio.to_thread(
+            subprocess.run,
+            ["age", "--encrypt", "--recipient", config["recipient"]],
+            input=json.dumps(manifest, separators=(",", ":")).encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        await asyncio.to_thread(
+            bucket.put_manifest, f"{generation}/manifest.age", encrypted.stdout
+        )
+        print(f"verified backup {generation} from {facts['cut_utc']}", flush=True)
+        if not timedelta() <= datetime.now(UTC) - cut <= timedelta(hours=1):
+            raise ValueError("the verified cut missed the freshness deadline")
+
+
+def ping(token, *, failed):
+    suffix = "/fail" if failed else ""
+    httpx.post(
+        f"https://hc-ping.com/{token}{suffix}",
+        content=b"",
+        timeout=10,
+        trust_env=False,
+    ).raise_for_status()
+
+
+def main():
+    try:
+        if len(sys.argv) != 1:
+            raise ValueError()
+        credentials = Path(os.environ["CREDENTIALS_DIRECTORY"])
+        config = producer_settings((credentials / "settings").read_bytes())
+    except (KeyError, OSError, ValueError):
+        print("memory backup credentials are missing or invalid", file=sys.stderr)
+        return 1
+    try:
+        asyncio.run(backup(config, credentials))
+    except Exception as error:
+        # Exceptions from the SDK can carry request coordinates and credentials.
+        print(f"memory backup failed ({type(error).__name__})", file=sys.stderr)
+        try:
+            ping(config["ping"], failed=True)
+        except httpx.HTTPError:
+            print("memory backup failure ping failed", file=sys.stderr)
+        return 1
+    try:
+        ping(config["ping"], failed=False)
+    except httpx.HTTPError:
+        print("verified backup could not report freshness", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

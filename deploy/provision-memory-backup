@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# == 1 && "$1" =~ ^[0-9a-f]{40}$ && "$(uname -s)" == Darwin ]]; then
+  settings="${JARVIS_BACKUP_SETTINGS:?set JARVIS_BACKUP_SETTINGS to the private producer JSON file}"
+  [[ -f "$settings" && "$(stat -f '%u:%Lp' "$settings")" == "$(id -u):600" ]]
+  exec ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy sudo -n     "/opt/jarvis/releases/$1/deploy/provision-memory-backup" --on-host "$1" < "$settings"
+fi
+
+if [[ $# != 2 || ! "$2" =~ ^[0-9a-f]{40}$ || "$EUID" != 0 ]]; then
+  printf 'usage on the mac: deploy/provision-memory-backup EXPECTED_RELEASE\n' >&2
+  exit 64
+fi
+release="/opt/jarvis/releases/$2"
+if [[ "$1" == --on-host ]]; then
+  # The manager's unit owns the flock even if this workstation disconnects.
+  exec systemd-run --quiet --wait --pipe --collect --property=Type=exec \
+    "--property=WorkingDirectory=$release" --property=EnvironmentFile=/etc/jarvis/migration.env \
+    --property=EnvironmentFile=/etc/jarvis/jarvis.env \
+    /usr/bin/flock --exclusive --nonblock /opt/jarvis/.deploy.lock \
+    "$release/deploy/provision-memory-backup" --locked "$2"
+fi
+[[ "$1" == --locked ]]
+[[ "$(readlink -e /opt/jarvis/current)" == "$release" ]]
+[[ "$(readlink -e "$0")" == "$release/deploy/provision-memory-backup" ]]
+[[ -x "$release/.venv/bin/python" && -x /usr/bin/age ]]
+
+for unit in jarvis.service jarvis-memory.service; do
+  if [[ "$(systemctl show -p ActiveState --value "$unit")" != inactive ||
+        "$(systemctl show -p Result --value "$unit")" != success ||
+        "$(systemctl show -p MainPID --value "$unit")" != 0 ||
+        "$(systemctl show -p ControlPID --value "$unit")" != 0 ]]; then
+    printf '%s must be cleanly stopped\n' "$unit" >&2
+    exit 1
+  fi
+done
+if systemctl is-active --quiet jarvis-backup.timer ||
+   systemctl is-enabled --quiet jarvis-backup.timer ||
+   systemctl is-active --quiet jarvis-backup.service; then
+  printf 'stop and disable backup scheduling before provisioning\n' >&2
+  exit 1
+fi
+"$release/.venv/bin/python" "$release/deploy/memory_backup_credentials.py"
+for unit in jarvis-backup.service jarvis-backup.timer; do
+  install -m 0644 -o root -g root "$release/deploy/$unit" "/etc/systemd/system/$unit"
+done
+systemctl daemon-reload
+printf 'backup credentials verified. recurring timer is disabled.\n'

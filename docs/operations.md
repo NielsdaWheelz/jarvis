@@ -409,6 +409,77 @@ content and file routes, and an explicit access denial for an unrelated google
 account. the allowed owner can reach the edge outage at this stage. after
 activation, verify that owner login returns to the exact pinned page/file. [connector validation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
 
+### off-host central memory recovery
+
+[adr 0088](decisions/0088-storage-and-memory-recovery.md) covers the whole
+`jarvis` database and isolated reads. the latest upload and latest verified
+read are separate facts. use the mac for the following operations.
+
+1. create a private r2 bucket dedicated to these backups. turn on a 30-day
+   whole-bucket lock, 30-day expiry and expiry of abandoned multipart uploads.
+   keep the cloudflare configuration credential off hetzner. issue bucket-only
+   object read-write for the producer and a distinct bucket-only read credential
+   for recovery. verify creation, rejected overwrite and rejected deletion on a
+   disposable setup with the same rules before using the backup bucket.
+2. set a distinct healthchecks.io check to 12 hours plus six hours of grace and
+   connect the verified owner email. verify alarm and recovery on a disposable
+   check. use only its check uuid in the producer configuration.
+3. on filevault storage create a mode-0700 owner recovery kit. put the age
+   identity in mode-0600 `identity` and keep an independent offline copy. put
+   the read-only r2 settings in mode-0600 `restore.json` with string fields
+   `account`, `bucket`, `access_key`, `secret_key`. cache the exact frozen
+   jarvis dependencies on the clean mac and install `age`, `uv` and local
+   docker desktop with the containerd image store.
+   build and retain the reader from the candidate release:
+
+   ```sh
+   mkdir -m 0700 "$kit/readers"
+   git archive "$release" | docker build --platform linux/arm64 \
+     -f deploy/memory-reader.Dockerfile -t jarvis-memory-reader -
+   reader="$(docker image inspect --format '{{.Id}}' jarvis-memory-reader)"
+   docker image save --output "$kit/readers/${reader#sha256:}.tar" "$reader"
+   ```
+
+4. prepare a separate mode-0600 producer json file with the same four field
+   names and its own write credential. include `recipient` with the age public
+   recipient, `reader_image` with the saved image id, and `ping` with the backup
+   check uuid. install ubuntu's `age` package. after separate owner approval,
+   select the backup-capable release through the ordinary paused deployment,
+   stop both writers cleanly, then provision from the mac. restart both units
+   through the ordinary paused release procedure and keep recurring backups
+   disabled for the first drill. provisioning confines the backup login to
+   the local jarvis database and reloads postgres configuration in place.
+
+   ```sh
+   JARVIS_BACKUP_SETTINGS="$producer_json" deploy/provision-memory-backup "$release"
+   ssh dev-server-deploy sudo -n systemctl start jarvis-backup.service
+   ssh dev-server-deploy sudo -n journalctl -u jarvis-backup.service -n 20 --no-pager
+   ```
+
+5. start with an available clean mac and the owner kit, with hetzner unreachable
+   from the drill. select the exact backup folder containing `manifest.age`
+   in r2. use a fresh private output directory on filevault storage whose parent
+   already exists. the report records the cut age, verification time, memory
+   coverage, witness counts and any failed comparisons. a verified r2 restore
+   selects a newer tested copy in the kit. verify the held path with the second
+   command before activating the timer.
+
+   ```sh
+   JARVIS_RECOVERY_KIT="$kit" deploy/memory-restore "r2/$generation" "$private_report_dir"
+   JARVIS_RECOVERY_KIT="$kit" deploy/memory-restore "held/$generation" "$held_report_dir"
+   ssh dev-server-deploy sudo -n systemctl enable --now jarvis-backup.timer
+   ```
+
+   use the reported held generation if it differs. a failed restore leaves its
+   private report and the prior selected copy. a hard interruption can leave
+   a private working directory or an unselected directory under `held`.
+   inspect the report and selected `held/current.json` under the kit lock
+   before manually disposing of either.
+
+confirm the next scheduled backup and its freshness signal. rehearse monthly
+and after changes to schema, keys, storage or the reader. only a distinct,
+authorized resumption can start the restored application's writers.
+
 ### stopped web cut from 0016 to 0017
 
 1. stage the target and private ingress. on the selected release collect the

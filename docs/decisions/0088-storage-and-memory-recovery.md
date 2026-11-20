@@ -73,8 +73,10 @@ check. [ping api](https://healthchecks.io/docs/http_api/) · [period and grace](
 
 ## c. central memory recovery
 
-**installation.** c owns a new `deploy/provision-memory-backup EXPECTED_RELEASE`
-for a same-schema `0016` install. stage the tooling with its timer disabled.
+**installation.** c owns `deploy/provision-memory-backup EXPECTED_RELEASE`
+for a same-schema `0017` install. the installed web-home cut superseded the
+reviewed `0016` baseline before implementation began. the release and both
+writers stay on the current schema. stage the tooling with its timer disabled.
 from the mac use `dev-server-deploy`, `sudo -n` and the exclusive release file
 lock. verify the selected release and both cleanly stopped units. reuse the
 schema and canonical-pause check from [install_staged](../../deploy/memory_credentials.py)
@@ -83,8 +85,12 @@ through provisioning. create/verify the locked `jarvis-backup` os account and
 stage a root-only credential. while the migrator holds both keys, use local
 `runuser -u postgres -- psql` for one transaction creating/verifying the
 `jarvis_backup` login and granting connect, schema usage and select on the exact
-tables and required sequences. reject extra grants or memberships. atomically publish
-the staged credential, verify its login and denials, and leave the timer
+tables and required sequences. a narrow pg_hba rule confines this login
+to jarvis through ipv4 loopback. deny durable large-object creation through
+postgres defaults, preserving that authority for the current writer roles.
+reload the cluster configuration and prove login and denial across the actual
+routes. reject extra grants or memberships. atomically publish
+the staged credential, verify its login and leave the timer
 disabled. retry uses the same staged identity. refuse a live writer, mismatched
 release/schema or missing owner pause before changing authority. restart
 serving through the ordinary paused release procedure.
@@ -100,7 +106,8 @@ text keys and identical utc, date and numeric rendering on both ends. in
 one open repeatable-read transaction export the snapshot, record the cut time,
 compute the inventory and select read witnesses. pass that snapshot to a full
 `pg_dump -Fc` from the server's pg16 bindir. require the schema's complete
-table roster (18 application tables plus alembic at `0016`). each subsequent
+table roster (19 application tables including `home_notice`, plus alembic,
+at `0017`). each subsequent
 migration owns any new grants and inventory qualification. fail on an unknown
 schema. a whole dump retains private
 non-memory rows as the cost of one coherent recovery point. [postgres dump contract](https://www.postgresql.org/docs/16/app-pgdump.html)
@@ -160,7 +167,8 @@ pg16, the installed vector version (0.8.6 at baseline), restore code and its
 locked dependencies. retain it off-host while referenced. the current development
 compose image has vector 0.8.1. decrypt into a new private encrypted-volume
 directory. run the database and read in a fresh `--network none` container
-with only staged inputs and its own data volume. omit host sockets, ssh, live
+with staged read-only inputs and a separate private encrypted-volume directory
+for postgres data. omit host sockets, ssh, live
 credentials and checkout mounts. create named local roles and a fresh database
 from `template0` with local credentials and database-level grants. restore with pg16
 `pg_restore --exit-on-error --single-transaction`. admit only a select-only

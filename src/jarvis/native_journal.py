@@ -2034,8 +2034,7 @@ async def fail_native_product(
         ):
             raise NativeDefect("provider failure settlement requires its original seal")
         already_charged = (
-            failure is not None
-            and not isinstance(failure, str)
+            not isinstance(failure, str)
             and attempt is not None
             and not attempt["recovery_pending"]
         )

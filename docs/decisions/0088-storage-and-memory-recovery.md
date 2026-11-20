@@ -232,3 +232,16 @@ and jarvis-local grants. postgres retains ordinary session and advisory-lock
 behavior. archive transport and sender-loss proof used the real sdk and age
 against a disposable endpoint. verify the actual cloudflare lock and lifecycle,
 the first production recovery before enabling the schedule. [open restore issue](../issues/memory-backup-restore.md)
+
+on the installed schema `0018`, the merged preparation preserved the original
+adr 0092 v4 stopped receipt byte-for-byte in a populated postgres 16 migration.
+the isolated reader matched 20 table digests, grants, the owner-anchor index and
+frozen coverage, then opened 10 event parts and an explicit note. it rejected
+altered grant/index inventories. a concurrent vector update stayed outside
+the exported snapshot. `9538bc8` rebuilt the pinned reader on the mac for the
+production drill. the same commit's
+journal-only producer streamed a real pg16 dump to age through the ordinary
+entrypoint. the mac controller restored it in 4.91 seconds through a disposable
+s3 fixture and in 4.88 seconds from the held copy after removing the fixture
+endpoint. the producer rejects stale cuts and the retired ping field.
+production backup and restore remain open.

@@ -27,8 +27,11 @@ probe that the mac decrypted. the bucket contains no production backup.
 
 the owner approved proceeding without healthchecks.io for the first drill.
 production selected adr 0092 and schema `0018`. at preflight both units were
-running under the existing owner pause. qualify and stage the backup-capable
-`0018` release. keep an independent offline copy of the recovery identity.
+running under the existing owner pause. the backup-capable `0018` release
+`9538bc8` passed the full isolated pipeline including the held copy. its
+reader and producer settings are staged privately on the mac. choose an
+encrypted destination for the independent offline copy of the recovery
+identity, then install, run the first production backup and prove its restore.
 the backup timer is still uninstalled.
 
 resolved when the installed backup runs on schedule and the adr 0088 drill

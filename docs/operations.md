@@ -1109,13 +1109,9 @@ is a cutover recovery artifact, not ongoing or off-machine backup. follow the
 current contract's restore limits; do not treat code rollback as data rollback.
 activation stays in postgres. sources and notes stay append-only; revocation
 stops new capture/direct saves without removing already admitted material.
-V1 has no backup, restore command, Restic repository, R2 credential, backup
-database role, or backup timer. There is no `jarvis-restic-password`; do not
-invent or provision one. Loss or unrecoverable corruption of the devbox, its
-disk, or the Jarvis database can permanently lose conversation, memory, action,
-and runtime state. This is an explicit one-user-prototype trade-off. Add backup
-as a later slice when retained production state justifies its operational and
-qualification cost; doing so does not require another application table.
+[off-host central memory recovery](#off-host-central-memory-recovery) owns
+scheduled snapshots and isolated proof. the adrs retain their distinct
+stopped cutover procedures.
 
 Ordinary logs contain event types, bounded IDs, counts, and reason codes
 only—not messages, prompts, memory text, tool payloads, tokens, or credentials.

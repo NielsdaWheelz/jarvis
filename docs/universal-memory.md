@@ -507,7 +507,9 @@ archive_read(home, native_id, after?, from_event_id?)
   a valid checkpoint takes precedence; `after` applies before the first commit.
   an absent checkpoint event fails
   `history_changed`; without a checkpoint, an absent non-null activation boundary
-  fails `activation_boundary_lost` and parks capture for operator repair. neither
+  fails `activation_boundary_lost` and parks capture for operator repair.
+  [adr 0089](decisions/0089-native-capture-repair.md) requires corroborated
+  absence before either park and owns the claude archive input budgets. neither
   resets activation to current head or imports an earlier prefix. native times
   never filter eligibility. inherited fork copies may be omitted only with the
   native lineage and complete central coverage proof above, during central ingest.

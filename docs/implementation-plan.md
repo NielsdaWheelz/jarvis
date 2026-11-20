@@ -31,6 +31,9 @@ the read-only mounted state boundary and actual installed service-uid reads pass
 on both online hosts; [installed evidence](universal-memory.md#native-memory-installed-qualification)
 does not replace the separate worker observation journey.
 
+[adr 0089](decisions/0089-native-capture-repair.md) owns the independent native
+collector cut and its installed recovery evidence.
+
 ## destination and rules
 
 one visible jarvis remembers context, keeps useful working records and carries

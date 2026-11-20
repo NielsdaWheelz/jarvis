@@ -318,7 +318,7 @@ the branch starts at `ae487ca`. the following checks used isolated fixtures.
   pause. repeated preparation checked the same state. an independent cold bootstrap
   under the application uid refused a second initialization. the pinned 2026.10.4
   connector validated its generated rule, matched the private socket and rejected an
-  unrelated hostname. these checks used disposable resources. [installed acceptance](../issues/private-web-home-installed.md)
+  unrelated hostname. these checks used disposable resources. [production cut](#production-cut-2026-11-19-utc)
 
 - **native conversation.** opening, steer and replay kept owner speech apart from its
   typed object. a descendant could present an already completed owner's result.
@@ -413,5 +413,17 @@ off. the owner sent `resume` in discord after cutover. zero owner messages from
 discord were admitted after the new service became active. the subsequent web
 `resume` at 16:47 utc committed as control 18, input `8bdbb816-4b89-481f-a632-6e75f7fdc914`.
 its canonical reply `6b144c91-50d7-5896-acaf-b7a82587247b` produced one notice
-with a discord message receipt. the remaining [installed journey](../issues/private-web-home-installed.md)
-includes physical phone delivery and printing.
+with a discord message receipt. a later web request for the pdf produced a final
+reply referencing the retained original. all eight reply notices had discord receipts.
+
+the owner accepted the installed web home and requested closure. the physical
+print and interrupted-send retry have no separate production receipt. captionless
+uploads, two-tab revision withdrawal and a conversational approval carry their
+candidate proofs. production had zero web-upload rows and zero decision notices
+at closeout. the source and installed evidence above retain those boundaries.
+
+the selected recovery dump passed its sha256 and a full archive read. both private
+copies matched their recorded hashes. across both snapshots, the original 18 table
+inventories, owner scope, pause and private-copy hashes matched. the superseded
+`344abf9` rehearsal snapshot was removed and the selected copy was checked again.
+[discord channel administration](../issues/discord-alert-channel.md) remains open.

@@ -13,7 +13,7 @@ the single discord chat. the private website owns conversation, uploads and
 decisions. jarvis publishes the main canvas from its notes workspace. discord
 delivers notification links. the adr supersedes conflicting client, readiness,
 delivery and presentation rules below. production runs the web release at schema
-`0017`. [installed journey](docs/issues/private-web-home-installed.md)
+`0017`. [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
 ## accepted native recovery and memory availability target
 

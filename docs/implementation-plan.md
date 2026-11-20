@@ -62,7 +62,7 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
 records the source, candidate and stopped production proofs. production runs
-`0017`. [installed acceptance](issues/private-web-home-installed.md) tracks the owner's phone and web journey.
+`0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
 the native client and native notifications belong to the following pr.
 
 ## native recovery and memory availability

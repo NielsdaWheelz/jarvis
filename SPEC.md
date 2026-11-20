@@ -321,6 +321,10 @@ checkpoint validation, schema or authority. the consolidated collector contract
 states fairness and elapsed-time limits; source proof remains distinct from live
 capture qualification.
 
+[adr 0089](docs/decisions/0089-native-capture-repair.md) adopts corroborated
+native boundary loss, bounded claude archive tool results and targeted source
+recovery. it preserves the v3 protocol, original cuts and future-only baselines.
+
 accepted memory completion target (2026-11-14):
 [adr 0070](docs/decisions/0070-nexus-capture-and-memory-delivery.md) adopts the
 [completion contract](docs/memory-delivery.md). finish the existing system and

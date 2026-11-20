@@ -1,6 +1,6 @@
 # devbox codex-work2 missing native source
 
-status: missing originals unresolved, 2026-11-15. tools work; adr 0073 authorizes
+status: 21 pending after the adr 0089 collector cut, 2026-11-20. adr 0073 authorizes
 healthy/new capture with explicit pending baselines for unreadable conversations.
 
 problem: 21 of the latest 211 inventoried native threads depend on two missing
@@ -24,6 +24,16 @@ were modified during diagnosis. oldest-first and newest-first native paginated
 reads both fail with limit one; reading only the latest event cannot bypass the
 missing dependency. the cause of the files' absence is unknown; linked segments
 do not establish that all affected conversations were user-created forks.
+
+at 08:04 utc on 2026-11-19, one-item metadata reads through the installed
+app-server failed in both directions for all 21 currently pending conversations.
+the native errors named two missing source segments. 14 conversations depend
+on one and seven on the other.
+
+the [managed cleanup audit](https://github.com/NielsdaWheelz/dev-server/blob/c3a6994607686dbbf28902308d49b6874d509f28/docs/issues/universal-memory-activation.md#devbox-missing-source-audit-2026-11-19)
+found no fleet-owned removal path into native rollouts. the installed v3 slot
+still has 21 unavailable baselines. lookup remains open for an owner-designated
+copy of either original.
 
 resolved when: recover the exact original native evidence through its native owner,
 then prove each pending conversation establishes one stable cut and captures new

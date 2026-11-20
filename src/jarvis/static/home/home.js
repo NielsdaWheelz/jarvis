@@ -398,12 +398,14 @@ async function messages() {
     data = await read("/api/messages?before=" + encodeURIComponent(data.next_before));
     chunks.push(data.items);
   }
-  // A direct link can render before the first page of surrounding messages.
+  // The direct read may have a shorter scroll range until surrounding messages arrive.
   let openingOffset = null;
   if (!initialized) {
-    if (selectedMessage)
-      openingOffset =
-        reloadReading?.id === selectedMessage ? reloadReading.offset : selectedMessageOffset();
+    if (selectedMessage) {
+      openingOffset = selectedMessageOffset();
+      if (reloadReading?.id === selectedMessage && reloadReading.appliedOffset === openingOffset)
+        openingOffset = reloadReading.offset;
+    }
     earliest = data.next_before;
     initialized = true;
   }
@@ -471,12 +473,12 @@ function empty(title, action) {
   if (action) box.append(action);
   return box;
 }
-async function renderRoute() {
+async function renderRoute({ refreshing = false } = {}) {
   const ver = ++routeVersion,
     [, kind, key, more] = location.pathname.split("/");
   const same = () => ver === routeVersion;
   const marker = location.pathname + location.search;
-  if (kind === "m") {
+  if (kind === "m" && (!refreshing || selectedMessage !== key)) {
     chooseTab("chat");
     const m = await read("/api/messages/" + key);
     if (!same()) return;
@@ -489,11 +491,12 @@ async function renderRoute() {
       document.querySelector(".selected")?.classList.remove("selected");
       const node = $("msg-" + m.id);
       node.classList.add("selected");
-      const offset = reloadReading?.id === m.id ? reloadReading.offset : 0;
-      $("chat").scrollTop += selectedMessageOffset() - offset;
-      if (initialized) reloadReading = null;
+      const restore = reloadReading?.id === m.id && reloadReading.appliedOffset === undefined;
+      $("chat").scrollTop += selectedMessageOffset() - (restore ? reloadReading.offset : 0);
+      if (restore && !initialized) reloadReading.appliedOffset = selectedMessageOffset();
+      else reloadReading = null;
     } else $("receipt").textContent = "this message is no longer available.";
-  } else selectedMessage = null;
+  } else if (kind !== "m") selectedMessage = null;
   if (kind === "d" || kind === "t") {
     chooseTab(kind === "d" ? "decisions" : "todos");
     if (mobile.matches && !history.state?.drawer) history.replaceState({ panel: true }, "");
@@ -712,7 +715,7 @@ async function refresh() {
       (path.startsWith("/f/") && $("object-tools").hidden) ||
       !displayed
     )
-      await renderRoute();
+      await renderRoute({ refreshing: true });
     if (current?.kind === "view" && !path.startsWith("/v/")) {
       const pinned = current;
       const available = await read("/api/views/" + pinned.slug + "/" + pinned.rev);

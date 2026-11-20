@@ -19,6 +19,7 @@ import httpx
 from llm_tools import canonical_json_bytes
 from provider_runtime.agent_runtime.archive import (
     ARCHIVE_CONTRACT_REVISION,
+    ArchiveBoundaryUncertain,
     ArchiveError,
     ArchiveHome,
     ArchiveMissing,
@@ -164,7 +165,8 @@ class Collector:
             digest = None
             if checkpoint is not None:
                 if not pending or pending[0].native_event_id != checkpoint:
-                    raise ArchiveError("history_changed")
+                    _LOG.warning("memory capture checkpoint omitted %s", receipt.id)
+                    return False
                 digest = pending.pop(0).native_digest
                 if digest != receipt.checkpoint_native_digest:
                     raise ArchiveError("source_conflict")
@@ -241,6 +243,9 @@ class Collector:
                         checkpoint = receipt.checkpoint_event_id
             if reason is None:
                 return caught_up
+        except ArchiveBoundaryUncertain:
+            _LOG.warning("memory capture boundary inconclusive %s", receipt.id)
+            return False
         except ArchiveMissing:
             reason = "native_missing"
         except ArchiveError as error:

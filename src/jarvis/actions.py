@@ -61,9 +61,9 @@ from jarvis.agent_tools import (
     AgentWriteTarget,
     WireFailure,
     WireStartResult,
-    validate_agent_evidence,
     validate_agent_failure,
     validate_agent_success,
+    validate_stored_agent_evidence,
 )
 from jarvis.attachment_tools import AttachmentDeleteResult
 from jarvis.db import (
@@ -1916,8 +1916,6 @@ def _validate_stored_action(stored: StoredAction) -> None:
             _uncertainty_result(stored, stored.result)
         elif stored.status in {"succeeded", "failed"}:
             result = _stored_tool_result(stored)
-            if "control" in stored.result:
-                _agent_evidence(stored, stored.result["control"])
             if (stored.status == "succeeded") != (result["type"] == "Success"):
                 raise ValueError("stored action status disagrees with its result")
             if stored.tool_name in AGENT_WRITE_IDS:
@@ -2117,12 +2115,12 @@ def _agent_receipt_resolution(
     value = AGENT_INPUT_TYPES[operation].model_validate(stored.payload)
     if not isinstance(value, AgentStartInput | AgentTargetInput):
         raise ActionPersistenceDefect("worker receipt has foreign input")
-    control = (
-        AgentActionEvidence()
+    observed = (
+        None
         if stored.result is None
-        else validate_agent_evidence(operation, stored.result)
+        else validate_stored_agent_evidence(operation, stored.result).observed
     )
-    result = classify_agent_receipt(operation, value, control.observed)
+    result = classify_agent_receipt(operation, value, observed)
     if result is None:
         return "uncertain", agent_uncertainty_result(stored)
     failed = isinstance(result, AgentError)
@@ -2133,7 +2131,7 @@ def _agent_receipt_resolution(
                 "type": "Failure" if failed else "Success",
                 "error" if failed else "value": result.model_dump(mode="json"),
             },
-            "control": control.model_dump(mode="json", exclude_none=True),
+            "control": stored.result,
         },
     )
 
@@ -2259,7 +2257,7 @@ def _agent_evidence(stored: StoredAction, value: object) -> None:
     if retired_worker_action(stored):
         raise ActionPersistenceDefect("retired action must drain before activation")
     operation = str(stored.tool_name).removeprefix("agent.")
-    validate_agent_evidence(operation, value)
+    validate_stored_agent_evidence(operation, value)
 
 
 def _gmail_update_basis(value: dict[str, object]) -> dict[str, object]:
@@ -2387,7 +2385,7 @@ def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
         stored.status == "uncertain"
         and stored.result.get("type") == "agent_uncertainty_v1"
     ):
-        control = validate_agent_evidence(
+        control = validate_stored_agent_evidence(
             str(stored.tool_name).removeprefix("agent."), stored.result.get("control")
         )
         return {

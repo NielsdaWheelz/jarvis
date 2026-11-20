@@ -86,6 +86,11 @@ capture addressed writes/waits ONCE before insertion into
 changed panes/successors never renew it. native conversation targets and
 read/write/identity paths are removed without compatibility decoding.
 
+in live session replies, optional `terminalUsage` contains one or both windows
+`fiveHour` and `sevenDay`. each carries an integer `usedPercent` in 0–100 and
+may include `resetsAt`, a whole-second utc instant spelled
+`YYYY-MM-DDTHH:MM:SSZ`. omit absent fields. quota stays private.
+
 fixed `--config STATE_DIRECTORY --json`, with the live enrolled state directory
 from `JARVIS_AGENT_STATE_DIRECTORY`; no retired private client-json or copied-state
 fallback. argv uses no shell and only `PATH=/usr/bin:/bin`; input is literal stdin.
@@ -99,6 +104,12 @@ external start/send/text/keys/stop/close are `BilledOnce`: one executor entry.
 known staged `agent_control_v5` evidence settles through the same classifier on
 restart without dispatch. missing/unknown evidence remains uncertain; never
 relaunch/resend automatically.
+
+on reopening an `agent_control_v5` receipt, its optional
+`observed.terminal.session.terminalUsage` is an opaque json object. validate
+the parent, operation and captured target as usual. an empty observation can
+carry `observed: null`. settlement preserves the original staged json in
+`control`. the compact public result describes the worker outcome.
 
 wait/cancel are local `ReDispatchable` actions: two lifetime entries, zero worker
 mutation attempts. reuse `ActionStore`/`ActionPositionRecorder`:

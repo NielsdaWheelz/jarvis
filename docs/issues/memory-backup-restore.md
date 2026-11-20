@@ -1,42 +1,14 @@
 # memory backup and restore
 
-status: open. [adr 0088](../decisions/0088-storage-and-memory-recovery.md)
-defines the target. source and isolated recovery passed. production recovery
-remains open.
+status: open for scheduled-run verification. the first production r2 backup
+and both isolated restores passed. [adr 0088 evidence](../decisions/0088-storage-and-memory-recovery.md#implementation-evidence)
 
-problem: current production memory still lacks a proved off-host recovery
-point for the canonical archive, notes and capture progress.
+on 2026-11-20 utc, `e7f5916` produced generation `20261120T055359985334Z-d2aedd79c2ab490f9511a0a4e91ae0ea`
+from the running `0018` database. the mac matched all 20 tables, schema and
+grants and reopened an event and a note. the r2 read took 45.196 seconds and
+the held-copy read took 42.678 seconds. the owner deferred a spare decryption
+identity until the home workstation is ready.
 
-impact: loss of the central store can lose admitted evidence and its capture
-boundaries. native files and rebuildable summaries are not equivalent backups.
-
-evidence: [memory delivery](../memory-delivery.md) deferred host-loss recovery.
-the [cutover rehearsal](../decisions/0086-native-recovery-and-memory-availability.md#production-cutover-evidence)
-restored the migration copy. the [isolated drill](../decisions/0088-storage-and-memory-recovery.md#implementation-evidence)
-proved the source path with test data.
-
-the owner authorized stopped provisioning. on 2026-11-20 utc, the private
-`jarvis-memory-backups` bucket reported its 30-day lock and expiry rules.
-distinct backup and recovery credentials authenticated. a disposable
-cloudflare bucket proved the lock and the actual encrypted multipart and
-completion-marker paths. long retention was verified by rule readback.
-the mac filevault kit
-reopened its pinned reader archive built from `d4c702a`. hetzner's
-installed age encrypted a
-probe that the mac decrypted. the bucket contains no production backup.
-
-the owner approved proceeding without healthchecks.io for the first drill.
-production selected adr 0092 and schema `0018`. at preflight both units were
-running under the existing owner pause. the backup-capable `0018` release
-`9538bc8` passed the full isolated pipeline including the held copy. its
-reader and producer settings are staged privately on the mac. the owner
-approved proceeding with the mac's only decryption identity and deferred a
-spare until the home workstation is ready. the candidate `9538bc8` is staged
-on hetzner. production still selected `d16a507` with canonical web `resume`
-sequence 20 at the staging check. the next step requires a fresh owner
-`pause` through the web composer. the backup timer is uninstalled.
-
-resolved when the installed backup runs on schedule and the adr 0088 drill
-recovers a current generation on an isolated second machine. record actual cut
-age, time to verified reads, inventory and checkpoint comparisons, independent
-configuration recovery, scheduled-run evidence and the retained proven copy.
+the timer is enabled and active. first scheduled run is 2026-11-20 12:00 utc.
+resolve after the journal records a fresh verified generation created by the
+timer. locally journaled failures require operator inspection.

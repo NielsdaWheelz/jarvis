@@ -71,7 +71,8 @@ the native client and native notifications belong to the following pr.
 mac rehearsal workflow, host capacity signal and jarvis backup/restore units.
 deliver against the installed memory baseline. qualify the first isolated
 off-host restore before enabling the recurring job. the source and isolated
-journeys passed, and local disk sampling is installed. production recovery remains open. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
+journeys passed, and local disk sampling is installed. the first production recovery passed.
+scheduled-run proof remains open. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
 
 ## shared memory freshness
 

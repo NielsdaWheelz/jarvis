@@ -449,6 +449,11 @@ read are separate facts. use the mac for the following operations.
    the local jarvis database and reloads postgres configuration in place.
    find its leading `jarvis backup connection scope` block via `SHOW hba_file`
    and inspect `pg_hba_file_rules`. provisioning refuses a displaced block.
+   the backup unit copies systemd's database credential into a `0600` file
+   under its private runtime directory for libpq. systemd removes it at exit.
+   on a backup-unit-only repair, install the unit from the selected release
+   under the exclusive deployment lock while the backup and timer are inactive,
+   then reload systemd. the existing database authority is reusable.
 
    ```sh
    JARVIS_BACKUP_SETTINGS="$producer_json" deploy/provision-memory-backup "$release"

@@ -20,8 +20,8 @@ delivery and presentation rules below. the production web cut landed at schema
 [adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
 development to the mac and defines production headroom and off-host central
 memory recovery. it supersedes the v1 backup deferral for this scope and grants
-the named temporary integration/live proof exception to adr 0046. installed
-recovery remains unqualified. the private web home retains its own delivery.
+the named temporary integration/live proof exception to adr 0046. the first
+production off-host restore is verified. scheduled-run proof remains open.
 
 ## shared memory freshness after the private web home
 

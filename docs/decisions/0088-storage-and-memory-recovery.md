@@ -1,6 +1,6 @@
 # adr 0088. development storage and central memory recovery
 
-accepted 2026-11-19. implemented in source. production recovery is open.
+accepted 2026-11-19. first production recovery verified. scheduled-run proof is open.
 this supersedes [0033](0033-defer-backups-and-host-reboot.md) for central memory
 backup only. [0086](0086-native-recovery-and-memory-availability.md) owns the
 installed `0016` baseline and its stopped migration copies.
@@ -246,4 +246,25 @@ journal-only producer streamed a real pg16 dump to age through the ordinary
 entrypoint. the mac controller restored it in 4.91 seconds through a disposable
 s3 fixture and in 4.88 seconds from the held copy after removing the fixture
 endpoint. the producer rejects stale cuts and the retired ping field.
-production backup and restore remain open.
+
+on 2026-11-20 utc the owner recorded web pause 21. the ordinary same-schema
+release installed the scoped read-only backup login. the first job failed on
+the live systemd credential file mode before any upload. release `e7f5916`
+uses a service-owned `0700` runtime directory and an ephemeral `0600` file
+for libpq. the ordinary service then verified the production generation
+`20261120T055359985334Z-d2aedd79c2ab490f9511a0a4e91ae0ea`. r2 reported 256,198,801 bytes of encrypted
+database data and 4,271 bytes of encrypted manifest, with december 20 expiry
+headers. the job exited zero and systemd removed the runtime password file.
+
+the mac fetched the generation over r2 with the independent read credential.
+the restored postgres and reader ran without network access. both the r2 and
+held-copy drills matched schema, grants and all 20 table digests. each reopened
+one original event and one explicit note at ready/admitted coverage 5,801/49,129.
+the r2 cut was 89 seconds old at drill start. the reads took 45.196 and 42.678
+seconds respectively. private reports live beside the production rollout
+receipts under `~/.adr0088-inventory-x0ohbe8w/deploy-0018/`.
+
+the timer was enabled only after both restores passed. it is active for 00:00
+and 12:00 utc with the first scheduled run due 2026-11-20 12:00 utc. the first
+actual scheduled success remains to be observed. both jarvis services were
+active and retained owner pause 21 at verification.

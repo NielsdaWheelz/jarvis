@@ -256,3 +256,11 @@ groups, 14 and seven. the fleet cleanup audit found no path to repair. an exact
 owner-designated source is required before the conditional restoration drill
 or original-lineage acceptance can run.
 [remaining source issue](../issues/devbox-work2-native-source.md)
+
+the temporary integration and live probes, disposable postgres, canary working
+directories and both private installer stages were removed after qualification.
+the normal retained canary histories and existing regression groups remain.
+
+the fleet pin landed in [dev-server 227](https://github.com/NielsdaWheelz/dev-server/pull/227).
+the current endpoint ports are [provider 60](https://github.com/NielsdaWheelz/llm-calling/pull/60)
+and [kernel 33](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/33).

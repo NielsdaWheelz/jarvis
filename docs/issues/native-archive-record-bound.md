@@ -5,9 +5,9 @@ real affected conversation awaits natural activity.
 
 historical problem: on 2026-11-16 one admitted `macbook/claude-work`
 conversation parked with `capture_error=event_too_large`. its preceding
-capture stayed intact until the later corpus reset. the old pre-reset tail
-and the 368 events preceding the current cut were excluded by that future-only
-boundary. the native original remains readable.
+capture stayed intact until the later corpus reset. unapplied pre-reset
+activity remains outside the archive. the current future-only cut excludes
+its 368 preceding events. the native original remains readable.
 
 evidence: a read-only repeat of public `archive_read` at the retained cut and
 checkpoint raises `ArchiveError(event_too_large)` in

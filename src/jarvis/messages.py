@@ -68,6 +68,7 @@ class StoredMessage:
     wait_reason: str | None
     control_kind: str | None
     home: dict[str, object] | None = None
+    native_retry_after: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,7 +500,9 @@ class MessageStore:
                         native_retry_after=None,
                         wait_reason=None,
                         processed_at=timestamp,
-                        trace=message.c.trace.op("-")("waiting_action_ids"),
+                        trace=message.c.trace.op("-")("waiting_action_ids").op("-")(
+                            "native_context_retry"
+                        ),
                     )
                 )
                 await cancel_unentered_actions(connection, targets, timestamp)
@@ -697,7 +700,9 @@ class MessageStore:
                     request_state="pending",
                     wait_reason=None,
                     processed_at=None,
-                    trace=message.c.trace.op("-")("waiting_action_ids").op("||")(
+                    trace=message.c.trace.op("-")("waiting_action_ids")
+                    .op("-")("native_context_retry")
+                    .op("||")(
                         func.jsonb_build_object(
                             "released_through_native_attempt", release_cut
                         )
@@ -725,6 +730,7 @@ def _stored_message(row: RowMapping) -> StoredMessage:
         wait_reason=row["wait_reason"],
         control_kind=row["control_kind"],
         home=row["home"],
+        native_retry_after=row["native_retry_after"],
     )
 
 

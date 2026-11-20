@@ -15,9 +15,22 @@ the [cutover rehearsal](../decisions/0086-native-recovery-and-memory-availabilit
 restored the migration copy. the [isolated drill](../decisions/0088-storage-and-memory-recovery.md#implementation-evidence)
 proved the source path with test data.
 
-blockers: provision the dedicated cloudflare bucket and independent key kit,
-connect the two hosted checks to owner email, and authorize the separate
-stopped production provisioning window. the backup timer remains uninstalled.
+the owner authorized stopped provisioning. on 2026-11-20 utc, the private
+`jarvis-memory-backups` bucket reported its 30-day lock and expiry rules.
+distinct backup and recovery credentials authenticated. a disposable
+cloudflare bucket proved the lock and the actual encrypted multipart and
+completion-marker paths. long retention was verified by rule readback.
+the mac filevault kit
+reopened its pinned reader archive built from `d4c702a`. hetzner's
+installed age encrypted a
+probe that the mac decrypted. the bucket contains no production backup.
+
+remaining prerequisites are the two owner-email checks and an independent
+offline copy of the recovery identity. adr 0092 occupies the single candidate
+slot with reviewed `d16a507`. preserve it. if 0092 migrates first, qualify
+recovery against `0018` before provisioning. record the owner pause in the
+authenticated web composer when the deployment window is ready. the backup
+timer is still uninstalled.
 
 resolved when the installed backup runs on schedule and the adr 0088 drill
 recovers a current generation on an isolated second machine. record actual cut

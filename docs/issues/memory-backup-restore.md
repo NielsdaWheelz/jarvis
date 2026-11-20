@@ -29,10 +29,10 @@ the owner approved proceeding without healthchecks.io for the first drill.
 production selected adr 0092 and schema `0018`. at preflight both units were
 running under the existing owner pause. the backup-capable `0018` release
 `9538bc8` passed the full isolated pipeline including the held copy. its
-reader and producer settings are staged privately on the mac. choose an
-encrypted destination for the independent offline copy of the recovery
-identity, then install, run the first production backup and prove its restore.
-the backup timer is still uninstalled.
+reader and producer settings are staged privately on the mac. the owner
+approved proceeding with the mac's only decryption identity and deferred a
+spare until the home workstation is ready. stage the release, record a current
+owner pause, install, and prove the first backup. the timer is uninstalled.
 
 resolved when the installed backup runs on schedule and the adr 0088 drill
 recovers a current generation on an isolated second machine. record actual cut

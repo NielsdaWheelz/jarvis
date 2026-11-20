@@ -108,8 +108,10 @@ non-memory rows as the cost of one coherent recovery point. [postgres dump contr
 to pinned `pg_restore --file=/dev/null` and check every process exit. use a
 separate bounded boto3 multipart client, recipient public key and object-only
 credential for a dedicated private backup bucket. the owner vault holds the
-bucket endpoint/read credential, image locator and decryption identity, with
-an independent offline key copy. use two create-only objects under each fresh
+bucket endpoint/read credential, image locator and decryption identity. the
+owner chose one identity on the mac for this rollout and deferred a spare
+until the home workstation is ready. losing the only identity makes the
+encrypted copies unreadable. use two create-only objects under each fresh
 generation key.
 
 ```text

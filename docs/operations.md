@@ -422,8 +422,9 @@ read are separate facts. use the mac for the following operations.
    for recovery. verify creation, rejected overwrite and rejected deletion on a
    disposable setup with the same rules before using the backup bucket.
 2. on filevault storage create a mode-0700 owner recovery kit. put the age
-   identity in mode-0600 `identity` and keep an independent offline copy. put
-   the read-only r2 settings in mode-0600 `restore.json` with string fields
+   identity in mode-0600 `identity`. the mac holds the only identity until the
+   owner adds a spare. put the read-only r2 settings in mode-0600
+   `restore.json` with string fields
    `account`, `bucket`, `access_key`, `secret_key`. cache the exact frozen
    jarvis dependencies on the clean mac and install `age`, `uv` and local
    docker desktop with the containerd image store.

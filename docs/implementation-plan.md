@@ -64,8 +64,8 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
-records the source, candidate and stopped production proofs. production runs
-`0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
+records the source, candidate and stopped `0017` production proofs. the owner
+accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
 the native client and native notifications belong to the following pr.
 
 ## full answers in web chat
@@ -76,6 +76,21 @@ final-reply limit and preserves reading position on direct message links.
 installed acceptance remains separate.
 independent opus 5.5 at max accepted the revised design on web-chat main
 `c9a9c67`, spec sha256 `f3c2e3e73cbf329ea5a8f8548f36913768d46089178072fe9f3626ad636d9e39`.
+
+## storage and central memory recovery
+
+[adr 0088](decisions/0088-storage-and-memory-recovery.md) owns the independent
+mac rehearsal workflow, host capacity signal and jarvis backup/restore units.
+deliver against the installed memory baseline. qualify the first isolated
+off-host restore before enabling the recurring job. the source and isolated
+journeys passed, and local disk sampling is installed. the first production recovery passed.
+scheduled-run proof remains open. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
+
+## shared memory freshness
+
+[adr 0092](decisions/0092-memory-freshness.md#installed-cut) records the
+separate `0018` release for the startup view and service-owned indexing.
+historical capacity and genuine installed recall earn separate evidence.
 
 ## native recovery and memory availability
 

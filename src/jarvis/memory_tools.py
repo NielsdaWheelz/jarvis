@@ -18,6 +18,7 @@ from llm_tools import (
 from universal_memory.policy import (
     EMBEDDING_DIMENSIONS,
     FUSION_K,
+    RECENT_BYTES,
     RESULT_BYTES,
     SEARCH_CANDIDATES,
     VIEW_PAGE_BYTES,
@@ -114,14 +115,14 @@ def memory_family(service: MemoryService) -> ToolFamily:
             replay_policy=ReplayPolicy.BilledOnce
             if spec is MEMORY_SEARCH_SPEC
             else ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-memory-view-v4"
+            implementation_revision="jarvis-memory-view-v5"
             if spec is MEMORY_VIEW_SPEC
             else f"jarvis-{str(spec.id).replace('.', '-')}-v3",
             policy_epoch=PolicyEpoch("jarvis-universal-memory-v1"),
             policy_inputs={
                 **policy,
                 **(
-                    {"view_page_bytes": VIEW_PAGE_BYTES}
+                    {"view_page_bytes": VIEW_PAGE_BYTES, "recent_bytes": RECENT_BYTES}
                     if spec is MEMORY_VIEW_SPEC
                     else {}
                 ),

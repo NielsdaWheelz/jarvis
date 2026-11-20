@@ -1,4 +1,4 @@
-"""Serial chronological compression, indexing and quiet disposable dreaming."""
+"""Serial chronological compression and quiet disposable dreaming."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
+from time import perf_counter
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -58,7 +59,6 @@ from jarvis.db import message
 from jarvis.definitions import CompactionResult
 from jarvis.kernel import EmptyToolDispatcher
 from jarvis.memory_dispatch import MemoryToolDispatcher
-from jarvis.memory_rpc import MemoryRequestStopped
 from jarvis.memory_service import MemoryService
 
 LOGGER = logging.getLogger(__name__)
@@ -147,7 +147,9 @@ class MemoryWorker:
     async def compact_one(
         self, cancellation: CancellationToken, *, cutoff: int | None = None
     ) -> bool:
+        prepare_requested = perf_counter()
         async with self.memory.database.begin() as connection:
+            prepare_started = perf_counter()
             batch = await self.memory.library.next_compaction(connection, cutoff=cutoff)
             control = await connection.scalar(
                 select(func.max(message.c.control_sequence)).where(
@@ -156,6 +158,20 @@ class MemoryWorker:
             )
         if batch is None or cancellation.cancelled:
             return False
+        prepare_finished = perf_counter()
+        free_leaves = sum(copy.count == 1 for copy in batch.copies)
+        inferred_leaves = sum(task.count == 1 for task in batch.tasks)
+        counts = (
+            f"free_leaves={free_leaves} free_parents={len(batch.copies) - free_leaves} "
+            f"inferred_leaves={inferred_leaves} "
+            f"inferred_parents={len(batch.tasks) - inferred_leaves}"
+        )
+        LOGGER.info(
+            "compaction prepared: writer_wait_ms=%.3f elapsed_ms=%.3f %s",
+            (prepare_started - prepare_requested) * 1000,
+            (prepare_finished - prepare_started) * 1000,
+            counts,
+        )
         pending: list[CompactionTask] = list(batch.tasks)
         calls = {(task.start, task.count): 0 for task in pending}
         failures = {(task.start, task.count): 0 for task in pending}
@@ -206,6 +222,7 @@ class MemoryWorker:
                 raise MemoryError("compaction_blocked")
             for task in selected:
                 calls[task.start, task.count] += 1
+            inference_started = perf_counter()
             outcome = await run_one_shot(
                 decisions=TransientModelDecisions(),
                 run_id=run_id,
@@ -221,6 +238,20 @@ class MemoryWorker:
                 budget_factory=ExactToolBudgetFactory(),
                 cancellation=cancellation,
                 event_sink=_MemoryFailureEvents(),
+            )
+            LOGGER.info(
+                "compaction inference: run_id=%s elapsed_ms=%.3f tasks=%s "
+                "retry_tasks=%s provider_turns=%s input_tokens=%s output_tokens=%s "
+                "outcome=%s interrupted=%s",
+                run_id,
+                (perf_counter() - inference_started) * 1000,
+                len(selected),
+                sum(calls[task.start, task.count] > 1 for task in selected),
+                outcome.metrics.provider_turns,
+                outcome.metrics.usage.input_tokens,
+                outcome.metrics.usage.output_tokens,
+                outcome.type,
+                cancellation.cancelled,
             )
             if cancellation.cancelled:
                 return False
@@ -312,7 +343,9 @@ class MemoryWorker:
                 except TimeoutError:
                     pass
         await self.owner.require_current(permit)
+        commit_requested = perf_counter()
         async with self.memory.database.begin() as connection:
+            commit_started = perf_counter()
             latest = await connection.scalar(
                 select(func.max(message.c.control_sequence)).where(
                     message.c.source_conversation_id == self.owner.scope_id
@@ -335,6 +368,12 @@ class MemoryWorker:
                     for task in batch.tasks
                 ),
             )
+        LOGGER.info(
+            "compaction committed: writer_wait_ms=%.3f elapsed_ms=%.3f %s",
+            (commit_started - commit_requested) * 1000,
+            (perf_counter() - commit_started) * 1000,
+            counts,
+        )
         return True
 
     async def run_one(self, cancellation: CancellationToken) -> bool:
@@ -343,42 +382,12 @@ class MemoryWorker:
                 return False
             if await self.memory.project_pending():
                 return True
-            if await self.compact_one(cancellation):
-                return True
-            if cancellation.cancelled:
-                return False
-            return await self.index_one(cancellation)
+            return await self.compact_one(cancellation)
         except (MemoryError, SQLAlchemyError) as error:
             LOGGER.warning(
                 "memory background did not complete: type=%s", type(error).__name__
             )
             return False
-
-    async def index_one(self, cancellation: CancellationToken) -> bool:
-        if cancellation.cancelled:
-            return False
-        permit = self.owner.permit("jarvis-memory-index:" + str(uuid4()))
-        await self.owner.require_current(permit)
-        if cancellation.cancelled:
-            return False
-        try:
-            batch = await self.memory.index_batch(stop=cancellation.wait)
-        except (MemoryError, MemoryRequestStopped):
-            return False
-        if not batch.rows or cancellation.cancelled:
-            return False
-        await self.owner.require_current(permit)
-        async with self.memory.database.begin() as connection:
-            for row in batch.rows:
-                if cancellation.cancelled:
-                    break
-                await self.memory.library.update_embedding(
-                    connection, row.ref, row.vector
-                )
-            if cancellation.cancelled:
-                await connection.rollback()
-                return False
-        return True
 
 
 @dataclass(frozen=True, slots=True)

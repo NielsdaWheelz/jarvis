@@ -58,6 +58,7 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
+from jarvis.embeddings import EmbeddingUse
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import compose_memory_catalog
 from jarvis.messages import InboundInsert, MessageStore
@@ -77,7 +78,12 @@ from jarvis.tool_results import (
 
 
 class NoEmbedding:
-    async def embed(self, inputs: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+    def require_idle(self) -> None:
+        pass
+
+    async def embed(
+        self, inputs: Sequence[str], *, use: EmbeddingUse
+    ) -> tuple[tuple[float, ...], ...]:
         raise AssertionError("capture and local recovery must not enter inference")
 
 

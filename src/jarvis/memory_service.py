@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
@@ -29,12 +29,14 @@ from universal_memory import (
 from universal_memory.policy import (
     BATCH_EVENTS,
     BODY_BYTES,
+    EMBEDDING_BATCH_SIZE,
     READ_STATEMENT_SECONDS,
     SEARCH_STARTS,
     SEARCH_WINDOW_SECONDS,
     encoded_size,
 )
 from universal_memory.schema import source_conversation, source_record
+from universal_memory.store import EmbeddingCandidate, EmbeddingKey
 from universal_memory.types import (
     Conversation,
     Event,
@@ -47,15 +49,12 @@ from universal_memory.types import (
 
 from jarvis.db import message, native_attempt, native_invocation
 from jarvis.embeddings import (
-    MAX_EMBEDDING_BATCH_SIZE,
     EmbeddingBusy,
     EmbeddingFailure,
     MemoryEmbedder,
 )
 from jarvis.input_framing import archive_message_text
 from jarvis.memory_rpc import (
-    EmbeddedRecord,
-    IndexBatch,
     MemoryRequestStopped,
     MemoryRPC,
     MemoryServiceError,
@@ -63,6 +62,7 @@ from jarvis.memory_rpc import (
 from jarvis.ownership import Database, DeploymentOwnershipDefect
 
 LOGGER = logging.getLogger(__name__)
+INDEX_INTERVAL_SECONDS = 60
 
 
 async def _until_stopped[T](
@@ -142,12 +142,18 @@ class MemoryService:
         cutoff: int | None = None,
         stop: Callable[[], Awaitable[object]] | None = None,
     ) -> SearchResult:
-        await self._require_owner()
-        if self._remote is not None:
-            if cutoff is None:
-                raise MemoryServiceError("invalid_input")
-            return await self._remote.search(value, cutoff=cutoff)
-        return await _until_stopped(self._local_search(value, cutoff), stop)
+        try:
+            if self._embedder is not None:
+                self._embedder.require_idle()
+            await self._require_owner()
+            if self._remote is not None:
+                if cutoff is None:
+                    raise MemoryServiceError("invalid_input")
+                return await self._remote.search(value, cutoff=cutoff)
+            return await _until_stopped(self._local_search(value, cutoff), stop)
+        except EmbeddingBusy as error:
+            LOGGER.info("memory search refused: reason=%s_slot", error.owner)
+            raise MemoryServiceError("rate_limited") from None
 
     async def _local_search(
         self, value: SearchInput, cutoff: int | None
@@ -169,14 +175,27 @@ class MemoryService:
         ):
             self._search_starts.popleft()
         if len(self._search_starts) >= SEARCH_STARTS:
+            LOGGER.info("memory search refused: reason=search_rate_limit")
             raise MemoryServiceError("rate_limited")
+        # Charge an entered search even if its requester disconnects. Slot
+        # contention returns synchronously before the provider attempt.
         self._search_starts.append(now)
         try:
-            vectors = await self._embedder.embed((value.query,))
+            vectors = await self._embedder.embed((value.query,), use="search")
         except EmbeddingBusy:
-            raise MemoryServiceError("rate_limited") from None
-        except EmbeddingFailure:
-            raise MemoryServiceError("unavailable", actual_attempts=1) from None
+            self._search_starts.pop()
+            raise
+        except EmbeddingFailure as error:
+            if not error.actual_attempts:
+                self._search_starts.pop()
+            LOGGER.info(
+                "memory search embedding failed: reason=%s attempts=%d",
+                error.reason,
+                error.actual_attempts,
+            )
+            raise MemoryServiceError(
+                "unavailable", actual_attempts=error.actual_attempts
+            ) from None
         if len(vectors) != 1:
             raise MemoryServiceError("unavailable", actual_attempts=1)
         try:
@@ -185,39 +204,122 @@ class MemoryService:
             raise MemoryServiceError("unavailable", actual_attempts=1) from None
 
     async def index_batch(
-        self, *, stop: Callable[[], Awaitable[object]] | None = None
-    ) -> IndexBatch:
-        # Only interrupt disposable reads or provider/Unix-socket I/O. Cancelling a
-        # query on the dedicated writer connection could forfeit its session lock.
-        if self._remote is None:
-            await self._require_owner()
-            operation = self._embed_candidates
-        else:
-            operation = self._remote.index_batch
-        return await _until_stopped(operation(), stop)
-
-    async def _embed_candidates(self) -> IndexBatch:
-        if self._embedder is None:
-            raise MemoryServiceError("unavailable")
-        try:
-            async with asyncio.timeout(READ_STATEMENT_SECONDS):
-                rows = await self.library.embedding_candidates(MAX_EMBEDDING_BATCH_SIZE)
-        except (SQLAlchemyError, MemoryError, TimeoutError):
-            raise MemoryServiceError("unavailable") from None
+        self,
+        rows: Sequence[EmbeddingCandidate],
+        *,
+        stop: asyncio.Event | None = None,
+    ) -> int:
+        """Commit one eligible batch through the current fenced writer."""
         if not rows:
-            return IndexBatch(rows=())
+            return 0
+        references = tuple(row.reference for row in rows)
+        if len({(ref.store, ref.id) for ref in references}) != len(references):
+            raise EmbeddingFailure("invalid_input", actual_attempts=0)
+        if self._embedder is None:
+            raise EmbeddingFailure("invalid_input", actual_attempts=0)
+        if stop is not None and stop.is_set():
+            raise MemoryRequestStopped
         try:
-            vectors = await self._embedder.embed(tuple(row.text for row in rows))
-            return IndexBatch(
-                rows=tuple(
-                    EmbeddedRecord(ref=row.reference, vector=vector)
-                    for row, vector in zip(rows, vectors, strict=True)
+            await self._require_owner()
+        except MemoryServiceError:
+            raise EmbeddingFailure("database_unavailable", actual_attempts=0) from None
+
+        embedder = self._embedder
+
+        async def infer() -> tuple[tuple[float, ...], ...]:
+            if stop is not None and stop.is_set():
+                raise MemoryRequestStopped
+            return await embedder.embed(tuple(row.text for row in rows), use="index")
+
+        vectors = await _until_stopped(infer(), None if stop is None else stop.wait)
+        if len(vectors) != len(references):
+            raise EmbeddingFailure("invalid_vector_reply", actual_attempts=1)
+        try:
+            # Wait for the existing writer lock without cancelling its connection.
+            # Work that has entered this transaction settles before shutdown.
+            async with self.database.begin() as connection:
+                if stop is not None and stop.is_set():
+                    raise MemoryRequestStopped
+                return await self.library.write_embeddings(
+                    connection, tuple(zip(references, vectors, strict=True))
                 )
-            )
-        except EmbeddingBusy:
-            raise MemoryServiceError("rate_limited") from None
-        except (EmbeddingFailure, ValueError):
-            raise MemoryServiceError("unavailable", actual_attempts=1) from None
+        except MemoryError as error:
+            raise EmbeddingFailure(
+                "invalid_vector_reply"
+                if error.code == "invalid_input"
+                else "database_unavailable",
+                actual_attempts=1,
+            ) from None
+        except (DeploymentOwnershipDefect, SQLAlchemyError):
+            raise EmbeddingFailure("database_unavailable", actual_attempts=1) from None
+
+    async def run_indexer(self, stop: asyncio.Event) -> None:
+        """Run one provider dispatch per sweep, including while Jarvis is stopped."""
+        after: EmbeddingKey | None = None
+        through: EmbeddingKey | None = None
+        isolated: set[EmbeddingKey] = set()
+        width = EMBEDDING_BATCH_SIZE
+        while not stop.is_set():
+            try:
+                rows = await self.library.embedding_candidates(
+                    width, after=after, through=through
+                )
+                if not rows and after is not None:
+                    after = through = None
+                    rows = await self.library.embedding_candidates(width)
+                for index, row in enumerate(rows):
+                    if row.key in isolated:
+                        # Finish the healthy prefix first. Revisit this row alone.
+                        rows = rows[:index] if index else rows[:1]
+                        break
+                try:
+                    written = await self.index_batch(rows, stop=stop)
+                except EmbeddingBusy as error:
+                    LOGGER.info("memory index refused: reason=%s_slot", error.owner)
+                except EmbeddingFailure as error:
+                    LOGGER.warning(
+                        "memory index failed: reason=%s attempts=%d refs=%s",
+                        error.reason,
+                        error.actual_attempts,
+                        [(row.key[1], str(row.key[2])) for row in rows],
+                    )
+                    if error.reason in (
+                        "context_overflow",
+                        "unclassified_provider_error",
+                        "invalid_vector_reply",
+                    ):
+                        if len(rows) > 1:
+                            width = len(rows) // 2
+                        elif rows:
+                            if through is None:
+                                through = await self.library.last_pending_embedding()
+                            after = rows[0].key
+                            isolated.add(after)
+                            width = EMBEDDING_BATCH_SIZE
+                else:
+                    if written:
+                        LOGGER.info("memory index committed: records=%d", written)
+                        if after is not None:
+                            after = rows[-1].key
+                        for row in rows:
+                            if row.key in isolated:
+                                LOGGER.info(
+                                    "memory index recovered: ref=%s/%s",
+                                    row.key[1],
+                                    row.key[2],
+                                )
+                                isolated.remove(row.key)
+                        width = EMBEDDING_BATCH_SIZE
+            except MemoryRequestStopped:
+                return
+            except MemoryError:
+                LOGGER.warning(
+                    "memory index failed: reason=database_unavailable attempts=0"
+                )
+            try:
+                await asyncio.wait_for(stop.wait(), INDEX_INTERVAL_SECONDS)
+            except TimeoutError:
+                pass
 
     async def save_note(self, text: str, submission: NoteProducer) -> NoteReceipt:
         admitted = (

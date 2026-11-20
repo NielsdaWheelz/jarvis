@@ -1,18 +1,14 @@
 # memory backup and restore
 
-status: owner-deferred; not part of the completed online rollout.
+status: open for scheduled-run verification. the first production r2 backup
+and both isolated restores passed. [adr 0088 evidence](../decisions/0088-storage-and-memory-recovery.md#implementation-evidence)
 
-problem: this delivery provides no qualified backup-and-restore path for the
-canonical memory archive, notes and capture progress.
+on 2026-11-20 utc, `e7f5916` produced generation `20261120T055359985334Z-d2aedd79c2ab490f9511a0a4e91ae0ea`
+from the running `0018` database. the mac matched all 20 tables, schema and
+grants and reopened an event and a note. the r2 read took 45.196 seconds and
+the held-copy read took 42.678 seconds. the owner deferred a spare decryption
+identity until the home workstation is ready.
 
-impact: loss of the central store can lose admitted evidence and its capture
-boundaries. native files and rebuildable summaries are not equivalent backups.
-
-evidence: [memory delivery](../memory-delivery.md) explicitly defers backup/restore.
-its stopped/resumed preservation comparisons prove an installation retained data;
-they do not prove recovery after loss of that data.
-
-resolved when: a separately scoped backup is restored into an isolated target
-and demonstrates retained originals, notes, provenance, immutable cuts and
-checkpoint integrity, with required private configuration recoverable through
-its own protected path. record actual recovery limits without exposing secrets.
+the timer is enabled and active. first scheduled run is 2026-11-20 12:00 utc.
+resolve after the journal records a fresh verified generation created by the
+timer. locally journaled failures require operator inspection.

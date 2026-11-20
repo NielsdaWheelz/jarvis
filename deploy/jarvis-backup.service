@@ -1,0 +1,28 @@
+[Unit]
+Description=Verify an off-host Jarvis memory backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jarvis-backup
+Group=jarvis-backup
+WorkingDirectory=/opt/jarvis/current
+RuntimeDirectory=jarvis-backup
+RuntimeDirectoryMode=0700
+Environment=PGPASSFILE=/run/jarvis-backup/database.pass
+ExecStartPre=/usr/bin/install -m 0600 ${CREDENTIALS_DIRECTORY}/database /run/jarvis-backup/database.pass
+ExecStart=/opt/jarvis/current/.venv/bin/python /opt/jarvis/current/deploy/memory-backup
+LoadCredential=database:/etc/jarvis/database-backup.pass
+LoadCredential=settings:/etc/jarvis/backup.json
+TimeoutStartSec=1h
+TimeoutStopSec=20s
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitCORE=0

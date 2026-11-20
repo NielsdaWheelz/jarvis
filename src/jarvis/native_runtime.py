@@ -41,7 +41,6 @@ from llm_tools import (
     PromptSection,
     PromptSectionKind,
     PromptSections,
-    PromptText,
     ReplayPolicy,
     raw_input_digest,
 )
@@ -99,7 +98,7 @@ from jarvis.read_positions import PostgresReadRecorder
 from jarvis.receipt_tools import original_read_position, receipt_scope
 from jarvis.settings import Settings
 from jarvis.terminal import JarvisTerminal, render_terminal
-from jarvis.tool_results import completed_tool_result
+from jarvis.tool_results import completed_tool_result, memory_view_section
 from jarvis.write_dispatch import WriteToolDispatcher
 
 LOGGER = logging.getLogger(__name__)
@@ -137,14 +136,10 @@ def _host_inputs(
 
 
 async def opening_memory_prefix(memory: MemoryService) -> tuple[int, PromptSections]:
-    cutoff = await memory.library.cutoff()
-    view = await memory.library.ready_view(cutoff)
-    prefix = PromptSection(
-        PromptSectionKind("historical_memory_view"),
-        (),
-        PromptText(render_ready_view(view)),
+    view = await memory.library.ready_view()
+    return view.admitted_through, PromptSections(
+        (memory_view_section(render_ready_view(view)),)
     )
-    return cutoff, PromptSections((prefix,))
 
 
 async def fit_native_inputs(

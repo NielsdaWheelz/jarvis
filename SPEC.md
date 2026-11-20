@@ -12,14 +12,32 @@ audience: product, engineering, design, operations, and future coding agents
 the single discord chat. the private website owns conversation, uploads and
 decisions. jarvis publishes the main canvas from its notes workspace. discord
 delivers notification links. the adr supersedes conflicting client, readiness,
-delivery and presentation rules below. production runs the web release at schema
-`0017`. [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
+delivery and presentation rules below. the web cut introduced schema `0017`.
+[production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
 the [web reply decision](docs/decisions/0091-source-backed-reports.md) removes
 the application character ceiling on final answers and makes chat the ordinary
 place for long work. jarvis chooses content and handles owner corrections in
 conversation. clickable sources stay with the findings in chat, including when
 the owner asks for a separate page.
+
+## accepted operational target — storage and memory recovery
+
+[adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
+development to the mac and defines production headroom and off-host central
+memory recovery. it supersedes the v1 backup deferral for this scope and grants
+the named temporary integration/live proof exception to adr 0046. the first
+production off-host restore is verified. scheduled-run proof remains open.
+
+## shared memory freshness after the private web home
+
+[adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
+`0018`. one frozen startup view combines the complete ready prefix with bounded,
+source-attributed recent owner exchanges. the memory service owns online vector
+writes, including during assistant pause. fixed-model historical catch-up has a
+separate measured acceptance result. these rules supersede conflicting startup
+and indexing rules below. each unit uses the owner's scoped temporary
+end-to-end/live red/green/refactor exception to adr 0046.
 
 ## accepted native recovery and memory availability target
 

@@ -53,6 +53,13 @@ describe their original releases.
 
 ## accepted native recovery and memory availability target
 
+[adr 0094](docs/decisions/0094-worker-tools-and-native-context.md) amends
+sealed native failure recovery. confirmed context exhaustion shares the current
+per-input retry allowance with loss of contact. a due retry opens a fresh turn
+with the known failure cause, original request and receipt inventory. stock
+codex owns in-turn compaction. worker observation remains an explicit use of
+the existing skid tools.
+
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)
 governs native recovery, request fitting and retry eligibility, receipt access
 and independent shared-memory serving. its four contracts supersede conflicting

@@ -31,6 +31,9 @@ the read-only mounted state boundary and actual installed service-uid reads pass
 on both online hosts; [installed evidence](universal-memory.md#native-memory-installed-qualification)
 does not replace the separate worker observation journey.
 
+[adr 0089](decisions/0089-native-capture-repair.md) owns the independent native
+collector cut and its installed recovery evidence.
+
 ## destination and rules
 
 one visible jarvis remembers context, keeps useful working records and carries
@@ -64,6 +67,15 @@ schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evid
 records the source, candidate and stopped production proofs. production runs
 `0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
 the native client and native notifications belong to the following pr.
+
+## full answers in web chat
+
+[adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
+records the qualified source and isolated stock candidate. it removes the old
+final-reply limit and preserves reading position on direct message links.
+installed acceptance remains separate.
+independent opus 5.5 at max accepted the revised design on web-chat main
+`c9a9c67`, spec sha256 `f3c2e3e73cbf329ea5a8f8548f36913768d46089178072fe9f3626ad636d9e39`.
 
 ## storage and central memory recovery
 

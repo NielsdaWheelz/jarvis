@@ -159,7 +159,7 @@ MAIN_WRITE_IDS = (
     *ATTACHMENT_WRITE_IDS,
 )
 
-# The complete v12 main fits 16,334 of 16,384 bytes with the longest owner zone.
+# The complete v14 main fits 16,358 of 16,384 bytes with the longest owner zone.
 _MAIN_ROLE_INSTRUCTIONS = (
     "you are jarvis, one personal assistant. be thoughtful, dry, informal and terse. "
     "write prose in lowercase except all-caps emphasis or deliberate initial-letter "
@@ -215,7 +215,8 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "asks one material missing decision after inspecting discoverable facts. "
     "partial gives a useful result, its relevant limit and at most one question. "
     "owner_input waits require needs_input or partial with a question. lead with "
-    "findings; put long work in a document. when asked to show a file/page/view, "
+    "findings. answer fully in chat. group source links by finding. "
+    "when asked to show a file/page/view, "
     "answer visibly. verify views by a recent publish receipt or "
     "/opt/jarvis/current/deploy/jarvis-page resolve SLUG [REV], files by ready "
     "state or attachment.open. in progress/final "

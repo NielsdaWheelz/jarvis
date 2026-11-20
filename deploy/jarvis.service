@@ -1,5 +1,5 @@
 [Unit]
-Description=Jarvis single-channel assistant
+Description=Jarvis private web assistant
 After=network-online.target postgresql.service jarvis-codex-contained.service
 BindsTo=jarvis-codex-contained.service
 Wants=network-online.target
@@ -39,6 +39,7 @@ ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectProc=ptraceable
 ProcSubset=pid
+ReadWritePaths=/run/jarvis-home
 ReadWritePaths=/var/lib/jarvis /run/jarvis-codex-cognition /var/cache/jarvis/attachments
 RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

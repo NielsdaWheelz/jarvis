@@ -71,10 +71,12 @@ MediaType = Annotated[str, AfterValidator(attachment_media_type)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
-class DiscordAttachmentRequest(_Closed):
+class DiscordSource(_Closed):
     kind: Literal["discord"]
     message_id: Snowflake
     attachment_id: Snowflake
+    guild_id: Snowflake
+    channel_id: Snowflake
 
 
 class GmailAttachmentRequest(_Closed):
@@ -83,14 +85,10 @@ class GmailAttachmentRequest(_Closed):
     part_id: PartId
 
 
-type AttachmentRequest = Annotated[
-    DiscordAttachmentRequest | GmailAttachmentRequest, Field(discriminator="kind")
-]
-
-
-class DiscordSource(DiscordAttachmentRequest):
-    guild_id: Snowflake
-    channel_id: Snowflake
+class WebSource(_Closed):
+    kind: Literal["web"]
+    submission_id: CanonicalUuid
+    slot: Annotated[int, Field(strict=True, ge=0, lt=10)]
 
 
 class GmailSource(GmailAttachmentRequest):
@@ -98,12 +96,12 @@ class GmailSource(GmailAttachmentRequest):
 
 
 type AttachmentSource = Annotated[
-    DiscordSource | GmailSource, Field(discriminator="kind")
+    DiscordSource | GmailSource | WebSource, Field(discriminator="kind")
 ]
 
 
 class AttachmentRetainInput(_Closed):
-    source: AttachmentRequest
+    source: GmailAttachmentRequest
 
 
 class AttachmentOpenInput(_Closed):
@@ -209,8 +207,8 @@ ATTACHMENT_RETAIN_SPEC = ToolSpec[
     id=ToolId("attachment.retain"),
     summary="keep the exact selected source file privately and indefinitely.",
     documentation=PromptDocument(
-        "select exact discord message/attachment ids or gmail message/part ids from "
-        "observed descriptors. no URL, path or model-supplied account. owner discord "
+        "select exact gmail message/part ids from "
+        "observed descriptors. no URL, path or model-supplied account. owner web "
         "uploads enter automatic retention; their manifest proves receipt, not "
         "storage completion. ready sources reuse their original; failed/deleted "
         "sources may be captured anew. saved bytes do not prove inspection."
@@ -352,7 +350,11 @@ def attachment_family(store: AttachmentToolStore) -> ToolFamily:
                 replay_policy=ReplayPolicy.ReDispatchable,
                 implementation_revision="jarvis-"
                 + str(spec.id).replace(".", "-")
-                + ("-v2" if spec.id == ATTACHMENT_RETAIN_SPEC.id else "-v1"),
+                + {
+                    ATTACHMENT_RETAIN_SPEC.id: "-v3",
+                    ATTACHMENT_OPEN_SPEC.id: "-v2",
+                    ATTACHMENT_DELETE_SPEC.id: "-v1",
+                }[spec.id],
                 policy_epoch=PolicyEpoch("jarvis-attachment-v1"),
                 policy_inputs={
                     "storage": "private-r2-immutable-original-v1",

@@ -60,7 +60,7 @@ from jarvis.db import (
 )
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import compose_memory_catalog
-from jarvis.messages import MessageStore
+from jarvis.messages import InboundInsert, MessageStore
 from jarvis.native_journal import PostgresNativeJournal
 from jarvis.native_runtime import (
     _recover_native_note_saves,  # pyright: ignore[reportPrivateUsage]
@@ -85,8 +85,8 @@ async def check(url: str) -> None:
     engine, reads = create_engine(url), create_engine(url, memory_reads=True)
     try:
         async with deployment_ownership(engine, memory_admitted=True) as database:
-            channel = uuid4().int >> 80
-            owner = JarvisOwner(database, str(channel))
+            scope = str(uuid4().int >> 80)
+            owner = JarvisOwner(database, scope)
             library = MemoryStore(
                 reads, result_size=memory_result_size, view_size=memory_view_size
             )
@@ -95,21 +95,27 @@ async def check(url: str) -> None:
                 database=database,
                 embedder=NoEmbedding(),
                 admitted_lanes=frozenset({("devbox", "jarvis")}),
-                guild_id=1,
-                channel_id=channel,
+                owner_scope=scope,
+                owner_archive_key=f"discord:1:{scope}",
             )
             store = MessageStore(database)
             text = "synthetic capture/retry request"
-            external_id, created_at = str(uuid4()), datetime.now(UTC)
+            submission_id = uuid4()
             before = await library.cutoff()
-            original = await store.insert_waking(
-                role="owner",
-                text=text,
-                source="discord",
-                source_conversation_id=owner.scope_id,
-                source_message_id=external_id,
-                created_at=created_at,
-            )
+
+            async def submit() -> InboundInsert:
+                return await store.submit(
+                    submission_id,
+                    text,
+                    None,
+                    (),
+                    scope=owner.scope_id,
+                    r2_account="fixture",
+                    bucket="fixture",
+                )
+
+            original = await submit()
+            assert original.inserted
             with patch.object(
                 library, "append_events", side_effect=MemoryError("unavailable")
             ):
@@ -122,14 +128,7 @@ async def check(url: str) -> None:
             assert len(frozen) == 1
             await memory.project_pending()
             assert await memory.project_pending(frozen) == 1
-            retry = await store.insert_waking(
-                role="owner",
-                text=text,
-                source="discord",
-                source_conversation_id=owner.scope_id,
-                source_message_id=external_id,
-                created_at=created_at,
-            )
+            retry = await submit()
             assert not retry.inserted and retry.message.id == original.message.id
             assert await memory.project_pending() == 0
             assert await library.cutoff() == before + 1
@@ -324,8 +323,8 @@ async def check(url: str) -> None:
                 database=database,
                 embedder=NoEmbedding(),
                 admitted_lanes=frozenset(),
-                guild_id=1,
-                channel_id=channel,
+                owner_scope=scope,
+                owner_archive_key=f"discord:1:{scope}",
             )
             async with database.connect() as connection:
                 counts = [

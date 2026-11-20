@@ -131,6 +131,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0084](0084-dreamer-continuation-context.md) | dreamer continuation context | owner-approved 1 mib cumulative host context ceiling; source and stopped quiet completion passed on `650eb7c` and selected `34d1620`. strict overflow remains possible |
 | [0085](0085-preserve-google-cursors-during-correction.md) | preserve google cursors during the f2 correction | isolated correction qualified. installed preflight reproduced 80 old revisions on the retained cursor. corpus preserved |
 | [0086](0086-native-recovery-and-memory-availability.md) | bounded native recovery and independent shared memory | both cuts installed. original mail, note and independent capture verified |
+| [0087](0087-private-web-home.md) | private web home | installed and owner-accepted at `0017`. the owner chats on the web, jarvis publishes the canvas and discord delivers alerts |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

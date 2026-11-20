@@ -57,6 +57,14 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
   contract. distinguish source merged, dependency pinned, fleet installed, live
   behavior verified and owner-resumed service.
 
+## private web home
+
+the owner conversation, browser, originals, authored canvas and notifications share
+schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
+records the source, candidate and stopped production proofs. production runs
+`0017`. the owner accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
+the native client and native notifications belong to the following pr.
+
 ## native recovery and memory availability
 
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the

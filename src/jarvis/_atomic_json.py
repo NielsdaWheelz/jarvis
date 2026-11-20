@@ -32,33 +32,29 @@ def replace_private_json(path: Path, value: Mapping[str, object]) -> None:
             "runtime-state directory must not be accessible by group or other"
         )
 
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=parent)
+    encoded = json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    replace_bytes(path, (encoded + "\n").encode(), 0o600)
+
+
+def replace_bytes(path: Path, payload: bytes, mode: int) -> None:
+    """Publish complete bytes durably in an existing directory."""
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(
-                value, stream, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-            )
-            stream.write("\n")
+        with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(parent, os.O_RDONLY)
+        directory = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
-    except BaseException:
-        if _descriptor_is_open(descriptor):
-            os.close(descriptor)
+    finally:
         temporary.unlink(missing_ok=True)
-        raise
-
-
-def _descriptor_is_open(descriptor: int) -> bool:
-    try:
-        os.fstat(descriptor)
-    except OSError:
-        return False
-    return True

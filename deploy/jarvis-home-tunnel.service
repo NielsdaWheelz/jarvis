@@ -1,0 +1,26 @@
+[Unit]
+Description=Jarvis private home tunnel
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Service]
+User=jarvis-tunnel
+Group=jarvis-home
+ExecStart=/usr/local/libexec/jarvis-cloudflared tunnel --no-autoupdate --config /etc/jarvis-home/config.yml --metrics 127.0.0.1:0 run
+Restart=on-failure
+RestartSec=5
+UMask=0077
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

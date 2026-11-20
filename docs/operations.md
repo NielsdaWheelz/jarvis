@@ -1,7 +1,7 @@
 # production operations
 
-at schema `0016`, two cpython 3.12 services run one selected release against
-the same postgres database. `jarvis.service` owns the configured discord channel,
+at schema `0017`, two cpython 3.12 services run one selected release against
+the same postgres database. `jarvis.service` owns the private web conversation,
 canonical work and derived memory jobs. it uses the separate contained native
 host for cognition. `jarvis-memory.service` owns external capture, the shared
 memory endpoint on loopback port 8768 and the private search/index socket.
@@ -147,7 +147,7 @@ cutover is still deferred. final cutover initializes quiet account-scoped
 baselines; expired provider cursors leave explicit unknown coverage. no historical
 mail/calendar reconstruction, push subscription or additional daemon is added.
 
-source polling starts only after validated discord catch-up and respects pause
+source polling starts after canonical startup recovery and respects pause
 and family switches. disabling a family preserves progress and already published
 work. after repairing a blocked source, a fresh `events.configure(enabled=true)`
 re-arms it without clearing its outage until a complete scan succeeds; exact
@@ -284,6 +284,16 @@ schema 4 is rejected. the installed mapping is `/etc/jarvis/codex-host.json`. th
 that single public file at `/run/jarvis-contained/codex-host.json` through a
 read-only bind; `/etc/jarvis` keeps its private traversal permissions.
 
+on the x86-64 host, `install-contained-host` installs and verifies the two
+executables from the pinned official linux x64 `@openai/codex` 0.160.0 package
+in the dedicated `/opt/jarvis-codex/0.160.0` directory. the installer checks the
+mapped path before stopping the native host, then verifies both installed digests
+before starting it. if interrupted, leave the services stopped and repeat
+`deploy/install-contained-host "$to"`. stock dispatches native tools through its sibling
+`codex-code-mode-host`. a working subscription or model reply alone cannot qualify
+authoring. verify a real publication from the notes checkout during the installed
+journey. [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.160.0-linux-x64)
+
 the contained endpoint requires stock 0.160.0 and the provider-owned complete
 restricted model catalogue at HOST STARTUP. unsupported versions and missing
 startup policy fail before thread creation. per-thread overrides do not provide
@@ -323,23 +333,15 @@ to the trusted native domain. `ProtectKernelTunables=true`,
 `ProtectProc=ptraceable`, no-new-privileges and empty capabilities remain.
 no change to the shared coding daemon, rpc relay or copied account is involved.
 
-for an empty installation, bootstrap with the a–c release and its existing
-private installer before the two-release memory cut below. no-argument
-`deploy/provision-database` creates the migrator and assistant runtime roles
-and installs their root-owned mode-0600 environment files.
-
-on an established `0016` deployment, `deploy/install-private-state` publishes
-an explicit private-configuration change with both services stopped and the
-recorded pause in force. use the qualified workstation `.secrets/jarvis.slice0.env`
-(or `JARVIS_SOURCE_ENVIRONMENT`) as the input. this is one private project file
-containing the installer's required secret/authority assignments, including
-the embedding project key. the installer supplies the static model, dimension,
-database-independent paths and listener port, then separates the service
-environments. `.env.example` and `.env.memory.example` show the two **runtime**
-environments for local development. the private project file has its own key
-roster in `deploy/install-private-state`. use the matching current
-`JARVIS_SOURCE_GOOGLE_STATE` and original `JARVIS_SOURCE_MEMORY_CONFIG` for a
-private-state publication. the `0015→0016` cut reads the installed files directly.
+on an established `0017` deployment, `deploy/install-private-state` publishes a
+private-configuration change under both stopped writer locks and canonical pause.
+its workstation input (`JARVIS_SOURCE_ENVIRONMENT`) contains the required
+secret assignments, including the embedding key. use the exact original
+`JARVIS_OWNER_SCOPE` and `JARVIS_OWNER_ARCHIVE_KEY`. `JARVIS_DISCORD_CHANNEL_ID`
+selects the alert destination. the installer rejects the retired gateway settings.
+supply current `JARVIS_SOURCE_GOOGLE_STATE` and `JARVIS_SOURCE_MEMORY_CONFIG`
+for an intentional private-state change. the stopped web cut reads the installed
+source declarations directly and preserves both google authorization and cursors.
 
 remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.
@@ -380,66 +382,87 @@ the later `0015→0016` grant/service cut requires the ordinary recorded pause a
 both writers stopped. the adr records the installed cuts and defines memory
 command locks.
 
-### stopped memory cut from 0015 to 0016
+### private web ingress
 
-use the separately qualified a–c release for the first incident cut. its
-[original instructions](decisions/0086-native-recovery-and-memory-availability.md#delivery-ownership-and-cost)
-bind the stopped `0013` source and preserve existing control. this release accepts
-`0015` as its migration source and requires the latest recorded control to be
-pause. select the exact qualified a–c and d commits on the operator workstation.
+create a self-hosted access application for the whole hostname
+`jarvis.nielseriknandal.com`. enable only the owner's google identity provider,
+disable automatic acceptance of other identity providers, and configure one allow
+policy for the owner's exact email. no bypass or service-token policy. create a
+cache rule bypassing the hostname and confirm the zone accepts a 90 mib request
+body. route the proxied hostname to a new locally managed named tunnel. keep its
+credential json on the operator workstation. neither the assistant nor its native
+host needs a cloudflare account credential. [access policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
+· [tunnel configuration](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/)
 
-for the earlier incident cut, rehearse the exact production snapshot privately
-before migrating the live database. restore its verified dump to a separate
-postgres database, migrate that copy to `0015`, and run the a–c release's stopped
-`check-activation --fit-pending-mail 0d3bcc75-749d-4014-a0df-3cdf545366b3`
-there with the same source declaration, original scope and qualified native
-catalog. use only the scratch database credentials. check both the actual
-ready-view fit and every unfinished action verdict. the isolated candidate had
-a different ready prefix. a genuine predecessor `work.create` failed on that
-target because its frozen main plan changed. preserve the actual action and
-resolve any refusal before committing the live migration.
+```sh
+deploy/install-home-ingress "$tunnel_credentials_json" "$access_team_slug" "$access_application_audience"
+```
 
-1. install d inactive. drain work where feasible, record the owner's pause
-   through discord and cleanly stop the assistant. if memory already has a unit,
-   stop it too. leave the original recovery copies and selected release in place.
-2. prepare a private snapshot. provision the memory login and os identity under
-   that verified stopped cut. this stages the three memory environment files.
-   the selected `0015` release keeps its existing settings and declaration access.
-3. run `--migrate` before replacing the native host. snapshot verification and
-   migration share one transaction holding both database keys, assistant first.
-   after commit, the helper verifies `0016`, publishes shared declaration access
-   and removes the embedding key from the assistant environment. it can repeat
-   this handoff with the staged credentials after an interruption. install the
-   same-release native host and activate with both exact commits. both services
-   start from the selected release with the same pause and preserved original-row
-   digests across all eighteen tables.
-   the unchanged tailnet proxy forwards to the memory listener on loopback 8768.
+the installer binds that audience to the exact hostname and falls through to 404.
+it owns the `jarvis-tunnel` user, `jarvis-home` socket group,
+`/etc/jarvis-home/{config.yml,credential.json}`, a pinned connector binary, and
+`jarvis-home-tunnel.service`. the local connector validates access tokens before
+forwarding through `/run/jarvis-home/http.sock`. a stopped assistant or unready
+socket yields an edge outage. connector availability never gates local recovery.
+before activating the application, record signed-out challenges at the root, raw
+content and file routes, and an explicit access denial for an unrelated google
+account. the allowed owner can reach the edge outage at this stage. after
+activation, verify that owner login returns to the exact pinned page/file. [connector validation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
 
-   ```sh
-   deploy/install-release "$to"
-   deploy/activate-release --prepare "$from" "$to"
-   deploy/provision-database "$from" "$to"
-   deploy/activate-release --migrate "$from" "$to"
-   deploy/install-contained-host "$to"
-   deploy/activate-release "$from" "$to"
-   deploy/verify-containment
-   ```
+### stopped web cut from 0016 to 0017
 
-   if a check fails before start, keep the hold and inspect its diagnostic. an
-   interrupted snapshot may leave an unpublished private `.incomplete-*`
-   directory. repeat prepare to take or verify the named snapshot. after a
-   committed migration, retry `--migrate` to finish the credential handoff,
-   then install the host and activate with the original two receipts. the
-   verified copy stays in `/var/lib/jarvis-cutover/adr0086/$to`. pg_restore
-   traverses the dump at creation. verification checks the full dump checksum,
-   copied declarations/state and original receipt, checkpoint and retry facts.
+1. stage the target and private ingress. on the selected release collect the
+   owner's final discord pause, drain delivered replies, captures and unfinished
+   incompatible work. stop the assistant and memory cleanly. take the stopped
+   snapshot. rehearsal on its private restore must qualify the candidate's
+   `check-activation` against actual outstanding actions before the live migration.
+   an unexplained external outcome keeps its original receipt and recovery rights.
+2. the migrator checks both locks, cutover hold, snapshot digest and original
+   record hashes. it preserves the conversation scope and archive key independently
+   from the discord alert channel. interruption between schema and declaration
+   commits is recoverable by repeating `--migrate` with the same two receipts.
+3. install the corresponding native host, activate both units under the retained
+   pause and run containment verification. from a signed-out phone, follow the
+   original pdf link, sign in and print. send an ordinary web `resume`, inspect its
+   canonical control and finish the [installed journey](decisions/0087-private-web-home.md#ownership-and-proof).
+   keep the verified private recovery copy at `/var/lib/jarvis-cutover/adr0087/$to`.
+   after installed acceptance, retire a superseded secret-bearing snapshot only
+   after verifying its replacement and retaining original unknown-effect evidence.
 
-4. check that the paused assistant and memory each have a live pid in the same
-   release. stop the assistant and native host to verify authenticated memory
-   save/open and capture. start the host, then the assistant to remount its socket.
-   wait for the restarted assistant's discord catch-up before running
-   `deploy/verify-containment` against its initialized process. resume through
-   ordinary owner conversation after checking retained control.
+```sh
+deploy/install-release "$to"
+# the exact-email google access app, cache rule and dedicated tunnel must exist.
+deploy/install-home-ingress "$tunnel_credentials_json" "$access_team_slug" "$access_application_audience"
+# after the edge denial checks, acknowledged old discord pause and drained old work
+ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
+deploy/activate-release --prepare "$from" "$to"
+# qualify check-activation against a private restored copy before the live migration
+deploy/activate-release --migrate "$from" "$to"
+deploy/install-contained-host "$to"
+deploy/activate-release "$from" "$to"
+deploy/verify-containment
+```
+
+if startup fails after switching the selected release and releasing the hold, the
+installer stops both units. check its journal, repair forward and rerun
+`deploy/activate-release "$to"`. the installer waits up to five minutes for the
+private http endpoint and checks both units before pruning.
+
+before the next private settings installation, update the workstation's protected
+assistant declaration with the exact installed `JARVIS_OWNER_SCOPE` and
+`JARVIS_OWNER_ARCHIVE_KEY`. remove the discord guild, owner-user and catch-up
+settings. keep the channel and credential for outbound alerts. remove the bot's
+privileged message-content intent and restrict its channel permissions to viewing
+the channel and sending messages. pin a short owner-authored channel note saying
+“chat and pause/resume have moved to <https://jarvis.nielseriknandal.com/>.”
+
+from the private notes workspace, main runs
+`/opt/jarvis/current/deploy/jarvis-page publish SLUG COMMIT --home` or its
+`withdraw SLUG` command. publish self-contained
+html at `site/SLUG/index.html` with inline javascript/css and embedded images.
+time-sensitive data carries its preparation time. the sandbox omits downloaded
+libraries, fonts, media and workers. withdrawal closes all links, including raw
+content, and keeps the private source. a filesystem read already admitted can finish.
 
 for subsequent same-schema updates, cleanly stop both services, install the
 target and its native host, then run `deploy/activate-release "$to"`. routine
@@ -478,12 +501,16 @@ remain opaque evidence, never an execution route. old unknown paid reads and
 unfinished isolated cognition require their original release's disposition.
 current unknown effects retain their existing reconciliation and causal barriers.
 
-for a fresh database, use a–c to migrate through `0015`, load the deployment
-channel and memory declaration, and run its `jarvis initialize-state` once.
-that creates the canonical initial pause. supply the same
-`JARVIS_DISCORD_CHANNEL_ID` to the d migration environment. advance to `0016`
-only after provisioning the memory login. the same sequence applies to isolated
-test databases. never initialize or reset an existing populated database.
+for a fresh database, install the candidate inactive, provision its runtime and
+memory users with `deploy/provision-database "$to"`, then run
+`deploy/install-private-state --bootstrap "$to"`. bootstrap reads the staged
+memory declaration, migrates an empty database to `0015` and provisions the
+assistant's private configuration. install the candidate's native host and
+private ingress. run the candidate's `jarvis initialize-state` once as the
+assistant using its runtime declarations. use the same stored owner scope in the
+migration environment and run the candidate's `alembic upgrade 0017` as migrator
+with both writers stopped. start using `deploy/activate-release "$to"`. a populated
+database must use the stopped cut. startup always reads its recorded control.
 
 `verify-containment` runs after activation without printing secret values. It
 proves the three environment files are root-owned mode 0600 and unreadable by
@@ -903,8 +930,7 @@ value. Operators must inspect Gmail before choosing to make a later, distinct
 owner-requested action; recovery never requeues the original create.
 
 startup fences old native callback owners and settles original sealed terminals
-locally before new cognition. it then performs bounded Discord catch-up, retries
-persisted outbox rows with null `source_message_id`, and scans canonical pending,
+locally before web ingress. it retries undelivered phone notices and scans canonical pending,
 unparked requests and host facts. reasoning uses a fresh native session from
 canonical context and original action/read receipts; unknown entered work cannot
 redispatch. there is no saved main-session reference or rolling charge.

@@ -36,8 +36,25 @@ def _absolute(path: Path) -> Path:
     return path
 
 
+def _owner_scope(value: str) -> str:
+    if not re.fullmatch(r"[1-9][0-9]*", value):
+        raise ValueError("owner scope must be the stored decimal channel scope")
+    return value
+
+
+def _owner_archive_key(value: str) -> str:
+    if not re.fullmatch(r"discord:[1-9][0-9]*:[1-9][0-9]*", value):
+        raise ValueError("owner archive key must be exactly discord:<guild>:<channel>")
+    return value
+
+
 AbsolutePath = Annotated[Path, AfterValidator(_absolute)]
+# Immutable installation identities. Changing either would orphan stored owner
+# state or republish archived memory; the notice destination is separate.
+OwnerScope = Annotated[str, AfterValidator(_owner_scope)]
+OwnerArchiveKey = Annotated[str, AfterValidator(_owner_archive_key)]
 MEMORY_SOCKET_PATH = Path("/run/jarvis-memory/internal.sock")
+HOME_SOCKET_PATH = Path("/run/jarvis-home/http.sock")
 
 
 class DatabaseSettings(BaseModel):
@@ -75,13 +92,13 @@ class MemoryServerSettings(SharedMemorySettings):
 
 class MemoryStatusSettings(DatabaseSettings):
     memory_config_path: AbsolutePath
-    discord_guild_id: int = Field(gt=0)
-    discord_channel_id: int = Field(gt=0)
+    owner_scope: OwnerScope
+    owner_archive_key: OwnerArchiveKey
 
 
 class PausedSettings(DatabaseSettings):
     runtime_state_directory: AbsolutePath
-    discord_channel_id: int = Field(gt=0)
+    owner_scope: OwnerScope
 
 
 class NativeStateSettings(PausedSettings):
@@ -124,8 +141,8 @@ class IsolatedRoleSettings(SharedMemorySettings):
 
 
 class MemoryJobSettings(IsolatedRoleSettings):
-    discord_guild_id: int = Field(gt=0)
-    discord_channel_id: int = Field(gt=0)
+    owner_scope: OwnerScope
+    owner_archive_key: OwnerArchiveKey
 
 
 def embedding_key_from_env(environ: Mapping[str, str] | None = None) -> SecretStr:
@@ -142,10 +159,11 @@ def embedding_key_from_env(environ: Mapping[str, str] | None = None) -> SecretSt
     return SecretStr(key)
 
 
-class Settings(IsolatedRoleSettings):
+class Settings(MemoryJobSettings):
     """Assistant runtime configuration."""
 
     discord: DiscordSettings
+    home_socket_path: AbsolutePath = HOME_SOCKET_PATH
     codex_model: str = Field(min_length=1, max_length=255)
     agent_cli_path: Path
     agent_state_directory: Path
@@ -227,14 +245,6 @@ class Settings(IsolatedRoleSettings):
         return value
 
     @property
-    def discord_channel_id(self) -> int:
-        return self.discord.channel_id
-
-    @property
-    def discord_guild_id(self) -> int:
-        return self.discord.guild_id
-
-    @property
     def host_secrets(self) -> tuple[str, ...]:
         values = (
             self.database_url.get_secret_value(),
@@ -260,6 +270,18 @@ class Settings(IsolatedRoleSettings):
             raise ConfigurationError(
                 "private Codex state is retired; configure the host mapping"
             )
+        for name in (
+            "JARVIS_DISCORD_OWNER_USER_ID",
+            "JARVIS_DISCORD_GUILD_ID",
+            "JARVIS_DISCORD_CATCH_UP_LIMIT",
+            "JARVIS_DISCORD_REQUEST_TIMEOUT_SECONDS",
+            "JARVIS_DISCORD_DELIVERY_RETRY_DELAYS_SECONDS",
+        ):
+            if name in source:
+                raise ConfigurationError(
+                    f"{name} is retired; owner identity uses JARVIS_OWNER_SCOPE "
+                    "and JARVIS_OWNER_ARCHIVE_KEY"
+                )
         if "JARVIS_MAXIMUM_PROCESSING_ATTEMPTS" in source:
             raise ConfigurationError(
                 "JARVIS_MAXIMUM_PROCESSING_ATTEMPTS is fixed by the Slice 1 kernel"
@@ -304,6 +326,11 @@ class Settings(IsolatedRoleSettings):
             return cls(
                 database_url=SecretStr(required("JARVIS_DATABASE_URL")),
                 discord=DiscordSettings.from_env(source),
+                owner_scope=required("JARVIS_OWNER_SCOPE"),
+                owner_archive_key=required("JARVIS_OWNER_ARCHIVE_KEY"),
+                home_socket_path=Path(
+                    source.get("JARVIS_HOME_SOCKET_PATH", str(HOME_SOCKET_PATH))
+                ),
                 owner_timezone=required("JARVIS_OWNER_TIMEZONE"),
                 codex_profile_key=cast(
                     Literal["personal"], required("JARVIS_CODEX_PROFILE_KEY")

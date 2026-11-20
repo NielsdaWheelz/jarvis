@@ -209,6 +209,15 @@ def start(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "contained host binary differs from the qualified native version"
         )
+    # Stock locates its tool host beside the physical executable.
+    subprocess.run(
+        [Path(config.binary).resolve().with_name("codex-code-mode-host"), "--help"],
+        env=environment,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+    )
     os.execve(
         config.binary,
         [

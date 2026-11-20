@@ -98,7 +98,6 @@ def build_tool_composition(
     attachments = build_attachment_store(
         settings=settings,
         database=actions.engine,
-        http=google_api_http,
         google=google_read,
     )
     maps = MapsReadConnector(
@@ -182,7 +181,6 @@ def build_attachment_store(
     *,
     settings: Settings,
     database: Database,
-    http: httpx.AsyncClient,
     google: GoogleReadConnector,
 ) -> AttachmentStore:
     async def require_owner() -> None:
@@ -207,12 +205,13 @@ def build_attachment_store(
     )
     return AttachmentStore(
         database,
-        str(settings.discord.channel_id),
+        settings.owner_scope,
         r2_account=settings.attachment_r2_account_id,
         bucket=settings.attachment_r2_bucket,
         cache_directory=settings.attachment_cache_directory,
+        spool_directory=settings.runtime_state_directory / "uploads",
         s3_client=s3,
-        sources=AttachmentSources(client=http, google=google, discord=settings.discord),
+        sources=AttachmentSources(google=google),
         mutation_admitted=require_owner,
     )
 

@@ -6,6 +6,15 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## private web home
+
+[adr 0087](docs/decisions/0087-private-web-home.md) specifies the successor to
+the single discord chat. the private website owns conversation, uploads and
+decisions. jarvis publishes the main canvas from its notes workspace. discord
+delivers notification links. the adr supersedes conflicting client, readiness,
+delivery and presentation rules below. production runs the web release at schema
+`0017`. [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
+
 ## accepted native recovery and memory availability target
 
 [adr 0086](docs/decisions/0086-native-recovery-and-memory-availability.md)

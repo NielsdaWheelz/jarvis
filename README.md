@@ -1,10 +1,9 @@
 # Jarvis
 
-Jarvis is a personal, persistent AI assistant for one user. It lives in one
-configured private Discord channel, uses the user's existing Gmail, Google
-Calendar, Google Maps, and Discord integrations plus bounded public-Web tools,
-and retains admitted history through a shared archive, compressed view, retrieval
-and quiet dreaming.
+jarvis is a persistent personal assistant. this branch implements its private home at
+`jarvis.nielseriknandal.com` behind google sign-in. production still uses discord chat. the sidebar holds conversation,
+todos and decisions. jarvis publishes the main canvas from its private notes repo.
+discord delivers short private links. [web home and release status](docs/decisions/0087-private-web-home.md)
 
 this repository is specification-first. native cognition and shared memory are
 installed and owner-resumed. the online memory rollout is qualified with the
@@ -81,10 +80,9 @@ reservation or arbitrary main cutoff remains. finite operation limits and effect
 uncertainty barriers remain. skid owns independent worker launch/control; jarvis
 owns durable observation and integration.
 
-current source owns eighteen application tables: the native nine, six
-library-owned memory tables, `work` (`0010`), `attachment` (`0011`) and
-`event_cursor` (`0012`). migration `0013` preserves full read text in postgres
-json without adding a table:
+the source has nineteen application tables. schema `0017` adds `home_notice` for
+delivery of private links. canonical conversation and work stay in their existing
+tables.
 
 ```text
 message
@@ -105,6 +103,7 @@ memory_state
 work
 attachment
 event_cursor
+home_notice
 ```
 
 ## remaining v2 target
@@ -195,7 +194,7 @@ receipts qualify only their named artifacts and boundaries.
   is the unprivileged developer connection; it has no administrative fallback.
 - Intended deployment: isolated host-native service on the existing Hetzner
   `dev-server`, with native loopback PostgreSQL; no v1 backup
-- Primary client: one configured channel in a dedicated private Discord server
+- the private web home is the primary client. one discord channel receives notification links.
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 - worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
@@ -258,8 +257,8 @@ these describe current source trade-offs; installed behavior is qualified separa
   delay stopping. A first SIGINT retains exit status 130; the existing 360-second
   systemd deadline or a second interrupt can force termination and crash recovery.
   Shutdown does not stop independently running Codex workers or shared servers.
-- Discord is a third-party processor for every conversation, every quoted
-  memory, every summarized email, and ordinary consent conversation.
+- cloudflare carries authenticated web traffic. discord receives a fixed reply or decision
+  label and the private link. google handles sign-in.
 - The complete raw memory corpus and every semantic-search query are disclosed
   to the embedding processor; see
   [ADR 0008](docs/decisions/0008-embedding-source.md). Ingestion, backfill, and
@@ -279,9 +278,8 @@ these describe current source trade-offs; installed behavior is qualified separa
 - main interprets conversational consent using canonical owner messages. host code
   proves owner identity, current admission and the immutable first decision; it
   does not prove that the model interpreted the owner's meaning correctly.
-- Conversation, approvals, and proactive notices interleave in one Discord
-  channel. Multiple channels are deferred until that produces a measured
-  problem.
+- owner speech and approvals share one web conversation. the newest published home
+  opens on a fresh visit. open tabs retain the revision they were reading.
 - The reused Discord role has 25 inherited permissions beyond the four Jarvis
   needs. V1 accepts that dormant authority by owner choice: Administrator and
   management/moderation authority remain prohibited, Discord is absent from the
@@ -355,14 +353,9 @@ these describe current source trade-offs; installed behavior is qualified separa
 - Every action has a finite lifetime executor-entry ceiling. A proven-absent
   effect can end failed when that capacity is exhausted rather than retrying
   forever.
-- Discord deduplicates a stable per-message nonce only within a recent window,
-  and historical responses may omit that nonce. V1 therefore accepts that an
-  ambiguous acknowledgement followed by a sufficiently delayed bounded retry
-  can rarely repeat ordinary conversational text. This cannot duplicate an
-  approval decision or external action.
-- Discord transport uses `discord.py` for Gateway input and one direct
-  REST create binding because the qualified client does not expose enforced
-  nonces; this small split remains until its public API can replace the binding.
+- discord deduplicates each persisted notice nonce for a short window. a delayed
+  retry after a lost acknowledgement can repeat the phone alert. its link resolves
+  to the one canonical reply or decision.
 - Some providers cannot prove whether every timed-out external effect committed.
   Jarvis exhausts provider-specific automatic reconciliation first, then records
   terminal `uncertain` with the original evidence. main explains the limitation;

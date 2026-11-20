@@ -805,7 +805,8 @@ async def native_receipt_context(
         records: list[dict[str, object]] = [
             {
                 "kind": "canonical_request_context",
-                "input_id": str(row["id"]),
+                "delivery": "context_only",
+                "message_id": str(row["id"]),
                 "role": row["role"],
                 "source": row["source"],
                 "source_timestamp": row["created_at"].isoformat(),

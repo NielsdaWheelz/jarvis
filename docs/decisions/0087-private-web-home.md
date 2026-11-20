@@ -416,6 +416,8 @@ its canonical reply `6b144c91-50d7-5896-acaf-b7a82587247b` produced one notice
 with a discord message receipt. a later web request for the pdf produced a final
 reply referencing the retained original. all eight reply notices had discord receipts.
 
+### owner acceptance and closeout, 2026-11-20 utc
+
 the owner accepted the installed web home and requested closure. the physical
 print and interrupted-send retry have no separate production receipt. captionless
 uploads, two-tab revision withdrawal and a conversational approval carry their
@@ -427,3 +429,13 @@ copies matched their recorded hashes. across both snapshots, the original 18 tab
 inventories, owner scope, pause and private-copy hashes matched. the superseded
 `344abf9` rehearsal snapshot was removed and the selected copy was checked again.
 [discord channel administration](../issues/discord-alert-channel.md) remains open.
+
+final review found that cancelling an automatic action could make its id look like
+an approval. release `95423ff` requires an open approval, a proposal message or
+notice, a recorded wait for approval, or a successful approval response. historical
+cancellations with only a timestamp do not qualify. no installed row depended on
+the timestamp alone. thirteen action histories passed both detail lookup and chat
+reference submission against disposable postgres. the open list and independent
+opus review passed. the same-schema replacement preserved web resume 18. the
+installed reader excluded a real automatic action, served chat and decisions,
+and the memory service reopened a pre-cut owner record.

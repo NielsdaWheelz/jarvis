@@ -1,9 +1,8 @@
 # subscription usage and the 6.2 model candidate
 
-[adr 0093](../decisions/0093-subscription-model-refresh.md) owns the accepted
-target and evaluation. terra and luna can win the fixed compactor slot in the
-blinded comparison. the sol/medium recommendation below preceded that decision.
-implementation and candidate proof are pending.
+[adr 0093](../decisions/0093-subscription-model-refresh.md) owns the role
+selection and isolated release qualification. the blinded comparison selected
+`gpt-6.1-terra/medium` for compaction. the installed quota effect remains open.
 
 production release `e7f5916` ran `gpt-6-astra/max` for main and
 `gpt-6.1-sol/xhigh` for both memory roles through personal codex. its contained
@@ -42,16 +41,23 @@ batch on the mac client. the fixture sha-256 was
 ordinary production throughput, quota savings and multi-level recall still
 need evidence.
 
-the owner's requested pr scope includes a build and an isolated upgrade
-candidate. recommended targets are `gpt-6.2-astra/max` for main,
-`gpt-6.2-sol/medium` for the compactor and `gpt-6.2-sol/xhigh` for the nightly
-dreamer, at standard speed. today both memory roles receive the same provider
-configuration. bind effort per role in the service and maintenance entry
-points. qualify the provider's stock binary and restricted catalog together
-with the jarvis release, using the personal route. measure
-tokens per accepted node across representative leaves and parents, reopen the
-sources behind a correction and a tool-only fact, and verify a main turn and
-a grounded dream. advancing this candidate requires updating the [role
-contract](../decisions/0076-role-models-and-delegated-choices.md). keep the
-existing [fixed-model capacity evidence](../decisions/0092-memory-freshness.md)
-attributed to its original release.
+three paired, blinded trials started from the same five redacted real excerpts
+and three synthetic cases. each run committed two inferred leaves, two inferred
+parents and eleven free nodes. terra/medium, sol/medium and the incumbent
+sol/xhigh preserved every required fact and reopened the correction and tool
+result through their own ancestry. both luna efforts assigned a receipt to the
+wrong sibling during screening.
+
+terra/medium averaged 0.071567 standard-credit equivalents per committed
+inferred node. sol/medium averaged 0.152392 and the incumbent 0.327575.
+terra cost less per node and per complete tree in every pair. six of its
+twelve inferred nodes exceeded the 512-byte target. the largest used 772 of
+the 2,048 permitted bytes. the dated report, anonymous grades, usage and
+packet remain in the owner's private qualification directory under
+`adr0093-implementation-20261120/evaluation/compactor-comparison.md`,
+sha-256 `58b09b51ea35b871fe3cc3209e0e3aa4064b85cb67de15a3c6ee3282fdc4e2ab`.
+
+the scheduler can spend saved capacity on older history. a separately
+authorized installed observation measures the fixed-cutoff deficit, later
+arrivals and source-backed recall. keep the earlier production window under
+its original pins. [capacity and recall](../compactor-burst-recovery.md#installed-recovery-and-user-outcome)

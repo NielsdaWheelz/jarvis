@@ -4,6 +4,12 @@ the 2026-11-19 [freshness design](../decisions/0092-memory-freshness.md) takes
 on recent correction recall, index coverage and historical capacity. broader
 usefulness under ordinary work remains open.
 
+the [private replay](../decisions/0092-memory-freshness.md#partial-private-replay)
+ran for 17 minutes with the fixed model under favorable idle conditions. leaves
+arrived faster than the prefix advanced before an uncertain model outcome ended
+the authorized run. the full burst remains unqualified. installed measurement
+still requires a predeclared ordinary busy day and its following quiet period.
+
 problem: current integration qualification cannot establish whether memory remains
 useful under the owner's realistic mixture and volume of scientific, personal,
 creative and coding work. bounded tree coverage and successful tool calls do not

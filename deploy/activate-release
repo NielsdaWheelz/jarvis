@@ -48,7 +48,7 @@ receipt="$(receipt_json "$2")"
 source_receipt=none
 if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
 operation="$4"
-snapshot="/var/lib/jarvis-cutover/adr0087/$commit"
+snapshot="/var/lib/jarvis-cutover/adr0092/$commit"
 hold=/etc/systemd/system/jarvis-cutover.hold
 source="/opt/jarvis/releases/${3%%:*}"
 selected=''
@@ -63,7 +63,7 @@ cutover() {
     "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" </dev/null
 }
 if [[ "$operation" == prepare ]]; then
-  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0016 source release"
+  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0017 source release"
   if [[ ! -e "$hold" ]]; then
     systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
       --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \
@@ -88,6 +88,15 @@ else
        "$(systemctl show -p Result --value "$unit")" == success &&
        "$(systemctl show -p MainPID --value "$unit")" == 0 ]] || refuse "cleanly stop $unit"
   done
+fi
+
+if [[ "$operation" == migrate ]]; then
+  cutover migrate
+  exit
+fi
+
+if [[ -e "$hold" ]]; then
+  cutover verify-target
 fi
 
 for file in embedding.env database-memory.env memory.env; do
@@ -120,31 +129,33 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from jarvis.db import normalize_database_url
-from jarvis.ownership import DEPLOYMENT_LOCK_KEY
+from jarvis.db import APPLICATION_SCHEMA_REVISION, normalize_database_url
+from jarvis.ownership import DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY
 
 try:
     engine = create_engine(normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"]))
     with engine.begin() as connection:
-        if not connection.scalar(
-            text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": DEPLOYMENT_LOCK_KEY}
-        ):
-            raise SystemExit("schema inspection requires a stopped deployment")
+        for key in (DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY):
+            if not connection.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
+            ):
+                raise SystemExit("schema inspection requires both writers stopped")
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
     engine.dispose()
 except (KeyError, SQLAlchemyError, ValueError):
     raise SystemExit("schema inspection failed") from None
+if revision != APPLICATION_SCHEMA_REVISION:
+    raise SystemExit("commit the paused schema cut before activating")
 print(revision)
 PY
 )"
-if [[ "$operation" == migrate ]]; then
-  if [[ "$schema" == 0016 ]]; then cutover migrate; fi
-  cutover commit-settings
-  cutover verify-target
-  exit
+if [[ -n "$selected" && ! -e "$hold" ]]; then
+  "$selected/.venv/bin/python" -c '
+import sys
+from jarvis.db import APPLICATION_SCHEMA_REVISION
+raise SystemExit(APPLICATION_SCHEMA_REVISION != sys.argv[1])
+' "$schema" || refuse "prepare the stopped cut before replacing the selected schema"
 fi
-[[ "$schema" == 0017 ]] || refuse "commit the paused schema cut before replacing its native host"
-if [[ -e "$hold" ]]; then cutover verify-target; fi
 [[ "$(stat -c '%U:%G:%a' /run/jarvis-home)" == jarvis:jarvis-home:2750 ]] ||
   refuse "install the private home connector and runtime directory before activation"
 if grep -q '^JARVIS_EMBEDDING_' /etc/jarvis/jarvis.env; then

@@ -5,7 +5,6 @@ import json
 import re
 from contextlib import closing, suppress
 from pathlib import Path
-from uuid import UUID
 
 import boto3
 from botocore.config import Config
@@ -32,11 +31,9 @@ def settings(raw, fields):
 
 
 def producer_settings(raw):
-    config = settings(raw, {"recipient", "reader_image", "ping"})
-    if (
-        not re.fullmatch(r"age1[0-9a-z]{58}", config["recipient"])
-        or not re.fullmatch(IMAGE_ID, config["reader_image"])
-        or str(UUID(config["ping"])) != config["ping"]
+    config = settings(raw, {"recipient", "reader_image"})
+    if not re.fullmatch(r"age1[0-9a-z]{58}", config["recipient"]) or not re.fullmatch(
+        IMAGE_ID, config["reader_image"]
     ):
         raise ValueError("invalid producer settings")
     return config

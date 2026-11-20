@@ -32,7 +32,7 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from universal_memory import MemoryError, MemoryStore
-from universal_memory.policy import bounded_text
+from universal_memory.policy import EMBEDDING_BATCH_SIZE, bounded_text
 from universal_memory.schema import source_conversation
 
 from jarvis.actions import ActionPersistenceDefect, ActionStore, archived_worker_action
@@ -54,7 +54,7 @@ from jarvis.definitions import (
     build_dreamer,
 )
 from jarvis.discord import DiscordCreateMessageClient
-from jarvis.embeddings import OpenAIEmbedder
+from jarvis.embeddings import EmbeddingFailure, OpenAIEmbedder
 from jarvis.events import EventStore
 from jarvis.home_http import create_home_app
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
@@ -1028,7 +1028,7 @@ async def rebuild_memory(
         ) as database:
             async with _isolated_memory_runtime(
                 settings=memory_settings,
-                offline_key=embedding_key_from_env(),
+                offline_key=embedding_key_from_env() if node is None else None,
                 config=config,
                 host=host,
                 database=database,
@@ -1041,12 +1041,16 @@ async def rebuild_memory(
                     await runtime.memory.library.cutoff(), cancellation
                 )
                 if node is None:
-                    while await runtime.memory.library.embedding_candidates(1):
-                        if not await runtime.compactor.index_one(cancellation):
+                    while rows := await runtime.memory.library.embedding_candidates(
+                        EMBEDDING_BATCH_SIZE
+                    ):
+                        try:
+                            await runtime.memory.index_batch(rows)
+                        except EmbeddingFailure as error:
                             raise RuntimeError(
-                                "memory rebuild embedding failed; "
+                                f"memory rebuild embedding failed ({error.reason}); "
                                 "derived work remains pending"
-                            )
+                            ) from None
     finally:
         await engine.dispose()
 

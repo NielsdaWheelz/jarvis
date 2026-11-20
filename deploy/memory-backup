@@ -13,7 +13,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
 from memory_backup_storage import Bucket, producer_settings
 from memory_snapshot import POSTGRES_BIN, snapshot
 
@@ -140,19 +139,7 @@ async def backup(config, credentials):
         await asyncio.to_thread(
             bucket.put_manifest, f"{generation}/manifest.age", encrypted.stdout
         )
-        print(f"verified backup {generation} from {facts['cut_utc']}", flush=True)
-        if not timedelta() <= datetime.now(UTC) - cut <= timedelta(hours=1):
-            raise ValueError("the verified cut missed the freshness deadline")
-
-
-def ping(token, *, failed):
-    suffix = "/fail" if failed else ""
-    httpx.post(
-        f"https://hc-ping.com/{token}{suffix}",
-        content=b"",
-        timeout=10,
-        trust_env=False,
-    ).raise_for_status()
+        return generation, cut
 
 
 def main():
@@ -165,20 +152,19 @@ def main():
         print("memory backup credentials are missing or invalid", file=sys.stderr)
         return 1
     try:
-        asyncio.run(backup(config, credentials))
+        generation, cut = asyncio.run(backup(config, credentials))
     except Exception as error:
         # Exceptions from the SDK can carry request coordinates and credentials.
         print(f"memory backup failed ({type(error).__name__})", file=sys.stderr)
-        try:
-            ping(config["ping"], failed=True)
-        except httpx.HTTPError:
-            print("memory backup failure ping failed", file=sys.stderr)
         return 1
-    try:
-        ping(config["ping"], failed=False)
-    except httpx.HTTPError:
-        print("verified backup could not report freshness", file=sys.stderr)
+    if not timedelta() <= datetime.now(UTC) - cut <= timedelta(hours=1):
+        print(
+            f"backup {generation} from {cut.isoformat()} "
+            "verified outside the one-hour freshness window",
+            file=sys.stderr,
+        )
         return 1
+    print(f"verified backup {generation} from {cut.isoformat()}", flush=True)
     return 0
 
 

@@ -9,6 +9,9 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0092](docs/decisions/0092-memory-freshness.md) owns the separate memory
+  freshness cut after web home. preserve its startup, index-writer and historical
+  capacity boundaries, including the per-feature designer and opus review.
 - [adr 0087](docs/decisions/0087-private-web-home.md) owns the private
   installed web home at schema `0017`, its cutover and verification contract.
   the [production cut](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc) records owner acceptance.

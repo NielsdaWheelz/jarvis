@@ -25,14 +25,13 @@ reopened its pinned reader archive built from `d4c702a`. hetzner's
 installed age encrypted a
 probe that the mac decrypted. the bucket contains no production backup.
 
-remaining prerequisites are the two owner-email checks and an independent
-offline copy of the recovery identity. adr 0092 occupies the single candidate
-slot with reviewed `d16a507`. preserve it. if 0092 migrates first, qualify
-recovery against `0018` before provisioning. record the owner pause in the
-authenticated web composer when the deployment window is ready. the backup
-timer is still uninstalled.
+the owner approved proceeding without healthchecks.io for the first drill.
+production selected adr 0092 and schema `0018`. at preflight both units were
+running under the existing owner pause. qualify and stage the backup-capable
+`0018` release. keep an independent offline copy of the recovery identity.
+the backup timer is still uninstalled.
 
 resolved when the installed backup runs on schedule and the adr 0088 drill
 recovers a current generation on an isolated second machine. record actual cut
 age, time to verified reads, inventory and checkpoint comparisons, independent
-configuration recovery, external freshness reporting and the retained proven copy.
+configuration recovery, scheduled-run evidence and the retained proven copy.

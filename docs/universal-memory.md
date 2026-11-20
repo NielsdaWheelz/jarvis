@@ -1,8 +1,10 @@
 # universal memory: implementation contract
 
+[adr 0092](decisions/0092-memory-freshness.md) owns the post-web-home cut for
+startup selection, view paging and online embedding ownership.
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns
-the target serving process, private search/index interface and maintenance
-ownership. this document continues to own archive, retrieval and readiness semantics.
+independent serving, private search and stopped maintenance ownership. this
+document continues to own archive, retrieval and readiness semantics.
 
 finite target exception: [adr 0077](decisions/0077-production-acceptance-and-fresh-reset.md),
 reordered by [fresh-corpus adr 0078](decisions/0078-fresh-corpus-first-acceptance.md), authorizes
@@ -237,7 +239,9 @@ an exact checked-in snapshot with its immutable upstream revision; it does not
 maintain a second wording policy. each consumer records source adoption separately
 from installed acceptance.
 
-orient from the supplied tree view before seeking remembered context elsewhere.
+orient from the complete ready prefix and recent verbatim exchanges before
+seeking remembered context elsewhere. each recent quote shows its source time
+or clock warning, its source role and the references of its displayed parts.
 when history matters, zoom the relevant discussion; if no useful route is visible
 or navigation leaves a gap, use the existing keyword/semantic search. no irrelevant
 zooms, fixed call count or manual tree merges. open originals when wording,
@@ -1072,13 +1076,15 @@ reconstruct readiness once at startup, then maintain a ready queue and bounded
 window of missing leaves. completed children enqueue parents. prioritize waiting
 foreground dependencies, then oldest ready work; shrinking parents cannot be
 starved by leaves. do not rescan the historical tree on every completion.
-ordinary construction/dreaming yield to foreground work. main does not wait for
-construction; the existing idle worker continues full compression and indexing.
+ordinary construction and dreaming yield to foreground work. main opens a
+ready view without waiting for construction. the memory service runs the
+independent embedding sweep.
 
 a main context request freezes `cutoff=leaf_count` after pending canonical
 publication (section 9), then obtains the same immutable fitting ready-view value
-as external readers. the library owns clipping, coarsening and whole-node fitting
-under the existing upper bound, including coverage/admitted-backlog framing.
+as external readers. the library fits recent exchanges first and gives the
+remaining budget to the continuous historical prefix. coverage and frame
+limits apply to both.
 report actual `[0,through)` coverage and `admitted_through=cutoff`; orientation
 can be empty or end before construction progress when only an older prefix fits.
 main consumes the complete value in-process without paging or cache allocation.
@@ -1087,11 +1093,10 @@ stays frozen through active steering. valid ready views remain usable when
 construction parks; publication/database failures retain their typed blocking
 behavior, never empty success. cancellation preserves canonical input.
 
-this deliberately permits indefinite historical staleness: foreground work or
-parked construction can prevent catch-up, and omitted corrections may not be
-recalled. retained originals remain available through existing archive reads
-when identified; leaf zoom still needs its built node and search retains its
-embedding/error contract. no new fairness, daemon, timer or raw-tail window.
+foreground work or parked construction can delay historical catch-up
+indefinitely. recent quotations can still expose a correction once the
+source commits. older and clipped originals remain addressable. leaf zoom
+requires its built node and search retains its embedding contract.
 strict full preparation remains for maintenance where required. adr 0082's
 dreamer consumes committed ready seeds without requiring further construction.
 
@@ -1182,11 +1187,11 @@ backlog is explicit and may outgrow nightly throughput. bounded manual
 without resetting the nightly marker.
 failure preserves seeds for the next night/manual run; no immediate inference
 retry loop. main work takes precedence. after main reports no work, check the
-existing due-nightly attempt before the next compactor/indexer batch. absent,
+existing due-nightly attempt before the next compactor batch. absent,
 already-claimed and zero-progress attempts fall through to compression; actual
 dream progress returns through foreground admission. retain existing claim,
 background cancellation and owner fences; add no task, timer, queue or mode.
-one bounded dream can delay the next compression/index batch. seeds may be stale;
+one bounded dream can delay the next compression batch. seeds may be stale;
 material becoming ready after that night's attempt may wait until the next night
 or a manual run. no freshness, throughput or usefulness guarantee is added.
 
@@ -1308,7 +1313,7 @@ underscores; jarvis's internal tools use dotted names):
 
 | tool | input → result |
 | --- | --- |
-| `memory_view` | optional cursor → page of the frozen ready view, node addresses/text, `through`, `admitted_through`, and continuation; coverage is `[0,through)`, backlog is explicit |
+| `memory_view` | optional cursor → frozen ready nodes, recent exchanges and continuation. `through` counts the complete prefix and `admitted_through` bounds all source reads |
 | `memory_zoom` | `start`, `count` → two child nodes when `count>1`; when `count=1`, the canonical source part/note, provenance, event part/count and full-event open arguments |
 | `memory_date` | `position` → source occurrence time if known and central receipt time; note creation time is identified as such |
 | `memory_search` | query (at most 2,048 code points and 4,096 bytes), optional store/kind filters, `limit` 1–20 (default 10) → ranked results with identity, store, kind, role, provenance (provider, machine, account, conversation, native time), a preview of at most 1 kib with `clipped`, candidate/returned counts and explicit limit/byte-bound omissions |
@@ -1421,15 +1426,12 @@ restart resets this short-window throttle; original paid-read receipts and
 unknown-outcome barriers are unaffected. a busy caller can consume the shared
 allowance for everyone.
 
-all embedding work, including query embeddings, indexing and rebuild, uses the
-same embedder/http client and one shared inference semaphore at that boundary.
-if occupied, return a typed zero-attempt busy result immediately: search reports
-`rate_limited`, indexing leaves work pending for its next sweep. do not wait until
-the outer tool deadline could misclassify an undispatched request as uncertain.
-no second search-only semaphore, waiting queue or duplicate client. database reads
-share the bounded read-only pool and its 5-second statement timeout; writes stay on the
-fenced owner connection. other cognitive work retains existing global admission.
-these controls cover different resources/units, not independent profile quotas.
+the memory service owns one online embedder and one immediate-admission slot
+shared by search and indexing. an occupied slot returns `rate_limited` to
+search with zero attempts and leaves index work pending. the stopped full
+rebuild uses the same local batch operation under both writer locks. database
+reads share the bounded read-only pool and five-second statement timeout.
+vector writes use the fenced memory writer connection.
 
 configure the shared provider runtime's PUBLIC retry policy for one attempt,
 including indexing; disabling sdk retries alone is insufficient. later indexing

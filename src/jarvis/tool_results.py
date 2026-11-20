@@ -22,21 +22,15 @@ class NoTelemetry:
         del name, attributes
 
 
+def memory_view_section(value: str) -> PromptSection:
+    return PromptSection(
+        PromptSectionKind("historical_memory_view"), (), PromptText(value)
+    )
+
+
 def memory_view_size(value: str) -> int:
     """Count the exact shared memory text frame, including XML escaping."""
-    return len(
-        render_prompt(
-            PromptSections(
-                (
-                    PromptSection(
-                        PromptSectionKind("historical_memory_view"),
-                        (),
-                        PromptText(value),
-                    ),
-                )
-            )
-        ).encode()
-    )
+    return len(render_prompt(PromptSections((memory_view_section(value),))).encode())
 
 
 def memory_result_size(value: object) -> int:

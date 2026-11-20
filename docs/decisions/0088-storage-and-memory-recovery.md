@@ -8,8 +8,8 @@ installed `0016` baseline and its stopped migration copies.
 ## outcome
 
 new heavy development runs on the mac. hetzner serves production and reports
-usable disk space. losing hetzner can cost up to 24 hours of admitted memory at
-the agreed service target. an operator with a clean, available second machine
+usable disk space. the recovery target is at most 24 hours of admitted memory
+loss. an operator with a clean, available second machine
 can read verified memory within two hours. report the newest verified upload
 and the last actually restored cut separately.
 
@@ -62,21 +62,15 @@ growth over the operator's response window. arm monitoring immediately.
 track the low reading in dev-server's `docs/issues/production-disk-headroom.md`
 until measured headroom recovers through separately approved disposal or expansion.
 
-configure a private healthchecks.io check with owner email, ten-minute period
-and ten-minute grace. send an empty success ping for a healthy sample and
-`/fail` for low or unknown. missing pings produce an independent overdue alert.
-only timing and status leave the host. use the local record to distinguish
-“root below its free-byte floor” from “capacity unknown”. the content designer
-requires scope, observed amount, floor and one useful inspection in local
-output. transitions notify once and identify recovery. backup uses a distinct
-check. [ping api](https://healthchecks.io/docs/http_api/) · [period and grace](https://healthchecks.io/docs/configuring_checks/)
+the owner chose local journal reporting for this rollout. log low and unknown
+observations with scope, measured amount when known, applicable floor and one
+inspection command. each scheduled observation stands on its own.
 
 ## c. central memory recovery
 
 **installation.** c owns `deploy/provision-memory-backup EXPECTED_RELEASE`
-for a same-schema `0017` install. the installed web-home cut superseded the
-reviewed `0016` baseline before implementation began. the release and both
-writers stay on the current schema. stage the tooling with its timer disabled.
+for a same-schema `0018` install. adr 0092 migrated production before
+backup provisioning. the release and both writers stay on the current schema. stage the tooling with its timer disabled.
 from the mac use `dev-server-deploy`, `sudo -n` and the exclusive release file
 lock. verify the selected release and both cleanly stopped units. reuse the
 schema and canonical-pause check from [install_staged](../../deploy/memory_credentials.py)
@@ -106,9 +100,8 @@ one open repeatable-read transaction export the snapshot, record the cut time,
 compute the inventory and select read witnesses. pass that snapshot to a full
 `pg_dump -Fc` from the server's pg16 bindir. require the schema's complete
 table roster (19 application tables including `home_notice`, plus alembic,
-at `0017`). each subsequent
-migration owns any new grants and inventory qualification. fail on an unknown
-schema. a whole dump retains private
+at `0018`). each subsequent migration owns any new grants and inventory
+qualification. fail on an unknown schema. a whole dump retains private
 non-memory rows as the cost of one coherent recovery point. [postgres dump contract](https://www.postgresql.org/docs/16/app-pgdump.html)
 
 **storage.** stream through `age`. feed the same bounded plaintext stream
@@ -149,12 +142,11 @@ select it, then release the predecessor. keep its decryption key usable.
 this single proven generation can outlive 30 days. cutover evidence follows
 its original retention decision. [r2 lock semantics](https://developers.cloudflare.com/r2/buckets/bucket-locks/)
 
-the backup healthchecks.io check has a 12-hour period and six-hour grace.
-only a newly verified generation at most one hour old may send success.
-failure sends `/fail`. rediscovering an old object or skipping a migration
-window cannot refresh it. this leaves approximately five hours to respond
-before a 24-hour cut age. delivery latency and an ignored alert can breach
-the objective. [nexus timer precedent](https://github.com/NielsdaWheelz/nexus-web/blob/main/deploy/hetzner/nightly-backup.sh)
+report each backup result in the systemd journal. only a newly verified cut
+at most one hour old is a verified run. failures exit nonzero. rediscovering an
+old object or skipping a migration window does not advance freshness.
+the rollout has local observability. a missed job or host outage may go unseen
+and the newest usable cut can age past the 24-hour objective.
 
 **consumer.** `deploy/memory-restore {r2|held}/GENERATION NEW_PRIVATE_DIR` is
 operator only. start the clock on a clean, available mac target before staging.
@@ -190,8 +182,8 @@ keys, storage or the read path.
 | unit and exclusive owner | temporary red → green → refactor proof |
 | --- | --- |
 | a · mac development workflow, shared guidance, codapt2 verification pointer | real checkout and ordinary check on the mac. reopen evidence after removal. interrupt promotion and preserve the only copy. inspect git registration and child termination. inventory legacy work read-only. |
-| b · dev-server sampler, ansible and capacity check | drive healthy, low bytes, low inodes, failed and missing observations against a disposable filesystem/check. observe owner-channel alarm and recovery. install against the real pg volume and record its true state. |
-| c · jarvis backup, restore, provisioning, units and operations | on pg16, refuse unpaused/live provisioning without mutations, interrupt then retry the paused install with identical grants. dump during concurrent writes. interrupt upload and prove no valid completion. test corruption, wrong key, missing role and stale heartbeat. restore a remotely fetched generation with hetzner unreachable. time both opens, compare inventory, verify retention and exercise missed alerts on disposable targets. |
+| b · dev-server sampler and ansible | drive healthy, low bytes, low inodes, failed and missing observations against a disposable filesystem. verify credential-free journal reporting and install against the real pg volume. |
+| c · jarvis backup, restore, provisioning, units and operations | on pg16, refuse unpaused/live provisioning without mutations, interrupt then retry the paused install with identical grants. dump during concurrent writes. interrupt upload and prove no valid completion. test corruption, wrong key, missing role and stale cut. restore a remotely fetched generation with hetzner unreachable. time both opens, compare inventory, verify retention and local reporting on a failed run. |
 
 assign a content designer to each unit before its first red check. its receipt,
 alert or recovery report must meet the quality test above. observe the intended
@@ -203,8 +195,8 @@ ship independently of c. c's first full restore precedes scheduled activation
 and replacement of a proven copy. ordinary live provisioning requires separate
 authorization.
 
-costs include mac availability, manual classification, third-party signal
-timing, dump/readback traffic, key custody and monthly drills. hosting moves,
+costs include mac availability, manual classification and freshness review,
+dump/readback traffic, key custody and monthly drills. hosting moves,
 quotas, legacy purges, continuous wal archiving, attachment/notes files and
 web staging are separate work. an older ledger can predate a real external
 effect. live resumption requires separate reconciliation and authorization.
@@ -228,8 +220,8 @@ receipt sits beside the unit a inventory under `~/.adr0088-inventory-x0ohbe8w/`.
 | unit | isolated or operator proof | installed proof |
 | --- | --- | --- |
 | a | 15 mac checks, including real docker mounts, interruption, dirty and detached work, escaped users and evidence reopening after git removal. the existing 279 roots were inventoried read-only. private receipt with hashes under `~/.adr0088-inventory-x0ohbe8w/`. | the committed mac checkout command exercised its ordinary path. shared guidance is available in source. |
-| b | exact ansible tasks on ubuntu's systemd with postgres 16 and a second mount; idempotent reapply. upstream healthchecks on a disposable network sent failure, overdue and recovery once per transition. | the real sampler is enabled on `/dev/sda1`. at 02:18 utc it logged 8,973,885,440 bytes available and reported the low-byte state. the hosted check credential and owner delivery remain open. |
-| c | live-service and unpaused refusal, exclusive-lock survival on controller disconnect, interrupted grant retry with identical credential, exact read-only grants and rejected cross-database access. a real pg16 snapshot survived concurrent writes. subprocess interruption left no completion marker, stale cuts signalled failure, and bad ciphertext, wrong identity and missing role failed. normal mac recovery from a disposable s3 endpoint and the held copy took 5.25 and 5.21 seconds, opening ten original parts and an explicit note with matching inventories. a proven successor replaced the prior held copy. | the installed schema is `0017`. live provisioning and the first provider-backed recovery remain open. |
+| b | exact ansible tasks on ubuntu's systemd with postgres 16 and a second mount; idempotent reapply. upstream healthchecks on a disposable network sent failure, overdue and recovery once per transition. | the real sampler is enabled on `/dev/sda1`. at 02:18 utc it logged 8,973,885,440 bytes available and reported the low-byte state. the journal-only release `9cac6a3` published the same low-byte state and exited successfully at 05:15 utc. |
+| c | live-service and unpaused refusal, exclusive-lock survival on controller disconnect, interrupted grant retry with identical credential, exact read-only grants and rejected cross-database access. a real pg16 snapshot survived concurrent writes. subprocess interruption left no completion marker, stale cuts signalled failure, and bad ciphertext, wrong identity and missing role failed. normal mac recovery from a disposable s3 endpoint and the held copy took 5.25 and 5.21 seconds, opening ten original parts and an explicit note with matching inventories. a proven successor replaced the prior held copy. | this isolated proof used `0017`. live provisioning and the first provider-backed restore remain open. |
 
 the reader uses the mac's arm64 docker desktop containerd store. it runs from a
 release-built image pinned by oci index digest. plaintext and postgres data
@@ -239,5 +231,4 @@ access to other databases and large-object creation through a narrow hba block
 and jarvis-local grants. postgres retains ordinary session and advisory-lock
 behavior. archive transport and sender-loss proof used the real sdk and age
 against a disposable endpoint. verify the actual cloudflare lock and lifecycle,
-both hosted owner alerts and the first production recovery before enabling the
-schedule. [open restore issue](../issues/memory-backup-restore.md)
+the first production recovery before enabling the schedule. [open restore issue](../issues/memory-backup-restore.md)

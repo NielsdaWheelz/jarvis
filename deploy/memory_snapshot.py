@@ -16,18 +16,19 @@ STOPPED_TABLE_KEYS = {
     "message": "id",
     "action": "id",
     "model_decision": "decision_id",
-    "read_position": "position",
-    "native_attempt": "conversation_id, attempt_seq",
+    "read_position": 'position COLLATE "C"',
+    "native_attempt": 'conversation_id COLLATE "C", attempt_seq',
     "native_invocation": "id",
     "native_input_delivery": "attempt_id, message_id",
     "work": "id",
     "attachment": "id",
-    "event_cursor": "kind, account_id, resource_id",
+    "event_cursor": 'kind COLLATE "C", account_id COLLATE "C", resource_id COLLATE "C"',
+    "home_notice": "id",
     "memory_log": "id",
     "memory_summary": "id",
     "source_record": "id",
     "source_conversation": "id",
-    "memory_lane": "machine, account",
+    "memory_lane": 'machine COLLATE "C", account COLLATE "C"',
     "memory_leaf": "position",
     "memory_node": "level, node_index",
     "memory_state": "id",
@@ -35,11 +36,6 @@ STOPPED_TABLE_KEYS = {
 TABLE_KEYS = {
     **STOPPED_TABLE_KEYS,
     "model_decision": 'decision_id COLLATE "C"',
-    "read_position": 'position COLLATE "C"',
-    "native_attempt": 'conversation_id COLLATE "C", attempt_seq',
-    "event_cursor": 'kind COLLATE "C", account_id COLLATE "C", resource_id COLLATE "C"',
-    "memory_lane": 'machine COLLATE "C", account COLLATE "C"',
-    "home_notice": "id",
     "alembic_version": 'version_num COLLATE "C"',
 }
 SEQUENCES = (
@@ -48,7 +44,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0017"
+SCHEMA_REVISION = "0018"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
@@ -71,35 +67,33 @@ def lo_write_permission(role_expression):
     return f"({allowed})"
 
 
-async def table_inventory(conn, *, stopped=False, exclude=()):
-    # Keep the stopped receipt's ordering and byte format.
+async def table_inventory(conn, *, stopped=False):
+    # The stopped v4 receipt keeps its original rendering and excludes Alembic.
     await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
-    if not stopped:
+    keys_by_table = TABLE_KEYS
+    if stopped:
+        keys_by_table = STOPPED_TABLE_KEYS
+        tables = (
+            await conn.execute(
+                text("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_schema='public' AND table_type='BASE TABLE'
+                        AND table_name<>'alembic_version'
+                """)
+            )
+        ).scalars()
+        if set(tables) != keys_by_table.keys():
+            raise RuntimeError("stopped database table roster differs")
+    else:
         await conn.execute(text("SET LOCAL DateStyle TO 'ISO, YMD'"))
         await conn.execute(text("SET LOCAL IntervalStyle TO postgres"))
         await conn.execute(text("SET LOCAL extra_float_digits TO 3"))
         await conn.execute(text("SET LOCAL bytea_output TO hex"))
     facts = {}
-    for table, keys in (STOPPED_TABLE_KEYS if stopped else TABLE_KEYS).items():
-        columns = (
-            await conn.execute(
-                text("""
-                    SELECT column_name FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = :table
-                    ORDER BY ordinal_position
-                """),
-                {"table": table},
-            )
-        ).scalars()
-        cols = ", ".join(
-            '"' + c.replace('"', '""') + '"'
-            for c in columns
-            if (table, c) not in exclude
-        )
-        if not cols:
-            raise RuntimeError("missing application table")
+    for table, keys in keys_by_table.items():
+        # Only fixed-size hashes cross the connection. Original JSON survives.
         query = f"""SELECT sha256(convert_to(row_to_json(original)::text, 'UTF8'))
-                    FROM (SELECT {cols} FROM public.{table}) original ORDER BY {keys}"""
+                    FROM public.{table} original ORDER BY {keys}"""
         digest, count = hashlib.sha256(), 0
         async for row in (await conn.stream(text(query))).scalars():
             digest.update(row)

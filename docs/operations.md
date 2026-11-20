@@ -1,19 +1,19 @@
 # production operations
 
-at schema `0017`, two cpython 3.12 services run one selected release against
+at schema `0018`, two cpython 3.12 services run one selected release against
 the same postgres database. `jarvis.service` owns the private web conversation,
-canonical work and derived memory jobs. it uses the separate contained native
-host for cognition. `jarvis-memory.service` owns external capture, the shared
-memory endpoint on loopback port 8768 and the private search/index socket.
-its os identity, database role, lock and cgroup let reads, capture and note
-saves continue while the assistant and native host are stopped.
+canonical work, compaction and dreaming. it uses the separate contained native
+host for cognition. `jarvis-memory.service` owns external capture, online
+embedding, the shared memory endpoint on loopback port 8768 and the private
+search socket. its os identity, database role, lock and cgroup let reads,
+capture, note saves and indexing continue while the assistant and native host
+are stopped.
 
 dev-server owns private tailnet routing on port 8443 and native client
 configuration. [universal memory](universal-memory.md) owns the archive
 contract. [memory delivery](memory-delivery.md) owns nexus capture.
-[adr 0086](decisions/0086-native-recovery-and-memory-availability.md) defines
-the two stopped release cuts. candidate evidence and production acceptance
-are recorded separately.
+[adr 0092](decisions/0092-memory-freshness.md) governs the stopped freshness
+cut. candidate evidence and production acceptance are recorded separately.
 
 all owner and host requests use one full main plan with shared memory reads
 and optional note saving. the isolated dreamer receives memory reads; compactor
@@ -333,7 +333,7 @@ to the trusted native domain. `ProtectKernelTunables=true`,
 `ProtectProc=ptraceable`, no-new-privileges and empty capabilities remain.
 no change to the shared coding daemon, rpc relay or copied account is involved.
 
-on an established `0017` deployment, `deploy/install-private-state` publishes a
+on an established deployment, `deploy/install-private-state` publishes a
 private-configuration change under both stopped writer locks and canonical pause.
 its workstation input (`JARVIS_SOURCE_ENVIRONMENT`) contains the required
 secret assignments, including the embedding key. use the exact original
@@ -421,10 +421,7 @@ read are separate facts. use the mac for the following operations.
    object read-write for the producer and a distinct bucket-only read credential
    for recovery. verify creation, rejected overwrite and rejected deletion on a
    disposable setup with the same rules before using the backup bucket.
-2. set a distinct healthchecks.io check to 12 hours plus six hours of grace and
-   connect the verified owner email. verify alarm and recovery on a disposable
-   check. use only its check uuid in the producer configuration.
-3. on filevault storage create a mode-0700 owner recovery kit. put the age
+2. on filevault storage create a mode-0700 owner recovery kit. put the age
    identity in mode-0600 `identity` and keep an independent offline copy. put
    the read-only r2 settings in mode-0600 `restore.json` with string fields
    `account`, `bucket`, `access_key`, `secret_key`. cache the exact frozen
@@ -440,10 +437,10 @@ read are separate facts. use the mac for the following operations.
    docker image save --output "$kit/readers/${reader#sha256:}.tar" "$reader"
    ```
 
-4. prepare a separate mode-0600 producer json file with the same four field
+3. prepare a separate mode-0600 producer json file with the same four field
    names and its own write credential. include `recipient` with the age public
-   recipient, `reader_image` with the saved image id, and `ping` with the backup
-   check uuid. install ubuntu's `age` package. after separate owner approval,
+   recipient and `reader_image` with the saved image id. install ubuntu's
+   `age` package. after separate owner approval,
    select the backup-capable release through the ordinary paused deployment,
    stop both writers cleanly, then provision from the mac. restart both units
    through the ordinary paused release procedure and keep recurring backups
@@ -458,7 +455,7 @@ read are separate facts. use the mac for the following operations.
    ssh dev-server-deploy sudo -n journalctl -u jarvis-backup.service -n 20 --no-pager
    ```
 
-5. start with an available clean mac and the owner kit, with hetzner unreachable
+4. start with an available clean mac and the owner kit, with hetzner unreachable
    from the drill. select the exact backup folder containing `manifest.age`
    in r2. use a fresh private output directory on filevault storage whose parent
    already exists. the report records the cut age, verification time, memory
@@ -478,38 +475,35 @@ read are separate facts. use the mac for the following operations.
    inspect the report and selected `held/current.json` under the kit lock
    before manually disposing of either.
 
-confirm the next scheduled backup and its freshness signal. rehearse monthly
+confirm the next scheduled backup in the systemd journal. rehearse monthly
 and after changes to schema, keys, storage or the reader. only a distinct,
 authorized resumption can start the restored application's writers.
 
-### stopped web cut from 0016 to 0017
+### stopped memory cut from 0017 to 0018
 
-1. stage the target and private ingress. on the selected release collect the
-   owner's final discord pause, drain delivered replies, captures and unfinished
-   incompatible work. stop the assistant and memory cleanly. take the stopped
-   snapshot. rehearsal on its private restore must qualify the candidate's
-   `check-activation` against actual outstanding actions before the live migration.
-   an unexplained external outcome keeps its original receipt and recovery rights.
-2. the migrator checks both locks, cutover hold, snapshot digest and original
-   record hashes. it preserves the conversation scope and archive key independently
-   from the discord alert channel. interruption between schema and declaration
-   commits is recoverable by repeating `--migrate` with the same two receipts.
-3. install the corresponding native host, activate both units under the retained
-   pause and run containment verification. from a signed-out phone, follow the
-   original pdf link, sign in and print. send an ordinary web `resume`, inspect its
-   canonical control and finish the [installed journey](decisions/0087-private-web-home.md#ownership-and-proof).
-   keep the verified private recovery copy at `/var/lib/jarvis-cutover/adr0087/$to`.
+1. stage the target. on the selected release record the owner's web pause.
+   stop the assistant and memory cleanly, then prepare the stopped snapshot.
+   on its isolated restore, verify the original inventory and rehearse the target
+   migration and `check-activation` against actual outstanding work and receipts.
+2. the migrator acquires both locks in assistant-then-memory order and verifies
+   the hold, snapshot and all nineteen table inventories. the same transaction
+   checks that migration preserves them, including web submissions and notices.
+   after interruption, repeat `--migrate` with the same two receipts.
+3. install the corresponding native host and activate both units under the
+   retained pause. check containment, role grants, enrolled native reads and a
+   newly committed vector. apply the matching managed profile instructions.
+   send an ordinary web `resume` and inspect its canonical control. observe
+   genuine recall and the historical capacity window separately.
+   keep the verified recovery copy at `/var/lib/jarvis-cutover/adr0092/$to`.
    after installed acceptance, retire a superseded secret-bearing snapshot only
    after verifying its replacement and retaining original unknown-effect evidence.
 
 ```sh
 deploy/install-release "$to"
-# the exact-email google access app, cache rule and dedicated tunnel must exist.
-deploy/install-home-ingress "$tunnel_credentials_json" "$access_team_slug" "$access_application_audience"
-# after the edge denial checks, acknowledged old discord pause and drained old work
+# after the recorded owner web pause
 ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
 deploy/activate-release --prepare "$from" "$to"
-# qualify check-activation against a private restored copy before the live migration
+# verify the private restore and qualify the candidate before the installed migration
 deploy/activate-release --migrate "$from" "$to"
 deploy/install-contained-host "$to"
 deploy/activate-release "$from" "$to"
@@ -520,14 +514,11 @@ if startup fails after switching the selected release and releasing the hold, th
 installer stops both units. check its journal, repair forward and rerun
 `deploy/activate-release "$to"`. the installer waits up to five minutes for the
 private http endpoint and checks both units before pruning.
-
-before the next private settings installation, update the workstation's protected
-assistant declaration with the exact installed `JARVIS_OWNER_SCOPE` and
-`JARVIS_OWNER_ARCHIVE_KEY`. remove the discord guild, owner-user and catch-up
-settings. keep the channel and credential for outbound alerts. remove the bot's
-privileged message-content intent and restrict its channel permissions to viewing
-the channel and sending messages. pin a short owner-authored channel note saying
-“chat and pause/resume have moved to <https://jarvis.nielseriknandal.com/>.”
+if interruption leaves a partial hold release, keep both units stopped. run
+the installed target's `deploy/cutover-hold stop "$to"` as root under the
+existing deployment lock, then repeat `deploy/activate-release "$from" "$to"`.
+the recovery copy covers postgres, `/var/lib/jarvis` and `/etc/jarvis`.
+the notes checkout and r2 originals retain their existing custody.
 
 from the private notes workspace, main runs
 `/opt/jarvis/current/deploy/jarvis-page publish SLUG COMMIT --home` or its
@@ -546,13 +537,15 @@ the memory unit runs as `jarvis-memory` using the login `jarvis_memory`.
 `/etc/jarvis/database-memory.env`, `memory.env` and `embedding.env` supply its
 role, declaration/listener settings and embedding project respectively. the
 assistant uses `database-runtime.env` and `jarvis.env`. systemd reads the
-root-owned credential files. the assistant reaches private search and indexing
+root-owned credential files. the assistant reaches private search
 through `/run/jarvis-memory/internal.sock`, mode 0660 in a service-owned mode
 0750 directory. only the assistant and memory identities have the group.
-memory stays online through assistant/native host stops. its process restart
-invalidates disposable cursors. new originals can open while ready coverage
-and indexing lag. verify the memory pressure limit and postgres headroom before
-production acceptance on the actual host.
+memory stays online through assistant/native host stops. it attempts one
+embedding batch at startup and after each sixty-second wait. search uses the same
+provider slot. an occupied slot responds immediately with zero attempts. stopping
+memory ends online embedding. a memory restart invalidates disposable cursors.
+recent exchanges can appear while the complete prefix and index lag. verify
+memory pressure and postgres headroom on the actual host.
 
 the contained unit masks the native account's `AGENTS.md` and `AGENTS.override.md`;
 the original coding files remain unchanged. optional absent paths remain absent.
@@ -581,7 +574,7 @@ memory declaration, migrates an empty database to `0015` and provisions the
 assistant's private configuration. install the candidate's native host and
 private ingress. run the candidate's `jarvis initialize-state` once as the
 assistant using its runtime declarations. use the same stored owner scope in the
-migration environment and run the candidate's `alembic upgrade 0017` as migrator
+migration environment and run the candidate's `alembic upgrade 0018` as migrator
 with both writers stopped. start using `deploy/activate-release "$to"`. a populated
 database must use the stopped cut. startup always reads its recorded control.
 
@@ -930,6 +923,38 @@ and parked diagnostics. do not claim those surfaces are deployed before their
 implementation. status prints counts
 and identities, never memory text. the shared mcp endpoint has no operator status tool.
 
+embedding status measures coverage. read the memory-unit journal for successful
+batch commits, refusals and isolated record failures. one pending original can
+keep the oldest time fixed while later batches commit.
+
+### chronological capacity observation
+
+predeclare an ordinary owner busy interval and its following quiet interval in
+utc. at the start, busy end and quiet end, take one read-only snapshot per
+sample. read `memory_state.leaf_count` and `view_through`. at busy end freeze
+`D=leaf_count`. use the current admitted bound for the starting sample and
+`D` for both later samples. count aligned nodes ending by that bound using
+`(node_index::numeric + 1) * power(2::numeric, level) <= D`. the expected
+total is `2 * D - D.bit_count()`. measure oldest uncovered age from the
+minimum source receipt or note creation time over leaf positions
+`[view_through, D)`. when that interval is empty, report no uncovered age.
+keep admissions after `D` visible as separate debt. report starting debt,
+arrivals, completions and ending debt for both leaves and nodes.
+
+read the assistant journal for the same windows. foreground logs include
+admission and entered recovery. idle opportunity means time the scheduler
+actually offered to the named worker, including interrupted work. preparation,
+writer wait, inference and commit subdivide compactor opportunity. state-lock
+acquisition is a database round trip within commit, so do not add it again.
+an inference duration includes native setup and cleanup. reported turns and
+tokens describe available provider observations, with absent token counts
+unknown. they do not establish billing. record batch fill, retries and the
+committed free and inferred leaves and parents separately. include paused,
+parked or unsampled time explicitly. estimate additional idle minutes at the
+observed completion rate, or state that the rate was unavailable. a ready
+prefix through `D` proves leaf catch-up. full capacity also needs every
+aligned node ending by `D`. see [adr 0092](decisions/0092-memory-freshness.md).
+
 before installation, record selected jarvis/nexus commits, each frozen dependency
 lock and built image digest, then advance dev-server's collector release pin to
 the qualified jarvis artifact. old four-pin equality and old qualification do not
@@ -945,7 +970,7 @@ service stops are independent. select the owning service before stopping it.
 | `memory status` | neither | read-only status |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
-| schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT]` | both, assistant key then memory key | offline rebuild runs as jarvis with `embedding.env`. full rebuild also needs the migrator for reindexing |
+| schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
 
 the private unix socket is available to assistant jobs in group `jarvis-memory`.
 the memory service owns the one embedding slot and search-rate limit. failure

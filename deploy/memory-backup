@@ -86,13 +86,12 @@ def upload_database(bucket, key, snapshot_id, recipient):
                     process.kill()
 
 
-async def backup(config, credentials):
+async def backup(config):
     os.environ.update(
         PGHOST="127.0.0.1",
         PGPORT="5432",
         PGDATABASE="jarvis",
         PGUSER="jarvis_backup",
-        PGPASSFILE=str(credentials / "database"),
         PGCONNECT_TIMEOUT="10",
     )
     with (ROOT / ".deploy.lock").open("rb") as lock:
@@ -152,7 +151,7 @@ def main():
         print("memory backup credentials are missing or invalid", file=sys.stderr)
         return 1
     try:
-        generation, cut = asyncio.run(backup(config, credentials))
+        generation, cut = asyncio.run(backup(config))
     except Exception as error:
         # Exceptions from the SDK can carry request coordinates and credentials.
         print(f"memory backup failed ({type(error).__name__})", file=sys.stderr)

@@ -784,10 +784,9 @@ async def native_receipt_context(
                     select(message)
                     .where(
                         message.c.source_conversation_id == owner.scope_id,
+                        message.c.id.not_in(component_ids),
                         or_(
-                            message.c.id.in_(
-                                tuple(stop_input_ids.difference(component_ids))
-                            ),
+                            message.c.id.in_(stop_input_ids),
                             message.c.control_targets.overlap(list(component_ids)),
                             message.c.id
                             == latest_control(owner.scope_id)

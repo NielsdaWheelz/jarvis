@@ -28,6 +28,16 @@ on 2026-11-20, claude opus 5.5 passed both designs at spec sha256
 the accepted text was amended after review to record the reproduced late-seal and opening-framing defects.
 the adr records source and isolated macbook qualification, with the installed cut separate.
 
+[adr 0096](decisions/0096-calendar-on-demand.md) assigns calendar and gmail
+source changes to one owner and background reply behavior to another. integrate
+both against the selected schema, main manifest and home transport. on
+2026-11-22 independent claude opus 5.5 passed both designs and the stopped cut
+at spec sha256 `179dd9956107a5549574131cadcf1e7a8752db72d779fac70d255c978414706b`.
+the predecessor can still send a message while draining its calendar queue.
+the implementation and isolated qualification are recorded in
+[0096 evidence](decisions/0096-calendar-on-demand.md#implementation-evidence).
+real google verification is owner-deferred. installation remains separate.
+
 ## terminal-only worker cutover — source implemented and isolated-qualified
 
 [adr 0069](decisions/0069-terminal-only-workers.md) and the linked skid spec

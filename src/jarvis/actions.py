@@ -75,7 +75,7 @@ from jarvis.db import (
     native_invocation,
     proven_native_delivery,
 )
-from jarvis.event_tools import EVENT_MUTATION_IDS, validate_event_result
+from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.home_notices import enqueue_notice
 from jarvis.messages import (
     append_waking_input,
@@ -507,17 +507,7 @@ class ActionStore:
                     message.c.source_conversation_id == source_conversation_id,
                 )
             ),
-            action.c.status.in_(("succeeded", "failed", "uncertain", "cancelled")),
-            text(
-                "NOT EXISTS (SELECT 1 FROM message AS resolution "
-                "WHERE resolution.source = 'action' AND resolution.source_message_id "
-                "= action.id::text || ':' || action.status)"
-            ),
-            text(
-                "NOT EXISTS (SELECT 1 FROM native_invocation AS invocation "
-                "WHERE invocation.action_id = action.id AND "
-                "invocation.reply_receipt->>'type' = 'tool_result_ref')"
-            ),
+            terminal_report_pending(),
         )
         revision = action.c.execution_contract["implementation_revision"].as_string()
         retired_worker = retired_worker_predicate(action.c.tool_name, revision)
@@ -2221,6 +2211,22 @@ async def _delivered_archived_actions(
     return tuple(delivered)
 
 
+def terminal_report_pending() -> ColumnElement[bool]:
+    return and_(
+        action.c.status.in_(("succeeded", "failed", "uncertain", "cancelled")),
+        text(
+            "NOT EXISTS (SELECT 1 FROM message AS resolution "
+            "WHERE resolution.source = 'action' AND resolution.source_message_id "
+            "= action.id::text || ':' || action.status)"
+        ),
+        text(
+            "NOT EXISTS (SELECT 1 FROM native_invocation AS invocation "
+            "WHERE invocation.action_id = action.id AND "
+            "invocation.reply_receipt->>'type' = 'tool_result_ref')"
+        ),
+    )
+
+
 def retired_worker_predicate(
     tool: ColumnElement[str], revision: ColumnElement[str]
 ) -> ColumnElement[bool]:
@@ -2353,17 +2359,6 @@ def action_resolution_text(stored: StoredAction) -> str:
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
-    if stored.tool_name in EVENT_MUTATION_IDS and stored.status in {
-        "succeeded",
-        "failed",
-    }:
-        result = _stored_tool_result(stored)
-        if (
-            result["type"] == "Success"
-            or result["error"].get("type") == "AccountUnavailable"
-        ):
-            validate_event_result(stored.tool_name, result)
-            return cast(dict[str, object], result)
     if stored.tool_name in WORK_MUTATION_IDS and stored.status in {
         "succeeded",
         "failed",
@@ -2587,4 +2582,5 @@ __all__ = [
     "resolve_reconciliation_in_transaction",
     "retired_worker_action",
     "retired_worker_revision",
+    "terminal_report_pending",
 ]

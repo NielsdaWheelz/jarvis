@@ -48,7 +48,7 @@ receipt="$(receipt_json "$2")"
 source_receipt=none
 if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
 operation="$4"
-snapshot="/var/lib/jarvis-cutover/adr0092/$commit"
+snapshot="/var/lib/jarvis-cutover/adr0096/$commit"
 hold=/etc/systemd/system/jarvis-cutover.hold
 source="/opt/jarvis/releases/${3%%:*}"
 selected=''
@@ -62,8 +62,15 @@ cutover() {
     --property=EnvironmentFile=/etc/jarvis/migration.env \
     "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" </dev/null
 }
+if [[ "$operation" == prepare || -e "$hold" ]]; then
+  if systemctl is-enabled --quiet jarvis-backup.timer ||
+     systemctl is-active --quiet jarvis-backup.timer ||
+     systemctl is-active --quiet jarvis-backup.service; then
+    refuse "disable the backup timer and let any running backup finish before the cut"
+  fi
+fi
 if [[ "$operation" == prepare ]]; then
-  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0017 source release"
+  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0018 source release"
   if [[ ! -e "$hold" ]]; then
     systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
       --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \
@@ -78,7 +85,6 @@ if [[ "$operation" == prepare ]]; then
 fi
 if [[ -e "$hold" ]]; then
   [[ "$source_receipt" != none ]] || refuse "supply both selected release commits for the held cut"
-  "$release/deploy/cutover-hold" check "$commit"
 elif [[ "$source_receipt" != none ]]; then
   refuse "first prepare the stopped schema cut"
 else

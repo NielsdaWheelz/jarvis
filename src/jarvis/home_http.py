@@ -13,7 +13,6 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from llm_tools import DeclaredToolFailure
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
@@ -22,19 +21,11 @@ from starlette.middleware.base import RequestResponseEndpoint
 from jarvis.attachments import AttachmentStore, WebUpload
 from jarvis.db import attachment, message
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
-from jarvis.home_reads import (
-    DecisionKind,
-    conversation,
-    decision,
-    decisions,
-    visible_message,
-)
-from jarvis.home_refs import HOME_REF_ADAPTER
+from jarvis.home_reads import conversation, visible_message
 from jarvis.home_uploads import attachment_response, read_submission
 from jarvis.messages import IngressUnavailable, InvalidReference, SubmissionConflict
 from jarvis.ownership import Database, DeploymentOwnershipDefect
 from jarvis.work import WorkStore
-from jarvis.work_tools import ACTIVE_WORK_STATES
 
 _STATIC = Path(__file__).parent / "static" / "home"
 _SHELL_CSP = (
@@ -43,7 +34,7 @@ _SHELL_CSP = (
 )
 
 type Submit = Callable[
-    [UUID, str, dict[str, object] | None, tuple[WebUpload, ...]],
+    [UUID, str, object | None, tuple[WebUpload, ...]],
     Awaitable[tuple[UUID, bool]],
 ]
 
@@ -52,6 +43,7 @@ def create_home_app(
     *,
     database: Database,
     scope: str,
+    owner_timezone: str,
     work: WorkStore,
     attachments: AttachmentStore,
     submit: Submit,
@@ -90,18 +82,12 @@ def create_home_app(
     async def put(submission_id: UUID, request: Request) -> JSONResponse:
         body, raw_ref, uploads = await read_submission(request, submission_id, spool)
         try:
-            ref = None if raw_ref is None else HOME_REF_ADAPTER.validate_python(raw_ref)
-            identifier, created = await submit(
-                submission_id,
-                body,
-                ref.model_dump(mode="json", exclude_none=True) if ref else None,
-                uploads,
-            )
+            identifier, created = await submit(submission_id, body, raw_ref, uploads)
         except IngressUnavailable as exc:
             raise HTTPException(503, "jarvis is offline") from exc
         except SubmissionConflict as exc:
             raise HTTPException(409, "submission id was already used") from exc
-        except (InvalidReference, ValidationError) as exc:
+        except InvalidReference as exc:
             raise HTTPException(422, "invalid reference") from exc
         return JSONResponse(
             {"id": str(identifier)}, status_code=201 if created else 200
@@ -136,31 +122,17 @@ def create_home_app(
         return row
 
     async def todo_list(offset: int = 0) -> dict[str, Any]:
-        if offset < 0:
-            raise HTTPException(422, "invalid offset")
-        return (await work.list(list(ACTIVE_WORK_STATES), 50, offset)).model_dump(
-            mode="json"
-        )
+        try:
+            return await work.web_list(offset, owner_timezone)
+        except ValueError as exc:
+            raise HTTPException(422, "invalid offset") from exc
 
     async def todo(identifier: UUID) -> dict[str, Any]:
         try:
-            return (await work.get(identifier)).model_dump(mode="json")
+            result = await work.get(identifier)
         except DeclaredToolFailure as exc:
             raise HTTPException(404) from exc
-
-    async def open_decisions(before: str | None = None) -> dict[str, Any]:
-        async with database.connect() as conn:
-            try:
-                return await decisions(conn, scope, before)
-            except ValueError as exc:
-                raise HTTPException(422, "invalid cursor") from exc
-
-    async def one_decision(kind: DecisionKind, identifier: UUID) -> dict[str, Any]:
-        async with database.connect() as conn:
-            row = await decision(conn, scope, kind, identifier)
-        if row is None:
-            raise HTTPException(404)
-        return row
+        return {**result.model_dump(mode="json"), "timezone": owner_timezone}
 
     async def file(identifier: UUID, request: Request) -> Response:
         async with database.connect() as conn:
@@ -209,10 +181,6 @@ def create_home_app(
     app.add_api_route("/api/messages/{identifier}", one_message, methods=["GET"])
     app.add_api_route("/api/todos", todo_list, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}", todo, methods=["GET"])
-    app.add_api_route("/api/decisions", open_decisions, methods=["GET"])
-    app.add_api_route(
-        "/api/decisions/{kind}/{identifier}", one_decision, methods=["GET"]
-    )
     app.add_api_route("/api/files/{identifier}", file, methods=["GET", "HEAD"])
     app.add_api_route("/api/home", home, methods=["GET"])
     app.add_api_route("/api/views/{slug}", view, methods=["GET"])
@@ -222,7 +190,7 @@ def create_home_app(
     app.add_api_route("/t/{identifier}", shell, methods=["GET"])
     app.add_api_route("/m/{identifier}", shell, methods=["GET"])
     app.add_api_route("/f/{identifier}", shell, methods=["GET"])
-    app.add_api_route("/d/{kind}/{identifier}", shell, methods=["GET"])
+    app.add_api_route("/overview", shell, methods=["GET"])
     app.add_api_route("/v/{slug}", shell, methods=["GET"])
     app.add_api_route("/v/{slug}/{rev}", shell, methods=["GET"])
     return app

@@ -21,7 +21,11 @@ place for long work. jarvis chooses content and handles owner corrections in
 conversation. clickable sources stay with the findings in chat, including when
 the owner asks for a separate page.
 
-## accepted operational target — storage and memory recovery
+[adr 0097](docs/decisions/0097-todo-home.md) specifies the todo-only default
+when no published home is selected. one owner todo list includes follow-ups
+jarvis undertakes. conversation owns questions, proposals and answers.
+the adr supersedes the separate decisions surface and scopes the temporary
+per-feature design, opus review and live proof.## accepted operational target — storage and memory recovery
 
 [adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
 development to the mac and defines production headroom and off-host central

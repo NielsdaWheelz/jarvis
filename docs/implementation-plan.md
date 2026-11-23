@@ -93,7 +93,16 @@ the owner conversation, browser, originals, authored canvas and notifications sh
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
 records the source, candidate and stopped `0017` production proofs. the owner
 accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
-the native client and native notifications belong to the following pr.
+[adr 0097](decisions/0097-todo-home.md) owns the independent todo home cut.
+qualify the todo read and conversational proposals, then the integrated web shell.
+on 2026-11-23 utc, independent claude opus 5.5 at max passed all three designs
+and the cut at spec sha256 `fe949056736aba332b7a3fc449c253a7bf414946c560943dd68f1073cecd7a1a`.
+the macbook receipt is `~/.local/state/jarvis/qualification/adr0097/design-fe949056.txt`.
+the conversation designer's mixed-batch example must show how a complete answer
+reads alongside an outstanding consent question. implementation and live proof are pending.
+the [installed issue](issues/default-home-work.md) stays open through acceptance.
+the [dedicated mobile pr](issues/mobile-share-handoff.md) would deliver native
+iphone and android clients, inbound sharing and native push, then retire discord alert delivery.
 
 ## full answers in web chat
 

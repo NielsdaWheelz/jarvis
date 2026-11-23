@@ -166,11 +166,12 @@ nav {
   border-bottom: 1px solid var(--line);
   padding: 0.65rem 1rem;
 }
-nav button {
+#chat-tab,
+nav a {
   border: 0;
   color: var(--muted);
 }
-nav button[aria-pressed="true"] {
+#chat-tab[aria-pressed="true"] {
   background: var(--paper);
   color: var(--ink);
   font-weight: 600;
@@ -205,20 +206,6 @@ article {
 .selected {
   border-inline-start: 2px solid var(--accent);
   padding-left: 0.6rem;
-}
-.record {
-  display: block;
-  width: 100%;
-  padding: 0.8rem 0;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  text-align: left;
-  text-decoration: none;
-}
-.record small {
-  display: block;
-  color: var(--muted);
 }
 #connection,
 #receipt {
@@ -303,4 +290,81 @@ article {
   #message {
     font-size: 1rem;
   }
+}
+#object {
+  height: 100%;
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+#canvas:has(#overview:not([hidden])) {
+  display: block;
+  overflow-anchor: none;
+}
+#overview {
+  max-width: 48rem;
+  padding: clamp(1.25rem, 5vw, 4rem);
+  margin: 0 auto;
+}
+#overview h1,
+#overview h2,
+#checked,
+.todo-row small {
+  color: var(--muted);
+  font: inherit;
+}
+#overview h1 {
+  font-size: 1rem;
+  margin: 0 0 2rem;
+}
+#overview h2 {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin: 1.5rem 0 0.25rem;
+}
+.todo-row {
+  display: block;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+.todo-row span {
+  font:
+    normal 1.45rem/1.2 "Cormorant Garamond",
+    Georgia,
+    serif;
+}
+.todo-row.lead span {
+  font-size: clamp(2.25rem, 5vw, 4rem);
+  letter-spacing: -0.035em;
+}
+.todo-row:is(:hover, :focus-visible) span {
+  text-decoration: underline;
+}
+.todo-row small,
+#checked {
+  display: block;
+  font-size: 0.85rem;
+}
+#checked,
+#todo-pages,
+#todo-list button,
+#todo-error {
+  margin-top: 1rem;
+}
+#todo-pages,
+#draft-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.proposal {
+  padding: 0.65rem 0.8rem;
+  margin: 0.8rem 0;
+  border-inline-start: 2px solid var(--accent);
+}
+body[data-panel="open"] #sidebar-close {
+  display: block;
 }

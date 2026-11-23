@@ -76,7 +76,6 @@ from jarvis.db import (
     proven_native_delivery,
 )
 from jarvis.event_tools import EVENT_MUTATION_IDS
-from jarvis.home_notices import enqueue_notice
 from jarvis.messages import (
     append_waking_input,
     causal_component_ids,
@@ -370,8 +369,6 @@ class ActionStore:
                 raise ActionPersistenceDefect(
                     "action identity was reused for a different invocation"
                 )
-            if row is not None and status == "awaiting_approval":
-                await enqueue_notice(connection, "approval", identifier)
             await _link_native_action(connection, invocation_id, identifier)
             return stored
 

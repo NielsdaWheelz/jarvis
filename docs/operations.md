@@ -727,6 +727,33 @@ keeps worker observation and offline arch qualification separate.
 forward repair is required after new canonical effects are admitted; code rollback
 alone cannot restore old semantics over new receipts.
 
+## todo home cutover
+
+[adr 0097](decisions/0097-todo-home.md) uses the ordinary stopped replacement
+for the selected schema. while the predecessor owns the service, settle its open
+approvals through ordinary conversation. let it drain approval and question
+notices using their original link payloads and nonces. an unacknowledged row may
+already have reached discord. if the original payload still cannot acknowledge,
+hold the cut.
+
+stop both writers. inspect the following under the existing stopped maintenance
+ownership, alongside the native inventory and activation checks. both counts
+must be zero. after a required canonical pause, inspect its cancellation receipts
+and obtain fresh consent where required on resumption.
+
+```sql
+select count(*) as pending_old_notices
+from home_notice where kind in ('approval', 'question') and discord_message_id is null;
+
+select count(*) as pending_predecessor_approvals
+from action where status = 'awaiting_approval';
+```
+
+retain acknowledged rows. replace the packaged web shell and service together.
+after activation, open the owner home, check the todo index and verify a new
+chat question opens at the message named by its notice. old decision urls return
+404. record the installed smoke and owner acceptance separately.
+
 ## native cutover
 
 while the original release still owns its executable contracts, pause and stop it

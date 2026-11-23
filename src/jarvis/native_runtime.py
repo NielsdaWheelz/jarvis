@@ -407,7 +407,6 @@ class NativeRunner:
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
-                dispatcher.on_approval_pending = self.notify_delivery
                 self._dispatchers.append(dispatcher)
                 terminal = await run_native(
                     definition=self.definitions.main,

@@ -40,6 +40,7 @@ from jarvis.work_schedule import RepeatRule, Wake
 
 WORK_STATES = ("doing_now", "blocked", "next_up", "backlog", "done", "cancelled")
 ACTIVE_WORK_STATES = WORK_STATES[:4]
+MAX_WORK_OFFSET = 2**53 - 1
 type WorkState = Literal[
     "doing_now", "blocked", "next_up", "backlog", "done", "cancelled"
 ]
@@ -147,7 +148,7 @@ class WorkGetInput(_Closed):
 class WorkListInput(_Closed):
     states: Annotated[list[WorkState], Field(min_length=1, max_length=6)]
     limit: Annotated[int, Field(strict=True, ge=1, le=100)]
-    offset: Annotated[int, Field(strict=True, ge=0, le=2**53 - 1)]
+    offset: Annotated[int, Field(strict=True, ge=0, le=MAX_WORK_OFFSET)]
 
     @field_validator("states")
     @classmethod

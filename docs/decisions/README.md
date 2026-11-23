@@ -140,6 +140,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0094](0094-worker-tools-and-native-context.md) | worker tools and long native turns | existing skid verbs, native compaction and recovery from confirmed terminal context exhaustion |
 | [0095](0095-context-cost.md) | context cost | approved design scope for mail, native steering, shared orientation and host-table publication. qualification pending |
 | [0096](0096-calendar-on-demand.md) | calendar on demand and quiet background work | retire calendar polling, retain deliberate calendar access, and make routine background work quiet in chat and notifications |
+| [0097](0097-todo-home.md) | todo home | one owner todo list on the default canvas. questions, proposals and answers live in conversation |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

@@ -120,7 +120,7 @@ class JarvisService:
         self,
         submission_id: UUID,
         text: str,
-        ref: dict[str, object] | None,
+        ref: object,
         uploads: tuple[WebUpload, ...],
     ) -> tuple[UUID, bool]:
         async with self._active_lock:

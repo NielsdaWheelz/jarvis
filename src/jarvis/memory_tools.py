@@ -25,10 +25,12 @@ from universal_memory.policy import (
     MemoryError,
 )
 from universal_memory.tools import (
+    MEMORY_OPEN_SPEC,
     MEMORY_READ_SPECS,
     MEMORY_SAVE_NOTE_SPEC,
     MEMORY_SEARCH_SPEC,
     MEMORY_VIEW_SPEC,
+    MEMORY_ZOOM_SPEC,
     MemoryToolFailure,
     SaveNoteInput,
 )
@@ -108,6 +110,11 @@ def memory_family(service: MemoryService) -> ToolFamily:
         "max_output_bytes": RESULT_BYTES,
         "paging": "complete-source-content-and-lineage",
     }
+    revisions = {
+        MEMORY_VIEW_SPEC.id: 6,
+        MEMORY_OPEN_SPEC.id: 4,
+        MEMORY_ZOOM_SPEC.id: 4,
+    }
     bindings: list[ToolBinding[Any, Any, Any]] = [
         ToolBinding(
             spec=spec,
@@ -115,9 +122,9 @@ def memory_family(service: MemoryService) -> ToolFamily:
             replay_policy=ReplayPolicy.BilledOnce
             if spec is MEMORY_SEARCH_SPEC
             else ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-memory-view-v6"
-            if spec is MEMORY_VIEW_SPEC
-            else f"jarvis-{str(spec.id).replace('.', '-')}-v3",
+            implementation_revision=(
+                f"jarvis-{str(spec.id).replace('.', '-')}-v{revisions.get(spec.id, 3)}"
+            ),
             policy_epoch=PolicyEpoch("jarvis-universal-memory-v1"),
             policy_inputs={
                 **policy,
@@ -150,7 +157,7 @@ def memory_family(service: MemoryService) -> ToolFamily:
             spec=MEMORY_SAVE_NOTE_SPEC,
             execute=Available(save),
             replay_policy=ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-memory-save-note-v1",
+            implementation_revision="jarvis-memory-save-note-v2",
             policy_epoch=PolicyEpoch("jarvis-universal-memory-v1"),
             policy_inputs={
                 "authority": "admitted-jarvis-note-only",

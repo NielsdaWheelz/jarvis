@@ -44,7 +44,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0019"
+SCHEMA_REVISION = "0020"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
@@ -67,7 +67,7 @@ def lo_write_permission(role_expression):
     return f"({allowed})"
 
 
-async def table_inventory(conn, *, stopped_keys=None):
+async def table_inventory(conn, *, stopped_keys=None, projections=None):
     await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
     await conn.execute(text("SET LOCAL DateStyle TO 'ISO, YMD'"))
     await conn.execute(text("SET LOCAL IntervalStyle TO postgres"))
@@ -87,8 +87,11 @@ async def table_inventory(conn, *, stopped_keys=None):
         ).scalars()
         if set(tables) != keys_by_table.keys():
             raise RuntimeError("stopped database table roster differs")
+    projections = projections or {}
     return {
-        table: await row_inventory(conn, f"public.{table}", keys)
+        table: await row_inventory(
+            conn, projections.get(table, f"public.{table}"), keys
+        )
         for table, keys in keys_by_table.items()
     }
 

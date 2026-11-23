@@ -405,6 +405,9 @@ class PostgresNativeJournal:
                     attempt_seq=seq,
                     owner_epoch=str(request.permit.owner_token),
                     memory_admitted=memory_is_admitted(connection),
+                    stock_observations_pending=(
+                        memory_is_admitted(connection) and self.memory.jarvis_admitted
+                    ),
                     request_fingerprint=request.fingerprint,
                     request=document,
                     armed_at=datetime.now(UTC),

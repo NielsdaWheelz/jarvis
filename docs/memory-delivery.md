@@ -14,6 +14,12 @@ owns unchanged storage, compression, search, note and dream contracts. this file
 owns the completion delta and bounded cross-repository handoffs. the
 [implementation plan](implementation-plan.md#memory-delivery) owns sequencing.
 
+[adr 0098](decisions/0098-conversation-capture.md#d-nexus-export) supersedes
+the v1 capture envelope, receipt projection and duplicate proof below at its
+prospective cut. the v2 envelope retains the message, attachment, citation and
+settlement fields and rejects `tools`. the publisher drains v1 before switching.
+historical exports retain their original evidence.
+
 ## outcome and scope
 
 one admitted corpus serves jarvis, configured native clients and the configured
@@ -29,9 +35,9 @@ accepted choices:
   failed/cancelled turns; no old-run scan or historical import;
 - capture once; retain captured evidence after nexus deletes its turn. corrections
   and retries are new conversation, not archive updates or semantic deduplication;
-- retain durable question/answer text, saved attachment/citation excerpts and
-  available persisted tool receipts. exclude prompts, hidden reasoning, streaming
-  deltas, pruned uncited excerpts and otherwise-transient tool bodies;
+- retain durable question/answer text and saved attachment/citation excerpts.
+  v1 also projected local tool receipts before the 0098 cut. exclude prompts,
+  hidden reasoning, streaming deltas and pruned uncited excerpts;
 - a pending source export survives deletion and outages until central
   acknowledgement. no transaction spans the two databases or a network call;
 - complete functional integration/live proof now. broader usefulness, realistic
@@ -188,6 +194,11 @@ questions wait for terminal settlement; this delivery promises no partial-turn
 streaming archive. later undo or source deletion never rewrites the snapshot.
 
 ## nexus wire and central archive
+
+the following envelope describes the v1 predecessor. v2 uses the same closed
+fields except `tools` and the revision value. verify duplicates against question,
+attachment, answer and citation records, with the same envelope digest, original
+capture id, export sequence, run id and complete expected event/part coverage.
 
 the library exports closed transport values in `nexus.py`; it imports no nexus
 application types. nexus's adapter alone understands its saved-reference/tool

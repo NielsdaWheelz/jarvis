@@ -15,27 +15,25 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from memory_snapshot import STOPPED_TABLE_KEYS, row_inventory, table_inventory
+from memory_snapshot import STOPPED_TABLE_KEYS, table_inventory
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
+from universal_memory.archive import historical_workers
+from universal_memory.schema import source_conversation
 
 from jarvis._atomic_json import replace_private_json
-from jarvis.actions import retired_worker_predicate, terminal_report_pending
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
-    action,
     create_engine,
-    event_cursor,
-    message,
     normalize_database_url,
 )
 from jarvis.ownership import maintenance_ownership
 
-SOURCE = "0018"
+SOURCE = "0019"
 TARGET = APPLICATION_SCHEMA_REVISION
-SOURCE_TABLE_KEYS = {
-    **STOPPED_TABLE_KEYS,
-    "event_cursor": 'kind COLLATE "C", account_id COLLATE "C", resource_id COLLATE "C"',
+NEW_COLUMNS = {
+    "native_attempt": ("stock_observations_pending",),
+    "source_conversation": ("checkpoint_capture_digest", "worker_excluded"),
 }
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
@@ -91,195 +89,75 @@ async def inventory(conn, scope, version):
         control is not None
         and (control.control_kind, control.role, control.source)
         == ("pause", "owner", "web"),
-        "the calendar cut requires the recorded owner web pause",
+        "conversation capture requires the recorded owner web pause",
     )
-    facts = await table_inventory(
-        conn,
-        stopped_keys=SOURCE_TABLE_KEYS if version == SOURCE else STOPPED_TABLE_KEYS,
-    )
-    grants = await conn.scalar(
-        text("""
-            SELECT jsonb_agg(grant_row ORDER BY grant_row)
-            FROM (
-                SELECT jsonb_build_array(
-                    pg_get_userbyid(grantor),
-                    CASE WHEN grantee = 0 THEN 'PUBLIC'
-                         ELSE pg_get_userbyid(grantee) END,
-                    privilege_type, is_grantable) AS grant_row
-                FROM pg_class CROSS JOIN LATERAL aclexplode(relacl)
-                WHERE oid = 'event_cursor'::regclass
-            ) grants
-        """)
-    )
+    projections = {}
+    if version == TARGET:
+        for table, added in NEW_COLUMNS.items():
+            columns = (
+                await conn.execute(
+                    text("""
+                        SELECT quote_ident(attname) FROM pg_attribute
+                        WHERE attrelid = to_regclass(:relation)
+                        AND attnum > 0 AND NOT attisdropped AND NOT attname = ANY(:added)
+                        ORDER BY attnum
+                    """),
+                    {"relation": f"public.{table}", "added": list(added)},
+                )
+            ).scalars()
+            projections[table] = f"(SELECT {', '.join(columns)} FROM public.{table})"
     return {
-        "tables": facts,
+        "tables": await table_inventory(
+            conn, stopped_keys=STOPPED_TABLE_KEYS, projections=projections
+        ),
         "last_control": list(control),
-        "event_cursor_grants": grants,
-    }
-
-
-async def require_settled_source(conn, scope):
-    enabled = (
-        (
-            await conn.execute(
-                text(
-                    "SELECT account_id FROM event_cursor "
-                    "WHERE kind = 'calendar_list' AND enabled"
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if enabled:
-        # The live process verifies its account; older accounts can retain cursors.
-        # Use the recorded status from that owner epoch, without provider calls.
-        status = await conn.scalar(
-            text("""
-                WITH latest AS (
-                    SELECT owner_epoch FROM native_attempt
-                    WHERE conversation_id = :scope
-                    ORDER BY attempt_seq DESC LIMIT 1
-                )
-                SELECT r.result->'value'
-                FROM native_invocation i
-                JOIN native_attempt a ON a.id = i.attempt_id
-                JOIN latest ON latest.owner_epoch = a.owner_epoch
-                JOIN read_position r ON r.position = i.read_position
-                WHERE a.conversation_id = :scope AND a.product_outcome IS NOT NULL
-                    AND i.tool_id = 'events.status' AND i.validation = 'accepted'
-                    AND i.reply_recorded_at IS NOT NULL
-                    AND r.state = 'completed' AND r.result->>'type' = 'Success'
-                ORDER BY a.attempt_seq DESC, i.ordinal DESC LIMIT 1
-            """),
-            {"scope": scope},
-        )
-        require(
-            status is not None
-            and status["account"] is not None
-            and status["account"] not in enabled
-            and any(
-                family["source"] == "calendar" and family["enabled"] is False
-                for family in status["families"]
-            ),
-            "disable calendar observation and record its status before pausing",
-        )
-    unfinished = await conn.scalar(
-        text("""
-            WITH control AS (
-                SELECT control_targets FROM message
-                WHERE source_conversation_id = :scope AND control_kind IS NOT NULL
-                ORDER BY control_sequence DESC LIMIT 1
-            )
-            SELECT count(*) FROM message
-            WHERE source_conversation_id = :scope AND role = 'host'
-            AND (request_state IN ('pending', 'waiting') OR processed_at IS NULL
-                 OR (request_state = 'stopped'
-                     AND id = ANY((SELECT control_targets FROM control)::uuid[])))
-            AND CASE WHEN source = 'event_status' THEN
-                text::jsonb->'stream'->>'kind' IN
-                    ('calendar_list', 'calendar_changes', 'calendar_upcoming')
-                ELSE source IN ('calendar_event', 'calendar_attention') END
-        """),
-        {"scope": scope},
-    )
-    require(
-        unfinished == 0, f"settle {unfinished} unfinished calendar inputs on the source"
-    )
-    require(
-        not await conn.scalar(
-            select(action.c.id)
-            .where(
-                action.c.status.in_(("queued", "awaiting_approval", "executing"))
-                | (
-                    (action.c.status == "uncertain")
-                    & retired_worker_predicate(
-                        action.c.tool_name,
-                        action.c.execution_contract[
-                            "implementation_revision"
-                        ].as_string(),
-                    ).is_not(True)
-                )
-            )
-            .limit(1)
-        ),
-        "settle unfinished or uncertain actions under original authority",
-    )
-    require(
-        not await conn.scalar(
-            select(action.c.id)
-            .join(message, action.c.origin_message_id == message.c.id)
-            .where(
-                action.c.tool_name == "events.configure",
-                action.c.execution_contract["implementation_revision"].as_string()
-                == "jarvis-events-configure-v1",
-                message.c.source_conversation_id == scope,
-                terminal_report_pending(),
-            )
-            .limit(1)
-        ),
-        "publish outstanding events.configure outcomes on the selected release",
-    )
-
-
-async def target_facts(conn, source_facts):
-    gmail = await row_inventory(
-        conn,
-        """(SELECT account_id, enabled, progress, next_poll_at, last_success_at, error
-            FROM public.event_cursor WHERE kind = 'gmail')""",
-        STOPPED_TABLE_KEYS["event_cursor"],
-    )
-    return {
-        **source_facts,
-        "tables": {**source_facts["tables"], "event_cursor": gmail},
     }
 
 
 async def require_target_schema(conn):
-    columns = (
-        (
-            await conn.execute(
-                text("""
-            SELECT attname, format_type(atttypid, atttypmod), attnotnull, attacl IS NULL
-            FROM pg_attribute WHERE attrelid = 'event_cursor'::regclass
-                AND attnum > 0 AND NOT attisdropped
-            ORDER BY attnum
-        """)
-            )
-        )
-        .tuples()
-        .all()
-    )
-    dialect = conn.dialect
-    expected = [
-        (col.name, col.type.compile(dialect=dialect).lower(), not col.nullable, True)
-        for col in event_cursor.columns
-    ]
-    require(columns == expected, "event cursor columns differ from the target")
-    constraints = (
-        (
-            await conn.execute(
-                text("""
-            SELECT conname, convalidated FROM pg_constraint
-            WHERE conrelid = 'event_cursor'::regclass
-        """)
-            )
-        )
-        .tuples()
-        .all()
-    )
     require(
-        set(constraints)
-        == {(constraint.name, True) for constraint in event_cursor.constraints}
-        and await conn.scalar(
+        await conn.scalar(
             text("""
-            SELECT count(*) = 1 AND bool_and(
-                indisprimary AND indisvalid
-                AND pg_get_indexdef(indexrelid, 1, true) = 'account_id')
-            FROM pg_index WHERE indrelid = 'event_cursor'::regclass
-        """)
+                SELECT (
+                    SELECT count(*) = 3 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND (
+                        (table_name = 'native_attempt'
+                            AND column_name = 'stock_observations_pending'
+                            AND data_type = 'boolean' AND is_nullable = 'NO'
+                            AND column_default = 'false')
+                        OR (table_name = 'source_conversation'
+                            AND column_name = 'worker_excluded'
+                            AND data_type = 'boolean' AND is_nullable = 'NO'
+                            AND column_default = 'false')
+                        OR (table_name = 'source_conversation'
+                            AND column_name = 'checkpoint_capture_digest'
+                            AND data_type = 'text' AND is_nullable = 'YES'
+                            AND column_default IS NULL)
+                    )
+                )
+                AND NOT EXISTS (SELECT FROM source_conversation
+                    WHERE checkpoint_capture_digest IS NOT NULL)
+                AND NOT EXISTS (SELECT FROM native_attempt WHERE stock_observations_pending)
+                AND has_column_privilege(
+                    'jarvis_memory', 'source_conversation', 'worker_excluded', 'UPDATE')
+                AND has_column_privilege(
+                    'jarvis_memory', 'source_conversation', 'checkpoint_capture_digest', 'UPDATE')
+                AND NOT has_column_privilege(
+                    'jarvis_runtime', 'source_conversation', 'worker_excluded', 'UPDATE')
+                AND NOT has_column_privilege(
+                    'jarvis_runtime', 'source_conversation', 'checkpoint_capture_digest', 'UPDATE')
+                AND has_column_privilege(
+                    'jarvis_runtime', 'native_attempt', 'stock_observations_pending', 'UPDATE')
+            """)
         ),
-        "event cursor constraints or indexes differ from the target",
+        "conversation capture schema, defaults or grants differ from the target",
+    )
+    excluded = select(source_conversation.c.id).where(source_conversation.c.worker_excluded)
+    proven = historical_workers()
+    require(
+        not await conn.scalar(select(excluded.except_(proven).exists()))
+        and not await conn.scalar(select(proven.except_(excluded).exists())),
+        "worker exclusion differs from retained native provenance",
     )
 
 
@@ -401,8 +279,6 @@ async def cut(operation, destination, source, target, system_stop):
                 version in expected[operation],
                 "unexpected stopped schema",
             )
-            if version == SOURCE:
-                await require_settled_source(conn, scope)
             require(
                 not await conn.scalar(
                     text("""
@@ -417,31 +293,16 @@ async def cut(operation, destination, source, target, system_stop):
             )
             facts = await inventory(conn, scope, version)
             evidence = {
-                "format": "jarvis-stopped-cut.v5",
+                "format": "jarvis-stopped-cut.v6",
                 "source": source,
                 "target": target,
                 "owner_scope": scope,
                 "database": endpoint,
                 "schemas": [SOURCE, TARGET],
             }
-            if version == SOURCE:
-                evidence["source_facts"] = facts
-                evidence["retired_cursor_rows"] = dict(
-                    (
-                        await conn.execute(
-                            text("""
-                            SELECT kind, count(*) FROM event_cursor
-                            WHERE kind <> 'gmail' GROUP BY kind
-                        """)
-                        )
-                    )
-                    .tuples()
-                    .all()
-                )
-                evidence["target_facts"] = await target_facts(conn, facts)
-            else:
+            evidence["original_facts"] = facts
+            if version == TARGET:
                 await require_target_schema(conn)
-                evidence["target_facts"] = facts
             if operation == "snapshot":
                 sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
                 write_snapshot(destination, evidence, system_stop, args, sql_snapshot)
@@ -477,7 +338,7 @@ async def cut(operation, destination, source, target, system_stop):
                     await conn.scalar(text("SELECT version_num FROM alembic_version"))
                     == TARGET
                     and await inventory(conn, scope, TARGET)
-                    == manifest["target_facts"],
+                    == manifest["original_facts"],
                     "migration did not preserve the stopped database",
                 )
                 await require_target_schema(conn)

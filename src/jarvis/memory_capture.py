@@ -11,12 +11,13 @@ from pydantic import Field, TypeAdapter, model_validator
 from universal_memory.policy import BATCH_EVENTS, bounded_text
 from universal_memory.types import (
     BaselineError,
+    CaptureDigest,
     Closed,
     Conversation,
     ConversationReceipt,
-    Event,
     Lane,
     LaneReceipt,
+    Occurrence,
 )
 
 
@@ -83,7 +84,8 @@ class Events(CaptureRequest):
     conversation_id: UUID
     expected_checkpoint: str | None
     checkpoint_native_digest: str | None
-    events: tuple[Event, ...] = Field(max_length=BATCH_EVENTS)
+    checkpoint_capture_digest: CaptureDigest | None
+    occurrences: tuple[Occurrence, ...] = Field(max_length=BATCH_EVENTS)
     caught_up: bool
     observed_at: datetime
 

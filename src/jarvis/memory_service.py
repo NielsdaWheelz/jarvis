@@ -8,7 +8,8 @@ import json
 import logging
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
@@ -16,8 +17,10 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from llm_tools import canonical_json_bytes
 from pydantic import ValidationError
-from sqlalchemy import exists, literal, select
+from sqlalchemy import exists, func, literal, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.sql.elements import ColumnElement
 from universal_memory import (
     MemoryError,
     MemoryStore,
@@ -59,7 +62,7 @@ from jarvis.memory_rpc import (
     MemoryRPC,
     MemoryServiceError,
 )
-from jarvis.ownership import Database, DeploymentOwnershipDefect
+from jarvis.ownership import Database, DeploymentOwnershipDefect, memory_is_admitted
 
 LOGGER = logging.getLogger(__name__)
 INDEX_INTERVAL_SECONDS = 60
@@ -82,6 +85,17 @@ async def _until_stopped[T](
         work.cancel()
         stopped.cancel()
         await asyncio.gather(work, stopped, return_exceptions=True)
+
+
+async def _finish_archive_sql(operation: Coroutine[Any, Any, None]) -> None:
+    task = asyncio.create_task(operation)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Cancelling a live SQLAlchemy query invalidates the owner connection.
+        # PostgreSQL's transaction-local bounds end this work safely.
+        await asyncio.gather(task, return_exceptions=True)
+        raise
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,9 +370,11 @@ class MemoryService:
                 connection, text, self.main_submission(position)
             )
 
-    async def pending_publication(self) -> tuple[Publication, ...]:
+    async def pending_publication(
+        self, *, best_effort: bool = False
+    ) -> tuple[Publication, ...]:
         """Freeze eligible canonical identities, including late callback replies."""
-        async with self.database.connect() as connection:
+        async with self._archive_transaction(bounded=best_effort) as connection:
             conversation_id = await connection.scalar(
                 select(source_conversation.c.id).where(
                     source_conversation.c.provider == "jarvis",
@@ -421,23 +437,164 @@ class MemoryService:
     async def publish(self) -> None:
         """Projection follows canonical commit; its failure cannot replace a receipt."""
         try:
-            await self.project_pending()
+            await self.project_pending(best_effort=True)
         except (MemoryError, SQLAlchemyError, ValidationError) as error:
             LOGGER.warning("memory publication pending: error=%s", type(error).__name__)
 
+    async def append_stock_observations(
+        self, owner_epoch: str, attempt_id: UUID, events: tuple[Event, ...]
+    ) -> None:
+        async def append() -> None:
+            async with self._archive_transaction(bounded=True) as connection:
+                if not (
+                    self.jarvis_admitted
+                    and memory_is_admitted(connection)
+                    and await connection.scalar(
+                        select(native_attempt.c.id).where(
+                            *self._pending_stock(attempt_id, owner_epoch)
+                        )
+                    )
+                ):
+                    raise MemoryError("unavailable")
+                await self.library.append_main_observations(
+                    connection, await self._stock_archive_id(connection), events
+                )
+
+        await _finish_archive_sql(append())
+
+    async def finish_stock_observations(
+        self, owner_epoch: str, attempt_id: UUID, *, incomplete: bool
+    ) -> None:
+        if not self.jarvis_admitted:
+            return
+
+        async def finish() -> None:
+            async with self._archive_transaction(bounded=True) as connection:
+                if not memory_is_admitted(connection):
+                    return
+                criteria = self._pending_stock(attempt_id, owner_epoch)
+                progress = (
+                    await connection.execute(
+                        select(
+                            native_attempt.c.fenced_at, native_attempt.c.terminal_at
+                        ).where(*criteria)
+                    )
+                ).one_or_none()
+                if progress is None:
+                    return
+                if incomplete or (progress.fenced_at and progress.terminal_at):
+                    event_id = f"stock:{attempt_id}:gap"
+                    gap = normalize_event(
+                        {
+                            "native_event_id": event_id,
+                            "native_digest": hashlib.sha256(
+                                event_id.encode()
+                            ).hexdigest(),
+                            "turn_id": str(attempt_id),
+                            "role": "host",
+                            "kind": "gap",
+                            "text": "",
+                            "attributes": {"reason": "unreadable"},
+                        }
+                    )
+                    await self.library.append_main_observations(
+                        connection, await self._stock_archive_id(connection), (gap,)
+                    )
+                await connection.execute(
+                    update(native_attempt)
+                    .where(*criteria)
+                    .values(stock_observations_pending=False)
+                )
+
+        await _finish_archive_sql(finish())
+
+    async def recover_stock_observations(self) -> None:
+        """Close abandoned observation suffixes after native fencing and settlement."""
+        if not self.jarvis_admitted:
+            return
+        try:
+            async with self.database.connect() as connection:
+                if not memory_is_admitted(connection):
+                    return
+                pending = (
+                    await connection.execute(
+                        select(native_attempt.c.id, native_attempt.c.owner_epoch)
+                        .where(
+                            native_attempt.c.conversation_id == self.owner_scope,
+                            native_attempt.c.memory_admitted,
+                            native_attempt.c.stock_observations_pending,
+                            or_(
+                                native_attempt.c.fenced_at.is_not(None),
+                                native_attempt.c.product_outcome.is_not(None),
+                            ),
+                        )
+                        .order_by(native_attempt.c.attempt_seq)
+                    )
+                ).all()
+            for attempt_id, owner_epoch in pending:
+                await self.finish_stock_observations(
+                    owner_epoch, attempt_id, incomplete=True
+                )
+        except (MemoryError, SQLAlchemyError, TimeoutError) as error:
+            LOGGER.warning(
+                "stock observation recovery pending: error=%s", type(error).__name__
+            )
+
+    @asynccontextmanager
+    async def _archive_transaction(
+        self, *, bounded: bool
+    ) -> AsyncIterator[AsyncConnection]:
+        # Main shares the deployment's fenced writer. Bound archive contention
+        # before it can hold that connection past native settlement.
+        async with self.database.begin() as connection:
+            if bounded:
+                timeout = f"{READ_STATEMENT_SECONDS * 1000}ms"
+                await connection.execute(
+                    select(
+                        func.set_config("lock_timeout", timeout, True),
+                        func.set_config("statement_timeout", timeout, True),
+                    )
+                )
+            yield connection
+
+    def _pending_stock(
+        self, attempt_id: UUID, owner_epoch: str
+    ) -> tuple[ColumnElement[bool], ...]:
+        return (
+            native_attempt.c.id == attempt_id,
+            native_attempt.c.conversation_id == self.owner_scope,
+            native_attempt.c.owner_epoch == owner_epoch,
+            native_attempt.c.memory_admitted,
+            native_attempt.c.stock_observations_pending,
+        )
+
+    async def _stock_archive_id(self, connection: AsyncConnection) -> UUID:
+        identifier = await connection.scalar(
+            select(source_conversation.c.id).where(
+                source_conversation.c.provider == "jarvis",
+                source_conversation.c.native_id == self.native_id,
+            )
+        )
+        if identifier is None:
+            raise MemoryError("unavailable")
+        return cast(UUID, identifier)
+
     async def project_pending(
-        self, pending: tuple[Publication, ...] | None = None
+        self,
+        pending: tuple[Publication, ...] | None = None,
+        *,
+        best_effort: bool = False,
     ) -> int:
         if not self.jarvis_admitted or self.native_id is None:
             return 0
         if pending is None:
-            pending = await self.pending_publication()
+            pending = await self.pending_publication(best_effort=best_effort)
         if not pending:
             return 0
         lane = Lane(machine="devbox", account="jarvis", provider="jarvis")
         start = 0
         while start < len(pending):
-            async with self.database.begin() as connection:
+            async with self._archive_transaction(bounded=best_effort) as connection:
                 now = datetime.now(UTC)
                 await self.library.activate_lane(connection, lane, (), now)
                 # One owner has one canonical archive. A different stored key means
@@ -612,14 +769,8 @@ class MemoryService:
                     events.append(event)
                     consumed += 1
                 if events:
-                    await self.library.append_events(
-                        connection,
-                        receipt.id,
-                        receipt.checkpoint_event_id,
-                        receipt.checkpoint_native_digest,
-                        tuple(events),
-                        True,
-                        datetime.now(UTC),
+                    await self.library.append_main_events(
+                        connection, receipt.id, events
                     )
                 start += consumed
         return len(pending)

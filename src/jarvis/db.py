@@ -44,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0019"
+APPLICATION_SCHEMA_REVISION = "0020"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -417,6 +417,12 @@ native_attempt = Table(
     Column("attempt_seq", Integer, nullable=False),
     Column("owner_epoch", Text, nullable=False),
     Column("memory_admitted", Boolean, nullable=False, server_default=text("false")),
+    Column(
+        "stock_observations_pending",
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    ),
     Column("request_fingerprint", Text, nullable=False),
     Column("request", JSONB, nullable=False),
     Column("native_binding", JSONB(none_as_null=True)),
@@ -437,6 +443,10 @@ native_attempt = Table(
     UniqueConstraint("conversation_id", "attempt_seq"),
     CheckConstraint("attempt_seq > 0", name="sequence_positive"),
     CheckConstraint("request_fingerprint ~ '^[0-9a-f]{64}$'", name="fingerprint"),
+    CheckConstraint(
+        "NOT stock_observations_pending OR memory_admitted",
+        name="stock_observation_admitted",
+    ),
     CheckConstraint("jsonb_typeof(request) = 'object'", name="request_object"),
     CheckConstraint("(terminal IS NULL) = (terminal_at IS NULL)", name="terminal_time"),
     CheckConstraint(

@@ -641,6 +641,36 @@ deploy/activate-release "$from" "$to"
 deploy/verify-containment
 ```
 
+### stopped conversation capture cut from 0019 to 0020
+
+1. verify the installed `0019` predecessor and its
+   [live google proof](issues/adr0096-google-live.md). record both installed
+   collector revisions. obtain the predeclared before sample under `0019`.
+   qualify the target release, pinned collectors, nexus release and restore
+   reader together. keep the comparable postcut sample pending until resume.
+2. suspend new nexus sends and retries while the old admitted runs settle.
+   drain every v1 export through the old producer and receiver. check the
+   outbox, including parked items, and compare its next sequence to central
+   progress. a park holds the cut. install nexus `0347` first with capture held
+   by the existing generated declarations. for inactive nexus, verify those
+   declarations, registrations and the outbox, and keep capture disabled.
+3. under the existing owner web pause, stop both jarvis writers and prepare
+   `/var/lib/jarvis-cutover/adr0098/$to` with the two exact release receipts.
+   restore that copy in isolation on macbook and rehearse `0019→0020`.
+   migrate on the selected stopped deployment, using the same receipts.
+   the migration compares original table inventories and verifies the new
+   defaults, privileges and retained evidence for excluded workers. reopen an
+   original using its pre-cut reference.
+4. activate the matching components while canonically paused. use the same
+   release pin for both collectors. verify the memory service rejects native v3
+   and nexus v1. restore the intended nexus declaration after both revisions
+   match. exercise a
+   schema `0020` backup and isolated restore before returning the backup timer.
+5. resume through the ordinary owner control. prove an admitted external root,
+   delivered report, skipped span, fresh recall and one contained main observation.
+   compare the matched after sample by lane, kind and date.
+   [acceptance](decisions/0098-conversation-capture.md#proof-and-cutover)
+
 ### installed memory cut from 0017 to 0018
 
 1. stage the target. on the selected release record the owner's web pause.

@@ -158,11 +158,18 @@ class GoogleReadFailure(ConnectorFailure):
         status: int,
         retry_after: str | None = None,
         grant_unavailable: bool = False,
+        malformed_body: bool = False,
     ) -> None:
         super().__init__(code, attempts=attempts)
         self.status = status
         self.retry_after = retry_after
         self.grant_unavailable = grant_unavailable
+        self.malformed_body = malformed_body
+
+
+class _MalformedProviderBody(ConnectorFailure):
+    def __init__(self, *, attempts: int) -> None:
+        super().__init__("provider_unavailable", attempts=attempts)
 
 
 class _ProviderResponseTooLarge(ConnectorFailure):
@@ -768,7 +775,7 @@ class GoogleReadConnector:
         except GoogleReadFailure as exc:
             if exc.status == 404:
                 return GmailReviewUnavailable(kind="unavailable", reason="missing")
-            if 200 <= exc.status < 300:
+            if exc.malformed_body:
                 return GmailReviewUnavailable(
                     kind="unavailable", reason="invalid_detail"
                 )
@@ -1413,7 +1420,8 @@ class GoogleReadConnector:
                     raise GoogleReadFailure(
                         "provider_unavailable",
                         attempts=attempts,
-                        status=response.status_code,
+                        status=200,
+                        malformed_body=isinstance(exc, _MalformedProviderBody),
                     ) from None
         except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure(
@@ -2105,15 +2113,17 @@ async def _json_body(
                 parse_constant=_reject_constant,
                 object_pairs_hook=_strict_object,
             )
+    except OSError:
+        raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
     except (
         UnicodeDecodeError,
         json.JSONDecodeError,
         RecursionError,
         ValueError,
     ):
-        raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+        raise _MalformedProviderBody(attempts=attempts) from None
     if not isinstance(value, dict):
-        raise ConnectorFailure("provider_unavailable", attempts=attempts)
+        raise _MalformedProviderBody(attempts=attempts)
     return cast("dict[str, object]", value)
 
 
@@ -2148,7 +2158,7 @@ async def _google_forbidden(
         if exc.code == "provider_response_too_large":
             raise
         return "provider_unavailable", False
-    except (OSError, ValueError):
+    except ValueError:
         return "provider_unavailable", False
     if reasons & {
         "dailyLimitExceeded",

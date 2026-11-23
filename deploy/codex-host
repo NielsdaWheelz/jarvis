@@ -16,6 +16,7 @@ from pathlib import Path
 import httpx
 from provider_runtime.agent_runtime import (
     CODEX_CONTAINMENT_VERSION,
+    CodexUnixEndpoint,
     materialize_codex_containment_catalog,
     qualify_codex_containment_host,
 )
@@ -69,6 +70,18 @@ def bootstrap_notes(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "notes repository contains files without an ordinary checkout"
         )
+    subprocess.run(
+        [
+            config.binary, "sandbox",
+            "-c", 'sandbox_mode="workspace-write"',
+            "-c", "sandbox_workspace_write.network_access=true",
+            "--", "/bin/true",
+        ],
+        cwd=repository,
+        env=environment,
+        check=True,
+        timeout=10,
+    )
     if existing:
         config.verify_notes_repository()
         if (
@@ -224,6 +237,8 @@ def start(config: CodexHostConfig) -> None:
             config.binary,
             "-c",
             f"model_catalog_json={json.dumps(str(catalog))}",
+            "-c",
+            'service_tier="default"',
             "app-server",
             "--listen",
             f"unix://{alias}",
@@ -270,7 +285,9 @@ async def publish(config: CodexHostConfig) -> None:
             or placeholder.st_size != 0
         ):
             raise RuntimeError("native socket must stay in its private stock directory")
-        await qualify_codex_containment_host(target)
+        await qualify_codex_containment_host(
+            CodexUnixEndpoint(target), required_service_tier="default"
+        )
         current = target.stat()
         if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
             raise RuntimeError("native socket changed during qualification")
@@ -304,7 +321,9 @@ async def verify(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "application needs socket access without account credentials"
         )
-    await qualify_codex_containment_host(alias)
+    await qualify_codex_containment_host(
+        CodexUnixEndpoint(alias), required_service_tier="default"
+    )
 
 
 def verify_release() -> None:

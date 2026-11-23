@@ -12,15 +12,14 @@ import socket
 import stat
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 import httpx
 import uvicorn
-from llm_agent_kernel import CancellationToken
+from llm_agent_kernel import CancellationToken, CodexProvider, ProviderConfiguration
 from llm_tools import FrozenToolPlan
 from provider_runtime.agent_runtime import (
     AgentRuntime,
@@ -47,7 +46,6 @@ from jarvis.db import (
     normalize_database_url,
 )
 from jarvis.definitions import (
-    MEMORY_CODEX_MODEL,
     RoleDefinitions,
     build_compactor,
     build_definitions,
@@ -62,7 +60,7 @@ from jarvis.kernel import (
     build_agent_runtime,
     build_kernel_runtime,
     main_provider_configuration,
-    resolve_provider_configuration,
+    resolve_role_providers,
 )
 from jarvis.memory_config import MEMORY_IDENTITIES, MemoryConfig
 from jarvis.memory_rpc import MemoryRPC
@@ -79,7 +77,7 @@ from jarvis.native_cutover import (
 from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_runtime import (
     NativeRunner,
-    fence_abandoned_native_attempt,
+    recover_native_products,
 )
 from jarvis.ownership import (
     DEPLOYMENT_LOCK_KEY,
@@ -183,77 +181,30 @@ async def _memory_service(
         await reads.dispose()
 
 
-@dataclass(frozen=True, slots=True)
-class _IsolatedMemoryRuntime:
-    memory: MemoryService
-    compactor: MemoryWorker
-    dreamer: DreamerWorker
-
-
 @asynccontextmanager
-async def _isolated_memory_runtime(
-    *,
+async def _isolated_provider(
     settings: MemoryJobSettings,
-    config: MemoryConfig,
     host: CodexHostConfig,
-    database: _MemoryWriter,
-    owner: JarvisOwner,
-    offline_key: SecretStr | None = None,
-) -> AsyncIterator[_IsolatedMemoryRuntime]:
-    async with _memory_service(
-        settings, config, database, offline_key=offline_key
-    ) as memory:
-        catalog = compose_memory_catalog(memory)
-        runtime = build_agent_runtime(
-            provider_state_root=settings.runtime_state_directory,
-            codex_endpoints=host.endpoints,
+    role: Literal["compactor", "dreamer"],
+) -> AsyncIterator[tuple[ProviderConfiguration, CodexProvider]]:
+    runtime = build_agent_runtime(
+        provider_state_root=settings.runtime_state_directory,
+        codex_endpoints=host.endpoints,
+    )
+    kernel = None
+    try:
+        providers = await resolve_role_providers(
+            runtime, settings.codex_profile_key, role
         )
-        kernel = None
-        try:
-            isolated_provider = await resolve_provider_configuration(
-                runtime=runtime,
-                profile_key=settings.codex_profile_key,
-                model_key=MEMORY_CODEX_MODEL,
-            )
-            compactor_definition, compactor_plan = build_compactor(
-                catalog=catalog,
-                provider=isolated_provider,
-                owner_timezone=settings.owner_timezone,
-            )
-            dreamer_definition, dreamer_plan = build_dreamer(
-                catalog=catalog,
-                provider=isolated_provider,
-                owner_timezone=settings.owner_timezone,
-            )
-            kernel = build_kernel_runtime(
-                runtime=runtime,
-                shared_cwd_parent=Path(host.cognition_cwd_parent),
-            )
-            compactor = MemoryWorker(
-                definition=compactor_definition,
-                plan=compactor_plan,
-                owner=owner,
-                provider=kernel.provider,
-                memory=memory,
-            )
-            yield _IsolatedMemoryRuntime(
-                memory,
-                compactor,
-                DreamerWorker(
-                    definition=dreamer_definition,
-                    plan=dreamer_plan,
-                    owner=owner,
-                    provider=kernel.provider,
-                    memory=memory,
-                    owner_timezone=settings.owner_timezone,
-                    nightly_time=settings.memory_nightly_time,
-                ),
-            )
-        finally:
-            if kernel is None:
-                await runtime.close()
-            else:
-                await kernel.close()
+        kernel = build_kernel_runtime(
+            runtime=runtime, shared_cwd_parent=Path(host.cognition_cwd_parent)
+        )
+        yield providers[role], kernel.provider
+    finally:
+        if kernel is None:
+            await runtime.close()
+        else:
+            await kernel.close()
 
 
 def _private_directory(path: Path, name: str) -> None:
@@ -477,15 +428,8 @@ async def _compose_main(
 ) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
     """Compose the release's tools and role plans from the live codex catalog."""
 
-    main_provider = await resolve_provider_configuration(
-        runtime=agent_runtime,
-        profile_key=settings.codex_profile_key,
-        model_key=settings.codex_model,
-    )
-    isolated_provider = await resolve_provider_configuration(
-        runtime=agent_runtime,
-        profile_key=settings.codex_profile_key,
-        model_key=MEMORY_CODEX_MODEL,
+    providers = await resolve_role_providers(
+        agent_runtime, settings.codex_profile_key, "main", "compactor", "dreamer"
     )
     agents = AgentController(
         cli_path=settings.agent_cli_path,
@@ -510,9 +454,10 @@ async def _compose_main(
     definitions = build_definitions(
         catalog=composition.catalog,
         main_provider=main_provider_configuration(
-            main_provider, notes_repository=host.notes_repository
+            providers["main"], notes_repository=host.notes_repository
         ),
-        isolated_provider=isolated_provider,
+        compactor_provider=providers["compactor"],
+        dreamer_provider=providers["dreamer"],
         owner_timezone=settings.owner_timezone,
     )
     return composition, definitions, agents
@@ -555,10 +500,7 @@ async def _serve(
                 # A scope without canonical control would read as unpaused.
                 if await store.current_control(owner.scope_id) is None:
                     raise StartupDefect("serve requires initialized canonical control")
-                if await fence_abandoned_native_attempt(owner):
-                    LOGGER.info(
-                        "native recovery: fenced=1 committed=0 failed=0 stale=0"
-                    )
+                await recover_native_products(owner)
                 paused = PausedState(store, owner.scope_id)
                 dispatch_lane = asyncio.Lock()
                 async with AsyncExitStack() as clients:
@@ -968,19 +910,30 @@ async def dream_once(
     config = MemoryConfig.load(settings.memory_config_path)
     engine = create_engine(settings.database_url.get_secret_value())
     try:
-        async with deployment_ownership(
-            engine, memory_admitted=config.jarvis_admitted
-        ) as database:
-            async with _isolated_memory_runtime(
-                settings=settings,
-                config=config,
-                host=host,
-                database=database,
+        async with (
+            deployment_ownership(
+                engine, memory_admitted=config.jarvis_admitted
+            ) as database,
+            _memory_service(settings, config, database) as memory,
+            _isolated_provider(settings, host, "dreamer") as (provider, kernel),
+        ):
+            definition, plan = build_dreamer(
+                catalog=compose_memory_catalog(memory),
+                provider=provider,
+                owner_timezone=settings.owner_timezone,
+            )
+            worker = DreamerWorker(
+                definition=definition,
+                plan=plan,
                 owner=JarvisOwner(database, settings.owner_scope),
-            ) as runtime:
-                return await runtime.dreamer.run_at(
-                    as_of=datetime.now(UTC), cancellation=CancellationToken()
-                )
+                provider=kernel,
+                memory=memory,
+                owner_timezone=settings.owner_timezone,
+                nightly_time=settings.memory_nightly_time,
+            )
+            return await worker.run_at(
+                as_of=datetime.now(UTC), cancellation=CancellationToken()
+            )
     finally:
         await engine.dispose()
 
@@ -1023,34 +976,49 @@ async def rebuild_memory(
         )
     engine = create_engine(memory_settings.database_url.get_secret_value())
     try:
-        async with maintenance_ownership(
-            engine, memory_admitted=config.jarvis_admitted
-        ) as database:
-            async with _isolated_memory_runtime(
-                settings=memory_settings,
+        async with (
+            maintenance_ownership(
+                engine, memory_admitted=config.jarvis_admitted
+            ) as database,
+            _memory_service(
+                memory_settings,
+                config,
+                database,
                 offline_key=embedding_key_from_env() if node is None else None,
-                config=config,
-                host=host,
-                database=database,
+            ) as memory,
+            _isolated_provider(memory_settings, host, "compactor") as (
+                provider,
+                kernel,
+            ),
+        ):
+            definition, plan = build_compactor(
+                catalog=compose_memory_catalog(memory),
+                provider=provider,
+                owner_timezone=settings.owner_timezone,
+            )
+            worker = MemoryWorker(
+                definition=definition,
+                plan=plan,
                 owner=JarvisOwner(database, settings.owner_scope),
-            ) as runtime:
-                async with database.begin() as connection:
-                    await runtime.memory.library.rebuild(connection, start, count)
-                cancellation = CancellationToken()
-                await runtime.compactor.ensure_ready(
-                    await runtime.memory.library.cutoff(), cancellation
-                )
-                if node is None:
-                    while rows := await runtime.memory.library.embedding_candidates(
-                        EMBEDDING_BATCH_SIZE
-                    ):
-                        try:
-                            await runtime.memory.index_batch(rows)
-                        except EmbeddingFailure as error:
-                            raise RuntimeError(
-                                f"memory rebuild embedding failed ({error.reason}); "
-                                "derived work remains pending"
-                            ) from None
+                provider=kernel,
+                memory=memory,
+            )
+            async with database.begin() as connection:
+                await memory.library.rebuild(connection, start, count)
+            await worker.ensure_ready(
+                await memory.library.cutoff(), CancellationToken()
+            )
+            if node is None:
+                while rows := await memory.library.embedding_candidates(
+                    EMBEDDING_BATCH_SIZE
+                ):
+                    try:
+                        await memory.index_batch(rows)
+                    except EmbeddingFailure as error:
+                        raise RuntimeError(
+                            f"memory rebuild embedding failed ({error.reason}); "
+                            "derived work remains pending"
+                        ) from None
     finally:
         await engine.dispose()
 

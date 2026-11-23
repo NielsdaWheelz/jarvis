@@ -17,6 +17,7 @@ from uuid import UUID
 
 import httpx
 from llm_tools import canonical_json_bytes
+from provider_runtime.agent_runtime import CodexUnixEndpoint
 from provider_runtime.agent_runtime.archive import (
     ARCHIVE_CONTRACT_REVISION,
     ArchiveError,
@@ -361,7 +362,11 @@ class Collector:
                 _LOG.warning("memory home undeclared %s %s", lane.machine, lane.account)
                 continue
             home = ArchiveHome(
-                native_home.provider, native_home.state_root, native_home.codex_endpoint
+                native_home.provider,
+                native_home.state_root,
+                CodexUnixEndpoint(native_home.codex_endpoint)
+                if native_home.codex_endpoint is not None
+                else None,
             )
             if declared.status == "pending":
                 activations.append((lane, home))

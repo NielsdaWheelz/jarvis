@@ -196,11 +196,14 @@ sudo -n mv -Tf "$temporary" /opt/jarvis/current
 if [[ -e "$hold" ]]; then "$release/deploy/cutover-hold" release "$commit"; fi
 started=1
 sudo -n systemctl enable --now jarvis-memory.service jarvis.service
-deadline=$((SECONDS + 300))
+# Linux reports elapsed boot time in seconds with two decimal places.
+read -r uptime _ </proc/uptime
+deadline_cs=$((10#${uptime/./} + 300 * 100))
 until sudo -n -u jarvis-tunnel curl --silent --fail --max-time 2 --noproxy '*' \
   --unix-socket /run/jarvis-home/http.sock http://jarvis.nielseriknandal.com/api/home >/dev/null; do
   systemctl is-active --quiet jarvis.service || refuse "assistant stopped before its web listener was ready"
-  (( SECONDS < deadline )) || refuse "assistant web listener was unready after five minutes"
+  read -r uptime _ </proc/uptime
+  (( 10#${uptime/./} < deadline_cs )) || refuse "assistant web listener was unready after five minutes"
   sleep 1
 done
 for unit in jarvis-memory.service jarvis.service; do

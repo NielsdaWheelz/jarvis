@@ -6,9 +6,10 @@ import json
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cache
 from importlib.resources import files
 from types import MappingProxyType
-from typing import Annotated, cast
+from typing import Annotated, Literal
 
 from llm_agent_kernel import (
     KERNEL_BASE_INSTRUCTION,
@@ -63,6 +64,7 @@ from universal_memory.tools import (
 from jarvis.agent_tools import AGENT_READ_IDS, AGENT_WRITE_IDS
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC
 from jarvis.attachment_tools import ATTACHMENT_READ_IDS, ATTACHMENT_WRITE_IDS
+from jarvis.config import decode_config_json
 from jarvis.event_tools import EVENT_MUTATION_IDS, EVENT_READ_IDS
 from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.terminal import NATIVE_OUTPUT_NAME, JarvisNativeMessage
@@ -70,20 +72,11 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff",
+    "llm-agent-kernel": "d5bde65eb181d585b5cbae8c3f5eac76f50b6310",
     "llm-tools": "b25bd5f08bc82eb47eb4384139cfb2623ad12a68",
-    "provider-runtime": "f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36",
+    "provider-runtime": "d20c75e13bae81d9ba80014c7611c44a50d625fd",
     "universal-memory": "25ed86556f9580154806d901375ec06e8902ecaa",
 }
-MAIN_CODEX_MODEL = "gpt-6-astra"
-MEMORY_CODEX_MODEL = "gpt-6.1-sol"
-QUALIFIED_CODEX_MODELS = MappingProxyType(
-    {
-        MAIN_CODEX_MODEL: ("gpt-6-astra", "max"),
-        MEMORY_CODEX_MODEL: ("gpt-6.1-sol", "xhigh"),
-    }
-)
-
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
 # zero external attempts keeps the compactor tool-free.
 EMPTY_TOOL_LIMITS = RunLimits(
@@ -527,13 +520,7 @@ def _build_isolated_role(
 ) -> tuple[AgentDefinition, FrozenToolPlan]:
     if not owner_timezone.strip():
         raise ValueError("owner timezone must not be empty")
-    if (provider.model_key, provider.reasoning) != (
-        MEMORY_CODEX_MODEL,
-        QUALIFIED_CODEX_MODELS[MEMORY_CODEX_MODEL][1],
-    ):
-        raise ValueError(
-            f"{role.role_id} requires its fixed qualified memory model and effort"
-        )
+    revision = _role_revision(role.role_id, provider)
     if any(
         tool_id not in catalog.tool_ids
         or not isinstance(catalog.binding(tool_id).execute, Available)
@@ -568,9 +555,7 @@ def _build_isolated_role(
         output_contract=output,
         maximum_profile=maximum,
         provider=provider,
-        session_compatibility_revision=session_compatibility_revision(
-            load_session_manifest(), role.role_id
-        ),
+        session_compatibility_revision=revision,
         limits=kernel_limits,
     )
     validate_native_context_bounds(definition, native_limits)
@@ -581,17 +566,14 @@ def build_definitions(
     *,
     catalog: ToolCatalog,
     main_provider: ProviderConfiguration,
-    isolated_provider: ProviderConfiguration,
+    compactor_provider: ProviderConfiguration,
+    dreamer_provider: ProviderConfiguration,
     owner_timezone: str,
     native_limits: NativeContextLimits = DEFAULT_NATIVE_CONTEXT_LIMITS,
 ) -> RoleDefinitions:
     """Build one full main plan and the isolated memory roles."""
 
-    if (main_provider.model_key, main_provider.reasoning) != (
-        MAIN_CODEX_MODEL,
-        QUALIFIED_CODEX_MODELS[MAIN_CODEX_MODEL][1],
-    ):
-        raise ValueError("main requires its fixed qualified model and effort")
+    revision = _role_revision("main", main_provider)
     expected_ids = tuple(
         sorted(
             (
@@ -621,13 +603,13 @@ def build_definitions(
 
     compactor, compactor_plan = build_compactor(
         catalog=catalog,
-        provider=isolated_provider,
+        provider=compactor_provider,
         owner_timezone=owner_timezone,
         native_limits=native_limits,
     )
     dreamer, dreamer_plan = build_dreamer(
         catalog=catalog,
-        provider=isolated_provider,
+        provider=dreamer_provider,
         owner_timezone=owner_timezone,
         native_limits=native_limits,
     )
@@ -681,9 +663,7 @@ def build_definitions(
             name=NATIVE_OUTPUT_NAME, schema=JarvisNativeMessage.model_json_schema()
         ),
         maximum_profile=maximum,
-        compatibility_revision=session_compatibility_revision(
-            load_session_manifest(), "main"
-        ),
+        compatibility_revision=revision,
     )
     system_bytes = _instruction_bytes(
         NATIVE_BASE_INSTRUCTION,
@@ -717,58 +697,46 @@ def build_definitions(
     )
 
 
-def load_session_manifest() -> dict[str, object]:
-    raw = files("jarvis").joinpath(SESSION_MANIFEST_NAME).read_text(encoding="utf-8")
-    value: object = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError("session compatibility manifest has an invalid shape")
-    manifest = cast("dict[str, object]", value)
-    if set(manifest) != {
-        "application_session_contract_revision",
-        "dependencies",
-        "qualified_models",
-        "role_contract_revisions",
-        "schema_version",
-    }:
-        raise ValueError("session compatibility manifest has an invalid shape")
-    if manifest["schema_version"] != "jarvis-session-compatibility.v3":
-        raise ValueError("session compatibility manifest version is unsupported")
-    if manifest["dependencies"] != EXPECTED_GIT_PINS:
-        raise ValueError(
-            "session compatibility manifest dependency pins do not match code"
-        )
-    if manifest["qualified_models"] != list(QUALIFIED_CODEX_MODELS):
-        raise ValueError(
-            "session compatibility manifest qualified models do not match code"
-        )
+_Identifier = Annotated[str, Field(min_length=1, pattern=r"^\S+$")]
+
+
+class _RoleContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model: _Identifier
+    effort: _Identifier
+    revision: _Identifier
+
+
+class _SessionManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    schema_version: Literal["jarvis-session-compatibility.v4"]
+    application_session_contract_revision: _Identifier
+    dependencies: dict[str, str]
+    roles: dict[str, _RoleContract]
+
+
+@cache
+def load_session_manifest() -> _SessionManifest:
+    raw = files("jarvis").joinpath(SESSION_MANIFEST_NAME).read_bytes()
+    manifest = _SessionManifest.model_validate(decode_config_json(raw))
+    if set(manifest.roles) != {"main", "compactor", "dreamer"}:
+        raise ValueError("session compatibility manifest must declare all three roles")
+    if manifest.dependencies != EXPECTED_GIT_PINS:
+        raise ValueError("session compatibility dependency pins do not match code")
     return manifest
 
 
-def session_compatibility_revision(manifest: dict[str, object], role_id: str) -> str:
-    role_revisions_value = manifest.get("role_contract_revisions")
-    dependencies_value = manifest.get("dependencies")
-    if not isinstance(role_revisions_value, Mapping) or not isinstance(
-        dependencies_value, Mapping
-    ):
-        raise ValueError("session compatibility role manifest is invalid")
-    role_revisions = cast("Mapping[str, object]", role_revisions_value)
-    dependencies = dict(cast("Mapping[str, object]", dependencies_value))
-    if set(role_revisions) != {
-        "dreamer",
-        "main",
-        "compactor",
-    }:
-        raise ValueError("session compatibility role manifest is invalid")
-    role_revision = role_revisions.get(role_id)
-    application_revision = manifest.get("application_session_contract_revision")
-    if type(role_revision) is not str or not role_revision.strip():
-        raise ValueError(f"session compatibility role is unknown: {role_id}")
-    if type(application_revision) is not str or not application_revision.strip():
-        raise ValueError("application session contract revision must not be empty")
+def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
+    manifest = load_session_manifest()
+    role = manifest.roles[role_id]
+    if (provider.model_key, provider.reasoning) != (role.model, role.effort):
+        raise ValueError(f"{role_id} requires its release model and effort")
     value = {
-        "application_session_contract_revision": application_revision,
-        "dependencies": dependencies,
-        "role_contract_revision": role_revision,
+        "application_session_contract_revision": (
+            manifest.application_session_contract_revision
+        ),
+        "dependencies": manifest.dependencies,
+        "role": role.model_dump(),
         "role_id": role_id,
     }
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
@@ -829,12 +797,9 @@ __all__ = [
     "EMPTY_TOOL_LIMITS",
     "EXPECTED_GIT_PINS",
     "EXTERNAL_READ_IDS",
-    "MAIN_CODEX_MODEL",
     "MAIN_TOOL_LIMITS",
     "MAIN_WRITE_IDS",
-    "MEMORY_CODEX_MODEL",
     "MEMORY_READ_IDS",
-    "QUALIFIED_CODEX_MODELS",
     "WEB_READ_LIMITS",
     "WEB_SEARCH_LIMITS",
     "CompactionResult",
@@ -845,7 +810,6 @@ __all__ = [
     "build_definitions",
     "build_dreamer",
     "load_session_manifest",
-    "session_compatibility_revision",
     "validate_native_context_bounds",
     "verify_runtime_dependencies",
 ]

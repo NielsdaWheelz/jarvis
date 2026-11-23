@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import os
 import stat
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from jarvis.config import decode_config_json
 
 CODEX_MAX_MESSAGE_BYTES = 65536
 type CodexProfile = Literal["personal"]
@@ -79,7 +80,7 @@ class CodexHostConfig(_Closed):
             encoded = source.read(CODEX_MAX_MESSAGE_BYTES + 1)
         if len(encoded) > CODEX_MAX_MESSAGE_BYTES:
             raise ValueError("Codex host mapping is oversized")
-        result = cls.model_validate(_decode(encoded))
+        result = cls.model_validate(decode_config_json(encoded))
         if set(result.profiles) != {"personal"}:
             raise ValueError(
                 "Codex host mapping must declare its contained personal profile"
@@ -104,25 +105,3 @@ def _absolute(value: str) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("duplicate field")
-        result[key] = value
-    return result
-
-
-def _invalid_constant(value: str) -> object:
-    del value
-    raise ValueError("non-JSON constant")
-
-
-def _decode(encoded: bytes) -> object:
-    return json.loads(
-        encoded.decode("utf-8"),
-        object_pairs_hook=_object,
-        parse_constant=_invalid_constant,
-    )

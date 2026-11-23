@@ -322,15 +322,15 @@ class NativeRunner:
         await self._journal.record(attempt_id, message)
         await self.memory.publish()
 
-    async def recover(self) -> None:
-        await recover_native_products(self.owner)
+    async def recover_memory(self) -> None:
         await _recover_native_note_saves(self.owner, self.memory)
         await self.memory.publish()
         self.notify_delivery()
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome:
         self._dispatchers = [item for item in self._dispatchers if item.check_effects()]
-        await self.recover()
+        await recover_native_products(self.owner)
+        await self.recover_memory()
         if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
             return NativeRunOutcome("stopped")
         pending = await self.store.pending_inputs(
@@ -494,26 +494,22 @@ async def _settle_failed_opening(
     return await consume_fenced_losses(owner, attempt_id=identifier)
 
 
-async def fence_abandoned_native_attempt(owner: JarvisOwner) -> bool:
-    """End old dispatch authority before accepting new input."""
+async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
+    """Fence abandoned authority, drain original seals, then account for lost turns."""
     async with owner.database.begin() as connection:
         await lock_conversation(connection, owner.scope_id)
-        fenced = await connection.scalar(
-            update(native_attempt)
-            .where(
-                native_attempt.c.conversation_id == owner.scope_id,
-                native_attempt.c.fenced_at.is_(None),
-                native_attempt.c.product_outcome.is_(None),
+        fenced = (
+            await connection.scalar(
+                update(native_attempt)
+                .where(
+                    native_attempt.c.conversation_id == owner.scope_id,
+                    native_attempt.c.fenced_at.is_(None),
+                    native_attempt.c.product_outcome.is_(None),
+                )
+                .values(fenced_at=func.now())
+                .returning(native_attempt.c.id)
             )
-            .values(fenced_at=func.now())
-            .returning(native_attempt.c.id)
-        )
-    return fenced is not None
-
-
-async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
-    """Drain original seals and then account for lost turns."""
-    fenced = await fence_abandoned_native_attempt(owner)
+        ) is not None
     completed: list[UUID] = []
     counts: Counter[str] = Counter()
     try:
@@ -971,7 +967,6 @@ __all__ = [
     "NativeInputs",
     "NativeRunOutcome",
     "NativeRunner",
-    "fence_abandoned_native_attempt",
     "fit_native_inputs",
     "native_receipt_context",
     "opening_memory_prefix",

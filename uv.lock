@@ -360,13 +360,13 @@ requests = [
 
 [[package]]
 name = "google-genai"
-version = "1.75.0"
+version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "distro" },
     { name = "google-auth", extra = ["requests"] },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "pydantic" },
     { name = "requests" },
     { name = "sniffio" },
@@ -374,9 +374,14 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/59/3ed61240ef20b3ae6ed54e82c6f8b6d1f194947bc6679679dd6cdb037594/google_genai-1.75.0.tar.gz", hash = "sha256:56bac3991b311c93f980c0a2abcd287b672146905df1fbd71c92ed633d5a07cf", size = 539039, upload-time = "2026-05-04T22:48:54.857Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/15/ecebc770eb7edec0e588498d6b872aff6091ce1af1a9c503bd70b5a1ea7a/google_genai-3.6.1.tar.gz", hash = "sha256:dfd4120a15ba5aff6a3de8a85d76e1d5d0af65c70a54c459b1c5e76f503e46e7", size = 885277, upload-time = "2026-11-18T22:18:48.819Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/b6/552d40e96da22921eb1fead7c14b00b5b5473a20e45959488660fab35ee2/google_genai-1.75.0-py3-none-any.whl", hash = "sha256:8dc4c096e7d6288c3087f6893f582fe52468932464781edb8193bd92b9fefb2c", size = 793726, upload-time = "2026-05-04T22:48:53.033Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/1a/576adc030b48c7491b33ab94b96521151ef5b956552c0057628ef39c69bb/google_genai-3.6.1-py3-none-any.whl", hash = "sha256:4b35064da644f61d7e5f6c0e9406bf63b945e7e96b4af18cadb3371cbc3acf74", size = 1472097, upload-time = "2026-11-18T22:18:46.803Z" },
+]
+
+[package.optional-dependencies]
+httpx = [
+    { name = "httpx" },
 ]
 
 [[package]]
@@ -520,11 +525,11 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.1" },
     { name = "fastapi", specifier = "==0.143.0" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=d5bde65eb181d585b5cbae8c3f5eac76f50b6310" },
     { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=b25bd5f08bc82eb47eb4384139cfb2623ad12a68" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36" },
+    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=d20c75e13bae81d9ba80014c7611c44a50d625fd" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "python-multipart", specifier = "==0.0.32" },
@@ -618,7 +623,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff#eae7b86ecb1b22f4b76f0b30ad740dc31487d0ff" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=d5bde65eb181d585b5cbae8c3f5eac76f50b6310#d5bde65eb181d585b5cbae8c3f5eac76f50b6310" }
 dependencies = [
     { name = "llm-tools" },
     { name = "provider-runtime" },
@@ -899,10 +904,10 @@ wheels = [
 [[package]]
 name = "provider-runtime"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36#f42d6cfddc9410a7e1701dd3f572bb7f17dc9a36" }
+source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=d20c75e13bae81d9ba80014c7611c44a50d625fd#d20c75e13bae81d9ba80014c7611c44a50d625fd" }
 dependencies = [
     { name = "anthropic" },
-    { name = "google-genai" },
+    { name = "google-genai", extra = ["httpx"] },
     { name = "httpx" },
     { name = "openai" },
     { name = "opentelemetry-api" },

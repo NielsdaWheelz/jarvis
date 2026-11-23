@@ -21,6 +21,12 @@ place for long work. jarvis chooses content and handles owner corrections in
 conversation. clickable sources stay with the findings in chat, including when
 the owner asks for a separate page.
 
+[adr 0097](docs/decisions/0097-todo-home.md) specifies the todo-only default
+when no published home is selected. one owner todo list includes follow-ups
+jarvis undertakes. conversation owns questions, proposals and answers.
+the adr supersedes the separate decisions surface and scopes the temporary
+per-feature design, opus review and live proof.
+
 ## accepted operational target — storage and memory recovery
 
 [adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
@@ -71,6 +77,14 @@ at `0015`. this release implements the independent memory service at `0016`.
 both releases were installed in sequence. the original mail request settled and
 discord acknowledged its partial-coverage reply. the original note and a new
 capture reopened with the assistant and native host stopped.
+
+## accepted target for model context cost
+
+[adr 0095](docs/decisions/0095-context-cost.md) owns the successor mail search,
+scoped native steer projection, shared orientation trial and host-table schema
+presentation. jarvis chooses reading depth and working-note retention. adoption
+of a coarser shared view requires the specified recall and cost evidence. the
+adr defines the scoped temporary end-to-end and live proof for each change.
 
 ## calendar on demand and quiet background work
 

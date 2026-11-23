@@ -6,7 +6,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Annotated, Any
 
-from llm_tools import Available, PromptDocument, ToolBinding, ToolEffect, ToolFamily
+from llm_tools import (
+    Available,
+    PromptDocument,
+    ToolBinding,
+    ToolEffect,
+    ToolFamily,
+    ToolSpec,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 CanonicalUuid = Annotated[
@@ -21,6 +28,26 @@ class ActionRequest[InputT: BaseModel](BaseModel):
     request_ref: CanonicalUuid
     existing_action_ref: CanonicalUuid | None
     arguments: InputT
+
+
+def action_request_spec(spec: ToolSpec[Any, Any, Any]) -> ToolSpec[Any, Any, Any]:
+    """The write declaration captured on every action by the main tool plan."""
+    return replace(
+        spec,
+        input_type=ActionRequest[spec.input_type],
+        documentation=PromptDocument(
+            spec.documentation.text
+            + "\nrequest_ref names a delivered live owner or host request. "
+            "existing_action_ref is null for a new invocation, even when its "
+            "arguments equal earlier work. use an explicit recorded action "
+            "reference to recover its original result or pending status within "
+            "the same causal component. arguments is the exact operation input."
+        ),
+        limits=replace(
+            spec.limits,
+            max_input_bytes=spec.limits.max_input_bytes + 256,
+        ),
+    )
 
 
 def bind_action_requests(family: ToolFamily) -> ToolFamily:
@@ -41,22 +68,7 @@ def bind_action_requests(family: ToolFamily) -> ToolFamily:
         ) -> Any:
             return await original(value.arguments, context)
 
-        spec = replace(
-            binding.spec,
-            input_type=ActionRequest[binding.spec.input_type],
-            documentation=PromptDocument(
-                binding.spec.documentation.text
-                + "\nrequest_ref names a delivered live owner or host request. "
-                "existing_action_ref is null for a new invocation, even when its "
-                "arguments equal earlier work. use an explicit recorded action "
-                "reference to recover its original result or pending status within "
-                "the same causal component. arguments is the exact operation input."
-            ),
-            limits=replace(
-                binding.spec.limits,
-                max_input_bytes=binding.spec.limits.max_input_bytes + 256,
-            ),
-        )
+        spec = action_request_spec(binding.spec)
         bindings.append(
             replace(
                 binding,
@@ -73,4 +85,9 @@ def bind_action_requests(family: ToolFamily) -> ToolFamily:
     )
 
 
-__all__ = ["ActionRequest", "CanonicalUuid", "bind_action_requests"]
+__all__ = [
+    "ActionRequest",
+    "CanonicalUuid",
+    "action_request_spec",
+    "bind_action_requests",
+]

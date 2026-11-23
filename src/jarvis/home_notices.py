@@ -1,6 +1,5 @@
 """Persist a private notification with the fact that earned it."""
 
-from typing import Literal
 from uuid import UUID, uuid5
 
 from sqlalchemy import insert, select, update
@@ -14,15 +13,13 @@ from jarvis.ownership import Database
 
 async def enqueue_notice(
     connection: AsyncConnection,
-    kind: Literal["approval", "question", "reply"],
-    target: UUID,
+    message_id: UUID,
 ) -> None:
     await connection.execute(
         insert(home_notice).values(
-            id=uuid5(target, f"jarvis-home-notice:{kind}"),
-            kind=kind,
-            message_id=None if kind == "approval" else target,
-            action_id=target if kind == "approval" else None,
+            id=uuid5(message_id, "jarvis-home-notice:reply"),
+            kind="reply",
+            message_id=message_id,
         )
     )
 
@@ -46,22 +43,11 @@ async def deliver_pending(
                 .all()
             )
         for notice in notices:
-            kind = notice["kind"]
-            if kind == "reply":
-                label, path = "jarvis replied", f"/m/{notice['message_id']}"
-            elif kind == "approval":
-                label, path = (
-                    "jarvis needs a decision",
-                    f"/d/action/{notice['action_id']}",
-                )
-            else:
-                label, path = (
-                    "jarvis needs a decision",
-                    f"/d/question/{notice['message_id']}",
-                )
+            if notice["kind"] != "reply":
+                raise RuntimeError("pending notice requires predecessor delivery")
             result = await sender.create_message(
                 persisted_message_id=notice["id"],
-                content=f"{label}\n{HOME_ORIGIN}{path}",
+                content=f"jarvis replied\n{HOME_ORIGIN}/m/{notice['message_id']}",
             )
             if isinstance(result, DeliveryFailed):
                 return result

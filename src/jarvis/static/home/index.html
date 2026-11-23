@@ -12,12 +12,27 @@
     <main id="workspace">
       <header class="bar">
         <a class="wordmark" href="/" aria-label="jarvis home">jarvis</a>
+        <a href="/overview">overview</a>
         <span id="location"></span>
-        <button id="sidebar-open" aria-label="open sidebar" aria-controls="sidebar">
+        <button id="sidebar-open" aria-label="open conversation" aria-controls="sidebar">
           conversation
         </button>
       </header>
-      <section id="canvas" aria-label="workspace"></section>
+      <section id="canvas" aria-label="workspace">
+        <div id="object"></div>
+        <section id="overview" aria-label="todos" hidden>
+          <h1 tabindex="-1">todos</h1>
+          <div id="todo-list"></div>
+          <p id="todo-empty" hidden>no active todos.</p>
+          <div id="todo-pages" hidden>
+            <button id="previous-page" type="button">previous</button>
+            <span id="page-number"></span>
+            <button id="next-page" type="button">next</button>
+          </div>
+          <small id="checked"></small>
+          <div id="todo-error" role="status" hidden></div>
+        </section>
+      </section>
       <footer id="object-tools" hidden></footer>
     </main>
     <aside id="sidebar" aria-label="conversation and work">
@@ -26,9 +41,8 @@
         <button id="sidebar-close" aria-label="close sidebar">close</button>
       </header>
       <nav aria-label="workspace sections">
-        <button data-tab="chat" aria-pressed="true">chat</button>
-        <button data-tab="decisions">decisions</button>
-        <button data-tab="todos">todos</button>
+        <button id="chat-tab" type="button">chat</button>
+        <a href="/overview">todos</a>
       </nav>
       <section id="chat" class="panel" aria-label="chat">
         <button id="older" hidden>earlier messages</button>
@@ -37,6 +51,7 @@
       <section id="records" class="panel" aria-label="work records" hidden></section>
       <form id="composer">
         <div id="context" hidden></div>
+        <div id="draft-choice" hidden></div>
         <label class="sr-only" for="message">message jarvis</label>
         <textarea id="message" rows="2" placeholder="message jarvis…"></textarea>
         <div id="file-list"></div>

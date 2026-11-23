@@ -96,7 +96,7 @@ class _Form(MultiPartParser):
 
 async def read_submission(
     request: Request, submission_id: UUID, spool: Path
-) -> tuple[str, dict[str, object] | None, tuple[WebUpload, ...]]:
+) -> tuple[str, object, tuple[WebUpload, ...]]:
     async def limited() -> AsyncGenerator[bytes]:
         size = 0
         async for chunk in request.stream():
@@ -158,7 +158,6 @@ async def read_submission(
             or not isinstance(text, str)
             or "\0" in text
             or (not text.strip() and not files)
-            or (ref is not None and not isinstance(ref, dict))
         ):
             raise HTTPException(422, "invalid message")
         if len(text.encode()) > TEXT_LIMIT:
@@ -166,7 +165,7 @@ async def read_submission(
         uploads = (
             await joined_thread(_stage, files, submission_id, spool) if files else ()
         )
-        return text, cast(dict[str, object] | None, ref), uploads
+        return text, ref, uploads
     except MultiPartException as exc:
         if exc.message.startswith("Part exceeded maximum size"):
             raise HTTPException(413, "message part is too large") from exc

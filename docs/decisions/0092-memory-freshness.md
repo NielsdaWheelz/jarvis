@@ -16,6 +16,9 @@ these promises start at central commit. capture can arrive late or park. web spe
 
 ## a. one startup view for all clients
 
+[adr 0095](0095-context-cost.md#c-qualify-one-smaller-shared-orientation) owns
+the recall and cost gates for changing shared ready-view selection.
+
 **selection.** freeze `A=admitted_through`. select distinct, completely admitted source events by `(conversation_id,native_event_id)` at part zero with `first_position+part_count<=A`. anchors are owner-role text with at least one nonblank part. exclude known peer/child input and identified inherited copies. label the source and role, including native user-role answer envelopes. top-level terminal input can come from automation and conveys no present approval. every currently authorized client, including work profiles, receives the same verbatim excerpts. notes and standalone reports retain archive, search and tree access.
 
 select at most four. rank dated anchors by source time descending, receipt time descending, conversation id ascending and source sequence descending. take the newest dated anchor. reserve one place for an uncertain date if present, preferring an unrepresented conversation, then latest receipt with the same tie-breaks. a missing timestamp reads “source time unknown.” a timestamp later than its own receipt reads “source clock ahead” with the original time. fill remaining places from dated anchors, first from distinct unrepresented conversations in rank order, then from any remaining anchors. display selected dated exchanges newest first, with the uncertain one second (first and only if all are uncertain). this admits one older conversation ahead of a repeat. reserve rules can select the same conversation twice.

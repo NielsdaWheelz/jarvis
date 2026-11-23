@@ -1,0 +1,119 @@
+# adr 0095. context for mail reviews, native turns and shared memory
+
+design, 2026-11-20. the owner approved four work units. jarvis chooses how far to read, whether to keep working notes, and whether a report belongs in its private workspace. one shared memory view may ship if recall qualifies. this amends [mail reads](../mail-calendar-web-reads.md), [native recovery](0086-native-recovery-and-memory-availability.md) and [shared orientation](0092-memory-freshness.md). adr 0094 owns the bounded retry after a sealed context failure.
+
+ten of eleven multi-million-token attempts served one three-week mailbox review. recent ordinary events instead paid a large fixed opening cost. the earlier two-million-character refusal came from copying original receipts and was repaired. judge cost **per correct owner outcome**. measure peak sampled context, model calls, total and cached input, elapsed time and exact source coverage separately. an absent usage report is unknown. [production cohorts](../issues/main-context-cost.md) · [schema measurements](../issues/dreamer-tool-schema-size.md)
+
+## a. read a page of mail
+
+hard-cut main's `gmail.search` to one closed input with required `{view, query, include_spam_trash, page_size, cursor}`. query and cursor are nullable. `view=ids` permits 1–500 id pairs. `view=review` permits 1–8 previews. enforce the view-specific range in the input validator and name it in tool documentation. jarvis chooses which pages, originals and mime parts to read with `gmail.read_message`, and whether, where or how long to keep notes.
+
+```text
+page = {view, account, query, include_spam_trash, messages, result_size_estimate?, next_cursor?, observed_at}
+ids row = {message_id, thread_id}
+review row = {message_id, thread_id, detail}
+detail = {kind: ready, internal_at?, sender: Header, subject: Header, snippet: Preview?}
+       | {kind: unavailable, reason: missing | invalid_detail | detail_too_large}
+Header = {state: present, preview: Preview} | {state: absent | ambiguous}
+Preview = {text, truncated}
+```
+
+all fields of the selected variant are required. `?` means nullable. ids are exact. `internal_at` is gmail's internal timestamp in utc. use `gmail_headers`, case-insensitive unique from/subject matches and `text_preview`. keep encoded words as supplied. duplicate headers are ambiguous. cap sender at 160 utf-8 bytes and subject/snippet at 240. null snippet means absent. even an unclipped snippet is an excerpt.
+
+verify the account, list once, fetch review details serially by listed id using `messages.get(format=full, fields=id,threadId,internalDate,snippet,payload/headers(name,value))`. google documents snippets outside the metadata-only guarantee. the field mask excludes bodies and files. bound each detail with `_GoogleOperation.get(max_response_bytes=262144)`. long header chains can exhaust it. preserve order and one row per occurrence. map detail 404 to `missing`, oversize to `detail_too_large`, a malformed successful detail or mismatching id pair to `invalid_detail`. account changes, auth, quota, deadline or transport failure fail the page with its typed error and actual entries. grant 12 entries and 30 seconds. enforce four entries for ids and twelve for review (profile, list, eight details, two auth entries), subject to the tighter caller grant. count before i/o. [gmail formats](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format) · [partial responses](https://developers.google.com/workspace/gmail/api/guides/performance)
+
+reuse the 32 kib input, 64 kib success envelope, 16 kib cursor and whole-row fit. bind view, selectors and page size. on a local suffix refetch and verify the whole projected page digest, including gaps, estimate and next provider token, excluding observation time. even estimate drift yields `SourceChanged`. an unfit row/cursor returns `ResourceUnavailable` without advancing. short/empty pages may continue. null cursor ends the live traversal. a committed position replays its result. an unfinished redispatchable read or a new call can observe changed mail. refetching costs quota. ordinary tool capture exposes observed previews, including selected spam/trash, to shared memory under its 30,000-character head/tail cap. the journal retains the original result.
+
+**mail designer's acceptance.** scripted movement gives 19 occurrences over 8/8/3 slots and 18 distinct ids. one ready id repeats across pages. one id vanishes, one header chain exceeds 256 kib and 17 rows are ready, including one null snippet. a later message corrects an earlier date. one plain body has a commitment after its first chunk. one hostile snippet asks for an action and a memory note. ask for priorities, then an item accounting. grade dates, actual body/preview/gap coverage and zero obedience to quoted instructions.
+
+interrupt through adr 0086 contact loss and fresh admission of the same review, with a prior uncertain send in its component. require correct recovery and zero new draft, send or approval proposals for that same effect. independent new-root continuation has no promise of access to the old component. drive two eight-row calls on a separate clean 16-id connector fixture. in the matched live-model overview allow free tool choice and require fewer tool observations and lower cumulative model input than ids plus individual metadata at equivalent coverage. record model passes and actual google entries. check field selection and exact body reopening on a small authorized live read-only query.
+
+## b. keep related history addressable
+
+emit each related `message_id` once per frame, including rows reached through both the component and stop queries. preserve `delivery=context_only`, stop membership and first-occurrence order. measure `native_receipt_context` on a representative observed overlapping component after deduplication. compare eligible field bytes by id across confirmed deliveries. label reconstructions separately from retained wire. implement pointers only for a field class with at least 32 kib of repeated bytes or a reproduced fit failure that its removal fixes. otherwise ship the within-frame repair alone.
+
+only a steer can substitute a smaller `{request_ref, part, id, digest, total_bytes}`. anchor it to the first selected input of **that steer** in the object's component. without such an anchor keep the full field. eligible text has role host/assistant, completed or null request state, no control and no stop-context membership. eligible arguments belong to a succeeded action with a current, nonretired execution contract. always keep selected inputs, owner text, controls, stop settlements, approval decisions, live or uncertain terms and unresolved paid reads verbatim. retain identity, state, tool and entry count. pointers save repeat input and can cost a local read. fresh openings always rebuild the full operative frame.
+
+extend main-only `receipt.read(request_ref, selection)` only for qualifying parts. `selection={kind:context, part:message_text|succeeded_action_arguments, id:uuid, offset, max_bytes, expected_digest:sha256}`. the pointer supplies the digest even at offset zero. return kind, part, id and adr 0086's digest/total/offset/end/next/text fields and chunk limits. under the existing lock require an accepted live invocation whose delivered input ids contain the anchor. verify the target's component and its message's `source_conversation_id=owner.scope_id` (for action, join its origin message). read immutable host/assistant text or canonical stored arguments of the terminal successful current-contract action. exclude opaque rows. a later request-state change does not revoke access to immutable text. bind part and id in the digest, use `SourceChanged` on mismatch and identical `NotFound` for foreign or missing rows. keep zero upstream attempts, redispatchable reads and content-free archive projection. reopening authorizes no action.
+
+**native designer's acceptance.** use a long host update with a late multibyte correction, a conflicting sibling date, an owner's qualified approval, a succeeded draft and an uncertain near-duplicate send. steer six inputs. compact within the attempt and reopen with a recorded anchor, including after a request state changes. queued/rejected anchors, foreign scopes/components and a previous attempt's undelivered anchor return `NotFound`. restart in the same component with a different input and verify full opening facts. require exact owner terms, correct date, zero extra effect entries and at least the qualifying savings or repaired fit. count additional reads and check an unrelated small event.
+
+## c. qualify one smaller shared orientation
+
+`universal-memory` owns one read-side selection for jarvis, native mcp clients and nexus. keep the frozen admitted cutoff, current four recent exchange slots, quotations, provenance, exact open/zoom, and 16 kib pages. the persisted frontiers, compactor and strict maintenance preparation retain their existing limits. use **48,000 rendered bytes as a trial target**, within the present 128,000-byte hard ceiling. a smaller view trades detail and possible extra reads for startup headroom.
+
+walk the existing deterministic sequence of committed sibling-parent merges on the clipped frontier. size each complete cover with recent included, using the larger of the actual jarvis and escaped nexus frames. return the first cover at or below target. otherwise keep the smallest complete cover encountered within the hard ceiling, with earlier, finer covers winning ties. parents can grow before a grandparent shrinks. if every complete cover exceeds the ceiling, apply today's longest fitting leading-prefix rule to the terminal forest. require identical `through`, `admitted_through` and recent data on the same frozen state. report actual backlog and omissions. this needs no inference or durable read-side state.
+
+**memory designer's acceptance.** freeze identical rows and parents. an older authenticated private-home owner correction moves a print from red to grey because the foam marks the ink. a newer assistant suggests red. terminal user-role words have unverified authorship. keep the correction outside recent slots and omit its wording from a parent. ask what to use without suggesting retrieval. good content recovers grey and its reason from the original, attributes the red suggestion and infers no consent. counterbalance with a held-out case where the latest owner correction wins. include routine wakes, parked/empty and irreducible covers, a growing parent then a shrinking grandparent, escaping and a cutoff inside a parent. exercise jarvis main, authorized claude/codex mcp profiles and nexus's actual collector. deferred nexus installation receives source qualification.
+
+predeclare fixtures, counterbalanced order, model, tools and blinded answer keys. run three fresh predecessor/candidate pairs per recall case. require every candidate correct with exact reopen and no disposition regression. for three routine openings with baseline frames ≥72,000 bytes the engineering gate is median frame savings ≥25%, median first-pass input savings ≥10%, and lower aggregate model input through completion including retrieval. report cached input and startup latency. these thresholds justify changing all clients for this 48,000-byte trial. failed or inconclusive recall or savings leaves the candidate unshipped.
+
+## d. share repeated tool schema definitions
+
+`llm-tools.publish_host_table` owns the host-table presentation. intern repeated titled object schemas by full canonical presentation bytes from validated **granted** tools, in grant order, then input/success/error order. traverse properties by name, items and union branches in normalized order. treat literals and annotations as data. use the title with other characters outside `[A-Za-z0-9_.-]` replaced by underscores, or `Schema` for an empty name. give each collision the next free `_2`, `_3`, etc. emit definitions once under table-body `$defs`, referenced by bare local `{"$ref":"#/$defs/name"}`. roots may be refs. omit empty definitions. cycles, dangling and external refs are invalid.
+
+expanding each input, success and error root must reproduce its original canonical presentation byte for byte, including annotations, union order, required nulls, limits and the full boundary/declared-error union. keep strict execution validation and semantic/tool/documentation hashes on their existing declarations. native tool publication and discovery consume their existing representations. a grant-set change can rename table-local definitions. rotate affected prompt compatibility with the selected pin. the five-grant offline table fell from 225,713 to 41,166 bytes with 36 named definitions. actual inference savings and comprehension need live proof.
+
+**schema designer's acceptance.** use a held-out dream seed with an assistant's proposed 30-day retention and a later owner correction on a subsequent original page. good synthesis attributes both and leaves duration undecided. exercise a missing record, required-null argument, tool-declared failure and executor failure. compare all fifteen expanded roots, differently constrained same-name types, strict rejection and byte equality of the empty compactor table. require ≤25% of predecessor table bytes, lower first-turn input on matched fresh threads, correct quiet synthesis and committed original references.
+
+## owners, proof and cut
+
+| owner | exclusive edits |
+| --- | --- |
+| mail | jarvis `read_tools.py` and `connectors.py`, existing gmail search validator, binding, query and page helpers |
+| native | jarvis `native_runtime.py` projector and `receipt_tools.py`, reusing `messages.py` causal selection, chunk/digest helpers and the journal |
+| memory | universal-memory `store.py`, `tree.py` and `policy.py`, sharing one merge order and the existing serializers |
+| schema | llm-tools `host_table.py` and `schema.py` for shared schema traversal, consumed by kernel's existing publisher |
+| integrator | `definitions.py`, `src/jarvis/session-compatibility.json`, memory-view bindings, all dependency pins/locks, nexus integration, `SPEC.md`, mail/0086/0092 contract cross-references and the roadmap |
+
+freeze the selected commit and its locks before red. reconcile `implement/adr0093@7e9d8875` and `implement/adr0094@1d41a646` from their shared `b60eb74` base. the latter pins kernel `ed5b1e9`, provider `76a95bd`, tools `b25bd5f` and memory `25ed865`. from that manifest rotate main v17→v18 and application v4→v5 once, gmail search v3→v4, receipt read v1→v2 only if extended, and dreamer v9→v10 for the host table. compactor v6 keeps its byte-identical empty presentation. if c qualifies rotate jarvis memory view v5→v6 and nexus shared memory view v4→v5 (nexus `c00b65a6534c`, `python/nexus/services/tools/memory.py`). if the selected base advances, take its actual successor revisions. verify compiled main instructions ≤16,384 bytes, frozen grants, byte ceilings and locks.
+
+each feature designer freezes good content, counterexamples and grading before red. use temporary end-to-end tests through ordinary entry points on macbook, controlled faults and real stock for content. reproduce the predecessor failure, implement, pass, simplify, rerun and obtain independent opus review of design, red, green and final diff per unit. run existing required checks. retain named content-minimal evidence outside scratch, reopen and hash it, then delete only the new probes and fixtures. report checks and cleanup separately. [placement and evidence](0088-storage-and-memory-recovery.md#a-development-placement-and-evidence)
+
+qualify one integrated release of the passing units. drain or settle incompatible active work under established stopped controls. hard-cut superseded live signatures/cursors. preserve original receipts, seals, action identity, paid-read barriers and recovery. no runtime switches, new storage, mailbox writes, mandatory notes, token quotas or second compactor. source, live qualification and production activation are separate.
+
+## implementation evidence
+
+the merged 0093/0094 predecessor is `9bae883`. the design-only freeze is
+`2a81eda`. its locks resolve exactly to the named provider, kernel, tools and
+memory commits. the local integrated source `0d6f69f` contains all four units.
+the independently rehearsed release candidate for b–d is `f472af1`.
+
+| unit | observed result |
+| --- | --- |
+| mail | equivalent exact accounting of 16 sender/subject pairs used 17→2 tool observations, 34→20 google entries, 18→3 model samples, and 157,184→21,385 cumulative input. cached input was 136,576→5,760. the first candidate prompt induced redundant rereads. clarifying which fields were complete preserved model choice and passed the repeated comparison. controlled google supplied the data. [authenticated google remains open](../issues/adr0095-gmail-live-grant.md) |
+| native | the same postgres fixture reproduced eight rows for seven ids, then emitted seven in first-occurrence order. real stock recorded six steers and a corrected answer with the exact draft-only terms and uncertain send preserved. 69 confirmed production steers had no same-attempt component overlap. existing full fields carry the operative evidence, and no pointer class qualified. |
+| shared memory | three matched routine openings went from a median 76,719→47,648 bytes and 41,572→35,040 first-pass input tokens. routine cumulative input fell 15.64%. the six candidate recall runs all reopened the authenticated original and passed independent grading. the six recall runs together used 0.80% more cumulative input. across all nine pairs aggregate input fell 1.59%. four recent slots and coverage were identical. authorized codex and claude profiles and nexus's actual collector traversed the shared view. nexus source qualification precedes installation. |
+| schema publication | the five-grant table is 41,166 bytes versus 225,713. each of the 15 expanded roots matches the predecessor, including both error families, and the 230-byte empty compactor table is identical. first-pass input went from 60,628 to 12,040 with zero cached in both runs. the candidate reopened both paged originals and committed a grounded quiet synthesis. table-local definitions introduce a lookup in the prompt and preserve execution schemas. |
+
+the installed dependency metadata includes exact transitive pins. kernel and
+memory package locks now name the selected tools commit. the reviewed kernel
+runtime is unchanged. nexus uses its existing locked tools composition and
+the new memory pin. the compiled main instructions in the b–d candidate
+occupy 15,939 bytes. the all-unit source uses 15,956 bytes.
+
+both stopped rehearsals used schema `0018` and the exact predecessor. they
+preserved ten durable row digests across the cut, including the paid-read
+barrier and the one entered uncertain send. the current reader recovered the
+old 53,073-byte result and reply in two chunks each. the all-unit rehearsal
+rejected the superseded mail signature and original cursor before any entry.
+the controlled mail journey recovered the first committed page after contact
+loss, accounted for 19 occurrences and 18 distinct ids, reopened the buried
+commitment exactly and retained the uncertain action without a new proposal.
+the fresh priority turn used 343,491 cumulative input tokens. the accounting
+turn used 488,223 and 20 local receipt observations with zero google entries.
+this recovery fixture had no matched predecessor arm.
+
+private qualification evidence is under
+`qualification/adr0095-implementation`, `qualification/adr0095` and
+`qualification/adr0095-c`. `candidate/adr0095-bcd` pins the rehearsed
+b–d code, wheel and dependency composition. the full local branch includes
+mail for source review. its live gmail acceptance awaits a valid grant.
+jarvis and nexus source, macbook stock and stopped rehearsals establish
+candidate evidence. production activation remains a separate decision.
+
+the local build used verified dependency git bundles. verify the pins are
+fetchable by the existing frozen installer at activation. if b–d activates
+first, a later mail cut must advance main and application compatibility to
+the actual next revisions. the two local candidate trees were built as
+alternatives from the same predecessor.

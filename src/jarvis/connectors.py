@@ -45,6 +45,9 @@ from jarvis.read_tools import (
     CALENDAR_EVENT_PROJECTION,
     CALENDAR_METADATA_PROJECTION,
     GMAIL_API_BASE_URL,
+    GMAIL_IDS_ATTEMPTS,
+    GMAIL_REVIEW_ATTEMPTS,
+    GMAIL_SENDER_PREVIEW_BYTES,
     GOOGLE_DECODED_PROJECTION,
     GOOGLE_MESSAGE_PROJECTION,
     GOOGLE_OUTPUT_BYTES,
@@ -54,6 +57,7 @@ from jarvis.read_tools import (
     PLACE_DETAILS_FIELD_MASK,
     PLACES_API_BASE_URL,
     PLACES_SEARCH_FIELD_MASK,
+    PREVIEW_MAX_BYTES,
     ROUTES_API_URL,
     ROUTES_FIELD_MASK,
     AllDayEventTime,
@@ -73,14 +77,23 @@ from jarvis.read_tools import (
     CalendarReadCalendarSuccess,
     ConnectorFailure,
     Coordinates,
+    GmailAbsentHeader,
+    GmailAmbiguousHeader,
     GmailAttachment,
+    GmailIdsPage,
     GmailListAttachmentsInput,
     GmailListAttachmentsSuccess,
     GmailListThreadMessagesInput,
     GmailListThreadMessagesSuccess,
     GmailMessageReference,
+    GmailPresentHeader,
     GmailReadMessageInput,
     GmailReadMessageSuccess,
+    GmailReviewHeader,
+    GmailReviewMessage,
+    GmailReviewPage,
+    GmailReviewReady,
+    GmailReviewUnavailable,
     GmailSearchInput,
     GmailSearchSuccess,
     MapsDirectionsInput,
@@ -97,6 +110,7 @@ from jarvis.read_tools import (
     UnspecifiedEventEnd,
     attachment_media_type,
     display_descriptor,
+    text_preview,
 )
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -104,6 +118,8 @@ GOOGLE_STATE_SCHEMA = "jarvis.google-oauth-state.v1"
 GOOGLE_STATE_PROVIDER = "google"
 GOOGLE_AAD_NAMESPACE = "jarvis.connector.google"
 MAX_PROVIDER_BODY_BYTES = 2 * 1_024 * 1_024
+_GMAIL_REVIEW_DETAIL_BYTES = 256 * 1_024
+_GMAIL_REVIEW_FIELDS = "id,threadId,internalDate,snippet,payload/headers(name,value)"
 _GOOGLE_SCOPES = frozenset(
     {
         "https://www.googleapis.com/auth/calendar.acls.readonly",
@@ -129,6 +145,10 @@ class GoogleCredentialDefect(RuntimeError):
     """The host-owned Google credential state is invalid or unusable."""
 
 
+class _GoogleRefreshRejected(GoogleCredentialDefect):
+    """Google denied the configured refresh grant."""
+
+
 class GoogleReadFailure(ConnectorFailure):
     def __init__(
         self,
@@ -138,11 +158,24 @@ class GoogleReadFailure(ConnectorFailure):
         status: int,
         retry_after: str | None = None,
         grant_unavailable: bool = False,
+        malformed_body: bool = False,
     ) -> None:
         super().__init__(code, attempts=attempts)
         self.status = status
         self.retry_after = retry_after
         self.grant_unavailable = grant_unavailable
+        self.malformed_body = malformed_body
+
+
+class _MalformedProviderBody(ConnectorFailure):
+    def __init__(self, *, attempts: int) -> None:
+        super().__init__("provider_unavailable", attempts=attempts)
+
+
+class _ProviderResponseTooLarge(ConnectorFailure):
+    def __init__(self, *, attempts: int, status: int) -> None:
+        super().__init__("provider_response_too_large", attempts=attempts)
+        self.status = status
 
 
 class _ProviderTooLarge(ValueError):
@@ -330,7 +363,7 @@ class GoogleTokenManager:
                         "invalid_client",
                         "invalid_grant",
                     }:
-                        raise GoogleCredentialDefect("Google OAuth grant is unusable")
+                        raise _GoogleRefreshRejected("Google OAuth grant is unusable")
                     raise ConnectorFailure("provider_unavailable", attempts=1)
                 payload = await _json_body(response, attempts=1)
         except (TimeoutError, httpx.HTTPError, OSError):
@@ -641,69 +674,140 @@ class GoogleReadConnector:
         *,
         context: ExecutionContext | None = None,
     ) -> ReadResponse[GmailSearchSuccess]:
-        async with self._operation(GOOGLE_PAGE_SECONDS, 4, context) as operation:
-            account = await self._account(operation)
-            scope = {
-                "query": value.query,
-                "include_spam_trash": value.include_spam_trash,
-            }
-            cursor = _google_cursor(
-                value.cursor, "gmail.search", account, scope, value.page_size
-            )
-            params: dict[str, str | int | list[str]] = {
-                "includeSpamTrash": str(value.include_spam_trash).lower(),
-                "maxResults": value.page_size,
-            }
-            if value.query is not None:
-                params["q"] = value.query
-            if cursor.provider_page_token is not None:
-                params["pageToken"] = cursor.provider_page_token
-            payload = await operation.get(
-                f"{GMAIL_API_BASE_URL}/users/me/messages",
-                params=params,
-                invalid_request="invalid_cursor" if value.cursor else "invalid_query",
-                max_response_bytes=None,
-            )
-            messages = [
-                GmailMessageReference(
-                    message_id=provider_text(
-                        provider_string(provider_object(item, "Gmail message"), "id"),
-                        1_024,
-                    ),
-                    thread_id=provider_text(
-                        provider_string(
-                            provider_object(item, "Gmail message"), "threadId"
-                        ),
-                        1_024,
-                    ),
-                ).model_dump(mode="json")
-                for item in provider_array(
-                    payload.get("messages", []), "Gmail messages"
-                )
-            ]
-            estimate = payload.get("resultSizeEstimate")
-            if estimate is not None and (
-                type(estimate) is not int or not 0 <= estimate <= 2**53 - 1
-            ):
-                raise ValueError("Gmail estimate is malformed")
-            result = await joined_thread(
-                _google_page,
-                cursor,
-                messages,
-                _next_page_token(payload),
-                {
-                    "account": account,
+        review = value.view == "review"
+        maximum_attempts = GMAIL_REVIEW_ATTEMPTS if review else GMAIL_IDS_ATTEMPTS
+        async with self._operation(
+            GOOGLE_PAGE_SECONDS, maximum_attempts, context
+        ) as operation:
+            try:
+                account = await self._account(operation)
+                scope = {
+                    "view": value.view,
                     "query": value.query,
                     "include_spam_trash": value.include_spam_trash,
-                    "result_size_estimate": estimate,
-                    "observed_at": _rfc3339(self._observed_at()),
-                },
-                "messages",
-                maximum_output_bytes=operation.output_bytes,
+                }
+                cursor = _google_cursor(
+                    value.cursor, "gmail.search", account, scope, value.page_size
+                )
+                params: dict[str, str | int | list[str]] = {
+                    "includeSpamTrash": str(value.include_spam_trash).lower(),
+                    "maxResults": value.page_size,
+                }
+                if value.query is not None:
+                    params["q"] = value.query
+                if cursor.provider_page_token is not None:
+                    params["pageToken"] = cursor.provider_page_token
+                payload = await operation.get(
+                    f"{GMAIL_API_BASE_URL}/users/me/messages",
+                    params=params,
+                    invalid_request="invalid_cursor"
+                    if value.cursor
+                    else "invalid_query",
+                    max_response_bytes=None,
+                )
+                rows = provider_array(payload.get("messages", []), "Gmail messages")
+                if len(rows) > value.page_size:
+                    raise ValueError("Gmail page exceeded the requested size")
+                estimate = payload.get("resultSizeEstimate")
+                if estimate is not None and (
+                    type(estimate) is not int or not 0 <= estimate <= 2**53 - 1
+                ):
+                    raise ValueError("Gmail estimate is malformed")
+                next_token = _next_page_token(payload)
+                references: list[GmailMessageReference] = []
+                for row in rows:
+                    item = provider_object(row, "Gmail message")
+                    references.append(
+                        GmailMessageReference(
+                            message_id=provider_text(
+                                provider_string(item, "id"), 1_024
+                            ),
+                            thread_id=provider_text(
+                                provider_string(item, "threadId"), 1_024
+                            ),
+                        )
+                    )
+                messages: list[dict[str, Any]] = []
+                for reference in references:
+                    if review:
+                        message = GmailReviewMessage(
+                            message_id=reference.message_id,
+                            thread_id=reference.thread_id,
+                            detail=await self._gmail_review_detail(
+                                reference, operation
+                            ),
+                        )
+                    else:
+                        message = reference
+                    messages.append(message.model_dump(mode="json"))
+                result = await joined_thread(
+                    _google_page,
+                    cursor,
+                    messages,
+                    next_token,
+                    {
+                        "account": account,
+                        **scope,
+                        "result_size_estimate": estimate,
+                        "observed_at": _rfc3339(self._observed_at()),
+                    },
+                    "messages",
+                    maximum_output_bytes=operation.output_bytes,
+                )
+                page = GmailReviewPage if review else GmailIdsPage
+                return ReadResponse(page.model_validate(result), operation.attempts)
+            except _GoogleRefreshRejected:
+                raise ConnectorFailure(
+                    "provider_unavailable", attempts=operation.attempts
+                ) from None
+
+    async def _gmail_review_detail(
+        self, reference: GmailMessageReference, operation: _GoogleOperation
+    ) -> GmailReviewReady | GmailReviewUnavailable:
+        try:
+            detail = await operation.get(
+                f"{GMAIL_API_BASE_URL}/users/me/messages/"
+                f"{quote(reference.message_id, safe='')}",
+                params={"format": "full", "fields": _GMAIL_REVIEW_FIELDS},
+                not_found="message_not_found",
+                max_response_bytes=_GMAIL_REVIEW_DETAIL_BYTES,
             )
-            return ReadResponse(
-                GmailSearchSuccess.model_validate(result), operation.attempts
+        except GoogleReadFailure as exc:
+            if exc.status == 404:
+                return GmailReviewUnavailable(kind="unavailable", reason="missing")
+            if exc.malformed_body:
+                return GmailReviewUnavailable(
+                    kind="unavailable", reason="invalid_detail"
+                )
+            raise
+        except _ProviderResponseTooLarge as exc:
+            if not 200 <= exc.status < 300:
+                raise
+            return GmailReviewUnavailable(kind="unavailable", reason="detail_too_large")
+        try:
+            if (
+                provider_string(detail, "id") != reference.message_id
+                or provider_string(detail, "threadId") != reference.thread_id
+            ):
+                raise ValueError("Gmail returned a different message")
+            root = provider_object(detail.get("payload"), "Gmail payload")
+            headers = gmail_headers(root)
+            snippet = detail.get("snippet")
+            if snippet is not None and not isinstance(snippet, str):
+                raise ValueError("Gmail snippet is malformed")
+            return GmailReviewReady(
+                kind="ready",
+                internal_at=None
+                if "internalDate" not in detail
+                else _gmail_internal_time(detail),
+                sender=_gmail_review_header(
+                    headers, "from", GMAIL_SENDER_PREVIEW_BYTES
+                ),
+                subject=_gmail_review_header(headers, "subject"),
+                snippet=None if snippet is None else text_preview(snippet),
             )
+        except ValueError:
+            return GmailReviewUnavailable(kind="unavailable", reason="invalid_detail")
 
     async def gmail_read_message(
         self,
@@ -1314,7 +1418,10 @@ class GoogleReadConnector:
                     if exc.code == "provider_response_too_large":
                         raise
                     raise GoogleReadFailure(
-                        "provider_unavailable", attempts=attempts, status=200
+                        "provider_unavailable",
+                        attempts=attempts,
+                        status=200,
+                        malformed_body=isinstance(exc, _MalformedProviderBody),
                     ) from None
         except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure(
@@ -1664,6 +1771,19 @@ def gmail_headers(part: Mapping[str, object]) -> list[dict[str, str]]:
     return result
 
 
+def _gmail_review_header(
+    headers: list[dict[str, str]], name: str, max_bytes: int = PREVIEW_MAX_BYTES
+) -> GmailReviewHeader:
+    values = [header["value"] for header in headers if header["name"].lower() == name]
+    if not values:
+        return GmailAbsentHeader(state="absent")
+    if len(values) > 1:
+        return GmailAmbiguousHeader(state="ambiguous")
+    return GmailPresentHeader(
+        state="present", preview=text_preview(values[0], max_bytes)
+    )
+
+
 def _unfold_header(value: str) -> str:
     unfolded = re.sub(r"\r\n(?=[ \t])", "", value)
     if "\r" in unfolded or "\n" in unfolded:
@@ -1708,12 +1828,7 @@ def _gmail_metadata(
     return {
         "message_id": provider_text(provider_string(message, "id"), 1_024),
         "thread_id": provider_text(provider_string(message, "threadId"), 1_024),
-        "internal_at": (
-            (
-                datetime(1970, 1, 1, tzinfo=UTC)
-                + timedelta(milliseconds=_gmail_internal_millis(message))
-            ).isoformat()
-        ),
+        "internal_at": _gmail_internal_time(message).isoformat(),
         "headers": headers,
         "reply_to_addresses": _reply_to(headers),
         "parts": [
@@ -1978,14 +2093,17 @@ async def _json_body(
     attempts: int,
     maximum: int | None = MAX_PROVIDER_BODY_BYTES,
 ) -> dict[str, object]:
+    chunk_bytes = 1_024 * 1_024
+    if maximum is not None:
+        chunk_bytes = min(chunk_bytes, maximum + 1)
     try:
         with tempfile.TemporaryFile() as body:
             count = 0
-            async for chunk in response.aiter_bytes(chunk_size=1_024 * 1_024):
+            async for chunk in response.aiter_bytes(chunk_size=chunk_bytes):
                 count += len(chunk)
                 if maximum is not None and count > maximum:
-                    raise ConnectorFailure(
-                        "provider_response_too_large", attempts=attempts
+                    raise _ProviderResponseTooLarge(
+                        attempts=attempts, status=response.status_code
                     )
                 await joined_thread(body.write, chunk)
             body.seek(0)
@@ -1995,16 +2113,17 @@ async def _json_body(
                 parse_constant=_reject_constant,
                 object_pairs_hook=_strict_object,
             )
+    except OSError:
+        raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
     except (
-        OSError,
         UnicodeDecodeError,
         json.JSONDecodeError,
         RecursionError,
         ValueError,
     ):
-        raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+        raise _MalformedProviderBody(attempts=attempts) from None
     if not isinstance(value, dict):
-        raise ConnectorFailure("provider_unavailable", attempts=attempts)
+        raise _MalformedProviderBody(attempts=attempts)
     return cast("dict[str, object]", value)
 
 
@@ -2144,8 +2263,7 @@ def _timestamp_text(value: str) -> str:
     return value[: match.start(1)] + fraction[:6] + value[match.end(1) :]
 
 
-def _gmail_internal_millis(value: object) -> int:
-    message = provider_object(value, "Gmail message")
+def _gmail_internal_time(message: Mapping[str, object]) -> datetime:
     raw = message.get("internalDate")
     if (
         not isinstance(raw, str)
@@ -2158,7 +2276,7 @@ def _gmail_internal_millis(value: object) -> int:
     millis = int(raw)
     if not -62_135_596_800_000 <= millis <= 253_402_300_799_999:
         raise _ProviderTooLarge
-    return millis
+    return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=millis)
 
 
 @dataclass(frozen=True, slots=True)

@@ -31,11 +31,25 @@ def render_attachment_manifest(trace: dict[str, object]) -> str | None:
     ).decode()
 
 
-def home_context(home: dict[str, object] | None) -> dict[str, object]:
-    """Only the public reference or presentation belongs in model context."""
+def home_context(
+    home: dict[str, object] | None, *, archive: bool = False
+) -> dict[str, object]:
+    """Keep original archive bytes. Only current references frame a live input."""
     if home is None:
         return {}
-    return {key: home[key] for key in ("ref", "present") if home.get(key) is not None}
+    context = {
+        key: home[key]
+        for key in ("ref", "present", "proposal_title", "proposal_ids")
+        if home.get(key) is not None
+    }
+    ref = context.get("ref")
+    if (
+        not archive
+        and isinstance(ref, dict)
+        and cast(dict[str, object], ref).get("kind") == "decision"
+    ):
+        del context["ref"]
+    return context
 
 
 def archive_message_text(
@@ -58,7 +72,7 @@ def archive_message_text(
             + manifest
             + "\n</attachment_manifest>"
         )
-    if context := home_context(home):
+    if context := home_context(home, archive=True):
         metadata = canonical_json_bytes(cast(JsonValue, context)).decode()
         text += (
             f'\n<home_context input_id="{input_id}" role="host">\n'

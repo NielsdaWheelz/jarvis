@@ -32,11 +32,11 @@ class TodoRef(_Ref):
     id: CanonicalUuid
 
 
-class DecisionRef(_Ref):
-    kind: Literal["decision"]
-    type: Literal["action", "question"]
-    id: CanonicalUuid
+class ProposalRef(_Ref):
+    kind: Literal["proposal"]
+    message_id: CanonicalUuid
+    action_id: CanonicalUuid
 
 
-type HomeRef = ViewRef | FilePageRef | FileRef | TodoRef | DecisionRef
+type HomeRef = ViewRef | FilePageRef | FileRef | TodoRef | ProposalRef
 HOME_REF_ADAPTER = TypeAdapter[HomeRef](HomeRef)

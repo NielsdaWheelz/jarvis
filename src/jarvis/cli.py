@@ -42,7 +42,9 @@ from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
 from jarvis.db import (
     ASSISTANT_MEMORY_READS,
+    action,
     create_engine,
+    home_notice,
     normalize_database_url,
 )
 from jarvis.definitions import (
@@ -665,6 +667,7 @@ async def _serve(
                     app = create_home_app(
                         database=database,
                         scope=settings.owner_scope,
+                        owner_timezone=settings.owner_timezone,
                         work=work,
                         attachments=composition.attachments,
                         submit=service.submit,
@@ -768,6 +771,30 @@ async def check_activation(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
+            async with database.connect() as connection:
+                pending = await connection.scalar(
+                    select(home_notice.c.id)
+                    .where(
+                        home_notice.c.discord_message_id.is_(None),
+                        home_notice.c.kind != "reply",
+                    )
+                    .limit(1)
+                )
+                if pending is not None:
+                    raise StartupDefect(
+                        "predecessor must drain pending question and approval notices"
+                    )
+                old_approval = await connection.scalar(
+                    select(action.c.id)
+                    .join(home_notice, home_notice.c.action_id == action.c.id)
+                    .where(
+                        action.c.status == "awaiting_approval",
+                        home_notice.c.kind == "approval",
+                    )
+                    .limit(1)
+                )
+            if old_approval is not None:
+                raise StartupDefect("the predecessor must settle its open approvals")
             require_native_files(settings.runtime_state_directory)
             scope = settings.owner_scope
             await require_native_data(database, conversation_id=scope)

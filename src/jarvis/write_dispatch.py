@@ -131,7 +131,6 @@ class WriteToolDispatcher:
         self._dispatch_lane = dispatch_lane
         self._effects: set[asyncio.Task[DispatchResult]] = set()
         self._closing = False
-        self.on_approval_pending: Callable[[], None] = lambda: None
         self.on_effect_settled: Callable[[], None] = lambda: None
 
     async def dispatch(
@@ -325,7 +324,6 @@ class WriteToolDispatcher:
                 action_id=action_id,
                 invocation_id=UUID(lineage.invocation_id),
             )
-            self.on_approval_pending()
             return DispatchSuspended(HostRef(str(action_id)), WaitingFor.user)
         await self._actions.insert_automatic(
             tool_name=tool_id,

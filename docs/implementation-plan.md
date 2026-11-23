@@ -28,6 +28,17 @@ on 2026-11-20, claude opus 5.5 passed both designs at spec sha256
 the accepted text was amended after review to record the reproduced late-seal and opening-framing defects.
 the adr records source and isolated macbook qualification, with the installed cut separate.
 
+[adr 0095](decisions/0095-context-cost.md) assigns mail, native steering,
+shared orientation and schema publication to separate owners. freeze the
+selected adr 0093/0094 base, qualify each unit against it, then qualify one
+integrated hard cut. native field references and the smaller shared view have
+explicit evidence gates. on 2026-11-20 independent claude opus 5.5 passed all
+four designs and the cut at spec sha256
+`46445c60bd81b086644bee2fcfc5bc9680a4f442d7c519bbac4d38f298814651`.
+the [implementation evidence](decisions/0095-context-cost.md#implementation-evidence)
+records all four source units and the b–d candidate. mail's final live google
+check awaits a valid grant. production activation remains separate.
+
 [adr 0096](decisions/0096-calendar-on-demand.md) assigns calendar and gmail
 source changes to one owner and background reply behavior to another. integrate
 both against the selected schema, main manifest and home transport. on
@@ -84,7 +95,24 @@ the owner conversation, browser, originals, authored canvas and notifications sh
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
 records the source, candidate and stopped `0017` production proofs. the owner
 accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
-the native client and native notifications belong to the following pr.
+[adr 0097](decisions/0097-todo-home.md) owns the independent todo home cut.
+qualify the todo read and conversational proposals, then the integrated web shell.
+on 2026-11-23 utc, independent claude opus 5.5 at max passed all three designs
+and the cut at spec sha256 `fe949056736aba332b7a3fc449c253a7bf414946c560943dd68f1073cecd7a1a`.
+the macbook receipt is `~/.local/state/jarvis/qualification/adr0097/design-fe949056.txt`.
+source and isolated macbook qualification passed at `ed310a9` on schema `0019`,
+composed with 0095 `bc47458` and 0096 `0639f73`. the packaged browser and https
+journeys used the frozen wheel. authenticated stock proved the mixed answer and
+consent question, one executor entry, prior consent and recovery of the original
+mail proposal after parking. main v20 uses 15,994 of 16,384 instruction bytes
+at the longest installed owner zone. independent opus 5.5 accepted source and evidence.
+the macbook receipt is `~/.local/state/jarvis/qualification/adr0097-implementation/acceptance.json`,
+sha256 `71551bec10b68e435c77aa354cfbe3c2a0958b98f92267e197bfc586895b586d`.
+the sibling `cleanup.json`, sha256 `cbf8393ccbddc9c6a3ee66d0791afd14ac74e9389ad2c11d683f8076c95d3e20`,
+records probe and fixture deletion and the [retained clean checkout](issues/adr0094-rehearsal-checkout-hold.md).
+the [installed issue](issues/default-home-work.md) stays open through acceptance.
+the [dedicated mobile pr](issues/mobile-share-handoff.md) would deliver native
+iphone and android clients, inbound sharing and native push, then retire discord alert delivery.
 
 ## full answers in web chat
 

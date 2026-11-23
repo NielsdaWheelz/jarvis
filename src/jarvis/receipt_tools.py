@@ -38,10 +38,15 @@ from jarvis.actions import recorded_action_result, retired_worker_predicate
 from jarvis.admission import JarvisOwner
 from jarvis.connectors import gmail_headers
 from jarvis.db import native_attempt, native_invocation, read_position
-from jarvis.event_tools import Preview, text_preview
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import lock_conversation
-from jarvis.read_tools import GOOGLE_MESSAGE_PROJECTION, InvalidCursor, SourceChanged
+from jarvis.read_tools import (
+    GOOGLE_MESSAGE_PROJECTION,
+    InvalidCursor,
+    Preview,
+    SourceChanged,
+    text_preview,
+)
 from jarvis.work_tools import NotFound
 
 RECEIPT_READ_ID = ToolId("receipt.read")

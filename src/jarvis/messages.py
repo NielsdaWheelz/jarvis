@@ -23,6 +23,7 @@ from jarvis.db import (
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
+from jarvis.home_refs import HOME_REF_ADAPTER
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 
 if TYPE_CHECKING:
@@ -319,7 +320,7 @@ class MessageStore:
         self,
         submission_id: UUID,
         text: str,
-        ref: dict[str, object] | None,
+        ref: object,
         uploads: tuple[WebUpload, ...],
         *,
         scope: str,
@@ -329,17 +330,20 @@ class MessageStore:
     ) -> InboundInsert:
         from jarvis.attachments import ingress_manifest, register_ingress
 
-        digest = hashlib.sha256(
-            canonical_json_bytes(
-                {
-                    "text": text,
-                    "ref": ref,
-                    "files": [
-                        [item.filename, item.size, item.sha256] for item in uploads
-                    ],
-                }
-            )
-        ).hexdigest()
+        try:
+            digest = hashlib.sha256(
+                canonical_json_bytes(
+                    {
+                        "text": text,
+                        "ref": ref,
+                        "files": [
+                            [item.filename, item.size, item.sha256] for item in uploads
+                        ],
+                    }
+                )
+            ).hexdigest()
+        except (ValueError, RecursionError):
+            digest = None
         async with self._engine.begin() as connection:
             await lock_conversation(connection, scope)
             existing = (
@@ -361,11 +365,22 @@ class MessageStore:
                 ):
                     raise SubmissionConflict("submission id is already committed")
                 return InboundInsert(_stored_message(existing), False)
+            if digest is None:
+                raise InvalidReference("invalid reference")
+            home: dict[str, object] = {"request_sha256": digest, "ref": None}
             if ref is not None:
-                from jarvis.home_reads import reference_exists
+                from jarvis.home_reads import reference_context
 
-                if not await reference_exists(connection, scope, ref, pages):
+                try:
+                    validated = HOME_REF_ADAPTER.validate_python(ref)
+                except ValueError as exc:
+                    raise InvalidReference("invalid reference") from exc
+                context = await reference_context(
+                    connection, scope, validated.model_dump(mode="json"), pages
+                )
+                if context is None:
                     raise InvalidReference("that reference is no longer available")
+                home.update(context)
             result = await append_waking_input(
                 connection,
                 role="owner",
@@ -375,7 +390,7 @@ class MessageStore:
                 source_message_id=str(submission_id),
                 created_at=datetime.now(UTC),
                 attachment_manifest=ingress_manifest(uploads),
-                home={"request_sha256": digest, "ref": ref},
+                home=home,
             )
             if uploads:
                 await register_ingress(
@@ -536,7 +551,7 @@ class MessageStore:
             )
         )
 
-        await enqueue_notice(connection, "reply", conclusion_id)
+        await enqueue_notice(connection, conclusion_id)
 
     async def pending_inputs(
         self,

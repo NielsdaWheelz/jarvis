@@ -60,7 +60,7 @@ from provider_runtime.agent_runtime import (
     thaw_json_value,
 )
 from pydantic import ValidationError
-from sqlalchemy import ColumnElement, RowMapping, case, func, select, update
+from sqlalchemy import ColumnElement, RowMapping, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -86,7 +86,7 @@ from jarvis.db import (
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
-from jarvis.home_reads import reference_exists
+from jarvis.home_reads import proposal_presented, reference_context
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
     MAX_TRACE_BYTES,
@@ -879,6 +879,7 @@ class PostgresNativeJournal:
             if (
                 owner_message is None
                 or owner_message["role"] != "owner"
+                or owner_message["source"] == "initialize_state"
                 or owner_message["source_conversation_id"] != self.owner.scope_id
             ):
                 return host_rejected("approval_owner_required")
@@ -1417,7 +1418,7 @@ async def _presentation_home(
     )
     if request is None:
         reason = "unproven_lineage"
-    elif await reference_exists(
+    elif await reference_context(
         connection, scope, present.ref.model_dump(mode="json"), DEFAULT_EXPORT
     ):
         return {"present": present.model_dump(mode="json")}
@@ -1470,14 +1471,21 @@ async def commit_product(
             raise NativeContentDefect(
                 "final dispositions name input without live delivered authority"
             )
+        stopping = tuple(
+            key for key, item in statuses.items() if item.disposition == "stop"
+        )
         home = await _presentation_home(
             connection,
             owner.scope_id,
             attempt["id"],
             None if isinstance(final.response, Silent) else final.response.present,
-            tuple(key for key, item in statuses.items() if item.disposition == "stop"),
+            stopping,
         )
         timestamp = datetime.now(UTC)
+        if stopping:
+            await cancel_unentered_actions(connection, stopping, timestamp)
+        owned: set[UUID] = set()
+        approval_refs: set[UUID] = set()
         for identifier, disposition in statuses.items():
             target = inputs[identifier]
             component = await causal_component_ids(connection, (identifier,))
@@ -1505,6 +1513,11 @@ async def commit_product(
                     and "registration_receipt" in item["result"]
                 )
             ]
+            owned.update(
+                item["id"]
+                for item in own_blockers
+                if item["status"] == "awaiting_approval"
+            )
             if disposition.disposition == "complete" and own_blockers:
                 raise NativeContentDefect(
                     "request completion would hide unresolved actions"
@@ -1559,8 +1572,8 @@ async def commit_product(
                                 "waiting disposition fabricated its action blocker"
                             )
                         state = "pending"
-            if state == "stopped":
-                await cancel_unentered_actions(connection, (identifier,), timestamp)
+            if state == "waiting" and disposition.wait_reason == "approval":
+                approval_refs.update(refs)
             trace = {**target["trace"], "native_attempt_id": turn.attempt_id}
             trace.pop("native_context_retry", None)
             trace.pop("waiting_action_ids", None)
@@ -1593,6 +1606,34 @@ async def commit_product(
             )
             if state in {"completed", "stopped"}:
                 completed.append(identifier)
+        # A write can commit before its callback reply, or before its origin
+        # receives any disposition. The original invocation still owns its action.
+        created = select(native_invocation.c.action_id).where(
+            native_invocation.c.attempt_id == attempt["id"],
+            native_invocation.c.request_message_id.is_not(None),
+            native_invocation.c.proposal["arguments"]["existing_action_ref"]
+            .as_string()
+            .is_(None),
+        )
+        unseen = tuple(
+            await connection.scalars(
+                select(action.c.id)
+                .where(
+                    action.c.status == "awaiting_approval",
+                    or_(
+                        action.c.id.in_(created), action.c.id.in_(owned | approval_refs)
+                    ),
+                    ~proposal_presented(owner.scope_id),
+                )
+                .order_by(action.c.created_at, action.c.id)
+            )
+        )
+        if unseen:
+            if not final.has_question or not approval_refs.issuperset(unseen):
+                raise NativeContentDefect(
+                    "unseen proposals require an approval wait and question"
+                )
+            home = {**(home or {}), "proposal_ids": list(map(str, unseen))}
         if rendered.content is not None:
             await connection.execute(
                 insert(message).values(
@@ -1607,11 +1648,7 @@ async def commit_product(
                     trace={"native_attempt_id": turn.attempt_id},
                 )
             )
-            await enqueue_notice(
-                connection,
-                "question" if final.waits_for_owner and final.has_question else "reply",
-                conclusion_id,
-            )
+            await enqueue_notice(connection, conclusion_id)
         await connection.execute(
             update(native_attempt)
             .where(native_attempt.c.id == attempt["id"])
@@ -1816,16 +1853,33 @@ async def _fail_inputs(
             )
         )
         failure_id = uuid4()
+        pending = tuple(
+            await connection.scalars(
+                select(action.c.id)
+                .where(
+                    action.c.origin_message_id == identifier,
+                    action.c.status == "awaiting_approval",
+                )
+                .order_by(action.c.created_at, action.c.id)
+            )
+        )
+        repair = (
+            " its pending proposals need this repair before a decision."
+            if pending
+            else ""
+        )
         await connection.execute(
             insert(message).values(
                 id=failure_id,
                 role="assistant",
                 text=(
                     f"{failure} on request {identifier}. "
-                    "its actions and reads are recorded. to resume, stop jarvis, "
+                    f"its actions and reads are recorded.{repair} "
+                    "to resume, stop jarvis, "
                     f"run `jarvis release-parked {identifier}`, then start jarvis."
                 ),
                 source="native_failure",
+                home={"proposal_ids": list(map(str, pending))} if pending else None,
                 source_conversation_id=owner.scope_id,
                 memory_admitted=memory_is_admitted(connection),
                 processed_at=timestamp,
@@ -1834,7 +1888,7 @@ async def _fail_inputs(
                 else {},
             )
         )
-        await enqueue_notice(connection, "reply", failure_id)
+        await enqueue_notice(connection, failure_id)
 
 
 async def park_oversized_input(

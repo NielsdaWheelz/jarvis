@@ -68,6 +68,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.definitions import RoleDefinitions
+from jarvis.home_reads import proposal_presented
 from jarvis.input_framing import home_context, host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
@@ -407,7 +408,6 @@ class NativeRunner:
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
-                dispatcher.on_approval_pending = self.notify_delivery
                 self._dispatchers.append(dispatcher)
                 terminal = await run_native(
                     definition=self.definitions.main,
@@ -784,10 +784,9 @@ async def native_receipt_context(
                     select(message)
                     .where(
                         message.c.source_conversation_id == owner.scope_id,
+                        message.c.id.not_in(component_ids),
                         or_(
-                            message.c.id.in_(
-                                tuple(stop_input_ids.difference(component_ids))
-                            ),
+                            message.c.id.in_(stop_input_ids),
                             message.c.control_targets.overlap(list(component_ids)),
                             message.c.id
                             == latest_control(owner.scope_id)
@@ -849,6 +848,12 @@ async def native_receipt_context(
                 action.c.attempts,
                 case(
                     (
+                        action.c.status == "awaiting_approval",
+                        proposal_presented(owner.scope_id),
+                    ),
+                ).label("presented"),
+                case(
+                    (
                         or_(
                             retired,
                             action.c.execution_contract["schema_version"]
@@ -873,6 +878,11 @@ async def native_receipt_context(
                     status=row.status,
                     attempts=row.attempts,
                     arguments=row.arguments,
+                    **(
+                        {"presented": row.presented}
+                        if row.presented is not None
+                        else {}
+                    ),
                 )
             )
         joined = native_invocation.join(

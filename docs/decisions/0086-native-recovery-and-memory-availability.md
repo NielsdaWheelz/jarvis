@@ -126,6 +126,9 @@ and intact effect barriers.
 
 ## c. make recorded observations addressable
 
+[adr 0095](0095-context-cost.md#b-keep-related-history-addressable) governs the
+related-message projector and owns the measurement gate for new context pointers.
+
 fresh openings carry exact selected requests, current control, approvals, commitments,
 stop/uncertainty facts and the frozen ready view. include counts by eligible tool id and one
 instruction for finding originals. commitments carry action/request refs, verb, operative terms,

@@ -85,9 +85,9 @@ from jarvis.native_journal import (
     StaleNativeProduct,
     commit_product,
     consume_fenced_losses,
+    fail_native_product,
     native_loss_product,
     park_oversized_input,
-    park_product,
     recover_sealed_turn,
 )
 from jarvis.ownership import (
@@ -483,7 +483,7 @@ async def _settle_failed_opening(
             )
         ).one_or_none()
     if row is None and protocol_fault:
-        return await _fail_native_product(
+        return await fail_native_product(
             owner,
             request.attempt_id,
             request.input_ids,
@@ -590,11 +590,11 @@ async def _settle_native_product(
     if turn is None:
         raise NativeDefect("product settlement lacks a sealed native terminal")
     if turn.terminal.status != "succeeded":
-        return await _fail_native_product(
+        return await fail_native_product(
             owner,
             attempt_id,
             turn.input_ids,
-            "the native provider did not complete this turn",
+            turn.terminal.failure,
         )
     if turn.output is None:
         raise NativeDefect("original output schema is absent")
@@ -604,7 +604,7 @@ async def _settle_native_product(
         rendered = render_terminal(final)
     except (TypeError, ValueError, OutputSchemaMismatch) as error:
         log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
-        return await _fail_native_product(
+        return await fail_native_product(
             owner,
             attempt_id,
             turn.input_ids,
@@ -616,20 +616,11 @@ async def _settle_native_product(
         )
     except NativeContentDefect as error:
         log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")
-        return await _fail_native_product(
+        return await fail_native_product(
             owner, attempt_id, turn.input_ids, "native protocol requires repair"
         )
     except StaleNativeProduct:
         return await _mark_stale(owner, UUID(attempt_id), "request_authority_changed")
-
-
-async def _fail_native_product(
-    owner: JarvisOwner,
-    attempt_id: str,
-    input_ids: tuple[InputId, ...],
-    reason: str,
-) -> ProductSettlement:
-    return await park_product(owner.database, owner, attempt_id, input_ids, reason)
 
 
 async def _recover_native_note_saves(owner: JarvisOwner, memory: MemoryService) -> None:
@@ -814,7 +805,8 @@ async def native_receipt_context(
         records: list[dict[str, object]] = [
             {
                 "kind": "canonical_request_context",
-                "input_id": str(row["id"]),
+                "delivery": "context_only",
+                "message_id": str(row["id"]),
                 "role": row["role"],
                 "source": row["source"],
                 "source_timestamp": row["created_at"].isoformat(),

@@ -101,6 +101,19 @@ def host_input(value: StoredMessage) -> HostInput:
         else attribute
         for attribute in attributes
     )
+    if value.native_retry_after is not None:
+        sections.append(
+            PromptSection(
+                PromptSectionKind("native_retry"),
+                host_attributes,
+                PromptText(
+                    "work on this input hit the model's context limit. "
+                    "its original receipts are available through receipt.read."
+                    if value.trace.get("native_context_retry") is True
+                    else "work on this input lost contact with the model."
+                ),
+            )
+        )
     manifest = render_attachment_manifest(value.trace)
     if manifest is not None:
         sections.append(

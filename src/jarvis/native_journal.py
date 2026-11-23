@@ -42,11 +42,13 @@ from llm_tools import (
 from provider_runtime.agent_runtime import (
     AgentAttempt,
     AgentControlReceipt,
+    AgentFailure,
     AgentMessage,
     AgentNotSubmitted,
     AgentSubmission,
     AgentSubmissionRejected,
     AgentTerminal,
+    AgentTerminalFailure,
     AgentTurnRef,
     JsonObject,
     JsonSchemaAgentOutput,
@@ -1440,9 +1442,7 @@ async def commit_product(
     conclusion_id = uuid5(UUID(turn.attempt_id), "product-conclusion")
     completed: list[UUID] = []
     async with database.begin() as connection:
-        attempt, inputs = await _product_inputs(
-            connection, owner, turn.attempt_id, turn.input_ids
-        )
+        attempt, inputs = await _product_inputs(connection, owner, turn.attempt_id)
         if attempt is None or attempt["terminal_at"] is None:
             raise NativeDefect("product settlement lacks a native terminal")
         if attempt["settled"]:
@@ -1562,6 +1562,7 @@ async def commit_product(
             if state == "stopped":
                 await cancel_unentered_actions(connection, (identifier,), timestamp)
             trace = {**target["trace"], "native_attempt_id": turn.attempt_id}
+            trace.pop("native_context_retry", None)
             trace.pop("waiting_action_ids", None)
             if state == "waiting" and refs:
                 trace["waiting_action_ids"] = sorted(map(str, refs))
@@ -1634,11 +1635,9 @@ async def _product_inputs(
     connection: AsyncConnection,
     owner: JarvisOwner,
     attempt_id: str,
-    input_ids: tuple[InputId, ...],
     *,
-    failed: bool = False,
-    waking_loss: bool = False,
-    unsent_steers: tuple[str, ...] = (),
+    delivery: ColumnElement[bool] = proven_native_delivery,
+    fallback_input_ids: tuple[InputId, ...] = (),
 ) -> tuple[RowMapping | None, dict[UUID, RowMapping]]:
     await lock_conversation(connection, owner.scope_id)
     delivered = tuple(
@@ -1646,13 +1645,7 @@ async def _product_inputs(
             await connection.execute(
                 select(native_input_delivery.c.message_id).where(
                     native_input_delivery.c.attempt_id == UUID(attempt_id),
-                    (
-                        native_input_delivery.c.was_waking
-                        & (native_input_delivery.c.state != "rejected")
-                        & native_input_delivery.c.delivery_id.not_in(unsent_steers)
-                    )
-                    if waking_loss
-                    else proven_native_delivery,
+                    delivery,
                 )
             )
         ).scalars()
@@ -1670,9 +1663,7 @@ async def _product_inputs(
                     message.c.trace,
                 )
                 .where(
-                    message.c.id.in_(
-                        delivered or (tuple(map(UUID, input_ids)) if failed else ())
-                    )
+                    message.c.id.in_(delivered or tuple(map(UUID, fallback_input_ids)))
                 )
                 .order_by(message.c.id)
                 .with_for_update()
@@ -1690,6 +1681,7 @@ async def _product_inputs(
                     native_attempt.c.attempt_seq,
                     native_attempt.c.terminal_at,
                     native_attempt.c.fenced_at,
+                    native_attempt.c.recovery_pending,
                     native_attempt.c.owner_epoch,
                     native_attempt.c.product_outcome.is_not(None).label("settled"),
                     native_attempt.c.request["control_sequence"]
@@ -1771,7 +1763,7 @@ async def _product_inputs(
     return attempt, inputs
 
 
-async def _park_inputs(
+async def _fail_inputs(
     connection: AsyncConnection,
     owner: JarvisOwner,
     inputs: dict[UUID, RowMapping],
@@ -1779,11 +1771,36 @@ async def _park_inputs(
     *,
     attempt_id: str | None,
 ) -> None:
-    if not inputs:
-        return
+    """A waking input shares one fresh opening across contact and context failures."""
+    if reason in {"lost_contact", "context_window_exceeded"}:
+        unused = {
+            key for key, row in inputs.items() if row["native_retry_after"] is None
+        }
+        if unused:
+            schedule = (
+                update(message)
+                .where(message.c.id.in_(unused))
+                .values(native_retry_after=func.now() + timedelta(seconds=30))
+            )
+            if reason == "context_window_exceeded":
+                schedule = schedule.values(
+                    trace=message.c.trace.op("||")({"native_context_retry": True})
+                )
+            await connection.execute(schedule)
+            inputs = {key: row for key, row in inputs.items() if key not in unused}
     timestamp = datetime.now(UTC)
     for identifier, row in inputs.items():
-        trace = {**row["trace"], "failure_code": reason}
+        if reason == "context_window_exceeded":
+            failure = "the model reached its context limit while retrying"
+        elif reason == "lost_contact":
+            failure = (
+                "i lost contact with the model while retrying"
+                if row["trace"].get("native_context_retry") is True
+                else "i lost contact with the model twice"
+            )
+        else:
+            failure = reason
+        trace = {**row["trace"], "failure_code": failure}
         if attempt_id is not None:
             trace["native_attempt_id"] = attempt_id
         trace.pop("waiting_action_ids", None)
@@ -1804,7 +1821,7 @@ async def _park_inputs(
                 id=failure_id,
                 role="assistant",
                 text=(
-                    f"{reason} on request {identifier}. "
+                    f"{failure} on request {identifier}. "
                     "its actions and reads are recorded. to resume, stop jarvis, "
                     f"run `jarvis release-parked {identifier}`, then start jarvis."
                 ),
@@ -1845,7 +1862,7 @@ async def park_oversized_input(
         )
         if row is None:
             return False
-        await _park_inputs(
+        await _fail_inputs(
             connection, owner, {identifier: row}, reason, attempt_id=None
         )
         return True
@@ -1922,9 +1939,11 @@ async def consume_fenced_losses(
                     connection,
                     owner,
                     identifier,
-                    (),
-                    waking_loss=True,
-                    unsent_steers=unsent,
+                    delivery=(
+                        native_input_delivery.c.was_waking
+                        & (native_input_delivery.c.state != "rejected")
+                        & native_input_delivery.c.delivery_id.not_in(unsent)
+                    ),
                 )
                 affected = bool(inputs)
                 evidence: dict[str, object] = pending["submission_evidence"] or {}
@@ -1960,23 +1979,8 @@ async def consume_fenced_losses(
                 elif evidence.get("type") == "AgentNotSubmitted":
                     reason = "the model request was not submitted"
                 else:
-                    reason = "i lost contact with the model twice"
-                    first_loss = [
-                        key
-                        for key, row in inputs.items()
-                        if row["native_retry_after"] is None
-                    ]
-                    if first_loss:
-                        await connection.execute(
-                            update(message)
-                            .where(message.c.id.in_(first_loss))
-                            .values(
-                                native_retry_after=func.now() + timedelta(seconds=30)
-                            )
-                        )
-                        for key in first_loss:
-                            del inputs[key]
-                await _park_inputs(
+                    reason = "lost_contact"
+                await _fail_inputs(
                     connection, owner, inputs, reason, attempt_id=identifier
                 )
                 changed |= affected
@@ -1994,23 +1998,63 @@ async def consume_fenced_losses(
             )
 
 
-async def park_product(
-    database: Database,
+async def fail_native_product(
     owner: JarvisOwner,
     attempt_id: str,
     input_ids: tuple[InputId, ...],
-    reason: str,
+    failure: AgentTerminalFailure | str | None,
 ) -> ProductSettlement:
-    """Preserve the original seal and atomically quarantine every affected input."""
+    """Settle the original failure under the affected inputs' current authority."""
     await owner.require_current(owner.permit("jarvis-product:" + attempt_id))
     timestamp = datetime.now(UTC)
-    async with database.begin() as connection:
+    context_exhausted = (
+        isinstance(failure, AgentFailure) and failure.cause == "context_window_exceeded"
+    )
+    reason = (
+        failure
+        if isinstance(failure, str)
+        else "the native provider did not complete this turn"
+    )
+    if context_exhausted:
+        reason = "context_window_exceeded"
+    async with owner.database.begin() as connection:
         attempt, inputs = await _product_inputs(
-            connection, owner, attempt_id, input_ids, failed=True
+            connection,
+            owner,
+            attempt_id,
+            delivery=(native_input_delivery.c.was_waking & proven_native_delivery)
+            if context_exhausted
+            else proven_native_delivery,
+            fallback_input_ids=() if context_exhausted else input_ids,
         )
         if attempt is not None and attempt["settled"]:
             return ProductSettlement()
-        await _park_inputs(connection, owner, inputs, reason, attempt_id=attempt_id)
+        if not isinstance(failure, str) and (
+            attempt is None or attempt["terminal_at"] is None
+        ):
+            raise NativeDefect("provider failure settlement requires its original seal")
+        already_charged = (
+            not isinstance(failure, str)
+            and attempt is not None
+            and not attempt["recovery_pending"]
+        )
+        if context_exhausted and already_charged:
+            # A late seal refines the cause of this still-outstanding retry.
+            inputs = {
+                key: row
+                for key, row in inputs.items()
+                if row["native_retry_after"] is not None
+            }
+            if inputs:
+                await connection.execute(
+                    update(message)
+                    .where(message.c.id.in_(inputs))
+                    .values(
+                        trace=message.c.trace.op("||")({"native_context_retry": True})
+                    )
+                )
+        elif not already_charged:
+            await _fail_inputs(connection, owner, inputs, reason, attempt_id=attempt_id)
         status: Literal["failed", "stale"] | None = None
         if attempt is not None:
             changes: dict[str, object] = {
@@ -2028,7 +2072,9 @@ async def park_product(
                 .where(native_attempt.c.id == attempt["id"])
                 .values(**changes)
             )
-        return ProductSettlement(status, eligibility_changed=bool(inputs))
+        return ProductSettlement(
+            status, eligibility_changed=bool(inputs) and not already_charged
+        )
 
 
 def _evidence(value: object) -> dict[str, object]:

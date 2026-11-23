@@ -28,6 +28,15 @@ on 2026-11-20, claude opus 5.5 passed both designs at spec sha256
 the accepted text was amended after review to record the reproduced late-seal and opening-framing defects.
 the adr records source and isolated macbook qualification, with the installed cut separate.
 
+[adr 0095](decisions/0095-context-cost.md) assigns mail, native steering,
+shared orientation and schema publication to separate owners. freeze the
+selected adr 0093/0094 base, qualify each unit against it, then qualify one
+integrated hard cut. native field references and the smaller shared view have
+explicit evidence gates. on 2026-11-20 independent claude opus 5.5 passed all
+four designs and the cut at spec sha256
+`46445c60bd81b086644bee2fcfc5bc9680a4f442d7c519bbac4d38f298814651`.
+implementation and live qualification are pending.
+
 ## terminal-only worker cutover — source implemented and isolated-qualified
 
 [adr 0069](decisions/0069-terminal-only-workers.md) and the linked skid spec

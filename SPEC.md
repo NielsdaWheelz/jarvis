@@ -72,6 +72,14 @@ both releases were installed in sequence. the original mail request settled and
 discord acknowledged its partial-coverage reply. the original note and a new
 capture reopened with the assistant and native host stopped.
 
+## accepted target for model context cost
+
+[adr 0095](docs/decisions/0095-context-cost.md) owns the successor mail search,
+scoped native steer projection, shared orientation trial and host-table schema
+presentation. jarvis chooses reading depth and working-note retention. adoption
+of a coarser shared view requires the specified recall and cost evidence. the
+adr defines the scoped temporary end-to-end and live proof for each change.
+
 ## accepted v2 target
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following

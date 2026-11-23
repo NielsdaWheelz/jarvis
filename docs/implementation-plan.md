@@ -100,8 +100,16 @@ qualify the todo read and conversational proposals, then the integrated web shel
 on 2026-11-23 utc, independent claude opus 5.5 at max passed all three designs
 and the cut at spec sha256 `fe949056736aba332b7a3fc449c253a7bf414946c560943dd68f1073cecd7a1a`.
 the macbook receipt is `~/.local/state/jarvis/qualification/adr0097/design-fe949056.txt`.
-the conversation designer's mixed-batch example must show how a complete answer
-reads alongside an outstanding consent question. implementation and live proof are pending.
+source and isolated macbook qualification passed at `ed310a9` on schema `0019`,
+composed with 0095 `bc47458` and 0096 `0639f73`. the packaged browser and https
+journeys used the frozen wheel. authenticated stock proved the mixed answer and
+consent question, one executor entry, prior consent and recovery of the original
+mail proposal after parking. main v20 uses 15,994 of 16,384 instruction bytes
+at the longest installed owner zone. independent opus 5.5 accepted source and evidence.
+the macbook receipt is `~/.local/state/jarvis/qualification/adr0097-implementation/acceptance.json`,
+sha256 `71551bec10b68e435c77aa354cfbe3c2a0958b98f92267e197bfc586895b586d`.
+the sibling `cleanup.json`, sha256 `cbf8393ccbddc9c6a3ee66d0791afd14ac74e9389ad2c11d683f8076c95d3e20`,
+records probe and fixture deletion and the [retained clean checkout](issues/adr0094-rehearsal-checkout-hold.md).
 the [installed issue](issues/default-home-work.md) stays open through acceptance.
 the [dedicated mobile pr](issues/mobile-share-handoff.md) would deliver native
 iphone and android clients, inbound sharing and native push, then retire discord alert delivery.

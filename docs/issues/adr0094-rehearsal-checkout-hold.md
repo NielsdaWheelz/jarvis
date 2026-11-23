@@ -16,3 +16,10 @@ with those runs' cleanup evidence. the final rehearsals copied the postgres
 init fixture before startup, which allowed their checkouts to be removed.
 release the earlier clean checkouts after the verified descriptors close.
 [adr 0095 qualification](../decisions/0095-context-cost.md#implementation-evidence)
+
+adr 0097 encountered the same hold on november 23. the removed postgres fixture
+had mounted `deploy/postgres-init.sql` from the intermediate `jarvis-0097`
+checkout. virtualization still has read-only descriptors. the checkout is
+clean on `review/adr0097-0018` at `b6bfa59`. the final candidate and its
+verification checkout have their own dispositions in the 0097 cleanup receipt.
+remove the intermediate checkout after the descriptors close.

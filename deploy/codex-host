@@ -45,12 +45,6 @@ def host_environment(config: CodexHostConfig) -> dict[str, str]:
 def bootstrap_notes(config: CodexHostConfig) -> None:
     _host_identity(config)
     environment = host_environment(config)
-    subprocess.run(
-        [config.binary, "sandbox", "--", "/bin/true"],
-        env=environment,
-        check=True,
-        timeout=10,
-    )
 
     def run(*arguments: str) -> str:
         try:
@@ -76,6 +70,18 @@ def bootstrap_notes(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "notes repository contains files without an ordinary checkout"
         )
+    subprocess.run(
+        [
+            config.binary, "sandbox",
+            "-c", 'sandbox_mode="workspace-write"',
+            "-c", "sandbox_workspace_write.network_access=true",
+            "--", "/bin/true",
+        ],
+        cwd=repository,
+        env=environment,
+        check=True,
+        timeout=10,
+    )
     if existing:
         config.verify_notes_repository()
         if (

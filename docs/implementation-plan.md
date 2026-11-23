@@ -105,7 +105,8 @@ historical capacity and genuine installed recall earn separate evidence.
 [adr 0093](decisions/0093-subscription-model-refresh.md) sequences provider
 qualification, role selection and startup recovery, then the isolated release
 build and upgrade rehearsal. the delivery boundary is a cutover-ready
-candidate at schema `0018`. installed activation and readback are separate.
+candidate at schema `0018`. the [qualified x64 release](decisions/0093-subscription-model-refresh.md#candidate-evidence)
+is `7e9d887`, with terra/medium for compaction. installed activation and readback are separate.
 three feature designers defined the content and evidence. independent claude
 opus 5.5 at high effort accepted all three units on 2026-11-20, spec sha256
 `7eee4ab18fb79c1891df52ea4246e85027004999c719d4d9d44ab4aefde668c3`.

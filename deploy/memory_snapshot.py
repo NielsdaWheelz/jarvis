@@ -89,7 +89,9 @@ async def table_inventory(conn, *, stopped_keys=None, projections=None):
             raise RuntimeError("stopped database table roster differs")
     projections = projections or {}
     return {
-        table: await row_inventory(conn, projections.get(table, f"public.{table}"), keys)
+        table: await row_inventory(
+            conn, projections.get(table, f"public.{table}"), keys
+        )
         for table, keys in keys_by_table.items()
     }
 

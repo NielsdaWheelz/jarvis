@@ -116,16 +116,15 @@ references must fit; source prose is a labelled preview with a full read path.
 
 | tool | explicit input | success payload |
 | --- | --- | --- |
-| `gmail.search` | `query:null|string` (existing 512-byte bound), `include_spam_trash:bool`, `page_size:1..500`, `cursor:null|string`; start null/true/20/null | `{account,query,include_spam_trash,messages:[{message_id,thread_id}],result_size_estimate:null|int,next_cursor,observed_at}` |
+| `gmail.search` | `view:ids\|review,query,include_spam_trash,page_size,cursor` | ordered exact ids or bounded previews with explicit gaps. [adr 0095 contract](decisions/0095-context-cost.md#a-read-a-page-of-mail) |
 | `gmail.list_thread_messages` | unchanged landed `thread_id,offset,limit,expected_digest` | unchanged exact message-id manifest; lexical order, not chronology |
 | `gmail.list_attachments` | unchanged landed inputs | unchanged descriptors/digest/pages; no duplicate file discovery |
 | `gmail.read_message` | `message_id,section:message|body_part,part_id:null|string,text_view:null|decoded|readable,offset,max_bytes,expected_digest` | text result; source `{account,message_id,thread_id,section,part_id,text_view}` |
 
-search uses `users.messages.list`, not thread search or per-hit thread fetches.
-null query omits `q`; empty strings are invalid. the model may choose narrower
-filters. preserve exact message and thread ids and the provider's estimate as an
-estimate. provider order is unspecified; Gmail API search does not promise the
-UI's alias expansion or thread-wide matching.
+search lists from `users.messages.list`. review fetches details for the listed
+message ids. a null query omits `q`. the model chooses its filters, view and
+which exact originals to open. gmail supplies an estimate and an unspecified
+order. its api and ui differ in alias expansion and thread matching.
 [message search](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list),
 [search differences](https://developers.google.com/workspace/gmail/api/guides/filtering)
 

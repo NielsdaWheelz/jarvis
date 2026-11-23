@@ -134,6 +134,24 @@ scheduled-run proof remains open. the [restore issue](issues/memory-backup-resto
 
 ## shared memory freshness
 
+[adr 0098](decisions/0098-conversation-capture.md) specifies the prospective
+capture cut. freeze the source and storage contracts, qualify native conversation
+capture, main built-in observations and nexus exports, then integrate on the
+actual collector and service pins. installation and the
+[historical corpus pr](issues/historical-tool-corpus.md) are separate. the
+macbook claude data-flow preflight identified four parked top-level chats and
+30 child/workflow sessions. reconcile these by proven identity at the cut.
+the four roots remain in scope for source repair.
+
+the owner selected the 30,000-character cap on new built-in call arguments.
+independent claude opus 5.5 at max passed that design at sha256
+`d24004728e6765ee420f4d5a3844e212675d9c270d5e13d043168f337d9b3bfa`.
+the design at handoff includes the reviewer’s clarification that the closed readers
+expose call and result fields, sha256
+`e4db88b0d88c38425eac143019d63ca2504196c1761db632df38ae4f02aefd71`.
+the macbook receipt is `~/.local/state/jarvis/qualification/adr0098/final-readback.md`,
+sha256 `58b03df1c794044ea1664541807cf2b1610b48a52ee68d554c5f838d3da54de8`.
+
 [adr 0092](decisions/0092-memory-freshness.md#installed-cut) records the
 separate `0018` release for the startup view and service-owned indexing.
 historical capacity and genuine installed recall earn separate evidence.
@@ -681,9 +699,10 @@ no recaller, selective extractor or external client context replacement.
 
 bounded source parts and notes are ordinary leaves in one arrival-ordered binary
 tree, retaining source event identity and dates. long text needs no private leaf
-reduction. tool-result archive text is capped at 30,000 characters, head/tail with
-explicit omission; canonical execution receipts remain exact. worker histories
-share the tree and linked report occurrences remain distinct. supplied context
+reduction. archived tool results and new jarvis main built-in call arguments each
+retain up to 30,000 characters, head/tail with explicit omission. canonical
+execution receipts remain exact. [adr 0098](decisions/0098-conversation-capture.md)
+keeps pre-cut worker history and limits new capture to the delivered report. supplied context
 stays reference-only. views use corrected merge priority and persisted batched
 shrink. main consumes a frozen fitting ready view under adr 0081. adr 0082 gives
 dreaming committed-ready seeds and the existing due-nightly priority after main;

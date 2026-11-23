@@ -24,9 +24,9 @@ from provider_runtime.agent_runtime.archive import (
     ArchiveHome,
     ArchiveMissing,
     archive_capabilities,
+    archive_capture,
     archive_head,
     archive_list,
-    archive_read,
 )
 from pydantic import Field, ValidationError, field_validator, model_validator
 from universal_memory import MemoryError, normalize_event
@@ -36,8 +36,8 @@ from universal_memory.types import (
     Closed,
     Conversation,
     ConversationReceipt,
-    Event,
     Lane,
+    Occurrence,
 )
 
 from jarvis.config import ConfigurationError
@@ -155,24 +155,53 @@ class Collector:
         checkpoint = receipt.checkpoint_event_id
         reason: str | None = None
         try:
-            batch = await archive_read(
+            batch = await archive_capture(
                 home,
                 receipt.native_id,
                 after=receipt.capture_after_event_id,
                 from_event_id=checkpoint,
             )
-            pending = list(batch.events)
-            digest = None
+            pending = batch.occurrences
             if checkpoint is not None:
                 if not pending or pending[0].native_event_id != checkpoint:
                     raise ArchiveError("history_changed")
-                digest = pending.pop(0).native_digest
-                if digest != receipt.checkpoint_native_digest:
+                first, pending = pending[0], pending[1:]
+                if first.native_digest != receipt.checkpoint_native_digest or (
+                    receipt.checkpoint_capture_digest is not None
+                    and first.capture_digest != receipt.checkpoint_capture_digest
+                ):
                     raise ArchiveError("source_conflict")
-            accepted: list[Event] = []
+            request = Events(
+                lane=lane,
+                contract_revision=ARCHIVE_CONTRACT_REVISION,
+                conversation_id=receipt.id,
+                expected_checkpoint=checkpoint,
+                checkpoint_native_digest=receipt.checkpoint_native_digest,
+                checkpoint_capture_digest=receipt.checkpoint_capture_digest,
+                occurrences=(),
+                caught_up=False,
+                observed_at=batch.observed_at,
+            )
+            accepted: list[Occurrence] = []
+            count = 0
+            # The canonical encoding of the empty occurrence array already accounts
+            # for its brackets. Using false reserves one extra byte for caught_up.
+            bytes_used = len(canonical_json_bytes(request.model_dump(mode="json")))
             for native in pending[:BATCH_EVENTS]:
                 try:
-                    candidate = normalize_event(asdict(native))
+                    if len(native.records) > BATCH_EVENTS:
+                        raise MemoryError("event_too_large")
+                    occurrence = Occurrence(
+                        native_event_id=native.native_event_id,
+                        native_digest=native.native_digest,
+                        capture_digest=native.capture_digest,
+                        records=tuple(
+                            normalize_event(asdict(record)) for record in native.records
+                        ),
+                    )
+                    encoded = len(
+                        canonical_json_bytes(occurrence.model_dump(mode="json"))
+                    )
                 except MemoryError as error:
                     reason = (
                         "event_too_large"
@@ -183,61 +212,52 @@ class Collector:
                 except ValidationError:
                     reason = "unsupported"
                     break
-                trial = Events(
-                    lane=lane,
-                    contract_revision=ARCHIVE_CONTRACT_REVISION,
-                    conversation_id=receipt.id,
-                    expected_checkpoint=checkpoint,
-                    checkpoint_native_digest=digest,
-                    events=tuple([*accepted, candidate]),
-                    caught_up=False,
-                    observed_at=batch.observed_at,
-                )
-                if (
-                    len(canonical_json_bytes(trial.model_dump(mode="json")))
-                    > BODY_BYTES
-                ):
+                bytes_used += encoded + bool(accepted)
+                count += len(occurrence.records)
+                if bytes_used > BODY_BYTES or count > BATCH_EVENTS:
                     if not accepted:
                         reason = "event_too_large"
                     break
-                accepted.append(candidate)
+                accepted.append(occurrence)
             caught_up = (
                 batch.caught_up and len(accepted) == len(pending) and reason is None
             )
             if accepted or caught_up:
-                request = Events(
-                    lane=lane,
-                    contract_revision=ARCHIVE_CONTRACT_REVISION,
-                    conversation_id=receipt.id,
-                    expected_checkpoint=checkpoint,
-                    checkpoint_native_digest=digest,
-                    events=tuple(accepted),
-                    caught_up=caught_up,
-                    observed_at=batch.observed_at,
-                )
                 try:
                     receipt = ConversationReceipt.model_validate_json(
-                        await self._request("/v1/memory/ingest", request)
+                        await self._request(
+                            "/v1/memory/ingest",
+                            request.model_copy(
+                                update={
+                                    "occurrences": tuple(accepted),
+                                    "caught_up": caught_up,
+                                }
+                            ),
+                        )
                     )
                     checkpoint = receipt.checkpoint_event_id
                 except MemoryError as error:
                     if error.code != "event_too_large" or len(accepted) < 2:
                         raise
-                    # A permanent central rejection rolled back the whole batch.
-                    # Replay its frozen events until the first unretainable one.
-                    for index, event in enumerate(accepted):
-                        individual = Events(
-                            lane=lane,
-                            contract_revision=ARCHIVE_CONTRACT_REVISION,
-                            conversation_id=receipt.id,
-                            expected_checkpoint=checkpoint,
-                            checkpoint_native_digest=receipt.checkpoint_native_digest,
-                            events=(event,),
-                            caught_up=caught_up and index == len(accepted) - 1,
-                            observed_at=batch.observed_at,
-                        )
+                    # The receiver checks final read rendering, including host-specific
+                    # wrappers. The rejected transaction made no progress.
+                    for index, occurrence in enumerate(accepted):
+                        native_digest = receipt.checkpoint_native_digest
+                        capture_digest = receipt.checkpoint_capture_digest
                         receipt = ConversationReceipt.model_validate_json(
-                            await self._request("/v1/memory/ingest", individual)
+                            await self._request(
+                                "/v1/memory/ingest",
+                                request.model_copy(
+                                    update={
+                                        "expected_checkpoint": checkpoint,
+                                        "checkpoint_native_digest": native_digest,
+                                        "checkpoint_capture_digest": capture_digest,
+                                        "occurrences": (occurrence,),
+                                        "caught_up": caught_up
+                                        and index == len(accepted) - 1,
+                                    }
+                                ),
+                            )
                         )
                         checkpoint = receipt.checkpoint_event_id
             if reason is None:
@@ -277,7 +297,7 @@ class Collector:
     async def _discover(
         self, lane: Lane, home: ArchiveHome
     ) -> tuple[dict[UUID, ConversationReceipt], dict[str, datetime]]:
-        inventory = await archive_list(home)
+        inventory = await archive_list(home, capture=True)
         hints = {
             item.native_id: item.updated_at
             for item in inventory.conversations
@@ -288,7 +308,8 @@ class Collector:
                 native_id=item.native_id,
                 relation=item.relation,
                 parent_native_id=item.parent_native_id,
-                working_directory=item.working_directory,
+                working_directory=None if item.worker else item.working_directory,
+                worker_excluded=item.worker,
             )
             for item in inventory.conversations
             if not item.internal
@@ -318,7 +339,7 @@ class Collector:
     async def _activate(self, lane: Lane, home: ArchiveHome) -> None:
         started = datetime.now(UTC)
         capability = await archive_capabilities(home)
-        inventory = await archive_list(home, with_heads=True)
+        inventory = await archive_list(home, with_heads=True, capture=True)
         if not inventory.complete:
             _LOG.info("memory activation pending %s %s", lane.machine, lane.account)
             return
@@ -332,7 +353,8 @@ class Collector:
                     baseline_error=item.head_error,
                     relation=item.relation,
                     parent_native_id=item.parent_native_id,
-                    working_directory=item.working_directory,
+                    working_directory=None if item.worker else item.working_directory,
+                    worker_excluded=item.worker,
                 )
                 for item in inventory.conversations
                 if not item.internal
@@ -388,7 +410,11 @@ class Collector:
                 continue
             for receipt in receipts.values():
                 key = (lane.account, receipt.native_id)
-                if receipt.foreign or receipt.capture_error is not None:
+                if (
+                    receipt.foreign
+                    or receipt.worker_excluded
+                    or receipt.capture_error is not None
+                ):
                     self._hints.pop(key, None)
                     continue
                 hint = hints.get(receipt.native_id)
@@ -443,7 +469,7 @@ class Collector:
             try:
                 if receipt.baseline_error is not None:
                     try:
-                        head = await archive_head(home, receipt.native_id)
+                        head = await archive_head(home, receipt.native_id, capture=True)
                         head_id, baseline_error, observed_at = (
                             head.head_event_id,
                             None,

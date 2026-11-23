@@ -440,6 +440,7 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
                         relation=item.relation,
                         parent_native_id=item.parent_native_id,
                         working_directory=item.working_directory,
+                        worker_excluded=item.worker_excluded,
                     )
                     for item in value.conversations[:BATCH_EVENTS]
                 )
@@ -515,12 +516,14 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
                 response = {"parked": value.error}
             else:
                 assert isinstance(value, Events)
-                receipt = await memory.library.append_events(
+                receipt = await memory.library.append_occurrences(
                     connection,
+                    value.lane,
                     value.conversation_id,
                     value.expected_checkpoint,
                     value.checkpoint_native_digest,
-                    value.events,
+                    value.checkpoint_capture_digest,
+                    value.occurrences,
                     value.caught_up,
                     value.observed_at,
                 )

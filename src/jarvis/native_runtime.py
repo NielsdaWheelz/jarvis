@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -48,6 +49,7 @@ from provider_runtime.agent_runtime import (
     AgentMessage,
     AgentNotSubmitted,
     AgentSubmissionRejected,
+    AgentTerminal,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
     decode_agent_output,
@@ -98,6 +100,7 @@ from jarvis.ownership import (
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.receipt_tools import original_read_position, receipt_scope
 from jarvis.settings import Settings
+from jarvis.stock_observations import StockObservationWriter
 from jarvis.terminal import JarvisTerminal, render_terminal
 from jarvis.tool_results import completed_tool_result, memory_view_section
 from jarvis.write_dispatch import WriteToolDispatcher
@@ -326,6 +329,7 @@ class NativeRunner:
     async def recover_memory(self) -> None:
         await _recover_native_note_saves(self.owner, self.memory)
         await self.memory.publish()
+        await self.memory.recover_stock_observations()
         self.notify_delivery()
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome:
@@ -384,6 +388,8 @@ class NativeRunner:
             Checkpoint(str(inputs[-1].input_id)),
         )
         protocol_fault = False
+        terminal = None
+        observations = None
         try:
             try:
                 self._session = await self.kernel.provider.acquire_native(
@@ -409,6 +415,10 @@ class NativeRunner:
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
                 self._dispatchers.append(dispatcher)
+                if self.memory.jarvis_admitted:
+                    observations = StockObservationWriter(
+                        self.memory, str(self.owner.token), UUID(attempt_id)
+                    )
                 terminal = await run_native(
                     definition=self.definitions.main,
                     request=request,
@@ -421,6 +431,7 @@ class NativeRunner:
                     budgets=ExactToolBudgetFactory(),
                     messages=self,
                     cancellation=cancellation,
+                    on_stock_tool=None if observations is None else observations.offer,
                 )
             except DeploymentOwnershipDefect:
                 raise
@@ -456,10 +467,26 @@ class NativeRunner:
         finally:
             self._journal = None
             session, self._session = self._session, None
-            if session is not None:
-                await self.kernel.provider.discard(session)
-            await self.memory.publish()
-            self.notify_delivery()
+            drain_deadline = (
+                asyncio.get_running_loop().time()
+                + self.definitions.main.control.interrupt_grace_seconds
+            )
+            try:
+                if session is not None:
+                    await self.kernel.provider.discard(session)
+                await self.memory.publish()
+                self.notify_delivery()
+            finally:
+                if observations is not None:
+                    complete = isinstance(
+                        terminal, AgentNotSubmitted | AgentSubmissionRejected
+                    ) or (
+                        isinstance(terminal, AgentTerminal)
+                        and isinstance(terminal.evidence, NativeTerminalEvidence)
+                        and terminal.status == "succeeded"
+                        and not cancellation.cancelled
+                    )
+                    await observations.close(drain_deadline, incomplete=not complete)
 
     async def close(self) -> None:
         for dispatcher in self._dispatchers:

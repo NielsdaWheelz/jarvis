@@ -1,5 +1,10 @@
 # universal memory: implementation contract
 
+[adr 0098](decisions/0098-conversation-capture.md) owns the prospective
+conversation admission rules, native checkpoint proofs, main built-in observations
+and nexus export cut. its narrower scope supersedes the capture rules below for
+new admissions when installed. older evidence retains its original scope.
+
 [adr 0092](decisions/0092-memory-freshness.md) owns the post-web-home cut for
 startup selection, view paging and online embedding ownership.
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns
@@ -106,17 +111,15 @@ recall.
   recovery and direct-save idempotency remain intact. current-owner permits
   govern cognition; there is no paid-capacity accounting.
 
-capture owner, assistant and peer text, tool calls/results, attachment references
-and available text, and reference-only context items of main/child conversations. exclude all
-reasoning (including summaries of reasoning) and binary originals. archive and
-notes are append-only; corrections append. summaries, vectors and indexes are
-derived. no selective forgetting or conversation opt-out. native deletion does
-not erase captured material; deletion before capture can lose it.
+retain owner, assistant and delivered peer speech, eligible attachment references
+and exposed text, and reference-only context. after the [conversation capture
+cut](decisions/0098-conversation-capture.md#product-contract), ordinary raw
+tools enter only through jarvis main. exclude reasoning and binary originals.
+archive records and notes are append-only. corrections append. summaries, vectors
+and indexes are derived. source deletion can lose anything still uncaptured.
 
-email enters this memory through actual tool observations under ordinary capture
-and tool-result limits. add no wholesale inbox archive, mailbox backfill or new
-polling. separate future event-source work does not itself authorize broader
-memory ingestion.
+mail enters through jarvis’s own observations under the archive result limit.
+mailbox backfill and wholesale inbox capture remain outside this contract.
 
 for attachments, retain text already exposed by the native conversation and its
 source reference, within the ordinary bounds for that event kind. preserve the
@@ -126,27 +129,17 @@ captured text remains searchable after source loss; unexposed text, images and
 layout still depend on access to the original. durable originals and image/document
 access belong to the planned attachment delivery, outside this memory delivery.
 
-retain available admitted native worker/child histories and their reports, rather
-than adopting optchat's report-only main memory. their available messages and tool
-calls/results enter the archive and shared tree. existing admission, activation
-and complete-event bounds apply; missing or unadmitted sessions are not invented
-or newly authorized. reasoning and jarvis's internal cognition/provider bookkeeping
-remain excluded. fuller worker capture increases storage, compression work and
-attention competition but preserves evidence a final report may omit.
+pre-cut worker histories keep their original addresses. new proven worker
+sessions retain private traces at their source. preserve what reached an admitted
+parent as attributed speech, including an excerpt if that is all the parent
+received. main may also retain its tool carrier. these two records describe one
+delivery. compression and retrieval must preserve that relationship.
 
-keep a child's final message and its parent's received report/tool result as
-separate original events represented by their ordinary part leaves, even when their wording matches.
-retain available native child linkage; do not infer links from similar text or
-replace duplicate report prose with a content-free child reference. preserve what
-the parent actually received, including excerpts, wrappers and commentary, within
-ordinary capture bounds. repeated claims are a handoff/echo of the same evidence,
-not independent corroboration, new discovery or human authorship. compression and
-retrieval must preserve this distinction. both occurrences add storage, compression
-work and attention pressure. memory-tool echo suppression remains separate.
-
-retain normalized tool-result text with a 30,000-character head/tail cap, including
-a fixed explicit omission marker. retain roughly equal beginning/end portions;
-record the nonnegative omitted-character count and native source reference.
+apply a 30,000-character head/tail cap to each archived result and each newly
+captured jarvis main built-in call’s arguments. retain roughly equal head and
+tail portions and count the kind-specific omission marker inside the limit. keep
+the tool name, call id and omitted-character count for built-in calls. retain the
+native source reference.
 characters are unicode code points in valid utf-8 text. content below the cap
 remains intact. identity/digest binds the native event before suppression; the
 archive exposes exactly which text it retained. omitted middle text is unavailable
@@ -428,6 +421,15 @@ later masquerading as a new one. no history backfill or reset is authorized.
 
 ### provider contract
 
+[adr 0098](decisions/0098-conversation-capture.md#b-native-transport-and-storage)
+replaces the producer and collector wire with accounted native occurrences.
+proven workers have identity-only inventory, including historical parked or
+pending rows. active external chats omit memory-tool references and admit only
+source-proven conversational deliveries from tools. the native ids, physical
+parser bounds and direct-origin proofs below continue to govern ordinary events.
+collectors still pay to read and hash excluded tools for cursor integrity. an
+oversized physical record can still park an otherwise eligible conversation.
+
 provider-runtime exposes closed read-only operations per home. names are the
 target public contract:
 
@@ -548,15 +550,11 @@ archive_read(home, native_id, after?, from_event_id?)
   former wording is unavailable centrally; a changed/deleted file or transcript
   can make their body unrecoverable. references grant no current-policy authority,
   native replay or filesystem read. hidden reasoning remains entirely excluded.
-- calls/results of the configured jarvis memory server's view, zoom, date,
-  search, open and save tools, recognized by server binding and canonical name,
-  become `memory_reference` events: tool name and bounded record/range references,
-  never query prose, source text or previews. mark omitted reference counts.
-  for `memory_save_note`, this includes failed saves and absent receipts. retain
-  a valid submission uuid when available and returned note ids, never text. malformed
-  arguments must not fall back to ordinary tool text. tool results that return a
-  child conversation's outcome (codex collaboration results, claude task or agent
-  results) carry that child's native id.
+- main’s bound memory tools have content-free references, including valid
+  submission/note ids where available. external native and nexus memory-tool
+  wrappers disappear at the prospective cut. explicit note admission remains
+  independent. extract conversational worker reports under
+  [the native evidence rules](decisions/0098-conversation-capture.md#a-native-conversation-evidence).
 - `unavailable`, `unsupported`, `event_too_large`, `history_changed`,
   `activation_boundary_lost` and `source_conflict` are errors, never empty history.
   missing evidence the codec can detect, such as a referenced tool-result file
@@ -621,9 +619,10 @@ and count them in `secret_omissions`. preserve all other wording and provenance.
 for `context`, suppress the body after binding native identity/digest; retain only
 the closed reference metadata and any matched-reference omission count. context
 `text` is empty; no quoted prose or generated summary substitutes for the body.
-for `tool_result`, apply section 1's 30,000-character head/tail policy after native
-identity/digest binding and secret normalization, before the normalized-event
-limit and part splitting. the declared marker and omission count describe this
+apply section 1's cap to `tool_result` text and main built-in call arguments
+after native identity/digest binding and secret normalization, before archive
+queuing, the normalized-event limit and part splitting. the declared marker
+and omission count describe this
 deliberate loss; do not claim complete native text. suppression does not weaken
 native parser/transport bounds or change canonical execution/recovery receipts.
 the service, not the transport, splits accepted text into 8,000-byte utf-8 parts.
@@ -869,7 +868,7 @@ do not certify factual truth or imply that every original was read.
 | kind | attributes |
 | --- | --- |
 | `text` | `secret_omissions` |
-| `tool_call` | native call id, tool name, `secret_omissions` |
+| `tool_call` | native call id, tool name, `secret_omissions`. new jarvis main built-in calls also carry nonnegative `omitted_characters`, zero when uncropped. `open` and leaf `zoom` expose it. |
 | `tool_result` | native call id, outcome `ok`, `error` or `unknown`, child native id when it returns a child's outcome, `secret_omissions`, nonnegative `omitted_characters` (zero when uncropped) |
 | `attachment` | reference, media type, text availability `full`, `partial` or `none`, `secret_omissions` |
 | `context` | context kind `instructions`, `environment`, `compaction` or `other`; native name; optional native source reference; body retention `reference_only`; `secret_omissions` |

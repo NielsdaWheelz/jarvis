@@ -27,6 +27,12 @@ to assess scheduler time and the fixed cutoff after the final sample.
 
 ## broader usefulness evaluation
 
+after the [conversation capture cut](../decisions/0098-conversation-capture.md),
+count external retrievals at the memory service during a predeclared observation
+window. capture-side tool rows cease to measure them. use content-free counts or
+mark the metric unavailable. measure admitted bytes and positions separately from
+actual model usage and report the coverage of each window.
+
 problem: current integration qualification cannot establish whether memory remains
 useful under the owner's realistic mixture and volume of scientific, personal,
 creative and coding work. bounded tree coverage and successful tool calls do not

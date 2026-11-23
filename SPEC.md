@@ -37,6 +37,16 @@ production off-host restore is verified. scheduled-run proof remains open.
 
 ## shared memory freshness after the private web home
 
+[adr 0098](docs/decisions/0098-conversation-capture.md) governs future capture.
+only the owner-facing jarvis main archives ordinary tool calls and results.
+external chats retain conversation, including source-proven answers and reports
+delivered through tools. proven worker traces stay at their source. main adds
+best-effort stock observations alongside its canonical receipts. the archive
+caps every tool result and each new built-in call’s arguments at 30,000 unicode
+code points after redaction, including the omission marker. this supersedes the
+broader capture rules below at the prospective cut. historical redesign is a
+separate decision.
+
 [adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
 `0018`. one frozen startup view combines the complete ready prefix with bounded,
 source-attributed recent owner exchanges. the memory service owns online vector
@@ -522,7 +532,8 @@ supersedes baseline sections 4–9, 11 and 13 as follows:
   and provenance, no body prose/snippets/summaries. native identity/digest binds
   the complete event before suppression. former wording can be unrecoverable if
   its source changes/disappears; references create no current authority.
-  tool-result archive text retains head/tail within 30,000 unicode characters,
+  tool-result text and newly archived jarvis main built-in arguments retain
+  head/tail within 30,000 unicode characters each,
   including an explicit omission marker, with source reference and omitted count.
   identity/digest binds native content before suppression. the normalized-event
   bound applies after this policy; parser/transport bounds remain separate.

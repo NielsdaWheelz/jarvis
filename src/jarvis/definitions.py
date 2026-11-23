@@ -72,10 +72,10 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "5a699212a0d32ba5316c92cf1260d08a35a3dbed",
+    "llm-agent-kernel": "d42d38888ba9ef81515679a82970fb8c50852d63",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "76a95bd17538efa663ecdeddf567a4c17ea00f71",
-    "universal-memory": "c54aea0fe7f43a7fefc0fc020a741d14f897c154",
+    "provider-runtime": "f598fca05239a30010cdc2e509166e00714f50f9",
+    "universal-memory": "d211ce5896f251a3915063af4b1b91619243a16b",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
 # zero external attempts keeps the compactor tool-free.

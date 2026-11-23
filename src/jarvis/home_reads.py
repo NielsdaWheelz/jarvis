@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -128,8 +129,9 @@ WITH page AS (
             AND ask.home->'proposal_ids' ? i.action_id::text)
 )
 SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
-  a.execution_contract->>'tool_contract_revision' AS contract_revision,
-  (a.arguments->'arguments') #- '{content,body_text}' AS args,
+  codec.supported,
+  CASE WHEN codec.supported THEN
+    (a.arguments->'arguments') #- '{content,body_text}' END AS args,
   COALESCE(a.result->>'reason_code',a.result #>> '{error,type}') AS reason,
   a.result #>> '{value,sent_message_id}' AS sent_id,
   COALESCE(a.result #>> '{value,event,event_id}',a.result #>> '{value,event_id}')
@@ -137,9 +139,13 @@ SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
   first.value->>'decision' AS decision,
   first.value->>'owner_message_id' AS owner_message_id
 FROM pairs p JOIN action a ON a.id=p.action_id
+CROSS JOIN LATERAL (
+    SELECT (a.execution_contract->>'tool_contract_revision')
+         = (CAST(:contracts AS jsonb)->>a.tool_name) AS supported
+) codec
 JOIN message origin ON origin.id=a.origin_message_id
   AND origin.source_conversation_id=:scope
-LEFT JOIN attachment f ON a.tool_name='attachment.delete'
+LEFT JOIN attachment f ON codec.supported AND a.tool_name='attachment.delete'
   AND f.id::text=a.arguments #>> '{arguments,id}'
 LEFT JOIN LATERAL (
     SELECT i.reply_receipt #> '{result,value}' AS value FROM native_invocation i
@@ -177,17 +183,19 @@ def _calendar_fields(event: Record) -> dict[str, str]:
 
 
 @cache
-def _proposal_contracts() -> dict[str, str]:
-    return {
-        str(spec.id): action_request_spec(spec).tool_contract_revision
-        for spec in (
-            GMAIL_SEND_DRAFT_SPEC,
-            CALENDAR_CREATE_EVENT_SPEC,
-            CALENDAR_UPDATE_EVENT_SPEC,
-            CALENDAR_DELETE_EVENT_SPEC,
-            ATTACHMENT_DELETE_SPEC,
-        )
-    }
+def _proposal_contracts() -> str:
+    return json.dumps(
+        {
+            str(spec.id): action_request_spec(spec).tool_contract_revision
+            for spec in (
+                GMAIL_SEND_DRAFT_SPEC,
+                CALENDAR_CREATE_EVENT_SPEC,
+                CALENDAR_UPDATE_EVENT_SPEC,
+                CALENDAR_DELETE_EVENT_SPEC,
+                ATTACHMENT_DELETE_SPEC,
+            )
+        }
+    )
 
 
 def _proposal(row: RowMapping) -> Record:
@@ -197,8 +205,7 @@ def _proposal(row: RowMapping) -> Record:
         result.update(
             decision=row["decision"], owner_message_id=row["owner_message_id"]
         )
-    revision = _proposal_contracts().get(tool)
-    if revision is None or revision != row["contract_revision"]:
+    if not row["supported"]:
         if row["status"] not in {
             "succeeded",
             "failed",
@@ -267,7 +274,8 @@ async def _proposals(
     by_id: dict[UUID, list[Record]] = {identifier: [] for identifier in message_ids}
     if message_ids:
         result = await connection.execute(
-            text(_PROPOSALS), {"scope": scope, "ids": message_ids}
+            text(_PROPOSALS),
+            {"scope": scope, "ids": message_ids, "contracts": _proposal_contracts()},
         )
         for row in result.mappings():
             by_id[row["message_id"]].append(_proposal(row))

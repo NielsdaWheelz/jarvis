@@ -580,7 +580,8 @@ authorized resumption can start the restored application's writers.
    record the owner's ordinary web pause and stop both writers cleanly.
    prepare the cut under the deployment hold. the snapshot binds both
    release receipts and all nineteen table inventories. rehearse using its
-   isolated restore on macbook before migrating the installed database.
+   isolated restore on macbook, including the target's `jarvis check-activation`,
+   before migrating the installed database.
 3. migrate with the same release receipts. under assistant-then-memory locks,
    the same transaction checks the source again, deletes the retired cursor
    rows and verifies the exact retained gmail projection, remaining inventories,

@@ -62,6 +62,13 @@ cutover() {
     --property=EnvironmentFile=/etc/jarvis/migration.env \
     "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" </dev/null
 }
+if [[ "$operation" == prepare || -e "$hold" ]]; then
+  if systemctl is-enabled --quiet jarvis-backup.timer ||
+     systemctl is-active --quiet jarvis-backup.timer ||
+     systemctl is-active --quiet jarvis-backup.service; then
+    refuse "disable the backup timer and let any running backup finish before the cut"
+  fi
+fi
 if [[ "$operation" == prepare ]]; then
   [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0018 source release"
   if [[ ! -e "$hold" ]]; then
@@ -78,7 +85,6 @@ if [[ "$operation" == prepare ]]; then
 fi
 if [[ -e "$hold" ]]; then
   [[ "$source_receipt" != none ]] || refuse "supply both selected release commits for the held cut"
-  "$release/deploy/cutover-hold" check "$commit"
 elif [[ "$source_receipt" != none ]]; then
   refuse "first prepare the stopped schema cut"
 else

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from llm_tools import (
     Available,
     DeclaredToolFailure,
     ExecutionContext,
     HandlerSuccess,
+    NoDeclaredError,
     PolicyEpoch,
     PromptDocument,
     ReplayPolicy,
@@ -25,7 +24,7 @@ from llm_tools import (
 )
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-from jarvis.read_tools import EventTime, ObservedEventEnd, Preview
+from jarvis.read_tools import Preview
 from jarvis.work_tools import HostUtc
 
 POLL_SECONDS = 60
@@ -43,22 +42,8 @@ def _token(value: str) -> str:
     return value
 
 
-def calendar_zone(value: str) -> str:
-    if not value or "\0" in value or len(value.encode()) > 128:
-        raise ValueError("invalid calendar zone")
-    try:
-        ZoneInfo(value)
-    except (ZoneInfoNotFoundError, ValueError):
-        raise ValueError("invalid calendar zone") from None
-    return value
-
-
 ProviderId = Annotated[str, AfterValidator(provider_id)]
 Token = Annotated[str, AfterValidator(_token)]
-Zone = Annotated[str, AfterValidator(calendar_zone)]
-type StreamKind = Literal[
-    "gmail", "calendar_list", "calendar_changes", "calendar_upcoming"
-]
 type FailureCode = Literal[
     "TransportUnavailable",
     "RateLimited",
@@ -68,7 +53,6 @@ type FailureCode = Literal[
     "ResponseTooLarge",
     "CursorExpired",
 ]
-type Family = Literal["email", "calendar"]
 
 
 class _Closed(BaseModel):
@@ -90,72 +74,11 @@ class MailProgress(_Closed):
         return self
 
 
-class InventoryProgress(_Closed):
-    scan_id: UUID | None
-    page_token: Token | None
-
-    @model_validator(mode="after")
-    def consistent(self) -> InventoryProgress:
-        if self.scan_id is None and self.page_token is not None:
-            raise ValueError("inventory continuation needs a scan")
-        return self
-
-
-class ChangesProgress(_Closed):
-    sync_token: Token | None
-    page_token: Token | None
-
-
-class UpcomingScan(_Closed):
-    as_of: HostUtc
-    owner_zone: Zone
-    owner_date: date
-    time_min: HostUtc
-    time_max: HostUtc
-    page_token: Token | None
-
-    @model_validator(mode="after")
-    def bounds(self) -> UpcomingScan:
-        if self.time_max <= self.time_min:
-            raise ValueError("upcoming scan bounds are reversed")
-        return self
-
-
-class UpcomingProgress(_Closed):
-    calendar_zone: Zone | None
-    scan: UpcomingScan | None
-
-
 class SourceError(_Closed):
     episode_id: UUID
     code: FailureCode
     since: HostUtc
     retry_count: Annotated[int, Field(strict=True, ge=1, le=5)]
-
-
-class EventProjection(_Closed):
-    calendar_id: ProviderId
-    calendar_name: Preview | None
-    calendar_zone: Zone | None
-    event_id: ProviderId
-    etag: Token | None
-    status: Literal["cancelled", "confirmed", "tentative"]
-    event_type: ProviderId | None
-    updated_at: HostUtc | None
-    summary: Preview | None
-    location: Preview | None
-    start: EventTime | None
-    end: ObservedEventEnd | None
-    recurring_event_id: ProviderId | None
-    original_start: EventTime | None
-
-    @model_validator(mode="after")
-    def complete_live_event(self) -> EventProjection:
-        if self.status != "cancelled" and (
-            self.etag is None or self.start is None or self.end is None
-        ):
-            raise ValueError("live calendar event needs revision and times")
-        return self
 
 
 class EmailAdded(_Closed):
@@ -180,25 +103,9 @@ class EmailAdded(_Closed):
         return self
 
 
-class CalendarChanged(_Closed):
-    kind: Literal["calendar_changed"] = "calendar_changed"
-    account: ProviderId
-    observed_at: HostUtc
-    event: EventProjection
-
-
-class CalendarAttention(_Closed):
-    kind: Literal["calendar_attention"] = "calendar_attention"
-    account: ProviderId
-    observed_at: HostUtc
-    event: EventProjection
-    due_at: HostUtc
-    owner_zone: Zone
-
-
 class SourceStream(_Closed):
-    kind: StreamKind
-    resource_id: str
+    kind: Literal["gmail"] = "gmail"
+    resource_id: Literal[""] = ""
 
 
 class SourceStatus(_Closed):
@@ -206,32 +113,33 @@ class SourceStatus(_Closed):
     account: ProviderId
     observed_at: HostUtc
     stream: SourceStream
-    phase: Literal["outage", "recovered", "gap", "removed"]
+    phase: Literal["outage", "recovered", "gap"]
     episode_id: UUID | None
-    code: FailureCode | Literal["NotInReadableInventory"] | None
+    code: FailureCode | None
     last_complete_at: HostUtc | None
     coverage: Literal["current_only", "unknown_gap", "unavailable"]
 
 
-type EventPayload = EmailAdded | CalendarChanged | CalendarAttention | SourceStatus
+type EventPayload = EmailAdded | SourceStatus
 
 
 class EventsConfigureInput(_Closed):
-    source: Family
-    enabled: bool
+    enabled: Annotated[bool, Field(strict=True)]
 
 
 class EventsConfigureSuccess(_Closed):
-    source: Family
-    enabled: bool
+    enabled: Annotated[bool, Field(strict=True)]
 
 
 class EventsStatusInput(_Closed):
     pass
 
 
-class FamilyStatus(_Closed):
-    source: Family
+class EventsStatusSuccess(_Closed):
+    account: ProviderId | None
+    observed_at: HostUtc
+    paused: bool
+    poll_seconds: Literal[60]
     enabled: bool | None
     state: Literal[
         "unverified",
@@ -244,25 +152,10 @@ class FamilyStatus(_Closed):
     ]
     last_success_at: HostUtc | None
     next_poll_at: HostUtc | None
-    baselining_streams: Annotated[int, Field(strict=True, ge=0)]
-    catching_up_streams: Annotated[int, Field(strict=True, ge=0)]
-    blocked_streams: Annotated[int, Field(strict=True, ge=0)]
-    failing_streams: Annotated[int, Field(strict=True, ge=0)]
-    readable_calendars: Annotated[int, Field(strict=True, ge=0)] | None
-
-
-class EventsStatusSuccess(_Closed):
-    account: ProviderId | None
-    observed_at: HostUtc
-    paused: bool
-    poll_seconds: Literal[60] = POLL_SECONDS
-    families: Annotated[list[FamilyStatus], Field(min_length=2, max_length=2)]
-
-    @model_validator(mode="after")
-    def ordered(self) -> EventsStatusSuccess:
-        if tuple(item.source for item in self.families) != ("email", "calendar"):
-            raise ValueError("source statuses must be email then calendar")
-        return self
+    baselining: bool
+    catching_up: bool
+    blocked: bool
+    failing: bool
 
 
 class AccountUnavailable(_Closed):
@@ -271,9 +164,9 @@ class AccountUnavailable(_Closed):
 
 EVENT_CONFIGURE_SPEC = ToolSpec(
     id=ToolId("events.configure"),
-    summary="enable or disable email or calendar observation.",
+    summary="enable or disable gmail observation.",
     documentation=PromptDocument(
-        "automatic local control. true also re-arms blocked streams after "
+        "automatic local control. true also re-arms a blocked stream after "
         "repair without clearing history or health. disabling stops future "
         "publication, not already published work, approvals, workers or "
         "entered effects. no verified account returns AccountUnavailable."
@@ -284,19 +177,16 @@ EVENT_CONFIGURE_SPEC = ToolSpec(
     effect=ToolEffect.Write,
     limits=ToolLimits(1024, 4096, 0, 5.0),
 )
-EVENT_STATUS_SPEC = ToolSpec(
+EVENT_STATUS_SPEC = ToolSpec[EventsStatusInput, EventsStatusSuccess, NoDeclaredError](
     id=ToolId("events.status"),
-    summary="read fresh source coverage and health without provider calls.",
+    summary="read fresh gmail observation status without provider calls.",
     documentation=PromptDocument(
-        "enabled is not readiness. counts cover known streams, not "
-        "complete inventory during a scan; last success is the oldest "
-        "complete check and null if any is incomplete. pause is "
-        "independent. resumed polling never reconstructs an expired "
-        "interval."
+        "last success records the last complete poll or baseline. pause is "
+        "independent. resumed polling cannot reconstruct an expired interval."
     ),
     input_type=EventsStatusInput,
     success_type=EventsStatusSuccess,
-    error_type=AccountUnavailable,
+    error_type=NoDeclaredError,
     effect=ToolEffect.Read,
     limits=ToolLimits(1024, 16384, 0, 5.0),
 )
@@ -336,8 +226,8 @@ def events_family(store: EventToolStore) -> ToolFamily:
             spec=spec,
             execute=Available(execute),
             replay_policy=ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-" + str(spec.id).replace(".", "-") + "-v1",
-            policy_epoch=PolicyEpoch("jarvis-events-v1"),
+            implementation_revision="jarvis-" + str(spec.id).replace(".", "-") + "-v2",
+            policy_epoch=PolicyEpoch("jarvis-events-v2"),
             policy_inputs={
                 "authority": "delivered-live-request",
                 "external_attempts": 0,
@@ -364,32 +254,3 @@ def validate_event_result(tool_id: ToolId, result: ToolResult) -> None:
         raise RuntimeError("invalid source tool result envelope")
     if len(canonical_json_bytes(result)) > spec.limits.max_output_bytes:
         raise RuntimeError("source tool result exceeds its declared bound")
-
-
-def attention_due(
-    event: EventProjection, now: datetime, owner_zone: str
-) -> datetime | None:
-    from datetime import timedelta
-
-    from jarvis.read_tools import AllDayEventTime, TimedEventTime
-    from jarvis.work_schedule import DailyRule, resolve_occurrence
-
-    if event.status == "cancelled":
-        return None
-    if isinstance(event.start, TimedEventTime):
-        due = event.start.date_time - timedelta(minutes=15)
-        if due > now:
-            return None
-        if now <= event.start.date_time or (
-            isinstance(event.end, TimedEventTime) and now < event.end.date_time
-        ):
-            return due
-    elif isinstance(event.start, AllDayEventTime):
-        if event.start.date != now.astimezone(ZoneInfo(owner_zone)).date():
-            return None
-        due = resolve_occurrence(
-            DailyRule(type="daily", at="09:00", zone=owner_zone), event.start.date
-        )
-        if due <= now:
-            return due
-    return None

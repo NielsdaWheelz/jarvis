@@ -22,7 +22,7 @@ STOPPED_TABLE_KEYS = {
     "native_input_delivery": "attempt_id, message_id",
     "work": "id",
     "attachment": "id",
-    "event_cursor": 'kind COLLATE "C", account_id COLLATE "C", resource_id COLLATE "C"',
+    "event_cursor": 'account_id COLLATE "C"',
     "home_notice": "id",
     "memory_log": "id",
     "memory_summary": "id",
@@ -44,7 +44,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0018"
+SCHEMA_REVISION = "0019"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
@@ -67,12 +67,11 @@ def lo_write_permission(role_expression):
     return f"({allowed})"
 
 
-async def table_inventory(conn, *, stopped=False):
-    # The stopped v4 receipt keeps its original rendering and excludes Alembic.
+async def table_inventory(conn, *, stopped_keys=None):
     await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
     keys_by_table = TABLE_KEYS
-    if stopped:
-        keys_by_table = STOPPED_TABLE_KEYS
+    if stopped_keys is not None:
+        keys_by_table = stopped_keys
         tables = (
             await conn.execute(
                 text("""
@@ -89,17 +88,21 @@ async def table_inventory(conn, *, stopped=False):
         await conn.execute(text("SET LOCAL IntervalStyle TO postgres"))
         await conn.execute(text("SET LOCAL extra_float_digits TO 3"))
         await conn.execute(text("SET LOCAL bytea_output TO hex"))
-    facts = {}
-    for table, keys in keys_by_table.items():
-        # Only fixed-size hashes cross the connection. Original JSON survives.
-        query = f"""SELECT sha256(convert_to(row_to_json(original)::text, 'UTF8'))
-                    FROM public.{table} original ORDER BY {keys}"""
-        digest, count = hashlib.sha256(), 0
-        async for row in (await conn.stream(text(query))).scalars():
-            digest.update(row)
-            count += 1
-        facts[table] = [count, digest.hexdigest()]
-    return facts
+    return {
+        table: await row_inventory(conn, f"public.{table}", keys)
+        for table, keys in keys_by_table.items()
+    }
+
+
+async def row_inventory(conn, rows, order_by):
+    # Only fixed-size hashes cross the connection. Original JSON survives.
+    query = f"""SELECT sha256(convert_to(row_to_json(original)::text, 'UTF8'))
+                FROM {rows} original ORDER BY {order_by}"""
+    digest, count = hashlib.sha256(), 0
+    async for row in (await conn.stream(text(query))).scalars():
+        digest.update(row)
+        count += 1
+    return [count, digest.hexdigest()]
 
 
 def pg_environment(url):

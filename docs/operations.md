@@ -565,7 +565,50 @@ confirm the next scheduled backup in the systemd journal. rehearse monthly
 and after changes to schema, keys, storage or the reader. only a distinct,
 authorized resumption can start the restored application's writers.
 
-### stopped memory cut from 0017 to 0018
+### stopped calendar cut from 0018 to 0019
+
+1. while the selected release is running, use its calendar source control to
+   disable calendar observation. settle every already published calendar change,
+   reminder and calendar source-health input, including parked and delayed work.
+   publish outstanding source-control results on that release. settle unentered
+   actions, native seals and entered or unknown effects under their original
+   authority. the successor main plan has a new binding.
+2. stage the target and disable the backup timer. let any running backup finish.
+   record the owner's ordinary web pause and stop both writers cleanly.
+   prepare the cut under the deployment hold. the snapshot binds both
+   release receipts and all nineteen table inventories. rehearse using its
+   isolated restore on macbook before migrating the installed database.
+3. migrate with the same release receipts. under assistant-then-memory locks,
+   the same transaction checks the source again, deletes the retired cursor
+   rows and verifies the exact retained gmail projection, remaining inventories,
+   target constraints and grants. retry `--migrate` with both receipts after an
+   interruption. it verifies the bound committed target if migration finished.
+4. qualify a schema `0019` backup and isolated restore with that release's
+   pinned reader. keep earlier backups with their matching readers and keep the
+   verified stopped recovery copy at `/var/lib/jarvis-cutover/adr0096/$to`.
+   leave the writers stopped on an older restored backup until the operator
+   has accounted for its calendar source setting.
+5. after separate installation authorization, install the matching native host
+   and activate both units under the retained pause. stop both writers again
+   while paused. use the existing backup provisioning command with the new
+   reader image id in the producer settings. run and restore one backup before
+   re-enabling the timer. start both units, verify the private home and use
+   ordinary owner `resume`. subsequent same-schema updates keep the ordinary
+   activation path.
+
+```sh
+deploy/install-release "$to"
+# after calendar drain and recorded owner web pause
+ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
+deploy/activate-release --prepare "$from" "$to"
+# verify the private restore and rehearse the cut before installed migration
+deploy/activate-release --migrate "$from" "$to"
+deploy/install-contained-host "$to"
+deploy/activate-release "$from" "$to"
+deploy/verify-containment
+```
+
+### installed memory cut from 0017 to 0018
 
 1. stage the target. on the selected release record the owner's web pause.
    stop the assistant and memory cleanly, then prepare the stopped snapshot.
@@ -580,7 +623,8 @@ authorized resumption can start the restored application's writers.
    newly committed vector. apply the matching managed profile instructions.
    send an ordinary web `resume` and inspect its canonical control. observe
    genuine recall and the historical capacity window separately.
-   keep the verified recovery copy at `/var/lib/jarvis-cutover/adr0092/$to`.
+   the installed release's scripts kept the verified recovery copy at
+   `/var/lib/jarvis-cutover/adr0092/$to`.
    after installed acceptance, retire a superseded secret-bearing snapshot only
    after verifying its replacement and retaining original unknown-effect evidence.
 

@@ -10,6 +10,7 @@ from llm_tools import (
     DeclaredToolFailure,
     ExecutionContext,
     HandlerSuccess,
+    NoDeclaredError,
     PolicyEpoch,
     PromptDocument,
     ReplayPolicy,
@@ -194,7 +195,7 @@ EVENT_CONFIGURE_SPEC = ToolSpec(
     effect=ToolEffect.Write,
     limits=ToolLimits(1024, 4096, 0, 5.0),
 )
-EVENT_STATUS_SPEC = ToolSpec(
+EVENT_STATUS_SPEC = ToolSpec[EventsStatusInput, EventsStatusSuccess, NoDeclaredError](
     id=ToolId("events.status"),
     summary="read fresh gmail observation status without provider calls.",
     documentation=PromptDocument(
@@ -203,7 +204,7 @@ EVENT_STATUS_SPEC = ToolSpec(
     ),
     input_type=EventsStatusInput,
     success_type=EventsStatusSuccess,
-    error_type=AccountUnavailable,
+    error_type=NoDeclaredError,
     effect=ToolEffect.Read,
     limits=ToolLimits(1024, 16384, 0, 5.0),
 )

@@ -57,7 +57,7 @@ class Cursor:
     progress: dict[str, object]
     next_poll_at: datetime | None
     last_success_at: datetime | None
-    error: dict[str, object] | None
+    error: SourceError | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,9 +157,7 @@ class EventStore:
             progress=_progress(row["progress"]),
             next_poll_at=row["next_poll_at"],
             last_success_at=row["last_success_at"],
-            error=None
-            if error is None
-            else SourceError.model_validate(error).model_dump(mode="json"),
+            error=None if error is None else SourceError.model_validate(error),
         )
 
     async def poll_cursor(self) -> Cursor | None:
@@ -343,15 +341,14 @@ class EventStore:
                 values["last_success_at"] = now
                 values["error"] = None
                 if current.error is not None:
-                    error = SourceError.model_validate(current.error)
                     published = (
                         await self._status_fact(
                             connection,
                             current,
                             "recovered",
-                            str(error.episode_id),
+                            str(current.error.episode_id),
                             now,
-                            error=error,
+                            error=current.error,
                         )
                         or published
                     )
@@ -363,11 +360,7 @@ class EventStore:
                     or published
                 )
             if failure is not None:
-                previous = (
-                    None
-                    if current.error is None
-                    else SourceError.model_validate(current.error)
-                )
+                previous = current.error
                 count = 1 if previous is None else min(5, previous.retry_count + 1)
                 error = SourceError(
                     episode_id=uuid4() if previous is None else previous.episode_id,

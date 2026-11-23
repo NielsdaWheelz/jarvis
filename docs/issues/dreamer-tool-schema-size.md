@@ -4,4 +4,7 @@ open. dreamer spends much of its opening describing five tools before it reads a
 
 the earlier installed-role investigation measured a 218,636-byte tool table. on november 20, 2026, an offline reconstruction of the adr 0093 candidate's actual five grants produced a 225,713-byte table and a 227,865-byte opening with empty source material. the success schemas for `memory.search`, `memory.open` and `memory.zoom` alone used 203,128 bytes. publishing the same types with 64 named definitions via `TypeAdapter.json_schemas` took 41,585 bytes. all fifteen input, success and error schemas resolved to their original presentation through the existing normalizer. these are serialized bytes. model comprehension and observed token savings remain unmeasured. [historical role measurement](../runtime-reliability-and-integration.md#measured-dreamer-input-ceiling-and-owner-amendment)
 
-the selected design shares repeated objects from the validated presentations. a second offline comparison used 36 definitions and 41,166 rendered bytes. close with schema-equivalence and grounded live-role evidence on the selected composition. [adr 0095](../decisions/0095-context-cost.md#d-share-repeated-tool-schema-definitions)
+the candidate shares repeated objects from the validated presentations. it uses
+36 definitions and 41,166 rendered bytes. exact expansion and a grounded stock
+dreamer replay passed. the installed release still uses the expanded table.
+[qualification](../decisions/0095-context-cost.md#implementation-evidence)

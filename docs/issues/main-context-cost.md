@@ -18,7 +18,12 @@ in the recent window the 64 successes produced 167 recorded sampling passes. sto
 
 on the selected release `e7f5916`, 17 single-mail-event openings had median submitted text of 86,848 utf-8 bytes. median orientation was 84,971 bytes. its median share of the host text was 97.8%. instructions and tool definitions enter separately. every fresh main consumes the shared frozen ready view under the current memory contract. [opening assembly](../../src/jarvis/native_runtime.py) · [startup guarantees](../decisions/0092-memory-freshness.md#a-one-startup-view-for-all-clients)
 
-the current projector can still include the full text of related requests and full action arguments on successive deliveries in the same causal component. the rate and cost of repetition here are unknown. compare the rendered sections by request or action id on an overlapping steer. preserve exact current terms and verify how main reopens any historical body before moving it behind a reference. `receipt.read` opens an invocation's parts. [causal scope](../../src/jarvis/messages.py) · [context projection](../../src/jarvis/native_runtime.py) · [receipt access](../../src/jarvis/receipt_tools.py)
+the projector can include full text and action arguments on successive
+deliveries. the later retained cohort had 320 openings and 69 confirmed steers
+with no same-attempt component overlap. steer frames were reconstructed from
+durable delivery ids. that sample cannot measure overlapping historical traffic.
+the candidate deduplicates within a frame. new context pointers still require
+the adr's repeated-byte or fit-failure gate. [context projection](../../src/jarvis/native_runtime.py) · [adr 0095](../decisions/0095-context-cost.md#b-keep-related-history-addressable)
 
 the counts came from read-only production aggregates. group `native_attempt.terminal.usage` by attempt and join recorded deliveries to message ids to identify common work. measure the first text item in `request.submitted_request.params.input` and the `historical_memory_view` body in `request.submitted_sections` as utf-8. for the recent window match native session and turn ids to the stock journal's `codex_core::session::turn` events containing `post sampling token usage`. its `total_usage_tokens` field describes active context at that sample. terminal `input_tokens` accumulates consumption over the attempt and includes reported cache reads.
 
@@ -26,4 +31,6 @@ the counts came from read-only production aggregates. group `native_attempt.term
 
 the owner chose model-directed mail depth, working notes and report retention. compare compact message rows and full original reads at equivalent actual coverage. [adr 0095](../decisions/0095-context-cost.md) owns the contracts, fixtures and acceptance.
 
-the owner approved one shared orientation conditional on recall. close with the paired evidence for cost, provenance, coverage and exact reopening, and the resulting disposition. [memory evaluation](memory-usefulness-evaluation.md)
+the owner approved one shared orientation conditional on recall. the candidate
+passed the frozen paired cost and recall gates. installed outcome measurements
+remain separate. [qualification](../decisions/0095-context-cost.md#implementation-evidence) · [memory evaluation](memory-usefulness-evaluation.md)

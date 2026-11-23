@@ -71,3 +71,43 @@ freeze the selected commit and its locks before red. reconcile `implement/adr009
 each feature designer freezes good content, counterexamples and grading before red. use temporary end-to-end tests through ordinary entry points on macbook, controlled faults and real stock for content. reproduce the predecessor failure, implement, pass, simplify, rerun and obtain independent opus review of design, red, green and final diff per unit. run existing required checks. retain named content-minimal evidence outside scratch, reopen and hash it, then delete only the new probes and fixtures. report checks and cleanup separately. [placement and evidence](0088-storage-and-memory-recovery.md#a-development-placement-and-evidence)
 
 qualify one integrated release of the passing units. drain or settle incompatible active work under established stopped controls. hard-cut superseded live signatures/cursors. preserve original receipts, seals, action identity, paid-read barriers and recovery. no runtime switches, new storage, mailbox writes, mandatory notes, token quotas or second compactor. source, live qualification and production activation are separate.
+
+## implementation evidence
+
+the merged 0093/0094 predecessor is `9bae883`. the design-only freeze is
+`2a81eda`. its locks resolve exactly to the named provider, kernel, tools and
+memory commits. the local integrated source `0d6f69f` contains all four units.
+the independently rehearsed release candidate for b–d is `f472af1`.
+
+| unit | observed result |
+| --- | --- |
+| mail | equivalent exact accounting of 16 sender/subject pairs used 17→2 tool observations, 34→20 google entries, 18→3 model samples, and 157,184→21,385 cumulative input. cached input was 136,576→5,760. the first candidate prompt induced redundant rereads. clarifying which fields were complete preserved model choice and passed the repeated comparison. controlled google supplied the data. [authenticated google remains open](../issues/adr0095-gmail-live-grant.md) |
+| native | the same postgres fixture reproduced eight rows for seven ids, then emitted seven in first-occurrence order. real stock recorded six steers and a corrected answer with the exact draft-only terms and uncertain send preserved. 69 confirmed production steers had no same-attempt component overlap. existing full fields carry the operative evidence, and no pointer class qualified. |
+| shared memory | three matched routine openings went from a median 76,719→47,648 bytes and 41,572→35,040 first-pass input tokens. routine cumulative input fell 15.64%. the six candidate recall runs all reopened the authenticated original and passed independent grading. the six recall runs together used 0.80% more cumulative input. across all nine pairs aggregate input fell 1.59%. four recent slots and coverage were identical. authorized codex and claude profiles and nexus's actual collector traversed the shared view. nexus source qualification precedes installation. |
+| schema publication | the five-grant table is 41,166 bytes versus 225,713. each of the 15 expanded roots matches the predecessor, including both error families, and the 230-byte empty compactor table is identical. first-pass input went from 60,628 to 12,040 with zero cached in both runs. the candidate reopened both paged originals and committed a grounded quiet synthesis. table-local definitions introduce a lookup in the prompt and preserve execution schemas. |
+
+the installed dependency metadata includes exact transitive pins. kernel and
+memory package locks now name the selected tools commit. the reviewed kernel
+runtime is unchanged. nexus uses its existing locked tools composition and
+the new memory pin. the compiled main instructions in the b–d candidate
+occupy 15,939 bytes. the all-unit source uses 15,956 bytes.
+
+both stopped rehearsals used schema `0018` and the exact predecessor. they
+preserved ten durable row digests across the cut, including the paid-read
+barrier and the one entered uncertain send. the current reader recovered the
+old 53,073-byte result and reply in two chunks each. the all-unit rehearsal
+rejected the superseded mail signature and original cursor before any entry.
+the controlled mail journey recovered the first committed page after contact
+loss, accounted for 19 occurrences and 18 distinct ids, reopened the buried
+commitment exactly and retained the uncertain action without a new proposal.
+the fresh priority turn used 343,491 cumulative input tokens. the accounting
+turn used 488,223 and 20 local receipt observations with zero google entries.
+this recovery fixture had no matched predecessor arm.
+
+private qualification evidence is under
+`qualification/adr0095-implementation`, `qualification/adr0095` and
+`qualification/adr0095-c`. `candidate/adr0095-bcd` pins the rehearsed
+b–d code, wheel and dependency composition. the full local branch includes
+mail for source review. its live gmail acceptance awaits a valid grant.
+jarvis and nexus source, macbook stock and stopped rehearsals establish
+candidate evidence. production activation remains a separate decision.

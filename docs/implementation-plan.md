@@ -35,7 +35,9 @@ integrated hard cut. native field references and the smaller shared view have
 explicit evidence gates. on 2026-11-20 independent claude opus 5.5 passed all
 four designs and the cut at spec sha256
 `46445c60bd81b086644bee2fcfc5bc9680a4f442d7c519bbac4d38f298814651`.
-implementation and live qualification are pending.
+the [implementation evidence](decisions/0095-context-cost.md#implementation-evidence)
+records all four source units and the b–d candidate. mail's final live google
+check awaits a valid grant. production activation remains separate.
 
 ## terminal-only worker cutover — source implemented and isolated-qualified
 

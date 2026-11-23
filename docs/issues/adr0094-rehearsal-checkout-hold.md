@@ -1,4 +1,4 @@
-# adr 0094 setup checkout held by virtualization
+# rehearsal checkouts held by virtualization
 
 macos virtualization retained read-only descriptors on the initial worker setup
 checkout at `rehearsal-kzlvsap_/checkout` after its container was removed. the
@@ -9,3 +9,10 @@ on 2026-11-20, the worker cleanup receipt in
 `qualification/adr0094/worker/cleanup-final.json` recorded the open paths.
 resolve when the descriptors close, the clean checkout is removed and the
 receipt records its disposition. [adr 0094 qualification](../decisions/0094-worker-tools-and-native-context.md#qualification)
+
+adr 0095 encountered the same hold on the macbook after initial isolated mail
+and memory runs. the named scratch paths and observed vm users are retained
+with those runs' cleanup evidence. the final rehearsals copied the postgres
+init fixture before startup, which allowed their checkouts to be removed.
+release the earlier clean checkouts after the verified descriptors close.
+[adr 0095 qualification](../decisions/0095-context-cost.md#implementation-evidence)

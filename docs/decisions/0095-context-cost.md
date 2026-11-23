@@ -81,7 +81,7 @@ the independently rehearsed release candidate for b–d is `f472af1`.
 
 | unit | observed result |
 | --- | --- |
-| mail | equivalent exact accounting of 16 sender/subject pairs used 17→2 tool observations, 34→20 google entries, 18→3 model samples, and 157,184→21,385 cumulative input. cached input was 136,576→5,760. the first candidate prompt induced redundant rereads. clarifying which fields were complete preserved model choice and passed the repeated comparison. controlled google supplied the data. [authenticated google remains open](../issues/adr0095-gmail-live-grant.md) |
+| mail | equivalent exact accounting of 16 sender/subject pairs used 17→2 tool observations, 34→20 google entries, 18→3 model samples, and 157,184→21,385 cumulative input. cached input was 136,576→5,760. the first candidate prompt induced redundant rereads. clarifying which fields were complete preserved model choice and passed the repeated comparison. controlled google supplied the data. the separate authenticated gmail check passed on november 23. |
 | native | the same postgres fixture reproduced eight rows for seven ids, then emitted seven in first-occurrence order. real stock recorded six steers and a corrected answer with the exact draft-only terms and uncertain send preserved. 69 confirmed production steers had no same-attempt component overlap. existing full fields carry the operative evidence, and no pointer class qualified. |
 | shared memory | three matched routine openings went from a median 76,719→47,648 bytes and 41,572→35,040 first-pass input tokens. routine cumulative input fell 15.64%. the six candidate recall runs all reopened the authenticated original and passed independent grading. the six recall runs together used 0.80% more cumulative input. across all nine pairs aggregate input fell 1.59%. four recent slots and coverage were identical. authorized codex and claude profiles and nexus's actual collector traversed the shared view. nexus source qualification precedes installation. |
 | schema publication | the five-grant table is 41,166 bytes versus 225,713. each of the 15 expanded roots matches the predecessor, including both error families, and the 230-byte empty compactor table is identical. first-pass input went from 60,628 to 12,040 with zero cached in both runs. the candidate reopened both paged originals and committed a grounded quiet synthesis. table-local definitions introduce a lookup in the prompt and preserve execution schemas. |
@@ -107,13 +107,19 @@ this recovery fixture had no matched predecessor arm.
 private qualification evidence is under
 `qualification/adr0095-implementation`, `qualification/adr0095` and
 `qualification/adr0095-c`. `candidate/adr0095-bcd` pins the rehearsed
-b–d code, wheel and dependency composition. the full local branch includes
-mail for source review. its live gmail acceptance awaits a valid grant.
+b–d code, wheel and dependency composition. the integrated source includes
+mail. at `bc47458`, after the owner authorized the
+personal-mode client, the live gmail probe verified the review field mask,
+three ready rows and exact reopening of 1,249 body bytes. every gmail request
+was read-only and the provisioning state was unchanged. the reopened report
+is `qualification/adr0095/mail/personal-mode-2026-11-23/gmail-live.json`,
+sha256 `ddffff323759d044a6ddc5af32d3c5824e4a432307e369db1e4845b3fc2f3100`.
 jarvis and nexus source, macbook stock and stopped rehearsals establish
 candidate evidence. production activation remains a separate decision.
 
-the local build used verified dependency git bundles. verify the pins are
-fetchable by the existing frozen installer at activation. if b–d activates
-first, a later mail cut must advance main and application compatibility to
-the actual next revisions. the two local candidate trees were built as
-alternatives from the same predecessor.
+the initial rehearsals used verified dependency git bundles. after the three
+library pulls merged on november 23, the release builder fetched all four exact
+pins from their declared remotes. the existing frozen installer verified the
+inactive release `43ed919`, which integrates 0095 with 0096 and 0097.
+`qualification/adr0095/release-install-43ed919.json` was reopened at sha256
+`126f2948a22c41ebe1932466616a98c1b4ef0d7dfccbf5d3f41a2c18c6e19046`. production remained on `e7f5916`.

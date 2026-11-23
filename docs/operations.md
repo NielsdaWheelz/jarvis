@@ -158,6 +158,30 @@ re-arms it without clearing its outage until a complete scan succeeds; exact
 action replay never repeats that mutation. daily review is ordinary work data,
 created once during supervised setup, never recreated at startup.
 
+the installed gmail and calendar connector uses an owner-only google personal
+mode project. the web oauth client authorizes at
+`http://127.0.0.1:8766/oauth2/callback` on the operator workstation. repair a
+rejected refresh grant with owner consent for the existing seven scopes.
+verify the account, exercise a token refresh and test both resource apis. update
+the oauth assignments and encrypted connector state in the local provisioning
+source and the paused, stopped deployment. resume and re-arm the affected
+sources with their existing progress. check for both recovery and gap records.
+
+on 2026-11-23, google returned `invalid_grant` for the previous external
+testing client. google gave no more specific reason. after the personal-mode
+cutover on `e7f5916`, gmail and all 43 calendar streams recorded recovery by
+18:51 utc. no cursor gap was published. the retired oauth client was deleted.
+
+the same project owns the separate server key for places and routes. its
+restrictions allow only those apis and the installed server's public
+ipv4 and ipv6 addresses. the key lives in the workstation provisioning
+environment. a credential-only cut on `e7f5916` verified place search,
+place details, and walking directions with the installed connector.
+the project uses the former maps billing account. google marked the predecessor
+project `DELETE_REQUESTED` on 2026-11-23 after the resource and budget review.
+all three maps reads passed again after shutdown, and both polling families
+were healthy.
+
 ### private workspace handoff
 
 [f3](subscription-model-runtime.md#implementation-evidence) implements and qualifies
@@ -351,7 +375,10 @@ no change to the shared coding daemon, rpc relay or copied account is involved.
 on an established deployment, `deploy/install-private-state` publishes a
 private-configuration change under both stopped writer locks and canonical pause.
 its workstation input (`JARVIS_SOURCE_ENVIRONMENT`) contains the required
-secret assignments, including the embedding key. use the exact original
+secret assignments, including the embedding key. on the operator workstation
+point it at `~/Documents/code/envs/projects/jarvis/.secrets/jarvis.slice0.env`
+and point `JARVIS_SOURCE_GOOGLE_STATE` at
+`google-connector-state.jarvis.json` in the same directory. use the exact original
 `JARVIS_OWNER_SCOPE` and `JARVIS_OWNER_ARCHIVE_KEY`. `JARVIS_DISCORD_CHANNEL_ID`
 selects the alert destination. the installer rejects the retired gateway settings.
 supply current `JARVIS_SOURCE_GOOGLE_STATE` and `JARVIS_SOURCE_MEMORY_CONFIG`

@@ -199,14 +199,14 @@ def _proposal(row: RowMapping) -> Record:
         )
     revision = _proposal_contracts().get(tool)
     if revision is None or revision != row["contract_revision"]:
-        if row["decision"] is None or row["status"] not in {
+        if row["status"] not in {
             "succeeded",
             "failed",
             "uncertain",
             "cancelled",
         }:
             raise RuntimeError("unresolved proposal has an unsupported write contract")
-        # The first decision remains interpretable under its own contract.
+        # Status and any first decision remain independent of the retired payload.
         return {**result, "title": tool, "detail": f"action id · {row['action_id']}"}
     args = cast(Record, row["args"])
     detail: list[str] = []

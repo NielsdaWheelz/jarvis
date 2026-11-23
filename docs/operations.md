@@ -28,6 +28,10 @@ complete inventory; incomplete inventory retries without inventing a boundary.
 oversized/conflicting history parks without moving its checkpoint. operator
 status is cli-only. the private cutover copy covers the stopped transition.
 
+arch memory enrollment is queued for the next jarvis deploy. before the owner
+pause, verify the recovered active credentials and settle the arch collector key.
+[arch enrollment checklist](issues/arch-memory-activation.md)
+
 nexus capture is future-only for new admitted owner-librarian runs. its durable
 pending export retains the approved question/answer, saved citation/attachment
 excerpts and available persisted tool receipts before source deletion can lose

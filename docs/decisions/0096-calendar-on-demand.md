@@ -48,3 +48,57 @@ each designer freezes cases and grading before red. use temporary end-to-end pro
 2. take the canonical owner web pause, stop both writers and use the existing deployment lock and assistant-then-memory maintenance locks. bind a verified dump to both release receipts. rehearse on its isolated restore before the production migration. the whole main plan binds queued writes. reconcile incompatible actions, unsettled seals and entered/unknown effects under original authority or hold the cut. publish any outstanding v1 `events.configure` terminal outcome on the predecessor. reopen original control/status receipts without redispatch.
 3. take the next schema revision (`0018 → 0019` on the audited base). in one transaction compare the bound source, migrate and verify the expected target. bind full source inventory, retired counts and all gmail rows projected on the six retained columns in account order. verify that projection, every unaffected table digest, constraints and grants. rerunning the command after interruption checks the source or the committed target. adapt the cut scripts' source/target ordering and the backup reader's schema pin. an older enabled predecessor backup can resume polling if restored and run.
 4. qualify a target backup and isolated restore with the pinned reader. retain prior backups with their readers. run required checks. reopen and hash named evidence outside scratch, then delete the temporary probes/fixtures. record checks and cleanup separately. installation requires its own authorization and receipt. [deployment](../operations.md) · [rehearsal and recovery](0088-storage-and-memory-recovery.md)
+
+## implementation evidence
+
+macbook, 2026-11-23. executable candidate `464c72b55bfb7cb566ddf115040dc182f2071040`
+against `9bae883` and its existing pins. the worktree takes schema `0019`.
+adr 0095 was separate on this base. qualification records below are under
+`~/.local/state/jarvis/qualification/`.
+
+- **calendar and gmail.** the predecessor produced calendar changes and wakes.
+  the final fixture observed no automatic calendar calls or inputs. deliberate
+  reads saw the move and cancellation. the scheduled todo kept its 14:00 wake.
+  private writes succeeded and stale writes were rejected. shared calendars,
+  guests and notification requests awaited approval. the two-process composed
+  native/web run preserved the disabled gmail cursor and admitted the stopped
+  invite once after re-enable. a separate cut preserved a genuine consumed page
+  prefix and recovered the same gmail outage once. no calendar recovery was
+  published. an expired history cursor declared a gap.
+  `adr0096-feature-a/final-464c-checks.json` ·
+  `adr0096/background/m1-full-service-final/receipt.json`
+- **conversation.** matched stock `gpt-6.2-astra/max` trials used the same tool
+  catalog. the predecessor warned on the hostile email without an affected
+  commitment. the first candidate stayed quiet but one deadline reply claimed
+  a change without evidence. the refactor requires a matching receipt or direct
+  verification. independent opus grading passed all ten final candidate runs,
+  including three quiet and three deadline cases. each claimed recording
+  had a matching success receipt. mixed input, owed restart result, hostile
+  mail and approval also passed. the final instructions use at most 15,958 of
+  16,384 system bytes across local iana zones. the sparse samples establish no
+  population rate. the composed lifecycle used the final prompt and catalog.
+  the integrated watch and briefing samples used the preceding prompt revision.
+  `adr0096/background/final-grade/opus-grade.md`
+- **cut.** a real web pause reproduced a hidden resumable calendar input. the
+  candidate refused it, unresolved authority, an unpublished prior control
+  outcome and changed source facts. a dormant enabled account was permitted
+  after the active account was proved disabled. the cut preserved the gmail
+  projection, all other inventories, original receipts and committed notices.
+  the transaction rolled back on interruption before commit. committed retries
+  verified. the target passed `check-activation` on the isolated migrated
+  restore. the pinned `0018` and `0019` backup readers each reopened the original
+  event and explicit note. `scripts/verify` and the standing capture/retry
+  regression passed. `adr0096/cut-release-activation/receipt.json` ·
+  `adr0096-feature-a/receipt-0019-r3/receipt.json`
+
+opus accepted the source and isolated candidate in `adr0096/opus-closure.md`
+at sha256 `7e19d4b06e6d201e6d0695319e5318c274ba0467335d71db115fab64704482a9`.
+after reopening and hashing the evidence, the temporary probes, postgres
+fixtures and rehearsal checkouts were removed. cleanup receipts are
+`adr0096-feature-a/final-cleanup.json`,
+`adr0096/background/final-grade/temporary-cleanup.json` and
+`adr0096/cut-probe-cleanup.json`.
+
+[real google reads and the private fixture write](../issues/adr0096-google-live.md)
+remain open by owner decision. the live linux systemd hold and activation belong
+to the separately authorized installed cut.

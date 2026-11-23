@@ -25,7 +25,9 @@ the owner asks for a separate page.
 when no published home is selected. one owner todo list includes follow-ups
 jarvis undertakes. conversation owns questions, proposals and answers.
 the adr supersedes the separate decisions surface and scopes the temporary
-per-feature design, opus review and live proof.## accepted operational target — storage and memory recovery
+per-feature design, opus review and live proof.
+
+## accepted operational target — storage and memory recovery
 
 [adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
 development to the mac and defines production headroom and off-host central

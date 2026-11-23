@@ -119,20 +119,63 @@ async def inventory(conn, scope, version):
 
 
 async def require_settled_source(conn, scope):
-    require(
-        not await conn.scalar(
-            text(
-                "SELECT EXISTS (SELECT FROM event_cursor "
-                "WHERE kind = 'calendar_list' AND enabled)"
+    enabled = (
+        (
+            await conn.execute(
+                text(
+                    "SELECT account_id FROM event_cursor "
+                    "WHERE kind = 'calendar_list' AND enabled"
+                )
             )
-        ),
-        "disable calendar observation on the selected release before pausing",
+        )
+        .scalars()
+        .all()
     )
+    if enabled:
+        # The live process verifies its account; older accounts can retain cursors.
+        # Use the recorded status from that owner epoch, without provider calls.
+        status = await conn.scalar(
+            text("""
+                WITH latest AS (
+                    SELECT owner_epoch FROM native_attempt
+                    WHERE conversation_id = :scope
+                    ORDER BY attempt_seq DESC LIMIT 1
+                )
+                SELECT r.result->'value'
+                FROM native_invocation i
+                JOIN native_attempt a ON a.id = i.attempt_id
+                JOIN latest ON latest.owner_epoch = a.owner_epoch
+                JOIN read_position r ON r.position = i.read_position
+                WHERE a.conversation_id = :scope AND a.product_outcome IS NOT NULL
+                    AND i.tool_id = 'events.status' AND i.validation = 'accepted'
+                    AND i.reply_recorded_at IS NOT NULL
+                    AND r.state = 'completed' AND r.result->>'type' = 'Success'
+                ORDER BY a.attempt_seq DESC, i.ordinal DESC LIMIT 1
+            """),
+            {"scope": scope},
+        )
+        require(
+            status is not None
+            and status["account"] is not None
+            and status["account"] not in enabled
+            and any(
+                family["source"] == "calendar" and family["enabled"] is False
+                for family in status["families"]
+            ),
+            "disable calendar observation and record its status before pausing",
+        )
     unfinished = await conn.scalar(
         text("""
+            WITH control AS (
+                SELECT control_targets FROM message
+                WHERE source_conversation_id = :scope AND control_kind IS NOT NULL
+                ORDER BY control_sequence DESC LIMIT 1
+            )
             SELECT count(*) FROM message
             WHERE source_conversation_id = :scope AND role = 'host'
-            AND (request_state IN ('pending', 'waiting') OR processed_at IS NULL)
+            AND (request_state IN ('pending', 'waiting') OR processed_at IS NULL
+                 OR (request_state = 'stopped'
+                     AND id = ANY((SELECT control_targets FROM control)::uuid[])))
             AND CASE WHEN source = 'event_status' THEN
                 text::jsonb->'stream'->>'kind' IN
                     ('calendar_list', 'calendar_changes', 'calendar_upcoming')

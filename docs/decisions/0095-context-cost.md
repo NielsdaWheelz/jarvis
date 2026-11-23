@@ -107,8 +107,8 @@ this recovery fixture had no matched predecessor arm.
 private qualification evidence is under
 `qualification/adr0095-implementation`, `qualification/adr0095` and
 `qualification/adr0095-c`. `candidate/adr0095-bcd` pins the rehearsed
-b–d code, wheel and dependency composition. the full local branch includes
-mail for source review. at `bc47458`, after the owner authorized the
+b–d code, wheel and dependency composition. the integrated source includes
+mail. at `bc47458`, after the owner authorized the
 personal-mode client, the live gmail probe verified the review field mask,
 three ready rows and exact reopening of 1,249 body bytes. every gmail request
 was read-only and the provisioning state was unchanged. the reopened report
@@ -117,10 +117,9 @@ sha256 `ddffff323759d044a6ddc5af32d3c5824e4a432307e369db1e4845b3fc2f3100`.
 jarvis and nexus source, macbook stock and stopped rehearsals establish
 candidate evidence. production activation remains a separate decision.
 
-the local build used verified dependency git bundles. three of the all-unit
-pins failed a clean remote fetch on november 23.
-[release pin issue](../issues/adr0095-release-pins.md)
-
-if b–d activates first, a later mail cut must advance main and application compatibility to
-the actual next revisions. the two local candidate trees were built as
-alternatives from the same predecessor.
+the initial rehearsals used verified dependency git bundles. after the three
+library pulls merged on november 23, the release builder fetched all four exact
+pins from their declared remotes. the existing frozen installer verified the
+inactive release `43ed919`, which integrates 0095 with 0096 and 0097.
+`qualification/adr0095/release-install-43ed919.json` was reopened at sha256
+`126f2948a22c41ebe1932466616a98c1b4ef0d7dfccbf5d3f41a2c18c6e19046`. production remained on `e7f5916`.

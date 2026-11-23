@@ -15,16 +15,28 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from memory_snapshot import table_inventory
-from sqlalchemy import text
+from memory_snapshot import STOPPED_TABLE_KEYS, row_inventory, table_inventory
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
 from jarvis._atomic_json import replace_private_json
-from jarvis.db import APPLICATION_SCHEMA_REVISION, create_engine, normalize_database_url
+from jarvis.actions import terminal_report_pending
+from jarvis.db import (
+    APPLICATION_SCHEMA_REVISION,
+    action,
+    create_engine,
+    event_cursor,
+    message,
+    normalize_database_url,
+)
 from jarvis.ownership import maintenance_ownership
 
-SOURCE = "0017"
+SOURCE = "0018"
 TARGET = APPLICATION_SCHEMA_REVISION
+SOURCE_TABLE_KEYS = {
+    **STOPPED_TABLE_KEYS,
+    "event_cursor": 'kind COLLATE "C", account_id COLLATE "C", resource_id COLLATE "C"',
+}
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
@@ -64,8 +76,11 @@ def copy_digest(root):
     return digest.hexdigest()
 
 
-async def inventory(conn, scope):
-    facts = await table_inventory(conn, stopped=True)
+async def inventory(conn, scope, version):
+    facts = await table_inventory(
+        conn,
+        stopped_keys=SOURCE_TABLE_KEYS if version == SOURCE else STOPPED_TABLE_KEYS,
+    )
     control = (
         await conn.execute(
             text("""
@@ -77,7 +92,135 @@ async def inventory(conn, scope):
         )
     ).one_or_none()
     require(control is not None, "canonical control is uninitialized")
-    return {"tables": facts, "last_control": list(control)}
+    grants = await conn.scalar(
+        text("""
+            SELECT jsonb_agg(grant_row ORDER BY grant_row)
+            FROM (
+                SELECT jsonb_build_array(
+                    pg_get_userbyid(grantor), pg_get_userbyid(grantee),
+                    privilege_type, is_grantable) AS grant_row
+                FROM pg_class CROSS JOIN LATERAL aclexplode(relacl)
+                WHERE oid = 'event_cursor'::regclass
+            ) grants
+        """)
+    )
+    return {
+        "tables": facts,
+        "last_control": list(control),
+        "event_cursor_grants": grants,
+    }
+
+
+async def require_settled_source(conn, scope):
+    require(
+        not await conn.scalar(
+            text(
+                "SELECT EXISTS (SELECT FROM event_cursor "
+                "WHERE kind = 'calendar_list' AND enabled)"
+            )
+        ),
+        "disable calendar observation on the selected release before pausing",
+    )
+    unfinished = await conn.scalar(
+        text("""
+            SELECT count(*) FROM message
+            WHERE source_conversation_id = :scope AND role = 'host'
+            AND (request_state IN ('pending', 'waiting') OR processed_at IS NULL)
+            AND CASE WHEN source = 'event_status' THEN
+                text::jsonb->'stream'->>'kind' IN
+                    ('calendar_list', 'calendar_changes', 'calendar_upcoming')
+                ELSE source IN ('calendar_event', 'calendar_attention') END
+        """),
+        {"scope": scope},
+    )
+    require(
+        unfinished == 0, f"settle {unfinished} unfinished calendar inputs on the source"
+    )
+    require(
+        not await conn.scalar(
+            text("""
+            SELECT EXISTS (SELECT FROM action
+            WHERE status IN ('queued', 'awaiting_approval', 'executing', 'uncertain'))
+        """)
+        ),
+        "settle unfinished or uncertain actions under original authority",
+    )
+    require(
+        not await conn.scalar(
+            select(action.c.id)
+            .join(message, action.c.origin_message_id == message.c.id)
+            .where(
+                action.c.tool_name == "events.configure",
+                action.c.execution_contract["implementation_revision"].as_string()
+                == "jarvis-events-configure-v1",
+                message.c.source_conversation_id == scope,
+                terminal_report_pending(),
+            )
+            .limit(1)
+        ),
+        "publish outstanding events.configure outcomes on the selected release",
+    )
+
+
+async def target_facts(conn, source_facts):
+    gmail = await row_inventory(
+        conn,
+        """(SELECT account_id, enabled, progress, next_poll_at, last_success_at, error
+            FROM public.event_cursor WHERE kind = 'gmail')""",
+        STOPPED_TABLE_KEYS["event_cursor"],
+    )
+    return {
+        **source_facts,
+        "tables": {**source_facts["tables"], "event_cursor": gmail},
+    }
+
+
+async def require_target_schema(conn):
+    columns = (
+        (
+            await conn.execute(
+                text("""
+            SELECT attname, format_type(atttypid, atttypmod), attnotnull
+            FROM pg_attribute WHERE attrelid = 'event_cursor'::regclass
+                AND attnum > 0 AND NOT attisdropped
+            ORDER BY attnum
+        """)
+            )
+        )
+        .tuples()
+        .all()
+    )
+    dialect = conn.dialect
+    expected = [
+        (col.name, col.type.compile(dialect=dialect).lower(), not col.nullable)
+        for col in event_cursor.columns
+    ]
+    require(columns == expected, "event cursor columns differ from the target")
+    constraints = (
+        (
+            await conn.execute(
+                text("""
+            SELECT conname, convalidated FROM pg_constraint
+            WHERE conrelid = 'event_cursor'::regclass
+        """)
+            )
+        )
+        .tuples()
+        .all()
+    )
+    require(
+        set(constraints)
+        == {(constraint.name, True) for constraint in event_cursor.constraints}
+        and await conn.scalar(
+            text("""
+            SELECT count(*) = 1 AND bool_and(
+                indisprimary AND indisvalid
+                AND pg_get_indexdef(indexrelid, 1, true) = 'account_id')
+            FROM pg_index WHERE indrelid = 'event_cursor'::regclass
+        """)
+        ),
+        "event cursor constraints or indexes differ from the target",
+    )
 
 
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
@@ -198,11 +341,11 @@ async def cut(operation, destination, source, target, system_stop):
                 version in expected[operation],
                 "unexpected stopped schema",
             )
-            facts = await inventory(conn, scope)
+            facts = await inventory(conn, scope, version)
             _, control, _, role, origin = facts["last_control"]
             require(
                 (control, role, origin) == ("pause", "owner", "web"),
-                "memory freshness requires the recorded owner web pause",
+                "the calendar cut requires the recorded owner web pause",
             )
             require(
                 not await conn.scalar(
@@ -217,14 +360,30 @@ async def cut(operation, destination, source, target, system_stop):
                 "settle unfinished native attempts on the selected release",
             )
             evidence = {
-                "format": "jarvis-stopped-cut.v4",
+                "format": "jarvis-stopped-cut.v5",
                 "source": source,
                 "target": target,
                 "owner_scope": scope,
                 "database": endpoint,
                 "schemas": [SOURCE, TARGET],
-                "facts": facts,
             }
+            if version == SOURCE:
+                await require_settled_source(conn, scope)
+                evidence["source_facts"] = facts
+                evidence["retired_cursor_rows"] = dict(
+                    (
+                        await conn.execute(
+                            text("""
+                            SELECT kind, count(*) FROM event_cursor
+                            WHERE kind <> 'gmail' GROUP BY kind
+                        """)
+                        )
+                    ).tuples()
+                )
+                evidence["target_facts"] = await target_facts(conn, facts)
+            else:
+                await require_target_schema(conn)
+                evidence["target_facts"] = facts
             if operation == "snapshot":
                 sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
                 write_snapshot(destination, evidence, system_stop, args, sql_snapshot)
@@ -259,9 +418,11 @@ async def cut(operation, destination, source, target, system_stop):
                 require(
                     await conn.scalar(text("SELECT version_num FROM alembic_version"))
                     == TARGET
-                    and await inventory(conn, scope) == facts,
+                    and await inventory(conn, scope, TARGET)
+                    == manifest["target_facts"],
                     "migration did not preserve the stopped database",
                 )
+                await require_target_schema(conn)
     finally:
         await engine.dispose()
 

@@ -8,6 +8,10 @@ landed attachment predecessor: `bbfeb47d1e74dc32a8827501a4ffc963bbf52d6a`.
 controlled fault and native proof. the [roadmap](implementation-plan.md) owns
 sequence; production activation remains at final v2 cutover.
 
+[adr 0096](decisions/0096-calendar-on-demand.md) specifies the successor to the
+calendar producer and two-family source controls. this document records the
+predecessor and the gmail behavior carried into that cut.
+
 ## target and settled scope
 
 email additions and calendar changes/approaching events become ordinary canonical

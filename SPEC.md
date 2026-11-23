@@ -72,6 +72,16 @@ both releases were installed in sequence. the original mail request settled and
 discord acknowledged its partial-coverage reply. the original note and a new
 capture reopened with the assistant and native host stopped.
 
+## calendar on demand and quiet background work
+
+[adr 0096](docs/decisions/0096-calendar-on-demand.md) is the successor design for
+calendar ingestion and background replies. retire automatic calendar inventory,
+change sync and event-start wakes. main retains deliberate calendar reads and
+event writes under the existing approval rules. gmail admits invitations as
+ordinary mail. main may act quietly and deliver an owed result, decision or
+material consequence. the event-source qualification below describes its
+predecessor. implementation and installed cutover are pending.
+
 ## accepted v2 target
 
 [adr 0071](docs/decisions/0071-simple-event-driven-v2.md) adopts the following

@@ -111,3 +111,9 @@ b–d code, wheel and dependency composition. the full local branch includes
 mail for source review. its live gmail acceptance awaits a valid grant.
 jarvis and nexus source, macbook stock and stopped rehearsals establish
 candidate evidence. production activation remains a separate decision.
+
+the local build used verified dependency git bundles. verify the pins are
+fetchable by the existing frozen installer at activation. if b–d activates
+first, a later mail cut must advance main and application compatibility to
+the actual next revisions. the two local candidate trees were built as
+alternatives from the same predecessor.

@@ -573,11 +573,15 @@ authorized resumption can start the restored application's writers.
    publish outstanding source-control results on that release. settle unentered
    actions, native seals and entered or unknown effects under their original
    authority. the successor main plan has a new binding.
+   after draining, ask for fresh source status on that same running release
+   before pausing. this identifies the disabled active account if a previous
+   account still has an enabled cursor.
 2. stage the target and disable the backup timer. let any running backup finish.
    record the owner's ordinary web pause and stop both writers cleanly.
    prepare the cut under the deployment hold. the snapshot binds both
    release receipts and all nineteen table inventories. rehearse using its
-   isolated restore on macbook before migrating the installed database.
+   isolated restore on macbook, including the target's `jarvis check-activation`,
+   before migrating the installed database.
 3. migrate with the same release receipts. under assistant-then-memory locks,
    the same transaction checks the source again, deletes the retired cursor
    rows and verifies the exact retained gmail projection, remaining inventories,
@@ -598,6 +602,8 @@ authorized resumption can start the restored application's writers.
 
 ```sh
 deploy/install-release "$to"
+ssh dev-server-deploy sudo -n systemctl disable --now jarvis-backup.timer
+# let an active jarvis-backup.service finish
 # after calendar drain and recorded owner web pause
 ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
 deploy/activate-release --prepare "$from" "$to"

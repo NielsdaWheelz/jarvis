@@ -48,6 +48,7 @@ GOOGLE_PAGE_SECONDS = 30.0
 GOOGLE_TEXT_SECONDS = 300.0
 GOOGLE_INPUT_BYTES = 32_768
 GOOGLE_OUTPUT_BYTES = 65_536
+PREVIEW_MAX_BYTES = 240
 GOOGLE_CURSOR_BYTES = 16_384
 GOOGLE_DECODED_PROJECTION = "gmail-decoded-v1"
 GOOGLE_READABLE_PROJECTION = "gmail-readable-v1"
@@ -86,6 +87,25 @@ ROUTES_FIELD_MASK = ",".join(
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+
+class Preview(_StrictModel):
+    text: str
+    truncated: bool
+
+    @model_validator(mode="after")
+    def bounded(self) -> Preview:
+        if len(self.text.encode()) > PREVIEW_MAX_BYTES or "\0" in self.text:
+            raise ValueError("source preview exceeds display bound")
+        return self
+
+
+def text_preview(value: str, max_bytes: int = PREVIEW_MAX_BYTES) -> Preview:
+    encoded = value.replace("\0", "").encode()
+    return Preview(
+        text=encoded[:max_bytes].decode("utf-8", errors="ignore"),
+        truncated=len(encoded) > max_bytes,
+    )
 
 
 def _bounded_utf8(value: str, maximum: int, name: str) -> str:

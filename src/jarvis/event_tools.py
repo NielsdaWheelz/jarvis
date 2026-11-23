@@ -25,7 +25,7 @@ from llm_tools import (
 )
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-from jarvis.read_tools import EventTime, ObservedEventEnd
+from jarvis.read_tools import EventTime, ObservedEventEnd, Preview
 from jarvis.work_tools import HostUtc
 
 POLL_SECONDS = 60
@@ -131,25 +131,6 @@ class SourceError(_Closed):
     code: FailureCode
     since: HostUtc
     retry_count: Annotated[int, Field(strict=True, ge=1, le=5)]
-
-
-class Preview(_Closed):
-    text: str
-    truncated: bool
-
-    @model_validator(mode="after")
-    def bounded(self) -> Preview:
-        if len(self.text.encode()) > 240 or "\0" in self.text:
-            raise ValueError("source preview exceeds display bound")
-        return self
-
-
-def text_preview(value: str, max_bytes: int) -> Preview:
-    encoded = value.replace("\0", "").encode()
-    return Preview(
-        text=encoded[:max_bytes].decode("utf-8", errors="ignore"),
-        truncated=len(encoded) > max_bytes,
-    )
 
 
 class EventProjection(_Closed):

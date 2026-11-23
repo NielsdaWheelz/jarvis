@@ -39,11 +39,9 @@ from jarvis.event_tools import (
     CalendarChanged,
     EmailAdded,
     EventProjection,
-    Preview,
     attention_due,
     calendar_zone,
     provider_id,
-    text_preview,
 )
 from jarvis.events import CalendarResource, Cursor, EventStore, Failure, Observation
 from jarvis.read_tools import (
@@ -51,8 +49,10 @@ from jarvis.read_tools import (
     GMAIL_API_BASE_URL,
     AllDayEventTime,
     ConnectorFailure,
+    Preview,
     TimedEventTime,
     UnspecifiedEventEnd,
+    text_preview,
 )
 from jarvis.work_schedule import resolve_civil
 
@@ -90,7 +90,7 @@ def _preview(value: object) -> Preview | None:
         return None
     if not isinstance(value, str):
         raise ValueError("source preview is malformed")
-    return text_preview(value, 240)
+    return text_preview(value)
 
 
 def _page_token(payload: dict[str, object], name: str = "nextPageToken") -> str | None:

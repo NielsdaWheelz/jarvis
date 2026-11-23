@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -11,8 +12,16 @@ from sqlalchemy import ColumnElement, RowMapping, Text, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.concurrency import run_in_threadpool
 
+from jarvis.action_requests import action_request_spec
+from jarvis.attachment_tools import ATTACHMENT_DELETE_SPEC
 from jarvis.db import action, attachment, message, work
 from jarvis.home_pages import HomePages
+from jarvis.write_tools import (
+    CALENDAR_CREATE_EVENT_SPEC,
+    CALENDAR_DELETE_EVENT_SPEC,
+    CALENDAR_UPDATE_EVENT_SPEC,
+    GMAIL_SEND_DRAFT_SPEC,
+)
 
 type Record = dict[str, Any]
 
@@ -119,6 +128,7 @@ WITH page AS (
             AND ask.home->'proposal_ids' ? i.action_id::text)
 )
 SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
+  a.execution_contract->>'tool_contract_revision' AS contract_revision,
   (a.arguments->'arguments') #- '{content,body_text}' AS args,
   COALESCE(a.result->>'reason_code',a.result #>> '{error,type}') AS reason,
   a.result #>> '{value,sent_message_id}' AS sent_id,
@@ -166,8 +176,38 @@ def _calendar_fields(event: Record) -> dict[str, str]:
     }
 
 
+@cache
+def _proposal_contracts() -> dict[str, str]:
+    return {
+        str(spec.id): action_request_spec(spec).tool_contract_revision
+        for spec in (
+            GMAIL_SEND_DRAFT_SPEC,
+            CALENDAR_CREATE_EVENT_SPEC,
+            CALENDAR_UPDATE_EVENT_SPEC,
+            CALENDAR_DELETE_EVENT_SPEC,
+            ATTACHMENT_DELETE_SPEC,
+        )
+    }
+
+
 def _proposal(row: RowMapping) -> Record:
     tool = row["tool_name"]
+    result = {"action_id": row["action_id"], "status": row["status"]}
+    if row["decision"] is not None:
+        result.update(
+            decision=row["decision"], owner_message_id=row["owner_message_id"]
+        )
+    revision = _proposal_contracts().get(tool)
+    if revision is None or revision != row["contract_revision"]:
+        if row["decision"] is None or row["status"] not in {
+            "succeeded",
+            "failed",
+            "uncertain",
+            "cancelled",
+        }:
+            raise RuntimeError("unresolved proposal has an unsupported write contract")
+        # The first decision remains interpretable under its own contract.
+        return {**result, "title": tool, "detail": f"action id · {row['action_id']}"}
     args = cast(Record, row["args"])
     detail: list[str] = []
     if tool == "gmail.send_draft":
@@ -218,17 +258,7 @@ def _proposal(row: RowMapping) -> Record:
         detail.append(f"gmail message id · {row['sent_id']}")
     if row["event_id"] and tool == "calendar.create_event":
         detail.append(f"event id · {row['event_id']}")
-    result = {
-        "action_id": row["action_id"],
-        "title": title,
-        "detail": "\n".join(detail),
-        "status": row["status"],
-    }
-    if row["decision"] is not None:
-        result.update(
-            decision=row["decision"], owner_message_id=row["owner_message_id"]
-        )
-    return result
+    return {**result, "title": title, "detail": "\n".join(detail)}
 
 
 async def _proposals(

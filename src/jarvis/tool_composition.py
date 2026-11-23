@@ -152,7 +152,6 @@ def build_tool_composition(
         store=events,
         client=google_api_http,
         tokens=tokens,
-        owner_zone=settings.owner_timezone,
         admitted=event_admitted,
     )
     events.notify_changed = event_poller.notify_changed

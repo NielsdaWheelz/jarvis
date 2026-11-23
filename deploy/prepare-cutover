@@ -102,7 +102,9 @@ async def inventory(conn, scope, version):
             SELECT jsonb_agg(grant_row ORDER BY grant_row)
             FROM (
                 SELECT jsonb_build_array(
-                    pg_get_userbyid(grantor), pg_get_userbyid(grantee),
+                    pg_get_userbyid(grantor),
+                    CASE WHEN grantee = 0 THEN 'PUBLIC'
+                         ELSE pg_get_userbyid(grantee) END,
                     privilege_type, is_grantable) AS grant_row
                 FROM pg_class CROSS JOIN LATERAL aclexplode(relacl)
                 WHERE oid = 'event_cursor'::regclass

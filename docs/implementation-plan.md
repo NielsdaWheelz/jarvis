@@ -45,7 +45,9 @@ both against the selected schema, main manifest and home transport. on
 2026-11-22 independent claude opus 5.5 passed both designs and the stopped cut
 at spec sha256 `179dd9956107a5549574131cadcf1e7a8752db72d779fac70d255c978414706b`.
 the predecessor can still send a message while draining its calendar queue.
-implementation, live qualification and activation are pending.
+the implementation and isolated qualification are recorded in
+[0096 evidence](decisions/0096-calendar-on-demand.md#implementation-evidence).
+real google verification is owner-deferred. installation remains separate.
 
 ## terminal-only worker cutover — source implemented and isolated-qualified
 

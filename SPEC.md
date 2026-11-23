@@ -92,7 +92,9 @@ change sync and event-start wakes. main retains deliberate calendar reads and
 event writes under the existing approval rules. gmail admits invitations as
 ordinary mail. main may act quietly and deliver an owed result, decision or
 material consequence. the event-source qualification below describes its
-predecessor. implementation and installed cutover are pending.
+predecessor. the implementation uses schema `0019`. the
+[verification record](docs/decisions/0096-calendar-on-demand.md#implementation-evidence)
+distinguishes the isolated candidate from the installed cut.
 
 ## accepted v2 target
 

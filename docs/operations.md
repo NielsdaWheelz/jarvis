@@ -573,8 +573,9 @@ authorized resumption can start the restored application's writers.
    publish outstanding source-control results on that release. settle unentered
    actions, native seals and entered or unknown effects under their original
    authority. the successor main plan has a new binding.
-2. stage the target. record the owner's ordinary web pause and stop both units
-   cleanly. prepare the cut under the deployment hold. the snapshot binds both
+2. stage the target and disable the backup timer. let any running backup finish.
+   record the owner's ordinary web pause and stop both writers cleanly.
+   prepare the cut under the deployment hold. the snapshot binds both
    release receipts and all nineteen table inventories. rehearse using its
    isolated restore on macbook before migrating the installed database.
 3. migrate with the same release receipts. under assistant-then-memory locks,
@@ -583,13 +584,17 @@ authorized resumption can start the restored application's writers.
    target constraints and grants. retry `--migrate` with both receipts after an
    interruption. it verifies the bound committed target if migration finished.
 4. qualify a schema `0019` backup and isolated restore with that release's
-   pinned reader. keep earlier backups with their matching readers. running a
-   restored predecessor with calendar enabled can resume its calendar polling.
-   keep the verified stopped recovery copy at `/var/lib/jarvis-cutover/adr0096/$to`.
+   pinned reader. keep earlier backups with their matching readers and keep the
+   verified stopped recovery copy at `/var/lib/jarvis-cutover/adr0096/$to`.
+   leave the writers stopped on an older restored backup until the operator
+   has accounted for its calendar source setting.
 5. after separate installation authorization, install the matching native host
-   and activate both units under the retained pause. verify the private home,
-   then use ordinary owner `resume`. subsequent same-schema replacement keeps
-   the ordinary activation path.
+   and activate both units under the retained pause. stop both writers again
+   while paused. use the existing backup provisioning command with the new
+   reader image id in the producer settings. run and restore one backup before
+   re-enabling the timer. start both units, verify the private home and use
+   ordinary owner `resume`. subsequent same-schema updates keep the ordinary
+   activation path.
 
 ```sh
 deploy/install-release "$to"

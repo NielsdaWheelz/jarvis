@@ -68,6 +68,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.definitions import RoleDefinitions
+from jarvis.home_reads import proposal_presented
 from jarvis.input_framing import home_context, host_input
 from jarvis.kernel import KernelRuntime
 from jarvis.memory_service import MemoryService
@@ -847,6 +848,12 @@ async def native_receipt_context(
                 action.c.attempts,
                 case(
                     (
+                        action.c.status == "awaiting_approval",
+                        proposal_presented(owner.scope_id),
+                    ),
+                ).label("presented"),
+                case(
+                    (
                         or_(
                             retired,
                             action.c.execution_contract["schema_version"]
@@ -871,6 +878,11 @@ async def native_receipt_context(
                     status=row.status,
                     attempts=row.attempts,
                     arguments=row.arguments,
+                    **(
+                        {"presented": row.presented}
+                        if row.presented is not None
+                        else {}
+                    ),
                 )
             )
         joined = native_invocation.join(

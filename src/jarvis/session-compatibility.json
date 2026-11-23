@@ -20,7 +20,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-todo-home-v18"
+      "revision": "jarvis-main-todo-home-v19"
     }
   },
   "schema_version": "jarvis-session-compatibility.v4"

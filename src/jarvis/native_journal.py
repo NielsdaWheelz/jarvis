@@ -60,7 +60,7 @@ from provider_runtime.agent_runtime import (
     thaw_json_value,
 )
 from pydantic import ValidationError
-from sqlalchemy import ColumnElement, RowMapping, Text, case, func, or_, select, update
+from sqlalchemy import ColumnElement, RowMapping, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -86,7 +86,7 @@ from jarvis.db import (
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
-from jarvis.home_reads import reference_context
+from jarvis.home_reads import proposal_presented, reference_context
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
     MAX_TRACE_BYTES,
@@ -1615,15 +1615,6 @@ async def commit_product(
             .as_string()
             .is_(None),
         )
-        presented = (
-            select(message.c.id)
-            .where(
-                message.c.source_conversation_id == owner.scope_id,
-                message.c.source == "native_final",
-                message.c.home["proposal_ids"].op("?")(action.c.id.cast(Text)),
-            )
-            .exists()
-        )
         unseen = tuple(
             await connection.scalars(
                 select(action.c.id)
@@ -1632,7 +1623,7 @@ async def commit_product(
                     or_(
                         action.c.id.in_(created), action.c.id.in_(owned | approval_refs)
                     ),
-                    ~presented,
+                    ~proposal_presented(owner.scope_id),
                 )
                 .order_by(action.c.created_at, action.c.id)
             )

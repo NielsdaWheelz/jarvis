@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import RowMapping, select, text
+from sqlalchemy import ColumnElement, RowMapping, Text, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.concurrency import run_in_threadpool
 
-from jarvis.db import attachment, message, work
+from jarvis.db import action, attachment, message, work
 from jarvis.home_pages import HomePages
 
 type Record = dict[str, Any]
@@ -80,6 +80,20 @@ async def visible_message(
         return None
     proposals = await _proposals(connection, scope, [identifier])
     return {**row, "proposals": proposals[identifier]}
+
+
+def proposal_presented(scope: str) -> ColumnElement[bool]:
+    """The correlated action has a committed consent question in this conversation."""
+    return (
+        select(message.c.id)
+        .where(
+            message.c.source_conversation_id == scope,
+            message.c.source == "native_final",
+            message.c.home["proposal_ids"].op("?")(action.c.id.cast(Text)),
+        )
+        .correlate(action)
+        .exists()
+    )
 
 
 # Project the exact action/message relation. A first decision without a published

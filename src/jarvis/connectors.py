@@ -57,6 +57,7 @@ from jarvis.read_tools import (
     PLACE_DETAILS_FIELD_MASK,
     PLACES_API_BASE_URL,
     PLACES_SEARCH_FIELD_MASK,
+    PREVIEW_MAX_BYTES,
     ROUTES_API_URL,
     ROUTES_FIELD_MASK,
     AllDayEventTime,
@@ -1752,19 +1753,15 @@ def gmail_headers(part: Mapping[str, object]) -> list[dict[str, str]]:
 
 
 def _gmail_review_header(
-    headers: list[dict[str, str]], name: str, max_bytes: int | None = None
+    headers: list[dict[str, str]], name: str, max_bytes: int = PREVIEW_MAX_BYTES
 ) -> GmailReviewHeader:
     values = [header["value"] for header in headers if header["name"].lower() == name]
     if not values:
         return GmailAbsentHeader(state="absent")
     if len(values) > 1:
         return GmailAmbiguousHeader(state="ambiguous")
-    value = values[0]
     return GmailPresentHeader(
-        state="present",
-        preview=text_preview(value)
-        if max_bytes is None
-        else text_preview(value, max_bytes),
+        state="present", preview=text_preview(values[0], max_bytes)
     )
 
 
@@ -2245,8 +2242,7 @@ def _timestamp_text(value: str) -> str:
     return value[: match.start(1)] + fraction[:6] + value[match.end(1) :]
 
 
-def _gmail_internal_time(value: object) -> datetime:
-    message = provider_object(value, "Gmail message")
+def _gmail_internal_time(message: Mapping[str, object]) -> datetime:
     raw = message.get("internalDate")
     if (
         not isinstance(raw, str)

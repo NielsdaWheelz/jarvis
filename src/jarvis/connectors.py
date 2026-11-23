@@ -145,6 +145,10 @@ class GoogleCredentialDefect(RuntimeError):
     """The host-owned Google credential state is invalid or unusable."""
 
 
+class _GoogleRefreshRejected(GoogleCredentialDefect):
+    """Google denied the configured refresh grant."""
+
+
 class GoogleReadFailure(ConnectorFailure):
     def __init__(
         self,
@@ -352,7 +356,7 @@ class GoogleTokenManager:
                         "invalid_client",
                         "invalid_grant",
                     }:
-                        raise GoogleCredentialDefect("Google OAuth grant is unusable")
+                        raise _GoogleRefreshRejected("Google OAuth grant is unusable")
                     raise ConnectorFailure("provider_unavailable", attempts=1)
                 payload = await _json_body(response, attempts=1)
         except (TimeoutError, httpx.HTTPError, OSError):
@@ -668,76 +672,87 @@ class GoogleReadConnector:
         async with self._operation(
             GOOGLE_PAGE_SECONDS, maximum_attempts, context
         ) as operation:
-            account = await self._account(operation)
-            scope = {
-                "view": value.view,
-                "query": value.query,
-                "include_spam_trash": value.include_spam_trash,
-            }
-            cursor = _google_cursor(
-                value.cursor, "gmail.search", account, scope, value.page_size
-            )
-            params: dict[str, str | int | list[str]] = {
-                "includeSpamTrash": str(value.include_spam_trash).lower(),
-                "maxResults": value.page_size,
-            }
-            if value.query is not None:
-                params["q"] = value.query
-            if cursor.provider_page_token is not None:
-                params["pageToken"] = cursor.provider_page_token
-            payload = await operation.get(
-                f"{GMAIL_API_BASE_URL}/users/me/messages",
-                params=params,
-                invalid_request="invalid_cursor" if value.cursor else "invalid_query",
-                max_response_bytes=None,
-            )
-            rows = provider_array(payload.get("messages", []), "Gmail messages")
-            if len(rows) > value.page_size:
-                raise ValueError("Gmail page exceeded the requested size")
-            estimate = payload.get("resultSizeEstimate")
-            if estimate is not None and (
-                type(estimate) is not int or not 0 <= estimate <= 2**53 - 1
-            ):
-                raise ValueError("Gmail estimate is malformed")
-            next_token = _next_page_token(payload)
-            references: list[GmailMessageReference] = []
-            for row in rows:
-                item = provider_object(row, "Gmail message")
-                references.append(
-                    GmailMessageReference(
-                        message_id=provider_text(provider_string(item, "id"), 1_024),
-                        thread_id=provider_text(
-                            provider_string(item, "threadId"), 1_024
-                        ),
-                    )
+            try:
+                account = await self._account(operation)
+                scope = {
+                    "view": value.view,
+                    "query": value.query,
+                    "include_spam_trash": value.include_spam_trash,
+                }
+                cursor = _google_cursor(
+                    value.cursor, "gmail.search", account, scope, value.page_size
                 )
-            messages: list[dict[str, Any]] = []
-            for reference in references:
-                if review:
-                    message = GmailReviewMessage(
-                        message_id=reference.message_id,
-                        thread_id=reference.thread_id,
-                        detail=await self._gmail_review_detail(reference, operation),
+                params: dict[str, str | int | list[str]] = {
+                    "includeSpamTrash": str(value.include_spam_trash).lower(),
+                    "maxResults": value.page_size,
+                }
+                if value.query is not None:
+                    params["q"] = value.query
+                if cursor.provider_page_token is not None:
+                    params["pageToken"] = cursor.provider_page_token
+                payload = await operation.get(
+                    f"{GMAIL_API_BASE_URL}/users/me/messages",
+                    params=params,
+                    invalid_request="invalid_cursor"
+                    if value.cursor
+                    else "invalid_query",
+                    max_response_bytes=None,
+                )
+                rows = provider_array(payload.get("messages", []), "Gmail messages")
+                if len(rows) > value.page_size:
+                    raise ValueError("Gmail page exceeded the requested size")
+                estimate = payload.get("resultSizeEstimate")
+                if estimate is not None and (
+                    type(estimate) is not int or not 0 <= estimate <= 2**53 - 1
+                ):
+                    raise ValueError("Gmail estimate is malformed")
+                next_token = _next_page_token(payload)
+                references: list[GmailMessageReference] = []
+                for row in rows:
+                    item = provider_object(row, "Gmail message")
+                    references.append(
+                        GmailMessageReference(
+                            message_id=provider_text(
+                                provider_string(item, "id"), 1_024
+                            ),
+                            thread_id=provider_text(
+                                provider_string(item, "threadId"), 1_024
+                            ),
+                        )
                     )
-                else:
-                    message = reference
-                messages.append(message.model_dump(mode="json"))
-            result = await joined_thread(
-                _google_page,
-                cursor,
-                messages,
-                next_token,
-                {
-                    "account": account,
-                    **scope,
-                    "result_size_estimate": estimate,
-                    "observed_at": _rfc3339(self._observed_at()),
-                },
-                "messages",
-                maximum_output_bytes=operation.output_bytes,
-            )
-            page = GmailReviewPage if review else GmailIdsPage
-            return ReadResponse(page.model_validate(result), operation.attempts)
+                messages: list[dict[str, Any]] = []
+                for reference in references:
+                    if review:
+                        message = GmailReviewMessage(
+                            message_id=reference.message_id,
+                            thread_id=reference.thread_id,
+                            detail=await self._gmail_review_detail(
+                                reference, operation
+                            ),
+                        )
+                    else:
+                        message = reference
+                    messages.append(message.model_dump(mode="json"))
+                result = await joined_thread(
+                    _google_page,
+                    cursor,
+                    messages,
+                    next_token,
+                    {
+                        "account": account,
+                        **scope,
+                        "result_size_estimate": estimate,
+                        "observed_at": _rfc3339(self._observed_at()),
+                    },
+                    "messages",
+                    maximum_output_bytes=operation.output_bytes,
+                )
+                page = GmailReviewPage if review else GmailIdsPage
+                return ReadResponse(page.model_validate(result), operation.attempts)
+            except _GoogleRefreshRejected:
+                raise ConnectorFailure(
+                    "provider_unavailable", attempts=operation.attempts
+                ) from None
 
     async def _gmail_review_detail(
         self, reference: GmailMessageReference, operation: _GoogleOperation
@@ -768,7 +783,7 @@ class GoogleReadConnector:
                 or provider_string(detail, "threadId") != reference.thread_id
             ):
                 raise ValueError("Gmail returned a different message")
-            root = provider_object(detail.get("payload", {}), "Gmail payload")
+            root = provider_object(detail.get("payload"), "Gmail payload")
             headers = gmail_headers(root)
             snippet = detail.get("snippet")
             if snippet is not None and not isinstance(snippet, str):
@@ -1485,10 +1500,6 @@ class _GoogleOperation:
                             "invalid_cursor", attempts=self.attempts
                         ) from None
                     raise
-            except GoogleCredentialDefect:
-                raise ConnectorFailure(
-                    "provider_unavailable", attempts=self.attempts
-                ) from None
             except ConnectorFailure:
                 await self.check()
                 raise

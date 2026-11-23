@@ -2582,4 +2582,5 @@ __all__ = [
     "resolve_reconciliation_in_transaction",
     "retired_worker_action",
     "retired_worker_revision",
+    "terminal_report_pending",
 ]

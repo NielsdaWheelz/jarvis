@@ -77,10 +77,6 @@ def copy_digest(root):
 
 
 async def inventory(conn, scope, version):
-    facts = await table_inventory(
-        conn,
-        stopped_keys=SOURCE_TABLE_KEYS if version == SOURCE else STOPPED_TABLE_KEYS,
-    )
     control = (
         await conn.execute(
             text("""
@@ -91,13 +87,24 @@ async def inventory(conn, scope, version):
             {"scope": scope},
         )
     ).one_or_none()
-    require(control is not None, "canonical control is uninitialized")
+    require(
+        control is not None
+        and (control.control_kind, control.role, control.source)
+        == ("pause", "owner", "web"),
+        "the calendar cut requires the recorded owner web pause",
+    )
+    facts = await table_inventory(
+        conn,
+        stopped_keys=SOURCE_TABLE_KEYS if version == SOURCE else STOPPED_TABLE_KEYS,
+    )
     grants = await conn.scalar(
         text("""
             SELECT jsonb_agg(grant_row ORDER BY grant_row)
             FROM (
                 SELECT jsonb_build_array(
-                    pg_get_userbyid(grantor), pg_get_userbyid(grantee),
+                    pg_get_userbyid(grantor),
+                    CASE WHEN grantee = 0 THEN 'PUBLIC'
+                         ELSE pg_get_userbyid(grantee) END,
                     privilege_type, is_grantable) AS grant_row
                 FROM pg_class CROSS JOIN LATERAL aclexplode(relacl)
                 WHERE oid = 'event_cursor'::regclass
@@ -351,12 +358,8 @@ async def cut(operation, destination, source, target, system_stop):
                 version in expected[operation],
                 "unexpected stopped schema",
             )
-            facts = await inventory(conn, scope, version)
-            _, control, _, role, origin = facts["last_control"]
-            require(
-                (control, role, origin) == ("pause", "owner", "web"),
-                "the calendar cut requires the recorded owner web pause",
-            )
+            if version == SOURCE:
+                await require_settled_source(conn, scope)
             require(
                 not await conn.scalar(
                     text("""
@@ -369,6 +372,7 @@ async def cut(operation, destination, source, target, system_stop):
                 ),
                 "settle unfinished native attempts on the selected release",
             )
+            facts = await inventory(conn, scope, version)
             evidence = {
                 "format": "jarvis-stopped-cut.v5",
                 "source": source,
@@ -378,7 +382,6 @@ async def cut(operation, destination, source, target, system_stop):
                 "schemas": [SOURCE, TARGET],
             }
             if version == SOURCE:
-                await require_settled_source(conn, scope)
                 evidence["source_facts"] = facts
                 evidence["retired_cursor_rows"] = dict(
                     (

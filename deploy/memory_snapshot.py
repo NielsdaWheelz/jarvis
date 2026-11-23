@@ -69,6 +69,10 @@ def lo_write_permission(role_expression):
 
 async def table_inventory(conn, *, stopped_keys=None):
     await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    await conn.execute(text("SET LOCAL DateStyle TO 'ISO, YMD'"))
+    await conn.execute(text("SET LOCAL IntervalStyle TO postgres"))
+    await conn.execute(text("SET LOCAL extra_float_digits TO 3"))
+    await conn.execute(text("SET LOCAL bytea_output TO hex"))
     keys_by_table = TABLE_KEYS
     if stopped_keys is not None:
         keys_by_table = stopped_keys
@@ -83,11 +87,6 @@ async def table_inventory(conn, *, stopped_keys=None):
         ).scalars()
         if set(tables) != keys_by_table.keys():
             raise RuntimeError("stopped database table roster differs")
-    else:
-        await conn.execute(text("SET LOCAL DateStyle TO 'ISO, YMD'"))
-        await conn.execute(text("SET LOCAL IntervalStyle TO postgres"))
-        await conn.execute(text("SET LOCAL extra_float_digits TO 3"))
-        await conn.execute(text("SET LOCAL bytea_output TO hex"))
     return {
         table: await row_inventory(conn, f"public.{table}", keys)
         for table, keys in keys_by_table.items()

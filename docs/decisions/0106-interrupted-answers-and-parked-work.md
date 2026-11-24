@@ -58,8 +58,10 @@ each unit has a content designer and an engineer. before implementation the desi
 the macbook rehearsed jarvis `9e19e4f8`, kernel `a6e06de4`, provider
 `cbd64ee3`, stock `0.171.0` and postgres 16 at `0023`. git resolved the
 two dependency commits from local worktrees under the normal immutable urls.
-the lock check, wheel install and runtime provenance check passed. candidate
-publication still requires publishing those commits.
+the lock check, wheel install and runtime provenance check passed. the
+[provider pr](https://github.com/NielsdaWheelz/llm-calling/pull/66) and
+[kernel pr](https://github.com/NielsdaWheelz/llm-agent-kernel/pull/40)
+publish those exact dependency commits.
 
 - **provider.** under default responses websocket settings the predecessor
   recorded the steer, one intercepted calendar create and one paid read, then

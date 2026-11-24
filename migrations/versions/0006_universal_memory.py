@@ -9,7 +9,6 @@ from alembic import op
 from sqlalchemy import func, insert, select, text
 from sqlalchemy.engine import Connection
 from universal_memory.schema import (
-    MEMORY_TABLES,
     guard_statements,
     memory_lane,
     memory_leaf,
@@ -126,7 +125,14 @@ def upgrade() -> None:
       REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON memory_summary FROM jarvis_runtime;
       GRANT UPDATE(embedding) ON memory_summary TO jarvis_runtime;
     """)
-    for table in MEMORY_TABLES:
+    for table in (
+        memory_lane,
+        source_conversation,
+        source_record,
+        memory_leaf,
+        memory_node,
+        memory_state,
+    ):
         if table.name == "source_conversation":
             # Freeze this predecessor's source shape; 0007 owns nexus adoption.
             op.execute("""

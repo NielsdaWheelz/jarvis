@@ -5,6 +5,11 @@ conversation admission rules, native checkpoint proofs, main built-in observatio
 and nexus export cut. its narrower scope supersedes the capture rules below for
 new admissions when installed. older evidence retains its original scope.
 
+[adr 0102](decisions/0102-historical-capture-cleanup.md) applies that boundary
+to historical external tools at schema `0021`. numeric addresses from the old
+archive report retirement. surviving original ids reopen. removed originals
+retain only their ids and event addresses outside the active tree and search.
+
 [adr 0092](decisions/0092-memory-freshness.md) owns the post-web-home cut for
 startup selection, view paging and online embedding ownership.
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns
@@ -1689,7 +1694,7 @@ nodes are reused; missing work is rediscovered on startup. it changes no source,
 position, checkpoint or dream cursor.
 
 extend existing `jarvis rebuild-memory` for stopped derived repair. an optional
-`--node START+COUNT` invalidates that node and its ancestors; the full form clears
+`--node START+COUNT --generation 2` invalidates that node and its ancestors; the full form clears
 the tree and rebuilds derived search/vector state. reset both saved frontiers and
 reconstruct them from retained leaves/nodes, then run bounded serial construction.
 cancellation preserves completed work. originals, leaf positions, notes including

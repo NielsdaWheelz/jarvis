@@ -185,13 +185,20 @@ async def verify(expected, password, report):
                 value, cutoff=expected["coverage"]["admitted_through"]
             )
 
-        for name in ("event", "note"):
+        for name in ("event", "note", "retired"):
             witness = expected["witnesses"][name]
             if witness is None:
+                if (
+                    name == "retired"
+                    and not expected["tables"]["memory_retired_source_record"][0]
+                ):
+                    continue
                 failures.append(f"{name} witness absent")
                 continue
             try:
-                actual = await witness_digest(witness["selector"], read)
+                actual = await witness_digest(
+                    witness["selector"], read, retired=name == "retired"
+                )
             except Exception as error:  # Both comparisons still get reported.
                 failures.append(f"{name} witness read failed ({type(error).__name__})")
                 continue

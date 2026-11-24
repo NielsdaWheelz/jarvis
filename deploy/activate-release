@@ -4,8 +4,17 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 operation=activate
 case "${1:-}" in --prepare|--migrate) operation="${1#--}"; shift ;; esac
+manifest=""
+if [[ "$operation" == migrate ]]; then
+  [[ "${1:-}" == --manifest && $# == 4 ]] || {
+    echo 'usage: deploy/activate-release --migrate --manifest FILE SOURCE TARGET' >&2
+    exit 64
+  }
+  manifest="$2"
+  shift 2
+fi
 if [[ $# != 2 && ( $# != 1 || "$operation" != activate ) ]]; then
-  printf 'usage: deploy/activate-release [--prepare|--migrate] [SOURCE_COMMIT] TARGET_COMMIT\n' >&2
+  printf 'usage: deploy/activate-release [--prepare | --migrate --manifest FILE] [SOURCE] TARGET\n' >&2
   exit 64
 fi
 commit="${!#}"
@@ -19,6 +28,22 @@ receipt_for() {
 target_fields="$(receipt_for "$commit")"
 source_fields=none
 if [[ $# == 2 ]]; then source_fields="$(receipt_for "$1")"; fi
+manifest_digest=none
+if [[ "$operation" == migrate ]]; then
+  manifest_digest="$(python3 - "$manifest" <<'PYCODE'
+import hashlib, os, stat, sys
+with open(sys.argv[1], "rb") as stream:
+    info = os.fstat(stream.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise SystemExit("select an owner-private regular manifest file")
+    print(hashlib.file_digest(stream, "sha256").hexdigest())
+PYCODE
+)"
+  remote="/opt/jarvis/releases/$commit"
+  ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
+    sudo -n flock /opt/jarvis/.deploy.lock "$remote/.venv/bin/python" \
+    "$remote/deploy/prepare-cutover" receive-manifest "$commit" "$manifest_digest" < "$manifest"
+fi
 
 {
 cat "$repo_dir/deploy/release-functions"
@@ -48,7 +73,8 @@ receipt="$(receipt_json "$2")"
 source_receipt=none
 if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
 operation="$4"
-snapshot="/var/lib/jarvis-cutover/adr0098/$commit"
+manifest_digest="$5"
+snapshot="/var/lib/jarvis-cutover/historical-capture/$commit"
 hold=/etc/systemd/system/jarvis-cutover.hold
 source="/opt/jarvis/releases/${3%%:*}"
 selected=''
@@ -60,7 +86,7 @@ cutover() {
     "--property=WorkingDirectory=$release" \
     --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
     --property=EnvironmentFile=/etc/jarvis/migration.env \
-    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" </dev/null
+    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" "$manifest_digest" </dev/null
 }
 if [[ "$operation" == prepare || -e "$hold" ]]; then
   if systemctl is-enabled --quiet jarvis-backup.timer ||
@@ -70,7 +96,7 @@ if [[ "$operation" == prepare || -e "$hold" ]]; then
   fi
 fi
 if [[ "$operation" == prepare ]]; then
-  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0019 source release"
+  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0020 source release"
   if [[ ! -e "$hold" ]]; then
     systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
       --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \
@@ -229,4 +255,4 @@ printf 'activated jarvis release: %s\n' "$commit"
 printf 'canonical control was retained; owner chat is on the private web home.\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$target_fields" "$source_fields" "$operation"
+  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$target_fields" "$source_fields" "$operation" "$manifest_digest"

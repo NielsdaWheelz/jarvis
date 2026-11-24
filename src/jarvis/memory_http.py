@@ -83,6 +83,8 @@ def _http_error(error: MemoryError) -> JSONResponse:
         "unauthorized": 401,
         "forbidden": 403,
         "not_found": 404,
+        "retired": 410,
+        "retired_range": 410,
         "rate_limited": 429,
         "unavailable": 503,
         "stale_checkpoint": 409,
@@ -244,10 +246,14 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
                             result = await memory.library.view(value.cursor)
                         case "memory_zoom":
                             value = ZoomInput.model_validate_json(arguments)
-                            result = await memory.library.zoom(value.start, value.count)
+                            result = await memory.library.zoom(
+                                value.start, value.count, generation=value.generation
+                            )
                         case "memory_date":
                             value = DateInput.model_validate_json(arguments)
-                            result = await memory.library.date(value.position)
+                            result = await memory.library.date(
+                                value.position, generation=value.generation
+                            )
                         case "memory_search":
                             value = SearchInput.model_validate_json(arguments)
                             result = await memory.search(value)

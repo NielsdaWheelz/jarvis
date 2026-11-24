@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Prepare a private archive-reduction manifest. This command publishes nothing."""
+
+import argparse
+import asyncio
+import json
+import os
+import sys
+from hashlib import sha256
+from pathlib import Path
+
+from pydantic import BaseModel
+
+from jarvis.collector import CollectorConfig
+from jarvis.db import create_engine
+from jarvis.historical_capture import (
+    HistoricalCohort,
+    HistoricalEvidence,
+    build_manifest,
+    enumerate_cut,
+    observe_native,
+)
+
+
+async def run(args: argparse.Namespace) -> BaseModel:
+    if args.command == "cohort":
+        snapshot = args.snapshot.read_bytes()
+        manifest = json.loads(snapshot)
+        if manifest["schemas"][0] != "0020":
+            raise ValueError(
+                "historical capture expects a stopped schema 0020 snapshot"
+            )
+        count = manifest["source_facts"]["tables"]["memory_leaf"][0]
+        engine = create_engine(os.environ["JARVIS_DATABASE_URL"], memory_reads=1)
+        try:
+            async with engine.connect() as connection:
+                return await enumerate_cut(
+                    connection, sha256(snapshot).hexdigest(), count
+                )
+        finally:
+            await engine.dispose()
+    cohort = HistoricalCohort.model_validate_json(args.cohort.read_bytes())
+    if args.command == "observe":
+        return await observe_native(cohort, CollectorConfig.load(args.collector))
+    return build_manifest(
+        cohort,
+        [
+            HistoricalEvidence.model_validate_json(path.read_bytes())
+            for path in args.evidence
+        ],
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    cohort = commands.add_parser(
+        "cohort", help="enumerate an isolated stopped-copy restore"
+    )
+    cohort.add_argument("snapshot", type=Path, metavar="SNAPSHOT_JSON")
+    observe = commands.add_parser(
+        "observe", help="read the native histories of one configured host"
+    )
+    observe.add_argument("cohort", type=Path)
+    observe.add_argument("collector", type=Path, metavar="COLLECTOR_JSON")
+    plan = commands.add_parser(
+        "plan", help="make the complete whole-event retirement manifest"
+    )
+    plan.add_argument("cohort", type=Path)
+    plan.add_argument("evidence", type=Path, nargs="*")
+    for command in (cohort, observe, plan):
+        command.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    os.umask(0o077)
+    try:
+        result = asyncio.run(run(args))
+        wire = result.model_dump_json().encode()
+        with args.output.open("xb") as output:
+            output.write(wire)
+        counts = getattr(result, "counts", None)
+        if counts is not None:
+            print(json.dumps(counts, sort_keys=True))
+        print(f"sha256 {sha256(wire).hexdigest()}")
+    except Exception as error:
+        print(
+            f"historical capture {args.command} failed: {type(error).__name__}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

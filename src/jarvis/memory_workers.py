@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from time import perf_counter
+from typing import cast
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -56,16 +58,50 @@ from universal_memory.policy import (
 
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import message
-from jarvis.definitions import CompactionResult
+from jarvis.definitions import COMPACTION_FIELDS
 from jarvis.kernel import EmptyToolDispatcher
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_service import MemoryService
+from jarvis.messages import latest_control
 
 LOGGER = logging.getLogger(__name__)
 
 
 class _MemoryFailureEvents:
+    def __init__(self, slots: tuple[tuple[str, CompactionTask], ...] = ()) -> None:
+        self.slots = slots
+
     def emit(self, event: KernelEvent) -> None:
+        if event.kind is EventKind.validation and self.slots:
+            validation = {item.name: item.value for item in event.attributes}
+            if validation.get("valid") is not False:
+                return
+            fields: list[JsonValue] = []
+            for index, (name, task) in enumerate(self.slots):
+                code = validation.get(f"field_{index}")
+                if code is not None:
+                    fields.append(
+                        {
+                            "field": name,
+                            "start": task.start,
+                            "count": task.count,
+                            "code": code,
+                        }
+                    )
+            data = {
+                key: validation[key]
+                for key in ("failure_stage", "extra_fields", "unmapped")
+                if key in validation
+            }
+            LOGGER.warning(
+                "compaction invalid form %s",
+                canonical_json_bytes(
+                    {"run_id": str(event.run_id), **data, "fields": fields}
+                ).decode("utf-8"),
+            )
+            return
+        if event.kind is not EventKind.outcome:
+            return
         attributes = {
             item.name: item.value
             for item in event.attributes
@@ -83,8 +119,6 @@ class _MemoryFailureEvents:
                 "failure_line_1",
             }
         }
-        if event.kind is not EventKind.outcome:
-            return
         if attributes.get("failure_site") not in {
             "bootstrap_context",
             "provider_configuration",
@@ -119,13 +153,13 @@ class MemoryWorker:
     def __init__(
         self,
         *,
-        definition: AgentDefinition,
+        definitions: tuple[AgentDefinition, ...],
         plan: FrozenToolPlan,
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
     ) -> None:
-        self.definition, self.plan = definition, plan
+        self.definitions, self.plan = definitions, plan
         self.owner, self.provider, self.memory = owner, provider, memory
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
@@ -147,15 +181,14 @@ class MemoryWorker:
     async def compact_one(
         self, cancellation: CancellationToken, *, cutoff: int | None = None
     ) -> bool:
+        control_sequence = latest_control(self.owner.scope_id).with_only_columns(
+            message.c.control_sequence
+        )
         prepare_requested = perf_counter()
         async with self.memory.database.begin() as connection:
             prepare_started = perf_counter()
             batch = await self.memory.library.next_compaction(connection, cutoff=cutoff)
-            control = await connection.scalar(
-                select(func.max(message.c.control_sequence)).where(
-                    message.c.source_conversation_id == self.owner.scope_id
-                )
-            )
+            control = await connection.scalar(control_sequence)
         if batch is None or cancellation.cancelled:
             return False
         prepare_finished = perf_counter()
@@ -172,31 +205,26 @@ class MemoryWorker:
             (prepare_finished - prepare_started) * 1000,
             counts,
         )
-        pending: list[CompactionTask] = list(batch.tasks)
+        pending: tuple[CompactionTask, ...] = batch.tasks
         calls = {(task.start, task.count): 0 for task in pending}
         failures = {(task.start, task.count): 0 for task in pending}
         completed: dict[tuple[int, int], str] = {}
-        feedback: dict[str, JsonValue] = {}
-        failed: CompactionTask | None = None
-        failure = "invalid_completion"
+        feedback: dict[tuple[int, int], JsonValue] = {}
+        park: tuple[CompactionTask, str] | None = None
+        correction_spent = False
         permit = self.owner.permit("jarvis-compaction:" + str(uuid4()))
         as_of = datetime.now(UTC)
         while pending:
             if cancellation.cancelled:
                 return False
-            await self.owner.require_current(permit)
             run_id = RunId(str(uuid4()))
             inputs = (HostInput(InputId(str(run_id)), PromptSections(()), as_of),)
-            selected: list[CompactionTask] = []
-            source = None
-            for task in pending:
-                trial: list[CompactionTask] = [*selected, task]
-                addressed = {
-                    f"{item.start}+{item.count}": feedback[f"{item.start}+{item.count}"]
-                    for item in trial
-                    if f"{item.start}+{item.count}" in feedback
-                }
-                request = batch.model_copy(update={"tasks": tuple(trial), "copies": ()})
+            packet = None
+            for arity in range(1, len(pending) + 1):
+                definition = self.definitions[arity - 1]
+                slots = tuple(
+                    zip(COMPACTION_FIELDS[:arity], pending[:arity], strict=True)
+                )
                 proposed = PromptSections(
                     (
                         PromptSection(
@@ -207,134 +235,137 @@ class MemoryWorker:
                         PromptSection(
                             PromptSectionKind("compaction_source"),
                             (),
-                            PromptJson(request.model_input(addressed)),
+                            PromptJson(
+                                {
+                                    "sources": {
+                                        name: task.source for name, task in slots
+                                    },
+                                    "ruler": "-" * NODE_TARGET_BYTES,
+                                    "target_bytes": NODE_TARGET_BYTES,
+                                    "size_feedback": {
+                                        name: feedback[task.start, task.count]
+                                        for name, task in slots
+                                        if (task.start, task.count) in feedback
+                                    },
+                                }
+                            ),
                         ),
                     )
                 )
                 try:
-                    bootstrap_context(
-                        self.definition, inputs, as_of, self.plan, proposed
-                    )
+                    bootstrap_context(definition, inputs, as_of, self.plan, proposed)
                 except ContextLimitExceeded:
                     break
-                selected, source = trial, proposed
-            if source is None:
+                packet = definition, slots, proposed
+            if packet is None:
                 raise MemoryError("compaction_blocked")
-            for task in selected:
-                calls[task.start, task.count] += 1
-            inference_started = perf_counter()
-            outcome = await run_one_shot(
-                decisions=TransientModelDecisions(),
-                run_id=run_id,
-                definition=self.definition,
-                inputs=inputs,
-                as_of=as_of,
-                plan=self.plan,
-                source_sections=source,
-                owner=self.owner,
-                permit=permit,
-                provider=self.provider,
-                dispatcher=EmptyToolDispatcher(),
-                budget_factory=ExactToolBudgetFactory(),
-                cancellation=cancellation,
-                event_sink=_MemoryFailureEvents(),
-            )
-            LOGGER.info(
-                "compaction inference: run_id=%s elapsed_ms=%.3f tasks=%s "
-                "retry_tasks=%s provider_turns=%s input_tokens=%s output_tokens=%s "
-                "outcome=%s interrupted=%s",
-                run_id,
-                (perf_counter() - inference_started) * 1000,
-                len(selected),
-                sum(calls[task.start, task.count] > 1 for task in selected),
-                outcome.metrics.provider_turns,
-                outcome.metrics.usage.input_tokens,
-                outcome.metrics.usage.output_tokens,
-                outcome.type,
-                cancellation.cancelled,
-            )
-            if cancellation.cancelled:
-                return False
-            transient = not isinstance(outcome, OneShotCompleted)
-            if not isinstance(outcome, OneShotCompleted):
-                if outcome.type is OneShotStopKind.cancelled:
+            definition, slots, source = packet
+            first_task = slots[0][1]
+            while True:
+                if cancellation.cancelled:
                     return False
-                if outcome.type not in {
-                    OneShotStopKind.provider_error,
-                    OneShotStopKind.model_decision_uncertain,
-                }:
-                    failed = selected[0]
-                    LOGGER.warning(
-                        "compaction rejected: run_id=%s start=%s count=%s "
-                        "reason=kernel_stopped stop_kind=%s",
-                        run_id,
-                        failed.start,
-                        failed.count,
-                        outcome.type.value,
-                    )
+                await self.owner.require_current(permit)
+                async with self.memory.database.connect() as connection:
+                    latest = await connection.scalar(control_sequence)
+                if cancellation.cancelled or latest != control:
+                    return False
+                for _, task in slots:
+                    calls[task.start, task.count] += 1
+                inference_started = perf_counter()
+                outcome = await run_one_shot(
+                    decisions=TransientModelDecisions(),
+                    run_id=run_id,
+                    definition=definition,
+                    inputs=inputs,
+                    as_of=as_of,
+                    plan=self.plan,
+                    source_sections=source,
+                    owner=self.owner,
+                    permit=permit,
+                    provider=self.provider,
+                    dispatcher=EmptyToolDispatcher(),
+                    budget_factory=ExactToolBudgetFactory(),
+                    cancellation=cancellation,
+                    field_diagnostics=True,
+                    event_sink=_MemoryFailureEvents(slots),
+                )
+                LOGGER.info(
+                    "compaction inference: run_id=%s elapsed_ms=%.3f tasks=%s "
+                    "retry_tasks=%s provider_turns=%s input_tokens=%s output_tokens=%s "
+                    "outcome=%s interrupted=%s",
+                    run_id,
+                    (perf_counter() - inference_started) * 1000,
+                    len(slots),
+                    sum(calls[task.start, task.count] > 1 for _, task in slots),
+                    outcome.metrics.provider_turns,
+                    outcome.metrics.usage.input_tokens,
+                    outcome.metrics.usage.output_tokens,
+                    outcome.type,
+                    cancellation.cancelled,
+                )
+                if cancellation.cancelled or outcome.type is OneShotStopKind.cancelled:
+                    return False
+                if outcome.type is not OneShotStopKind.protocol_error:
                     break
-                for task in selected:
+                if correction_spent or any(
+                    calls[task.start, task.count] >= COMPACTION_CALLS
+                    for _, task in slots
+                ):
+                    break
+                correction_spent = True
+                run_id = RunId(str(uuid4()))
+            transient = outcome.type in {
+                OneShotStopKind.provider_error,
+                OneShotStopKind.model_decision_uncertain,
+            }
+            if isinstance(outcome, OneShotCompleted):
+                result = cast(Mapping[str, str], outcome.result)
+                for name, task in slots:
                     address = (task.start, task.count)
-                    failures[address] += 1
-                    if failures[address] >= COMPACTION_FAILURES:
-                        failed, failure = task, "inference_failed"
-                        break
-            else:
-                try:
-                    result = CompactionResult.model_validate_json(
-                        canonical_json_bytes(thaw_json_value(outcome.result))
-                    )
-                except ValueError:
-                    failed = selected[0]
-                    LOGGER.warning(
-                        "compaction rejected: run_id=%s start=%s count=%s "
-                        "reason=result_schema",
-                        run_id,
-                        failed.start,
-                        failed.count,
-                    )
-                    break
-                addresses = {(node.start, node.count) for node in result.nodes}
-                if len(addresses) != len(result.nodes) or addresses != {
-                    (task.start, task.count) for task in selected
-                }:
-                    failed = selected[0]
-                    LOGGER.warning(
-                        "compaction rejected: run_id=%s start=%s count=%s reason=%s",
-                        run_id,
-                        failed.start,
-                        failed.count,
-                        "address_duplicate"
-                        if len(addresses) != len(result.nodes)
-                        else "address_set_mismatch",
-                    )
-                    break
-                for node in result.nodes:
-                    address = (node.start, node.count)
-                    value = node.text.strip()
+                    value = result[name].strip()
                     size = len(value.encode())
                     if size <= NODE_HARD_BYTES:
                         completed[address] = value
                     else:
-                        feedback[f"{node.start}+{node.count}"] = {
+                        feedback[address] = {
                             "measured_bytes": size,
                             "candidate": value,
                             "target_cut": clip_utf8(value, NODE_TARGET_BYTES),
                         }
-            if failed is not None:
+            elif transient:
+                for _, task in slots:
+                    address = (task.start, task.count)
+                    failures[address] += 1
+                    if failures[address] >= COMPACTION_FAILURES:
+                        park = task, "inference_failed"
+                        break
+            else:
+                park = first_task, "invalid_completion"
+                LOGGER.warning(
+                    "compaction rejected: run_id=%s start=%s count=%s "
+                    "reason=kernel_stopped stop_kind=%s",
+                    run_id,
+                    first_task.start,
+                    first_task.count,
+                    outcome.type.value,
+                )
                 break
-            for task in selected:
+            if park is not None:
+                break
+            for _, task in slots:
                 address = (task.start, task.count)
                 if address not in completed and calls[address] >= COMPACTION_CALLS:
-                    failed = task
-                    failure = "inference_failed" if transient else "candidate_too_large"
+                    park = (
+                        task,
+                        "inference_failed" if transient else "candidate_too_large",
+                    )
                     break
-            if failed is not None:
+            if park is not None:
                 break
-            pending = [
+            pending = tuple(
                 task for task in pending if (task.start, task.count) not in completed
-            ]
-            if transient and pending:
+            )
+            if transient:
                 try:
                     await asyncio.wait_for(
                         cancellation.wait(), COMPACTION_RETRY_SECONDS
@@ -346,28 +377,29 @@ class MemoryWorker:
         commit_requested = perf_counter()
         async with self.memory.database.begin() as connection:
             commit_started = perf_counter()
-            latest = await connection.scalar(
-                select(func.max(message.c.control_sequence)).where(
-                    message.c.source_conversation_id == self.owner.scope_id
-                )
-            )
+            latest = await connection.scalar(control_sequence)
             if cancellation.cancelled or latest != control:
                 return False
-            if failed is not None:
-                await self.memory.library.park_compaction(connection, failed, failure)
+            if park is not None:
+                await self.memory.library.park_compaction(connection, *park)
+            else:
+                await self.memory.library.complete_compaction(
+                    connection,
+                    batch,
+                    tuple(
+                        Node(
+                            start=task.start,
+                            count=task.count,
+                            text=completed[task.start, task.count],
+                        )
+                        for task in batch.tasks
+                    ),
+                )
+            if cancellation.cancelled:
+                await connection.rollback()
                 return False
-            await self.memory.library.complete_compaction(
-                connection,
-                batch,
-                tuple(
-                    Node(
-                        start=task.start,
-                        count=task.count,
-                        text=completed[task.start, task.count],
-                    )
-                    for task in batch.tasks
-                ),
-            )
+        if park is not None:
+            return False
         LOGGER.info(
             "compaction committed: writer_wait_ms=%.3f elapsed_ms=%.3f %s",
             (commit_started - commit_requested) * 1000,

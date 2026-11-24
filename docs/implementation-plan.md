@@ -159,6 +159,13 @@ sha256 `58b03df1c794044ea1664541807cf2b1610b48a52ee68d554c5f838d3da54de8`.
 separate `0018` release for the startup view and service-owned indexing.
 historical capacity and genuine installed recall earn separate evidence.
 
+[adr 0100](decisions/0100-host-bound-summary-fields.md) owns the compactor form
+and single batch correction. its current-main candidate follows the separate
+`0020` capture rollout and [archive rewrite](decisions/0102-historical-capture-cleanup.md).
+the old `8232+8` replay is retired. the armed november 24–25 samples keep their
+actual generation. production progress, overnight capacity and genuine
+recall need their own receipts after the writer cut.
+
 [adr 0101](decisions/0101-outgoing-mail-attachments.md) owns outgoing gmail files. integrate file intake, draft revisions and approved send in that order. three content designers supplied the feature contracts. independent claude opus 5.5 at max effort passed the design at sha256 `20f4beb484dd0a6a90e54879980a8a90dd81ec62bae87cb2e8dd8a9e564db97b`. the macbook receipt is `~/.local/state/jarvis/qualification/adr0101/design-20f4beb484dd.txt`, sha256 `c1ec88e4d51fb066618f46d3ebc809947c6992a17847276b47f3750d0922deca`.
 
 source and the detached macbook rehearsal passed. the isolated candidate passed

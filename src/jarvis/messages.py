@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4, uuid5
@@ -402,7 +402,7 @@ class MessageStore:
                 )
             control = text.strip().lower()
             if ref is None and not uploads and control in {"pause", "resume"}:
-                await self._apply_control(connection, result.message.id, scope, control)
+                await self._apply_control(connection, result.message, control)
                 updated = (
                     (
                         await connection.execute(
@@ -416,8 +416,9 @@ class MessageStore:
             return result
 
     async def _apply_control(
-        self, connection: AsyncConnection, control_id: UUID, scope: str, kind: str
+        self, connection: AsyncConnection, command: StoredMessage, kind: str
     ) -> None:
+        scope = command.source_conversation_id
         previous = (
             (
                 await connection.execute(
@@ -442,7 +443,7 @@ class MessageStore:
                         .where(
                             message.c.source_conversation_id == scope,
                             message.c.role.in_(("owner", "host")),
-                            message.c.id != control_id,
+                            message.c.id != command.id,
                             message.c.control_kind.is_(None),
                             message.c.request_state.in_(("pending", "waiting")),
                         )
@@ -485,7 +486,10 @@ class MessageStore:
                 .where(native_attempt.c.id.in_(attempts))
                 .values(fenced_at=func.now())
             )
-        timestamp = datetime.now(UTC)
+        # The acknowledgement must sort after its command, even on the same clock tick.
+        timestamp = max(
+            datetime.now(UTC), command.created_at + timedelta(microseconds=1)
+        )
         if kind == "resume":
             if targets:
                 await connection.execute(
@@ -525,7 +529,7 @@ class MessageStore:
         sequence = await connection.scalar(control_sequence.next_value())
         await connection.execute(
             update(message)
-            .where(message.c.id == control_id)
+            .where(message.c.id == command.id)
             .values(
                 control_kind=kind,
                 control_sequence=sequence,
@@ -534,7 +538,7 @@ class MessageStore:
                 processed_at=timestamp,
             )
         )
-        conclusion_id = uuid5(control_id, "control-conclusion")
+        conclusion_id = uuid5(command.id, "control-conclusion")
         await connection.execute(
             postgresql_insert(message).values(
                 id=conclusion_id,
@@ -543,9 +547,10 @@ class MessageStore:
                 source="native_control",
                 memory_admitted=memory_is_admitted(connection),
                 source_conversation_id=scope,
+                created_at=timestamp,
                 processed_at=timestamp,
                 trace={
-                    "control_message_id": str(control_id),
+                    "control_message_id": str(command.id),
                     "control_sequence": sequence,
                 },
             )

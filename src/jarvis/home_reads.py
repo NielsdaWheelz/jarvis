@@ -29,8 +29,12 @@ from jarvis.write_tools import (
 type Record = dict[str, Any]
 
 # Extract only owner-facing columns. In particular, never load a native request.
+# Older control replies have the transaction's start time. Their receipt records
+# when the command was applied.
 _MESSAGES = """
-SELECT m.id, m.role, m.source, m.created_at AS at, m.text,
+SELECT m.id, m.role, m.source,
+       CASE WHEN m.source = 'native_control' THEN COALESCE(m.processed_at, m.created_at)
+            ELSE m.created_at END AS at, m.text,
        m.home->'ref' AS ref, m.home->'present' AS present,
        COALESCE((
            SELECT jsonb_agg(jsonb_build_object(
@@ -62,10 +66,9 @@ async def conversation(
     at, identifier = _cursor(before) if before is not None else (None, None)
     result = await connection.execute(
         text(
-            _MESSAGES
-            + """
-          AND (CAST(:at AS timestamptz) IS NULL OR (m.created_at,m.id) < (:at,:id))
-          ORDER BY m.created_at DESC, m.id DESC LIMIT 51"""
+            f"""SELECT * FROM ({_MESSAGES}) AS visible
+            WHERE CAST(:at AS timestamptz) IS NULL OR (at,id) < (:at,:id)
+            ORDER BY at DESC, id DESC LIMIT 51"""
         ),
         {"scope": scope, "at": at, "id": identifier},
     )

@@ -1020,7 +1020,14 @@ async def _action_activation_verdicts(
             except ActionPersistenceDefect:
                 verdict = "incompatible does_not_load"
             else:
-                if stored is not None and archived_worker_action(stored):
+                if stored is not None and (
+                    archived_worker_action(stored)
+                    or (
+                        str(stored.tool_name)
+                        in {"gmail.create_draft", "gmail.update_draft"}
+                        and not isinstance(stored.execution_contract, ExecutionContract)
+                    )
+                ):
                     verdict = "compatible"
                 else:
                     verdict = "in_flight"

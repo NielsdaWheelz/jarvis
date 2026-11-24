@@ -167,7 +167,9 @@ class _GmailEnvelope(_StrictModel):
     @field_validator("subject")
     @classmethod
     def bounded_subject(cls, value: str) -> str:
-        if "\r" in value or "\n" in value:
+        if any(
+            character in value for character in "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+        ):
             raise ValueError("Gmail subject contains a line break")
         return _bounded_utf8(value, 998, "Gmail subject")
 
@@ -469,6 +471,10 @@ class DraftChanged(_StrictModel):
     type: Literal["DraftChanged"] = "DraftChanged"
 
 
+class SendAbsent(_StrictModel):
+    type: Literal["SendAbsent"] = "SendAbsent"
+
+
 class InvalidMail(_StrictModel):
     type: Literal["InvalidMail"] = "InvalidMail"
 
@@ -536,6 +542,7 @@ type GmailSendDraftError = (
     | InvalidMail
     | DraftNotFound
     | DraftChanged
+    | SendAbsent
     | InvalidRecipient
     | RateLimited
     | ProviderUnavailable

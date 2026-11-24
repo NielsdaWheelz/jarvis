@@ -37,6 +37,7 @@ from llm_tools import (
     raw_input_digest,
 )
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from universal_memory.tools import MEMORY_SAVE_NOTE_SPEC
 
 from jarvis._secrets import contains_secret
@@ -353,12 +354,12 @@ class WriteToolDispatcher:
                 invocation_id=UUID(lineage.invocation_id),
                 check_admitted=check_admitted,
             )
-        except (ActionPersistenceDefect, asyncio.CancelledError):
+        except (ActionPersistenceDefect, IntegrityError, asyncio.CancelledError):
             if (
                 isinstance(mail, GmailComposeContract)
                 and await self._actions.get(action_id) is None
             ):
-                await self._mail_files.discard(action_id)
+                await _discard_mail_stage(self._mail_files, action_id)
             raise
         if authority == "approval_required":
             reference = HostRef(str(stored.id))

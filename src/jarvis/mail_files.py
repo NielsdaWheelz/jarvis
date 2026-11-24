@@ -58,8 +58,11 @@ def _basename(name: str) -> str:
         or name in {".", ".."}
         or "/" in name
         or "\\" in name
+        or any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in name
+        )
         or len(name.encode("utf-8")) > 255
-        or any(unicodedata.category(character) == "Cc" for character in name)
     ):
         raise ValueError("expected a basename of at most 255 utf-8 bytes")
     return name

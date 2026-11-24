@@ -183,19 +183,21 @@ def _describe_part(filename: str, media_type: str, data: bytes) -> MailFile:
 def encode_mime(
     snapshot: GmailSnapshot, effect_id: str, parts: tuple[bytes, ...]
 ) -> bytes:
-    if not _EFFECT_ID.fullmatch(effect_id) or len(parts) != len(snapshot.files):
+    if (
+        not _EFFECT_ID.fullmatch(effect_id)
+        or len(parts) != len(snapshot.files)
+        or snapshot.body_text != _body(snapshot.body_text)
+    ):
         raise ValueError("invalid Gmail encode input")
     _limit("decoded_bytes", sum(map(len, parts)), MAIL_MAX_BYTES)
     message = EmailMessage(policy=policy.SMTP.clone(refold_source="none"))
     message["From"] = _address(Mailbox(name=None, address=snapshot.sender))
-    recipients = (("To", snapshot.to), ("Cc", snapshot.cc), ("Bcc", snapshot.bcc))
-    for name, mailboxes in recipients:
+    for name, mailboxes in (
+        ("To", snapshot.to),
+        ("Cc", snapshot.cc),
+        ("Bcc", snapshot.bcc),
+    ):
         _set_recipients(message, name, mailboxes)
-    parsed = BytesParser(policy=policy.default).parsebytes(
-        message.as_bytes(), headersonly=True
-    )
-    if any(_mailboxes(parsed, name) != mailboxes for name, mailboxes in recipients):
-        raise ValueError("invalid Gmail recipient representation")
     message.set_raw(
         "Subject",
         Header(snapshot.subject, charset="utf-8", header_name="Subject").encode(
@@ -207,6 +209,17 @@ def encode_mime(
         message["In-Reply-To"] = snapshot.in_reply_to
     if snapshot.references:
         message["References"] = " ".join(snapshot.references)
+    # Validate the emitted header representation without copying or decoding
+    # the aggregate body and files. The bytes content handler encodes those
+    # directly, after descriptor verification.
+    emitted = BytesParser(policy=policy.default).parsebytes(
+        message.as_bytes(), headersonly=True
+    )
+    if _decode_envelope(
+        emitted, snapshot.sender, snapshot.body_text, snapshot.files
+    ) != (snapshot, effect_id):
+        raise ValueError("Gmail envelope cannot be represented exactly")
+
     # The bytes content handler preserves the presence or absence of a final LF.
     message.set_content(
         snapshot.body_text.encode(),
@@ -215,16 +228,30 @@ def encode_mime(
         cte="base64",
         params={"charset": "utf-8"},
     )
+    if parts:
+        message.make_mixed()
     for descriptor, data in zip(snapshot.files, parts, strict=True):
         if (
             _describe_part(descriptor.filename, descriptor.media_type, data)
             != descriptor
         ):
             raise ValueError("Gmail part does not match its frozen descriptor")
-        maintype, _, subtype = descriptor.media_type.partition("/")
-        message.add_attachment(
-            data, maintype=maintype, subtype=subtype, filename=descriptor.filename
+        # An extended parameter protects even ASCII basenames that look like
+        # encoded words. At 255 UTF-8 bytes this fits the RFC 5322 line bound.
+        disposition = (
+            f"attachment; filename*=utf-8''{quote(descriptor.filename, safe='')}"
         )
+        emitted = BytesParser(policy=policy.default).parsebytes(
+            f"Content-Disposition: {disposition}\r\n\r\n".encode("ascii"),
+            headersonly=True,
+        )
+        if _attachment_filename(emitted) != descriptor.filename:
+            raise ValueError("Gmail filename cannot be represented exactly")
+        maintype, _, subtype = descriptor.media_type.partition("/")
+        part = EmailMessage(policy=message.policy)
+        part.set_content(data, maintype=maintype, subtype=subtype, cte="base64")
+        part.set_raw("Content-Disposition", disposition)
+        message.attach(part)
     mime = message.as_bytes()
     _limit("mime_bytes", len(mime), GMAIL_WRITE_POLICY.mime_bytes)
     return mime
@@ -344,10 +371,20 @@ def _leaf_payload(message: MIMEPart, *, attachment: bool) -> bytes:
     return data
 
 
-def decode_mime(raw: bytes, account: str) -> DecodedMail:
-    if len(raw) > GMAIL_WRITE_POLICY.mime_bytes:
-        raise ValueError("raw Gmail MIME is oversized")
-    message = BytesParser(policy=policy.default).parsebytes(raw)
+def _attachment_filename(message: MIMEPart) -> str:
+    _header(message, "Content-Disposition")
+    filename = message.get_param("filename", header="Content-Disposition")
+    if not isinstance(filename, str) or not filename:
+        raise ValueError("missing Gmail attachment filename")
+    return filename
+
+
+def _decode_envelope(
+    message: MIMEPart,
+    account: str,
+    body_text: str,
+    files: tuple[MailFile, ...],
+) -> tuple[GmailSnapshot, str]:
     if message.defects or any(
         header.lower() in _ROUTING_HEADERS or header.lower().startswith("resent-")
         for header in message.keys()
@@ -377,6 +414,23 @@ def decode_mime(raw: bytes, account: str) -> DecodedMail:
     ):
         raise ValueError("invalid Gmail subject or reply headers")
 
+    return GmailSnapshot(
+        sender=sender,
+        to=_mailboxes(message, "To"),
+        cc=_mailboxes(message, "Cc"),
+        bcc=_mailboxes(message, "Bcc"),
+        subject=subject,
+        body_text=body_text,
+        in_reply_to=in_reply_to[0] if in_reply_to else None,
+        references=references,
+        files=files,
+    ), effect
+
+
+def decode_mime(raw: bytes, account: str) -> DecodedMail:
+    if len(raw) > GMAIL_WRITE_POLICY.mime_bytes:
+        raise ValueError("raw Gmail MIME is oversized")
+    message = BytesParser(policy=policy.default).parsebytes(raw)
     leaves = tuple(message.iter_parts())
     if leaves:
         for name in (
@@ -413,25 +467,13 @@ def decode_mime(raw: bytes, account: str) -> DecodedMail:
     total = 0
     for part in attachments:
         data = _leaf_payload(part, attachment=True)
-        filename = part.get_param("filename", header="Content-Disposition")
-        if not isinstance(filename, str) or not filename:
-            raise ValueError("missing Gmail attachment filename")
+        filename = _attachment_filename(part)
         total += len(data)
         if total > MAIL_MAX_BYTES:
             raise ValueError("Gmail attachment total exceeds bound")
         files.append(_describe_part(filename, part.get_content_type(), data))
         parts.append(data)
-    snapshot = GmailSnapshot(
-        sender=sender,
-        to=_mailboxes(message, "To"),
-        cc=_mailboxes(message, "Cc"),
-        bcc=_mailboxes(message, "Bcc"),
-        subject=subject,
-        body_text=body_text,
-        in_reply_to=in_reply_to[0] if in_reply_to else None,
-        references=references,
-        files=tuple(files),
-    )
+    snapshot, effect = _decode_envelope(message, account, body_text, tuple(files))
     return DecodedMail(snapshot, effect, tuple(parts))
 
 

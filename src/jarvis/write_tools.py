@@ -672,7 +672,12 @@ GMAIL_CREATE_DRAFT_SPEC = ToolSpec[
     documentation=PromptDocument(
         "Save an unsent draft using verified source refs. Supply files: [] for text "
         "alone. Use reply_to only from live Gmail evidence. If OriginalNeedsOpen is "
-        "returned, open those originals with attachment.open and retry."
+        "returned, open those originals with attachment.open and retry. For a "
+        "machine file, use a worker and scp into a 0700 request directory under "
+        "/var/lib/jarvis-notes/.git/jarvis-mail/incoming on dev-server. Verify "
+        "source and copy size and SHA-256, then publish the copy with the selected "
+        "release's deploy/jarvis-mail-file prepare PATH. Use its returned native "
+        "ref. If the source is unavailable, give the machine, file and one recovery."
     ),
     input_type=GmailCreateDraftInput,
     success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),
@@ -704,7 +709,10 @@ GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     documentation=PromptDocument(
         "Use the draft_ref for the revision the owner intends to send. Sending "
         "requires owner consent through approval.respond. When gmail has changed "
-        "the draft, the owner can finish in gmail or request a fresh draft."
+        "the draft, the owner can finish in gmail or request a fresh draft. "
+        "Clarify unresolved recipient or file choices. Present subject, all recipients "
+        "and ordered file names and sizes with the proposal. If send is uncertain, "
+        "ask the owner to inspect sent mail before trying again."
     ),
     input_type=GmailSendDraftInput,
     success_type=GmailSendDraftSuccess,

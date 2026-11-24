@@ -56,3 +56,11 @@ and sealed synthetic route tested attribution. installed credit still needs
 a genuine correction and a target ancestor used in a fresh session.
 private mac receipt `adr0100-implementation-20261124/d/recall-3bcfc510-receipt.json`,
 sha-256 `ba69503281cb0cf38b824652a314f9f23c9a8acc23cb3218fbdd0613c81f39fa`.
+
+current-main candidate `d93fd66` passed the generation-2 fixture. the
+target built a previously absent parent in one controlled call from a
+2,885-byte frame. explicit generation-2 zoom led to its surviving owner
+original and reopened all ten parts over two pages. a surviving direct
+identity still reopened; older range and retired-original lookups reported
+retirement. a genuine installed correction and a fresh answer using a
+target-inferred ancestor remain required.

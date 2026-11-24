@@ -90,6 +90,13 @@ quiet end, with prefix 8 and 14 of 15 aligned nodes. the one-parent deficit
 and three later arrivals were measured separately. the
 candidate's production window waits for a separately verified recovery.
 
+the generation-2 archive was selected on `58b9ebe/0021` at 04:13:25 utc,
+before the first scheduled sample. at 04:15:05 it contained 18,507 active
+positions, 88,640 retired records, zero nodes and a clear mark under owner
+web pause 33. keep the pre-window rewrite in the observation record.
+compare quiet-end progress only within the same generation. measure
+construction on the actual selected release and annotate any later switch.
+
 ## broader usefulness evaluation
 
 after the [conversation capture cut](../decisions/0098-conversation-capture.md),

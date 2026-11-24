@@ -76,8 +76,34 @@ the mac candidate manifest is
 this is the original isolated `0020` candidate. on november 24 at
 04:02 utc production selected `403b1f7/0020` with both writers stopped
 under web pause 33. it still held the old mark and absent parent;
-the replay stays retired under adr 0102. the current-main writer needs
+the private mac readback is
+`adr0100-current-main-20261124/production-0020-pre-rewrite.json`.
+adr 0102 keeps the old evidence under its rewrite owner's custody.
+the stopped snapshot sha-256 is
+`8232ce8d62497401668e11b04e6a2f2cea21bb5aefd5eae2964f3585f7e46005`.
+the dump sha-256 is
+`e5fcd6dfe41771420ca8ff234b0b7b81ab9c55d633eddb855254020611e01b71`.
+the replay stays retired. the current-main writer needs
 a same-schema `0021` replacement after the archive rewrite. verify a new
 inferred parent, a later independent commit, prefix growth and a clear
 mark on the rewritten corpus under separate owner authorization.
 [adr 0100](../decisions/0100-host-bound-summary-fields.md)
+
+## current-main candidate
+
+`d93fd66a6e4dcbc05d5db7b6e81c5481dc990aff` integrates the writer on current
+main with kernel `6f4ec09`, provider `36c5b34` and library `aa88596`. the
+kernel exercises the same codex terminal path on the updated provider.
+on actual schema `0021`, the current-main predecessor parked after three
+attempts and committed zero nodes. the new writer corrected one malformed
+packet and committed three nodes in one transaction. the full and node
+maintenance paths passed their generation checks. the actual packed calls
+held six and two complete sources at 241,324 and 82,188 rendered bytes.
+post-write cancellation rolled back a batch and a park before commit.
+
+the x64 install verified the exact source and all four pins. the exact
+reader restored the 21-table fixture, reopened an event and note, verified
+retirement of a removed id, and traversed a generation-2 range.
+private candidate manifest `adr0100-current-main-20261124/artifact-final/candidate.json`,
+sha-256 `6079c082d1dbb900631eb8956a03ab0bfeb8e5dd5682a0e858d408167d55cec6`.
+production progress and the two user outcome checks remain open.

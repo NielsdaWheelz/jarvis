@@ -23,7 +23,7 @@ dependencies = [
   "python-multipart==0.0.32",
   "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@1faa4912f13bd376eefbb1213c27a8015f4e1e9f",
   "sqlalchemy[asyncio]==2.0.43",
-  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@6ee2fa023331e94d92d7e6f8efc133c8b9a45285",
+  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@5f282b77c4cfd42fe1d9e33124c6b000c8861cda",
   "uvicorn==0.54.0",
 ]
 

@@ -36,6 +36,7 @@ from jarvis.phone import (
 from jarvis.work import WorkStore
 
 _STATIC = Path(__file__).parent / "static" / "home"
+_PHONE_ROUTE = "/api/push/phone"
 _SHELL_CSP = (
     "default-src 'self'; object-src 'none'; base-uri 'none'; "
     "frame-ancestors 'none'; form-action 'self'"
@@ -83,7 +84,11 @@ def create_home_app(
                     "home request unavailable: %s", type(exc).__name__
                 )
                 response = JSONResponse({"detail": "unavailable"}, status_code=503)
-        response.headers["Cache-Control"] = "private, no-store"
+        cache_control = "private, no-store"
+        if request.url.path == _PHONE_ROUTE:
+            # Compression can weaken the tag required by the next mutation.
+            cache_control += ", no-transform"
+        response.headers["Cache-Control"] = cache_control
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
@@ -245,8 +250,8 @@ def create_home_app(
     app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
     app.add_api_route("/api/files/{identifier}", file, methods=["GET", "HEAD"])
     app.add_api_route("/api/home", home, methods=["GET"])
-    app.add_api_route("/api/push/phone", get_phone, methods=["GET"])
-    app.add_api_route("/api/push/phone", change_phone, methods=["PUT", "DELETE"])
+    app.add_api_route(_PHONE_ROUTE, get_phone, methods=["GET"])
+    app.add_api_route(_PHONE_ROUTE, change_phone, methods=["PUT", "DELETE"])
     app.add_api_route("/api/views/{slug}", view, methods=["GET"])
     app.add_api_route("/api/views/{slug}/{rev}", view, methods=["GET"])
     app.add_api_route("/content/{slug}/{rev}", content, methods=["GET"])

@@ -1031,32 +1031,31 @@ stopped parent's state and cannot revive it. administrative pause covers all
 waking requests; resume releases only its accumulated pause targets and never
 resurrects cancelled actions or conversational stops.
 
-Gmail send is available only for a draft with immutable Jarvis draft-creation
-lineage. Immediately before send, Jarvis fetches the known draft and compares
-its thread, effect header, recipients, subject, and complete body with the
-approved snapshot. Any mismatch sends nothing. Ambiguous recovery reads the
-known draft in three observations separated by fixed `0`, `2`, and `8` second
-backoffs. Each observation fetches the known thread with `format=minimal` and
-fetches at most one hundred enumerated messages individually with
-`messages.get(format=raw)`; it never performs a mailbox search or assumes thread
-ordering. Excluding only the current live draft message ID, one unique observed
-exact effect-header/content match proves success after every selected bounded
-message is processed, even when the draft remains or the thread has an
-unprocessed tail beyond one hundred messages; no Gmail label is required.
-Repetition requires three complete observations proving that the exact unchanged
-draft remains and the complete thread has no matching non-draft message, plus
-remaining immutable attempt capacity. Duplicate,
-conflicting, malformed, transient, or partially processed evidence cannot prove
-absence. The original send timeout decides nothing by itself. Expiry of the
-separate thirty-second, sixteen-MiB reconciliation procedure is bounded
-exhaustion with incomplete evidence and yields safe terminal uncertainty for main to explain with its original evidence.
+gmail send requires the current jarvis draft revision and its frozen envelope
+and files. the metered preflight compares the live draft to that revision. a
+readback mismatch leaves the draft for manual completion in gmail. the send
+submits approved mime with the draft id. a gmail edit racing after preflight
+can be consumed or overwritten. any lost acknowledgement needs independent
+message-level sent evidence. [outgoing gmail contract](decisions/0101-outgoing-mail-attachments.md)
 
-This path can issue up to 102 provider reads per observation and 306 across all
-three. That bounded latency and quota cost is accepted to avoid relying on Gmail
-search indexing or undocumented list ordering. Gmail draft-update recovery uses
-the same minimal-thread plus at-most-one-hundred raw-message expansion if its
-known draft disappears; that read shape and ceiling are revisioned policy
-inputs, while the unshipped v1 implementation name remains unchanged.
+before the first activation, record a canonical web pause. cancel unentered old
+proposals through the predecessor's scoped stop, then quiesce entered calls.
+run the candidate's `jarvis gmail-cut-audit` as the stopped `jarvis` runtime
+user, with the normal runtime environment. it reads the connected account,
+leaves old action and invocation rows intact, and writes a private cut receipt
+under the runtime-state directory only when the recorded inventory clears.
+archive the printed receipt. an unknown outcome holds the cut. after the owner
+resolves a disputed send, supply `--owner-evidence PATH` with a mode-0600
+json object keyed by action uuid. each member has `outcome` (`sent` or `absent`)
+and the owner's supporting `evidence` text. keep the underlying evidence private
+with the cut receipt. gmail drafts from the predecessor stay available manually.
+
+for a current uncertain send, stop the application and run
+`jarvis gmail-send-reconcile ACTION_UUID` under the normal runtime identity
+and environment. it checks the exact frozen revision and settles only on
+positive send proof or complete absence. it leaves the original invocation
+receipt intact. check the command's printed outcome before taking further
+action. gmail mutations and retries are outside this command's authority.
 
 ## verification
 

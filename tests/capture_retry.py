@@ -123,7 +123,7 @@ async def check(url: str) -> None:
             original = await submit()
             assert original.inserted
             with patch.object(
-                library, "append_events", side_effect=MemoryError("unavailable")
+                library, "append_main_events", side_effect=MemoryError("unavailable")
             ):
                 await memory.publish()
             retained = await store.message_by_id(original.message.id)
@@ -281,7 +281,7 @@ async def check(url: str) -> None:
                     completed = completed_tool_result(result, HostRef(str(position)))
                     reply = NativeReply(completed.model_text, True, completed)
                     with patch.object(
-                        library, "append_events", side_effect=MemoryError("unavailable")
+                        library, "append_main_events", side_effect=MemoryError("unavailable")
                     ):
                         await journal.record_reply(str(invocation), reply)
                     async with database.connect() as connection:

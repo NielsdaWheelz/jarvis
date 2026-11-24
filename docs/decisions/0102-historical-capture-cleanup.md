@@ -135,3 +135,16 @@ each reopened the event, note and retired identity with no failed comparisons,
 at 775 ready and 18,952 admitted. r2 receipt sha256
 `d78017da1c69b9d5c98bb6f666e727c2500b47981840ba12afc6d9c458f485f5`.
 held receipt sha256 `52989cd120e213fb02ed4e1682fde65d83017a6ca09f9171fd0a2b0495a502d4`.
+
+owner web resume 36 committed at 04:58:47 utc. the operator released the
+15 inputs from the failed turns through `release-parked`. the new turn
+completed all 15 and received three successful memory search replies. both
+original uncertain reads kept their barriers. jarvis had one matching shell
+call and one matching result across the whole archive.
+
+at 05:01:20 utc jarvis committed “stock check complete” to the original
+owner request. its direct web read and the chat page both served the same
+20 bytes. the page listed the reply once. gmail resumed polling, the backup
+timer was active, and the final check on `a28e639` found zero external raw
+tool parts. the owner waived the historical rehearsal and the busy/quiet
+measurement.

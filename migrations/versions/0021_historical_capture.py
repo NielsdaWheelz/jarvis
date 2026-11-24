@@ -24,6 +24,20 @@ def upgrade() -> None:
             (id,conversation_id,native_event_id,part)
         SELECT id,conversation_id,native_event_id,part FROM pg_temp.cut_retired;
         GRANT SELECT ON memory_retired_source_record TO jarvis_runtime,jarvis_memory;
+        CREATE FUNCTION public.memory_reject_retired_source() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            IF EXISTS(SELECT FROM public.memory_retired_source_record t
+                      WHERE t.id=NEW.id OR (t.conversation_id,t.native_event_id)
+                      =(NEW.conversation_id,NEW.native_event_id)) THEN
+                RAISE EXCEPTION 'retired source identity'
+                    USING ERRCODE='23505', CONSTRAINT='retired_source_identity';
+            END IF;
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER source_record_reject_retired
+            BEFORE INSERT ON public.source_record
+            FOR EACH ROW EXECUTE FUNCTION public.memory_reject_retired_source();
     """)
     if op.get_bind().scalar(text("SELECT to_regrole('jarvis_backup') IS NOT NULL")):
         op.execute("GRANT SELECT ON memory_retired_source_record TO jarvis_backup")

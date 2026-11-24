@@ -199,3 +199,23 @@ found zero overlaps with records emitted by these three selected histories.
 the original terminal ids are outside the retirement cohort. the historical
 cut owns its deliberate removals and sequence changes. freeze surviving
 records, retired links and new leaf positions after that cut before retry.
+
+the integrated release `85d137a2cb4c6f4d4a92e73bd3874fadb22624b6` and its
+three source dependencies are published on release branches. the matched
+collector pin is `7283e3a7561fa74120884fe150b884d810a4f7e4` in dev-server.
+the isolated `0021→0022` upgrade preserved 20 preexisting table inventories
+and the retired-address guard. a network-isolated restore matched all 21
+target tables and reopened the original, note and retired witness. the
+retained regressions and release check passed.
+
+private reopened receipts:
+
+| proof | file | sha-256 |
+| --- | --- | --- |
+| isolated stopped migration and restore | `codex-0022-release-restore-20261124T040828Z.json` | `d11f710e7f82dc61d763d8a162d73cd05baf837fc5bbb88808a170fbb082f856` |
+| independent review | `codex-0022-release-opus-85d137a.json` | `9df982f3b537b383468be51f463aa0c935cb61069258f7e80eae5972937a35b5` |
+
+live repair awaits the historical deployment handoff. at 04:11 utc the
+database still reported `0020`, with owner web pause 33 and both writers
+stopped under the historical cut. installing another candidate on the
+server would prune the inactive historical release.

@@ -316,16 +316,19 @@ async def schema_inventory(conn):
     return facts
 
 
-async def witness_digest(selector, read):
+async def witness_digest(selector, read, *, retired=False):
     value = OpenInput.model_validate_json(canonical_json(selector))
     digest, count = hashlib.sha256(), 0
     while True:
         page = await read(value)
-        if not page.records or any(
-            isinstance(record, Missing) for record in page.records
-        ):
-            raise RuntimeError("missing witness records")
+        if not page.records:
+            raise RuntimeError("empty witness page")
         for record in page.records:
+            if isinstance(record, Missing):
+                if not retired or record.error != "retired":
+                    raise RuntimeError("incorrect missing witness disposition")
+            elif retired:
+                raise RuntimeError("retired original returned live content")
             digest.update(
                 canonical_json(record.model_dump(mode="json")).encode() + b"\n"
             )
@@ -364,7 +367,18 @@ async def collect_witnesses(conn, cutoff):
     async def read(value):
         return await open_records(conn, value, cutoff, encoded_size)
 
-    witnesses = {"event": None, "note": None}
+    witnesses = {"event": None, "note": None, "retired": None}
+    retired = await conn.scalar(
+        text("""
+        SELECT id::text FROM public.memory_retired_source_record ORDER BY id LIMIT 1
+    """)
+    )
+    if retired is not None:
+        selector = {"identities": [{"store": "source_record", "id": retired}]}
+        witnesses["retired"] = {
+            "selector": selector,
+            **await witness_digest(selector, read, retired=True),
+        }
     if event is not None:
         selector = {"event": {"conversation_id": event[0], "native_event_id": event[1]}}
         observed = await witness_digest(selector, read)

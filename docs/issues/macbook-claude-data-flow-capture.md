@@ -124,4 +124,59 @@ after correction of fleet asset selection, workflow header scope, exact key
 handling and the v4 worker-freeze gate. the reopened private `opus-final.md`
 receipt has sha256
 `1194e922b89da529a216d95281f120749d5603f8c13390fa712c1d5c6008630a`.
-implementation, candidate qualification and installed recovery remain open.
+implementation, candidate qualification and installed recovery were still
+open at the design review.
+
+## november 24 implementation and mac qualification
+
+the reader now consumes the three exact diagnostic envelopes after record
+validation and before event or lineage state changes. v4 uses the same rule
+before looking for a direct child's native proof. workflow discovery's first
+record still establishes its parent. the [separate header issue](claude-workflow-leading-metadata.md)
+tracks its inventory impact.
+
+| candidate | jarvis | provider | kernel | fleet |
+| --- | --- | --- | --- | --- |
+| v3 recovery | `74b616a` | `3dc3fb7` | `32ca343` | `e093061` |
+| v4 worker-freeze successor | `403b1f7` | `36c5b34` | `8f10cdf` | `8aee9cf` |
+
+at 01:38 utc central was `43ed919` / `0019`. canonical resume `32`
+arrived at 01:38:26.821165 utc. macbook and devbox still ran `8c82c5f`.
+the v3 collector and exact central passed a detached postgres 16 rehearsal.
+the old reader reparked the root and metadata-only worker. after separate
+stopped retries, the new reader recovered 132 events after the root checkpoint,
+retained 187 unique parts and leaves across all 133 post-cut events, and
+reopened a 55-part reply through eight authenticated `memory_open` pages.
+lost acknowledgement and a failure during leaf insertion preserved atomicity.
+the worker acknowledged catch-up with the same verified pair and zero new
+parts or leaves. the unaffected reply reopened.
+
+v4 passed its separate authenticated collector and postgres 16 proof at
+`0020`, preserving both digests and excluding a child with proven lineage
+after leading tracking metadata. raw reads still exposed the child. the
+existing jarvis regression now injects its failure at `append_main_events`,
+the current canonical projection call. both candidates passed the retained
+capture and memory checks for their own schemas. fleet rendering matched
+managed config, instruction and unit bytes on both hosts. the v3 launcher
+changes its collector release path.
+
+the 01:43–01:44 utc packaged v3 replay matched the original cuts, all five
+checkpoint pairs, the 994 retained parts and all 27 reply hashes. it found
+4,197 new events and 4,641 new parts across 35 chats, with zero events beyond
+the frozen manifest. the projection retains gaps, branch events and context
+references. ordinary tool-output clipping accounts for 198,028 characters.
+four workers had only a metadata suffix. retry those individually to
+acknowledge their unchanged terminal pairs. the proposed
+39-case uuid list and comparison receipts are private. the candidate replay
+sha256 is `58443d3d1deb53e4d3b31a9c05043b27b7836b4c11d29bee418106b6100c60ca`.
+
+independent claude opus 5.5 review passed both exact candidates at 01:59 utc.
+the review receipt sha256 is
+`7006f923a5501e5741481a503a65e7eeb4ccd6bf2b0088f24ba6b783ee5715ee`.
+the owner authorized the v3 tags, macbook recovery and then the devbox
+collector update on november 24 from 02:30 to 04:00 utc. the historical owner
+confirmed no overlap. the recovery set contains only the 39 manifest uuids,
+on central `43ed919` / `0019`, with a memory-service stop budget of five
+minutes. the pre-cut status was zero recovered, 39 metadata parks, a separate
+nul park and 21 missing-source devbox baselines. `0020` stays gated on v3
+closure receipts or named owner exceptions.

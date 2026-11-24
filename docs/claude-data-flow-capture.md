@@ -47,4 +47,6 @@ hold the release lock, stop `jarvis-memory.service`, compare each stopped row to
 
 compare every ordered native id/digest to central from its original cut or checkpoint. these 39 include zero forks. an additional fork permits omission only with native direct-origin proof and complete central parts matching that origin digest. verify prior parts, unique contiguous parts, one leaf per part and acknowledged advancement to the frozen terminal pair or a verified extension. reopen each witness through installed paged `memory_open` and compare its normalized text hash. verify a fresh ordinary reply in one unaffected same-lane chat.
 
+four workers already retain their terminal checkpoint pair. when replay finds an empty suffix, require a new caught-up acknowledgement at that same pair, a cleared diagnostic and identical prior parts and leaves. count these separately from the 35 chats with missing post-cut data.
+
 before `0020`, require each closure receipt or an owner exception naming the outstanding ids, plus a qualified v4 collector with this fix. `3841c0f` predates it. report recovered, still parked and missing-source counts separately with totals and hashes. [stopped cut](operations.md#stopped-conversation-capture-cut-from-0019-to-0020) · [separate nul and missing-source cases](issues/macbook-claude-data-flow-capture.md)

@@ -393,8 +393,8 @@ secret assignments, including the embedding key. on the operator workstation
 point it at `~/Documents/code/envs/projects/jarvis/.secrets/jarvis.slice0.env`
 and point `JARVIS_SOURCE_GOOGLE_STATE` at
 `google-connector-state.jarvis.json` in the same directory. use the exact original
-`JARVIS_OWNER_SCOPE` and `JARVIS_OWNER_ARCHIVE_KEY`. `JARVIS_DISCORD_CHANNEL_ID`
-selects the alert destination. the installer rejects the retired gateway settings.
+`JARVIS_OWNER_SCOPE` and `JARVIS_OWNER_ARCHIVE_KEY`. the installer rejects
+retired discord settings.
 supply current `JARVIS_SOURCE_GOOGLE_STATE` and `JARVIS_SOURCE_MEMORY_CONFIG`
 for an intentional private-state change. the stopped web cut reads the installed
 source declarations directly and preserves both google authorization and cursors.

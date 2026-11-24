@@ -1,10 +1,14 @@
-# discord alert channel administration
+# retire the jarvis discord bot
 
-the installed bot sends alerts and its message-content intent is off. at web-home
-closeout, discord still granted read history and returned no pinned move notice.
-the bot lacks manage roles and cannot change its channel overwrite.
+the selected android release has no discord sender. the old bot still had
+access to the one alert server on november 24 utc. discord returned 429 on
+two documented removal requests, including a retry. the installed and local
+installer declarations still contain the two retired assignments.
 
-a guild permission manager must leave the bot only view channel and send messages
-in the alert channel. the owner posts “chat and pause/resume have moved to
-https://jarvis.nielseriknandal.com/” and a member with pin permission pins it.
-close when a fresh channel permission read and pin lookup confirm both.
+a discord owner removes the bot from the original server, removes any
+remaining bot-specific channel permission and resets the token in the
+developer portal. verify the guild membership is gone and the old credential
+returns 401. remove `JARVIS_DISCORD_BOT_TOKEN` and
+`JARVIS_DISCORD_CHANNEL_ID` from the installed and operator source declarations.
+preserve `JARVIS_OWNER_SCOPE`, `JARVIS_OWNER_ARCHIVE_KEY` and historical
+notice receipts. [android cut](../decisions/0105-native-android.md#installed-release-on-november-24-utc)

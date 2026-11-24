@@ -195,3 +195,38 @@ and worker freeze. at 02:42 utc both central writers were active on
 `43ed919` / `0019` under pause `33`. all 39 recovery cases still require
 retry and readback. devbox remains on `8c82c5f`. recovery awaits explicit
 operator handoff. ordinary control traffic preceded the capacity window.
+
+the `0020` operator handed back pause `33` at 02:42:49 utc and held the
+schema cut. the installed reader reread the exact cohort at 02:47 utc and
+matched all 4,197 expected events, 4,641 projected parts and five saved
+pairs. the memory stop ran from 02:48:19.872669 to 02:50:57.269493 utc.
+all 39 individually checked retries cleared only their diagnostic, with
+zero held rows. the assistant stayed active and pause `33` remained in
+force. authenticated reads returned by 02:51:13 utc. the stopped receipt
+sha256 is `751a401f462f843a5787d6c087caf0d6e50afcb5773a148b77367756aeee3a19`.
+the recoverable queue remains open until ordinary capture and installed
+readback match the manifest.
+
+## installed closure
+
+at 03:29:30.763574 utc all 39 conversations had acknowledged the expected
+terminal pairs. the 35 data-bearing conversations yielded 4,197 ordered
+native ids and digests and 4,641 complete unique parts. the 994 prior parts
+and their leaves matched the stopped predecessor. each part had one leaf.
+four workers acknowledged the same saved pairs with zero new parts. all
+27 later text witnesses reopened through installed paged `memory_open`
+and matched the replay hashes. a second ordinary reply in the same
+unaffected `claude-work` chat was acknowledged at 02:58:41 utc and
+reopened with the same normalized text hash.
+
+actual backfill arrivals ran from 02:54:34.104869 to 03:29:30.698749 utc.
+the private per-conversation closure receipt was reopened with sha256
+`186f0a94ad1d1069bc67b26e494a745653425ddc31d719d9c912d3b4d3d87f41`.
+the devbox update followed macbook closure at 03:31 utc. both collectors
+then ran `74b616a` with six authenticated capture lanes each.
+the november 24–25 capacity observation begins after the backfill and
+collector changes.
+
+the 39 metadata parks are resolved. one separate claude tool-output nul
+park and 21 missing-source devbox baselines remain open under their own
+issues.

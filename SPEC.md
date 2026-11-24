@@ -2588,7 +2588,7 @@ The action ledger must not become a duplicate message or memory store.
 existing connector credentials, cursors and adapter state remain in their
 owned stores. canonical pause is a postgres control message. native request,
 attempt, invocation and input-delivery facts use the existing database and owner
-lock; provider sessions/history are disposable. the operator's disk-backed
+lock. provider sessions and history are disposable. the operator's disk-backed
 service hold and receipts bind maintenance to exact inputs and releases.
 canonical requests, controls and effect evidence stay in postgres. the
 original sealed terminal includes its frozen output

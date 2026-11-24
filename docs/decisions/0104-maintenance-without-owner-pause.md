@@ -61,3 +61,9 @@ a and b proceed independently. c consumes both. before red, each feature's conte
 | c · release, private provisioner and backup-reader update | reproduce the old pause refusal. verify target grants, reader restore and zero maintenance control messages under both real owner states. prove the reader change keeps both writers online. wrong release or live required writer refuses mutation. |
 
 use dev-server's `scripts/rehearse-worktree` on macbook with actual packaged services and controlled external effects. independent claude opus reviews each feature and the integrated cut. refactor, rerun the observable journeys, delete only these temporary probes, reopen and hash named evidence outside scratch, and record fixture cleanup. a separately authorized installed journey verifies the real release and owner state without manufactured chat controls.
+
+## implementation evidence
+
+claude opus passed the source at `edf57df`, the protected staging cleanup at `7ffbad9` and the idle preflight diagnostic at `2f71411`. the macbook guest used systemd 255, postgres 16 and packaged jarvis. rehearsal-only schemas exercised transactional migration, rejected a mismatched dump receipt and adopted the qualified reader under the same hold. the packaged release, startup failure and repair, reboot and same-id continuation preserved the exact stopped owner control.
+
+the original activated action's gmail recovery kept one executor entry for both a proved send and an unknown outcome. the connector and native provider were controlled fixtures. private provisioning preserved an owner pause and a resume. the backup run with the old reader completed, the next run used the replacement, and the isolated restore opened the witness event and note. the retained evidence records the exact artifact for each check. installed acceptance remains [open](../issues/maintenance-installed-cutover.md).

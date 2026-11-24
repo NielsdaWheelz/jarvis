@@ -14,7 +14,7 @@ if [[ "$operation" == migrate ]]; then
   shift 2
 fi
 if [[ $# != 2 && ( $# != 1 || "$operation" != activate ) ]]; then
-  printf 'usage: deploy/activate-release [--prepare|--migrate] [SOURCE_COMMIT] TARGET_COMMIT\n' >&2
+  printf 'usage: deploy/activate-release [--prepare | --migrate --manifest FILE] [SOURCE] TARGET\n' >&2
   exit 64
 fi
 commit="${!#}"

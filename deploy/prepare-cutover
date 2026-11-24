@@ -20,7 +20,7 @@ from memory_snapshot import STOPPED_TABLE_KEYS, table_inventory
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from jarvis._atomic_json import replace_private_json
+from jarvis._atomic_json import replace_bytes, replace_private_json
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
     create_engine,
@@ -195,18 +195,9 @@ def receive_manifest(commit, digest, stream):
         "manifest needs the held release snapshot",
     )
     path = manifest_path(destination, digest)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=destination, delete=False) as output:
-            temporary = Path(output.name)
-            shutil.copyfileobj(stream, output)
-            output.flush()
-            os.fsync(output.fileno())
-        require(file_digest(temporary) == digest, "manifest transfer differs")
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    payload = stream.read()
+    require(hashlib.sha256(payload).hexdigest() == digest, "manifest transfer differs")
+    replace_bytes(path, payload, 0o600)
 
 
 async def migrate_archive(

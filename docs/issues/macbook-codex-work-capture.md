@@ -215,7 +215,44 @@ private reopened receipts:
 | isolated stopped migration and restore | `codex-0022-release-restore-20261124T040828Z.json` | `d11f710e7f82dc61d763d8a162d73cd05baf837fc5bbb88808a170fbb082f856` |
 | independent review | `codex-0022-release-opus-85d137a.json` | `9df982f3b537b383468be51f463aa0c935cb61069258f7e80eae5972937a35b5` |
 
-live repair awaits the historical deployment handoff. at 04:11 utc the
+the live repair waited for the historical deployment handoff. at 04:11 utc the
 database still reported `0020`, with owner web pause 33 and both writers
 stopped under the historical cut. installing another candidate on the
 server would prune the inactive historical release.
+
+#### installed repair · november 24 utc
+
+after historical cleanup, production advanced from `a28e639/0021` to
+`3e87705c573f00a6053214a371cdfea107a8252b/0022` under web pause 37.
+the installed memory reader fix remains pinned. the hash-matched stopped
+production copy matched all 20 table inventories in the mac rehearsal.
+both collectors now select the same release and authenticate native v5.
+a v4 sync was refused. the preceding inactive candidate was pruned during
+staging. the owner selected rewind repair ahead of outgoing mail.
+
+the installed proof preserved all 112 surviving archive parts and leaves.
+capture appended exactly 112, 34 and 30 expected parts in source order.
+all six old and selected terminal replies reopened under their original
+conversation ids. the retired witness stayed retired. no park remained
+on these three chats. the admitted bound moved from 19,112 to 19,288 with
+ready through 3,887. future capture on these specific roots awaits their
+next natural reply.
+
+the private installed receipt is
+`codex-selected-0022-installed-repair-20261124T055415Z.json`, reopened sha-256
+`7e6ad2969bb6df40e461c1936ecf8ebbac8fab906c2af91b38ffe9dc663aa8cd`.
+the stopped rehearsal receipt is
+`codex-0022-production-copy-rehearsal-20261124T054816Z.json`, reopened sha-256
+`aa45314f34c6c912239122a890c718e4904436e43937a697bd6d4a1401886bac`.
+
+the installed backup cut at 05:53:54 utc included the full admitted bound
+19,288. both the off-host and independently held copies restored and matched
+all 21 table digests, including an event, note and retired address witness.
+backup scheduling resumed. the private combined receipt `codex-0022-production-restore-20261124T055354161316Z.json`
+has reopened sha-256 `ceb936971be7587833c101fa750562dcacfb8866d24cbc8df001c3372f301228`.
+
+owner web resume 38 committed at 05:59:24.077970 utc. both services,
+collectors and backup scheduling were healthy. outgoing mail received the
+production handoff. the private `production-0022-3e87705c573f/handoff.json`
+receipt reopened with sha-256
+`3e08339f5c2fb35953964ae079cad3ecb8e72b1e18c9d8bf1b7e443ca3413ed3`.

@@ -678,9 +678,9 @@ before the `0020` worker freeze, require per-conversation v3 [claude recovery re
    release, protected originals, retired addresses and restored backup. freeze
    the three parked receipts and all selected native occurrence hashes privately.
 2. stage the matching `0022` service and v5 collectors. drain v4 collectors.
-   record the owner web pause, disable the backup timer and prepare the stopped
-   copy in `/var/lib/jarvis-cutover/adr0103/`. on macbook, restore that copy and
-   qualify the stopped migration.
+   record the owner web pause, disable the backup timer and stop both writers
+   cleanly before preparing the stopped copy in `/var/lib/jarvis-cutover/adr0103/`.
+   on macbook, restore that copy and qualify the stopped migration.
 3. migrate with both exact release receipts. preserve all stopped table
    inventories, including retired source addresses. verify the new zero
    generation, guard and grants. activate the matching sender and receiver.

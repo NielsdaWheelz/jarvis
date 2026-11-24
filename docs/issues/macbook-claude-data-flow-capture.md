@@ -180,3 +180,18 @@ on central `43ed919` / `0019`, with a memory-service stop budget of five
 minutes. the pre-cut status was zero recovered, 39 metadata parks, a separate
 nul park and 21 missing-source devbox baselines. `0020` stays gated on v3
 closure receipts or named owner exceptions.
+
+at 02:30 utc the four v3 tags were published and fetched at their exact
+commits. at 02:31:30 utc macbook ran `74b616a` with the reviewed provider
+reader hash and six authenticated lanes. an ordinary `claude-work` control
+reply reached central and was acknowledged at 02:40:01 utc. installed
+`memory_open` returned the matching normalized text hash.
+
+the stopped-retry guard found canonical web pause `33`, committed at
+02:24:11.972737 utc after historical clearance. it exited before any stop
+or retry. the pause belongs to the separate `0020` and nexus cut. its
+operator acknowledged the recovery dependency and held the schema cut
+and worker freeze. at 02:42 utc both central writers were active on
+`43ed919` / `0019` under pause `33`. all 39 recovery cases still require
+retry and readback. devbox remains on `8c82c5f`. recovery awaits explicit
+operator handoff. ordinary control traffic preceded the capacity window.

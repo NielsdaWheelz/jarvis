@@ -465,10 +465,11 @@ async def cut(operation, destination, binding, stop, qualification):
         )
     target_dir = ROOT / "releases" / target["commit"]
     allowed = {ROOT / "releases" / source["commit"]}
-    if operation == "verify-target":
+    if operation in {"migrate", "verify-target"}:
         allowed.add(target_dir)
+    selected = (ROOT / "current").resolve(strict=True)
     require(
-        (ROOT / "current").resolve(strict=True) in allowed
+        selected in allowed
         and Path(__file__).resolve().parents[1] == target_dir
         and APPLICATION_SCHEMA_REVISION == target["schema"],
         "selected release or target differs",
@@ -482,7 +483,7 @@ async def cut(operation, destination, binding, stop, qualification):
             if operation in {"migrate", "verify-target"}:
                 allowed = (
                     {target["schema"]}
-                    if operation == "verify-target"
+                    if selected == target_dir or operation == "verify-target"
                     else {source["schema"], target["schema"]}
                 )
             require(version in allowed, "unexpected stopped schema")

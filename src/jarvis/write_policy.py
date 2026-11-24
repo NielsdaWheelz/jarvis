@@ -23,6 +23,9 @@ from jarvis.write_tools import (
     CalendarDeleteEventInput,
     CalendarEventSnapshot,
     CalendarUpdateEventInput,
+    GmailCreateDraftInput,
+    GmailSendDraftInput,
+    GmailUpdateDraftInput,
 )
 
 type WriteAuthority = Literal["automatic", "approval_required", "rejected"]
@@ -40,6 +43,8 @@ def classify_write(
     name = str(tool_id)
     if (name, type(value)) in {
         ("events.configure", EventsConfigureInput),
+        ("gmail.create_draft", GmailCreateDraftInput),
+        ("gmail.update_draft", GmailUpdateDraftInput),
         ("attachment.retain", AttachmentRetainInput),
         ("work.create", WorkCreateInput),
         ("work.update", WorkUpdateInput),
@@ -56,9 +61,7 @@ def classify_write(
         return "automatic"
     if name == "attachment.delete" and isinstance(value, AttachmentDeleteInput):
         return "approval_required"
-    if name in {"gmail.create_draft", "gmail.update_draft"}:
-        return "automatic"
-    if name == "gmail.send_draft":
+    if name == "gmail.send_draft" and isinstance(value, GmailSendDraftInput):
         return "approval_required"
     verified = set(verified_owner_only_calendar_ids)
     if name == "calendar.create_event" and isinstance(value, CalendarCreateEventInput):

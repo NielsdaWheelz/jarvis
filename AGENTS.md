@@ -61,7 +61,8 @@ These instructions govern all work in this repository.
   original receipts plus normalized paid-read barriers. the owner selected
   disposable web pages with explicit restart after stale cursors. the roadmap
   owns dependencies. broader search,
-  inbox housekeeping, new invitation responses and outgoing files stay deferred.
+  inbox housekeeping and new invitation responses stay deferred. outgoing gmail
+  files have their own [design and cutover contract](docs/decisions/0101-outgoing-mail-attachments.md).
   preserve existing prompt/personality, native subagents and skid; repair
   demonstrated gaps rather than add an orchestration framework. production
   activation remains separate. f1 source and its separate candidate

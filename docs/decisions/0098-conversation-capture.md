@@ -1,6 +1,6 @@
 # adr 0098. conversation capture
 
-owner decisions, november 23, 2026. prospective design against jarvis `43ed919`. implementation, installation and [historical redesign](../issues/historical-tool-corpus.md) are separate. this supersedes [0066’s full worker histories](0066-optchat-memory-adoption.md#d07a-retain-available-worker-histories-and-reports) and amends [native capture](0089-native-capture-repair.md), [memory delivery](../memory-delivery.md) and the [live observation boundary](../private-notes-and-rolodex.md).
+owner decisions, november 23, 2026. prospective design against jarvis `43ed919`. implementation, installation and [historical cleanup](0102-historical-capture-cleanup.md) are separate. this supersedes [0066’s full worker histories](0066-optchat-memory-adoption.md#d07a-retain-available-worker-histories-and-reports) and amends [native capture](0089-native-capture-repair.md), [memory delivery](../memory-delivery.md) and the [live observation boundary](../private-notes-and-rolodex.md).
 
 ## product contract
 
@@ -80,3 +80,51 @@ per feature on macbook, the designer freezes examples and blind answers. write t
 predeclare a matched tool-heavy replay and equal busy/quiet windows before and after installation. compare positions and retained bytes per lane, kind and day, with main observations separate. the replay must shrink both totals and preserve every expected utterance. record model usage only where attributable. a parked compactor or historic backlog can absorb the gain. [capacity evidence](../issues/memory-usefulness-evaluation.md)
 
 the recorded installed baseline is `e7f5916`/`0018`. qualify source on `0019`. install `0019→0020` as its own cut after its selected predecessor’s gates, including [0096 google verification](0096-calendar-on-demand.md#live-google-calendar). 0098 does not bundle 0095–0097 activations. recheck installed release and both collector pins. quiesce new nexus sends/retries while its old publisher/receiver finish admitted runs and acknowledge all v1 exports. a park holds this cut. if inactive, verify registration, admissions and outbox without activating. use the existing owner pause, stopped writers/locks, verified backup and isolated restore. preserve cuts and historical refs. hard-reject old producers. deferred lanes resume at their last committed boundary, irrespective of source date. prove an installed root, delivered report, skipped span, fresh recall and main observation separately.
+
+## installed cut, november 24, 2026
+
+the matched macbook replay fed the same tool-heavy conversation through both
+collectors, the authenticated receiver and postgres. its four utterances kept
+their wording, speakers and order. capture went from 199 to four positions
+and from 108,155 to 119 retained body bytes. the replay made zero model calls.
+the owner waived live before/after traffic windows.
+
+before the worker freeze, the v3 recovery on `74b616a` accounted for all 39
+named macbook conversations. 35 supplied 4,197 events and 4,641 new parts.
+four acknowledged their existing checkpoints. all 994 earlier parts matched,
+and 27 recovered replies and one unaffected follow-up reopened. the v3 operator
+handed web pause 33 back to the release operator. both hosts then had `74b616a`.
+the v4 candidate `403b1f7` includes the same reader repair. the private receipt
+`claude-data-flow-implementation-20261124/closure-receipts.json` has sha256
+`186f0a94ad1d1069bc67b26e494a745653425ddc31d719d9c912d3b4d3d87f41`.
+
+nexus selected `e3d8352` at schema `0347`, client wire 25. its three capture
+declarations stayed disabled, with zero registrations, exports or parks.
+the installed native model, structured oracle, and metered openai and anthropic
+requests completed. the gemini carbon request exhausted the interactive
+worker’s memory. neon and hydrogen generation remain unverified. the owner’s
+previous model selection was restored.
+
+jarvis selected `403b1f7` at `0020` under the same owner pause. all six
+authenticated lanes on each host used v4. the installed service rejected
+native v3 and the nexus v1 envelope. a previously saved result at position
+904 reopened with its exact id, digest and body. both the remote and held
+copies of backup `20261124T035511711726Z-4726c5ef21114553ba4dd409e26da895`
+restored on macbook and reopened an original and a note. an ordinary macbook
+root acknowledged its checkpoint with 16 parts before the historical cut.
+
+after the cut its 16 parts and both saved source digests matched. the installed
+collector advanced across an omitted bash result. the later assistant text
+and the delivered worker report each appeared once, with the original text
+hash, sender and receiving conversation. a later poll acknowledged the same
+checkpoint with all 37 parts intact. the observed interval also contained
+ordinary speech and context. a whole tool-only batch committing zero rows
+was exercised in the matched source checks. the live sample did not isolate
+such a batch. installed native receipt sha256
+`f72b37162f79a6cededd75c5eda5c2eb2bec8badd4b5c846bd269611c9ee6ee8`.
+
+under owner resume 34, jarvis's own contained shell call and result appeared
+once, with exit status zero and 33 bytes matching the independent output
+hash. receipt sha256 `960d0bf0efa3e42835929e5d0e19b4e99afbbbd655ce5c7a407571bd6eafe2d2`.
+the [historical cleanup](0102-historical-capture-cleanup.md) records the
+result-reader correction found during this turn.

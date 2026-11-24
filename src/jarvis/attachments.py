@@ -91,6 +91,15 @@ class WebUpload:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ReadyOriginal:
+    filename: str
+    media_type: str | None
+    size_bytes: int
+    sha256: str
+    cache: Path
+
+
 def upload_spool_name(identifier: UUID, sha256: str) -> str:
     return f"{identifier}.{sha256}"
 
@@ -835,6 +844,21 @@ class AttachmentStore:
                 resolved_at=now,
                 source_conversation_id=self._conversation_id,
             )
+
+    async def ready_original(self, identifier: UUID) -> ReadyOriginal | str:
+        row = await self._row(identifier)
+        if row is None:
+            return "NotFound"
+        self._check_location(row)
+        if row["state"] != "ready":
+            return self._unreadable(row)
+        return ReadyOriginal(
+            filename=row["filename"],
+            media_type=row["media_type"],
+            size_bytes=row["size_bytes"],
+            sha256=row["sha256"],
+            cache=self._cache,
+        )
 
     async def open(self, identifier: UUID) -> ReadResponse[ToolResult]:
         row = await self._row(identifier)

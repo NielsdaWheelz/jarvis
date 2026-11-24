@@ -43,6 +43,7 @@ from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadC
 from jarvis.event_polling import EventPoller
 from jarvis.event_tools import events_family
 from jarvis.events import EventStore
+from jarvis.mail_files import MailFiles
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
 from jarvis.ownership import Database
@@ -65,6 +66,7 @@ class ToolComposition:
     google_write: GoogleWriteConnector
     event_poller: EventPoller
     attachments: AttachmentStore
+    mail_files: MailFiles
     google_read: GoogleReadConnector
     web_source_operation: Callable[[WebSearchInput], JsonObject | None]
 
@@ -89,16 +91,21 @@ def build_tool_composition(
     ).hexdigest()
     tokens = google_tokens(settings, google_oauth_http)
     google_read = GoogleReadConnector(client=google_api_http, tokens=tokens)
-    google_write = GoogleWriteConnector(
-        client=google_api_http,
-        tokens=tokens,
-        stage_gmail_update_basis=actions.stage_gmail_update_basis,
-        stage_external_attempts=actions.stage_external_attempts,
-    )
     attachments = build_attachment_store(
         settings=settings,
         database=actions.engine,
         google=google_read,
+    )
+    mail_files = MailFiles(
+        attachments,
+        settings.host_secrets,
+        stage_root=settings.runtime_state_directory.parent / "mail-stage",
+    )
+    google_write = GoogleWriteConnector(
+        client=google_api_http,
+        tokens=tokens,
+        actions=actions,
+        mail_files=mail_files,
     )
     maps = MapsReadConnector(
         client=maps_http,
@@ -160,6 +167,7 @@ def build_tool_composition(
         google_write,
         event_poller,
         attachments,
+        mail_files,
         google_read,
         partial(web_search_source_operation, policy=search_policy),
     )

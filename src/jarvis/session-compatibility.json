@@ -1,5 +1,5 @@
 {
-  "application_session_contract_revision": "jarvis-historical-capture-cleanup-v1",
+  "application_session_contract_revision": "jarvis-outgoing-mail-v3",
   "dependencies": {
     "llm-agent-kernel": "b78daf19ac4d9f2f6b5848003de9c43decec1186",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
@@ -20,7 +20,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-historical-capture-v22"
+      "revision": "jarvis-main-outgoing-mail-v24"
     }
   },
   "schema_version": "jarvis-session-compatibility.v4"

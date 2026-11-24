@@ -114,9 +114,11 @@ def create_home_app(
             except ValueError as exc:
                 raise HTTPException(422, "invalid cursor") from exc
 
-    async def one_message(identifier: UUID) -> dict[str, Any]:
+    async def one_message(identifier: UUID, mail_body: bool = False) -> dict[str, Any]:
         async with database.connect() as conn:
-            row = await visible_message(conn, scope, identifier)
+            row = await visible_message(
+                conn, scope, identifier, include_mail_body=mail_body
+            )
         if row is None:
             raise HTTPException(404)
         return row

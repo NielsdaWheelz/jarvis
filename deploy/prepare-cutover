@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -172,7 +173,45 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
             shutil.rmtree(stage)
 
 
-async def cut(operation, destination, source, target, system_stop):
+def manifest_path(destination, digest):
+    require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid manifest digest")
+    return destination / f"historical-capture.{digest}.json"
+
+
+def receive_manifest(commit, digest, stream):
+    require(
+        Path(__file__).resolve().parent.parent == ROOT / "releases" / commit,
+        "wrong receiving release",
+    )
+    subprocess.run(
+        [Path(__file__).with_name("cutover-hold"), "check", commit],
+        stdout=subprocess.DEVNULL,
+        check=True,
+    )
+    destination = Path("/var/lib/jarvis-cutover/historical-capture") / commit
+    snapshot = destination / "SNAPSHOT.json"
+    require(
+        json.loads(snapshot.read_bytes())["target"]["commit"] == commit,
+        "manifest needs the held release snapshot",
+    )
+    path = manifest_path(destination, digest)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=destination, delete=False) as output:
+            temporary = Path(output.name)
+            shutil.copyfileobj(stream, output)
+            output.flush()
+            os.fsync(output.fileno())
+        require(file_digest(temporary) == digest, "manifest transfer differs")
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+async def cut(
+    operation, destination, source, target, system_stop, manifest_digest="none"
+):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrator = make_url(migration_url)
@@ -303,7 +342,12 @@ async def cut(operation, destination, source, target, system_stop):
             )
             if operation == "verify" and version == SOURCE:
                 return
-            plan_file = destination / "historical-capture.json"
+            result_file = destination / "historical-result.json"
+            if version == TARGET:
+                result = json.loads(result_file.read_bytes())
+                if manifest_digest == "none":
+                    manifest_digest = result["manifest_sha256"]
+            plan_file = manifest_path(destination, manifest_digest)
             plan_bytes = plan_file.read_bytes()
             plan = HistoricalCaptureManifest.model_validate_json(plan_bytes)
             bindings = {
@@ -313,13 +357,12 @@ async def cut(operation, destination, source, target, system_stop):
                 "target": target,
             }
             require(
-                plan.source_schema == SOURCE
+                manifest_digest == bindings["manifest_sha256"]
+                and plan.source_schema == SOURCE
                 and plan.snapshot_sha256 == bindings["snapshot_sha256"],
                 "historical manifest does not identify this stopped snapshot",
             )
-            result_file = destination / "historical-result.json"
             if version == TARGET:
-                result = json.loads(result_file.read_bytes())
                 require(
                     all(result.get(k) == v for k, v in bindings.items())
                     and result["target_facts"] == facts,
@@ -363,6 +406,10 @@ async def cut(operation, destination, source, target, system_stop):
 
 
 def main():
+    os.umask(0o077)
+    if len(sys.argv) == 4 and sys.argv[1] == "receive-manifest":
+        receive_manifest(sys.argv[2], sys.argv[3], sys.stdin.buffer)
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "operation",
@@ -376,6 +423,7 @@ def main():
     parser.add_argument("destination", type=Path)
     parser.add_argument("source_receipt", type=json.loads)
     parser.add_argument("target_receipt", type=json.loads)
+    parser.add_argument("manifest_digest")
     args = parser.parse_args()
     stop = json.loads(
         subprocess.check_output(
@@ -394,6 +442,7 @@ def main():
             args.source_receipt,
             args.target_receipt,
             stop,
+            args.manifest_digest,
         )
     )
     print("stopped cut validated:", args.operation)

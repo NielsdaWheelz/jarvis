@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Publish a dedicated FCM sender without interrupting the current release.
+set -euo pipefail
+if [[ $# != 2 || ! "$1" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ||
+      ! -f "$2" || "$(stat -f '%u:%Lp' "$2")" != "$(id -u):600" ]]; then
+  printf 'usage on macbook: deploy/install-fcm-sender PROJECT OWNER_PRIVATE_SERVICE_ACCOUNT_JSON\n' >&2
+  exit 64
+fi
+target=dev-server-deploy
+remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" mktemp -d /tmp/jarvis-fcm.XXXXXXXX)"
+[[ "$remote" =~ ^/tmp/jarvis-fcm\.[a-zA-Z0-9]+$ ]]
+trap 'ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" rm -rf -- "$remote"' EXIT
+scp -p -q -o BatchMode=yes -o ForwardAgent=no "$2" "$target:$remote/sender.json"
+
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock \
+  bash -s -- "$1" "$remote" <<'REMOTE'
+set -euo pipefail
+source /opt/jarvis/current/deploy/release-functions
+require_no_cutover_hold
+exec python3 - "$@" <<'PYTHON'
+import json, pwd, sys
+from pathlib import Path
+
+sys.path.insert(0, "/opt/jarvis/current/deploy")
+from memory_credentials import publish
+
+project, stage = sys.argv[1:]
+encoded = (Path(stage) / "sender.json").read_bytes()
+try:
+    if len(encoded) > 32 * 1024:
+        raise ValueError
+    account = json.loads(encoded)
+    if (
+        account["type"] != "service_account"
+        or account["project_id"] != project
+        or account["token_uri"] != "https://oauth2.googleapis.com/token"
+        or not account["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+        or not account["client_email"].endswith("@" + project + ".iam.gserviceaccount.com")
+    ):
+        raise ValueError
+except (ValueError, KeyError, TypeError, AttributeError):
+    raise SystemExit("invalid Jarvis FCM service account") from None
+
+destination = Path("/var/lib/jarvis/connectors/fcm-sender.json")
+declaration = Path("/etc/jarvis/fcm.env")
+configuration = ("JARVIS_FCM_PROJECT_ID=" + project + "\n").encode()
+if declaration.exists() and declaration.read_bytes() != configuration:
+    raise SystemExit("existing FCM project differs")
+jarvis = pwd.getpwnam("jarvis")
+publish(destination, encoded, owner=jarvis.pw_uid, group=jarvis.pw_gid)
+publish(declaration, configuration)
+print("installed dedicated FCM sender")
+PYTHON
+REMOTE

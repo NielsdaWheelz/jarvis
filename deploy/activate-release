@@ -221,6 +221,22 @@ if [[ "$source_schema" == "$target_schema" && "$rehearsal" != none ]]; then
   refuse "schema is unchanged, so no migration qualification receipt applies"
 fi
 
+if [[ "$source_schema" == 0022 && "$target_schema" == 0023 ]]; then
+  systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+    --property=User=jarvis --property=Group=jarvis \
+    "--property=SupplementaryGroups=jarvis-memory" \
+    --property=EnvironmentFile=/etc/jarvis/fcm.env \
+    "$release/.venv/bin/python" - <<'PY'
+import os
+from jarvis.fcm import load_sender_account
+
+try:
+    load_sender_account(os.environ.get("JARVIS_FCM_PROJECT_ID"))
+except Exception:
+    raise SystemExit("the phone cut needs a valid dedicated FCM service account") from None
+PY
+fi
+
 migration() {
   local step="$1"
   shift

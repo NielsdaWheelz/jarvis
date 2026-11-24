@@ -185,6 +185,64 @@ async function read(path) {
   if (!response.ok) throw new Error("could not load this item.");
   return response.json();
 }
+$("phone-alerts").addEventListener("toggle", async (event) => {
+  if (!event.currentTarget.open) return;
+  const status = $("phone-status");
+  const disconnect = $("disconnect-phone");
+  disconnect.hidden = true;
+  status.textContent = "checking phone alerts…";
+  try {
+    const readPhone = async () => {
+      const response = await request("/api/push/phone");
+      if (!response.ok) throw new Error("could not check phone alerts");
+      const phone = await response.json();
+      if (!phone.installation_id) return null;
+      const tag = response.headers.get("ETag");
+      if (!tag) throw new Error("could not check phone alerts");
+      return tag;
+    };
+    let tag = await readPhone();
+    status.textContent = tag ? "one phone is connected." : "no phone is connected.";
+    disconnect.hidden = !tag;
+    disconnect.onclick = async () => {
+      disconnect.disabled = true;
+      let failed = false;
+      try {
+        const response = await request("/api/push/phone", {
+          method: "DELETE",
+          headers: { "If-Match": tag },
+        });
+        if (response.ok) {
+          status.textContent = "phone disconnected.";
+          disconnect.hidden = true;
+          return;
+        }
+        failed = response.status !== 412;
+      } catch {
+        failed = true;
+      } finally {
+        disconnect.disabled = false;
+      }
+      disconnect.disabled = true;
+      try {
+        tag = await readPhone();
+        status.textContent = !tag
+          ? "phone disconnected."
+          : failed
+            ? "disconnect unconfirmed. try again."
+            : "phone alerts changed. disconnect the current phone?";
+        disconnect.hidden = !tag;
+      } catch (error) {
+        status.textContent = error.login ? "sign in to check phone alerts." : "disconnect unconfirmed. reopen to check.";
+        disconnect.hidden = true;
+      } finally {
+        disconnect.disabled = false;
+      }
+    };
+  } catch (error) {
+    status.textContent = error.login ? "sign in to check phone alerts." : "could not check phone alerts.";
+  }
+});
 function failure(error, part = "chat") {
   failures.set(part, Boolean(error.login));
   showConnection();
@@ -385,6 +443,28 @@ const fileState = {
   deleting: "deleting original",
   failed: "original unavailable",
 };
+function emailBody(label, load) {
+  const disclosure = el("details");
+  const body = el("p", "", "prose");
+  let loading = false;
+  let loaded = false;
+  disclosure.append(el("summary", label), body);
+  disclosure.addEventListener("toggle", async () => {
+    if (!disclosure.open || loading || loaded) return;
+    loading = true;
+    try {
+      const content = await load();
+      if (typeof content !== "string") throw new Error("email body unavailable.");
+      body.textContent = content || "empty email body";
+      loaded = true;
+    } catch (error) {
+      body.textContent = error.message;
+    } finally {
+      loading = false;
+    }
+  });
+  return disclosure;
+}
 function renderMessage(m) {
   const node = el("article");
   node.id = "msg-" + m.id;
@@ -416,29 +496,11 @@ function renderMessage(m) {
       proposal.read_email ? el("p", proposal.detail, "prose") : prose(proposal.detail),
       el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
     );
-    if (proposal.read_email) {
-      const disclosure = el("details");
-      const body = el("p", "", "prose");
-      let loading = false;
-      let loaded = false;
-      disclosure.append(el("summary", "read email"), body);
-      disclosure.addEventListener("toggle", async () => {
-        if (!disclosure.open || loading || loaded) return;
-        loading = true;
-        try {
-          const entry = (await read("/api/messages/" + m.id + "?mail_body=true"))
-            ?.proposals.find((item) => item.action_id === proposal.action_id);
-          if (typeof entry?.mail_body !== "string") throw new Error("email body unavailable.");
-          body.textContent = entry.mail_body || "empty email body";
-          loaded = true;
-        } catch (error) {
-          body.textContent = error.message;
-        } finally {
-          loading = false;
-        }
-      });
-      group.append(disclosure);
-    }
+    if (proposal.read_email)
+      group.append(emailBody("read email", async () =>
+        (await read("/api/messages/" + m.id + "?mail_body=true"))
+          ?.proposals.find((item) => item.action_id === proposal.action_id)?.mail_body
+      ));
     if (proposal.decision)
       group.append(
         link("owner reply · " + proposal.decision, "/m/" + proposal.owner_message_id, "result"),
@@ -451,6 +513,30 @@ function renderMessage(m) {
     );
     reply.dataset.action = proposal.action_id;
     group.append(reply);
+    node.append(group);
+  }
+  if (m.saved_draft_error === "integrity")
+    node.append(el("p", "saved draft receipt failed integrity checks.", "draft-evidence"));
+  if (m.saved_draft) {
+    const draft = m.saved_draft;
+    const group = el("section", undefined, "draft-evidence");
+    group.append(
+      el("strong", draft.subject || "(no subject)"),
+      el("p", "draft revision verified at " + time(draft.observed_at), "secondary"),
+    );
+    for (const field of ["to", "cc", "bcc"]) {
+      const names = draft[field].map(({ name, address }) => name ? name + " <" + address + ">" : address);
+      group.append(el("p", field + " · " + (names.join(", ") || "none")));
+    }
+    if (draft.files.length) {
+      const files = el("ul");
+      for (const file of draft.files)
+        files.append(el("li", file.filename + " · " + file.size_bytes.toLocaleString() + " bytes"));
+      group.append(files);
+    }
+    group.append(emailBody("read saved draft", async () =>
+      (await read("/api/messages/" + m.id + "?mail_body=true"))?.saved_draft?.body_text
+    ));
     node.append(group);
   }
   if (m.present)
@@ -470,8 +556,12 @@ function merge(items) {
   const anchor =
     !pinned && Array.from(list.children).find((node) => node.getBoundingClientRect().bottom > top);
   const previousTop = anchor ? anchor.getBoundingClientRect().top : null;
-  for (const m of items) {
+  for (let m of items) {
     const existing = $("msg-" + m.id);
+    if (existing && !Object.hasOwn(m, "saved_draft")) {
+      const { saved_draft, saved_draft_error } = JSON.parse(existing.dataset.version);
+      if (saved_draft !== undefined) m = { ...m, saved_draft, saved_draft_error };
+    }
     if (m.present) presentations.set(m.present.request_id, m.present.ref);
     if (existing?.dataset.version === JSON.stringify(m)) continue;
     const node = renderMessage(m);
@@ -570,7 +660,7 @@ function navigate(path, origin) {
   const detail = /^\/[mt]\//.test(path);
   const fromCanvas = !history.state?.panel && !/^\/[mt]\//.test(location.pathname);
   const state = detail
-    ? { ...history.state, panel: true, chat: false, fromCanvas, reading: null }
+    ? { ...history.state, panel: true, chat: false, fromCanvas, reading: null, resultCursors: [] }
     : {};
   history.pushState(state, "", path);
   startRoute();
@@ -906,7 +996,14 @@ $("next-page").onclick = () => changePage(overviewPage.offset + 50);
 async function detailRead(ver) {
   const [, kind, id] = location.pathname.split("/");
   if (kind === "t" && !$("records").hidden) {
-    const data = await read("/api/todos/" + id);
+    const cursors = history.state.resultCursors || [];
+    const page = cursors.length
+      ? "?before=" + encodeURIComponent(cursors.at(-1))
+      : "";
+    const [data, results] = await Promise.all([
+      read("/api/todos/" + id),
+      read("/api/todos/" + id + "/results" + page),
+    ]);
     if (ver !== routeVersion || $("records").hidden) return;
     const pane = $("records");
     const item = data?.record;
@@ -915,19 +1012,19 @@ async function detailRead(ver) {
           ? "jarvis check was due "
           : "jarvis check scheduled for ") + time(item.wake_at, data.timezone).toLowerCase()
       : "";
-    const version = JSON.stringify([item, wake]);
+    const version = JSON.stringify([item, wake, results, page]);
     if (pane.dataset.version === version) return;
-    const focus = pane.contains(document.activeElement),
-      scroll = pane.scrollTop;
+    const focused = pane.contains(document.activeElement) ? document.activeElement : null;
+    const scroll = pane.scrollTop;
     pane.dataset.version = version;
-    if (!item) {
+    if (!item || !results) {
       pane.replaceChildren(prose("this item is no longer available."));
       return;
     }
     const title = el("h2", item.title);
     title.tabIndex = -1;
     const reply = button("discuss", () => discuss({ kind: "todo", id: item.id }, item.title));
-    const hadReply = pane.querySelector("button") === document.activeElement;
+    reply.dataset.control = "discuss";
     pane.replaceChildren(
       title,
       el("small", item.state.replaceAll("_", " ")),
@@ -936,9 +1033,40 @@ async function detailRead(ver) {
     if (item.due_date) pane.append(el("p", "due · " + civilDate(item.due_date)));
     if (wake) pane.append(el("p", wake));
     pane.append(reply);
+    if (results.items.length || cursors.length) {
+      const section = el("section", undefined, "linked-results");
+      section.append(el("h3", "results"));
+      const list = el("ul");
+      for (const item of results.items) {
+        const row = el("li");
+        row.append(
+          link(item.label || "answer", "/m/" + item.message_id),
+          el("time", time(item.at, data.timezone)),
+        );
+        list.append(row);
+      }
+      section.append(list);
+      const turnPage = (label, next) => {
+        const control = button(label, () => {
+          changeState({ resultCursors: next });
+          routeVersion++;
+          refresh();
+        });
+        control.dataset.control = label;
+        section.append(control);
+      };
+      if (cursors.length) turnPage("newer results", cursors.slice(0, -1));
+      if (results.next_before) turnPage("earlier results", [...cursors, results.next_before]);
+      pane.append(section);
+    }
     pane.scrollTop = scroll;
-    if (focus || (document.activeElement === document.body && history.state.panel))
-      (hadReply ? reply : title).focus({ preventScroll: true });
+    if (focused || (document.activeElement === document.body && history.state.panel)) {
+      const same = [...pane.querySelectorAll("a, button")].find((node) =>
+        focused?.href ? node.href === focused.href
+          : focused?.dataset.control && node.dataset.control === focused.dataset.control
+      );
+      (same || title).focus({ preventScroll: true });
+    }
   } else if (kind === "m") {
     const m = await read("/api/messages/" + id);
     if (ver !== routeVersion) return;

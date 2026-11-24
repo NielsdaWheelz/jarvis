@@ -27,6 +27,11 @@ jarvis undertakes. conversation owns questions, proposals and answers.
 the adr supersedes the separate decisions surface and scopes the temporary
 per-feature design, opus review and live proof.
 
+[adr 0105](docs/decisions/0105-native-android.md) owns the native android
+client, explicit todo results on both clients and replacement of discord alert
+delivery by firebase. the installed 0087 contract governs until the recorded
+stopped android cut. preserve the original owner scope and archive addresses.
+
 ## outgoing gmail attachments
 
 [adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. source, detached rehearsal and isolated connected-account phone acceptance passed under adr 0046. the production cut and installed smoke are pending.

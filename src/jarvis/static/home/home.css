@@ -162,6 +162,8 @@ a {
 }
 nav {
   display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.3rem;
   border-bottom: 1px solid var(--line);
   padding: 0.65rem 1rem;
@@ -359,6 +361,28 @@ article {
   align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
+}
+#phone-alerts {
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+#phone-alerts summary {
+  cursor: pointer;
+}
+#records .linked-results {
+  margin-top: 1.4rem;
+}
+#records .linked-results ul {
+  padding-inline-start: 1.25rem;
+}
+#records .linked-results time {
+  display: block;
+  color: var(--muted);
+}
+.draft-evidence {
+  margin: 0.8rem 0;
+  padding: 0.65rem 0;
+  border-block-start: 1px solid var(--line);
 }
 .proposal {
   padding: 0.65rem 0.8rem;

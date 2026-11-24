@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -63,8 +64,10 @@ from pydantic import ValidationError
 from sqlalchemy import ColumnElement, RowMapping, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.sql.selectable import CTE
 
 from jarvis.actions import (
+    ActionPersistenceDefect,
     attachment_uncertainty_receipt,
     recorded_action_result,
     require_locked_action,
@@ -83,10 +86,11 @@ from jarvis.db import (
     native_invocation,
     proven_native_delivery,
     read_position,
+    work,
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
-from jarvis.home_reads import proposal_presented, reference_context
+from jarvis.home_reads import draft_for_request, proposal_presented, reference_context
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
     MAX_TRACE_BYTES,
@@ -95,14 +99,17 @@ from jarvis.messages import (
 )
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 from jarvis.terminal import (
+    Answered,
     JarvisNativeMessage,
     JarvisTerminal,
+    Partial,
     Presentation,
     Progress,
     RenderedTerminal,
     Silent,
 )
 from jarvis.tool_results import completed_tool_result, host_rejected
+from jarvis.work_tools import WORK_CREATE_SPEC
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1380,16 +1387,8 @@ async def _locked_attempt(
     return row
 
 
-async def _presentation_home(
-    connection: AsyncConnection,
-    scope: str,
-    attempt_id: UUID,
-    present: Presentation | None,
-    stopping: tuple[UUID, ...] = (),
-) -> dict[str, object] | None:
-    """Walk only proven deliveries' parent chains under the conversation lock."""
-    if present is None:
-        return None
+def _request_ancestors(scope: str, attempt_id: UUID, stopping: tuple[UUID, ...]) -> CTE:
+    """Keep each proven delivery attached to its unstopped, owner-scoped path."""
     eligible = (
         (message.c.source_conversation_id == scope)
         & message.c.request_state.in_(("pending", "waiting", "completed"))
@@ -1397,19 +1396,37 @@ async def _presentation_home(
     )
     if stopping:
         eligible &= message.c.id.not_in(stopping)
-    delivered = select(native_input_delivery.c.message_id).where(
-        native_input_delivery.c.attempt_id == attempt_id, proven_native_delivery
-    )
     ancestors = (
-        select(message.c.id, message.c.parent_request_id)
-        .where(eligible, message.c.id.in_(delivered))
+        select(
+            message.c.id,
+            message.c.parent_request_id,
+            native_input_delivery.c.message_id.label("input_id"),
+        )
+        .join(native_input_delivery, native_input_delivery.c.message_id == message.c.id)
+        .where(
+            eligible,
+            native_input_delivery.c.attempt_id == attempt_id,
+            proven_native_delivery,
+        )
         .cte("ancestors", recursive=True)
     )
-    ancestors = ancestors.union(
-        select(message.c.id, message.c.parent_request_id)
+    return ancestors.union(
+        select(message.c.id, message.c.parent_request_id, ancestors.c.input_id)
         .join(ancestors, message.c.id == ancestors.c.parent_request_id)
         .where(eligible)
     )
+
+
+async def _presentation_home(
+    connection: AsyncConnection,
+    scope: str,
+    attempt_id: UUID,
+    present: Presentation | None,
+    stopping: tuple[UUID, ...] = (),
+) -> dict[str, object] | None:
+    if present is None:
+        return None
+    ancestors = _request_ancestors(scope, attempt_id, stopping)
     request = await connection.scalar(
         select(message.c.id)
         .join(ancestors, ancestors.c.id == message.c.id)
@@ -1431,6 +1448,95 @@ async def _presentation_home(
         "native presentation omitted: attempt=%s reason=%s", attempt_id, reason
     )
     return None
+
+
+async def _todo_result_home(
+    connection: AsyncConnection,
+    scope: str,
+    attempt_id: UUID,
+    response: Answered | Partial,
+    named: tuple[UUID, ...],
+    stopping: tuple[UUID, ...],
+) -> dict[str, object] | None:
+    target = response.todo_result
+    if target is None or not named:
+        return None
+    request_id = UUID(target.request_id)
+    todo_id = UUID(target.todo_id)
+    ancestors = _request_ancestors(scope, attempt_id, stopping)
+    matching = (
+        select(func.count())
+        .select_from(ancestors)
+        .where(ancestors.c.id == request_id, ancestors.c.input_id.in_(named))
+        .scalar_subquery()
+    )
+    origin = (
+        (
+            await connection.execute(
+                select(
+                    message.c.role, message.c.source, message.c.text, message.c.home
+                ).where(
+                    message.c.id == request_id,
+                    matching == len(named),
+                    select(work.c.id).where(work.c.id == todo_id).exists(),
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if origin is None:
+        return None
+    typed_ref = origin["role"] == "owner" and cast(
+        dict[str, object], origin["home"] or {}
+    ).get("ref") == {"kind": "todo", "id": target.todo_id}
+    from_wake = False
+    if origin["role"] == "host" and origin["source"] == "work_wake":
+        try:
+            from_wake = json.loads(origin["text"])["record"]["id"] == target.todo_id
+        except (ValueError, KeyError, TypeError):
+            pass
+    if not (typed_ref or from_wake):
+        created = await connection.scalar(
+            select(action.c.id).where(
+                action.c.id == todo_id,
+                action.c.origin_message_id == request_id,
+                action.c.tool_name == str(WORK_CREATE_SPEC.id),
+                action.c.status == "succeeded",
+                action.c.result.contains(
+                    {
+                        "type": "Success",
+                        "value": {"id": target.todo_id, "operation": "created"},
+                    }
+                ),
+            )
+        )
+        if created is None:
+            return None
+
+    related: dict[str, object] = {"draft_ref": None}
+    if target.draft_ref is not None:
+        try:
+            saved = await draft_for_request(
+                connection, request_id, UUID(target.draft_ref)
+            )
+        except ActionPersistenceDefect:
+            LOGGER.error(
+                "saved draft receipt failed integrity checks: attempt=%s", attempt_id
+            )
+            related["draft_error"] = "integrity"
+        else:
+            if saved is not None:
+                related["draft_ref"] = target.draft_ref
+    label = next(
+        (line.strip()[:120] for line in response.text.splitlines() if line.strip()), ""
+    )
+    return {
+        "todo_id": target.todo_id,
+        "request_id": target.request_id,
+        "label": label,
+        **related,
+    }
 
 
 async def commit_product(
@@ -1484,6 +1590,17 @@ async def commit_product(
             None if isinstance(final.response, Silent) else final.response.present,
             stopping,
         )
+        if isinstance(final.response, Answered | Partial):
+            link = await _todo_result_home(
+                connection,
+                owner.scope_id,
+                attempt["id"],
+                final.response,
+                tuple(statuses),
+                stopping,
+            )
+            if link is not None:
+                home = {**(home or {}), "todo_result": link}
         timestamp = datetime.now(UTC)
         if stopping:
             await cancel_unentered_actions(connection, stopping, timestamp)
@@ -1651,7 +1768,14 @@ async def commit_product(
                     trace={"native_attempt_id": turn.attempt_id},
                 )
             )
-            await enqueue_notice(connection, conclusion_id)
+            await enqueue_notice(
+                connection,
+                conclusion_id,
+                kind="question"
+                if rendered.outcome == "needs_input"
+                or (final.has_question and (final.waits_for_owner or approval_refs))
+                else "reply",
+            )
         await connection.execute(
             update(native_attempt)
             .where(native_attempt.c.id == attempt["id"])

@@ -252,8 +252,6 @@ def changed_authority(stage, agent, assistant, embedding):
         domains.add("calendar")
     if any(k.startswith("JARVIS_ATTACHMENT_") for k in changed):
         domains.add("attachments")
-    if any(k.startswith("JARVIS_DISCORD_") for k in changed):
-        domains.add("notice")
     if any(k.startswith("JARVIS_CODEX_") for k in changed):
         domains.add("native")
     if embedding != (ETC / "embedding.env").read_bytes() or json.loads(

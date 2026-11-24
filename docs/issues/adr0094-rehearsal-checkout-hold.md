@@ -23,3 +23,13 @@ checkout. virtualization still has read-only descriptors. the checkout is
 clean on `review/adr0097-0018` at `b6bfa59`. the final candidate and its
 verification checkout have their own dispositions in the 0097 cleanup receipt.
 remove the intermediate checkout after the descriptors close.
+
+adr 0105 reproduced the hold on november 24 utc for
+`rehearsal-nt3w6sm7/checkout` and `rehearsal-6bna0c28/checkout`. both test
+containers are gone. the macos virtualization process still holds the mounted
+`deploy/postgres-init.sql` and its parent directories. both checkouts are
+clean at `bf0d837`. their receipts are `native-bf0d837-r2/receipt.json`
+and `native-bf0d837-r3/receipt.json` under the macbook's private
+`adr0105-results` evidence directory. the passing r4 rehearsal staged the
+init sql outside the checkout and removed its own scratch. remove r2 and r3
+when those descriptors close, leaving other running docker work alone.

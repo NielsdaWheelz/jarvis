@@ -13,8 +13,10 @@ User=jarvis
 Group=jarvis
 SupplementaryGroups=codex-clients jarvis-memory
 WorkingDirectory=/opt/jarvis/current
+ExecStartPre=-/usr/bin/install -d -m 0700 /var/lib/jarvis/phone
 EnvironmentFile=/etc/jarvis/database-runtime.env
 EnvironmentFile=/etc/jarvis/jarvis.env
+EnvironmentFile=-/etc/jarvis/fcm.env
 Environment=TZ=UTC
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/jarvis/current/.venv/bin/jarvis serve

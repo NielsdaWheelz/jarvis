@@ -423,7 +423,7 @@ credentials; only its named runtime consumers receive it. qualify current image
 targets and grants, not the retired private-dependency build-secret arrangement.
 keep credentials out of repository files and command output.
 
-The qualified Google client, connector-encryption, Maps, Brave, Discord, and
+The qualified Google client, connector-encryption, Maps, Brave, Firebase and
 embedding settings remain host-owned and never enter model context or the Codex
 child environment. `JARVIS_EMBEDDING_OPENAI_API_KEY` is the qualified OpenAI
 project key restricted to embeddings. The deployment fixes
@@ -462,7 +462,10 @@ command locks.
 create a self-hosted access application for the whole hostname
 `jarvis.nielseriknandal.com`. enable only the owner's google identity provider,
 disable automatic acceptance of other identity providers, and configure one allow
-policy for the owner's exact email. no bypass or service-token policy. create a
+policy for the owner's exact email. the android cut permits one public override
+for `/.well-known/assetlinks.json`. its edge worker serves only that document
+without reaching the tunnel. [android edge deployment](../deploy/home-edge/README.md)
+owns the exact callback and managed oauth. create a
 cache rule bypassing the hostname and confirm the zone accepts a 90 mib request
 body. route the proxied hostname to a new locally managed named tunnel. keep its
 credential json on the operator workstation. neither the assistant nor its native
@@ -483,6 +486,27 @@ before activating the application, record signed-out challenges at the root, raw
 content and file routes, and an explicit access denial for an unrelated google
 account. the allowed owner can reach the edge outage at this stage. after
 activation, verify that owner login returns to the exact pinned page/file. [connector validation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
+
+### stopped native android cut from 0022 to 0023
+
+use the selected predecessor to settle executable actions and incompatible
+native seals. snapshot the old and pending alert inventory. prepare and verify
+the candidate, pinned backup reader, app links and handset access before the
+outage. use the installed named hold. work, canonical control,
+scope, exact archive key and the selected-history capture cuts remain intact.
+
+`deploy/install-fcm-sender PROJECT PRIVATE_SERVICE_ACCOUNT_JSON` publishes the
+project and send-only identity from the macbook under the deployment lock. its
+credential belongs to the dedicated project. lost or unusable credentials hold
+notifications pending. the private `/var/lib/jarvis/phone/slot.json` is outside
+the database and stopped copy. losing it requires explicit enrollment.
+
+follow [named production maintenance](#named-production-maintenance) for the
+exact source and target. preflight the dedicated sender before opening or advancing
+the hold. restore its stopped copy on macbook and match every preexisting row.
+verify the notice ids, old provider receipts and pending replies against the
+same copy. production applies the same verified migration and reader. revoke the old bot and remove its installed declaration
+after the phone and web journey passes. [cut requirements](decisions/0105-native-android.md#ownership-redgreenrefactor-and-exit)
 
 ### off-host central memory recovery
 

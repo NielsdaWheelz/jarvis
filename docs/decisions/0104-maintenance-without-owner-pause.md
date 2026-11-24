@@ -66,4 +66,13 @@ use dev-server's `scripts/rehearse-worktree` on macbook with actual packaged ser
 
 claude opus passed the source at `edf57df`, the protected staging cleanup at `7ffbad9` and the idle preflight diagnostic at `2f71411`. the macbook guest used systemd 255, postgres 16 and packaged jarvis. rehearsal-only schemas exercised transactional migration, rejected a mismatched dump receipt and adopted the qualified reader under the same hold. the packaged release, startup failure and repair, reboot and same-id continuation preserved the exact stopped owner control.
 
-the original activated action's gmail recovery kept one executor entry for both a proved send and an unknown outcome. the connector and native provider were controlled fixtures. private provisioning preserved an owner pause and a resume. the backup run with the old reader completed, the next run used the replacement, and the isolated restore opened the witness event and note. the retained evidence records the exact artifact for each check. installed acceptance remains [open](../issues/maintenance-installed-cutover.md).
+the original activated action's gmail recovery kept one executor entry for both a proved send and an unknown outcome. the connector and native provider were controlled fixtures. private provisioning preserved an owner pause and a resume. the backup run with the old reader completed, the next run used the replacement, and the isolated restore opened the witness event and note. the retained evidence records the exact artifact for each check.
+
+production adoption selected `4d05a9267d123deb4327470606b28145f47bbb12` at
+schema `0022` in committed change `5581545e-79a3-4b1e-97cf-3e2d69ea343f`.
+all units served, owner resume 42 and the five parked requests matched their
+before-cut inventory, and the qualified reader was active with the next
+backup scheduled. generation `20261124T083855000254Z-770d10f78cfc4cbd8860e615e2defc2b`
+published and passed an isolated restore on macbook with the selected reader.
+evidence is in
+`~/.local/state/jarvis/qualification/adr0104-installed-adoption/`.

@@ -146,7 +146,8 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0101](0101-outgoing-mail-attachments.md) | files in outgoing gmail | verified source bytes, gmail draft revisions, conversational consent and positive sent evidence. source, detached and isolated connected-account proof passed. production cut pending |
 | [0102](0102-historical-capture-cleanup.md) | historical capture cleanup | remove external tool traffic at deployment while preserving conversations and the identity of older references |
 | [0103](0103-codex-history-admission.md) | selected codex history after rewind | preserve saved originals and resume from the proved cut |
-| [0104](0104-maintenance-without-owner-pause.md) | maintenance without an owner pause | approved implementation scope. named operator custody preserves canonical controls and compatible work |
+| [0104](0104-maintenance-without-owner-pause.md) | maintenance without an owner pause | installed. named operator custody preserves canonical controls and compatible work |
+| [0105](0105-native-android.md) | native android and discord retirement | implementation authorized. installed acceptance remains open. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

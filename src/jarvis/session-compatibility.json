@@ -20,7 +20,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-outgoing-mail-v24"
+      "revision": "jarvis-main-todo-result-v25"
     }
   },
   "schema_version": "jarvis-session-compatibility.v4"

@@ -1,0 +1,136 @@
+# adr 0105. native android and discord retirement
+
+**implementation authorized · installed acceptance open · november 23, 2026 pacific.** one owner, one active phone, one service. the owner selected a private apk, the same todo home and chat proposals as desktop, explicitly linked results and in-jarvis reading of verified gmail draft revisions. use a dedicated firebase project with opaque notice/message ids and a generic alert kind. the connected s22+ reported `SM-S906W`, android 16/api 36 and enabled google play services.
+
+this amends [0087](0087-private-web-home.md) for access/alerts and [0097](0097-todo-home.md) for todo **detail**. [0091](0091-source-backed-reports.md) owns cited answers, [0096](0096-calendar-on-demand.md) owns silence, [0101](0101-outgoing-mail-attachments.md) owns mail authority. the implementation base is installed `ea2b825` / `0022`. it includes the installed 0101/0103 lineage and main’s `7a864e0` chat-order fix. the android cut uses `0023`.
+
+## owner experience
+
+share a pdf from gmail or a link from chrome, add “track this quote, compare it with march and draft a reply,” tap send and return to the source app on receipt. “save and return” keeps a local draft. later, a locked-phone alert opens the exact reply, including after sign-in. the todo opens the recommendation, cited page and saved draft on either client.
+
+the app icon resolves the selected published home once, otherwise opens the 0097 todo overview. conversation owns questions, proposals and answers. reuse server ordering, owner-local dates, status and as-of time. retain draft, focus, page and scroll across back, refresh and login. an alert never seizes an open reader. use existing paper/ink surfaces and serif titles, scalable text, labelled 48 dp targets and talkback order. “ask about this page” attaches the existing one-based file/page ref. android’s text-selection menu invokes the same composer.
+
+desktop and iphone keep web access. exclude native ios, a decisions inbox, local work replication, a phone scheduler, lock-screen approval and a live gmail editor. offline authority ends at a local draft. private distribution leaves signing custody and updates with the owner.
+
+## a. identity and navigation
+
+one kotlin/compose app module, `dev.niels.jarvis`, with a privately distributed release apk. protect the signing key and verify its fingerprint and increasing version code on upgrade. use a native oauth client library against cloudflare access on the existing hostname. register a public client with one exact claimed https callback `/auth/android`. use an external browser, s256 pkce, state and the jarvis resource on authorization and exchange. bind discovery to the expected issuer. send the opaque bearer only to the jarvis origin. protect refresh credentials with android keystore and exclude them from backup. native writes supply the existing `Origin`. access enforces the exact owner policy and the tunnel validates its signed assertion.
+
+serve `/.well-known/assetlinks.json` publicly at the edge, redirect-free, with the release signer. keep every jarvis data route protected. claim the callback and existing `/`, `/overview`, `/m/{id}`, `/t/{id}`, `/f/{id}?page=N`, `/v/{slug}[/{rev}]`. retain the validated destination through sign-in. authored pages open the pinned web shell explicitly in a browser custom tab. this preserves its sandbox and can cost a separate browser login. exclude token injection, javascript bridges and recursive app launch. qualify native login and desktop cookies on the real access tenant first. [managed oauth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) · [native oauth](https://www.rfc-editor.org/rfc/rfc8252) · [app links](https://developer.android.com/training/app-links/troubleshoot)
+
+## b. capture and submission
+
+- accept `ACTION_SEND`, `ACTION_SEND_MULTIPLE` and read-only `ACTION_PROCESS_TEXT`. take ordered `content://` streams from the stream extra, using clip data when that extra is absent. copy during the grant, before login, into backup-excluded private storage. display names are metadata. bound the copy and publish the completed draft atomically. on low space or unreadable input, name the failed slot and allow re-share/removal. reclaim interrupted staging. a second share gets a new draft. shared text/urls become one removable utf-8 original, distinct from the owner instruction. this costs one file slot and makes shared `resume` inert. “copy private link” copies the authenticated url. “share a file copy” grants temporary read access to verified bytes. [receive](https://developer.android.com/develop/ui/compose/sharing/receive) · [file sharing](https://developer.android.com/training/secure-file-sharing/share-file)
+- local record = uuid, text, typed ref, ordered private paths/names/sizes/digests and state. freeze uuid and content before a single user-initiated send. show “saved on this phone,” “sending,” “checking receipt” or “received” according to evidence. an active transfer may finish after leaving. after interruption query `GET /api/submissions/{uuid}`. a 404 can race the original. offer explicit identical retry. a 409 remains a conflict even if that uuid exists. offline/signed-out drafts need a fresh send. preserve frozen bytes through uncertainty until receipt or explicit discard. discard cannot recall an entered request.
+- use existing `PUT /api/messages/{uuid}` json/multipart and `source=web`. 201 first receipt, 200 equal replay, 409 changed reuse, 413 limit, 422 invalid, 503 unavailable. enforce ten files, 90 mib encoded body and 16 kib utf-8 owner text. r2 verification follows acceptance. reuse chat/todo/file reads, paging, refresh on return and exact older-message refresh. preserve 0097’s bare controls, typed proposal reference and conversation ordering. distinguish pending, withdrawn, deleted and last-checked states. [api and receipts](0087-private-web-home.md#web-interface) · [routes](../../src/jarvis/home_http.py)
+
+## c. linked results and draft evidence
+
+add a required nullable field on main’s `answered` and `partial` final branches, `todo_result = null | {todo_id,request_id,draft_ref:uuid|null}`. all ids are canonical uuids. main may nominate one task for a deliverable. a link requires at least one final disposition. under the settlement lock, prove each named input was delivered in this attempt and equals the nominated request or descends from it in owner scope along an unstopped parent chain. a stop in this settlement disqualifies that path. independent roots give a chat-only result. require an existing todo and one matching fact on the nominated request.
+
+1. the owner supplied the typed todo ref.
+2. `work.create` succeeded with that exact origin and returned that id.
+3. the host published a `work_wake` with that id in its frozen `record.id`. one-time and recurring wakes use the snapshot even after the schedule advances. [work identity](../../src/jarvis/work.py) · [settlement](../../src/jarvis/native_journal.py)
+
+commit the association into final `message.home` alongside `present` and `proposal_ids`, atomically with the host-assigned reply, dispositions and notice. missing task proof omits the link. missing draft proof omits only its ref. malformed output follows existing recovery. rotate main’s output/binding revision. prove live and sealed settlement and instruction fit. no historical backfill.
+
+| read | contract |
+| --- | --- |
+| `GET /api/todos/{id}/results[?before=…]` | require the todo to exist in the single work store. select only visible finals in owner scope. return `{items:[{message_id,at,label}],next_before}`, newest first, up to 50, using timestamp/id keyset paging. label is the first nonblank answer line, at most 120 characters, rendered as plain text. 404 absent todo, 422 invalid cursor. both clients show dated `/m/…` links. citations stay beside the finding. deleting the todo leaves the answer in chat. |
+| `GET /api/messages/{id}[?mail_body=true]` | exact detail gains nullable `saved_draft` with `draft_ref,observed_at,subject,to,cc,bcc,files` and opt-in `body_text`. reuse 0101 mailbox/file types. expose nullable `saved_draft_error` (`"integrity"` when the receipt conflicts). list polls omit both fields. no arbitrary action-id lookup or gmail call. |
+
+require successful `gmail.create_draft`/`gmail.update_draft` with the nominated request as origin, `state=draft` and its own action uuid as `draft_ref`. reuse the 0101 reconstruction from immutable content, headers/files, marker and verified digest. a conflicting receipt retains the independently verified answer and todo link, omits all draft material and displays an inline integrity failure. the exact-detail error field distinguishes that failure from absent proof. future compose-binding changes must retain read-only inspection of already-linked immutable receipts. show “draft revision verified at …” after later gmail edits. label chat-only prose “suggested reply.” opening either issues zero gmail calls. sending requires the existing conversational decision on its frozen proposal. [draft reconstruction](../../src/jarvis/write_dispatch.py)
+
+## d. alerts and registration
+
+one dedicated firebase project and server-only sending identity with `cloudmessaging.messages.create`. enable fid registration in the firebase messaging sdk. serialize `onRegistered()` updates using the latest address. use google auth and http v1 at the sender. skid already uses firebase for content-free hints. jarvis needs no skid service. google learns timing, opaque ids and the generic kind. the separate project costs one provisioning step and isolates revocation and quota. [skid](https://github.com/NielsdaWheelz/skidbladnir/blob/v0.23.0/docs/architecture.md) · [firebase registration](https://firebase.google.com/docs/cloud-messaging/android/get-started)
+
+| boundary | closed contract |
+| --- | --- |
+| authenticated slot | `GET /api/push/phone` → `{installation_id,address_hash}` plus strong `ETag` of the generation uuid. empty slots return two nulls. `PUT {installation_id,fid,replace}` rotates that active installation only. an explicit tap uses `replace=true` to claim or replace a phone. bodyless `DELETE` disconnects it, including from desktop. both writes require the exact current tag in `If-Match` under lock. 200 returns state and tag, 428 missing tag, 412 stale, 409 wrong installation, 422 malformed or wildcard. after a lost response get and compare installation uuid and hex sha256 of the utf-8 fid. |
+| storage | one 0600 file under a private `/var/lib/jarvis/phone/` holds generation, installation uuid and fid (1–4096 bytes). serialize reads/updates in the existing service. initialize empty with a random generation and rotate it on each change, including revoke. keep the slot out of backup, postgres, logs and model. a database-only restore preserves the current phone, even if the backup predates its replacement. losing the slot requires explicit re-enrollment. [atomic private json](../../src/jarvis/_atomic_json.py) |
+| notice | reuse `home_notice.kind`, its unique message target, existing deterministic id and settlement transaction. use `question` for a `needs_input`, a partial question waiting on the owner, or a newly presented proposal. use `reply` for other notice-eligible finals, controls and visible failures. quiet work and progress keep their existing silence. both kinds open `/m/{message_id}`. |
+| provider receipt | rename `discord_message_id` to `provider_id` and add `provider`. require equal nullness, with populated provider restricted to `discord` or `fcm`. both null means pending. tag historical accepted ids `discord`. new accepts store `fcm` and its returned message name. update the pending index, filters and grants. |
+
+send non-collapsing data to the current fid, restricted to `dev.niels.jarvis`, with fcm's four-week ttl. payload `{notice_id,message_id,kind:"reply"|"question"}`. ask notification permission when enabling alerts. post “jarvis replied” or “jarvis needs a reply” on local reply/question channels. tag by notice uuid and set the unique `/m/…` url as the explicit immutable activity intent’s data. taps only navigate. high priority for time-sensitive questions, normal for replies. doze can delay replies. google acceptance settles dispatch. denial, loss and expiry recover through current chat. a retry can re-alert after dismissal. [message semantics](https://firebase.google.com/docs/cloud-messaging/customize-messages/collapsible-message-types) · [lifespan](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan)
+
+reuse ordered serial delivery. retry timeouts/429/transients with backoff and `Retry-After`. absent credentials, sender/project mismatch, unreadable slot or no phone leave rows pending for repair. registration wakes delivery. `UNREGISTERED` clears only the attempted generation, retaining the notice. an admitted old-phone send may finish. record positive acceptance once while the row is pending. stale failures cannot clear a replacement. chat, owner control and native recovery stay available throughout.
+
+before the stopped cut, verify the configured project and sender key under the
+service identity without depending on a live google request. after activation,
+delivery failures leave web and native work available. the phone reports a
+confirmed enrollment and android channel settings. provider acceptance remains
+a separate receipt. an expired address or lost slot asks for explicit
+re-enrollment and cannot silently reclaim a revoked phone. a provider rejection
+holds the ordered queue for repair, including a sender/project mismatch.
+
+the native pdf reader uses the platform-backed androidx sandboxed loader. this
+keeps original pdf parsing out of the process holding owner credentials. the
+selected library is beta and requires the build sdk extension, qualified
+separately from the phone's runtime extension.
+
+## ownership, red/green/refactor and exit
+
+each row has an engineer and its own content designer. before red, the designer defines good/bad examples, copy and evidence within its schema. independent claude opus reviews each feature’s design and red/green/refactored evidence. the scoped 0046 exception requires temporary integration/live tests. prove red through the normal entry, implement, prove green, simplify and rerun. retain named evidence outside scratch, reopen/hash it, then delete these probes and fixtures. record checks and cleanup separately. run large databases and restores on macbook. use dev-server’s `scripts/rehearse-worktree` for detached rehearsals. [evidence practice](0088-storage-and-memory-recovery.md#a-development-placement-and-evidence)
+
+| owner and exclusive files | designer’s example and acceptance |
+| --- | --- |
+| a · identity/release. `android/` gradle/build/signing, `Access.kt`, `Routes.kt`, `deploy/install-home-ingress`. | “sign in to open this reply.” the signed s22+ opens the older reply after login in one tap. test wrong account, refresh/revocation, desktop cookies, withdrawn canvas isolation and signed upgrade retaining draft. |
+| b · handset. `Drafts.kt`, `ShareActivity.kt`, `Home.kt`, file provider/resources. | “send unconfirmed · retry this submission.” prove gmail pdf, chrome link, selected `resume`, multi-file, unreadable slot, second draft, offline, process death, lost ack, changed replay and body limit. one receipt, matching hashes, unchanged control. open verified pdf at page six, then check back, large type, talkback and file-copy grant. |
+| c · results. `terminal.py`, `definitions.py`, `session-compatibility.json`, `native_journal.py`, `home_reads.py`, draft decoder in `write_dispatch.py`/`gmail_drafts.py`, web `home.js` including disconnect. | “quote comparison” → page six and “draft revision verified at …”. prove explicit ref, same-request create, one-time wake after its schedule clears, mixed roots, deleted todo, replay and later gmail edit. one linked final/notice, exact saved revision, zero sends. |
+| d · alerts. `home_notices.py`, sender replacing `discord.py`, slot internals, `Push.kt`. | open two out-of-order alerts, one settled on desktop. installed proof requires alerts enabled and jarvis outside samsung’s sleeping/deep-sleep lists. record battery mode, standby bucket and any per-app exception needed. lock unplugged in doze, also test denial, reconnect, reboot/unlock, in-place fid rotation and reinstall. inject bad credentials, lost ack and late stale failure. observe provider handoff and display separately. |
+| e · integrator. `db.py`, migrations, `home_http.py`, `cli.py`, `service.py`, `messages.py`, `settings.py`, `config.py`, `native_cutover.py`, private provisioning, backup/restore, android manifest and `MainActivity.kt`. | wire each normal entry for red. run the quote journey on phone and desktop. reopen a pre-cut original by id. match notice inventory, prove zero replay of accepted rows, owner control, silence and a working home with fcm down. |
+
+a proves edge identity first. b/c/d use the frozen contracts. e composes shared files. exercise real oauth, fcm, native settlement and a self-addressed **unsent** draft with isolated candidate state and one mailbox actor. inject faults at boundaries. run installed proof on the selected release, handset and production ingress.
+
+**hard cut.** use the installed 0104 maintenance hold and both writer locks. preserve the canonical owner control. verify a recoverable snapshot, work, originals, receipts/seals, scope/archive key, capture generations and google cursors. inventory notices before migration. dispose of pending legacy question/approval paths, incompatible unsettled seals and entered effects under the predecessor’s rules. carry pending reply ids once. an unknown past acknowledgement permits a duplicate alert. avoid historical fanout. prove pg16 restore with the new revision, grants and pinned reader on macbook. [maintenance decision](0104-maintenance-without-owner-pause.md)
+
+start matched application/memory units under recorded control, complete the installed phone journey, then revoke the bot and remove its channel grant/token from installed provisioning. delete active discord sender, nonce/retry code, settings, bootstrap dependencies and obsolete alert-channel administration. retain immutable receipt/source formats required to inspect history. preserve `owner_scope`, exact `owner_archive_key`, `source=web` submission identity and action certainty. no dual sender, execution shim or alternative login. record source, rehearsal, physical proof, installed cut and cleanup separately.
+
+
+## qualification on november 24 utc
+
+- the edge and the signed s22+ verified the public association, exact claimed
+  callback, warm owner sign-in, exact older reply and bearer refresh. macbook
+  firefox reopened the same reply with its existing cookie. the owner policy
+  and signed connector audience matched their original values. signed upgrades
+  kept the draft and original. device grant revocation and sign-in again passed.
+  the signing key has a verified encrypted macbook recovery copy.
+- the pinned postgres 16 rehearsal showed the old revision failing, preserved
+  accepted discord ids, moved pending replies once, and verified the role
+  grants. the pinned schema 0023 reader reopened one original event and one
+  note in a fresh isolated postgres cluster. fixture removal has its own
+  receipt.
+- real personal codex created and linked a todo result, then a separate actual
+  seal recovered once with one notice. controlled gmail mime and chromium
+  checks proved the frozen draft read and exact-result navigation. the real
+  connected-account unsent draft needs an exclusive mailbox window.
+- android source `81dfad9` built signed version 4, apk sha-256
+  `c5466738c77743404a018fdcb82b6048020d7984a76ab10fea6ddad718d9766b`.
+  the handset emulator ran cross-app shares, an offline draft across process
+  death and isolated pdf page six. the signed s22+ saved a real chrome share,
+  returned to its tab and reopened the exact draft. the only pre-cut pdf has
+  one page. the physical reader reopened it and granted a temporary recipient
+  read access to the verified r2 bytes. the receiver lacked write permission.
+  the post-finish grant check did not complete.
+- an isolated schema 0023 service left the committed notice pending until
+  registration, recorded one real firebase acceptance, and displayed it on
+  signed version 4. tapping opened the exact existing reply. a separate real
+  sender run after key rotation displayed the opaque alert with the s22+
+  locked and deep idle throughout, using android's simulated unplug. real fid
+  rotation passed. the staged sender's private key lives on dev-server. the
+  qualification key was revoked and local copies removed.
+
+receipts and independent opus reviews are under
+`~/.local/state/jarvis/qualification/{adr0105-implementation,adr0105-results}`.
+the earlier physical checks ran while production served `ea2b825` / `0022`.
+after [0104 adoption](0104-maintenance-without-owner-pause.md#implementation-evidence),
+the merged source at `41d8c62` passed a detached pg16 migration and rejected
+altered notice receipts, unrelated changed work, retired pending questions and
+excess database grants. the checkout and database fixture were removed.
+see `~/.local/state/jarvis/qualification/adr0105-maintenance-pg16/receipt.json`.
+the installed android cut, exclusive gmail journey,
+backup handoff and discord revocation remain open. remaining device and
+identity gates include a fresh browser session and otherwise unauthorized
+account, administrator revocation of the phone grant, a real canvas handoff
+and withdrawal, physical page six, grant expiry, reboot/unlock and reinstall.

@@ -49,9 +49,11 @@ def file_digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def copy_digest(root):
+def copy_digest(root, *, excluded=None):
     digest = hashlib.sha256()
     for path in [root, *sorted(root.rglob("*"))]:
+        if excluded is not None and path.is_relative_to(excluded):
+            continue
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode):
             content = os.readlink(path)
@@ -174,6 +176,49 @@ async def inventory(conn, scope):
     }
 
 
+async def require_phone_cut(conn, facts, original):
+    require(
+        {k: v for k, v in facts.items() if k not in {"tables", "schema"}}
+        == {k: v for k, v in original.items() if k not in {"tables", "schema"}},
+        "phone cut changed database identity, grants, sequences, or canonical control",
+    )
+    changed = {"public.alembic_version", "public.home_notice"}
+    require(
+        {k: v for k, v in facts["tables"].items() if k not in changed}
+        == {k: v for k, v in original["tables"].items() if k not in changed}
+        and await row_inventory(
+            conn,
+            """(SELECT id,kind,message_id,action_id,created_at,
+                       provider_id AS discord_message_id FROM public.home_notice)""",
+            "1",
+        )
+        == original["tables"]["public.home_notice"],
+        "phone cut changed existing rows or notice delivery identities",
+    )
+    require(
+        await conn.scalar(
+            text("""
+            SELECT EXISTS(SELECT FROM pg_constraint
+                WHERE conrelid='home_notice'::regclass
+                  AND conname='ck_home_notice_provider' AND convalidated)
+            AND EXISTS(SELECT FROM pg_indexes WHERE schemaname='public'
+                AND indexname='ix_home_notice_pending'
+                AND indexdef LIKE '%WHERE (provider_id IS NULL)')
+            AND has_column_privilege(
+                'jarvis_runtime', 'home_notice', 'provider', 'UPDATE')
+            AND has_column_privilege(
+                'jarvis_runtime', 'home_notice', 'provider_id', 'UPDATE')
+            AND NOT has_column_privilege(
+                'jarvis_runtime', 'home_notice', 'kind', 'UPDATE')
+            AND NOT EXISTS(SELECT FROM home_notice
+                WHERE (provider_id IS NOT NULL AND provider IS DISTINCT FROM 'discord')
+                   OR (provider_id IS NULL AND kind <> 'reply'))
+        """)
+        ),
+        "converted notice provider, pending rows or grants differ from the stopped cut",
+    )
+
+
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     require(not destination.exists(), "snapshot exists; verify it or inspect it")
@@ -194,9 +239,25 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
             ("private-state", STATE),
             ("declarations", DECLARATIONS),
         ):
-            subprocess.run(["cp", "-a", "--", str(path), str(stage / name)], check=True)
-            copies[name] = copy_digest(stage / name)
-            require(copies[name] == copy_digest(path), "private copy mismatch")
+            target = stage / name
+            excluded = path / "phone" if path == STATE else None
+            if excluded is None:
+                subprocess.run(["cp", "-a", "--", str(path), str(target)], check=True)
+            else:
+                info = path.stat()
+                target.mkdir()
+                os.chown(target, info.st_uid, info.st_gid)
+                target.chmod(stat.S_IMODE(info.st_mode))
+                for entry in path.iterdir():
+                    if entry != excluded:
+                        subprocess.run(
+                            ["cp", "-a", "--", str(entry), str(target)], check=True
+                        )
+            copies[name] = copy_digest(target)
+            require(
+                copies[name] == copy_digest(path, excluded=excluded),
+                "private copy mismatch",
+            )
         replace_private_json(
             stage / "SNAPSHOT.json",
             {
@@ -266,6 +327,15 @@ def check_private_inputs(snapshot, manifest):
         == copy_digest(snapshot / "private-state" / google),
         "authority differs from the stopped declarations or google state",
     )
+    if (manifest["source"]["schema"], manifest["target"]["schema"]) == ("0022", "0023"):
+        sender = Path("connectors/fcm-sender.json")
+        require(
+            copy_digest(DECLARATIONS / "fcm.env")
+            == copy_digest(snapshot / "declarations/fcm.env")
+            and copy_digest(STATE / sender)
+            == copy_digest(snapshot / "private-state" / sender),
+            "firebase authority differs from the stopped copy",
+        )
 
 
 def restored_compatibility(proof):
@@ -332,6 +402,11 @@ async def inspect_restored(operation, snapshot, proof):
             )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             facts = await inventory(conn, manifest["owner_scope"])
+            if operation == "record-rehearsal" and (
+                manifest["source"]["schema"],
+                version,
+            ) == ("0022", "0023"):
+                await require_phone_cut(conn, facts, manifest["original_facts"])
         original = rehearsal_binding(manifest)
         proof.mkdir(mode=0o700, exist_ok=True)
         source_proof = proof / "restored-source.json"
@@ -390,10 +465,11 @@ async def cut(operation, destination, binding, stop, qualification):
         )
     target_dir = ROOT / "releases" / target["commit"]
     allowed = {ROOT / "releases" / source["commit"]}
-    if operation == "verify-target":
+    if operation in {"migrate", "verify-target"}:
         allowed.add(target_dir)
+    selected = (ROOT / "current").resolve(strict=True)
     require(
-        (ROOT / "current").resolve(strict=True) in allowed
+        selected in allowed
         and Path(__file__).resolve().parents[1] == target_dir
         and APPLICATION_SCHEMA_REVISION == target["schema"],
         "selected release or target differs",
@@ -407,7 +483,7 @@ async def cut(operation, destination, binding, stop, qualification):
             if operation in {"migrate", "verify-target"}:
                 allowed = (
                     {target["schema"]}
-                    if operation == "verify-target"
+                    if selected == target_dir or operation == "verify-target"
                     else {source["schema"], target["schema"]}
                 )
             require(version in allowed, "unexpected stopped schema")
@@ -471,6 +547,8 @@ async def cut(operation, destination, binding, stop, qualification):
 
                 await conn.run_sync(upgrade)
                 facts = await inventory(conn, scope)
+            if (source["schema"], target["schema"]) == ("0022", "0023"):
+                await require_phone_cut(conn, facts, manifest["original_facts"])
             require(
                 await conn.scalar(text("SELECT version_num FROM alembic_version"))
                 == target["schema"]

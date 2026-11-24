@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from llm_tools import DeclaredToolFailure
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
@@ -21,10 +22,17 @@ from starlette.middleware.base import RequestResponseEndpoint
 from jarvis.attachments import AttachmentStore, WebUpload
 from jarvis.db import attachment, message
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
-from jarvis.home_reads import conversation, visible_message
+from jarvis.home_reads import conversation, todo_results, visible_message
 from jarvis.home_uploads import attachment_response, read_submission
 from jarvis.messages import IngressUnavailable, InvalidReference, SubmissionConflict
 from jarvis.ownership import Database, DeploymentOwnershipDefect
+from jarvis.phone import (
+    Enrollment,
+    InactivePhone,
+    PhoneSlot,
+    StalePhone,
+    canonical_uuid,
+)
 from jarvis.work import WorkStore
 
 _STATIC = Path(__file__).parent / "static" / "home"
@@ -49,6 +57,7 @@ def create_home_app(
     submit: Submit,
     spool: Path,
     pages: Path,
+    phone: PhoneSlot,
 ) -> FastAPI:
     app = FastAPI(
         docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False
@@ -136,6 +145,56 @@ def create_home_app(
             raise HTTPException(404) from exc
         return {**result.model_dump(mode="json"), "timezone": owner_timezone}
 
+    async def results(identifier: UUID, before: str | None = None) -> dict[str, Any]:
+        async with database.connect() as conn:
+            try:
+                page = await todo_results(conn, scope, identifier, before)
+            except ValueError as exc:
+                raise HTTPException(422, "invalid cursor") from exc
+        if page is None:
+            raise HTTPException(404)
+        return page
+
+    async def get_phone() -> JSONResponse:
+        state = await phone.read()
+        return JSONResponse(state.public(), headers={"ETag": state.etag})
+
+    async def change_phone(request: Request) -> JSONResponse:
+        tags = request.headers.getlist("If-Match")
+        if not tags:
+            raise HTTPException(428, "phone generation required")
+        tag = tags[0]
+        try:
+            if len(tags) != 1 or len(tag) != 38 or tag[0] != '"' or tag[-1] != '"':
+                raise ValueError()
+            generation = canonical_uuid(tag[1:-1])
+        except ValueError:
+            raise HTTPException(422, "invalid phone generation") from None
+
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > 25 * 1024 or (
+                request.method == "DELETE" and chunk
+            ):
+                raise HTTPException(422, "invalid enrollment body")
+            body.extend(chunk)
+        try:
+            enrollment = (
+                Enrollment.model_validate_json(body)
+                if request.method == "PUT"
+                else None
+            )
+        except ValidationError:
+            raise HTTPException(422, "invalid enrollment") from None
+
+        try:
+            state = await phone.change(generation, enrollment)
+        except StalePhone:
+            raise HTTPException(412, "phone generation changed") from None
+        except InactivePhone:
+            raise HTTPException(409, "this phone is not active") from None
+        return JSONResponse(state.public(), headers={"ETag": state.etag})
+
     async def file(identifier: UUID, request: Request) -> Response:
         async with database.connect() as conn:
             in_scope = await conn.scalar(
@@ -183,8 +242,11 @@ def create_home_app(
     app.add_api_route("/api/messages/{identifier}", one_message, methods=["GET"])
     app.add_api_route("/api/todos", todo_list, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}", todo, methods=["GET"])
+    app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
     app.add_api_route("/api/files/{identifier}", file, methods=["GET", "HEAD"])
     app.add_api_route("/api/home", home, methods=["GET"])
+    app.add_api_route("/api/push/phone", get_phone, methods=["GET"])
+    app.add_api_route("/api/push/phone", change_phone, methods=["PUT", "DELETE"])
     app.add_api_route("/api/views/{slug}", view, methods=["GET"])
     app.add_api_route("/api/views/{slug}/{rev}", view, methods=["GET"])
     app.add_api_route("/content/{slug}/{rev}", content, methods=["GET"])

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# != 3 || ! -f "$1" || ! "$2" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ || ! "$3" =~ ^(0|[1-9][0-9]{0,9})$ ]]; then
+  echo 'usage: android/check-release APK EXPECTED_CERTIFICATE_SHA256 INSTALLED_VERSION_CODE' >&2
+  exit 64
+fi
+sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}}"
+metadata="$("$sdk/build-tools/36.1.0/apksigner" verify --print-certs "$1")"
+actual="$(printf '%s\n' "$metadata" | awk '/^Signer #[0-9]+ certificate SHA-256 digest: / {print toupper($NF)}')"
+[[ "$actual" == "${2//:/}" ]] || { echo 'APK signer differs from the trusted release key' >&2; exit 1; }
+analyzer="$sdk/cmdline-tools/latest/bin/apkanalyzer"
+[[ "$("$analyzer" manifest application-id "$1")" == dev.niels.jarvis ]] ||
+  { echo 'APK package differs from the Jarvis release' >&2; exit 1; }
+version="$("$analyzer" manifest version-code "$1")"
+[[ "$version" =~ ^[1-9][0-9]{0,9}$ ]] && (( version <= 2100000000 && version > $3 )) ||
+  { echo 'APK version code must increase' >&2; exit 1; }
+printf 'jarvis %s signer %s\n' "$version" "$2"

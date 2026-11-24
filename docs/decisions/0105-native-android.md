@@ -64,7 +64,7 @@ a separate receipt. an expired address or lost slot asks for explicit
 re-enrollment and cannot silently reclaim a revoked phone. a provider rejection
 holds the ordered queue for repair, including a sender/project mismatch.
 
-the native pdf reader uses the platform-backed android x sandboxed loader. this
+the native pdf reader uses the platform-backed androidx sandboxed loader. this
 keeps original pdf parsing out of the process holding owner credentials. the
 selected library is beta and requires the build sdk extension, qualified
 separately from the phone's runtime extension.
@@ -86,3 +86,30 @@ a proves edge identity first. b/c/d use the frozen contracts. e composes shared 
 **hard cut.** use installed stopped maintenance and both writer locks. use the 0104 hold if installed first, otherwise the governing owner web pause with its notice and cancellation semantics. verify a recoverable snapshot, work, originals, receipts/seals, scope/archive key, capture generations and google cursors. inventory notices before migration. dispose of pending legacy question/approval paths, incompatible unsettled seals and entered effects under the predecessor’s rules. carry pending reply ids once. an unknown past acknowledgement permits a duplicate alert. avoid historical fanout. prove pg16 restore with the new revision, grants and pinned reader on macbook. [maintenance decision](0104-maintenance-without-owner-pause.md)
 
 start matched application/memory units under recorded control, complete the installed phone journey, then revoke the bot and remove its channel grant/token from installed provisioning. delete active discord sender, nonce/retry code, settings, bootstrap dependencies and obsolete alert-channel administration. retain immutable receipt/source formats required to inspect history. preserve `owner_scope`, exact `owner_archive_key`, `source=web` submission identity and action certainty. no dual sender, execution shim or alternative login. record source, rehearsal, physical proof, installed cut and cleanup separately.
+
+
+## qualification on november 24 utc
+
+- the edge and the signed s22+ verified the public association, exact claimed
+  callback, warm owner sign-in, exact older reply and bearer refresh. macbook
+  firefox reopened the same reply with its existing cookie. the owner policy
+  and signed connector audience matched their original values. the signing key
+  has a verified encrypted macbook recovery copy.
+- the pinned postgres 16 rehearsal showed the old revision failing, preserved
+  accepted discord ids, moved pending replies once, and verified the role
+  grants. the pinned schema 0023 reader reopened one original event and one
+  note in a fresh isolated postgres cluster. fixture removal has its own
+  receipt.
+- real personal codex created and linked a todo result, then a separate actual
+  seal recovered once with one notice. controlled gmail mime and chromium
+  checks proved the frozen draft read and exact-result navigation. the real
+  connected-account unsent draft needs an exclusive mailbox window.
+- the handset emulator ran normal share intents, cross-app uri grants, an
+  offline draft across process death and isolated pdf page six. physical fcm
+  accepted generic notices and opened two distinct older replies. the first
+  forced-idle run observed an awake screen and therefore leaves locked-phone
+  proof open.
+
+receipts and independent opus reviews are under
+`~/.local/state/jarvis/qualification/{adr0105-implementation,adr0105-results}`.
+these checks distinguish candidate, installed and cleanup evidence.

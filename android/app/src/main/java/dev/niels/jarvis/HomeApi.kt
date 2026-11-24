@@ -1,0 +1,155 @@
+package dev.niels.jarvis
+
+import android.content.Context
+import android.net.Uri
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import okio.BufferedSink
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
+
+internal class SignInRequired : IOException("sign in to continue")
+
+internal class HomeApi(context: Context) {
+    private val access = Access.get(context)
+
+    suspend fun request(
+        path: String,
+        method: String = "GET",
+        body: RequestBody? = null,
+        headers: Map<String, String> = emptyMap(),
+    ): Response {
+        require(path.startsWith("/api/"))
+        val url = requireNotNull(origin.resolve(path))
+        require(url.host == origin.host && url.scheme == origin.scheme && url.port == origin.port && url.encodedPath.startsWith("/api/"))
+        val payload = body?.let { source ->
+            object : RequestBody() {
+                override fun contentType() = source.contentType()
+                override fun contentLength() = source.contentLength()
+                override fun writeTo(sink: BufferedSink) = source.writeTo(sink)
+                override fun isOneShot() = true
+            }
+        }
+        val request = Request.Builder().url(url).method(method, payload)
+        for ((name, value) in headers) request.header(name, value)
+        request.header("Cache-Control", "no-store")
+        if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
+        var bearer = access.currentBearer() ?: throw SignInRequired()
+        var response = execute(request.header("Authorization", "Bearer $bearer").build())
+        if (response.code == 401 && (method == "GET" || method == "HEAD")) {
+            response.close()
+            access.rejectedBearer(bearer)
+            bearer = access.currentBearer() ?: throw SignInRequired()
+            response = execute(request.header("Authorization", "Bearer $bearer").build())
+        }
+        if (response.isRedirect || response.code == 401 || response.code == 403) {
+            response.close()
+            access.rejectedBearer(bearer)
+            throw SignInRequired()
+        }
+        return response
+    }
+
+    private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
+        val call = client.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) = continuation.resumeWithException(e)
+            override fun onResponse(call: Call, response: Response) {
+                continuation.resume(response) { _, unclaimed, _ -> unclaimed.close() }
+            }
+        })
+    }
+
+    suspend fun read(path: String): JSONObject? = withContext(Dispatchers.IO) {
+        request(path).use { response ->
+            when {
+                response.code == 404 -> null
+                response.isSuccessful -> response.json()
+                else -> throw IOException("could not load this item")
+            }
+        }
+    }
+
+    private companion object {
+        val origin = Routes.origin.toHttpUrl()
+        val client = OkHttpClient.Builder()
+            .followRedirects(false)
+            .retryOnConnectionFailure(false)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .build()
+    }
+}
+
+internal fun Response.json(): JSONObject = try {
+    JSONObject(body?.string() ?: throw IOException("missing response"))
+} catch (e: JSONException) {
+    throw IOException("invalid response", e)
+}
+
+internal fun JSONObject.string(key: String): String? = opt(key) as? String
+
+internal fun JSONObject.objects(key: String): List<JSONObject> = optJSONArray(key).objects()
+
+internal fun JSONArray?.objects(): List<JSONObject> =
+    if (this == null) emptyList() else List(length()) { getJSONObject(it) }
+
+internal sealed interface DiscussionRef {
+    fun json(): JSONObject
+    fun route(): Route
+    val label: String
+
+    data class Todo(val id: String) : DiscussionRef {
+        override fun json() = JSONObject().put("kind", "todo").put("id", id)
+        override fun route() = Route.Todo(id)
+        override val label = "todo"
+    }
+
+    data class Proposal(val messageId: String, val actionId: String) : DiscussionRef {
+        override fun json() = JSONObject().put("kind", "proposal")
+            .put("message_id", messageId).put("action_id", actionId)
+        override fun route() = Route.Message(messageId)
+        override val label = "proposal"
+    }
+
+    data class File(val id: String, val page: Long?) : DiscussionRef {
+        override fun json() = JSONObject().put("kind", "file").put("id", id).apply {
+            page?.let { put("page", it) }
+        }
+        override fun route() = Route.File(id, page)
+        override val label = if (page == null) "original file" else "page $page"
+    }
+
+    data class Canvas(val slug: String, val revision: String) : DiscussionRef {
+        override fun json() = JSONObject().put("kind", "view").put("slug", slug).put("rev", revision)
+        override fun route() = Route.Canvas(slug, revision)
+        override val label = slug
+    }
+
+    companion object {
+        fun parse(value: JSONObject?): DiscussionRef? = when (value?.string("kind")) {
+            "todo" -> Todo(value.getString("id"))
+            "proposal" -> Proposal(value.getString("message_id"), value.getString("action_id"))
+            "file" -> File(value.getString("id"), (value.opt("page") as? Number)?.toLong())
+            "view" -> Canvas(value.getString("slug"), value.getString("rev"))
+            else -> null
+        }
+    }
+}
+
+internal fun hrefRoute(value: String): Route? = Routes.parse(
+    Uri.parse(if (value.startsWith("/")) Routes.origin + value else value),
+)

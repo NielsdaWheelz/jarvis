@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Install one locally managed connector after its Access application has been configured.
+# Android association is published by home-edge. This connector still validates Access for all origin traffic.
+
 set -euo pipefail
 if [[ $# != 3 || ! -f "$1" || ! "$2" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ || ! "$3" =~ ^[0-9a-f]{64}$ ]]; then
   echo 'usage: deploy/install-home-ingress TUNNEL_CREDENTIALS_JSON ACCESS_TEAM ACCESS_APP_AUDIENCE' >&2

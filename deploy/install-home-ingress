@@ -15,8 +15,12 @@ trap 'ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" rm -rf -- "$remote"' 
 scp -q -o BatchMode=yes -o ForwardAgent=no "$1" "$target:$remote/credential.json"
 scp -q -o BatchMode=yes -o ForwardAgent=no "$repo/jarvis-home-tunnel.service" "$target:$remote/"
 
-ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$remote" "$2" "$3" <<'REMOTE'
+source "$repo/release-functions"
+{
+declare -f require_no_cutover_hold
+cat <<'REMOTE'
 set -euo pipefail
+require_no_cutover_hold
 stage="$1"
 umask 077
 getent group jarvis-home >/dev/null || groupadd --system jarvis-home
@@ -57,3 +61,5 @@ systemctl daemon-reload
 systemctl enable jarvis-home-tunnel.service
 systemctl restart jarvis-home-tunnel.service
 REMOTE
+} | ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n \
+  flock /opt/jarvis/.deploy.lock bash -s -- "$remote" "$2" "$3"

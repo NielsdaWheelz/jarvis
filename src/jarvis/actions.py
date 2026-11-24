@@ -498,9 +498,13 @@ class ActionStore:
         )
         return actions, unknown
 
-    async def get(self, action_id: UUID) -> StoredAction | None:
+    async def get(
+        self, action_id: UUID, *, source_conversation_id: str | None = None
+    ) -> StoredAction | None:
         async with self.engine.connect() as connection:
-            return await recorded_action(connection, action_id)
+            return await recorded_action(
+                connection, action_id, source_conversation_id=source_conversation_id
+            )
 
     async def active_mail_stages(self) -> tuple[UUID, ...]:
         async with self.engine.connect() as connection:
@@ -517,27 +521,27 @@ class ActionStore:
             return tuple(ids)
 
     async def recovery_candidates(
-        self, *, include_queued: bool = True, limit: int = 100
+        self,
+        *,
+        source_conversation_id: str,
+        include_queued: bool = True,
+        limit: int = 100,
     ) -> tuple[StoredAction, ...]:
         async with self.engine.connect() as connection:
             rows = (
                 (
                     await connection.execute(
                         select(action)
+                        .join(message, message.c.id == action.c.origin_message_id)
                         .where(
+                            message.c.source_conversation_id == source_conversation_id,
                             or_(
                                 action.c.status == "executing",
                                 and_(
                                     literal(include_queued),
                                     action.c.status == "queued",
-                                    action.c.origin_message_id.in_(
-                                        select(message.c.id).where(
-                                            message.c.request_state.in_(
-                                                ("pending", "waiting")
-                                            ),
-                                            message.c.processing_parked_at.is_(None),
-                                        )
-                                    ),
+                                    message.c.request_state.in_(("pending", "waiting")),
+                                    message.c.processing_parked_at.is_(None),
                                 ),
                             ),
                             ~(
@@ -875,13 +879,19 @@ class ActionStore:
                 )
         return tuple(results)
 
-    async def active_agent_waits(self) -> tuple[StoredAction, ...]:
+    async def active_agent_waits(
+        self,
+        *,
+        source_conversation_id: str,
+    ) -> tuple[StoredAction, ...]:
         async with self.engine.connect() as connection:
             rows = (
                 (
                     await connection.execute(
                         select(action)
+                        .join(message, message.c.id == action.c.origin_message_id)
                         .where(
+                            message.c.source_conversation_id == source_conversation_id,
                             action.c.tool_name == "agent.wait",
                             action.c.status == "queued",
                             action.c.result.op("?")("registration_receipt"),
@@ -994,7 +1004,9 @@ class ActionStore:
                 (
                     await connection.execute(
                         select(action)
+                        .join(message, message.c.id == action.c.origin_message_id)
                         .where(
+                            message.c.source_conversation_id == source_conversation_id,
                             action.c.tool_name == "agent.wait",
                             action.c.status.in_(("succeeded", "cancelled")),
                             action.c.result.op("?")("registration_receipt"),
@@ -1027,6 +1039,7 @@ class ActionPositionRecorder:
         action_id: UUID,
         implementation_revision: str,
         max_external_attempts: int,
+        source_conversation_id: str,
     ) -> None:
         if not implementation_revision:
             raise ValueError("implementation revision must not be empty")
@@ -1036,6 +1049,7 @@ class ActionPositionRecorder:
         self._action_id = action_id
         self._implementation_revision = implementation_revision
         self._max_external_attempts = max_external_attempts
+        self._source_conversation_id = source_conversation_id
         self._reservation: Reservation | None = None
         self._reservation_accepted: bool | None = None
         self._settlement: Settlement | None = None
@@ -1155,7 +1169,8 @@ class ActionPositionRecorder:
                 .limit(1)
             )
             if (
-                origin["role"] not in {"owner", "host"}
+                origin["source_conversation_id"] != self._source_conversation_id
+                or origin["role"] not in {"owner", "host"}
                 or origin["control_kind"] is not None
                 or origin["request_state"] not in {"pending", "waiting"}
                 or origin["processing_parked_at"] is not None
@@ -2064,14 +2079,18 @@ def _stored_tool_result(stored: StoredAction) -> ToolResult:
 
 
 async def recorded_action(
-    connection: AsyncConnection, action_id: UUID
+    connection: AsyncConnection,
+    action_id: UUID,
+    *,
+    source_conversation_id: str | None = None,
 ) -> StoredAction | None:
     """Read and validate action evidence within the caller's transaction."""
-    row = (
-        (await connection.execute(select(action).where(action.c.id == action_id)))
-        .mappings()
-        .one_or_none()
-    )
+    query = select(action).where(action.c.id == action_id)
+    if source_conversation_id is not None:
+        query = query.join(message, message.c.id == action.c.origin_message_id).where(
+            message.c.source_conversation_id == source_conversation_id
+        )
+    row = (await connection.execute(query)).mappings().one_or_none()
     return None if row is None else _stored_action(row)
 
 

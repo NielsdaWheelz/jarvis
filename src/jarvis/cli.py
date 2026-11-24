@@ -10,11 +10,13 @@ import logging
 import os
 import socket
 import stat
+import sys
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol, Self
 from uuid import UUID
 
 import httpx
@@ -26,8 +28,8 @@ from provider_runtime.agent_runtime import (
     AgentRuntimeDefect,
     AgentRuntimeError,
 )
-from pydantic import SecretStr
-from sqlalchemy import RowMapping, select, text
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from sqlalchemy import RowMapping, and_, or_, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from universal_memory import MemoryError, MemoryStore
@@ -43,6 +45,7 @@ from jarvis.actions import (
     ActionPersistenceDefect,
     ActionStore,
     ExecutionContract,
+    StoredAction,
     archived_worker_action,
 )
 from jarvis.admission import JarvisOwner
@@ -52,7 +55,10 @@ from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
 from jarvis.db import (
     ASSISTANT_MEMORY_READS,
+    action,
     create_engine,
+    home_notice,
+    message,
     normalize_database_url,
 )
 from jarvis.definitions import (
@@ -86,7 +92,11 @@ from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, MemoryWorker
 from jarvis.messages import MessageStore
 from jarvis.native_cutover import (
+    MaintenanceWork,
+    NativeActivationDefect,
+    OwnerControl,
     cutover_native,
+    maintenance_work,
     require_native_data,
     require_native_files,
 )
@@ -132,11 +142,12 @@ from jarvis.tool_results import memory_result_size, memory_view_size
 from jarvis.work import WorkStore
 from jarvis.write_connectors import GoogleWriteConnector
 from jarvis.write_dispatch import (
+    RECOVERABLE_ACTION_IDS,
     ActionRecovery,
     WriteToolDispatcher,
     require_current_action_binding,
 )
-from jarvis.write_tools import GmailSendContract
+from jarvis.write_tools import GmailComposeContract, GmailSendContract
 
 LOGGER = logging.getLogger(__name__)
 # initialize-state bootstraps only a fresh database stopped at this revision.
@@ -756,14 +767,15 @@ async def gmail_cut_audit(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
-            await _require_paused(
-                database,
-                PausedSettings(
-                    database_url=settings.database_url,
-                    runtime_state_directory=settings.runtime_state_directory,
-                    owner_scope=settings.owner_scope,
-                ),
-            )
+            require_native_files(settings.runtime_state_directory)
+            await require_native_data(database, conversation_id=settings.owner_scope)
+            if (
+                await MessageStore(database).current_control(settings.owner_scope)
+                is None
+            ):
+                raise StartupDefect(
+                    "gmail cut audit requires initialized owner control"
+                )
             owner_evidence = None
             if owner_evidence_path is not None:
                 owner_evidence = read_private_json(owner_evidence_path)
@@ -887,45 +899,131 @@ async def check_paused(settings: PausedSettings) -> None:
         await engine.dispose()
 
 
+type AuthorityArea = Literal[
+    "gmail",
+    "calendar",
+    "attachments",
+    "worker",
+    "events",
+    "owner",
+    "database",
+    "native",
+    "memory",
+    "notice",
+]
+type AuthorityIdentity = Annotated[str, Field(min_length=1, max_length=1024)]
+
+
+class MaintenanceAuthority(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    authority_changes: frozenset[AuthorityArea]
+    source_scope: AuthorityIdentity | None = None
+    gmail_source_account: AuthorityIdentity | None = None
+    gmail_candidate_account: AuthorityIdentity | None = None
+
+    @model_validator(mode="after")
+    def require_paired_gmail_evidence(self) -> Self:
+        if (self.gmail_source_account is None) != (
+            self.gmail_candidate_account is None
+        ):
+            raise ValueError(
+                "verify both gmail accounts or mark their authority unproved"
+            )
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class ActivationFinding:
+    id: UUID | str | None
+    status: str
+    tool: str | None
+    verdict: str
+    detail: str
+    source_start_safe: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ActivationCheck:
+    control: OwnerControl | None
+    findings: tuple[ActivationFinding, ...]
+
+    @property
+    def passed(self) -> bool:
+        return all(item.verdict == "compatible" for item in self.findings)
+
+    def as_json(self) -> dict[str, object]:
+        return asdict(self) | {"outcome": "compatible" if self.passed else "blocked"}
+
+
 async def check_activation(
     settings: Settings,
-    host: CodexHostConfig,
-) -> tuple[tuple[UUID, str, str, str], ...]:
-    """Classify unfinished execution authority; read-only."""
+    host: CodexHostConfig | None = None,
+    *,
+    authority: MaintenanceAuthority | None = None,
+) -> ActivationCheck:
+    """Classify unfinished execution authority without admitting any work."""
 
     deny_same_identity_process_inspection()
-    config = MemoryConfig.load(settings.memory_config_path)
     engine = create_engine(settings.database_url.get_secret_value())
     try:
         async with (
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
-            require_native_files(settings.runtime_state_directory)
             scope = settings.owner_scope
-            await require_native_data(database, conversation_id=scope)
-            if await MessageStore(database).current_control(scope) is None:
-                raise StartupDefect("activation requires initialized canonical control")
+            source_scope = (
+                scope if authority is None else authority.source_scope or scope
+            )
+            work = await maintenance_work(database, scope=source_scope)
+            findings = await _activation_prerequisites(
+                database, settings, work, authority
+            )
+            if findings:
+                return ActivationCheck(work.control, findings)
             actions = ActionStore(database)
-            cleared_old_mail = _require_mail_cut(
-                await historical_mail(actions),
-                settings.runtime_state_directory / CUT_RECEIPT,
-            )
-            agent_runtime = build_agent_runtime(
-                provider_state_root=settings.runtime_state_directory,
-                codex_endpoints=host.endpoints,
-            )
             try:
-                async with _memory_service(settings, config, database) as memory:
+                cleared_old_mail = _require_mail_cut(
+                    await historical_mail(actions),
+                    settings.runtime_state_directory / CUT_RECEIPT,
+                )
+            except StartupDefect as error:
+                return ActivationCheck(
+                    work.control,
+                    (
+                        ActivationFinding(
+                            None,
+                            "historical",
+                            "gmail.send_draft",
+                            "mail_audit_required",
+                            str(error),
+                        ),
+                    ),
+                )
+            async with AsyncExitStack() as resources:
+                try:
+                    selected_host = (
+                        host if host is not None else settings.codex_host_config
+                    )
+                    if authority is not None:
+                        _validate_runtime_layout(settings, selected_host)
+                    config = MemoryConfig.load(settings.memory_config_path)
+                    agent_runtime = build_agent_runtime(
+                        provider_state_root=settings.runtime_state_directory,
+                        codex_endpoints=selected_host.endpoints,
+                    )
+                    resources.push_async_callback(agent_runtime.close)
+                    memory = await resources.enter_async_context(
+                        _memory_service(settings, config, database)
+                    )
 
                     async def event_admitted() -> bool:
                         return False
 
-                    # No connector dispatches during the activation check.
                     _, definitions, _ = await _compose_main(
                         owner=JarvisOwner(database, scope),
                         settings=settings,
-                        host=host,
+                        host=selected_host,
                         agent_runtime=agent_runtime,
                         actions=actions,
                         work=WorkStore(database, scope),
@@ -937,17 +1035,222 @@ async def check_activation(
                         maps_http=http,
                         brave_http=http,
                     )
-                    plan = definitions.plans["main"]
-                    return await _action_activation_verdicts(
-                        actions,
-                        plan,
-                        source_conversation_id=scope,
-                        cleared_old_mail=cleared_old_mail,
+                except (
+                    AgentRuntimeError,
+                    AgentRuntimeDefect,
+                    ConfigurationError,
+                    OSError,
+                    RuntimeError,
+                    ValueError,
+                ) as error:
+                    if authority is None:
+                        raise
+                    detail = (
+                        str(error)
+                        if isinstance(error, StartupDefect)
+                        else f"target runtime check failed ({type(error).__name__})"
                     )
-            finally:
-                await agent_runtime.close()
+                    safe = await _quiet_source_start(database, work, authority, scope)
+                    return ActivationCheck(
+                        work.control,
+                        (
+                            ActivationFinding(
+                                None,
+                                "target",
+                                None,
+                                "target_check",
+                                detail,
+                                safe,
+                            ),
+                        ),
+                    )
+                return ActivationCheck(
+                    work.control,
+                    await _action_activation_verdicts(
+                        actions,
+                        definitions.plans["main"],
+                        source_conversation_id=source_scope,
+                        cleared_old_mail=cleared_old_mail,
+                        authority=authority,
+                        work=work,
+                    ),
+                )
     finally:
         await engine.dispose()
+
+
+async def _quiet_source_start(
+    database: Database,
+    work: MaintenanceWork,
+    authority: MaintenanceAuthority,
+    scope: str,
+) -> bool:
+    """A target-only failure can return to a source with no startup effect to enter."""
+    if (
+        work.control is None
+        or (work.pending and work.control.kind != "pause")
+        or work.unsettled
+        or authority.source_scope not in (None, scope)
+        or authority.authority_changes.intersection({"owner", "database"})
+    ):
+        return False
+    async with database.connect() as connection:
+        blocker = await connection.scalar(
+            select(action.c.id)
+            .join(message, message.c.id == action.c.origin_message_id)
+            .where(
+                or_(
+                    action.c.status.in_(("queued", "executing", "uncertain")),
+                    and_(
+                        action.c.status == "awaiting_approval",
+                        or_(
+                            message.c.source_conversation_id != scope,
+                            message.c.request_state.is_distinct_from("waiting"),
+                            message.c.wait_reason.is_distinct_from("approval"),
+                        ),
+                    ),
+                )
+            )
+            .limit(1)
+        )
+    return blocker is None
+
+
+async def _activation_prerequisites(
+    database: Database,
+    settings: Settings,
+    work: MaintenanceWork,
+    authority: MaintenanceAuthority | None,
+) -> tuple[ActivationFinding, ...]:
+    if work.control is None or work.control.kind not in {"pause", "resume"}:
+        return (
+            ActivationFinding(
+                work.control.id if work.control else None,
+                "control",
+                None,
+                "uninitialized",
+                "source canonical pause or resume is missing",
+            ),
+        )
+    if authority is not None and authority.source_scope not in (
+        None,
+        settings.owner_scope,
+    ):
+        # Changing the active owner's scope requires its own admission contract.
+        return (
+            ActivationFinding(
+                work.control.id,
+                "control",
+                None,
+                "authority_changed",
+                "selected owner scope differs from the staged owner scope",
+            ),
+        )
+    try:
+        require_native_files(settings.runtime_state_directory)
+        await require_native_data(database, conversation_id=settings.owner_scope)
+    except NativeActivationDefect as error:
+        return (
+            ActivationFinding(
+                error.identifier,
+                "native",
+                None,
+                "native_contract",
+                str(error),
+            ),
+        )
+    except RuntimeError as error:
+        return (
+            ActivationFinding(
+                None,
+                "native",
+                None,
+                "native_contract",
+                str(error),
+            ),
+        )
+    if authority is not None and authority.authority_changes.intersection(
+        {"owner", "database", "native", "memory"}
+    ):
+        affected = work.resumable or work.unsettled
+        if affected:
+            return tuple(
+                ActivationFinding(
+                    identifier,
+                    "request_or_attempt",
+                    None,
+                    "authority_changed",
+                    "pending work belongs to the selected authority",
+                )
+                for identifier in affected
+            )
+    if authority is not None and "notice" in authority.authority_changes:
+        async with database.connect() as connection:
+            pending = await connection.scalar(
+                select(home_notice.c.id)
+                .where(home_notice.c.provider_id.is_(None))
+                .order_by(home_notice.c.created_at, home_notice.c.id)
+                .limit(1)
+            )
+        if pending is not None:
+            return (
+                ActivationFinding(
+                    pending,
+                    "pending_notice",
+                    None,
+                    "authority_changed",
+                    "pending notice requires delivery under the original authority",
+                ),
+            )
+    return ()
+
+
+def _changed_action_authority(
+    tool: str,
+    stored: StoredAction,
+    authority: MaintenanceAuthority | None,
+) -> str | None:
+    if authority is None:
+        return None
+    changed = authority.authority_changes
+    namespace = tool.partition(".")[0]
+    area = {"agent": "worker", "attachment": "attachments"}.get(namespace, namespace)
+    if (
+        namespace == "gmail"
+        and "gmail" in changed
+        and authority.gmail_candidate_account is None
+    ):
+        return "staged gmail subject or grants differ or are unverified"
+    if namespace == "gmail":
+        contract = stored.current_execution_contract.mail
+        account = None
+        if isinstance(contract, GmailSendContract):
+            account = contract.revision.account
+        elif isinstance(contract, GmailComposeContract):
+            if contract.base_revision is not None:
+                account = contract.base_revision.account
+            elif stored.mail_progress.basis is not None:
+                account = stored.mail_progress.basis.account
+        candidate = authority.gmail_candidate_account
+        source = authority.gmail_source_account
+        if candidate is not None and (
+            (account is not None and candidate != account)
+            or (source is not None and candidate != source)
+        ):
+            return "stored mail authority differs from the staged gmail account"
+        if "attachments" in changed and (
+            isinstance(contract, GmailComposeContract) and contract.parts
+        ):
+            return "mail draft uses files under the changed attachment authority"
+        if (
+            "native" in changed
+            and isinstance(contract, GmailComposeContract)
+            and contract.parts
+        ):
+            return "mail draft uses files staged under the selected native authority"
+    if area in changed or changed.intersection({"owner", "database"}):
+        return f"the staged {area} authority differs from the selected release"
+    return None
 
 
 async def _action_activation_verdicts(
@@ -956,90 +1259,133 @@ async def _action_activation_verdicts(
     *,
     source_conversation_id: str,
     cleared_old_mail: frozenset[UUID] = frozenset(),
-) -> tuple[tuple[UUID, str, str, str], ...]:
-    """assess stored execution authority without opening providers or connectors."""
-    # End the locked read before loading any action.
+    authority: MaintenanceAuthority | None = None,
+    work: MaintenanceWork | None = None,
+) -> tuple[ActivationFinding, ...]:
     async with actions.engine.connect() as connection:
         unfinished = (
             await connection.execute(
-                text(
-                    "select id, status, tool_name from action "
-                    "where status = any(:statuses) "
-                    "order by created_at, id"
-                ),
-                {
-                    "statuses": [
-                        "queued",
-                        "awaiting_approval",
-                        "executing",
-                        "uncertain",
-                    ]
-                },
+                select(
+                    action.c.id,
+                    action.c.status,
+                    action.c.tool_name,
+                    message.c.source_conversation_id,
+                    message.c.request_state,
+                    message.c.wait_reason,
+                )
+                .join(message, message.c.id == action.c.origin_message_id)
+                .where(
+                    action.c.status.in_(
+                        ("queued", "awaiting_approval", "executing", "uncertain")
+                    )
+                )
+                .order_by(action.c.created_at, action.c.id)
             )
         ).all()
-    retired_reports = await actions.unreported_terminal(
+    retired = await actions.unreported_terminal(
         source_conversation_id=source_conversation_id,
         limit=100,
         retired_only=True,
     )
     verdicts = [
-        (
+        ActivationFinding(
             item.id,
             item.status,
             str(item.tool_name),
-            "incompatible retired_pending_events",
+            "retired_pending_events",
+            "publish the original action outcome under the selected release",
         )
-        for item in retired_reports
+        for item in retired
     ]
-    reported = {item.id for item in retired_reports}
-    for action_id, status, tool_name in unfinished:
-        if action_id in reported:
+    reported = {item.id for item in retired}
+    source_paused = (
+        work is not None and work.control is not None and work.control.kind == "pause"
+    )
+    quiet_approval_waits = (
+        work is not None
+        and not work.pending
+        and not work.unsettled
+        and not any(status in {"queued", "executing"} for _, status, *_ in unfinished)
+    )
+    for (
+        identifier,
+        status,
+        tool,
+        origin_scope,
+        request_state,
+        wait_reason,
+    ) in unfinished:
+        if identifier in reported:
             continue
-        if status == "uncertain" and action_id in cleared_old_mail:
+        proof = False
+        if origin_scope != source_conversation_id and status != "uncertain":
+            verdict = "foreign_scope"
+            detail = "executable action belongs to another owner scope"
+        elif status == "uncertain" and identifier in cleared_old_mail:
             verdict = "compatible"
-        elif status == "uncertain":
-            try:
-                stored = await actions.get(action_id)
-            except ActionPersistenceDefect:
-                verdict = "incompatible does_not_load"
-            else:
-                if stored is not None and (
-                    archived_worker_action(stored)
-                    or (
-                        str(stored.tool_name)
-                        in {"gmail.create_draft", "gmail.update_draft"}
-                        and not isinstance(stored.execution_contract, ExecutionContract)
-                    )
-                ):
-                    verdict = "compatible"
-                else:
-                    verdict = "in_flight"
-        elif status == "executing":
-            verdict = "in_flight"
+            detail = "terminal historical uncertainty retains its exact cut receipt"
         else:
-            verdict = await _pending_action_verdict(actions, plan, action_id)
-        verdicts.append((action_id, status, tool_name, verdict))
+            try:
+                stored = await actions.get(identifier)
+                if stored is None:
+                    raise ActionPersistenceDefect("action is absent")
+            except ActionPersistenceDefect:
+                verdict = "does_not_load"
+                detail = "stored action cannot be validated by this release"
+            else:
+                proof = status != "executing" and (
+                    source_paused
+                    or (
+                        quiet_approval_waits
+                        and status == "awaiting_approval"
+                        and request_state == "waiting"
+                        and wait_reason == "approval"
+                    )
+                )
+                if status == "uncertain":
+                    proof = False
+                    old_draft = tool in {
+                        "gmail.create_draft",
+                        "gmail.update_draft",
+                    } and (not isinstance(stored.execution_contract, ExecutionContract))
+                    if archived_worker_action(stored) or old_draft:
+                        verdict = "compatible"
+                        detail = "terminal historical uncertainty remains recorded"
+                    else:
+                        verdict = "uncertain"
+                        detail = "outcome unknown; use the original reconciliation"
+                else:
+                    try:
+                        require_current_action_binding(stored, plan)
+                    except RuntimeError:
+                        verdict = "binding"
+                        detail = (
+                            "stored action does not validate against the staged binding"
+                        )
+                    else:
+                        changed = _changed_action_authority(tool, stored, authority)
+                        if changed is not None:
+                            verdict, detail = "authority_changed", changed
+                        elif status == "executing":
+                            if stored.tool_name in RECOVERABLE_ACTION_IDS:
+                                verdict = "compatible"
+                                detail = (
+                                    "startup can reconcile the original executor entry"
+                                )
+                            else:
+                                verdict = "in_flight"
+                                detail = (
+                                    "this release lacks the original recovery procedure"
+                                )
+                        else:
+                            verdict = "compatible"
+                            detail = (
+                                "stored commitment can retain its original authority"
+                            )
+        verdicts.append(
+            ActivationFinding(identifier, status, tool, verdict, detail, proof)
+        )
     return tuple(verdicts)
-
-
-async def _pending_action_verdict(
-    actions: ActionStore,
-    plan: FrozenToolPlan,
-    action_id: UUID,
-) -> str:
-    """Apply startup recovery's revalidation to one queued or pending row."""
-
-    try:
-        stored = await actions.get(action_id)
-    except ActionPersistenceDefect:
-        return "incompatible does_not_load"
-    if stored is None:
-        raise ActionPersistenceDefect("unfinished action vanished under the lock")
-    try:
-        require_current_action_binding(stored, plan)
-    except RuntimeError:
-        return "incompatible binding"
-    return "compatible"
 
 
 async def dream_once(
@@ -1285,9 +1631,14 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("serve-memory", help="serve shared memory and capture")
     commands.add_parser("initialize-state", help="initialize private host state")
     commands.add_parser("check-paused", help="check the stopped canonical pause")
-    commands.add_parser(
+    activation = commands.add_parser(
         "check-activation",
         help="check unfinished actions against this release while stopped",
+    )
+    activation.add_argument(
+        "--maintenance",
+        action="store_true",
+        help="read authority changes and print a JSON verdict",
     )
     commands.add_parser(
         "cutover-native",
@@ -1426,27 +1777,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "serve":
             asyncio.run(serve(settings, settings.codex_host_config))
         elif arguments.command == "check-activation":
-            try:
-                verdicts = asyncio.run(
-                    check_activation(
-                        settings,
-                        settings.codex_host_config,
-                    )
-                )
-            except DeploymentAlreadyOwned:
-                print("another jarvis process owns the deployment")
-                return 1
-            for action_id, status, tool_name, verdict in verdicts:
-                print(f"action {action_id} {status} {tool_name} {verdict}")
-            compatible = sum(verdict == "compatible" for *_, verdict in verdicts)
-            in_flight = sum(verdict == "in_flight" for *_, verdict in verdicts)
-            incompatible = len(verdicts) - compatible - in_flight
-            print(
-                f"activation check: compatible={compatible} "
-                f"incompatible={incompatible} in_flight={in_flight}"
+            authority = (
+                MaintenanceAuthority.model_validate_json(sys.stdin.buffer.read(16_385))
+                if arguments.maintenance
+                else None
             )
-            if compatible != len(verdicts):
-                return 1
+            try:
+                check = asyncio.run(check_activation(settings, authority=authority))
+            except DeploymentAlreadyOwned:
+                check = ActivationCheck(
+                    None,
+                    (
+                        ActivationFinding(
+                            None,
+                            "deployment",
+                            None,
+                            "busy",
+                            "another jarvis process owns the deployment",
+                        ),
+                    ),
+                )
+            if arguments.maintenance:
+                print(json.dumps(check.as_json(), sort_keys=True, default=str))
+            else:
+                for item in check.findings:
+                    print(
+                        f"action {item.id} {item.status} {item.tool} "
+                        f"{item.verdict}. {item.detail}"
+                    )
+                compatible = sum(
+                    item.verdict == "compatible" for item in check.findings
+                )
+                in_flight = sum(item.verdict == "in_flight" for item in check.findings)
+                incompatible = len(check.findings) - compatible - in_flight
+                print(
+                    f"activation check: compatible={compatible} "
+                    f"incompatible={incompatible} in_flight={in_flight}"
+                )
+            return 0 if check.passed else 1
         elif arguments.command == "gmail-cut-audit":
             result = asyncio.run(gmail_cut_audit(settings, arguments.owner_evidence))
             print(json.dumps(result, sort_keys=True))

@@ -2,6 +2,7 @@
 
 import asyncio
 import grp
+import json
 import os
 import pwd
 import re
@@ -199,7 +200,7 @@ def publish_assistant(assistant, declaration):
     publish(ETC / "jarvis.env", assistant)
 
 
-async def require_owner_pause(db):
+async def require_initialized_schema(db):
     from sqlalchemy import text
 
     from jarvis.db import APPLICATION_SCHEMA_REVISION
@@ -207,13 +208,11 @@ async def require_owner_pause(db):
 
     async with db.connect() as conn:
         revision = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-    if (
-        revision != APPLICATION_SCHEMA_REVISION
-        or await MessageStore(db).current_control(os.environ["JARVIS_OWNER_SCOPE"])
-        != "pause"
-    ):
+    if revision != APPLICATION_SCHEMA_REVISION or await MessageStore(
+        db
+    ).current_control(os.environ["JARVIS_OWNER_SCOPE"]) not in {"pause", "resume"}:
         raise RuntimeError(
-            f"need schema {APPLICATION_SCHEMA_REVISION} and canonical owner pause"
+            f"need schema {APPLICATION_SCHEMA_REVISION} and initialized owner control"
         )
 
 
@@ -264,9 +263,30 @@ async def install_staged(stage, bootstrap):
                 entries = dict(
                     row.split(b"=", 1) for row in assistant.splitlines() if b"=" in row
                 )
-                await require_owner_pause(db)
+                await require_initialized_schema(db)
                 if any(entries.get(k.encode()) != v for k, v in old.items()):
                     raise RuntimeError("need original owner identities")
+            config = json.loads((stage / "agent.json").read_bytes())
+            helper = Path(__file__).with_name("install-agent-client")
+            await asyncio.to_thread(
+                subprocess.run,
+                [
+                    helper,
+                    "--bootstrap" if bootstrap else config["change"],
+                    *config["agent"],
+                ],
+                check=True,
+            )
+            for path, mode, group in (
+                ("/var/lib/jarvis/connectors", "0700", "jarvis"),
+                ("/var/cache/jarvis", "0750", "codex-clients"),
+                ("/var/cache/jarvis/attachments", "0750", "codex-clients"),
+            ):
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["install", "-d", "-m", mode, "-o", "jarvis", "-g", group, path],
+                    check=True,
+                )
             publish(ETC / "embedding.env", embedding)
             publish(ETC / "memory.env", memory)
             publish_assistant(assistant, (stage / "memory.json").read_bytes())

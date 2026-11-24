@@ -1,8 +1,102 @@
 # shellcheck shell=bash
 # caller holds /opt/jarvis/.deploy.lock as root.
+require_no_cutover_hold() {
+  local hold="${1:-/var/lib/jarvis-cutover/held}" change
+  if [[ -e "$hold" || -L "$hold" || -e /etc/systemd/system/jarvis-cutover.hold ]]; then
+    change="$(python3 - "$hold" <<'PYCODE'
+import json
+import sys
+from pathlib import Path
+from uuid import UUID
+
+try:
+    value = json.loads((Path(sys.argv[1]) / 'receipt.json').read_bytes())
+    print(UUID(value['binding']['id']))
+except (OSError, KeyError, TypeError, ValueError):
+    print('unknown')
+PYCODE
+)"
+    printf 'deployment hold %s prevents this operation\n' "$change" >&2
+    return 1
+  fi
+}
+
+check_release_schema() {
+  local release="$1"
+  shift
+  systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+    "--property=WorkingDirectory=$release" \
+    --property=EnvironmentFile=/etc/jarvis/migration.env \
+    "$release/.venv/bin/python" "$release/deploy/cutover-hold" inspect-database "$@"
+}
+
+deployment_runtime_check() {
+  local release="$1" extra_count="$2"
+  shift 2
+  local -a properties=(
+    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis
+    "--property=SupplementaryGroups=codex-clients jarvis-memory"
+    --property=ProtectHome=true --property=ProtectSystem=strict
+    --property=PrivateTmp=true --property=PrivateDevices=true
+    --property=NoNewPrivileges=true
+    --property=BindsTo=jarvis-codex-contained.service
+    --property=After=jarvis-codex-contained.service
+    --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
+    "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
+    "--property=ReadWritePaths=/var/lib/jarvis /run/jarvis-codex-cognition /var/cache/jarvis/attachments"
+    "--property=WorkingDirectory=$release"
+    --property=EnvironmentFile=/etc/jarvis/database-runtime.env
+    --property=EnvironmentFile=/etc/jarvis/jarvis.env
+  )
+  if [[ -n "${MAINTENANCE_MEMORY_CONFIG:-}" ]]; then
+    properties+=("--property=BindReadOnlyPaths=$MAINTENANCE_MEMORY_CONFIG:/etc/jarvis/memory.json")
+  fi
+  if [[ -n "${MAINTENANCE_GOOGLE_STATE:-}" ]]; then
+    properties+=("--property=BindReadOnlyPaths=$MAINTENANCE_GOOGLE_STATE:/var/lib/jarvis/connectors/google-oauth-state.json")
+  fi
+  while ((extra_count > 0)); do
+    properties+=("--property=EnvironmentFile=$1")
+    shift
+    extra_count=$((extra_count - 1))
+  done
+  systemd-run --quiet --wait --pipe --collect "${properties[@]}" "$@"
+}
+
+check_maintenance() {
+  local release="$1" input="$2" output="$3"
+  shift 3
+  deployment_runtime_check "$release" "$#" "$@" \
+    "$release/.venv/bin/jarvis" check-activation --maintenance <"$input" >"$output"
+}
+
+check_source_activation() {
+  local release="$1"
+  MAINTENANCE_MEMORY_CONFIG='' MAINTENANCE_GOOGLE_STATE='' deployment_runtime_check "$release" 0 \
+    "$release/.venv/bin/jarvis" check-activation </dev/null
+}
+
+safe_source_return() {
+  python3 - "$1" <<'PYCODE'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as stream:
+        value = json.load(stream)
+    conflicts = [row for row in value["findings"] if row["verdict"] != "compatible"]
+    allowed = value["control"] is not None and value["outcome"] == "blocked" and conflicts and all(
+        row["source_start_safe"] is True for row in conflicts
+    )
+except (KeyError, OSError, TypeError, ValueError):
+    allowed = False
+raise SystemExit(0 if allowed else 1)
+PYCODE
+}
+
 prune_releases() {
   local candidate="${1:-}" selected='' release main_pid
   local host_state host_pid host_control_pid host_executable host_release
+  require_no_cutover_hold || return 1
   if [[ -n "$candidate" && ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
     printf 'invalid staged release commit\n' >&2
     return 1

@@ -1,6 +1,6 @@
 # production operations
 
-at schema `0018`, two cpython 3.12 services run one selected release against
+at schema `0022`, two cpython 3.12 services run one selected release against
 the same postgres database. `jarvis.service` owns the private web conversation,
 canonical work, compaction and dreaming. it uses the separate contained native
 host for cognition. `jarvis-memory.service` owns external capture, online
@@ -28,8 +28,7 @@ complete inventory; incomplete inventory retries without inventing a boundary.
 oversized/conflicting history parks without moving its checkpoint. operator
 status is cli-only. the private cutover copy covers the stopped transition.
 
-arch memory enrollment is queued for the next jarvis deploy. before the owner
-pause, verify the recovered active credentials and settle the arch collector key.
+arch memory enrollment is queued for the next jarvis deploy. before the named change, verify the recovered active credentials and settle the arch collector key.
 [arch enrollment checklist](issues/arch-memory-activation.md)
 
 nexus capture is future-only for new admitted owner-librarian runs. its durable
@@ -40,6 +39,23 @@ central acknowledgement. source deletion neither deletes central originals nor
 cancels pending delivery. no revision/remove sync or historical import is added.
 reads, optional note saves and capture have distinct grants under the shared
 private declaration. automated helpers and other viewers receive no memory tools.
+
+## named production maintenance
+
+the owner’s authorization covers the named change and restoration of the services that were running. record the affected release, settings or grants, intended availability, and any exact disposition the owner has authorized. generate one uuid for this change. a retry uses the same id and inputs. the privileged commands run through the existing workstation ssh alias under the host release lock. the private web home can be unavailable while the assistant is stopped. its acknowledged submissions remain durable. retry an unacknowledged submission with the original id. [maintenance contract](decisions/0104-maintenance-without-owner-pause.md)
+
+| change | workstation command | held services |
+| --- | --- | --- |
+| qualified release | `deploy/install-release "$to"`, then `deploy/activate-release --change "$id" "$to"` | assistant, memory, contained host and backup |
+| private settings, grants or enrolled worker client | `deploy/install-private-state --change "$id"` | assistant, memory and backup |
+| full backup provisioning | `deploy/provision-memory-backup --change "$id" "$to"` | assistant, memory and backup |
+| backup reader only | `deploy/provision-memory-backup --change "$id" "$to" --reader-image "$digest"` | backup job. both writers keep serving |
+
+stage a successor built on the actually selected schema. before adoption, verify no older hold is active. the named release installs the permanent guards while the source serves. complete this compatible release before using the selected-release private and backup helpers. the new guards persist across reboot. leave timer enablement as found. a scheduled occurrence can be skipped while its backup service is held.
+
+on a schema change, the release command prints the protected snapshot directory. on an isolated macbook systemd guest, restore its postgres dump with the original roles, ownership and grants. restore both private trees with their original bytes, owners and modes. keep the original environment files. point only `JARVIS_DATABASE_URL` and `JARVIS_MIGRATION_DATABASE_URL` at the rehearsal database. in the packaged target, run `deploy/prepare-cutover verify-restored-source SNAPSHOT_DIR PROOF_DIR`. apply the candidate migration there. run `deploy/prepare-cutover record-rehearsal SNAPSHOT_DIR PROOF_DIR` as root. it runs the candidate compatibility check under the service identity and binds its result, the source control, dump, private copies, release identities and target inventory. resume with `deploy/activate-release --change "$id" --qualification "$proof/qualification.json" "$to"`. on the first adoption with existing backups, or when the configured reader proof differs from the target lock or schema, set `JARVIS_RECOVERY_KIT` and pass `--reader-image "$digest"` on both invocations, before the target sha. the command publishes the matched reader inside the same hold. an incompatible result retains the original decision path. a failed check after mutation requires forward repair.
+
+inspect a lost operator connection with the selected or staged release’s `deploy/cutover-hold status ID` through the deployment ssh alias. retry the named command for that id. a change to inputs needs its own authorized id and `--repair-of HELD_ID`. a durable commit authorizes actual starts and checks. a recorded startup failure requires an explicitly authorized new repair id. verify the selected release, serving processes, web and memory endpoints, actual owner control and backup policy. the owner’s existing pause remains effective even when both services are up. an isolated backup restore proves the contents of its generation. restoring over production requires a separate decision about the generation, intervening owner controls, effects and data loss.
 
 ## accepted v2 target and operational scope
 
@@ -117,8 +133,7 @@ not replace the mounted cache root.
 `jarvis attachment-reconcile ATTACHMENT_ID [--after-manual-cleanup]` now observes
 one registered key/cache under exclusive deployment ownership. run it with the
 configured runtime identity/environment while the service is stopped. it requires
-no canonical `pause` and creates no pause/resume cycle; separate authority-change
-and final-cutover pause requirements still apply. it neither repeats an unknown
+no canonical `pause` and creates no pause/resume cycle; named release and authority changes use deployment custody. it neither repeats an unknown
 put nor performs operator cleanup. absent evidence cannot prove that an entered
 put will never complete.
 
@@ -164,7 +179,7 @@ mode project. the web oauth client authorizes at
 rejected refresh grant with owner consent for the existing seven scopes.
 verify the account, exercise a token refresh and test both resource apis. update
 the oauth assignments and encrypted connector state in the local provisioning
-source and the paused, stopped deployment. resume and re-arm the affected
+source. publish via the named private-state change, then re-arm the affected
 sources with their existing progress. check for both recovery and gap records.
 
 on 2026-11-23, google returned `invalid_grant` for the previous external
@@ -195,8 +210,7 @@ the new private `NielsdaWheelz/jarvis-notes` checkout, including helpers and vis
 artifacts. source and a separate temporary candidate are qualified with the
 schema-5 mapping; production acceptance remains separate. final v2 cutover
 bootstraps the persistent checkout and host git access, installs the qualified
-host/application pair and preserves dirty work thereafter. existing authority-
-change pause/stopped checks apply; ordinary release pruning never deletes the repo.
+host/application pair and preserves dirty work thereafter. use named private provisioning for an authority change. release pruning preserves the repo.
 
 candidate proof uses a separate temporary native unit/endpoint/mapping, checkout,
 database and runtime state. do not use `install-contained-host` to rewrite the
@@ -373,7 +387,7 @@ to the trusted native domain. `ProtectKernelTunables=true`,
 no change to the shared coding daemon, rpc relay or copied account is involved.
 
 on an established deployment, `deploy/install-private-state` publishes a
-private-configuration change under both stopped writer locks and canonical pause.
+private-configuration change under named custody and both stopped writer locks.
 its workstation input (`JARVIS_SOURCE_ENVIRONMENT`) contains the required
 secret assignments, including the embedding key. on the operator workstation
 point it at `~/Documents/code/envs/projects/jarvis/.secrets/jarvis.slice0.env`
@@ -387,68 +401,7 @@ source declarations directly and preserves both google authorization and cursors
 
 ### subscription refresh at schema `0018`
 
-stage the candidate with `deploy/install-release "$to"`. at the authorized
-cut, record the ordinary owner pause, then cleanly stop `jarvis.service` and
-`jarvis-memory.service`. in the operator's `dev-server-deploy` session, set
-`to` to the staged commit and run this once. the target's database ownership
-checks and atomic file publisher also make a retry safe after interruption.
-
-```bash
-release="/opt/jarvis/releases/$to"
-sudo -n flock /opt/jarvis/.deploy.lock systemd-run --quiet --wait --pipe --collect \
-  --property="WorkingDirectory=$release/deploy" \
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-  --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-  "$release/.venv/bin/python" - <<'PY'
-import asyncio
-import os
-import stat
-
-from jarvis.db import create_engine
-from jarvis.ownership import maintenance_ownership
-from memory_credentials import ETC, publish, require_owner_pause
-
-async def retire():
-    engine = create_engine(os.environ["JARVIS_DATABASE_URL"])
-    try:
-        async with maintenance_ownership(engine) as db:
-            await require_owner_pause(db)
-            path = ETC / "jarvis.env"
-            metadata = path.stat()
-            if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 0o600):
-                raise SystemExit("repair protected environment ownership or mode")
-            original = path.read_bytes()
-            remaining = b"".join(line for line in original.splitlines(keepends=True)
-                                 if not line.startswith(b"JARVIS_CODEX_MODEL="))
-            if remaining != original:
-                publish(path, remaining)
-    finally:
-        await engine.dispose()
-
-asyncio.run(retire())
-PY
-```
-
-from the workstation, supply the new non-secret host mapping and run
-`deploy/install-contained-host "$to"`, then `deploy/activate-release "$to"`.
-activation checks the same-release host and remounts its socket inside the
-application. a failed preflight leaves both writers stopped. repair forward on
-the candidate. the predecessor requires the retired assignment. verify the
-retained owner pause and the exact parked range before any separately authorized
-retry and owner resumption. [burst recovery](compactor-burst-recovery.md)
-
-after the single authorized clear, read the stopped singleton. postgresql can
-store a cleared jsonb field as json `null` or sql `null`. use the same
-predicate when polling after resume.
-
-```sql
-select nullif(compaction_error, 'null'::jsonb) is null as cleared, view_through
-from memory_state;
-```
-
-if `cleared` is false, keep the assistant stopped and inspect the surviving
-mark. measure catch-up at the frozen cutoff even if later arrivals advance
-the prefix beyond it. [capacity observation](#chronological-capacity-observation)
+the schema `0018` model transition and its one-time configuration command are historical. use the original release for its evidence. subsequent private setting changes use the named private-state operation. [burst recovery](compactor-burst-recovery.md)
 
 remove the retired `JARVIS_CONNECTOR_ENCRYPTION_KEYS` entry from the private
 source and installed environment before deploying; the installer rejects it.
@@ -482,11 +435,26 @@ live acls the operator verified as owner-only. calendar writes for those ids,
 without attendees or notification, are automatic. other calendar writes require
 ordinary conversational consent recorded by main through `approval.respond`.
 
+for an independent stopped repair, execute the documented service-user command under `sudo -n /opt/jarvis/current/deploy/with-independent-maintenance COMMAND [ARG ...]` on the deployment host. wrap the whole foreground service invocation, including `systemd-run --wait` when used. this holds the shared release lock, checks for a published change and preserves the command’s own writer keys, runtime identity and environment.
+
+if an existing held mail send needs original evidence, record the owner’s authorization for its exact action uuid and the change id. on the deployment host, run the following as one command. set `custodian` to the installed release providing the current hold. use a release that accepts the original immutable effect contract at the observed database revision. if the selected release cannot do that, keep the hold and qualify a schema-capable forward repair. the compatibility check must pass before that repair starts writers.
+
+```sh
+sudo -n flock --exclusive /opt/jarvis/.deploy.lock bash -ec '
+  custodian=$1 change=$2 action=$3
+  "$custodian/deploy/cutover-hold" check "$change"
+  source "$custodian/deploy/release-functions"
+  selected=$(readlink -e /opt/jarvis/current)
+  expected=$("$selected/.venv/bin/python" -c "from jarvis.db import APPLICATION_SCHEMA_REVISION as r; print(r)")
+  [[ "$(check_release_schema "$selected")" == "$expected" ]]
+  deployment_runtime_check "$selected" 0 "$selected/.venv/bin/jarvis" gmail-send-reconcile "$action"
+' held-reconciliation "$custodian" "$id" "$action"
+```
+
+
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the
-owner-approved, verified stopped `0013→0015` incident repair. only that exact cut
-may preserve the last actual control when the stalled release cannot record a pause.
-the later `0015→0016` grant/service cut requires the ordinary recorded pause and
-both writers stopped. the adr records the installed cuts and defines memory
+owner-approved, verified stopped `0013→0015` incident repair. that original cut preserved the last actual control when the stalled release could not record a pause.
+the later `0015→0016` grant/service cut used its then-required recorded pause and both stopped writers. the adr records the installed cuts and defines memory
 command locks.
 
 ### private web ingress
@@ -524,8 +492,7 @@ activation, verify that owner login returns to the exact pinned page/file. [conn
 use the selected predecessor to settle executable actions and incompatible
 native seals. snapshot the old and pending alert inventory. prepare and verify
 the candidate, pinned backup reader, app links and handset access before the
-outage. use the existing named hold when installed. otherwise retain the
-ordinary owner web pause and drain the backup timer. work, canonical control,
+outage. use the installed named hold. work, canonical control,
 scope, exact archive key and the selected-history capture cuts remain intact.
 
 `deploy/install-fcm-sender PROJECT PRIVATE_SERVICE_ACCOUNT_JSON` publishes the
@@ -534,12 +501,11 @@ credential belongs to the dedicated project. lost or unusable credentials hold
 notifications pending. the private `/var/lib/jarvis/phone/slot.json` is outside
 the database and stopped copy. losing it requires explicit enrollment.
 
-use the exact source and target releases with `deploy/activate-release --prepare`
-and `--migrate`, followed by activation and the pinned target reader handoff.
-restore the stopped copy in isolation before migrating. match each old notice id
-and provider receipt and preserve every pending reply. qualify the post-cut reader
-and backup before restoring its schedule. only the owner can resume canonical
-work after a real pause. revoke the old bot and remove its installed declaration
+follow [named production maintenance](#named-production-maintenance) for the
+exact source and target. preflight the dedicated sender before opening or advancing
+the hold. restore its stopped copy on macbook and match every preexisting row.
+verify the notice ids, old provider receipts and pending replies against the
+same copy. production applies the same verified migration and reader. revoke the old bot and remove its installed declaration
 after the phone and web journey passes. [cut requirements](decisions/0105-native-android.md#ownership-redgreenrefactor-and-exit)
 
 ### off-host central memory recovery
@@ -575,10 +541,8 @@ read are separate facts. use the mac for the following operations.
    names and its own write credential. include `recipient` with the age public
    recipient and `reader_image` with the saved image id. install ubuntu's
    `age` package. after separate owner approval,
-   select the backup-capable release through the ordinary paused deployment,
-   stop both writers cleanly, then provision from the mac. restart both units
-   through the ordinary paused release procedure and keep recurring backups
-   disabled for the first drill. provisioning confines the backup login to
+   use the named change for the selected backup-capable release. keep recurring backups
+   disabled for the first drill on a fresh installation. provisioning confines the backup login to
    the local jarvis database and reloads postgres configuration in place.
    find its leading `jarvis backup connection scope` block via `SHOW hba_file`
    and inspect `pg_hba_file_rules`. provisioning refuses a displaced block.
@@ -589,7 +553,7 @@ read are separate facts. use the mac for the following operations.
    then reload systemd. the existing database authority is reusable.
 
    ```sh
-   JARVIS_BACKUP_SETTINGS="$producer_json" deploy/provision-memory-backup "$release"
+   JARVIS_RECOVERY_KIT="$kit" JARVIS_BACKUP_SETTINGS="$producer_json" deploy/provision-memory-backup --change "$id" "$release"
    ssh dev-server-deploy sudo -n systemctl start jarvis-backup.service
    ssh dev-server-deploy sudo -n journalctl -u jarvis-backup.service -n 20 --no-pager
    ```
@@ -620,179 +584,23 @@ authorized resumption can start the restored application's writers.
 
 ### stopped calendar cut from 0018 to 0019
 
-1. while the selected release is running, use its calendar source control to
-   disable calendar observation. settle every already published calendar change,
-   reminder and calendar source-health input, including parked and delayed work.
-   publish outstanding source-control results on that release. settle unentered
-   actions, native seals and entered or unknown effects under their original
-   authority. the successor main plan has a new binding.
-   after draining, ask for fresh source status on that same running release
-   before pausing. this identifies the disabled active account if a previous
-   account still has an enabled cursor.
-2. stage the target and disable the backup timer. let any running backup finish.
-   record the owner's ordinary web pause and stop both writers cleanly.
-   prepare the cut under the deployment hold. the snapshot binds both
-   release receipts and all nineteen table inventories. rehearse using its
-   isolated restore on macbook, including the target's `jarvis check-activation`,
-   before migrating the installed database.
-3. migrate with the same release receipts. under assistant-then-memory locks,
-   the same transaction checks the source again, deletes the retired cursor
-   rows and verifies the exact retained gmail projection, remaining inventories,
-   target constraints and grants. retry `--migrate` with both receipts after an
-   interruption. it verifies the bound committed target if migration finished.
-4. qualify a schema `0019` backup and isolated restore with that release's
-   pinned reader. keep earlier backups with their matching readers and keep the
-   verified stopped recovery copy at `/var/lib/jarvis-cutover/adr0096/$to`.
-   leave the writers stopped on an older restored backup until the operator
-   has accounted for its calendar source setting.
-5. after separate installation authorization, install the matching native host
-   and activate both units under the retained pause. stop both writers again
-   while paused. use the existing backup provisioning command with the new
-   reader image id in the producer settings. run and restore one backup before
-   re-enabling the timer. start both units, verify the private home and use
-   ordinary owner `resume`. subsequent same-schema updates keep the ordinary
-   activation path.
-
-```sh
-deploy/install-release "$to"
-ssh dev-server-deploy sudo -n systemctl disable --now jarvis-backup.timer
-# let an active jarvis-backup.service finish
-# after calendar drain and recorded owner web pause
-ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
-deploy/activate-release --prepare "$from" "$to"
-# verify the private restore and rehearse the cut before installed migration
-deploy/activate-release --migrate "$from" "$to"
-deploy/install-contained-host "$to"
-deploy/activate-release "$from" "$to"
-deploy/verify-containment
-```
+this completed cut retains its original procedure and evidence in [its decision](decisions/0096-calendar-on-demand.md) and matching release. later changes use [named production maintenance](#named-production-maintenance).
 
 ### stopped conversation capture cut from 0019 to 0020
 
-before the `0020` worker freeze, require per-conversation v3 [claude recovery receipts](claude-data-flow-capture.md#3-release-and-verify-recovery) and the separately qualified v4 collector containing the reader fix. an outstanding case requires an explicit owner decision naming the affected uuid. keep historical backfill arrivals and service downtime visible in the capacity sample.
-
-1. verify the installed `0019` predecessor and its
-   [live google proof](decisions/0096-calendar-on-demand.md#live-google-calendar). record both installed
-   collector revisions. the owner waived the installed before/after samples.
-   qualify the target release, pinned collectors, nexus release and restore
-   reader together.
-2. suspend new nexus sends and retries while the old admitted runs settle.
-   drain every v1 export through the old producer and receiver. check the
-   outbox, including parked items, and compare its next sequence to central
-   progress. a park holds the cut. install nexus `0347` first with capture held
-   by the existing generated declarations. for inactive nexus, verify those
-   declarations, registrations and the outbox, and keep capture disabled.
-3. under the existing owner web pause, stop both jarvis writers and prepare
-   `/var/lib/jarvis-cutover/adr0098/$to` with the two exact release receipts.
-   verify the stopped copy. the owner waived a further rehearsal on this cut.
-   migrate on the selected stopped deployment, using the same receipts.
-   the migration compares original table inventories and verifies the new
-   defaults, privileges and retained evidence for excluded workers. reopen an
-   original using its pre-cut reference.
-4. activate the matching components while canonically paused. use the same
-   release pin for both collectors. verify the memory service rejects native v3
-   and nexus v1. restore the intended nexus declaration after both revisions
-   match. exercise a
-   schema `0020` backup and isolated restore before returning the backup timer.
-5. resume through the ordinary owner control. prove an admitted external root,
-   delivered report, skipped span, fresh recall and one contained main observation.
-   [acceptance](decisions/0098-conversation-capture.md#proof-and-cutover)
+this completed cut retains its original procedure and evidence in [its decision](decisions/0098-conversation-capture.md) and matching release. later changes use [named production maintenance](#named-production-maintenance).
 
 ### stopped native capture cut from 0021 to 0022
 
-1. close the installed historical archive cut. verify the selected `0021`
-   release, protected originals, retired addresses and restored backup. freeze
-   the three parked receipts and all selected native occurrence hashes privately.
-2. stage the matching `0022` service and v5 collectors. drain v4 collectors.
-   record the owner web pause, disable the backup timer and prepare the stopped
-   copy in `/var/lib/jarvis-cutover/adr0103/`. on macbook, restore that copy and
-   qualify the stopped migration.
-3. migrate with both exact release receipts. preserve all stopped table
-   inventories, including retired source addresses. verify the new zero
-   generation, guard and grants. activate the matching sender and receiver.
-   verify v4 rejection and the new backup/restore before returning the timer.
-4. clear only the three verified parks under stopped external-memory ownership.
-   restore that service on every exit. confirm the selected replies reopen once
-   under their original conversation ids and later capture advances.
-   [repair scope](codex-history-recovery.md#verification-and-repair)
+this completed cut retains its original procedure and evidence in [its decision](decisions/0103-codex-history-admission.md) and matching release. later changes use [named production maintenance](#named-production-maintenance).
 
 ### stopped historical cleanup from 0020 to 0021
 
-run this one-time procedure with the exact historical `0021` release's
-commands and dependencies. later releases have their own stopped transition.
-
-use the repaired v4 sender and receiver first. keep the owner's web pause
-through both cuts when possible. disable the backup timer, let an active
-backup finish, and stop both jarvis writers cleanly. run this release's
-`deploy/activate-release --prepare "$from" "$to"`. it takes the recovery copy
-at `/var/lib/jarvis-cutover/historical-capture/$to` and binds the release
-receipts and table inventories. retain the copy under its existing permissions.
-
-use the candidate's python and `deploy/historical-capture` for all three steps
-below. keep the outputs owner-private. the cohort contains event ids and part
-ids. the observations and manifest can contain private, recovered conversation.
-
-1. use the held database's read-only connection to run
-   `cohort SNAPSHOT.json --output cohort.json` for the actual stopped snapshot.
-2. on macbook and devbox, as the ordinary collector owner, run
-   `observe cohort.json ~/.config/jarvis-memory/collector.json --output host.json`.
-   collect each host's output. check the previously proved worker reports and
-   inspect the counts of recovered speech and unresolved source evidence.
-3. run `plan cohort.json macbook.json devbox.json --output manifest.json`.
-   the manifest binds the snapshot and includes complete events.
-
-run `deploy/activate-release --migrate --manifest manifest.json "$from" "$to"`.
-the stopped transaction checks every eligible row again, applies the deletion
-and verifies protected data before committing. a retry with the same manifest
-and release receipts verifies any already committed result. install the matching
-contained host, activate with both shas and verify containment. verify zero
-external calls, results and inspection wrappers, a surviving conversation, a
-retired original and an old positional lookup through the installed service.
-use the target's sealed reader to verify the new backup from both copies,
-restart under the retained pause, restore the backup timer and use the ordinary
-owner resume. evidence and closure belong to [adr 0102](decisions/0102-historical-capture-cleanup.md).
+this completed cut retains its original procedure and evidence in [its decision](decisions/0102-historical-capture-cleanup.md) and matching release. later changes use [named production maintenance](#named-production-maintenance).
 
 ### installed memory cut from 0017 to 0018
 
-1. stage the target. on the selected release record the owner's web pause.
-   stop the assistant and memory cleanly, then prepare the stopped snapshot.
-   on its isolated restore, verify the original inventory and rehearse the target
-   migration and `check-activation` against actual outstanding work and receipts.
-2. the migrator acquires both locks in assistant-then-memory order and verifies
-   the hold, snapshot and all nineteen table inventories. the same transaction
-   checks that migration preserves them, including web submissions and notices.
-   after interruption, repeat `--migrate` with the same two receipts.
-3. install the corresponding native host and activate both units under the
-   retained pause. check containment, role grants, enrolled native reads and a
-   newly committed vector. apply the matching managed profile instructions.
-   send an ordinary web `resume` and inspect its canonical control. observe
-   genuine recall and the historical capacity window separately.
-   the installed release's scripts kept the verified recovery copy at
-   `/var/lib/jarvis-cutover/adr0092/$to`.
-   after installed acceptance, retire a superseded secret-bearing snapshot only
-   after verifying its replacement and retaining original unknown-effect evidence.
-
-```sh
-deploy/install-release "$to"
-# after the recorded owner web pause
-ssh dev-server-deploy sudo -n systemctl stop jarvis.service jarvis-memory.service
-deploy/activate-release --prepare "$from" "$to"
-# verify the private restore and qualify the candidate before the installed migration
-deploy/activate-release --migrate "$from" "$to"
-deploy/install-contained-host "$to"
-deploy/activate-release "$from" "$to"
-deploy/verify-containment
-```
-
-if startup fails after switching the selected release and releasing the hold, the
-installer stops both units. check its journal, repair forward and rerun
-`deploy/activate-release "$to"`. the installer waits up to five minutes for the
-private http endpoint and checks both units before pruning.
-if interruption leaves a partial hold release, keep both units stopped. run
-the installed target's `deploy/cutover-hold stop "$to"` as root under the
-existing deployment lock, then repeat `deploy/activate-release "$from" "$to"`.
-the recovery copy covers postgres, `/var/lib/jarvis` and `/etc/jarvis`.
-the notes checkout and r2 originals retain their existing custody.
+this completed cut retains its original procedure and evidence in [its decision](decisions/0092-memory-freshness.md) and matching release. later changes use [named production maintenance](#named-production-maintenance).
 
 from the private notes workspace, main runs
 `/opt/jarvis/current/deploy/jarvis-page publish SLUG COMMIT --home` or its
@@ -802,10 +610,7 @@ time-sensitive data carries its preparation time. the sandbox omits downloaded
 libraries, fonts, media and workers. withdrawal closes all links, including raw
 content, and keeps the private source. a filesystem read already admitted can finish.
 
-for subsequent same-schema updates, cleanly stop both services, install the
-target and its native host, then run `deploy/activate-release "$to"`. routine
-activation preserves canonical control. pruning retains the selected artifact
-and one candidate while checking each running process.
+subsequent same-schema updates use the [named release command](#named-production-maintenance). pruning follows verified service readiness.
 
 the memory unit runs as `jarvis-memory` using the login `jarvis_memory`.
 `/etc/jarvis/database-memory.env`, `memory.env` and `embedding.env` supply its
@@ -826,7 +631,7 @@ the original coding files remain unchanged. optional absent paths remain absent.
 an outside atomic replacement exposes the new file to an already-running mount
 namespace; later creation of an absent file is also unmasked. stop the application
 and contained host before profile publication, then restart the same-release host
-and application paused. never treat these file mounts as protection from live
+and application under the owner's recorded control. never treat these file mounts as protection from live
 configuration changes.
 after memory settings are installed, qualify an actual restricted thread: the
 effective configuration contains the memory registration, but every inherited
@@ -849,8 +654,7 @@ assistant's private configuration. install the candidate's native host and
 private ingress. run the candidate's `jarvis initialize-state` once as the
 assistant using its runtime declarations. use the same stored owner scope in the
 migration environment and run the candidate's `alembic upgrade 0018` as migrator
-with both writers stopped. start using `deploy/activate-release "$to"`. a populated
-database must use the stopped cut. startup always reads its recorded control.
+with both writers stopped. the issued historical migrations include release-specific data conversion steps. use their original release procedures when constructing the current schema; a plain alembic upgrade does not supply that evidence. fresh installation starts under its bootstrap pause until its first owner enablement. an established deployment uses named maintenance.
 
 `verify-containment` runs after activation without printing secret values. It
 proves the three environment files are root-owned mode 0600 and unreadable by
@@ -882,8 +686,7 @@ hold the cut.
 
 stop both writers. inspect the following under the existing stopped maintenance
 ownership, alongside the native inventory and activation checks. both counts
-must be zero. after a required canonical pause, inspect its cancellation receipts
-and obtain fresh consent where required on resumption.
+must be zero. preserve any actual owner pause. obtain a new decision only for its cancelled approval when the work is reopened.
 
 ```sql
 select count(*) as pending_old_notices
@@ -900,30 +703,8 @@ chat question opens at the message named by its notice. old decision urls return
 
 ## native cutover
 
-while the original release still owns its executable contracts, pause and stop it
-cleanly. reconcile entered effects and paid reads; settle original native seals.
-disable old discord approval components and explicitly drain or cancel incompatible
-unentered actions under that release. never renew those approvals or rewrite an
-original execution contract. retain undelivered canonical prose and original
-arguments, times, effect identities and receipts.
+the original one-main transition is historical. for an authorized future cut, `jarvis cutover-native` writes a private inventory under assistant ownership, including its actual initialized owner control. the read-only inventory preserves outstanding actions and approvals. use the stopped compatibility check for the actual target. the historical slice advanced through schema `0013`.
 
-before migration, take one private database/runtime snapshot using the existing
-stopped snapshot procedure. `jarvis cutover-native` now only writes
-`one-main-cutover.json` in the private runtime directory, mode 0600. it requires
-canonical administrative pause and holds deployment ownership. the inventory
-contains outstanding effects/approvals, original schedules, waiting/stopped/parked
-requests, unsettled attempts and undelivered results. it changes no request,
-action, approval or deployment state. inventory is evidence, not completion.
-retained reminder purpose, time and source references belong to slice 2's todo
-conversion; there is no temporary reminder table or executable old scheduler.
-
-the current source migration chain continues from memory `0008` through
-per-conversation baselines `0008a`, one-main `0009`, work `0010`, attachments
-`0011`, event sources `0012` and lossless read-result storage `0013`.
-work adds the mutable todo table and its current schedule; attachments add
-one original-metadata table and immutable upload manifests. old messages without
-manifests retain their text/archive digests. runtime admission requires the exact
-`0013` schema head; this is not an installed-production migration receipt.
 the one-main migration adds immutable causal parentage, gives host requests the
 same lifecycle and removes the component-required action constraint. it reconstructs
 parents only by joining canonical action identities. native committed products
@@ -1027,8 +808,7 @@ worker rows remain opaque evidence; unfinished incompatible contracts block
 admission and require disposition under their original release.
 
 `JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_STATE_DIRECTORY` select the qualified
-skid cli and enrolled computer's live state. `deploy/install-agent-client`
-installs the matching executable and prepares `/run/jarvis-skid-state` as a
+skid cli and enrolled computer's live state. run `deploy/install-private-state --change "$id"` to install the matching executable and prepare `/run/jarvis-skid-state` as a
 root-owned read-only id-mapped mount. the service keeps its own uid, empty
 capabilities, `ProtectHome` and `NoNewPrivileges`. current filesystem publication
 remains visible without copying identity or membership; replacing the source
@@ -1085,9 +865,7 @@ submits approved mime with the draft id. a gmail edit racing after preflight
 can be consumed or overwritten. any lost acknowledgement needs independent
 message-level sent evidence. [outgoing gmail contract](decisions/0101-outgoing-mail-attachments.md)
 
-before the first activation, record a canonical web pause. cancel unentered old
-proposals through the predecessor's scoped stop, then quiesce entered calls.
-run the candidate's `jarvis gmail-cut-audit` as the stopped `jarvis` runtime
+the first installed outgoing-mail cut and its old-send audit are recorded in adr 0101. when an old send independently requires inspection, run the candidate's `jarvis gmail-cut-audit` as the stopped `jarvis` runtime
 user, with the normal runtime environment. it reads the connected account,
 leaves old action and invocation rows intact, and writes a private cut receipt
 under the runtime-state directory only when the recorded inventory clears.
@@ -1259,7 +1037,7 @@ before installation, record selected jarvis/nexus commits, each frozen dependenc
 lock and built image digest, then advance dev-server's collector release pin to
 the qualified jarvis artifact. old four-pin equality and old qualification do not
 qualify current consumers. source, artifact publication, installation, capture
-activation and owner resumption require distinct receipts. hard-cut replaced
+activation and an actual owner control have distinct receipts. hard-cut replaced
 paths without rewriting originals or moving activation boundaries backward.
 
 use matching os and database identities for maintenance commands. ordinary

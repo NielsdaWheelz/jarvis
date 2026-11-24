@@ -95,7 +95,10 @@ async def backup(config):
         PGCONNECT_TIMEOUT="10",
     )
     with (ROOT / ".deploy.lock").open("rb") as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None
         release = (ROOT / "current").resolve(strict=True)
         if release != Path.cwd() or release != Path(__file__).resolve().parent.parent:
             raise RuntimeError("backup process does not own the selected release")
@@ -151,11 +154,15 @@ def main():
         print("memory backup credentials are missing or invalid", file=sys.stderr)
         return 1
     try:
-        generation, cut = asyncio.run(backup(config))
+        result = asyncio.run(backup(config))
     except Exception as error:
         # Exceptions from the SDK can carry request coordinates and credentials.
         print(f"memory backup failed ({type(error).__name__})", file=sys.stderr)
         return 1
+    if result is None:
+        print("memory backup skipped during deployment; no backup was published")
+        return 0
+    generation, cut = result
     if not timedelta() <= datetime.now(UTC) - cut <= timedelta(hours=1):
         print(
             f"backup {generation} from {cut.isoformat()} "

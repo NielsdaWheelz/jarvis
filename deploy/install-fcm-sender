@@ -13,7 +13,11 @@ trap 'ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" rm -rf -- "$remote"' 
 scp -p -q -o BatchMode=yes -o ForwardAgent=no "$2" "$target:$remote/sender.json"
 
 ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock \
-  python3 - "$1" "$remote" <<'PYTHON'
+  bash -s -- "$1" "$remote" <<'REMOTE'
+set -euo pipefail
+source /opt/jarvis/current/deploy/release-functions
+require_no_cutover_hold
+exec python3 - "$@" <<'PYTHON'
 import json, pwd, sys
 from pathlib import Path
 
@@ -47,3 +51,4 @@ publish(destination, encoded, owner=jarvis.pw_uid, group=jarvis.pw_gid)
 publish(declaration, configuration)
 print("installed dedicated FCM sender")
 PYTHON
+REMOTE

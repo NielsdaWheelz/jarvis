@@ -12,7 +12,7 @@ import sys
 
 from memory_backup_hba import scope_backup_hba
 from memory_backup_storage import MANIFEST_LIMIT, producer_settings
-from memory_credentials import ETC, publish, require_owner_pause
+from memory_credentials import ETC, publish, require_initialized_schema
 from memory_snapshot import (
     LO_GRANTS_SQL,
     POSTGRES_BIN,
@@ -243,7 +243,7 @@ async def install(raw):
     engine = create_engine(str(conn.render_as_string(hide_password=False)))
     try:
         async with maintenance_ownership(engine) as owner:
-            await require_owner_pause(owner)
+            await require_initialized_schema(owner)
             async with owner.connect() as connection:
                 await database_inventory(connection)
             group = os_identity()

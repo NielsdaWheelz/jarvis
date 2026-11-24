@@ -20,6 +20,11 @@ remain separately scoped.
 repair. [adrs](decisions/README.md) preserve rationale; retired delivery checklists,
 qualification reports and completed cleanup logs live in git history.
 
+[adr 0104](decisions/0104-maintenance-without-owner-pause.md) owns named deployment
+custody, stopped work compatibility and adoption through existing commands.
+implementation starts from the verified installed `ea2b825` composition, which
+already includes main's chat-order fix. installed acceptance requires its own cut.
+
 [adr 0094](decisions/0094-worker-tools-and-native-context.md) builds on the
 committed adr 0093 candidate. qualify existing worker behavior independently,
 then the typed provider seal, jarvis settlement and the combined live journey.

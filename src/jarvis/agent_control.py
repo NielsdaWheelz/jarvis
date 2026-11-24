@@ -681,7 +681,13 @@ class AgentController:
                         task.result()
                         del tasks[action_id]
                 inactive = await paused()
-                active = () if inactive else await self._actions.active_agent_waits()
+                active = (
+                    ()
+                    if inactive
+                    else await self._actions.active_agent_waits(
+                        source_conversation_id=self.source_conversation_id
+                    )
+                )
                 selected = {value.id for value in active}
                 for action_id, (_, token) in tasks.items():
                     if action_id not in selected:

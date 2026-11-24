@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select, text
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis._atomic_json import replace_private_json
 from jarvis.agent_tools import AGENT_IMPLEMENTATION_REVISION
@@ -19,8 +21,101 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.messages import causal_component_ids
+from jarvis.messages import causal_component_ids, latest_control
 from jarvis.ownership import Database, lock_conversation
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerControl:
+    id: UUID
+    kind: str
+    sequence: int
+    targets: tuple[UUID, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MaintenanceWork:
+    control: OwnerControl | None
+    resumable: tuple[UUID, ...]
+    pending: tuple[UUID, ...]
+    unsettled: tuple[UUID, ...]
+
+
+async def _maintenance_work(connection: AsyncConnection, scope: str) -> MaintenanceWork:
+    row = (
+        await connection.execute(
+            latest_control(scope).add_columns(
+                message.c.id, message.c.control_sequence, message.c.control_targets
+            )
+        )
+    ).one_or_none()
+    control = (
+        OwnerControl(
+            row.id, row.control_kind, row.control_sequence, tuple(row.control_targets)
+        )
+        if row is not None
+        else None
+    )
+    paused_targets = (
+        control.targets if control is not None and control.kind == "pause" else ()
+    )
+    requests = (
+        await connection.execute(
+            select(
+                message.c.id, message.c.request_state, message.c.processing_parked_at
+            )
+            .where(
+                message.c.source_conversation_id == scope,
+                message.c.role.in_(("owner", "host")),
+                message.c.control_kind.is_(None),
+                or_(
+                    message.c.request_state.in_(("pending", "waiting")),
+                    and_(
+                        message.c.request_state == "stopped",
+                        message.c.id.in_(paused_targets),
+                    ),
+                ),
+            )
+            .order_by(message.c.id)
+        )
+    ).all()
+    unsettled = tuple(
+        (
+            await connection.scalars(
+                select(native_attempt.c.id)
+                .where(
+                    native_attempt.c.conversation_id == scope,
+                    native_attempt.c.product_outcome.is_(None),
+                    or_(
+                        native_attempt.c.terminal_at.is_not(None),
+                        native_attempt.c.recovery_pending,
+                    ),
+                )
+                .order_by(native_attempt.c.attempt_seq)
+            )
+        ).all()
+    )
+    return MaintenanceWork(
+        control,
+        tuple(item.id for item in requests),
+        tuple(
+            item.id
+            for item in requests
+            if item.request_state == "pending" and item.processing_parked_at is None
+        ),
+        unsettled,
+    )
+
+
+async def maintenance_work(database: Database, *, scope: str) -> MaintenanceWork:
+    async with database.connect() as connection:
+        return await _maintenance_work(connection, scope)
+
+
+class NativeActivationDefect(RuntimeError):
+    def __init__(self, detail: str, identifier: UUID | str | None = None) -> None:
+        super().__init__(detail)
+        self.identifier = identifier
 
 
 async def require_native_data(database: Database, *, conversation_id: str) -> None:
@@ -29,7 +124,7 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             text("SELECT version_num FROM alembic_version")
         )
         if revision != APPLICATION_SCHEMA_REVISION:
-            raise RuntimeError("one main requires the current application schema")
+            raise NativeActivationDefect("target requires its own application schema")
         legacy = await connection.scalar(
             select(action.c.id)
             .join(message, message.c.id == action.c.origin_message_id)
@@ -52,9 +147,9 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             .limit(1)
         )
         if legacy is not None:
-            raise RuntimeError(
-                "unfinished retired action requires original-release "
-                "settlement or cancellation"
+            raise NativeActivationDefect(
+                "retired action requires a disposition under the original release",
+                legacy,
             )
         unknown = await connection.scalar(
             select(read_position.c.position)
@@ -66,20 +161,12 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             .limit(1)
         )
         if unknown is not None:
-            raise RuntimeError("retired paid read requires original-release settlement")
-        resumable = tuple(
-            (
-                await connection.execute(
-                    select(message.c.id).where(
-                        message.c.source_conversation_id == conversation_id,
-                        message.c.role.in_(("owner", "host")),
-                        message.c.control_kind.is_(None),
-                        message.c.request_state.in_(("pending", "waiting")),
-                    )
-                )
-            ).scalars()
-        )
-        component = set(await causal_component_ids(connection, resumable))
+            raise NativeActivationDefect(
+                "retired paid read requires a disposition under the original release",
+                unknown,
+            )
+        work = await _maintenance_work(connection, conversation_id)
+        component = set(await causal_component_ids(connection, work.resumable))
         if component:
             invocations = (
                 (
@@ -106,19 +193,20 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             )
             unknown_web = (
                 await connection.execute(
-                    select(read_position.c.contract).where(
+                    select(read_position.c.position, read_position.c.contract).where(
                         read_position.c.position.in_(positions),
                         read_position.c.state.in_(("dispatched", "uncertain")),
                         read_position.c.contract["replay_policy"].as_string()
                         == "BilledOnce",
                     )
                 )
-            ).scalars()
-            if any("web_source_operation" not in contract for contract in unknown_web):
-                raise RuntimeError(
-                    "outstanding retired web search requires "
-                    "original-release disposition"
-                )
+            ).all()
+            for position, contract in unknown_web:
+                if "web_source_operation" not in contract:
+                    raise NativeActivationDefect(
+                        "retired web search requires original-release disposition",
+                        position,
+                    )
         inference = await connection.scalar(
             select(model_decision.c.decision_id)
             .where(
@@ -128,8 +216,9 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             .limit(1)
         )
         if inference is not None:
-            raise RuntimeError(
-                "unfinished retired inference requires original-release disposition"
+            raise NativeActivationDefect(
+                "retired inference requires a disposition under the original release",
+                inference,
             )
 
 
@@ -147,7 +236,7 @@ async def cutover_native(
     }
     async with database.begin() as connection:
         await lock_conversation(connection, conversation_id)
-        paused = await connection.scalar(
+        control = await connection.scalar(
             select(message.c.control_kind)
             .where(
                 message.c.source_conversation_id == conversation_id,
@@ -156,10 +245,9 @@ async def cutover_native(
             .order_by(message.c.control_sequence.desc())
             .limit(1)
         )
-        if paused != "pause":
-            raise RuntimeError(
-                "cutover inventory requires canonical administrative pause"
-            )
+        if control not in {"pause", "resume"}:
+            raise RuntimeError("cutover inventory requires initialized owner control")
+        inventory["owner_control"] = control
         queries = {
             "actions": """SELECT to_jsonb(a) FROM action a JOIN message m
               ON m.id=a.origin_message_id WHERE m.source_conversation_id=:scope

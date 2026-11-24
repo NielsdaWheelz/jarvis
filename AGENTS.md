@@ -376,8 +376,9 @@ These instructions govern all work in this repository.
   routine stopped-release replacement preserves initialized canonical control;
   activation creates no pause/resume. startup action recovery retains existing
   authority; main reasoning and background memory wait for validated discord
-  catch-up. separate migration and private-configuration/authority pause
-  requirements remain.
+  catch-up. [adr 0104](docs/decisions/0104-maintenance-without-owner-pause.md)
+  supersedes its prospective migration and private-configuration pause
+  requirements with named operator custody and stopped compatibility checks.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
   owns the implemented next target contract and current qualification record.

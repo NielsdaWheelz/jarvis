@@ -5,8 +5,19 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 release=/opt/jarvis/current
 if [[ $# == 2 && "$1" == --bootstrap && "$2" =~ ^[0-9a-f]{40}$ ]]; then
   release=/opt/jarvis/releases/$2
-elif (( $# != 0 )); then
-  printf 'usage: deploy/install-private-state [--bootstrap FRESH_RELEASE_COMMIT]\n' >&2
+  operation=bootstrap
+  change_id=$2
+  repair=()
+elif [[ ( $# == 2 || $# == 4 ) && "$1" == --change && "$2" =~ ^[0-9a-f-]{36}$ ]]; then
+  operation=private-state
+  change_id=$2
+  repair=()
+  if (( $# == 4 )); then
+    [[ "$3" == --repair-of && "$4" =~ ^[0-9a-f-]{36}$ ]]
+    repair=(--repair-of "$4")
+  fi
+else
+  printf 'usage: deploy/install-private-state --change ID [--repair-of ID] | --bootstrap FRESH_RELEASE_COMMIT\n' >&2
   exit 64
 fi
 target=dev-server-deploy
@@ -118,51 +129,27 @@ PY
 cp -p "$source_google" "$scratch/google-oauth-state.json"
 chmod 0600 "$scratch/google-oauth-state.json"
 
-# Validate the application declaration before entering either remote install.
-"$repo_dir/deploy/install-agent-client"
-
-remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" mktemp -d /tmp/jarvis-private-state.XXXXXX)"
-case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
-scp -q -o BatchMode=yes -o ForwardAgent=no "$scratch/jarvis.env" "$scratch/google-oauth-state.json" "$scratch/memory.json" \
-  "$target:$remote/"
-
-ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$remote" "$release" <<'REMOTE'
-set -euo pipefail
-remote="$1"
-case "$remote" in /tmp/jarvis-private-state.*) ;; *) exit 1 ;; esac
-cleanup() {
-  case "$remote" in /tmp/jarvis-private-state.*) rm -rf -- "$remote" ;; *) return 1 ;; esac
-}
-trap cleanup EXIT HUP INT TERM
-
-if [[ -e /opt/jarvis/current || "$(systemctl show -p LoadState --value jarvis.service)" != not-found ]]; then
-  [[ "$(systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
-  [[ "$(systemctl show --property=Result --value jarvis.service)" == success ]]
-  [[ "$(systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
+owner="${JARVIS_AGENT_STATE_OWNER:?supply the enrolled account}"
+source_state="${JARVIS_AGENT_SOURCE_STATE_DIRECTORY:?supply the enrolled state path}"
+source_cli="${JARVIS_AGENT_SOURCE_CLI:?supply the enrolled executable}"
+[[ "$owner" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+for path in "$source_state" "$source_cli"; do [[ "$path" =~ ^/[a-zA-Z0-9_./-]+$ ]]; done
+if [[ "$operation" == private-state ]]; then
+  selected="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" readlink -e /opt/jarvis/current)"
+  [[ "$selected" =~ ^/opt/jarvis/releases/[0-9a-f]{40}$ ]]
+  release="$selected"
 fi
-if [[ -e /opt/jarvis/current || "$(systemctl show -p LoadState --value jarvis-memory.service)" != not-found ]]; then
-  [[ "$(systemctl show --property=ActiveState --value jarvis-memory.service)" == inactive ]]
-  [[ "$(systemctl show --property=MainPID --value jarvis-memory.service)" == 0 ]]
-fi
-
-for file in jarvis.env google-oauth-state.json memory.json; do
-  [[ -f "$remote/$file" && ! -L "$remote/$file" ]]
-done
-sudo -n install -d -m 0700 -o jarvis -g jarvis \
-  /var/lib/jarvis/connectors
-sudo -n install -d -m 0750 -o jarvis -g codex-clients \
-  /var/cache/jarvis /var/cache/jarvis/attachments
-release="$2"
-options=()
-environment=()
-if [[ "$release" == /opt/jarvis/current ]]; then
-  environment+=(--property=EnvironmentFile=/etc/jarvis/jarvis.env)
-else
-  [[ "$release" =~ ^/opt/jarvis/releases/[0-9a-f]{40}$ && ! -e /opt/jarvis/current ]]
-  options+=(--bootstrap)
-fi
-systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
-  "--property=WorkingDirectory=$release" --property=EnvironmentFile=/etc/jarvis/migration.env "${environment[@]}" \
-  "$release/.venv/bin/python" "$release/deploy/memory_credentials.py" "$remote" "${options[@]}"
-printf 'installed private state under both maintenance locks.\n'
-REMOTE
+python3 - "$scratch" "$owner" "$source_state" "$source_cli" <<'PYCODE' |
+import json
+import sys
+from pathlib import Path
+stage = Path(sys.argv[1])
+payload = {name: (stage / name).read_text() for name in ("jarvis.env", "memory.json", "google-oauth-state.json")}
+payload["agent"] = sys.argv[2:]
+json.dump(payload, sys.stdout)
+PYCODE
+ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n \
+  systemd-run --quiet --wait --pipe --collect --property=Type=exec \
+  /usr/bin/flock --exclusive /opt/jarvis/.deploy.lock \
+  "$release/.venv/bin/python" "$release/deploy/provision-change" \
+  "$operation" "$change_id" "${release##*/}" "${repair[@]}"

@@ -2233,14 +2233,15 @@ activation removes old releases only after its existing startup checks pass.
 rollback and one-time migration releases are rebuilt from their exact commits
 when needed, then removed after use; they are not retained as recovery copies.
 
-routine replacement of a cleanly stopped initialized release preserves canonical
-pause/resume. activation requires deployment ownership, valid native state and
-the current execution-contract checks; it creates no owner control. a retained
-resume preserves startup action recovery; new main reasoning and background memory
-work wait for validated discord catch-up. fresh initialization, pause-required migrations and
-private-configuration/authority changes retain their separate canonical-pause
-prerequisites. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
-records this distinction; no force flag or recovery bypass is provided.
+named maintenance on an initialized installation follows
+[adr 0104](docs/decisions/0104-maintenance-without-owner-pause.md). deployment
+holds the affected services across restart and uses their postgres ownership
+keys for stopped changes. activation requires valid native state, exact target
+and authority checks, and preservation of compatible obligations. the stopped
+checks precede release of the hold and live readiness checks follow. a retained
+resume preserves startup action recovery. new main reasoning and background
+memory work wait for validated discord catch-up. only the owner changes
+canonical pause/resume, including the first enablement of a new installation.
 
 Production activation requires the installed PostgreSQL and pgvector identities
 to be recorded and qualified against the release. It does not require a host
@@ -2571,14 +2572,14 @@ approval, execution, reconciliation, and receipts.
   the original arguments, contract and receipts remain immutable. stopping
   cancels unentered work, never an entered effect's settlement obligation.
 
-Queued or approval-bearing rows whose `tool_name` is unsupported or whose stored
-arguments or execution contract no longer validate fail closed as `cancelled`
-and are reported. before an incompatible cutover, the original release reconciles
-entered/unknown effects; unentered work is cancelled and requires fresh consent.
-after cutover there is one current decoder/executor, with no legacy fallback or
-compatibility path. historical terminal rows retain their original bytes and
-receipts. the per-row contract makes one occupied effect replay-safe; it is not
-a registry for dispatching multiple implementation versions.
+named maintenance holds publication if a queued or approval-bearing action
+cannot retain its original contract and authority. the operator reports the
+action and waits for its exact disposition. the original release's approved
+reconciliation procedure settles entered effects using original evidence.
+cancelling unentered work requires its own authorized disposition, and any
+replacement requires fresh consent. the selected release has one current
+decoder and executor. historical terminal rows retain their original bytes
+and receipts.
 
 The action ledger must not become a duplicate message or memory store.
 
@@ -2587,8 +2588,10 @@ The action ledger must not become a duplicate message or memory store.
 existing connector credentials, cursors and adapter state remain in their
 owned stores. canonical pause is a postgres control message. native request,
 attempt, invocation and input-delivery facts use the existing database and owner
-lock; provider sessions/history are disposable. no local pause/session/admission
-journal survives cutover. the original sealed terminal includes its frozen output
+lock; provider sessions/history are disposable. the operator's disk-backed
+service hold and receipts bind maintenance to exact inputs and releases.
+canonical requests, controls and effect evidence stay in postgres. the
+original sealed terminal includes its frozen output
 schema and input lineage, so local product settlement does not reconstruct a
 current plan or repeat a model call. current request/owner fences still govern
 publication. alembic owns its migration table.

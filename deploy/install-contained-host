@@ -1,46 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target=dev-server-deploy
-commit="${1:-}"
-source_mapping="${JARVIS_SOURCE_CODEX_HOST_CONFIG:?supply the provisioned non-secret personal host mapping}"
-if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
-  printf 'usage: deploy/install-contained-host FULL_GIT_COMMIT\n' >&2
-  exit 64
+if [[ "${1:-}" == --held && $# == 4 && $EUID == 0 ]]; then
+  change="$2"
+  commit="$3"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+  remote="$(mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
+  trap 'rm -rf -- "$remote"' EXIT
+  install -m 0644 -- "$4" "$remote/codex-host.json"
+elif [[ "${1:-}" == --bootstrap-on-host && $# == 3 && $EUID == 0 ]]; then
+  change=bootstrap
+  commit="$2"
+  remote="$3"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ && "$remote" =~ ^/tmp/jarvis-contained-host\.[a-zA-Z0-9]+$ ]]
+else
+  commit="${1:-}"
+  source_mapping="${JARVIS_SOURCE_CODEX_HOST_CONFIG:?supply the provisioned non-secret personal host mapping}"
+  if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
+    printf 'usage for virgin bootstrap: deploy/install-contained-host FULL_GIT_COMMIT\n' >&2
+    exit 64
+  fi
+  [[ "$source_mapping" = /* && -f "$source_mapping" && ! -L "$source_mapping" ]]
+  remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
+  [[ "$remote" =~ ^/tmp/jarvis-contained-host\.[a-zA-Z0-9]+$ ]]
+  scp -q -o BatchMode=yes -o ForwardAgent=no "$source_mapping" "dev-server-deploy:$remote/codex-host.json"
+  exec ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
+    sudo -n flock /opt/jarvis/.deploy.lock \
+    "/opt/jarvis/releases/$commit/deploy/install-contained-host" --bootstrap-on-host "$commit" "$remote"
 fi
-[[ "$source_mapping" = /* && -f "$source_mapping" && ! -L "$source_mapping" ]] || {
-  printf 'missing or unsafe contained host mapping source\n' >&2
-  exit 1
-}
-remote="$(ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" mktemp -d /tmp/jarvis-contained-host.XXXXXX)"
-case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
-scp -q -o BatchMode=yes -o ForwardAgent=no "$source_mapping" "$target:$remote/codex-host.json"
-ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$remote" <<'REMOTE'
-set -euo pipefail
-commit="$1"
-remote="$2"
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]]
-case "$remote" in /tmp/jarvis-contained-host.*) ;; *) exit 1 ;; esac
 cleanup() { rm -rf -- "$remote"; }
 trap cleanup EXIT HUP INT TERM
 release="/opt/jarvis/releases/$commit"
 sudo -n test -f "$release/RELEASE.json"
 [[ -f "$remote/codex-host.json" && ! -L "$remote/codex-host.json" ]]
 
-# host and mapping changes require a cleanly stopped application. existing native
-# attempts are recovered by the application after its next activation.
-if [[ -e /etc/systemd/system/jarvis-cutover.hold ]]; then
-  "$release/deploy/cutover-hold" check "$commit"
+if [[ "$change" == bootstrap ]]; then
+  source "$release/deploy/release-functions"
+  require_no_cutover_hold
+  [[ ! -e /opt/jarvis/current && ! -L /opt/jarvis/current ]]
 else
-  if [[ -e /opt/jarvis/current || "$(systemctl show -p LoadState --value jarvis.service)" != not-found ]]; then
-    [[ "$(sudo -n systemctl show --property=ActiveState --value jarvis.service)" == inactive ]]
-    [[ "$(sudo -n systemctl show --property=Result --value jarvis.service)" == success ]]
-    [[ "$(sudo -n systemctl show --property=MainPID --value jarvis.service)" == 0 ]]
-  fi
+  cmp -s "$remote/codex-host.json" /etc/jarvis/codex-host.json || {
+    printf 'release adoption requires the installed native mapping\n' >&2
+    exit 1
+  }
+  "$release/deploy/cutover-hold" close-native "$change"
 fi
 candidate="$(sudo -n mktemp /etc/jarvis/.codex-host.XXXXXX)"
-cleanup_candidate() { sudo -n rm -f -- "$candidate"; cleanup; }
-trap cleanup_candidate EXIT HUP INT TERM
+trap 'sudo -n rm -f -- "$candidate"; cleanup' EXIT HUP INT TERM
 sudo -n install -m 0644 -o root -g root "$remote/codex-host.json" "$candidate"
 mapfile -t layout < <(sudo -n "$release/.venv/bin/python" - \
   "$candidate" "$release" "$remote/jarvis-codex-contained.service" <<'PY'
@@ -133,87 +139,96 @@ if sudo -n -u jarvis test -r "$account_home/auth.json"; then
   printf 'application can read the native host account; installation refused\n' >&2
   exit 1
 fi
-# This installer owns only the dedicated production distribution, never an account's CLI.
-stock_version=0.171.0
-stock_dir="/opt/jarvis-codex/$stock_version"
-if [[ "$(uname -m)" != x86_64 || "${layout[2]}" != "$stock_dir/bin/codex" ||
-      "$(realpath -m -- "${layout[2]}")" != "${layout[2]}" ]]; then
-  echo "map the dedicated x86-64 host binary $stock_dir/bin/codex before installing" >&2
-  exit 1
-fi
-sudo -n systemd-analyze verify "$remote/jarvis-codex-contained.service"
-sudo -n systemd-analyze verify "$remote/jarvis.service"
-sudo -n systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
-if sudo -n systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
-  sudo -n systemctl stop jarvis-codex-contained.service
-fi
-# Keep the vendor layout so stock locates its sandbox, tools and companion.
-executables=(bin/codex bin/codex-code-mode-host codex-resources/bwrap codex-path/rg)
-cat >"$remote/stock.sha256" <<'SUMS'
+sudo -n systemd-analyze verify "$remote/jarvis-codex-contained.service" "$remote/jarvis.service"
+if [[ "$change" == bootstrap ]]; then
+  # This installer owns only the dedicated production distribution, never an account's CLI.
+  stock_version=0.171.0
+  stock_dir="/opt/jarvis-codex/$stock_version"
+  if [[ "$(uname -m)" != x86_64 || "${layout[2]}" != "$stock_dir/bin/codex" ||
+        "$(realpath -m -- "${layout[2]}")" != "${layout[2]}" ]]; then
+    echo "map the dedicated x86-64 host binary $stock_dir/bin/codex before installing" >&2
+    exit 1
+  fi
+  sudo -n systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
+  if sudo -n systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
+    sudo -n systemctl stop jarvis-codex-contained.service
+  fi
+  # Keep the vendor layout so stock locates its sandbox, tools and companion.
+  executables=(bin/codex bin/codex-code-mode-host codex-resources/bwrap codex-path/rg)
+  cat >"$remote/stock.sha256" <<'SUMS'
 b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0  bin/codex
 f49bd4f0c0cc73cf1ec3a719009e07ce5b6e100520d023c760cc203fb37e5c6f  bin/codex-code-mode-host
 91a245ea678a7ae642f383a22576c3c476d0d6d3e2321a553f3ed8d4d487ed74  codex-resources/bwrap
 e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849  codex-path/rg
 2e6a51972124359dbff670b008845d778dbf43d3cc9882c220a7e7f09f1a545d  codex-package.json
 SUMS
-verify_stock() (
-  cd "$1" && sha256sum -c --status "$remote/stock.sha256" || exit 1
-  for file in "${executables[@]}"; do test -x "$file" || exit 1; done
-)
-if ! verify_stock "$stock_dir" 2>/dev/null; then
-  curl -fsSL "https://registry.npmjs.org/@openai/codex/-/codex-$stock_version-linux-x64.tgz" -o "$remote/stock.tgz"
-  printf 'e13d67afb0533cc6160b5f4140e4ad07e2acd87adbaa081bbf69b82e90cf4e55  %s\n' "$remote/stock.tgz" | sha256sum -c --status
-  tar -xzf "$remote/stock.tgz" -C "$remote"
-  vendor="$remote/package/vendor/x86_64-unknown-linux-musl"
-  verify_stock "$vendor"
-  for file in "${executables[@]}"; do
-    install -D -m 0755 -o root -g root "$vendor/$file" "$stock_dir/$file"
-  done
-  install -m 0644 -o root -g root "$vendor/codex-package.json" "$stock_dir/"
-  verify_stock "$stock_dir"
-fi
-sudo -n install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
-sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
-sudo -n install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
-sudo -n install -d -m 0750 -o jarvis -g codex-clients \
-  /var/cache/jarvis /var/cache/jarvis/attachments
-if ! sudo -n test -e /var/lib/jarvis-notes; then
-  sudo -n install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
-fi
-bootstrap_unit=/run/systemd/system/jarvis-notes-bootstrap.service
-[[ ! -e "$bootstrap_unit" && ! -L "$bootstrap_unit" ]]
-cleanup_candidate() {
-  sudo -n systemctl stop jarvis-notes-bootstrap.service >/dev/null 2>&1 || true
-  sudo -n rm -f -- "$candidate" "$bootstrap_unit"
+  verify_stock() (
+    cd "$1" && sha256sum -c --status "$remote/stock.sha256" || exit 1
+    for file in "${executables[@]}"; do test -x "$file" || exit 1; done
+  )
+  if ! verify_stock "$stock_dir" 2>/dev/null; then
+    curl -fsSL "https://registry.npmjs.org/@openai/codex/-/codex-$stock_version-linux-x64.tgz" -o "$remote/stock.tgz"
+    printf 'e13d67afb0533cc6160b5f4140e4ad07e2acd87adbaa081bbf69b82e90cf4e55  %s\n' "$remote/stock.tgz" | sha256sum -c --status
+    tar -xzf "$remote/stock.tgz" -C "$remote"
+    vendor="$remote/package/vendor/x86_64-unknown-linux-musl"
+    verify_stock "$vendor"
+    for file in "${executables[@]}"; do
+      install -D -m 0755 -o root -g root "$vendor/$file" "$stock_dir/$file"
+    done
+    install -m 0644 -o root -g root "$vendor/codex-package.json" "$stock_dir/"
+    verify_stock "$stock_dir"
+  fi
+  sudo -n install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
+  sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
+  sudo -n install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
+  sudo -n install -d -m 0750 -o jarvis -g codex-clients \
+    /var/cache/jarvis /var/cache/jarvis/attachments
+  if ! sudo -n test -e /var/lib/jarvis-notes; then
+    sudo -n install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
+  fi
+  bootstrap_unit=/run/systemd/system/jarvis-notes-bootstrap.service
+  [[ ! -e "$bootstrap_unit" && ! -L "$bootstrap_unit" ]]
+  cleanup_candidate() {
+    sudo -n systemctl stop jarvis-notes-bootstrap.service >/dev/null 2>&1 || true
+    sudo -n rm -f -- "$candidate" "$bootstrap_unit"
+    sudo -n systemctl daemon-reload
+    cleanup
+  }
+  trap cleanup_candidate EXIT HUP INT TERM
+  sudo -n install -m 0644 -o root -g root "$remote/jarvis-notes-bootstrap.service" "$bootstrap_unit"
   sudo -n systemctl daemon-reload
-  cleanup
-}
-trap cleanup_candidate EXIT HUP INT TERM
-sudo -n install -m 0644 -o root -g root "$remote/jarvis-notes-bootstrap.service" "$bootstrap_unit"
-sudo -n systemctl daemon-reload
-sudo -n systemctl start jarvis-notes-bootstrap.service
-sudo -n systemctl stop jarvis-notes-bootstrap.service
-sudo -n rm -f -- "$bootstrap_unit"
-sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-pages
-sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail
-sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail/incoming
-sudo -n install -d -m 0700 -o jarvis -g jarvis /var/lib/jarvis/mail-stage
-sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes
-sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes
-sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes/.git
-sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes/.git
-printf '%s\n' \
-  'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -' \
-  'e /var/lib/jarvis-notes/.git/jarvis-mail - - - 24h' \
-  'X /var/lib/jarvis-notes/.git/jarvis-mail/incoming - - - -' | \
-  sudo -n tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
-sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
+  sudo -n systemctl start jarvis-notes-bootstrap.service
+  sudo -n systemctl stop jarvis-notes-bootstrap.service
+  sudo -n rm -f -- "$bootstrap_unit"
+  sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-pages
+  sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail
+  sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail/incoming
+  sudo -n install -d -m 0700 -o jarvis -g jarvis /var/lib/jarvis/mail-stage
+  sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes
+  sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes
+  sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes/.git
+  sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes/.git
+  printf '%s\n' \
+    'd /run/jarvis-codex-cognition 2750 jarvis codex-clients -' \
+    'e /var/lib/jarvis-notes/.git/jarvis-mail - - - 24h' \
+    'X /var/lib/jarvis-notes/.git/jarvis-mail/incoming - - - -' | \
+    sudo -n tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
+  sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
+else
+  sudo -n -u "$host_user" -g codex-clients test -x /var/lib/jarvis-notes/.git
+  sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes/.git
+  sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes/.git
+fi
 sudo -n install -m 0644 -o root -g root \
   "$remote/jarvis-codex-contained.service" /etc/systemd/system/jarvis-codex-contained.service
-sudo -n install -m 0644 -o root -g root \
-  "$remote/jarvis.service" /etc/systemd/system/jarvis.service
 sudo -n systemctl daemon-reload
-sudo -n systemctl enable --now jarvis-codex-contained.service
+if [[ "$change" == bootstrap ]]; then
+  sudo -n systemctl enable --now jarvis-codex-contained.service
+else
+  sync -f /etc/jarvis/codex-host.json /etc/systemd/system/jarvis-codex-contained.service
+  "$release/deploy/cutover-hold" open-native "$change"
+  sudo -n systemctl start jarvis-codex-contained.service
+fi
 sudo -n systemctl is-active --quiet jarvis-codex-contained.service
 sudo -n systemd-run --quiet --wait --pipe --collect \
   --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
@@ -228,4 +243,3 @@ sudo -n systemd-run --quiet --wait --pipe --collect \
   --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
   "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null
 printf 'contained personal host installed for %s; jarvis remains stopped\n' "$commit"
-REMOTE

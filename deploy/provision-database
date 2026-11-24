@@ -11,6 +11,8 @@ ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.
 set -euo pipefail
 release=/opt/jarvis/releases/$1
 [[ -d "$release" && ! -e /opt/jarvis/current ]]
+source "$release/deploy/release-functions"
+require_no_cutover_hold
 install -d -m 0700 -o root -g root /etc/jarvis
 files=(
   /etc/jarvis/database-runtime.env

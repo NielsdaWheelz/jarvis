@@ -1,23 +1,130 @@
 #!/usr/bin/env python3
-"""Keep both writers stopped across an ordinary paused schema cut, including reboot."""
+"""Record and enforce stopped deployment custody under the release flock."""
 
 import argparse
+import grp
 import json
 import os
+import pwd
+import re
+import shutil
+import socket
+import stat
 import subprocess
+import sys
+import tempfile
+import time
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
-UNITS = ("jarvis.service", "jarvis-memory.service")
-ROOT = Path("/etc/systemd/system")
-HOLD = ROOT / "jarvis-cutover.hold"
-CONDITION = f"[Unit]\nConditionPathExists=!{HOLD}\n"
+STATE = Path("/var/lib/jarvis-cutover")
+SYSTEMD = Path("/etc/systemd/system")
+RELEASES = Path("/opt/jarvis/releases")
+CURRENT = RELEASES.parent / "current"
+LEGACY_HOLD = SYSTEMD / "jarvis-cutover.hold"
+ASSISTANT = "jarvis.service"
+MEMORY = "jarvis-memory.service"
+NATIVE = "jarvis-codex-contained.service"
+BACKUP = "jarvis-backup.service"
+UNITS = (ASSISTANT, MEMORY, NATIVE, BACKUP)
+OPERATIONS = ("release", "private-state", "backup", "backup-reader")
 
 
-def dropin(unit):
-    return ROOT / (unit + ".d") / "86-cutover.conf"
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
 
 
-def unit_property(unit, name):
+def sync(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def publish(path, data, mode=0o600):
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+            temporary.replace(path)
+            sync(path.parent)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def record(path, value):
+    publish(path, (json.dumps(value, sort_keys=True) + "\n").encode())
+
+
+def read(path):
+    return json.loads(path.read_bytes())
+
+
+def uuid(value):
+    try:
+        if str(UUID(value)) == value:
+            return value
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("change ID must be a canonical UUID")
+
+
+def commit_sha(value):
+    if not re.fullmatch(r"[a-f0-9]{40}", value):
+        raise argparse.ArgumentTypeError("expected full release commit")
+    return value
+
+
+def digest(value):
+    if not re.fullmatch(r"[a-f0-9]{64}", value):
+        raise argparse.ArgumentTypeError("expected SHA-256 digest")
+    return value
+
+
+def unit_names(value):
+    units = value.split(",")
+    if not set(units) <= set(UNITS) or len(units) != len(set(units)):
+        raise argparse.ArgumentTypeError("invalid or repeated deployment unit")
+    return units
+
+
+def release_receipt(commit, schema):
+    receipt = read(RELEASES / commit / "RELEASE.json")
+    require(
+        isinstance(receipt, dict)
+        and set(receipt) == {"commit", "tree", "uv_lock_sha256"}
+        and receipt["commit"] == commit
+        and re.fullmatch(r"[a-f0-9]{40}", receipt["tree"])
+        and re.fullmatch(r"[a-f0-9]{64}", receipt["uv_lock_sha256"]),
+        "installed release receipt is invalid",
+    )
+    return {**receipt, "schema": schema}
+
+
+def handle_systemd(*arguments):
+    subprocess.run(["systemctl", *arguments], stdout=sys.stderr, check=True)
+
+
+def properties(unit):
+    fields = (
+        "LoadState,ActiveState,SubState,UnitFileState,Result,"
+        "MainPID,ControlPID,ControlGroup,Job,NRestarts,ConditionResult,InvocationID"
+    )
+    return dict(
+        line.split("=", 1)
+        for line in subprocess.check_output(
+            ["systemctl", "show", unit, "--property", fields], text=True
+        ).splitlines()
+    )
+
+
+def unit_property(unit, name, interface="Unit"):
     unit_path = unit.replace("-", "_2d").replace(".", "_2e")
     return json.loads(
         subprocess.check_output(
@@ -28,92 +135,875 @@ def unit_property(unit, name):
                 "get-property",
                 "org.freedesktop.systemd1",
                 "/org/freedesktop/systemd1/unit/" + unit_path,
-                "org.freedesktop.systemd1.Unit",
+                "org.freedesktop.systemd1." + interface,
                 name,
             ]
         )
     )["data"]
 
 
-def require_stopped(unit):
-    fields = "LoadState,ActiveState,Result,MainPID,ControlPID,ControlGroup"
-    values = dict(
-        line.split("=", 1)
-        for line in subprocess.check_output(
-            ["systemctl", "show", unit, "--property", fields], text=True
-        ).splitlines()
+def guard_units(units, *, install=False):
+    require(
+        not LEGACY_HOLD.exists(),
+        "legacy deployment hold requires its original recovery",
     )
-    if unit == "jarvis-memory.service" and values["LoadState"] == "not-found":
-        return values
-    if (
-        values["LoadState"] != "loaded"
-        or values["ActiveState"] != "inactive"
-        or values["Result"] != "success"
-        or values["MainPID"] != "0"
-        or values["ControlPID"] != "0"
-        or unit_property(unit, "Job")[0]
-    ):
-        raise SystemExit(f"cleanly stop {unit} before the paused cut")
-    group = values["ControlGroup"] or f"/system.slice/{unit}"
-    directory = Path("/sys/fs/cgroup") / group.lstrip("/")
-    if (
-        directory.exists()
-        and "populated 0" not in (directory / "cgroup.events").read_text().splitlines()
-    ):
-        raise SystemExit(f"{unit} cgroup still populated")
-    return values
+    for unit in UNITS:
+        require(
+            not (SYSTEMD / (unit + ".d") / "86-cutover.conf").exists(),
+            f"{unit} still has a legacy deployment guard",
+        )
+    if install:
+        for unit in units:
+            if properties(unit).get("LoadState") == "masked":
+                continue
+            path = SYSTEMD / (unit + ".d") / "87-deployment-custody.conf"
+            marker = STATE / "held" / unit
+            content = f"[Unit]\nConditionPathExists=!{marker}\n".encode()
+            if path.exists():
+                require(
+                    path.read_bytes() == content
+                    and path.stat().st_uid == 0
+                    and stat.S_IMODE(path.stat().st_mode) == 0o644,
+                    f"unexpected custody guard for {unit}",
+                )
+                continue
+            path.parent.mkdir(exist_ok=True)
+            publish(path, content, 0o644)
+            sync(SYSTEMD)
+        # The previous controller may have died after writing the drop-in.
+        handle_systemd("daemon-reload")
+    for unit in units:
+        if properties(unit).get("LoadState") in {"masked", "not-found"}:
+            continue
+        require(
+            any(
+                kind == "ConditionPathExists"
+                and not trigger
+                and negate
+                and path == str(STATE / "held" / unit)
+                for kind, trigger, negate, path, _ in unit_property(unit, "Conditions")
+            ),
+            f"persistent custody guard is not loaded for {unit}",
+        )
+
+
+def intended_units(units):
+    intended = []
+    for unit in units:
+        info = properties(unit)
+        active = info.get("ActiveState")
+        enabled = info.get("UnitFileState")
+        if unit == BACKUP:
+            require(
+                active in {"inactive", "failed", "activating", "deactivating"}
+                or (active == "active" and info.get("SubState") == "running"),
+                "backup job has an unsupported state",
+            )
+            continue
+        require(
+            (
+                active == "inactive"
+                and enabled in {"disabled", "masked", "masked-runtime", ""}
+            )
+            or (active == "active" and enabled == "enabled"),
+            f"{unit} has unexpected running and enablement state",
+        )
+        if active == "active":
+            intended.append(unit)
+    return intended
+
+
+def require_stopped(unit, *, clean=True):
+    info = properties(unit)
+    if info.get("LoadState") in {"masked", "not-found"}:
+        require(
+            info.get("ActiveState") == "inactive" and not info.get("Job"),
+            f"{unit} still has a start job",
+        )
+        return
+    clean = clean and unit != BACKUP
+    require(
+        info.get("ActiveState") in ({"inactive"} if clean else {"inactive", "failed"})
+        and info.get("MainPID", "0") == "0"
+        and info.get("ControlPID", "0") == "0"
+        and (not clean or info.get("Result", "success") == "success")
+        and not unit_property(unit, "Job")[0],
+        f"{unit} did not stop cleanly or still has a start job",
+    )
+    group = info.get("ControlGroup") or f"/system.slice/{unit}"
+    events = Path("/sys/fs/cgroup") / group.lstrip("/") / "cgroup.events"
+    require(
+        not events.exists() or "populated 0" in events.read_text().splitlines(),
+        f"{unit} cgroup is still populated",
+    )
+
+
+def stop_units(units, *, clean=True):
+    for unit in units:
+        if properties(unit).get("LoadState") not in {"masked", "not-found"}:
+            handle_systemd("stop", unit)
+    for unit in units:
+        require_stopped(unit, clean=clean)
+
+
+def selected():
+    return CURRENT.resolve(strict=True).name
+
+
+def hold_receipt():
+    return read(STATE / "held/receipt.json")
+
+
+def committed_receipts():
+    return [read(path / "receipt.json") for path in STATE.glob("committed-*")]
+
+
+def phase(change):
+    held = STATE / "held"
+    if held.exists() and hold_receipt()["binding"]["id"] == change:
+        failure = held / f"startup-failed-{change}"
+        if failure.exists():
+            return "startup-failed", held
+        return ("applying" if (held / "applying").exists() else "held"), held
+    completed = completion(change)
+    if completed is not None:
+        name, path = completed
+        if (path / f"startup-state-{change}.json").exists():
+            return "startup-failed", path
+        return name, path
+    return None, None
+
+
+def completion(change):
+    for name in ("committed", "not-applied"):
+        path = STATE / f"{name}-{change}"
+        if path.exists():
+            return name, path
+    return None
+
+
+def inspect_change(change):
+    state, path = phase(change)
+    current = selected() if CURRENT.exists() else None
+    value = {"id": change, "phase": state or "unknown", "selected": current}
+    if path is None:
+        return value
+    receipt = read(path / "receipt.json")
+    binding = receipt["binding"]
+    completed = completion(change)
+    finished = path if completed is None else completed[1]
+    held = path == STATE / "held"
+    result_path = finished / "result.json"
+    preflight_path = path / f"preflight-{change}.json"
+    failure_path = path / f"startup-state-{change}.json"
+    failure = read(failure_path) if failure_path.is_file() else None
+    control = None
+    if result_path.is_file():
+        control = (read(result_path).get("evidence") or {}).get("control")
+    elif preflight_path.is_file():
+        control = read(preflight_path).get("control")
+    value.update(
+        operation=binding["operation"],
+        source=binding["source"]["commit"],
+        target=binding["target"]["commit"],
+        prior_completion=completed[0] if completed else None,
+        held=held,
+        held_reason=(
+            failure["reason"] if failure else "stopped operation awaiting completion"
+        )
+        if held
+        else None,
+        handoff_verified=(finished / "serving.json").is_file(),
+        stopped_control=control,
+        startup_failure=failure,
+        intended=receipt["intended"],
+        units={unit: properties(unit) for unit in binding["units"]},
+    )
+    return value
+
+
+def publish_hold(value, *, startup_failed=None, observation=None):
+    held = STATE / "held"
+    with tempfile.TemporaryDirectory(prefix=".held-", dir=STATE) as temporary:
+        staged = Path(temporary)
+        record(staged / "receipt.json", value)
+        for unit in value["binding"]["units"]:
+            if unit == NATIVE and not startup_failed:
+                continue
+            publish(staged / unit, b"")
+        if startup_failed is not None:
+            change = value["binding"]["id"]
+            publish(staged / f"startup-failed-{change}", startup_failed.encode())
+            record(staged / f"startup-state-{change}.json", observation)
+        staged.rename(held)
+        sync(STATE)
+
+
+def begin(binding, *, idle_check=None):
+    change = binding["id"]
+    state, path = phase(change)
+    if path is not None:
+        require(
+            read(path / "receipt.json")["binding"] == binding,
+            "change ID already binds different arguments",
+        )
+        require(
+            not (STATE / "held").exists() or path == STATE / "held",
+            "another deployment hold prevents this operation",
+        )
+        if state in {"held", "applying"}:
+            guard_units(binding["units"])
+            stopped = [unit for unit in binding["units"] if (path / unit).exists()]
+            stop_units(stopped, clean=binding["repair_of"] is None)
+            if binding["repair_of"] is not None:
+                reset_failed_startup(path, read(path / "receipt.json"))
+        return state
+
+    units = binding["units"]
+    parent = binding["repair_of"]
+    held = STATE / "held"
+    order = max((item["order"] for item in committed_receipts()), default=0) + 1
+    interrupted_startup = False
+    if held.exists():
+        previous = hold_receipt()
+        previous_binding = previous["binding"]
+        require(
+            parent == previous_binding["id"],
+            f"deployment hold exists for {previous_binding['id']}",
+        )
+        require(
+            set(previous_binding["units"]) <= set(units),
+            "repair must cover all units in the existing deployment hold",
+        )
+        guard_units(units, install=True)
+        added = [unit for unit in units if unit not in previous_binding["units"]]
+        intended = previous["intended"] + intended_units(added)
+        for unit in units:
+            if not (held / unit).exists():
+                publish(held / unit, b"")
+        record(held / f"previous-{parent}.json", previous)
+        interrupted_startup = (held / f"startup-failed-{parent}").exists()
+        if interrupted_startup:
+            publish(held / "applying", b"")
+        record(
+            held / "receipt.json",
+            {"binding": binding, "intended": intended, "order": order},
+        )
+    else:
+        require(parent is None, "the requested repair has no active deployment hold")
+        guard_units(units, install=True)
+        intended = intended_units(units)
+        if idle_check is not None:
+            idle_check()
+        publish_hold({"binding": binding, "intended": intended, "order": order})
+    stopped = [unit for unit in units if (held / unit).exists()]
+    if interrupted_startup:
+        stop_units(stopped, clean=False)
+    else:
+        stop_units(stopped)
+    if parent is not None:
+        reset_failed_startup(held, hold_receipt())
+    return "applying" if (held / "applying").exists() else "held"
+
+
+def require_held(change):
+    path = STATE / "held"
+    receipt = hold_receipt()
+    require(
+        receipt["binding"]["id"] == change,
+        "another deployment hold owns this operation",
+    )
+    return path, receipt
+
+
+def check_held(change):
+    path, receipt = require_held(change)
+    units = receipt["binding"]["units"]
+    clean = (
+        not (path / f"startup-failed-{change}").exists()
+        and receipt["binding"]["repair_of"] is None
+    )
+    guard_units(units)
+    for unit in units:
+        if unit != NATIVE or (path / unit).exists():
+            require((path / unit).is_file(), f"custody marker missing for {unit}")
+            require_stopped(unit, clean=clean)
+    return receipt
+
+
+def finish(change, state, evidence=None):
+    path, receipt = require_held(change)
+    check_held(change)
+    binding = receipt["binding"]
+    expected = binding["target" if state == "committed" else "source"]["commit"]
+    require(selected() == expected, f"selection does not match {state} receipt")
+    if state == "not-applied":
+        require(
+            not (path / "applying").exists()
+            and receipt["binding"]["repair_of"] is None,
+            "mutation might have begun",
+        )
+        require(evidence is not None, "safe source return needs a stopped proof")
+    else:
+        require((path / "applying").is_file(), "operation was not marked applying")
+        preflight = path / f"preflight-{change}.json"
+        if preflight.exists():
+            original = read(preflight)
+            require(
+                evidence is not None
+                and original.get("control") == evidence.get("control"),
+                "stopped owner control changed across deployment",
+            )
+    check_enablement(receipt)
+    record(
+        path / "result.json",
+        {
+            "state": state,
+            "evidence": evidence,
+            "stopped_units": {
+                unit: startup_result(unit) for unit in receipt["intended"]
+            },
+        },
+    )
+    destination = STATE / f"{state}-{change}"
+    require(not destination.exists(), "completed receipt already exists")
+    path.rename(destination)
+    sync(STATE)
+
+
+def startup_failed(change, reason="observed startup failure"):
+    completed = completion(change)
+    require(completed is not None, "operation has no release receipt")
+    state, finished = completed
+    held = STATE / "held"
+    if held.exists():
+        require(
+            phase(change) == ("startup-failed", held), "another deployment hold exists"
+        )
+        receipt = hold_receipt()
+        observation = read(held / f"startup-state-{change}.json")
+    else:
+        receipt = read(finished / "receipt.json")
+        units = {}
+        for unit in receipt["intended"]:
+            try:
+                units[unit] = properties(unit)
+            except (OSError, ValueError, subprocess.CalledProcessError):
+                units[unit] = {"state": "unavailable"}
+        observation = {
+            "reason": reason,
+            "observed_at": datetime.now(UTC).isoformat(),
+            "units": units,
+        }
+        publish_hold(receipt, startup_failed=state, observation=observation)
+    units = receipt["binding"]["units"]
+    try:
+        record(finished / f"startup-state-{change}.json", observation)
+    finally:
+        try:
+            guard_units(units)
+        finally:
+            stop_units(units, clean=False)
+
+
+def reset_failed_startup(path, receipt):
+    observations = [read(p)["units"] for p in path.glob("startup-state-*.json")]
+    for unit in receipt["intended"]:
+        observations_for_unit = [
+            result[unit] for result in observations if unit in result
+        ]
+        if not observations_for_unit:
+            continue
+        current = properties(unit)
+        if any(
+            info.get("ActiveState") == "failed"
+            or info.get("Result") not in {None, "success"}
+            or info.get("NRestarts") not in {None, "0"}
+            for info in [current, *observations_for_unit]
+        ):
+            require_stopped(unit, clean=False)
+            handle_systemd("reset-failed", unit)
+
+
+def check_enablement(receipt):
+    for unit in receipt["binding"]["units"]:
+        if unit == BACKUP:
+            continue
+        state = properties(unit).get("UnitFileState")
+        expected = (
+            {"enabled"}
+            if unit in receipt["intended"]
+            else {"disabled", "masked", "masked-runtime", ""}
+        )
+        require(state in expected, f"{unit} enablement changed during deployment")
+
+
+def startup_result(unit):
+    observed = properties(unit)
+    return {key: observed.get(key) for key in ("ActiveState", "Result", "InvocationID")}
+
+
+def verify_serving(units, expected):
+    deadline = time.monotonic() + 300
+    for unit in units:
+        if unit not in {ASSISTANT, MEMORY, NATIVE}:
+            continue
+        while True:
+            info = properties(unit)
+            require(
+                info.get("ActiveState") == "active" and info.get("NRestarts") == "0",
+                f"{unit} did not stay running",
+            )
+            pid = info["MainPID"]
+            require(pid.isdigit() and pid != "0", f"{unit} has no running process")
+            if unit == NATIVE:
+                # ExecStart and socket publication belong to the contained host.
+                executable = str(RELEASES / expected / ".venv/bin/python")
+                commands = unit_property(unit, "ExecStart", "Service")
+                require(
+                    len(commands) == 1 and commands[0][0] == executable,
+                    "contained native host selects a different release",
+                )
+                require(
+                    Path("/run/jarvis-contained/exec/app-server.sock").is_socket(),
+                    "contained native host has no private socket",
+                )
+                break
+            if unit == ASSISTANT:
+                ready = (
+                    subprocess.run(
+                        [
+                            "runuser",
+                            "-u",
+                            "jarvis-tunnel",
+                            "--",
+                            "curl",
+                            "--silent",
+                            "--fail",
+                            "--max-time",
+                            "2",
+                            "--noproxy",
+                            "*",
+                            "--unix-socket",
+                            "/run/jarvis-home/http.sock",
+                            "http://jarvis.nielseriknandal.com/api/home",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+            else:
+                ready = socket_ready(
+                    "/run/jarvis-memory/internal.sock", "jarvis-memory", "jarvis-memory"
+                )
+            if ready:
+                # Type=simple can publish its PID before executing or changing cwd.
+                running = properties(unit)
+                require(
+                    running.get("MainPID") == pid
+                    and running.get("SubState") == "running"
+                    and running.get("ConditionResult") == "yes"
+                    and running.get("NRestarts") == "0"
+                    and Path(f"/proc/{pid}/cwd").resolve(strict=True)
+                    == RELEASES / expected,
+                    f"{unit} is not serving from the selected release",
+                )
+                if unit == ASSISTANT:
+                    require(
+                        socket_ready(
+                            "/run/jarvis-home/http.sock", "jarvis", "jarvis-home"
+                        ),
+                        "private web socket ownership or mode is wrong",
+                    )
+                break
+            require(time.monotonic() < deadline, f"{unit} did not become ready")
+            time.sleep(1)
+
+
+def socket_ready(path, user, group):
+    try:
+        metadata = Path(path).stat()
+        if not (
+            stat.S_ISSOCK(metadata.st_mode)
+            and stat.S_IMODE(metadata.st_mode) == 0o660
+            and metadata.st_uid == pwd.getpwnam(user).pw_uid
+            and metadata.st_gid == grp.getgrnam(group).gr_gid
+        ):
+            return False
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(1)
+            connection.connect(path)
+    except (FileNotFoundError, ConnectionRefusedError, TimeoutError):
+        return False
+    return True
+
+
+def start(change):
+    state, path = phase(change)
+    require(
+        state != "startup-failed",
+        f"startup failed for {change}; use a newly authorized --repair-of {change}",
+    )
+    require(state in {"committed", "not-applied"}, "operation is still held")
+    receipt = read(path / "receipt.json")
+    binding = receipt["binding"]
+    expected = binding["target" if state == "committed" else "source"]["commit"]
+    require(
+        selected() == expected, "receipt has been superseded by the current selection"
+    )
+    require(
+        not any(
+            item["order"] >= receipt["order"]
+            and item["binding"]["id"] != change
+            and set(item["binding"]["units"]) & set(binding["units"])
+            for item in committed_receipts()
+        ),
+        "receipt was superseded by another committed change",
+    )
+    finished = STATE / f"{state}-{change}"
+    held = STATE / "held"
+    require(not held.exists(), "another deployment hold prevents startup")
+    if (finished / "serving.json").is_file():
+        units = ", ".join(
+            f"{unit} {properties(unit).get('ActiveState', 'unknown')}"
+            for unit in receipt["intended"]
+        )
+        print(
+            f"{state} {change}. handoff already verified. "
+            f"current units: {units or 'none'}."
+        )
+        return
+    intended = receipt["intended"]
+    result = read(finished / "result.json")
+    try:
+        check_enablement(receipt)
+        for unit in intended:
+            observed = startup_result(unit)
+            failed = observed["ActiveState"] == "failed" or observed["Result"] not in {
+                None,
+                "success",
+            }
+            require(
+                not failed or observed == result["stopped_units"][unit],
+                f"{unit} failed after stopped checks",
+            )
+        for unit in (NATIVE, MEMORY, ASSISTANT):
+            if unit in intended:
+                handle_systemd("start", unit)
+        verify_serving(intended, expected)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        startup_failed(change, str(error))
+        raise RuntimeError(
+            f"startup failed for {change}. affected services held. {error}. "
+            "effects may require reconciliation before a named repair"
+        ) from None
+    record(finished / "serving.json", {"release": expected, "units": intended})
+    print(
+        f"{state} {change}. selected release {expected}. "
+        f"verified units: {', '.join(intended) or 'none'}."
+    )
+    control = (result.get("evidence") or {}).get("control")
+    if control is not None:
+        print(
+            f"stopped owner control preserved: {control['kind']} {control['sequence']}."
+        )
+    if state == "committed" and (finished / "snapshot").is_dir():
+        try:
+            snapshot = read(finished / "snapshot/SNAPSHOT.json")
+            original_change = snapshot["change"]
+            if (
+                snapshot["target"]["schema"] == binding["target"]["schema"]
+                and (finished / f"qualification-{original_change}.json").is_file()
+            ):
+                prune_superseded_snapshots(finished, receipt)
+        except (OSError, ValueError, RuntimeError):
+            print("target serving. superseded snapshot cleanup is pending")
+
+
+def prune_superseded_snapshots(finished, receipt):
+    require(
+        (finished / "snapshot/SNAPSHOT.json").is_file(),
+        "verified snapshot manifest is missing",
+    )
+    for previous in committed_receipts():
+        if previous["order"] >= receipt["order"]:
+            continue
+        older = STATE / f"committed-{previous['binding']['id']}"
+        snapshot = older / "snapshot"
+        if not snapshot.is_dir():
+            continue
+        record(older / "snapshot.json", read(snapshot / "SNAPSHOT.json"))
+        with tempfile.TemporaryDirectory(
+            prefix=".retired-snapshot-", dir=older
+        ) as temporary:
+            retired = Path(temporary) / "snapshot"
+            snapshot.rename(retired)
+            sync(older)
+            shutil.rmtree(retired)
+
+
+def inspect_database(idle, online):
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from jarvis.db import normalize_database_url
+    from jarvis.ownership import DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY
+
+    engine = create_engine(
+        normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
+    )
+    deadline = time.monotonic() + 120
+    try:
+        while True:
+            with engine.begin() as connection:
+                if not idle:
+                    if not online:
+                        for key in (DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY):
+                            require(
+                                connection.scalar(
+                                    text("SELECT pg_try_advisory_xact_lock(:key)"),
+                                    {"key": key},
+                                ),
+                                "a writer still owns the database",
+                            )
+                    print(
+                        connection.scalar(
+                            text("SELECT version_num FROM alembic_version")
+                        )
+                    )
+                    return
+                connection.execute(text("SET LOCAL statement_timeout = '2s'"))
+                schema = connection.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                )
+                attempt = connection.scalar(
+                    text("""
+                    SELECT id FROM native_attempt
+                    WHERE fenced_at IS NULL AND product_outcome IS NULL
+                    ORDER BY id LIMIT 1
+                """)
+                )
+                action = connection.scalar(
+                    text("""
+                    SELECT id FROM action WHERE status = 'executing' ORDER BY id LIMIT 1
+                """)
+                )
+            if attempt is None and action is None:
+                print(schema)
+                return
+            if time.monotonic() >= deadline:
+                what = (
+                    f"native attempt {attempt}"
+                    if attempt is not None
+                    else f"action {action}"
+                )
+                raise RuntimeError(f"busy, source unchanged. {what} is still running")
+            time.sleep(1)
+    except SQLAlchemyError:
+        raise RuntimeError("could not inspect deployment database") from None
+    finally:
+        engine.dispose()
+
+
+def check_source_idle(release, schema):
+    observed = subprocess.check_output(
+        [
+            "systemd-run",
+            "--quiet",
+            "--wait",
+            "--pipe",
+            "--collect",
+            "--property=Type=oneshot",
+            f"--property=WorkingDirectory={release}",
+            "--property=EnvironmentFile=/etc/jarvis/migration.env",
+            str(release / ".venv/bin/python"),
+            str(release / "deploy/cutover-hold"),
+            "inspect-database",
+            "--idle",
+        ],
+        text=True,
+    ).strip()
+    require(observed == schema, "database schema does not match the selected source")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["stop", "check", "release"])
-    parser.add_argument("target")
+    commands = parser.add_subparsers(dest="command", required=True)
+    begin_cmd = commands.add_parser("begin")
+    begin_cmd.add_argument("id", type=uuid)
+    begin_cmd.add_argument("operation", choices=OPERATIONS)
+    begin_cmd.add_argument("source", type=commit_sha)
+    begin_cmd.add_argument("target", type=commit_sha)
+    begin_cmd.add_argument("input_digest", type=digest)
+    begin_cmd.add_argument("units", type=unit_names)
+    begin_cmd.add_argument("--source-schema")
+    begin_cmd.add_argument("--target-schema")
+    begin_cmd.add_argument("--repair-of", type=uuid)
+    begin_cmd.add_argument("--idle-check", action="store_true")
+    inspect_cmd = commands.add_parser("inspect-database")
+    inspect_mode = inspect_cmd.add_mutually_exclusive_group()
+    inspect_mode.add_argument("--idle", action="store_true")
+    inspect_mode.add_argument("--online", action="store_true")
+    guards_cmd = commands.add_parser("install-guards")
+    guards_cmd.add_argument("units", type=unit_names)
+    serving_cmd = commands.add_parser("verify-serving")
+    serving_cmd.add_argument("commit", type=commit_sha)
+    serving_cmd.add_argument("units", type=unit_names)
+    retry_cmd = commands.add_parser("verify-release-retry")
+    retry_cmd.add_argument("id", type=uuid)
+    retry_cmd.add_argument("commit", type=commit_sha)
+    retry_cmd.add_argument("repair_of")
+    retry_cmd.add_argument("--qualification", type=Path)
+    retry_cmd.add_argument("--reader", type=Path)
+    for name in (
+        "source",
+        "source-schema",
+        "repair-source",
+        "status",
+        "check",
+        "applying",
+        "open-native",
+        "close-native",
+        "commit",
+        "not-applied",
+        "start",
+        "startup-failed",
+    ):
+        sub = commands.add_parser(name)
+        sub.add_argument("id", type=uuid)
+        if name == "status":
+            sub.add_argument("--json", action="store_true")
+        if name in {"applying", "commit", "not-applied"}:
+            sub.add_argument("--evidence", type=Path)
     args = parser.parse_args()
-    if args.operation == "stop":
-        for unit in UNITS:
-            require_stopped(unit)
-        if not HOLD.exists():
-            with HOLD.open("x") as stream:
-                stream.write(args.target + "\n")
-        if HOLD.read_text() != args.target + "\n":
-            raise SystemExit("another release holds this cutover")
-        for unit in UNITS:
-            drop = dropin(unit)
-            drop.parent.mkdir(mode=0o755, exist_ok=True)
-            if not drop.exists():
-                with drop.open("x") as stream:
-                    stream.write(CONDITION)
-        os.sync()
-        subprocess.run(["systemctl", "daemon-reload"], check=True)
-    if HOLD.read_text() != args.target + "\n":
-        raise SystemExit("cutover hold differs from selected release")
-    stopped = {}
-    for unit in UNITS:
-        drop = dropin(unit)
-        if drop.read_text() != CONDITION or any(
-            p.stat().st_uid != 0 or p.stat().st_mode & 0o022 for p in (HOLD, drop)
+    require(os.geteuid() == 0, "deployment custody requires root")
+    command = args.command
+    if command == "inspect-database":
+        inspect_database(args.idle, args.online)
+    elif command == "install-guards":
+        require(not (STATE / "held").exists(), "another deployment hold exists")
+        guard_units(args.units, install=True)
+    elif command == "verify-serving":
+        verify_serving(args.units, args.commit)
+    elif command == "verify-release-retry":
+        state, path = phase(args.id)
+        require(
+            path is not None and state in {"committed", "not-applied"},
+            "unknown terminal release receipt",
+        )
+        binding = read(path / "receipt.json")["binding"]
+        require(
+            binding["operation"] == "release"
+            and binding["target"]["commit"] == args.commit
+            and (binding["repair_of"] or "none") == args.repair_of,
+            "change ID already binds different arguments",
+        )
+        for kind, proof in (
+            ("qualification", args.qualification),
+            ("reader", args.reader),
         ):
-            raise SystemExit(f"invalid {unit} hold")
-        stopped[unit] = require_stopped(unit)
-        if stopped[unit]["LoadState"] == "not-found":
-            if args.operation == "release":
-                raise SystemExit("install memory unit before releasing hold")
-            continue
-        if not any(
-            kind == "ConditionPathExists"
-            and not trigger
-            and negate
-            and path == str(HOLD)
-            for kind, trigger, negate, path, result in unit_property(unit, "Conditions")
-        ):
-            raise SystemExit(f"{unit} hold condition is not loaded")
-    print(json.dumps(stopped, sort_keys=True))
-    if args.operation == "release":
-        for unit in UNITS:
-            dropin(unit).unlink()
-        HOLD.unlink()
-        subprocess.run(["systemctl", "daemon-reload"], check=True)
+            if proof is not None:
+                original = STATE / f"{state}-{args.id}" / f"{kind}-{args.id}.json"
+                require(
+                    original.is_file() and proof.read_bytes() == original.read_bytes(),
+                    f"change ID already binds a different {kind} receipt",
+                )
+    elif command == "begin":
+        STATE.mkdir(mode=0o700, exist_ok=True)
+        if phase(args.id)[0] is None:
+            require(selected() == args.source, "selected source release changed")
+        print(
+            begin(
+                {
+                    "id": args.id,
+                    "operation": args.operation,
+                    "source": release_receipt(args.source, args.source_schema),
+                    "target": release_receipt(args.target, args.target_schema),
+                    "input_sha256": args.input_digest,
+                    "units": args.units,
+                    "repair_of": args.repair_of,
+                },
+                idle_check=(
+                    lambda: check_source_idle(
+                        RELEASES / args.target, args.source_schema
+                    )
+                )
+                if args.idle_check
+                else None,
+            )
+        )
+    elif command == "repair-source":
+        binding = check_held(args.id)["binding"]
+        require(
+            binding["operation"] == "release",
+            "repair must use the original operation type",
+        )
+        for key in ("source", "target"):
+            print(binding[key]["commit"])
+            print(binding[key]["schema"])
+    elif command in {"source", "source-schema", "status"}:
+        state, path = phase(args.id)
+        if command == "source":
+            print(
+                selected()
+                if path is None
+                else read(path / "receipt.json")["binding"]["source"]["commit"]
+            )
+        elif command == "source-schema":
+            require(path is not None, "unknown source schema")
+            print(read(path / "receipt.json")["binding"]["source"]["schema"])
+        elif args.json:
+            print(json.dumps(inspect_change(args.id), sort_keys=True))
+        else:
+            print(state or "unknown")
+    elif command == "check":
+        check_held(args.id)
+    elif command == "applying":
+        check_held(args.id)
+        if args.evidence is not None:
+            path = STATE / "held" / f"preflight-{args.id}.json"
+            evidence = read(args.evidence)
+            if path.exists():
+                require(
+                    read(path) == evidence, "stopped preflight changed during retry"
+                )
+            else:
+                record(path, evidence)
+        publish(STATE / "held/applying", b"")
+    elif command == "open-native":
+        path, receipt = require_held(args.id)
+        require(
+            (path / "applying").exists() and NATIVE in receipt["binding"]["units"],
+            "native host is outside the applying operation",
+        )
+        check_held(args.id)
+        (path / NATIVE).unlink(missing_ok=True)
+        sync(path)
+    elif command == "close-native":
+        path, receipt = require_held(args.id)
+        require(
+            (path / "applying").exists() and NATIVE in receipt["binding"]["units"],
+            "native host is outside the applying operation",
+        )
+        guard_units([NATIVE])
+        publish(path / NATIVE, b"")
+        stop_units([NATIVE], clean=receipt["binding"]["repair_of"] is None)
+    elif command == "start":
+        start(args.id)
+    elif command == "startup-failed":
+        startup_failed(args.id)
+    else:
+        finish(
+            args.id,
+            "committed" if command == "commit" else command,
+            read(args.evidence) if args.evidence else None,
+        )
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+        raise SystemExit(str(error)) from None

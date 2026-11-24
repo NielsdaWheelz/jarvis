@@ -156,6 +156,15 @@ async def database_inventory(conn):
             "unsupported PostgreSQL, vector extension, or Alembic revision"
         )
 
+    return {
+        "postgres_major": version,
+        "vector_version": vector,
+        "schema_revision": revision,
+        "database": await database_identity(conn),
+    }
+
+
+async def database_identity(conn):
     db = dict(
         (
             await conn.execute(
@@ -197,12 +206,7 @@ async def database_inventory(conn):
         for role, grantor, privilege, _ in db["acl"]
     ):
         raise RuntimeError("unexpected database-level grant")
-    return {
-        "postgres_major": version,
-        "vector_version": vector,
-        "schema_revision": revision,
-        "database": db,
-    }
+    return db
 
 
 async def schema_inventory(conn):

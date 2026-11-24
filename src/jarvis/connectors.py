@@ -486,6 +486,72 @@ class GoogleTokenManager:
             raise GoogleCredentialDefect("Google token value is malformed")
         return value
 
+    def state_for_same_grant(
+        self, installed: GoogleTokenManager
+    ) -> dict[str, object] | None:
+        """Keep the newest usable cache when two declarations name the same grant."""
+        if (self._client_id, self._client_secret) != (
+            installed._client_id,
+            installed._client_secret,
+        ):
+            return None
+        old = dict(installed._load_state())
+        new = dict(self._load_state())
+        cache = {
+            "access_token_enc",
+            "refresh_token_enc",
+            "encryption",
+            "access_token_expires_at",
+            "token_obtained_at",
+            "granted_scopes",
+        }
+        # _load_state already validated each grant's complete fixed scope set.
+        if {k: v for k, v in old.items() if k not in cache} != {
+            k: v for k, v in new.items() if k not in cache
+        }:
+            return None
+
+        def tokens(
+            codec: GoogleTokenManager, state: dict[str, object]
+        ) -> tuple[str, str]:
+            version = cast("dict[str, str]", state["encryption"])["key_version"]
+            return (
+                codec._decrypt(
+                    provider_string(state, "refresh_token_enc"),
+                    field="refresh_token",
+                    key_version=version,
+                ),
+                codec._decrypt(
+                    provider_string(state, "access_token_enc"),
+                    field="access_token",
+                    key_version=version,
+                ),
+            )
+
+        old_refresh, old_access = tokens(installed, old)
+        new_refresh, _ = tokens(self, new)
+        if old_refresh != new_refresh:
+            return None
+        if parse_google_instant(
+            provider_string(new, "access_token_expires_at")
+        ) > parse_google_instant(provider_string(old, "access_token_expires_at")):
+            return new
+        if installed._handoff_key == self._handoff_key and (
+            cast("dict[str,str]", old["encryption"])["key_version"]
+            == self._active_key_version
+        ):
+            return old
+        return {
+            **old,
+            "access_token_enc": self._encrypt(old_access, field="access_token"),
+            "refresh_token_enc": self._encrypt(old_refresh, field="refresh_token"),
+            "encryption": {
+                "algorithm": "AES-256-GCM",
+                "key_version": self._active_key_version,
+                "aad_namespace": f"{GOOGLE_AAD_NAMESPACE}:{self._active_key_version}",
+            },
+        }
+
     def _encrypt(self, value: str, *, field: _TokenField) -> str:
         version = self._active_key_version
         nonce = secrets.token_bytes(12)

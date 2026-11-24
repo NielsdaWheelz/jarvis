@@ -1,26 +1,22 @@
 #!/usr/bin/env bash
+# Local root-side substep of private-state publication. Caller owns the release flock.
 set -euo pipefail
-
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-target=dev-server-deploy
-owner="${JARVIS_AGENT_STATE_OWNER:?supply the enrolled host account}"
-source_state="${JARVIS_AGENT_SOURCE_STATE_DIRECTORY:?supply the enrolled host live state directory}"
-source_cli="${JARVIS_AGENT_SOURCE_CLI:?supply the exact enrolled host release executable}"
+[[ $EUID == 0 && $# == 5 ]]
+operation="$1"
+owner="$2"
+source_state="$3"
+source_cli="$4"
+release="$(cd "$(dirname "$0")/.." && pwd -P)"
+source "$release/deploy/agent-client-functions"
+if [[ "$operation" == --bootstrap ]]; then
+  [[ ! -e /opt/jarvis/current && ! -L /opt/jarvis/current ]]
+else
+  [[ "$(readlink -e /opt/jarvis/current)" == "$release" ]]
+  "$release/deploy/cutover-hold" check "$operation" >/dev/null
+fi
 [[ "$owner" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
-for path in "$source_state" "$source_cli"; do
-  [[ "$path" =~ ^/[a-zA-Z0-9_./-]+$ ]] || {
-    printf 'agent source paths must be absolute deployment paths\n' >&2
-    exit 1
-  }
-done
-
-{
-cat "$repo_dir/deploy/agent-client-functions"
-cat <<'REMOTE'
-set -euo pipefail
-owner="$1"
-source_state="$2"
-source_cli="$3"
+for path in "$source_state" "$source_cli"; do [[ "$path" =~ ^/[a-zA-Z0-9_./-]+$ ]]; done
+expected_digest="$5"
 state=/run/jarvis-skid-state
 cli=/usr/local/libexec/skidbladnir
 unit="$(systemd-escape --path --suffix=mount "$state")"
@@ -48,6 +44,7 @@ candidate="$(mktemp /usr/local/libexec/.skidbladnir.XXXXXX)"
 cleanup() { rm -rf -- "$scratch"; rm -f -- "$candidate"; }
 trap cleanup EXIT HUP INT TERM
 install -m 0755 -o root -g root "$source_cli" "$candidate"
+[[ "$(sha256sum "$candidate" | cut -d' ' -f1)" == "$expected_digest" ]]
 cat >"$scratch/$unit" <<UNIT
 [Unit]
 Description=Jarvis read-only enrolled Skid state
@@ -79,6 +76,3 @@ mv -fT -- "$candidate" "$cli"
 sudo -n -u jarvis "$cli" version
 sha256sum "$cli"
 printf 'installed live enrolled state mount; jarvis remains stopped\n'
-REMOTE
-} | ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- \
-  "$owner" "$source_state" "$source_cli"

@@ -983,8 +983,10 @@ compression preserves source meaning and attribution. context may resolve
 references and recover details supported by the covered originals; it may not
 turn unrelated surrounding facts into claims of that range. prioritize owner
 wording/reasons, lasting changes and failures, findings, then descriptions of tool
-steps. preserve identifiers and uncertainty; quoted/worker text is not fresh owner
-input. tree coverage is not proof that a generated assertion is true.
+steps. when space is tight, keep a brief, specific cue for distinct topics whose
+details are omitted so readers can find them by zooming. preserve identifiers and
+uncertainty; quoted/worker text is not fresh owner input. tree coverage is not
+proof that a generated assertion is true.
 
 ### views and compactor execution
 

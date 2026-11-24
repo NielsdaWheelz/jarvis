@@ -2,7 +2,7 @@
 
 owner decisions, november 23 pacific. the initial design and isolated release used `cfd82ec`. [adr 0102](0102-historical-capture-cleanup.md) moves the archive to generation 2 and retires the `8232+8` production retry. [adr 0103](0103-codex-history-admission.md) adds the native capture v5 receipt generation at schema `0022`. the two generations serve different purposes. amends the model-facing form in [0079](0079-bounded-serial-compaction.md) and the invalid-result stop in [0080](0080-first-valid-compaction.md). implementation and production authorization are separate.
 
-**goal.** one serial writer files each summary under its original source. on november 23 a completed eight-task turn returned a different set of addresses. the writer correctly committed nothing and parked at `8232+8`. that mark identifies the first selected task. the offending field is unknown. the earlier `8112+8` buffer incident recovered. [installed evidence](../issues/compactor-address-mismatch.md)
+**goal.** one serial writer files each summary under its original source. on november 23 a completed eight-task turn returned a different set of addresses. the writer correctly committed nothing and parked at `8232+8`. that mark identifies the first selected task. the offending field is unknown. the earlier `8112+8` buffer incident recovered. [original incident](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/compactor-address-mismatch.md)
 
 ## a. model form and atomic writer
 
@@ -32,7 +32,7 @@ reuse `EventKind.validation`. the compactor opts into field diagnostics on `run_
 
 ## c. production recovery and capacity
 
-the release integrator qualifies one current-main artifact, its manifest and exact restore reader. the capture rollout owner verifies the matched [`0020` cut](../operations.md#stopped-conversation-capture-cut-from-0019-to-0020). the separately owned and authorized [`0021` rewrite](0102-historical-capture-cleanup.md) replaces the old coordinates and resets the derived tree. the old `8232+8` park, absent parent `(3,1029)`, and eight source and two child digests belong to the verified stopped evidence in the [original incident](../issues/compactor-address-mismatch.md). do not clear or retest that address in production. the rewrite owner disposes of the old mark under its own contract.
+the release integrator qualifies one current-main artifact, its manifest and exact restore reader. the capture rollout owner verifies the matched [`0020` cut](../operations.md#stopped-conversation-capture-cut-from-0019-to-0020). the separately owned and authorized [`0021` rewrite](0102-historical-capture-cleanup.md) replaces the old coordinates and resets the derived tree. the old `8232+8` park, absent parent `(3,1029)`, and eight source and two child digests belong to the verified stopped evidence in the [stopped evidence](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/compactor-address-mismatch.md). do not clear or retest that address in production. the rewrite owner disposes of the old mark under its own contract.
 
 verify the installed `0022` release and its matched native capture v5 collectors. retain their installed checkpoint witnesses and the [adr 0101](0101-outgoing-mail-attachments.md) handoff. qualify the writer against that same schema and capture contract. obtain separate permission for the exact same-schema writer replacement. verify the staged artifact, its current backup reader and isolated restore. preserve owner web pause through the stopped replacement and obtain the owner's ordinary web resume. record the stopped baseline’s generation, prefix, cutoff, complete built node keys, error and postgres snapshot. a marked baseline is a new incident. retain the exact mark, source and child digests, prefix and stop classification. a clear needs its own scoped authorization. after resume, observe an inferred parent in a contained call with at least two fields, a later disjoint commit in a different transaction, prefix growth and a clear mark. use the stopped baseline to establish absence and bind each new commit to the installed release. reconstruct the parent's input from its immutable children and require more than 2,048 framed bytes. distinguish quota and budget stops from malformed replies in the journal. verify the matching v5 collector pair, continuity of its checkpoint witnesses and exactly-once admission of a later event across the replacement. the practical recovery verdict is progress on the rewritten corpus; the historical live retry remains retired.
 
@@ -50,6 +50,67 @@ privately preselect an authenticated owner correction with source and grading ke
 | a · jarvis writer and library packet removal | on macbook drive ordinary service and maintenance via the real kernel, contained model and postgres. exercise 1 and 8 fields, packing, free-only, utf-8 size feedback/repacking and key reordering. run two live eight-field batches with five leaves and three parents. reverse the order of the conflicting sources on the second run. the owner leaves elm pending a survey and approves oak on receipt r17. fail either run for a swapped fact or invented assent. field binding cannot rule out a semantic swap in later use. gate invalid→valid, then malformed on a different packed call, the fifth appearance, retry→uncertainty and interruption. count host calls, require zero partial writes and a later clean independent commit. |
 | b · kernel evidence | drive provider terminals through the ordinary parser. a backend-admissible `b` with 2,700 three-byte characters, whitespace or an embedded nul identifies `b/invalid_text`. exercise a denied tool proposal and lost telemetry. inject missing, extra/private, duplicate, wrong-type, broken-envelope and conflicting-display cases as boundary tests. cancel, uncertainty and bad host configuration spend no form correction. |
 | c · release, recovery and capacity | retain the earlier stopped guest’s reproduction and clear-once proof under its original pins. qualify the schema 0022 writer with the generation 2 archive, native capture v5, ownership and exact restore reader. prove both transactions and a clear mark in production on the new generation. at `D=8`, prefix 8 and 14/15 nodes is a one-parent miss even with three later arrivals. publish measured outcomes and limitations in the existing incident/capacity records. |
-| d · recall verdict | a correct answer from an old note earns recall alone. a recent-neighbor or evaluator-search leak invalidates blind attribution. award both verdicts only on the full use, ancestry and original checks in d. fixture proof and one real installed case have separate receipts. update the [recall record](../issues/memory-freshness-installed.md). |
+| d · recall verdict | a correct answer from an old note earns recall alone. a recent-neighbor or evaluator-search leak invalidates blind attribution. award both verdicts only on the full use, ancestry and original checks in d. fixture proof and one real installed case have separate receipts. update the [recall record](#installed-correction-recall). |
 
 b can land first. a consumes the kernel pin, c qualifies the integrated release, d grades its installed ancestry. freeze each designer’s examples before implementation. run temporary end-to-end/live probes red on the relevant predecessor, green on the target, refactor and repeat affected checks. independent opus reviews design, the actual counterexamples and final evidence per feature. run the affected packages’ existing checks. reopen and hash evidence outside scratch, then delete only this cut’s probes/fixtures and report cleanup. the boundary is one writer and its evidence. model selection, scheduler changes, historical deletion and new infrastructure have separate owners or require new measurements.
+
+## installed writer recovery
+
+the interim candidate `f0371a0` preserved the `a28e639/0021` memory-read
+fix and passed four postgres regressions with library `c369dec`. the writer
+and migrations matched the qualified `0021` candidate. the selected `0022`
+artifact below followed the codex and outgoing-mail cuts.
+[earlier stopped and candidate evidence](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/compactor-address-mismatch.md)
+
+on november 24, `ea2b825` at schema `0022` passed the exact x64 install,
+independent opus review and generation 2 postgres proof. one malformed
+two-field call was corrected once. the isolated run committed all seven
+expected nodes, including an inferred parent from a 2,581-byte frame.
+the existing capture/retry regression passed.
+
+owner web pause 41 committed at 06:47:56 utc. both writers were stopped
+at 06:48:38. the baseline held 20,070 admitted positions, a ready prefix
+of 7,760 and 15,390 tree nodes. the mark was clear and no retry ran.
+the selected release and both services were verified at 06:49:32 under
+the retained pause. the new backup reopened an event, a note and a
+retired reference from both the remote and held copies. its timer was
+active at 06:52:10. both v5 collectors retained their installed pins.
+all 5,784 original checkpoint boundaries survived, and a later event
+was admitted with exactly its declared distinct parts.
+
+the private mac cut receipt is
+`adr0100-final-20261124/production/cut-receipt.json`, sha-256
+`ab1493c6182ff407a683b67eeff00f0538c60afa810f155daa31c9f761da6cda`.
+owner web resume 42 committed at 06:58:17 utc. the new writer committed
+absent parent `7628+4` (level 2, index 1907) in transaction `2485198`
+at 06:58:32. its two immutable children framed to 2,305 bytes. the
+batch completed one contained call with eight fields and committed
+all eight inferred parents. disjoint parent `7632+8` (level 3, index
+954) committed in transaction `2485200` at 06:58:48. the 06:59:17
+read showed prefix 7,854 of 20,234 admitted positions, a clear mark
+and both services active. no retry ran.
+
+private mac proof `adr0100-final-20261124/production/live-writer-progress.json`,
+sha-256 `c0bb96fb93fe8c240e4dab0a94bbbfe3574e855e0e0cbbba39f6cd12133b907c`.
+
+the [capacity observation](../issues/memory-usefulness-evaluation.md#installed-terra-observation) continues across its declared boundaries.
+
+## installed correction recall
+
+the correction and grading key were sealed privately before the fresh-session
+test. at 08:36:20 utc on november 24, the selected `4d05a92/0022` writer had
+built none of the correction's ancestors. three inferred ancestors appeared
+before the android cut. the first recall attempt coincided with the stopped
+memory service and returned an outage with zero successful reads.
+
+after `c8d1751/0023` began serving, the three ancestors retained their text
+hashes, input hashes and transaction ids. at 09:00:21 utc a second fresh
+session answered the sealed question correctly. a target-built summary
+led it through zoom to the authenticated original, which reopened unclipped.
+the necessary ancestor came from 2,468 framed bytes. all recent excerpts
+and their neighbors were audited from the frozen pages, including two
+explicit omissions. no pre-answer keyword search ran. this case earned
+both recall and new-compression credit. the private mac receipt
+`adr0100-final-20261124/production/recall-verdict.json` has sha-256
+`c74e3f46c8a454a64f397ff76fef2b18e729497a3ad2121a014121b26108cbb2`.
+the [earlier case](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/memory-freshness-installed.md) earned recall credit from pre-existing compression.

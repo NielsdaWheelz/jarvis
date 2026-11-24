@@ -1,6 +1,6 @@
 # adr 0088. development storage and central memory recovery
 
-accepted 2026-11-19. first production recovery verified. scheduled-run proof is open.
+accepted 2026-11-19. first production recovery and scheduled backups verified.
 this supersedes [0033](0033-defer-backups-and-host-reboot.md) for central memory
 backup only. [0086](0086-native-recovery-and-memory-availability.md) owns the
 installed `0016` baseline and its stopped migration copies.
@@ -202,7 +202,7 @@ dump/readback traffic, key custody and monthly drills. hosting moves,
 quotas, legacy purges, continuous wal archiving, attachment/notes files and
 web staging are separate work. an older ledger can predate a real external
 effect. live resumption requires separate reconciliation and authorization.
-[open restore issue](../issues/memory-backup-restore.md)
+[production backup evidence](#scheduled-production-backups)
 
 **design review.** three feature designers defined the receipt, alert and
 recovery report. after revisions to cross-platform row ordering, read isolation
@@ -233,7 +233,7 @@ access to other databases and large-object creation through a narrow hba block
 and jarvis-local grants. postgres retains ordinary session and advisory-lock
 behavior. archive transport and sender-loss proof used the real sdk and age
 against a disposable endpoint. verify the actual cloudflare lock and lifecycle,
-the first production recovery before enabling the schedule. [open restore issue](../issues/memory-backup-restore.md)
+and the first production recovery before enabling the schedule. [scheduled production backups](#scheduled-production-backups)
 
 on the installed schema `0018`, the merged preparation preserved the original
 adr 0092 v4 stopped receipt byte-for-byte in a populated postgres 16 migration.
@@ -264,7 +264,21 @@ the r2 cut was 89 seconds old at drill start. the reads took 45.196 and 42.678
 seconds respectively. private reports live beside the production rollout
 receipts under `~/.adr0088-inventory-x0ohbe8w/deploy-0018/`.
 
-the timer was enabled only after both restores passed. it is active for 00:00
-and 12:00 utc with the first scheduled run due 2026-11-20 12:00 utc. the first
-actual scheduled success remains to be observed. both jarvis services were
-active and retained owner pause 21 at verification.
+the timer was enabled only after both restores passed. its first scheduled run
+was due 2026-11-20 12:00 utc. both jarvis services were active and retained
+owner pause 21 at that verification.
+
+## scheduled production backups
+
+on november 23 the mac used the independent r2 read credential to list the
+initial drill and all seven expected 12-hour generations from november 20
+12:00 through november 23 12:00 utc. each had a final encrypted manifest
+and a dump whose object size matched the decrypted manifest. the latest
+database cut was `20261123T120003057880Z-76ce51f38b3b462791c3fb84ad2f2f2e`,
+303,888,883 encrypted dump bytes. the november 23 noon run verified its new generation at 12:01:15 utc.
+rotated syslog on dev-server records successful completion at all seven scheduled slots.
+
+the november 20 drill reopened both copies. the seven scheduled checks
+verified manifests and object sizes. subsequent releases have their own
+[restore receipts](0105-native-android.md#installed-release-on-november-24-utc). the second decryption identity
+awaits the home workstation.

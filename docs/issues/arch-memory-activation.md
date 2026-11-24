@@ -28,3 +28,8 @@ close after verifying long claude retention and all three codex daemons from a
 fresh login after apply exits. record each profile's future-only boundary, a
 new captured turn, and a memory read, save and exact reopen from a normal
 session using that profile's credentials. record any pending profile by name.
+
+at the november 24 pre-cut check, all fourteen recovered credentials
+matched the live declaration. all six arch lanes were still disabled.
+the recovered store still lacked `capture:arch`. arch was offline.
+the tailnet last saw it on november 23 at 08:03:48 utc.

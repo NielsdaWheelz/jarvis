@@ -132,7 +132,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0085](0085-preserve-google-cursors-during-correction.md) | preserve google cursors during the f2 correction | isolated correction qualified. installed preflight reproduced 80 old revisions on the retained cursor. corpus preserved |
 | [0086](0086-native-recovery-and-memory-availability.md) | bounded native recovery and independent shared memory | both cuts installed. original mail, note and independent capture verified |
 | [0087](0087-private-web-home.md) | private web home | installed and owner-accepted at `0017`. the owner chats on the web, jarvis publishes the canvas and discord delivers alerts |
-| [0088](0088-storage-and-memory-recovery.md) | development storage and central memory recovery | mac rehearsal and isolated memory recovery passed. local disk sampling and first production off-host recovery verified. scheduled-run proof is open |
+| [0088](0088-storage-and-memory-recovery.md) | development storage and central memory recovery | mac rehearsal, local disk sampling, the first production off-host recovery and seven scheduled backups verified |
 | [0089](0089-native-capture-repair.md) | native capture repair | corroborated boundary loss, claude archive capacity and targeted native source recovery |
 | [0091](0091-source-backed-reports.md) | full answers in web chat | remove discord-era final reply limits and let jarvis handle broad answers and corrections in conversation |
 | [0092](0092-memory-freshness.md) | fresh shared memory | recent owner exchanges, service-owned indexing and measured historical catch-up after web home |
@@ -143,7 +143,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0097](0097-todo-home.md) | todo home | one owner todo list on the default canvas. questions, proposals and answers live in conversation |
 | [0098](0098-conversation-capture.md) | conversation capture | prospective design. only jarvis main archives ordinary tools. external conversations retain source-proven answers and reports |
 | [0100](0100-host-bound-summary-fields.md) | host-bound summary fields | one correction per atomic batch, with distinct installed progress, capacity and recall verdicts |
-| [0101](0101-outgoing-mail-attachments.md) | files in outgoing gmail | verified source bytes, gmail draft revisions, conversational consent and positive sent evidence. source, detached and isolated connected-account proof passed. production cut pending |
+| [0101](0101-outgoing-mail-attachments.md) | files in outgoing gmail | verified source bytes, gmail draft revisions, conversational consent and positive sent evidence. source, detached, connected-account and installed smoke checks passed on schema `0022` |
 | [0102](0102-historical-capture-cleanup.md) | historical capture cleanup | remove external tool traffic at deployment while preserving conversations and the identity of older references |
 | [0103](0103-codex-history-admission.md) | selected codex history after rewind | preserve saved originals and resume from the proved cut |
 | [0104](0104-maintenance-without-owner-pause.md) | maintenance without an owner pause | installed. named operator custody preserves canonical controls and compatible work |

@@ -1,12 +1,12 @@
 # adr 0101 — files in outgoing gmail
 
-status — implemented in source and qualified in the detached rehearsal. connected-account phone acceptance and production cut remain open. this narrows the outgoing-file deferral in [0075](0075-v2-completion-and-subscription-model.md), amends the draft and recovery rules in spec §§5 and 9, and retains [0024’s creation-derived effect header](0024-use-a-stable-gmail-effect-header.md).
+status — source, detached rehearsal and isolated connected-account acceptance passed. the [production cut and installed smoke](../issues/outgoing-mail-installed-cutover.md) are pending. this narrows the outgoing-file deferral in [0075](0075-v2-completion-and-subscription-model.md), amends the draft and recovery rules in spec §§5 and 9, and retains [0024’s creation-derived effect header](0024-use-a-stable-gmail-effect-header.md).
 
 ## what the owner can do
 
 “send the pdf on my macbook to sam” and “reply with these two phone uploads” end in ordinary chat. jarvis obtains the files, saves an unsent gmail draft and presents its contents when fresh consent is needed. the owner can revise or approve it in web or mobile chat. after gmail draft readback verifies the bytes the source may go offline. a worker can already copy a readable file from a reachable machine using skid and ordinary ssh/scp. the macbook → dev-server direction passed a 4,096-byte hash check. arch was unavailable. permissions, connectivity and direction still apply. an unavailable arch machine earns “i couldn’t reach arch. reconnect it or upload the file here.”
 
-reuse the web uploader, private originals, worker, gmail session and conversational approval. scope covers regular attachments in new messages and replies from the configured account. public links, a fleet file service, permanent storage of native exports, gmail rich editing, arbitrary gmail drafts, sender aliases and new approval controls are outside this cut. the current source defects have offline reproductions. [revision race](../issues/gmail-send-revision.md) · [false sent receipt](../issues/gmail-unsent-draft-recovery.md) · [unreadable admitted content](../issues/gmail-raw-size-limit.md)
+reuse the web uploader, private originals, worker, gmail session and conversational approval. scope covers regular attachments in new messages and replies from the configured account. public links, a fleet file service, permanent storage of native exports, gmail rich editing, arbitrary gmail drafts, sender aliases and new approval controls are outside this cut.
 
 ## a. getting the bytes
 
@@ -78,28 +78,69 @@ each designer freezes good and bad content examples before red. independent clau
 
 ## implementation evidence
 
-the exact `4faedd43892d171e49fbc4e35d6c48549a677578` source passed the
-detached macbook rehearsal. `detached-refactor-4faedd4-r3/receipt.json`
+the exact `7220123ec9ea8621ee23f78f211ed86693dc829b` source passed the
+detached macbook rehearsal. `detached-final-7220123/receipt.json`
 records exit 0 and checkout removal in the private adr 0101 evidence directory.
 its reopened `checks.log` has sha-256
-`66a7624c604863ba0db7cb0d87b002aeca5c2b4cea0644c7edc18169ddd88fd6`.
+`3d53570893811fa39449d25de72b85f5f02bb8b488c368c1802b829eec4c5aa5`.
 it covers build and static checks, the home http projection, native journal
 and postgres 0020 approval, provider fault injection, 25,000,000-byte multipart
-send and recovery, first-refused limits, the cut audit and bounded intake.
+send and recovery, the cut audit and bounded intake. 25,000,001 bytes and an
+eleventh file fail before a gmail write. a sole `DRAFT` after a 429 never
+proves sending. the admitted 12,000-byte body round-trips through the mail codec.
 
 opus found lossy headers that could leave an unverifiable draft. the shared
 header round trip now rejects them before a write and rfc 2231 filenames keep
 literal encoded-word text. the probe killed all 13 targeted mutations. the
 exact regex runs in one short-lived process per staged file so the service loop
-can continue while it scans. at the byte ceiling, the detached intake took
-4.23 seconds and the maximum sampled home read was 18.5 ms. peak scanner rss
-was 248 mb. format controls that can disguise filenames are refused.
+can continue while it scans. at the byte ceiling, the final detached intake
+took 4.95 seconds and the maximum sampled home read was 19.4 ms. peak scanner
+rss was 248,332,288 bytes. format controls that can disguise filenames are
+refused.
 
 the isolated installed-style candidate passed publication and cross-identity
 readback of both native fixtures and completed a real native turn. its first
 startup exceeded the existing main prompt bound. placing attachment guidance
-with the mail tools preserved the bound and repaired startup. independent opus accepted the technical implementation and startup delta.
-the live gmail
-profile and primary send-as reads returned 200. they confirmed the connected
-account and no configured primary reply-to. the connected-account send,
-dropped-ack recovery and actual phone proof have separate evidence.
+with the mail tools preserved the bound and repaired startup. independent opus
+accepted the technical implementation and startup delta. live gmail profile
+and primary send-as reads confirmed the account and the absence of a configured
+primary reply-to.
+
+the live candidate at `7220123ec9ea8621ee23f78f211ed86693dc829b` saved
+`[jarvis attachment test a101phone]` as an unsent self-addressed gmail draft.
+an independent raw read verified the exact 25,000,000-byte binary against the
+macbook sha-256. gmail stored 34,211,513 mime bytes and returned 45,615,526
+bytes of projected raw json. the service peaked at 676,319,232 bytes with a
+3 gib limit. three complete observations of the same intact draft proved
+send absence in 29.80 seconds. the raw receipts are `a101phone-live-draft.txt` and
+`a101phone-intact-draft-recovery.txt` in the private evidence directory.
+
+the owner uploaded the jpg from a physical phone and approved in chat after
+the temporary source copies disappeared. an initial fixture failed before
+provider entry. the owner authorized one send of the unchanged draft. a real
+gmail edit between preflight and send created a different draft message id
+and content digest. gmail sent the approved message in one entry. an independent
+raw gmail read verified both attachments, all recipients and the approved body
+in message `1a20ba09890d8155`, labeled `SENT` and `INBOX` in thread
+`1a20b8ede92f1eed`. the reopened `a101phone-initial-send.txt` receipt has sha-256
+`8f7e91b43970532d3b7cc6765dd31775de561de990914e87551d8e923a0b5bd3`.
+
+the owner separately approved the self-bcc reply from the same phone after
+the temporary full-size source publication disappeared. the wire fixture
+discarded gmail’s http 200 acknowledgement after recording it. jarvis recovered
+the success in one executor entry, 37.67 seconds after approval, about nine
+seconds after gmail responded. an independent gmail reader and mime parser
+verified the parent, thread, from, to, cc, bcc, subject, body and all
+25,000,000 file bytes in the new `SENT` and `INBOX` message
+`1a20ba886aed74a1`. the request used 34,211,475 mime bytes and 34,211,763
+multipart bytes. peak service memory was 778,285,056 bytes against 3 gib.
+the reopened `a101phone-fullsize-reply.txt` receipt has sha-256
+`4f00a312077d8e3ad1720380c02471fb6e486e078dcc30d9cc644d3a27718da1`.
+
+the original production release and home socket were restored and the
+deployment lock handed back to the adr 0098 operator. the test thread and
+full-size macbook file remain for inspection. cleanup removed the extra
+unsent draft, temporary r2 original, isolated host runtime and postgres
+database. the temporary integration and live probes were deleted after green. the
+[earlier detached checkout residue](../issues/outgoing-mail-rehearsal-residue.md)
+is tracked separately.

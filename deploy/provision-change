@@ -469,7 +469,7 @@ def main():
             require(phase == "committed", "change was not applied")
             return
         evidence = STATE / "held/provisioning.json"
-        credential = evidence.parent / f"google-{change}.json"
+        credential = evidence.parent / "staged-secrets" / f"google-{change}.json"
         previous = json.loads(evidence.read_bytes()) if evidence.is_file() else {}
         if phase == "held" or previous.get("change") != change:
             domains = (
@@ -537,6 +537,7 @@ def main():
                 details["reader_image"] = payload["reader_image"]
             details["authority"] = domains
             if private:
+                credential.parent.mkdir(mode=0o700, exist_ok=True)
                 publish(credential, (stage / "google-oauth-state.json").read_bytes())
             publish(evidence, json.dumps(details).encode())
             subprocess.run([HOLD, "applying", change], check=True)
@@ -580,8 +581,6 @@ def main():
                 "owner control changed during provisioning",
             )
         subprocess.run([HOLD, "commit", change, "--evidence", evidence], check=True)
-        if private:
-            (STATE / f"committed-{change}" / credential.name).unlink(missing_ok=True)
         subprocess.run([HOLD, "start", change], check=True)
         print(f"{operation} committed for {commit}. backup timer policy retained.")
 

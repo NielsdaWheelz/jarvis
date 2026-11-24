@@ -469,6 +469,14 @@ def finish(change, state, evidence=None):
     require(not destination.exists(), "completed receipt already exists")
     path.rename(destination)
     sync(STATE)
+    discard_staged_secrets(destination)
+
+
+def discard_staged_secrets(receipt):
+    staged = receipt / "staged-secrets"
+    if staged.is_dir():
+        shutil.rmtree(staged)
+        sync(receipt)
 
 
 def startup_failed(change, reason="observed startup failure"):
@@ -665,6 +673,7 @@ def start(change):
     finished = STATE / f"{state}-{change}"
     held = STATE / "held"
     require(not held.exists(), "another deployment hold prevents startup")
+    discard_staged_secrets(finished)
     if (finished / "serving.json").is_file():
         units = ", ".join(
             f"{unit} {properties(unit).get('ActiveState', 'unknown')}"

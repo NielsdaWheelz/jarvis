@@ -9,6 +9,9 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0102](docs/decisions/0102-historical-capture-cleanup.md) governs the stopped
+  historical cleanup after the conversation filter. generation 2 numbers the new
+  archive. keep surviving original ids, and report retirement for removed ids.
 - [adr 0093](docs/decisions/0093-subscription-model-refresh.md) governs the
   subscription refresh candidate. the packaged role manifest selects each model
   and effort. its [transport contract](docs/compactor-burst-recovery.md) owns

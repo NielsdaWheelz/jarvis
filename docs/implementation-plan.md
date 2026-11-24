@@ -61,7 +61,8 @@ on both online hosts; [installed evidence](universal-memory.md#native-memory-ins
 does not replace the separate worker observation journey.
 
 [adr 0089](decisions/0089-native-capture-repair.md) owns the independent native
-collector cut and its installed recovery evidence.
+collector cut and its installed recovery evidence. the [claude reader repair](claude-data-flow-capture.md)
+owns the november 23 metadata parks and their recovery before the v4 worker cut.
 
 ## destination and rules
 

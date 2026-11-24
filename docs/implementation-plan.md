@@ -164,6 +164,14 @@ the old `8232+8` replay is retired. the armed november 24–25 samples keep thei
 actual generation. production progress, overnight capacity and genuine
 recall need their own receipts after the writer cut.
 
+[adr 0101](decisions/0101-outgoing-mail-attachments.md) owns outgoing gmail files. integrate file intake, draft revisions and approved send in that order. three content designers supplied the feature contracts. independent claude opus 5.5 at max effort passed the design at sha256 `20f4beb484dd0a6a90e54879980a8a90dd81ec62bae87cb2e8dd8a9e564db97b`. the macbook receipt is `~/.local/state/jarvis/qualification/adr0101/design-20f4beb484dd.txt`, sha256 `c1ec88e4d51fb066618f46d3ebc809947c6992a17847276b47f3750d0922deca`.
+
+source and the detached macbook rehearsal passed. the isolated candidate passed
+the actual phone upload, approval, approved-content send during a gmail edit,
+and 25,000,000-byte self-bcc reply with lost-ack recovery. the adr records
+scanner and service measurements. the [production cut and installed smoke](issues/outgoing-mail-installed-cutover.md)
+remain open.
+
 ## subscription model refresh
 
 [adr 0093](decisions/0093-subscription-model-refresh.md) sequences provider

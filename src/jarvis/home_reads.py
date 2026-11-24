@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -22,6 +23,7 @@ from jarvis.write_tools import (
     CALENDAR_DELETE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
     GMAIL_SEND_DRAFT_SPEC,
+    GmailSnapshot,
 )
 
 type Record = dict[str, Any]
@@ -80,7 +82,11 @@ async def conversation(
 
 
 async def visible_message(
-    connection: AsyncConnection, scope: str, identifier: UUID
+    connection: AsyncConnection,
+    scope: str,
+    identifier: UUID,
+    *,
+    include_mail_body: bool = False,
 ) -> Record | None:
     result = await connection.execute(
         text(_MESSAGES + " AND m.id = :id"), {"scope": scope, "id": identifier}
@@ -88,7 +94,9 @@ async def visible_message(
     row = result.mappings().one_or_none()
     if row is None:
         return None
-    proposals = await _proposals(connection, scope, [identifier])
+    proposals = await _proposals(
+        connection, scope, [identifier], include_mail_body=include_mail_body
+    )
     return {**row, "proposals": proposals[identifier]}
 
 
@@ -130,8 +138,14 @@ WITH page AS (
 )
 SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
   codec.supported,
-  CASE WHEN codec.supported THEN
-    (a.arguments->'arguments') #- '{content,body_text}' END AS args,
+  CASE WHEN codec.supported AND a.tool_name!='gmail.send_draft'
+    THEN a.arguments->'arguments' END AS args,
+  CASE WHEN codec.supported AND a.tool_name='gmail.send_draft'
+    THEN (a.execution_contract #> '{mail,snapshot}') - 'body_text'
+    END AS mail_preview,
+  CASE WHEN :include_mail_body AND codec.supported AND a.tool_name='gmail.send_draft'
+    THEN a.execution_contract #>> '{mail,snapshot,body_text}'
+    END AS mail_body,
   COALESCE(a.result->>'reason_code',a.result #>> '{error,type}') AS reason,
   a.result #>> '{value,sent_message_id}' AS sent_id,
   COALESCE(a.result #>> '{value,event,event_id}',a.result #>> '{value,event_id}')
@@ -215,17 +229,11 @@ def _proposal(row: RowMapping) -> Record:
             raise RuntimeError("unresolved proposal has an unsupported write contract")
         # Status and any first decision remain independent of the retired payload.
         return {**result, "title": tool, "detail": f"action id · {row['action_id']}"}
+    if tool == "gmail.send_draft":
+        return {**result, **_mail_proposal(row)}
     args = cast(Record, row["args"])
     detail: list[str] = []
-    if tool == "gmail.send_draft":
-        content = args["content"]
-        title = "send draft · " + (content["subject"] or "untitled")
-        for field in ("to", "cc", "bcc"):
-            if content[field]:
-                detail.append(
-                    field + " · " + ", ".join(x["address"] for x in content[field])
-                )
-    elif tool in {
+    if tool in {
         "calendar.create_event",
         "calendar.update_event",
         "calendar.delete_event",
@@ -261,21 +269,86 @@ def _proposal(row: RowMapping) -> Record:
         raise ValueError(f"unrecognized proposal tool: {tool}")
     if row["reason"]:
         detail.append(f"reason · {row['reason']}")
-    if row["sent_id"]:
-        detail.append(f"gmail message id · {row['sent_id']}")
     if row["event_id"] and tool == "calendar.create_event":
         detail.append(f"event id · {row['event_id']}")
     return {**result, "title": title, "detail": "\n".join(detail)}
 
 
+def _mail_proposal(row: RowMapping) -> Record:
+    body = row["mail_body"]
+    snapshot = GmailSnapshot.model_validate(
+        {**cast(Record, row["mail_preview"]), "body_text": "" if body is None else body}
+    )
+    title = "send draft · " + (snapshot.subject or "untitled")
+    detail = [
+        field + " · " + (", ".join(person.address for person in recipients) or "none")
+        for field, recipients in (
+            ("to", snapshot.to),
+            ("cc", snapshot.cc),
+            ("bcc", snapshot.bcc),
+        )
+    ]
+    counts = Counter((file.filename, file.size_bytes) for file in snapshot.files)
+    total = 0
+    for slot, file in enumerate(snapshot.files, 1):
+        name = file.filename
+        size = file.size_bytes
+        suffix = f" · {file.sha256[-12:]}" if counts[name, size] > 1 else ""
+        detail.append(f"{slot}. {name} · {size:,} bytes{suffix}")
+        total += size
+    detail.append(f"attachments total · {total:,} bytes")
+    status = row["status"]
+    label = {
+        "queued": "approved · waiting to send",
+        "awaiting_approval": "awaiting approval",
+        "executing": "sending",
+        "succeeded": "sent",
+        "failed": "send stopped",
+        "uncertain": "unknown whether sent",
+        "cancelled": "denied" if row["decision"] == "deny" else "cancelled",
+    }[status]
+    if status == "uncertain":
+        detail.append(
+            "gmail didn't confirm whether it sent. check sent mail before trying again."
+        )
+    elif row["reason"] in {"DraftChanged", "draft_changed"}:
+        detail.append(
+            "the draft changed in gmail. finish there or ask jarvis for a fresh draft."
+        )
+    elif row["reason"] in {"FilePolicy", "file_policy"}:
+        detail.append("gmail blocked a file in this message.")
+    elif row["reason"]:
+        detail.append(f"reason · {row['reason']}")
+    if row["sent_id"]:
+        detail.append(f"gmail message id · {row['sent_id']}")
+    preview: Record = {
+        "title": title,
+        "detail": "\n".join(detail),
+        "status_label": label,
+        "read_email": True,
+    }
+    if body is not None:
+        preview["mail_body"] = snapshot.body_text
+    return preview
+
+
 async def _proposals(
-    connection: AsyncConnection, scope: str, message_ids: list[UUID]
+    connection: AsyncConnection,
+    scope: str,
+    message_ids: list[UUID],
+    *,
+    include_mail_body: bool = False,
 ) -> dict[UUID, list[Record]]:
     by_id: dict[UUID, list[Record]] = {identifier: [] for identifier in message_ids}
     if message_ids:
         result = await connection.execute(
             text(_PROPOSALS),
-            {"scope": scope, "ids": message_ids, "contracts": _proposal_contracts()},
+            {
+                "scope": scope,
+                "ids": message_ids,
+                "contracts": _proposal_contracts(),
+                "include_mail_body": include_mail_body,
+            },
         )
         for row in result.mappings():
             by_id[row["message_id"]].append(_proposal(row))

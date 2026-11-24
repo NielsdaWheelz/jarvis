@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
@@ -83,6 +83,13 @@ from jarvis.messages import (
 )
 from jarvis.ownership import Database, lock_conversation
 from jarvis.work_tools import WORK_MUTATION_IDS, validate_work_result
+from jarvis.write_tools import (
+    GMAIL_WRITE_POLICY,
+    GmailComposeBasis,
+    GmailComposeContract,
+    GmailDraftIdentity,
+    GmailSendContract,
+)
 
 ActionStatus = Literal[
     "queued",
@@ -112,6 +119,14 @@ _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v10",
 )
 _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
+
+
+GMAIL_WRITE_NAMES = ("gmail.create_draft", "gmail.update_draft", "gmail.send_draft")
+_RETIRED_MAIL_REVISIONS = {
+    "gmail.create_draft": {"jarvis-gmail-create_draft-v1"},
+    "gmail.update_draft": {"jarvis-gmail-update_draft-v1"},
+    "gmail.send_draft": {"jarvis-gmail-send_draft-v1", "jarvis-gmail-send_draft-v2"},
+}
 
 
 class ActionPersistenceDefect(RuntimeError):
@@ -184,9 +199,16 @@ class ExecutionContract(_ExecutionEnvelope):
 
     schema_version: Literal["jarvis.action.v2"]
     agent_target: AgentWriteTarget | None = None
+    mail: (
+        Annotated[GmailComposeContract | GmailSendContract, Field(discriminator="kind")]
+        | None
+    ) = None
 
     def as_json(self) -> dict[str, object]:
-        return cast(dict[str, object], self.model_dump(mode="json"))
+        value = cast(dict[str, object], self.model_dump(mode="json"))
+        if self.mail is None:
+            del value["mail"]
+        return value
 
 
 class _ArchivedExecutionContract(_ExecutionEnvelope):
@@ -200,6 +222,23 @@ def _common_execution_envelope(value: object) -> _ExecutionEnvelope:
     return _ExecutionEnvelope.model_validate(
         {key: fields[key] for key in _ExecutionEnvelope.model_fields if key in fields}
     )
+
+
+class MailProgress(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    entered: bool = False
+    acknowledged: bool = False
+    basis: GmailComposeBasis | None = None
+    ack: GmailDraftIdentity | None = None
+
+    @model_validator(mode="after")
+    def consistent(self) -> MailProgress:
+        if (self.acknowledged and not self.entered) or (
+            self.ack is not None and (not self.acknowledged or self.basis is None)
+        ):
+            raise ValueError("Gmail acknowledgement lacks its mutation")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,8 +286,15 @@ class StoredAction:
         return _recovery_external_attempts(self)
 
     @property
-    def reconciliation_basis(self) -> dict[str, object] | None:
-        return _reconciliation_basis(self.result)
+    def mail_progress(self) -> MailProgress:
+        if self.result is None or self.result.get("type") not in {
+            "action_recovery_v1",
+            "action_uncertainty_v1",
+        }:
+            return MailProgress()
+        return MailProgress.model_validate(
+            self.result.get("reconciliation_basis") or {}
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +319,7 @@ class ActionStore:
         action_id: UUID | None = None,
         created_at: datetime | None = None,
         invocation_id: UUID,
+        check_admitted: Callable[[], None] | None = None,
     ) -> StoredAction:
         return await self._insert(
             tool_name,
@@ -283,6 +330,7 @@ class ActionStore:
             action_id,
             created_at,
             invocation_id,
+            check_admitted,
         )
 
     async def insert_awaiting_approval(
@@ -295,6 +343,7 @@ class ActionStore:
         action_id: UUID | None = None,
         created_at: datetime | None = None,
         invocation_id: UUID,
+        check_admitted: Callable[[], None] | None = None,
     ) -> StoredAction:
         return await self._insert(
             tool_name,
@@ -305,6 +354,7 @@ class ActionStore:
             action_id,
             created_at,
             invocation_id,
+            check_admitted,
         )
 
     async def _insert(
@@ -317,6 +367,7 @@ class ActionStore:
         action_id: UUID | None,
         created_at: datetime | None,
         invocation_id: UUID,
+        check_admitted: Callable[[], None] | None,
     ) -> StoredAction:
         identifier = action_id or uuid4()
         timestamp = created_at or datetime.now(UTC)
@@ -333,6 +384,43 @@ class ActionStore:
                 invocation_id,
                 tool_name,
             )
+            if check_admitted is not None:
+                check_admitted()
+            mail = execution_contract.mail
+            if isinstance(mail, GmailSendContract):
+                creation = await require_locked_action(connection, mail.creation_id)
+                if (
+                    creation.status != "succeeded"
+                    or creation.tool_name != ToolId("gmail.create_draft")
+                    or not isinstance(creation.execution_contract, ExecutionContract)
+                    or not isinstance(
+                        creation.execution_contract.mail, GmailComposeContract
+                    )
+                ):
+                    raise ActionPersistenceDefect(
+                        "send lacks its current creation action"
+                    )
+                existing = await connection.scalar(
+                    select(action.c.id)
+                    .where(
+                        action.c.tool_name == "gmail.send_draft",
+                        action.c.status.in_(
+                            (
+                                "awaiting_approval",
+                                "queued",
+                                "executing",
+                                "uncertain",
+                                "succeeded",
+                            )
+                        ),
+                        action.c.execution_contract["mail"]["creation_id"].as_string()
+                        == str(mail.creation_id),
+                    )
+                    .order_by(action.c.created_at, action.c.id)
+                    .limit(1)
+                )
+                if existing is not None:
+                    return await require_locked_action(connection, existing)
             row = (
                 (
                     await connection.execute(
@@ -370,6 +458,8 @@ class ActionStore:
                     "action identity was reused for a different invocation"
                 )
             await _link_native_action(connection, invocation_id, identifier)
+            if check_admitted is not None:
+                check_admitted()
             return stored
 
     async def accepted_actions(
@@ -390,7 +480,15 @@ class ActionStore:
             )
         actions = tuple(map(_stored_action, rows))
         unknown = any(
-            stored.status == "uncertain"
+            (
+                stored.status == "uncertain"
+                and not (
+                    str(stored.tool_name) in GMAIL_WRITE_NAMES
+                    and isinstance(
+                        stored.execution_contract, _ArchivedExecutionContract
+                    )
+                )
+            )
             or (
                 stored.attempts > 0
                 and stored.status == "executing"
@@ -404,51 +502,19 @@ class ActionStore:
         async with self.engine.connect() as connection:
             return await recorded_action(connection, action_id)
 
-    async def gmail_draft_creation_action(
-        self,
-        *,
-        draft_id: str,
-        thread_id: str,
-        jarvis_effect_id: str,
-    ) -> UUID | None:
-        """Resolve the unique successful Jarvis creation behind a send snapshot."""
-
-        if (
-            any(
-                not value or len(value.encode("utf-8")) > 1_024
-                for value in (draft_id, thread_id)
-            )
-            or _HEX_DIGEST.fullmatch(jarvis_effect_id) is None
-        ):
-            raise ValueError("Gmail draft creation identity is invalid")
+    async def active_mail_stages(self) -> tuple[UUID, ...]:
         async with self.engine.connect() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action.c.id)
-                        .where(
-                            action.c.tool_name == "gmail.create_draft",
-                            action.c.status == "succeeded",
-                            action.c.result["type"].as_string() == "Success",
-                            action.c.result["value"]["draft_id"].as_string()
-                            == draft_id,
-                            action.c.result["value"]["thread_id"].as_string()
-                            == thread_id,
-                            action.c.result["value"]["jarvis_effect_id"].as_string()
-                            == jarvis_effect_id,
-                        )
-                        .order_by(action.c.id)
-                        .limit(2)
-                    )
+            ids = await connection.scalars(
+                select(action.c.id).where(
+                    action.c.tool_name.in_(
+                        ("gmail.create_draft", "gmail.update_draft")
+                    ),
+                    action.c.status.in_(("queued", "executing")),
+                    action.c.execution_contract["mail"]["kind"].as_string()
+                    == "compose",
                 )
-                .scalars()
-                .all()
             )
-        if len(rows) > 1:
-            raise ActionPersistenceDefect(
-                "Gmail draft maps to multiple creation actions"
-            )
-        return None if not rows else cast(UUID, rows[0])
+            return tuple(ids)
 
     async def recovery_candidates(
         self, *, include_queued: bool = True, limit: int = 100
@@ -536,53 +602,71 @@ class ActionStore:
             )
         return tuple(map(_stored_action, rows))
 
-    async def stage_gmail_update_basis(
+    async def stage_mail_exchange(
         self,
-        *,
         action_id: UUID,
-        draft_id: str,
-        thread_id: str,
-        jarvis_effect_id: str,
-        old_content_digest: str,
+        attempts: int,
+        *,
+        mutation: bool,
     ) -> StoredAction:
-        basis = _gmail_update_basis(
-            {
-                "type": "gmail_update_reconciliation_v1",
-                "draft_id": draft_id,
-                "thread_id": thread_id,
-                "jarvis_effect_id": jarvis_effect_id,
-                "old_content_digest": old_content_digest,
-            }
-        )
         async with self.engine.begin() as connection:
             stored = await require_locked_action(connection, action_id)
-            if stored.tool_name != ToolId("gmail.update_draft"):
-                raise ActionPersistenceDefect(
-                    "reconciliation basis belongs only to Gmail draft update"
-                )
-            if stored.status != "executing":
-                raise ActionPersistenceDefect(
-                    "reconciliation basis requires an executing action"
-                )
-            if stored.result is not None:
-                existing_basis = _reconciliation_basis(stored.result)
-                if existing_basis == basis:
-                    return stored
-                if stored.result.get("type") == "action_recovery_v1" and (
-                    existing_basis is None
-                ):
-                    recovery = _recovery_state(stored.result)
-                    recovery["reconciliation_basis"] = basis
-                    return await _update_action(
-                        connection,
-                        action_id,
-                        result=recovery,
+            progress = stored.mail_progress
+            if mutation and (
+                progress.entered
+                or (
+                    isinstance(
+                        stored.current_execution_contract.mail, GmailComposeContract
                     )
-                if existing_basis != basis:
-                    raise ActionPersistenceDefect(
-                        "Gmail update reconciliation basis changed"
-                    )
-            return await _update_action(connection, action_id, result=basis)
+                    and progress.basis is None
+                )
+            ):
+                raise ActionPersistenceDefect(
+                    "Gmail mutation lacks a fresh frozen basis"
+                )
+            if mutation:
+                progress = progress.model_copy(update={"entered": True})
+            return await _stage_mail_progress(connection, stored, progress, attempts)
+
+    async def stage_mail_basis(
+        self,
+        action_id: UUID,
+        basis: GmailComposeBasis,
+    ) -> StoredAction:
+        async with self.engine.begin() as connection:
+            stored = await require_locked_action(connection, action_id)
+            progress = stored.mail_progress
+            if progress.basis is not None and progress.basis != basis:
+                raise ActionPersistenceDefect("Gmail compose basis changed")
+            progress = progress.model_copy(update={"basis": basis})
+            return await _stage_mail_progress(
+                connection,
+                stored,
+                progress,
+                stored.recovered_external_attempts,
+            )
+
+    async def stage_mail_acknowledgement(
+        self,
+        action_id: UUID,
+        acknowledgement: GmailDraftIdentity | None = None,
+    ) -> StoredAction:
+        async with self.engine.begin() as connection:
+            stored = await require_locked_action(connection, action_id)
+            progress = stored.mail_progress
+            if not progress.entered or (
+                progress.ack is not None and progress.ack != acknowledgement
+            ):
+                raise ActionPersistenceDefect("Gmail acknowledgement changed")
+            progress = progress.model_copy(
+                update={"acknowledged": True, "ack": acknowledgement}
+            )
+            return await _stage_mail_progress(
+                connection,
+                stored,
+                progress,
+                stored.recovered_external_attempts,
+            )
 
     async def stage_agent_control(
         self, *, action_id: UUID, evidence: AgentActionEvidence
@@ -633,7 +717,7 @@ class ActionStore:
                 result={
                     "type": "action_recovery_v1",
                     "actual_external_attempts": actual_external_attempts,
-                    "reconciliation_basis": _reconciliation_basis(stored.result),
+                    "reconciliation_basis": None,
                 },
             )
 
@@ -688,7 +772,13 @@ class ActionStore:
                 result={
                     "type": "action_recovery_v1",
                     "actual_external_attempts": cumulative_attempts,
-                    "reconciliation_basis": _reconciliation_basis(stored.result),
+                    "reconciliation_basis": (
+                        MailProgress(basis=stored.mail_progress.basis).model_dump(
+                            mode="json"
+                        )
+                        if stored.current_execution_contract.mail is not None
+                        else None
+                    ),
                 },
             )
 
@@ -1403,7 +1493,13 @@ async def _lock_new_action(
         .where(
             action.c.origin_message_id.in_(component),
             or_(
-                action.c.status == "uncertain",
+                and_(
+                    action.c.status == "uncertain",
+                    ~(
+                        action.c.tool_name.in_(GMAIL_WRITE_NAMES)
+                        & ~action.c.execution_contract.op("?")("mail")
+                    ),
+                ),
                 and_(
                     action.c.status == "executing",
                     action.c.attempts > 0,
@@ -1751,10 +1847,13 @@ def _stored_action(row: RowMapping) -> StoredAction:
         }:
             raise ValueError("action status is invalid")
         envelope = _common_execution_envelope(row["execution_contract"])
-        if row["execution_contract"].get(
-            "schema_version"
-        ) is None or retired_worker_revision(
-            str(row["tool_name"]), envelope.implementation_revision
+        if (
+            row["execution_contract"].get("schema_version") is None
+            or retired_worker_revision(
+                str(row["tool_name"]), envelope.implementation_revision
+            )
+            or envelope.implementation_revision
+            in _RETIRED_MAIL_REVISIONS.get(str(row["tool_name"]), set())
         ):
             if status not in {"succeeded", "failed", "uncertain", "cancelled"}:
                 raise ValueError("retired action must drain before activation")
@@ -1814,6 +1913,13 @@ def _validate_new_action(
         raise ValueError("execution contract has a different input digest")
     if str(origin_message_id) not in contract.input_message_ids:
         raise ValueError("origin request must be delivered in this attempt")
+    if isinstance(contract, ExecutionContract) and (
+        (str(tool_name) == "gmail.send_draft")
+        != isinstance(contract.mail, GmailSendContract)
+        or (str(tool_name) in {"gmail.create_draft", "gmail.update_draft"})
+        != isinstance(contract.mail, GmailComposeContract)
+    ):
+        raise ValueError("action lacks its matching mail authority")
     if not historical and arguments.get("request_ref") != str(origin_message_id):
         raise ValueError("origin request differs from the exact ActionRequest")
 
@@ -1915,8 +2021,6 @@ def _validate_stored_action(stored: StoredAction) -> None:
                     error = cast(dict[str, object], result["error"])
                     if error.get("type") == "AgentFailure":
                         validate_agent_failure(verb, error)
-        elif stored.result.get("type") == "gmail_update_reconciliation_v1":
-            _gmail_update_basis(stored.result)
         elif stored.result.get("type") == "action_recovery_v1":
             _recovery_state(stored.result)
         elif stored.result.get("type") in {
@@ -2010,42 +2114,46 @@ def _recovery_external_attempts(stored: StoredAction) -> int:
     return cast(int, recovery["actual_external_attempts"])
 
 
-def _reconciliation_basis(
-    result: dict[str, object] | None,
-) -> dict[str, object] | None:
-    if result is None:
-        return None
-    if result.get("type") == "gmail_update_reconciliation_v1":
-        return _gmail_update_basis(result)
-    if result.get("type") == "action_recovery_v1":
-        recovery = _recovery_state(result)
-        basis = recovery["reconciliation_basis"]
-        return None if basis is None else cast(dict[str, object], basis)
-    return None
+async def _stage_mail_progress(
+    connection: AsyncConnection,
+    stored: StoredAction,
+    progress: MailProgress,
+    attempts: int,
+) -> StoredAction:
+    if (
+        stored.status != "executing"
+        or stored.current_execution_contract.mail is None
+        or not stored.recovered_external_attempts
+        <= attempts
+        <= GMAIL_WRITE_POLICY.max_attempts
+    ):
+        raise ActionPersistenceDefect(
+            "Gmail progress lacks current execution authority"
+        )
+    return await _update_action(
+        connection,
+        stored.id,
+        result={
+            "type": "action_recovery_v1",
+            "actual_external_attempts": attempts,
+            "reconciliation_basis": progress.model_dump(mode="json"),
+        },
+    )
 
 
 def _recovery_state(result: dict[str, object]) -> dict[str, object]:
     canonical = _json_object(result, "action recovery state")
-    if (
-        set(canonical)
-        != {
-            "type",
-            "actual_external_attempts",
-            "reconciliation_basis",
-        }
-        or canonical.get("type") != "action_recovery_v1"
-    ):
+    if set(canonical) != {
+        "type",
+        "actual_external_attempts",
+        "reconciliation_basis",
+    } or (canonical.get("type") != "action_recovery_v1"):
         raise ActionPersistenceDefect("action recovery state is invalid")
+    if canonical["reconciliation_basis"] is not None:
+        MailProgress.model_validate(canonical["reconciliation_basis"])
     attempts = canonical["actual_external_attempts"]
     if type(attempts) is not int or attempts < 0:
         raise ActionPersistenceDefect("action recovery attempts are invalid")
-    basis = canonical["reconciliation_basis"]
-    if basis is not None:
-        if not isinstance(basis, dict):
-            raise ActionPersistenceDefect("action reconciliation basis is invalid")
-        canonical["reconciliation_basis"] = _gmail_update_basis(
-            cast(dict[str, object], basis)
-        )
     return canonical
 
 
@@ -2054,6 +2162,12 @@ def _uncertainty_result(
 ) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
     keys = {"type", "evidence_code", "recorded_at"}
+    if (
+        "reconciliation_basis" in canonical
+        and str(stored.tool_name) in GMAIL_WRITE_NAMES
+    ):
+        keys.add("reconciliation_basis")
+        MailProgress.model_validate(canonical["reconciliation_basis"])
     if canonical.get("type") == "agent_uncertainty_v1":
         keys.add("control")
         _agent_evidence(stored, canonical.get("control"))
@@ -2263,31 +2377,6 @@ def _agent_evidence(stored: StoredAction, value: object) -> None:
     validate_stored_agent_evidence(operation, value)
 
 
-def _gmail_update_basis(value: dict[str, object]) -> dict[str, object]:
-    canonical = _json_object(value, "Gmail update reconciliation basis")
-    if (
-        set(canonical)
-        != {
-            "type",
-            "draft_id",
-            "thread_id",
-            "jarvis_effect_id",
-            "old_content_digest",
-        }
-        or canonical.get("type") != "gmail_update_reconciliation_v1"
-    ):
-        raise ValueError("Gmail update reconciliation basis is invalid")
-    for key in ("draft_id", "thread_id"):
-        item = canonical[key]
-        if not isinstance(item, str) or not item or len(item.encode("utf-8")) > 1_024:
-            raise ValueError("Gmail update reconciliation identity is invalid")
-    for key in ("jarvis_effect_id", "old_content_digest"):
-        item = canonical[key]
-        if not isinstance(item, str) or _HEX_DIGEST.fullmatch(item) is None:
-            raise ValueError("Gmail update reconciliation digest is invalid")
-    return canonical
-
-
 def agent_wait_state(stored: StoredAction) -> AgentWaitState:
     if stored.tool_name != ToolId("agent.wait"):
         raise ActionPersistenceDefect("action is not a wait")
@@ -2356,6 +2445,12 @@ def action_resolution_text(stored: StoredAction) -> str:
 def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
+    if stored.status == "uncertain" and str(stored.tool_name) in GMAIL_WRITE_NAMES:
+        return {
+            key: value
+            for key, value in stored.result.items()
+            if key != "reconciliation_basis"
+        }
     if stored.tool_name in WORK_MUTATION_IDS and stored.status in {
         "succeeded",
         "failed",

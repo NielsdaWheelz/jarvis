@@ -27,6 +27,10 @@ jarvis undertakes. conversation owns questions, proposals and answers.
 the adr supersedes the separate decisions surface and scopes the temporary
 per-feature design, opus review and live proof.
 
+## outgoing gmail attachments
+
+[adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. source, detached rehearsal and isolated connected-account phone acceptance passed under adr 0046. the production cut and installed smoke are pending.
+
 ## accepted operational target — storage and memory recovery
 
 [adr 0088](docs/decisions/0088-storage-and-memory-recovery.md) moves new heavy
@@ -236,7 +240,8 @@ with the reset order amended by
 - complete mail/calendar/web reads through bounded pages/chunks, full supported
   available text, correct incoming `Reply-To` and fresh deliberate observations.
   preserve original callback receipts and paid-read barriers. retain existing
-  writes; add no inbox housekeeping, invitation-response tools or outgoing files.
+  writes for f1. outgoing files have their own later contract above. inbox
+  housekeeping and invitation-response tools remain deferred.
   memory ranking, maps and worker-history expansion stay deferred. the broader
   search proposal's schemas are not adopted wholesale. f1 hard-cuts clipped
   thread reads to the landed message/file manifests plus complete message/part
@@ -1296,33 +1301,7 @@ for uncertainty. There is no blind retry or execution lease; `attempts` records
 the rare evidence-authorized repeat rather than authorizing one, and no tool may
 configure an unlimited ceiling.
 
-Ambiguous `gmail.create_draft` recovery is deliberately stricter. Each of three
-observations, separated by fixed `0`, `2`, and `8` second backoffs, enumerates at
-most five unfiltered `users.drafts.list` pages with `maxResults=8`, collects at
-most forty unique draft IDs without assuming provider ordering, and fetches at
-most those forty candidates with `drafts.get(format=raw)`. The whole procedure is
-limited to thirty seconds, sixteen MiB of accepted response bodies in aggregate,
-and the ordinary two-MiB per-response cap. It records whether enumeration ended
-with an absent, present, invalid, or unknown `nextPageToken`, but never records
-the token itself and never uses `q` or another Gmail search-index query. Exactly
-one observed `X-Jarvis-Effect-ID` plus matching normalized immutable content,
-with no observed duplicate or conflict, proves success even if pagination was
-incomplete. Multiple observed matches or a matching header with conflicting
-content exhaust to terminal `uncertain`. Without that positive proof, malformed
-or transient evidence, an incomplete enumeration, and zero matches also exhaust
-to terminal `uncertain`; even a complete bounded enumeration cannot prove
-non-creation. Gmail draft-create reconciliation therefore never returns
-`absent`, requeues the action, or authorizes another create request.
-
-If `gmail.update_draft` recovery finds that the known draft disappeared, it
-fetches the known thread once with `format=minimal` and then fetches up to one
-hundred enumerated messages individually with `messages.get(format=raw)`. It
-does not search the mailbox or assume an ordering. One unique, fully processed
-effect-header and desired-content match proves the update's outcome; duplicate,
-conflicting, malformed, or incompletely processed evidence cannot. The bounded
-thread-read shape and message ceiling are revisioned binding-policy inputs, so
-changing them rotates the binding identity without inventing a new public tool
-or implementation name.
+the outgoing mail contract owns bounded gmail create/update recovery, including metadata-first discovery, verified desired content and the impossibility of proving non-creation from a draft scan. [draft recovery](docs/decisions/0101-outgoing-mail-attachments.md#b-composing-a-gmail-revision)
 
 Repeated calls with identical arguments are permitted. Duplicate prevention
 comes from source-message deduplication, atomic action state transitions, the
@@ -1365,47 +1344,7 @@ retain visible delivery.
 
 ### 5.5 Gmail send
 
-Gmail send uses the provider's draft flow:
-
-1. During `gmail.create_draft`, compute `jarvis_effect_id` as the full lowercase
-   hexadecimal encoding of `SHA-256(UTF-8("jarvis-gmail-v1:" +
-   canonical_text(create_action.id)))`, where `create_action` is that
-   draft-creation action row. Set the MIME header
-   `X-Jarvis-Effect-ID: {jarvis_effect_id}` and create the exact draft
-   automatically. Gmail owns the RFC `Message-ID`; updates preserve the Jarvis
-   header, and the later send action stores it rather than deriving a second one.
-2. Persist its Gmail `draftId`, known thread identity, and exact envelope,
-   subject, body, and `jarvis_effect_id` snapshot in the action arguments.
-3. Render and request approval for that immutable snapshot.
-4. Immediately before sending, fetch the live draft and require it to match the
-   snapshot exactly; a mismatch fails the action and requires a new proposal.
-5. Send by `draftId` after approval.
-6. On an ambiguous result, perform three observations separated by fixed `0`,
-   `2`, and `8` second backoffs. Each observation inspects the known draft,
-   fetches the known thread with `format=minimal`, and fetches at most one
-   hundred enumerated messages individually with `messages.get(format=raw)`.
-   The whole reconciliation procedure is bounded to thirty seconds, sixteen
-   MiB of accepted response bodies, the ordinary two-MiB per-response cap, and
-   at most 102 provider reads per observation. It performs no mailbox search
-   and assumes no thread-message ordering.
-7. Compare every selected message carrying the exact `X-Jarvis-Effect-ID` with
-   the immutable normalized snapshot, excluding only the current live draft's
-   message ID. After every message in the selected bounded observation is
-   validly processed, one unique exact header-and-content match proves success
-   even when the draft remains or the thread contains an unprocessed tail beyond
-   one hundred messages. No Gmail label is required. Multiple observed matches
-   or any observed conflicting match do not prove success.
-8. Repeat only when all three observations show the exact unchanged draft and
-   a complete known thread with no matching non-draft message, repetition is
-   safe, and immutable attempt capacity remains. Malformed, transient, partially
-   processed, duplicate, or conflicting evidence cannot prove absence. If the
-   reconciliation elapsed bound ends the procedure with incomplete evidence,
-   or the complete procedure otherwise cannot decide, record terminal
-   `uncertain`, present safe evidence, and ask the owner to inspect Gmail. The
-   original mutation timeout alone decides neither retry nor uncertainty.
-
-The exact reconciliation behavior for new and existing threads MUST be verified
-against the live integration.
+the [outgoing mail contract](docs/decisions/0101-outgoing-mail-attachments.md) governs new messages, replies and attachments. the host binds conversational consent to a verified revision, submits its approved envelope and bytes together, and requires positive evidence of sending during recovery. it preserves the original creation-derived `X-Jarvis-Effect-ID`. the contract specifies the gmail editing race, input and response bounds, and the hard cut for existing drafts and receipts.
 
 ## 6. Memory
 
@@ -1949,15 +1888,7 @@ Returned warnings are required display notices. The Maps binding instructions
 require every non-empty warning to appear in the user-facing route answer; the
 warning array is never dropped or rewritten by normalization.
 
-`gmail.send_draft` arguments contain the provider draft ID, known thread
-identity, stable `jarvis_effect_id`, and the exact To/Cc/Bcc, subject, and body
-snapshot shown for approval. The effect identity is the full lowercase hexadecimal
-encoding of `SHA-256(UTF-8("jarvis-gmail-v1:" +
-canonical_text(create_action.id)))`, where `create_action` is the original
-`gmail.create_draft` action. It is written once as `X-Jarvis-Effect-ID`,
-preserved by updates, and copied into the separate send action's arguments.
-Immediately before send, the host verifies that the live draft still matches
-that snapshot; a mismatch fails the action and requires a new proposal.
+`gmail.send_draft` accepts a `draft_ref` identifying a verified successful create/update. the host resolves and freezes the account, revision and exact snapshot in the execution contract. the ref, immutable arguments and host projection have distinct ownership. [mail schemas](docs/decisions/0101-outgoing-mail-attachments.md#b-composing-a-gmail-revision)
 
 For `calendar.create_event`, the host derives the Google event ID as the first
 32 lowercase hexadecimal characters of

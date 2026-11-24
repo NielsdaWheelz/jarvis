@@ -20,14 +20,14 @@ from uuid import UUID
 import httpx
 import uvicorn
 from llm_agent_kernel import CancellationToken, CodexProvider, ProviderConfiguration
-from llm_tools import FrozenToolPlan
+from llm_tools import FrozenToolPlan, ToolId
 from provider_runtime.agent_runtime import (
     AgentRuntime,
     AgentRuntimeDefect,
     AgentRuntimeError,
 )
 from pydantic import SecretStr
-from sqlalchemy import select, text
+from sqlalchemy import RowMapping, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from universal_memory import MemoryError, MemoryStore
@@ -38,7 +38,13 @@ from universal_memory.policy import (
 )
 from universal_memory.schema import source_conversation
 
-from jarvis.actions import ActionPersistenceDefect, ActionStore, archived_worker_action
+from jarvis._atomic_json import read_private_json
+from jarvis.actions import (
+    ActionPersistenceDefect,
+    ActionStore,
+    ExecutionContract,
+    archived_worker_action,
+)
 from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.codex_config import CodexHostConfig
@@ -60,6 +66,12 @@ from jarvis.definitions import (
 from jarvis.discord import DiscordCreateMessageClient
 from jarvis.embeddings import EmbeddingFailure, OpenAIEmbedder
 from jarvis.events import EventStore
+from jarvis.gmail_cut import (
+    CUT_RECEIPT,
+    audit_mail_cut,
+    historical_mail,
+    verified_cut_ids,
+)
 from jarvis.home_http import create_home_app
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
@@ -119,13 +131,13 @@ from jarvis.tool_composition import (
 )
 from jarvis.tool_results import memory_result_size, memory_view_size
 from jarvis.work import WorkStore
+from jarvis.write_connectors import GoogleWriteConnector
 from jarvis.write_dispatch import (
     ActionRecovery,
     WriteToolDispatcher,
-    gmail_send_basis_is_current,
     require_current_action_binding,
 )
-from jarvis.write_tools import GmailSendDraftInput
+from jarvis.write_tools import GmailSendContract
 
 LOGGER = logging.getLogger(__name__)
 # initialize-state bootstraps only a fresh database stopped at this revision.
@@ -556,7 +568,14 @@ async def _serve(
                         brave_http=brave_http,
                     )
                     clients.push_async_callback(composition.google_read.aclose)
+                    _require_mail_cut(
+                        await historical_mail(actions),
+                        settings.runtime_state_directory / CUT_RECEIPT,
+                    )
                     await composition.attachments.reset_cache()
+                    await composition.mail_files.sweep(
+                        await actions.active_mail_stages()
+                    )
                     kernel_runtime = build_kernel_runtime(
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
@@ -595,6 +614,7 @@ async def _serve(
                                 work=work,
                                 events=events,
                                 attachments=composition.attachments,
+                                mail_files=composition.mail_files,
                                 agents=agents,
                                 read=ReadToolDispatcher(
                                     host_secrets=settings.host_secrets,
@@ -625,6 +645,7 @@ async def _serve(
                         work=work,
                         events=events,
                         attachments=composition.attachments,
+                        mail_files=composition.mail_files,
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
                         wait_changed=agents.notify_wait_changed,
@@ -709,6 +730,108 @@ async def reconcile_attachment(
             return await store.reconcile(
                 attachment_id, after_manual_cleanup=after_manual_cleanup
             )
+    finally:
+        await engine.dispose()
+
+
+def _require_mail_cut(history: Sequence[RowMapping], receipt: Path) -> frozenset[UUID]:
+    cleared = verified_cut_ids(history, receipt)
+    if cleared is None:
+        raise StartupDefect(
+            "historical Gmail sends require a complete stopped cut audit"
+        )
+    return cleared
+
+
+async def gmail_cut_audit(
+    settings: Settings,
+    owner_evidence_path: Path | None,
+) -> dict[str, object]:
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with (
+            deployment_ownership(engine) as database,
+            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
+        ):
+            await _require_paused(
+                database,
+                PausedSettings(
+                    database_url=settings.database_url,
+                    runtime_state_directory=settings.runtime_state_directory,
+                    owner_scope=settings.owner_scope,
+                ),
+            )
+            owner_evidence = None
+            if owner_evidence_path is not None:
+                owner_evidence = read_private_json(owner_evidence_path)
+                if owner_evidence is None:
+                    raise ValueError("owner evidence file is missing")
+            actions = ActionStore(database)
+            connector = GoogleWriteConnector(
+                client=http,
+                tokens=google_tokens(settings, http),
+                actions=actions,
+            )
+            return await audit_mail_cut(
+                connector,
+                await historical_mail(actions),
+                settings.runtime_state_directory / CUT_RECEIPT,
+                owner_evidence,
+            )
+    finally:
+        await engine.dispose()
+
+
+async def reconcile_gmail_action(
+    settings: Settings, action_id: UUID
+) -> dict[str, object]:
+    """Observe an uncertain current send while the application is stopped."""
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with (
+            deployment_ownership(engine) as database,
+            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
+        ):
+            actions = ActionStore(database)
+            stored = await actions.get(action_id)
+            if (
+                stored is None
+                or stored.status != "uncertain"
+                or stored.tool_name != ToolId("gmail.send_draft")
+                or not isinstance(stored.execution_contract, ExecutionContract)
+                or not isinstance(stored.execution_contract.mail, GmailSendContract)
+                or not stored.mail_progress.entered
+            ):
+                raise ValueError(
+                    "reconciliation requires one uncertain current Gmail send"
+                )
+            connector = GoogleWriteConnector(
+                client=http,
+                tokens=google_tokens(settings, http),
+                actions=actions,
+            )
+            evidence = await connector.reconcile_gmail(stored)
+            if evidence.outcome == "succeeded":
+                assert evidence.value is not None
+                await actions.resolve_reconciliation(
+                    action_id=action_id,
+                    status="succeeded",
+                    result={
+                        "type": "Success",
+                        "value": evidence.value.model_dump(mode="json"),
+                    },
+                )
+            elif evidence.outcome == "absent":
+                await actions.resolve_reconciliation(
+                    action_id=action_id,
+                    status="failed",
+                    result={"type": "Failure", "error": {"type": "SendAbsent"}},
+                )
+            return {
+                "action_id": str(action_id),
+                "outcome": evidence.outcome,
+                "evidence": evidence.evidence,
+            }
     finally:
         await engine.dispose()
 
@@ -805,6 +928,10 @@ async def check_activation(
             if await MessageStore(database).current_control(scope) is None:
                 raise StartupDefect("activation requires initialized canonical control")
             actions = ActionStore(database)
+            cleared_old_mail = _require_mail_cut(
+                await historical_mail(actions),
+                settings.runtime_state_directory / CUT_RECEIPT,
+            )
             agent_runtime = build_agent_runtime(
                 provider_state_root=settings.runtime_state_directory,
                 codex_endpoints=host.endpoints,
@@ -836,6 +963,7 @@ async def check_activation(
                         actions,
                         plan,
                         source_conversation_id=scope,
+                        cleared_old_mail=cleared_old_mail,
                     )
             finally:
                 await agent_runtime.close()
@@ -848,6 +976,7 @@ async def _action_activation_verdicts(
     plan: FrozenToolPlan,
     *,
     source_conversation_id: str,
+    cleared_old_mail: frozenset[UUID] = frozenset(),
 ) -> tuple[tuple[UUID, str, str, str], ...]:
     """assess stored execution authority without opening providers or connectors."""
     # End the locked read before loading any action.
@@ -887,13 +1016,22 @@ async def _action_activation_verdicts(
     for action_id, status, tool_name in unfinished:
         if action_id in reported:
             continue
-        if status == "uncertain":
+        if status == "uncertain" and action_id in cleared_old_mail:
+            verdict = "compatible"
+        elif status == "uncertain":
             try:
                 stored = await actions.get(action_id)
             except ActionPersistenceDefect:
                 verdict = "incompatible does_not_load"
             else:
-                if stored is not None and archived_worker_action(stored):
+                if stored is not None and (
+                    archived_worker_action(stored)
+                    or (
+                        str(stored.tool_name)
+                        in {"gmail.create_draft", "gmail.update_draft"}
+                        and not isinstance(stored.execution_contract, ExecutionContract)
+                    )
+                ):
                     verdict = "compatible"
                 else:
                     verdict = "in_flight"
@@ -919,17 +1057,9 @@ async def _pending_action_verdict(
     if stored is None:
         raise ActionPersistenceDefect("unfinished action vanished under the lock")
     try:
-        binding = require_current_action_binding(stored, plan)
+        require_current_action_binding(stored, plan)
     except RuntimeError:
         return "incompatible binding"
-    value = binding.spec.input_type.model_validate(stored.arguments).arguments
-    if isinstance(value, GmailSendDraftInput):
-        try:
-            current = await gmail_send_basis_is_current(actions, value)
-        except ValueError:
-            return "incompatible gmail_basis"
-        if not current:
-            return "incompatible gmail_basis"
     return "compatible"
 
 
@@ -1189,6 +1319,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     attachment.add_argument("id", type=UUID)
     attachment.add_argument("--after-manual-cleanup", action="store_true")
+    cut = commands.add_parser(
+        "gmail-cut-audit", help="audit historical Gmail outcomes during the stopped cut"
+    )
+    cut.add_argument("--owner-evidence", type=Path)
+    gmail = commands.add_parser(
+        "gmail-send-reconcile", help="observe one uncertain Gmail send while stopped"
+    )
+    gmail.add_argument("id", type=UUID)
     commands.add_parser("dream", help="run one isolated dream while stopped")
     rebuild = commands.add_parser(
         "rebuild-memory", help="refold derived memory while stopped"
@@ -1330,6 +1468,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if compatible != len(verdicts):
                 return 1
+        elif arguments.command == "gmail-cut-audit":
+            result = asyncio.run(gmail_cut_audit(settings, arguments.owner_evidence))
+            print(json.dumps(result, sort_keys=True))
+            return 0 if result["status"] == "clear" else 1
+        elif arguments.command == "gmail-send-reconcile":
+            result = asyncio.run(reconcile_gmail_action(settings, arguments.id))
+            print(json.dumps(result, sort_keys=True))
+            return 1 if result["outcome"] == "uncertain" else 0
         elif arguments.command == "attachment-reconcile":
             result = asyncio.run(
                 reconcile_attachment(

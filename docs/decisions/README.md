@@ -143,6 +143,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0097](0097-todo-home.md) | todo home | one owner todo list on the default canvas. questions, proposals and answers live in conversation |
 | [0098](0098-conversation-capture.md) | conversation capture | prospective design. only jarvis main archives ordinary tools. external conversations retain source-proven answers and reports |
 | [0100](0100-host-bound-summary-fields.md) | host-bound summary fields | one correction per atomic batch, with distinct installed progress, capacity and recall verdicts |
+| [0101](0101-outgoing-mail-attachments.md) | files in outgoing gmail | verified source bytes, gmail draft revisions, conversational consent and positive sent evidence. source, detached and isolated connected-account proof passed. production cut pending |
 | [0102](0102-historical-capture-cleanup.md) | historical capture cleanup | remove external tool traffic at deployment while preserving conversations and the identity of older references |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.

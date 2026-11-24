@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Any, Protocol, cast
-from urllib.parse import unquote, unquote_plus
 
 from llm_agent_kernel import (
     CancellationToken,
@@ -34,6 +32,7 @@ from llm_tools import (
 )
 from universal_memory.tools import MEMORY_READ_IDS, MEMORY_SAVE_NOTE_SPEC, SaveNoteInput
 
+from jarvis._secrets import contains_secret
 from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.attachment_tools import ATTACHMENT_READ_IDS
 from jarvis.event_tools import EVENT_READ_IDS
@@ -45,19 +44,6 @@ from jarvis.work_tools import WORK_READ_IDS
 if TYPE_CHECKING:
     from jarvis.memory_service import MemoryService
 
-_SECRET_PATTERN = re.compile(
-    r"(?:"
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
-    r"|\b(?:api[\s_-]*key|access[\s_-]*token|refresh[\s_-]*token|password|secret)"
-    r"\s*[=:]\s*\S+"
-    r"|\bBearer\s+[A-Za-z0-9._~+/=-]{16,}"
-    r"|\b(?:sk|gh[opusr]|xox[baprs])[-_][A-Za-z0-9_-]{16,}"
-    r"|\bAIza[A-Za-z0-9_-]{20,}"
-    r"|\bjmem_[A-Za-z0-9_-]{16,}"
-    r"|\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b"
-    r")",
-    re.IGNORECASE,
-)
 _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput"}}
 
 
@@ -253,31 +239,4 @@ class ReadToolDispatcher:
         return completed_tool_result(result)
 
 
-def contains_secret(value: object, host_secrets: tuple[str, ...]) -> bool:
-    if isinstance(value, str):
-        pending = [value]
-        seen: set[str] = set()
-        while pending:
-            candidate = pending.pop()
-            if candidate in seen:
-                continue
-            seen.add(candidate)
-            if any(secret and secret in candidate for secret in host_secrets):
-                return True
-            if _SECRET_PATTERN.search(candidate) is not None:
-                return True
-            pending.extend((unquote(candidate), unquote_plus(candidate)))
-        return False
-    if isinstance(value, dict):
-        return any(
-            contains_secret(item, host_secrets)
-            for item in cast("dict[object, object]", value).values()
-        )
-    if isinstance(value, list):
-        return any(
-            contains_secret(item, host_secrets) for item in cast("list[object]", value)
-        )
-    return False
-
-
-__all__ = ["ReadToolDispatcher", "contains_secret"]
+__all__ = ["ReadToolDispatcher"]

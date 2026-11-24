@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal, Protocol, cast
 from uuid import UUID
@@ -33,6 +33,17 @@ from pydantic import (
     field_validator,
 )
 
+from jarvis.mail_files import (
+    MAIL_MAX_FILES,
+    FileUnavailable,
+    MailFile,
+    MailLimit,
+    NativeFileRef,
+    NewMailFile,
+    OriginalFileRef,
+    OriginalNeedsOpen,
+    Sha256,
+)
 from jarvis.read_tools import (
     CALENDAR_API_BASE_URL,
     GoogleReadProvider,
@@ -45,6 +56,28 @@ from jarvis.read_tools import (
 )
 
 WRITE_ACTION_MAX_ATTEMPTS = 2
+
+
+@dataclass(frozen=True, slots=True)
+class GmailWritePolicy:
+    max_attempts: int = 12
+    operation_seconds: float = 180.0
+    exchange_seconds: float = 60.0
+    mime_bytes: int = 36_700_160
+    multipart_bytes: int = 36 * 1024 * 1024
+    raw_bytes: int = 48 * 1024 * 1024
+    metadata_bytes: int = 2 * 1024 * 1024
+    recovery_bytes: int = 320 * 1024 * 1024
+    recovery_delays: tuple[float, ...] = (0.0, 2.0, 8.0)
+
+
+GMAIL_WRITE_POLICY = GmailWritePolicy()
+GMAIL_WRITE_LIMITS = ToolLimits(
+    262_144,
+    65_536,
+    GMAIL_WRITE_POLICY.max_attempts,
+    GMAIL_WRITE_POLICY.operation_seconds,
+)
 
 
 class _StrictModel(BaseModel):
@@ -124,13 +157,12 @@ class GmailReplyTo(_StrictModel):
         return _bounded_utf8(value, 998, "RFC 822 message ID")
 
 
-class GmailContent(_StrictModel):
+class _GmailEnvelope(_StrictModel):
     to: Annotated[tuple[Mailbox, ...], Field(min_length=1, max_length=50)]
     cc: Annotated[tuple[Mailbox, ...], Field(max_length=50)]
     bcc: Annotated[tuple[Mailbox, ...], Field(max_length=50)]
     subject: Annotated[str, Field(max_length=998)]
     body_text: Annotated[str, Field(max_length=100_000)]
-    reply_to: GmailReplyTo | None
 
     @field_validator("subject")
     @classmethod
@@ -145,45 +177,112 @@ class GmailContent(_StrictModel):
         return _bounded_utf8(value, 100_000, "Gmail body")
 
 
+class GmailContent(_GmailEnvelope):
+    reply_to: GmailReplyTo | None
+
+
+type GmailId = Annotated[str, Field(min_length=1, max_length=1_024)]
+type MailPartNumber = Annotated[int, Field(strict=True, ge=1)]
+type RfcMessageId = Annotated[str, Field(min_length=3, max_length=998)]
+
+
+class ExistingMailPart(_StrictModel):
+    kind: Literal["existing"]
+    existing_part: MailPartNumber
+
+
+type UpdateMailFile = Annotated[
+    OriginalFileRef | NativeFileRef | ExistingMailPart,
+    Field(discriminator="kind"),
+]
+
+
 class GmailCreateDraftInput(_StrictModel):
     content: GmailContent
+    files: tuple[NewMailFile, ...]
 
 
 class GmailUpdateDraftInput(_StrictModel):
-    draft_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    expected_content_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    draft_ref: UUID
     replacement: GmailContent
-
-    @field_validator("draft_id")
-    @classmethod
-    def bounded_id(cls, value: str) -> str:
-        return _bounded_utf8(value, 1_024, "Gmail draft ID")
+    files: tuple[UpdateMailFile, ...] | None
 
 
 class GmailSendDraftInput(_StrictModel):
-    draft_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    thread_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    jarvis_effect_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    content: GmailContent
+    draft_ref: UUID
 
-    @field_validator("draft_id", "thread_id")
+
+class GmailDraftIdentity(_StrictModel):
+    draft_id: GmailId
+    thread_id: GmailId
+    message_id: GmailId
+
+    @field_validator("draft_id", "thread_id", "message_id")
     @classmethod
     def bounded_id(cls, value: str) -> str:
         return _bounded_utf8(value, 1_024, "Gmail ID")
 
 
-class GmailDraftSuccess(_StrictModel):
-    draft_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    message_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    thread_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    jarvis_effect_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    content_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+class GmailRevision(GmailDraftIdentity):
+    account: GmailId
+    jarvis_effect_id: Sha256
+    content_digest: Sha256
+
+
+class GmailSnapshot(_GmailEnvelope):
+    model_config = ConfigDict(
+        validate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+    sender: Annotated[str, Field(alias="from", min_length=3, max_length=320)]
+    in_reply_to: RfcMessageId | None
+    references: tuple[RfcMessageId, ...]
+    files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
+
+
+class GmailStagedPart(_StrictModel):
+    slot: MailPartNumber
+    file: MailFile
+
+
+class GmailRetainedPart(_StrictModel):
+    existing_part: MailPartNumber
+    file: MailFile
+
+
+class GmailComposeContract(_StrictModel):
+    kind: Literal["compose"] = "compose"
+    creation_id: UUID
+    base_revision: GmailRevision | None
+    parts: Annotated[
+        tuple[GmailStagedPart | GmailRetainedPart, ...],
+        Field(max_length=MAIL_MAX_FILES),
+    ]
+
+
+class GmailSendContract(_StrictModel):
+    kind: Literal["send"] = "send"
+    creation_id: UUID
+    revision: GmailRevision
+    snapshot: GmailSnapshot
+
+
+class GmailComposeBasis(_StrictModel):
+    account: GmailId
+    old_revision: GmailRevision | None
+    desired: GmailSnapshot
+    thread_id: GmailId | None
+
+
+class GmailCurrentDraft(_StrictModel):
+    state: Literal["draft"] = "draft"
+    draft_ref: UUID
+    revision: GmailRevision
+    in_reply_to: RfcMessageId | None
+    references: tuple[RfcMessageId, ...]
+    files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
     observed_at: AwareDatetime
-
-    @field_validator("draft_id", "message_id", "thread_id")
-    @classmethod
-    def bounded_id(cls, value: str) -> str:
-        return _bounded_utf8(value, 1_024, "Gmail ID")
 
     _utc_observed_at = field_validator("observed_at")(_utc)
 
@@ -202,6 +301,22 @@ class GmailSendDraftSuccess(_StrictModel):
         return _bounded_utf8(value, 1_024, "Gmail ID")
 
     _utc_sent_at = field_validator("sent_at")(_utc)
+
+
+class GmailAlreadySent(_StrictModel):
+    state: Literal["already_sent"] = "already_sent"
+    draft_ref: None
+    sent: GmailSendDraftSuccess
+    files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
+    observed_at: AwareDatetime
+
+    _utc_observed_at = field_validator("observed_at")(_utc)
+
+
+type GmailDraftSuccess = Annotated[
+    GmailCurrentDraft | GmailAlreadySent,
+    Field(discriminator="state"),
+]
 
 
 class TimedEventTime(_StrictModel):
@@ -354,6 +469,14 @@ class DraftChanged(_StrictModel):
     type: Literal["DraftChanged"] = "DraftChanged"
 
 
+class InvalidMail(_StrictModel):
+    type: Literal["InvalidMail"] = "InvalidMail"
+
+
+class FilePolicy(_StrictModel):
+    type: Literal["FilePolicy"] = "FilePolicy"
+
+
 class InvalidEvent(_StrictModel):
     type: Literal["InvalidEvent"] = "InvalidEvent"
 
@@ -386,8 +509,11 @@ class ProviderUnavailable(_StrictModel):
     type: Literal["ProviderUnavailable"] = "ProviderUnavailable"
 
 
+type GmailFileError = FileUnavailable | MailLimit | OriginalNeedsOpen | FilePolicy
 type GmailCreateDraftError = (
-    InvalidRecipient
+    GmailFileError
+    | InvalidMail
+    | InvalidRecipient
     | ThreadNotFound
     | ThreadMismatch
     | Conflict
@@ -395,10 +521,24 @@ type GmailCreateDraftError = (
     | ProviderUnavailable
 )
 type GmailUpdateDraftError = (
-    DraftNotFound | DraftChanged | ThreadMismatch | RateLimited | ProviderUnavailable
+    GmailFileError
+    | InvalidMail
+    | DraftNotFound
+    | DraftChanged
+    | ThreadNotFound
+    | ThreadMismatch
+    | RateLimited
+    | ProviderUnavailable
 )
 type GmailSendDraftError = (
-    DraftNotFound | DraftChanged | InvalidRecipient | RateLimited | ProviderUnavailable
+    FilePolicy
+    | MailLimit
+    | InvalidMail
+    | DraftNotFound
+    | DraftChanged
+    | InvalidRecipient
+    | RateLimited
+    | ProviderUnavailable
 )
 type CalendarCreateEventError = (
     InvalidEvent
@@ -436,12 +576,26 @@ class WriteResponse[ValueT]:
 
 
 class WriteConnectorFailure(RuntimeError):
-    def __init__(self, code: str, *, attempts: int) -> None:
+    def __init__(
+        self, code: str, *, attempts: int, details: dict[str, object] | None = None
+    ) -> None:
         if not code or type(attempts) is not int or attempts < 0:
             raise ValueError("write connector failure evidence is invalid")
         self.code = code
         self.attempts = attempts
+        self.details = details
         super().__init__("write connector failed")
+
+
+@dataclass(frozen=True, slots=True)
+class ReconciliationResult[ValueT]:
+    outcome: Literal["succeeded", "absent", "uncertain"]
+    evidence: str
+    value: ValueT | None = None
+
+    def __post_init__(self) -> None:
+        if (self.outcome == "succeeded") != (self.value is not None):
+            raise ValueError("reconciliation value does not match its outcome")
 
 
 @dataclass(frozen=True, slots=True)
@@ -509,14 +663,15 @@ GMAIL_CREATE_DRAFT_SPEC = ToolSpec[
     id=ToolId("gmail.create_draft"),
     summary="Create an unsent Gmail draft.",
     documentation=PromptDocument(
-        "Create an unsent draft only. This never sends mail. Use reply_to only from "
-        "live Gmail evidence and preserve every intended recipient and body detail."
+        "Save an unsent draft using verified source refs. Supply files: [] for text "
+        "alone. Use reply_to only from live Gmail evidence. If OriginalNeedsOpen is "
+        "returned, open those originals with attachment.open and retry."
     ),
     input_type=GmailCreateDraftInput,
-    success_type=GmailDraftSuccess,
+    success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),
     error_type=cast(type[GmailCreateDraftError], GmailCreateDraftError),
     effect=ToolEffect.Write,
-    limits=ToolLimits(262_144, 65_536, 4, 20.0),
+    limits=GMAIL_WRITE_LIMITS,
 )
 GMAIL_UPDATE_DRAFT_SPEC = ToolSpec[
     GmailUpdateDraftInput, GmailDraftSuccess, GmailUpdateDraftError
@@ -524,14 +679,15 @@ GMAIL_UPDATE_DRAFT_SPEC = ToolSpec[
     id=ToolId("gmail.update_draft"),
     summary="Replace one unchanged unsent Gmail draft.",
     documentation=PromptDocument(
-        "Replace an unsent draft only after its exact content digest still matches. "
-        "This never sends mail and never overwrites a concurrently changed draft."
+        "Replace a verified unsent draft_ref in the same thread and with the same "
+        "reply parent. Set files to null to keep them all, [] to remove them all, "
+        "or list the final order with new refs and kind existing for one-based slots."
     ),
     input_type=GmailUpdateDraftInput,
-    success_type=GmailDraftSuccess,
+    success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),
     error_type=cast(type[GmailUpdateDraftError], GmailUpdateDraftError),
     effect=ToolEffect.Write,
-    limits=ToolLimits(262_144, 65_536, 4, 20.0),
+    limits=GMAIL_WRITE_LIMITS,
 )
 GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     GmailSendDraftInput, GmailSendDraftSuccess, GmailSendDraftError
@@ -539,15 +695,15 @@ GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     id=ToolId("gmail.send_draft"),
     summary="Send one exact unchanged Gmail draft after owner approval.",
     documentation=PromptDocument(
-        "sending mail requires owner consent recorded through approval.respond. "
-        "send only the exact unchanged draft represented by these immutable "
-        "arguments."
+        "Use the draft_ref for the revision the owner intends to send. Sending "
+        "requires owner consent through approval.respond. When gmail has changed "
+        "the draft, the owner can finish in gmail or request a fresh draft."
     ),
     input_type=GmailSendDraftInput,
     success_type=GmailSendDraftSuccess,
     error_type=cast(type[GmailSendDraftError], GmailSendDraftError),
     effect=ToolEffect.Write,
-    limits=ToolLimits(262_144, 65_536, 4, 20.0),
+    limits=GMAIL_WRITE_LIMITS,
 )
 CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
     CalendarCreateEventInput, CalendarCreateEventSuccess, CalendarCreateEventError
@@ -610,8 +766,13 @@ AUTOMATIC_WRITE_TOOL_IDS = frozenset(
 WRITE_TOOL_IDS = AUTOMATIC_WRITE_TOOL_IDS | {GMAIL_SEND_DRAFT_SPEC.id}
 
 
-def _declared_error(code: str) -> _StrictModel:
-    errors: dict[str, type[_StrictModel]] = {
+def _declared_error(code: str, details: dict[str, object] | None) -> object:
+    errors: dict[str, type[BaseModel]] = {
+        "file_policy": FilePolicy,
+        "file_unavailable": FileUnavailable,
+        "invalid_mail": InvalidMail,
+        "mail_limit": MailLimit,
+        "original_needs_open": OriginalNeedsOpen,
         "calendar_not_found": CalendarNotFound,
         "conflict": Conflict,
         "draft_changed": DraftChanged,
@@ -630,7 +791,7 @@ def _declared_error(code: str) -> _StrictModel:
     error_type = errors.get(code)
     if error_type is None:
         raise RuntimeError("connector returned an undeclared failure code")
-    return error_type()
+    return error_type.model_validate(details or {})
 
 
 async def _run[InputT, SuccessT](
@@ -659,7 +820,7 @@ async def _run[InputT, SuccessT](
         )
     except WriteConnectorFailure as exc:
         raise DeclaredToolFailure(
-            _declared_error(exc.code), actual_attempts=exc.attempts
+            _declared_error(exc.code, exc.details), actual_attempts=exc.attempts
         ) from exc
     envelope = {
         "type": "Success",
@@ -679,6 +840,7 @@ def _binding[InputT, SuccessT, ErrorT](
     *,
     implementation_revision: str | None = None,
     authority: str = "automatic",
+    policy_epoch: str = "jarvis-write-v2",
 ) -> ToolBinding[InputT, SuccessT, ErrorT]:
     async def execute(
         value: InputT, context: ExecutionContext
@@ -692,7 +854,7 @@ def _binding[InputT, SuccessT, ErrorT](
         implementation_revision=(
             implementation_revision or f"jarvis-{str(spec.id).replace('.', '-')}-v1"
         ),
-        policy_epoch=PolicyEpoch("jarvis-write-v2"),
+        policy_epoch=PolicyEpoch(policy_epoch),
         policy_inputs={
             "action_max_attempts": WRITE_ACTION_MAX_ATTEMPTS,
             "authority": authority,
@@ -702,6 +864,12 @@ def _binding[InputT, SuccessT, ErrorT](
 
 
 def gmail_write_family(provider: GoogleWriteProvider) -> ToolFamily:
+    policy_inputs: dict[str, object] = {
+        **asdict(GMAIL_WRITE_POLICY),
+        "effect_header": "X-Jarvis-Effect-ID",
+        "effect_identity": "sha256(jarvis-gmail-v1:creation-id)",
+        "frozen_revision": "verified-gmail-identity-and-snapshot",
+    }
     return ToolFamily(
         namespace="gmail",
         declarations=(
@@ -713,49 +881,23 @@ def gmail_write_family(provider: GoogleWriteProvider) -> ToolFamily:
             _binding(
                 GMAIL_CREATE_DRAFT_SPEC,
                 provider.gmail_create_draft,
-                {
-                    "effect_header": "X-Jarvis-Effect-ID",
-                    "effect_identity": "sha256(jarvis-gmail-v1:action-id)",
-                    "send": False,
-                },
-                implementation_revision="jarvis-gmail-create_draft-v1",
+                policy_inputs,
+                implementation_revision="jarvis-gmail-create_draft-v2",
+                policy_epoch="jarvis-gmail-write-v3",
             ),
             _binding(
                 GMAIL_UPDATE_DRAFT_SPEC,
                 provider.gmail_update_draft,
-                {
-                    "conflict_check": "exact-normalized-content-digest",
-                    "effect_header": "preserve-X-Jarvis-Effect-ID",
-                    "reconciliation_max_thread_messages": 100,
-                    "reconciliation_thread_read": (
-                        "threads.get(format=minimal)-then-messages.get(format=raw)"
-                    ),
-                    "send": False,
-                },
+                policy_inputs,
+                implementation_revision="jarvis-gmail-update_draft-v2",
+                policy_epoch="jarvis-gmail-write-v3",
             ),
             _binding(
                 GMAIL_SEND_DRAFT_SPEC,
                 provider.gmail_send_draft,
-                {
-                    "reconciliation_backoff_seconds": [0, 2, 8],
-                    "reconciliation_list_pages": 0,
-                    "reconciliation_max_elapsed_seconds": 30,
-                    "reconciliation_max_observations": 3,
-                    "reconciliation_positive_proof": (
-                        "one-exact-match-after-bounded-candidates-processed-"
-                        "with-no-conflicting-evidence"
-                    ),
-                    "reconciliation_max_provider_reads_per_observation": 102,
-                    "reconciliation_max_response_bytes_per_read": 2 * 1024 * 1024,
-                    "reconciliation_max_response_bytes": 16 * 1024 * 1024,
-                    "reconciliation_max_thread_messages": 100,
-                    "reconciliation_thread_minimal_gets_per_observation": 1,
-                    "reconciliation_thread_raw_message_gets_per_observation": 100,
-                    "effect_header": "preserve-X-Jarvis-Effect-ID",
-                    "mailbox_search": False,
-                    "pre_send_check": "exact-normalized-snapshot",
-                },
-                implementation_revision="jarvis-gmail-send_draft-v2",
+                policy_inputs,
+                implementation_revision="jarvis-gmail-send_draft-v3",
+                policy_epoch="jarvis-gmail-write-v3",
                 authority="approval-required",
             ),
         ),

@@ -39,9 +39,12 @@ from llm_tools import (
 from pydantic import BaseModel
 from universal_memory.tools import MEMORY_SAVE_NOTE_SPEC
 
+from jarvis._secrets import contains_secret
 from jarvis.action_requests import ActionRequest
 from jarvis.actions import (
     ACTION_MAX_ATTEMPTS,
+    GMAIL_WRITE_NAMES,
+    ActionPersistenceDefect,
     ActionPositionRecorder,
     ActionStore,
     ExecutionContract,
@@ -61,25 +64,29 @@ from jarvis.attachment_tools import ATTACHMENT_WRITE_IDS
 from jarvis.attachments import AttachmentStore
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
+from jarvis.gmail_drafts import compose_snapshot, content_digest, gmail_effect_id
+from jarvis.mail_files import MailFileFailure, MailFiles
 from jarvis.native_journal import PostgresNativeJournal
-from jarvis.read_dispatch import ReadDispatchPort, contains_secret
+from jarvis.read_dispatch import ReadDispatchPort
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
 from jarvis.work import WorkStore
 from jarvis.work_tools import WORK_MUTATION_IDS
-from jarvis.write_connectors import (
-    GmailUpdateReconciliationBasis,
-    GoogleWriteConnector,
-    ReconciliationResult,
-    gmail_effect_id,
-)
+from jarvis.write_connectors import GoogleWriteConnector
 from jarvis.write_policy import classify_write
 from jarvis.write_tools import (
     CalendarCreateEventInput,
     CalendarDeleteEventInput,
     CalendarUpdateEventInput,
+    ExistingMailPart,
+    GmailComposeContract,
     GmailCreateDraftInput,
+    GmailCurrentDraft,
+    GmailRetainedPart,
+    GmailSendContract,
     GmailSendDraftInput,
+    GmailStagedPart,
     GmailUpdateDraftInput,
+    ReconciliationResult,
 )
 
 _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput"}}
@@ -109,6 +116,7 @@ class WriteToolDispatcher:
         work: WorkStore,
         events: EventStore,
         attachments: AttachmentStore,
+        mail_files: MailFiles,
         agents: AgentController,
         read: ReadDispatchPort,
         source_conversation_id: str,
@@ -123,6 +131,7 @@ class WriteToolDispatcher:
         self._work = work
         self._events = events
         self._attachments = attachments
+        self._mail_files = mail_files
         self._agents = agents
         self._read = read
         self._source_conversation_id = source_conversation_id
@@ -271,10 +280,6 @@ class WriteToolDispatcher:
         target = None
         if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
             target = await self._agents.locate(tool_id, payload)
-        if isinstance(
-            payload, GmailSendDraftInput
-        ) and not await gmail_send_basis_is_current(self._actions, payload):
-            return completed_tool_result(dict(_UNAVAILABLE))
         live_event = None
         if isinstance(payload, CalendarUpdateEventInput | CalendarDeleteEventInput):
             observed = await self._google_write.calendar_current_snapshot(
@@ -291,8 +296,26 @@ class WriteToolDispatcher:
         )
         if authority == "rejected":
             return completed_tool_result(dict(_UNAVAILABLE))
-        if cancellation.cancelled or self._closing:
-            raise asyncio.CancelledError
+
+        def check_admitted() -> None:
+            if cancellation.cancelled or self._closing:
+                raise asyncio.CancelledError
+
+        check_admitted()
+        action_id = uuid4()
+        mail = None
+        if isinstance(
+            payload, GmailCreateDraftInput | GmailUpdateDraftInput | GmailSendDraftInput
+        ):
+            try:
+                mail = await self._freeze_mail(action_id, payload)
+            except MailFileFailure as exc:
+                return completed_tool_result({"type": "Failure", "error": exc.error})
+            if mail is None:
+                return completed_tool_result(
+                    {"type": "Failure", "error": {"type": "DraftChanged"}}
+                )
+
         contract = ExecutionContract(
             schema_version="jarvis.action.v2",
             tool_contract_revision=binding.spec.tool_contract_revision,
@@ -313,26 +336,38 @@ class WriteToolDispatcher:
             model_step_ordinal=lineage.ordinal,
             input_message_ids=tuple(map(str, lineage.input_ids)),
             agent_target=target,
+            mail=mail,
         )
-        action_id = uuid4()
-        if authority == "approval_required":
-            await self._actions.insert_awaiting_approval(
+        insert = (
+            self._actions.insert_awaiting_approval
+            if authority == "approval_required"
+            else self._actions.insert_automatic
+        )
+        try:
+            stored = await insert(
                 tool_name=tool_id,
                 arguments=arguments,
                 execution_contract=contract,
                 origin_message_id=request_id,
                 action_id=action_id,
                 invocation_id=UUID(lineage.invocation_id),
+                check_admitted=check_admitted,
             )
-            return DispatchSuspended(HostRef(str(action_id)), WaitingFor.user)
-        await self._actions.insert_automatic(
-            tool_name=tool_id,
-            arguments=arguments,
-            execution_contract=contract,
-            origin_message_id=request_id,
-            action_id=action_id,
-            invocation_id=UUID(lineage.invocation_id),
-        )
+        except (ActionPersistenceDefect, asyncio.CancelledError):
+            if (
+                isinstance(mail, GmailComposeContract)
+                and await self._actions.get(action_id) is None
+            ):
+                await self._mail_files.discard(action_id)
+            raise
+        if authority == "approval_required":
+            reference = HostRef(str(stored.id))
+            if stored.status == "awaiting_approval":
+                return DispatchSuspended(reference, WaitingFor.user)
+            recorded = action_replay_result(stored)
+            if recorded is not None:
+                return completed_tool_result(recorded, reference)
+            return DispatchSuspended(reference, WaitingFor.system)
         result = await execute_recorded_action(
             self._actions,
             action_id=action_id,
@@ -340,8 +375,115 @@ class WriteToolDispatcher:
             plan=plan,
             budgets=budgets,
         )
+        if isinstance(mail, GmailComposeContract) and not isinstance(
+            result, DispatchSuspended
+        ):
+            await _discard_mail_stage(self._mail_files, action_id)
         self._agents.notify_wait_changed()
         return result
+
+    async def _freeze_mail(
+        self,
+        action_id: UUID,
+        payload: GmailCreateDraftInput | GmailUpdateDraftInput | GmailSendDraftInput,
+    ) -> GmailComposeContract | GmailSendContract | None:
+        creation_id = action_id
+        revision = None
+        old_files = ()
+        if isinstance(payload, GmailCreateDraftInput):
+            requested = payload.files
+        else:
+            source = await self._actions.get(payload.draft_ref)
+            if source is None or not isinstance(
+                source.execution_contract, ExecutionContract
+            ):
+                return None
+            authority = source.execution_contract.mail
+            receipt = action_replay_result(source)
+            if (
+                not isinstance(authority, GmailComposeContract)
+                or receipt is None
+                or (
+                    receipt["type"] != "Success"
+                    or not isinstance(receipt["value"], dict)
+                    or cast(dict[str, object], receipt["value"]).get("state") != "draft"
+                )
+            ):
+                return None
+            base = GmailCurrentDraft.model_validate(receipt["value"])
+            revision = base.revision
+            creation_id = authority.creation_id
+            if (
+                base.draft_ref != source.id
+                or gmail_effect_id(creation_id) != revision.jarvis_effect_id
+            ):
+                raise ActionPersistenceDefect(
+                    "draft receipt has a different creation identity"
+                )
+            content = (
+                GmailCreateDraftInput.model_validate(source.payload).content
+                if source.tool_name == ToolId("gmail.create_draft")
+                else GmailUpdateDraftInput.model_validate(source.payload).replacement
+            )
+            snapshot = compose_snapshot(
+                content,
+                revision.account,
+                base.files,
+                base.in_reply_to,
+                base.references,
+            )
+            if content_digest(snapshot) != revision.content_digest:
+                raise ActionPersistenceDefect(
+                    "verified draft content changed in the ledger"
+                )
+            if isinstance(payload, GmailSendDraftInput):
+                return GmailSendContract(
+                    creation_id=creation_id,
+                    revision=revision,
+                    snapshot=snapshot,
+                )
+            if payload.replacement.reply_to != content.reply_to:
+                return None
+            old_files = base.files
+            requested = (
+                tuple(
+                    ExistingMailPart(kind="existing", existing_part=number)
+                    for number in range(1, len(old_files) + 1)
+                )
+                if payload.files is None
+                else payload.files
+            )
+
+        positions = tuple(
+            item.existing_part
+            for item in requested
+            if isinstance(item, ExistingMailPart)
+        )
+        if len(positions) != len(set(positions)) or any(
+            number > len(old_files) for number in positions
+        ):
+            return None
+        files = await self._mail_files.stage(
+            action_id,
+            tuple(
+                old_files[item.existing_part - 1]
+                if isinstance(item, ExistingMailPart)
+                else item
+                for item in requested
+            ),
+        )
+        return GmailComposeContract(
+            creation_id=creation_id,
+            base_revision=revision,
+            parts=tuple(
+                GmailRetainedPart(existing_part=item.existing_part, file=file)
+                if isinstance(item, ExistingMailPart)
+                else GmailStagedPart(slot=slot, file=file)
+                for slot, (item, file) in enumerate(
+                    zip(requested, files, strict=True), 1
+                )
+            ),
+        )
 
     async def _finish_decision(
         self, action_id: UUID, plan: FrozenToolPlan, cancellation: CancellationToken
@@ -357,6 +499,7 @@ class WriteToolDispatcher:
                     work=self._work,
                     events=self._events,
                     attachments=self._attachments,
+                    mail_files=self._mail_files,
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
                     wait_changed=self._agents.notify_wait_changed,
@@ -456,6 +599,7 @@ class ActionRecovery:
         work: WorkStore,
         events: EventStore,
         attachments: AttachmentStore,
+        mail_files: MailFiles,
         plan: FrozenToolPlan,
         source_conversation_id: str,
         wait_changed: Callable[[], None],
@@ -465,6 +609,7 @@ class ActionRecovery:
         self._work = work
         self._events = events
         self._attachments = attachments
+        self._mail_files = mail_files
         self._plan = plan
         self._source_conversation_id = source_conversation_id
         self._wait_changed = wait_changed
@@ -532,25 +677,14 @@ class ActionRecovery:
             await self._actions.reconcile_agent_receipt(stored.id)
             return
         binding = self._binding(stored)
-        value = binding.spec.input_type.model_validate(stored.arguments).arguments
-        if isinstance(value, GmailSendDraftInput) and not (
-            await gmail_send_basis_is_current(self._actions, value)
-        ):
-            current = await self._require(stored.id)
-            if current.status != "queued":
-                raise RuntimeError("executing Gmail send lost its creation basis")
-            await self._actions.cancel_nonexecuting(
-                action_id=current.id,
-                result={
-                    "type": "action_cancelled_v1",
-                    "reason_code": "invalid_gmail_send_creation_basis",
-                },
-            )
-            return
         maximum_transitions = stored.execution_contract.max_attempts * 2 + 1
         for _ in range(maximum_transitions):
             current = await self._require(stored.id)
             if current.status in {"succeeded", "failed", "uncertain", "cancelled"}:
+                if isinstance(
+                    current.current_execution_contract.mail, GmailComposeContract
+                ):
+                    await _discard_mail_stage(self._mail_files, current.id)
                 return
             if current.tool_name in ATTACHMENT_WRITE_IDS:
                 recovered = await self._attachments.recover_action(current.id)
@@ -647,34 +781,6 @@ class ActionRecovery:
                     ).limits.max_attempts,
                 )
                 continue
-            if (
-                str(current.tool_name) == "gmail.update_draft"
-                and current.reconciliation_basis is None
-            ):
-                if (
-                    current.attempts < current.execution_contract.max_attempts
-                    and current.recovered_external_attempts
-                    < self._plan.grant(current.tool_name).limits.max_attempts
-                ):
-                    if not allow_queued_execution:
-                        return
-                    await self._actions.requeue_after_proved_absence(
-                        current.id,
-                        actual_external_attempts=0,
-                        max_external_attempts=self._plan.grant(
-                            current.tool_name
-                        ).limits.max_attempts,
-                    )
-                else:
-                    await self._actions.resolve_reconciliation(
-                        action_id=current.id,
-                        status="failed",
-                        result={
-                            "type": "Failure",
-                            "error": {"type": "BudgetExceeded"},
-                        },
-                    )
-                continue
             reconciliation = await self._reconcile(current, binding)
             if reconciliation.outcome == "succeeded":
                 assert reconciliation.value is not None
@@ -689,6 +795,7 @@ class ActionRecovery:
                 continue
             if (
                 current.tool_name == ToolId("gmail.create_draft")
+                and current.mail_progress.entered
                 and reconciliation.outcome == "absent"
             ):
                 await self._actions.resolve_reconciliation(
@@ -730,6 +837,11 @@ class ActionRecovery:
                     "type": "action_uncertainty_v1",
                     "evidence_code": reconciliation.evidence,
                     "recorded_at": datetime.now(UTC).isoformat(),
+                    **(
+                        {"mail_progress": current.mail_progress.model_dump(mode="json")}
+                        if str(current.tool_name) in GMAIL_WRITE_NAMES
+                        else {}
+                    ),
                 },
             )
         current = await self._require(stored.id)
@@ -759,34 +871,8 @@ class ActionRecovery:
         binding: ToolBinding[Any, Any, Any],
     ) -> ReconciliationResult[Any]:
         value = binding.spec.input_type.model_validate(stored.arguments).arguments
-        if isinstance(value, GmailCreateDraftInput):
-            return await self._google_write.reconcile_gmail_create(value, stored.id)
-        if isinstance(value, GmailUpdateDraftInput):
-            basis = stored.reconciliation_basis
-            if basis is None:
-                raise RuntimeError("mutating Gmail update lacks reconciliation basis")
-            if basis.get("type") != "gmail_update_reconciliation_v1" or any(
-                not isinstance(basis.get(name), str)
-                for name in (
-                    "draft_id",
-                    "thread_id",
-                    "jarvis_effect_id",
-                    "old_content_digest",
-                )
-            ):
-                raise RuntimeError("Gmail reconciliation basis is malformed")
-            return await self._google_write.reconcile_gmail_update(
-                value,
-                GmailUpdateReconciliationBasis(
-                    type="gmail_update_reconciliation_v1",
-                    draft_id=cast(str, basis["draft_id"]),
-                    thread_id=cast(str, basis["thread_id"]),
-                    jarvis_effect_id=cast(str, basis["jarvis_effect_id"]),
-                    old_content_digest=cast(str, basis["old_content_digest"]),
-                ),
-            )
-        if isinstance(value, GmailSendDraftInput):
-            return await self._google_write.reconcile_gmail_send(value)
+        if stored.current_execution_contract.mail is not None:
+            return await self._google_write.reconcile_gmail(stored)
         if isinstance(value, CalendarCreateEventInput):
             return await self._google_write.reconcile_calendar_create(value, stored.id)
         if isinstance(value, CalendarUpdateEventInput):
@@ -833,26 +919,16 @@ def require_current_action_binding(
     return binding
 
 
-async def gmail_send_basis_is_current(
-    actions: ActionStore,
-    value: GmailSendDraftInput,
-) -> bool:
-    """Require the send header and thread to originate at Jarvis draft creation."""
-
-    creation_id = await actions.gmail_draft_creation_action(
-        draft_id=value.draft_id,
-        thread_id=value.thread_id,
-        jarvis_effect_id=value.jarvis_effect_id,
-    )
-    return creation_id is not None and gmail_effect_id(creation_id) == (
-        value.jarvis_effect_id
-    )
+async def _discard_mail_stage(mail_files: MailFiles, action_id: UUID) -> None:
+    try:
+        await mail_files.discard(action_id)
+    except OSError:
+        LOGGER.warning("gmail stage cleanup deferred for %s", action_id)
 
 
 __all__ = [
     "ActionRecovery",
     "NoTelemetry",
     "WriteToolDispatcher",
-    "gmail_send_basis_is_current",
     "require_current_action_binding",
 ]

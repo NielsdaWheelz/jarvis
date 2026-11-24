@@ -1,5 +1,5 @@
 {
-  "application_session_contract_revision": "jarvis-conversation-capture-v1",
+  "application_session_contract_revision": "jarvis-outgoing-mail-v1",
   "dependencies": {
     "llm-agent-kernel": "34e8652bdb2679ad765d8d45e44c25c1642d392d",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
@@ -20,7 +20,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-conversation-capture-v21"
+      "revision": "jarvis-main-outgoing-mail-v22"
     }
   },
   "schema_version": "jarvis-session-compatibility.v4"

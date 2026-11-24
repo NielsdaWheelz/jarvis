@@ -413,9 +413,32 @@ function renderMessage(m) {
     const group = el("section", undefined, "proposal");
     group.append(
       el("strong", proposal.title),
-      prose(proposal.detail),
-      el("p", proposal.status.replaceAll("_", " "), "secondary"),
+      proposal.read_email ? el("p", proposal.detail, "prose") : prose(proposal.detail),
+      el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
     );
+    if (proposal.read_email) {
+      const disclosure = el("details");
+      const body = el("p", "", "prose");
+      let loading = false;
+      let loaded = false;
+      disclosure.append(el("summary", "read email"), body);
+      disclosure.addEventListener("toggle", async () => {
+        if (!disclosure.open || loading || loaded) return;
+        loading = true;
+        try {
+          const entry = (await read("/api/messages/" + m.id + "?mail_body=true"))
+            ?.proposals.find((item) => item.action_id === proposal.action_id);
+          if (typeof entry?.mail_body !== "string") throw new Error("email body unavailable.");
+          body.textContent = entry.mail_body || "empty email body";
+          loaded = true;
+        } catch (error) {
+          body.textContent = error.message;
+        } finally {
+          loading = false;
+        }
+      });
+      group.append(disclosure);
+    }
     if (proposal.decision)
       group.append(
         link("owner reply · " + proposal.decision, "/m/" + proposal.owner_message_id, "result"),

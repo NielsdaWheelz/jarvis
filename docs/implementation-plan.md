@@ -157,6 +157,13 @@ sha256 `58b03df1c794044ea1664541807cf2b1610b48a52ee68d554c5f838d3da54de8`.
 separate `0018` release for the startup view and service-owned indexing.
 historical capacity and genuine installed recall earn separate evidence.
 
+[adr 0100](decisions/0100-host-bound-summary-fields.md) owns the compactor form
+and single batch correction. its current-main candidate follows the separate
+`0020` capture rollout and [archive rewrite](decisions/0102-historical-capture-cleanup.md).
+the old `8232+8` replay is retired. the armed november 24–25 samples keep their
+actual generation. production progress, overnight capacity and genuine
+recall need their own receipts after the writer cut.
+
 ## subscription model refresh
 
 [adr 0093](decisions/0093-subscription-model-refresh.md) sequences provider

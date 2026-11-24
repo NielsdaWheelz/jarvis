@@ -49,6 +49,12 @@ broader capture rules below at the prospective cut.
 one-time cleanup of all historical external tool traffic in the stopped
 database at deployment, including records received after merge.
 
+[adr 0100](docs/decisions/0100-host-bound-summary-fields.md) binds summary
+fields to sources in jarvis. the compactor can repeat one completed malformed
+call per atomic batch, within the existing per-source limit. its current-main
+release follows the archive rewrite. production progress, overnight capacity
+and genuine recall each require evidence on the selected generation.
+
 [adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
 `0018`. one frozen startup view combines the complete ready prefix with bounded,
 source-attributed recent owner exchanges. the memory service owns online vector
@@ -322,8 +328,9 @@ throughput change. source and installed proof remain separate.
 
 [adr 0080](docs/decisions/0080-first-valid-compaction.md) retains the 512-byte prompt
 target and accepts the first valid inferred summary within the existing
-2,048-byte hard bound. retry only hard oversize or transient failures under the
-same per-node ceilings; malformed output still parks with no partial batch commit.
+2,048-byte hard bound. hard oversize and transient failures retain their
+per-node ceilings. adr 0100 allows one form correction within those ceilings.
+an exhausted or repeated malformed reply parks the entire batch.
 this replaces shortest-candidate selection and soft-target retries. larger
 inferred nodes may coarsen older detail earlier; net parent cost and general
 quality remain unmeasured. existing nodes, originals and source cuts stay intact.

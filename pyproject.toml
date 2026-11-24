@@ -14,7 +14,7 @@ dependencies = [
   "cryptography==50.0.1",
   "fastapi==0.143.0",
   "httpx==0.28.1",
-  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@8f10cdf4d53cae02bde3d8a6e0b63db0836c1395",
+  "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@6f4ec09452730ffaf26a53fc00689753050beec0",
   "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@37b7688381161d398b8094795d43bb7c87ca1885",
   "mcp==2.3.0",
   "pgvector==0.4.1",
@@ -23,7 +23,7 @@ dependencies = [
   "python-multipart==0.0.32",
   "provider-runtime @ git+https://github.com/NielsdaWheelz/llm-calling.git@36c5b3484f37c26ec26d7e3c764f1c35af430968",
   "sqlalchemy[asyncio]==2.0.43",
-  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@c45f794d0e846109d15dab65757449ee4d182bac",
+  "universal-memory @ git+https://github.com/NielsdaWheelz/universal-memory.git@aa88596d2b6de409f06dd84b5c292ae6f4429418",
   "uvicorn==0.54.0",
 ]
 

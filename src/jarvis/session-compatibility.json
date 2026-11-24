@@ -10,7 +10,7 @@
     "compactor": {
       "effort": "medium",
       "model": "gpt-6.1-terra",
-      "revision": "jarvis-memory-compactor-v6"
+      "revision": "jarvis-memory-compactor-v7"
     },
     "dreamer": {
       "effort": "xhigh",

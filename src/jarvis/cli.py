@@ -563,7 +563,7 @@ async def _serve(
                     )
 
                     compactor = MemoryWorker(
-                        definition=definitions.compactor,
+                        definitions=definitions.compactor,
                         plan=definitions.plans["compactor"],
                         owner=owner,
                         provider=kernel_runtime.provider,
@@ -1029,13 +1029,13 @@ async def rebuild_memory(
                 kernel,
             ),
         ):
-            definition, plan = build_compactor(
+            definitions, plan = build_compactor(
                 catalog=compose_memory_catalog(memory),
                 provider=provider,
                 owner_timezone=settings.owner_timezone,
             )
             worker = MemoryWorker(
-                definition=definition,
+                definitions=definitions,
                 plan=plan,
                 owner=JarvisOwner(database, settings.owner_scope),
                 provider=kernel,

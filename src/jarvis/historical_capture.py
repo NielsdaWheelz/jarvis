@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict
 from hashlib import sha256
 from itertools import groupby
+from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
@@ -106,7 +107,7 @@ _COHORT_SQL = text("""
     LEFT JOIN public.memory_leaf l ON l.source_record_id = r.id
     WHERE c.provider IN ('codex', 'claude', 'nexus') AND (
         r.kind IN ('tool_call', 'tool_result', 'memory_reference') OR
-        (c.provider IN ('codex', 'claude') AND r.kind = 'text' AND r.role = 'owner'
+        (c.provider = 'claude' AND r.kind = 'text' AND r.role = 'owner'
          AND r.attributes #>> '{delivery,kind}' IS NULL)
     )
     ORDER BY r.conversation_id, r.native_event_id, r.part
@@ -240,9 +241,8 @@ def _delivered(
 
 
 def _probe_claude(
-    home: ArchiveHome, native_id: str
+    home: ArchiveHome, native_id: str, transcript: _claude_archive.Transcript | None
 ) -> tuple[str, Sequence[ArchiveOccurrence]]:
-    transcript = _claude_archive.files(home).get(native_id)
     if transcript is None or _claude_archive.marked(home, native_id, transcript):
         return "source_unavailable", ()
     if _claude_archive.worker(transcript):
@@ -285,20 +285,17 @@ async def observe_native(
     if ARCHIVE_CONTRACT_REVISION != "native-archive.v4":
         raise ValueError("historical recovery requires the selected native v4 adapter")
     calls = _invocations(cohort.events)
-    parents = {
-        event.conversation_id
-        for event in cohort.events
-        if event.machine == config.machine
-        and event.kind in ("tool_call", "tool_result")
-        and not _routine(
-            event, calls.get((event.conversation_id, event.call_id or ""), ())
-        )
-    }
     candidates: dict[UUID, list[HistoricalEvent]] = defaultdict(list)
     for event in cohort.events:
-        if event.conversation_id in parents and event.kind != "memory_reference":
+        if event.machine != config.machine or event.worker_excluded:
+            continue
+        related = calls.get((event.conversation_id, event.call_id or ""), ())
+        if (event.kind == "text" and event.provider == "claude") or (
+            event.kind in ("tool_call", "tool_result") and not _routine(event, related)
+        ):
             candidates[event.conversation_id].append(event)
     observations: list[SourceObservation] = []
+    inventories: dict[Path, dict[str, _claude_archive.Transcript] | ArchiveError] = {}
     for members in candidates.values():
         first = members[0]
         home = config.homes.get(first.account or "")
@@ -311,8 +308,21 @@ async def observe_native(
                 CodexUnixEndpoint(home.codex_endpoint) if home.codex_endpoint else None,
             )
             if source.provider == "claude":
+                if source.state_root not in inventories:
+                    try:
+                        inventories[source.state_root] = await asyncio.to_thread(
+                            _claude_archive.files, source
+                        )
+                    except ArchiveError as error:
+                        inventories[source.state_root] = error
+                inventory = inventories[source.state_root]
+                if isinstance(inventory, ArchiveError):
+                    raise inventory.with_traceback(None)
                 state, native = await asyncio.to_thread(
-                    _probe_claude, source, first.native_conversation_id
+                    _probe_claude,
+                    source,
+                    first.native_conversation_id,
+                    inventory.get(first.native_conversation_id),
                 )
             else:
                 state, native = await _probe_codex(source, first.native_conversation_id)

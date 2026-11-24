@@ -6,13 +6,14 @@ import json
 import logging
 import sys
 from collections import deque
-from typing import Literal, TypedDict, get_args
+from typing import Literal, NotRequired, TypedDict, get_args
 from uuid import UUID
 
 from llm_agent_kernel import NativeDefect, NativeUncertain
 from provider_runtime.agent_runtime import (
     AgentRuntimeDefect,
     AgentRuntimeError,
+    CodexUnfinishedItems,
     OutputSchemaMismatch,
     ProtocolDefect,
 )
@@ -37,6 +38,7 @@ _KINDS: dict[type[BaseException], str] = {
         UnicodeEncodeError,
     )
 }
+_KINDS[CodexUnfinishedItems] = "ProtocolDefect"
 _CODES = frozenset(get_args(ErrorType)) | {
     "jarvis_text_nul",
     "jarvis_text_utf8_invalid",
@@ -79,11 +81,22 @@ class _Validation(TypedDict):
     location: list[str | int]
 
 
+class _UnfinishedItems(TypedDict):
+    reason: str
+    open_display_items: int
+    open_other_items: int
+    pending_calls: int
+    pending_inputs: int
+    pending_server_requests: int
+    summary: str
+
+
 class _Exception(TypedDict):
     kind: str
     frames: list[_Frame]
     validation: list[_Validation]
     validation_total: int
+    unfinished_items: NotRequired[_UnfinishedItems]
 
 
 def log_native_failure(
@@ -153,14 +166,23 @@ def log_native_failure(
                 )
             remaining_validation -= len(validation)
             truncated |= total > len(validation)
-        exceptions.append(
-            {
-                "kind": _KINDS.get(type(current), "other"),
-                "frames": list(frames),
-                "validation": validation,
-                "validation_total": total,
+        entry: _Exception = {
+            "kind": _KINDS.get(type(current), "other"),
+            "frames": list(frames),
+            "validation": validation,
+            "validation_total": total,
+        }
+        if isinstance(current, CodexUnfinishedItems):
+            entry["unfinished_items"] = {
+                "reason": current.reason,
+                "open_display_items": current.open_display_items,
+                "open_other_items": current.open_other_items,
+                "pending_calls": current.pending_calls,
+                "pending_inputs": current.pending_inputs,
+                "pending_server_requests": current.pending_server_requests,
+                "summary": current.summary,
             }
-        )
+        exceptions.append(entry)
         if current.__cause__ is not None:
             current = current.__cause__
         elif current.__suppress_context__:

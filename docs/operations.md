@@ -1046,6 +1046,7 @@ service stops are independent. select the owning service before stopping it.
 | operation | stop and acquire | process and credentials |
 | --- | --- | --- |
 | `memory status` | neither | read-only status |
+| `list-parked` | neither | read-only owner-scope inventory, jarvis with runtime login |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
 | schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT --generation 2]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
@@ -1152,21 +1153,39 @@ the historical deployment report records that release's always-on service.
 native host installation/activation and the seven-day owner acceptance require
 their own actual receipts; source or local topology proof establishes neither.
 
-If a configuration defect parks input, first stop the service and correct the
-defect. Then clear only the reviewed UUIDs while the command owns the deployment
-lock:
+### parked request repair
 
-```sh
-jarvis release-parked MESSAGE_ID [MESSAGE_ID ...]
-```
+run `jarvis list-parked` as the jarvis service user with its normal runtime
+environment. it reads one snapshot while the assistant is online or stopped.
+an attempt group requires a linked input, an attempt after the input's last
+release, and a canonical failure notice at the exact park time. rows with
+unverified provenance appear alone, with any recorded attempt id shown as an
+unverified claim. inspection-only rows have no release command.
 
-This does not reset `processing_attempts` and does not arm hidden successor
-work. Never edit `trace` to control scheduling.
+for release, first complete any named activation and verify the selected release
+and its services. stop the assistant for independent maintenance and correct
+the defect. under operator custody, run a fresh `jarvis list-parked` immediately
+before release. a saved command can name an input that parked again. review the
+current group and original effects. release only the reviewed ids, using
+`jarvis release-parked MESSAGE_ID [MESSAGE_ID ...]` as the jarvis service user
+through `deploy/with-independent-maintenance`. wrap the entire foreground
+invocation, including `systemd-run --wait` when used. a mixed list with any
+ineligible id releases nothing. keep other parks in place, then restart the
+assistant and verify its service and the reviewed requests' dispositions.
 
-if canonical request/attempt state is corrupt, stop admission and inspect its
-original records. preserve receipts and unresolved barriers. never reset a paid
-attempt, action or request to make it look undispatched. there is no rolling
-admission file to repair.
+release preserves the originals and `processing_attempts` and advances the
+release watermark. an original valid seal can settle locally where its original
+authority still permits. an unsealed turn opens fresh from exact inputs and
+original `accepted_action` and `receipt.read` evidence. `existing_action_ref`
+opens its compatible receipt. a null ref proposes a new operation, even with
+matching arguments. retain billed-once and uncertain-effect barriers. verify
+existing effects before spending any new authority. follow the owner's
+[disposition rule](decisions/0106-interrupted-answers-and-parked-work.md#delivery-and-acceptance)
+for the four appointment inputs.
+
+if canonical request or attempt state is inconsistent, stop admission and
+inspect the original records. preserve receipts and unresolved barriers. do
+not edit trace or reset a paid attempt, action or request to repair scheduling.
 
 ## Data durability and logs
 

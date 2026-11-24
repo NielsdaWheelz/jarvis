@@ -59,6 +59,10 @@ stale settlement and intact receipts.
 
 ## b. native admission, rejection and one fresh retry
 
+[adr 0106](0106-interrupted-answers-and-parked-work.md) supersedes the parking
+notice copy and cardinality below on its selected release. the per-input retry
+and release rules still apply.
+
 **provider-runtime** owns fit on the lowered opening or steer during planning and immediately
 before wire entry. stock sums unicode scalars across text items in `input`. start may instead
 carry `toolOutput` with empty input and counts its text items. instructions, schema, nontext

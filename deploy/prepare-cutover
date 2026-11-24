@@ -12,13 +12,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
 from alembic import command
 from alembic.config import Config
 from memory_snapshot import STOPPED_TABLE_KEYS, table_inventory
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-
 from jarvis._atomic_json import replace_private_json
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
@@ -103,12 +101,14 @@ async def require_target_schema(conn):
         not await conn.scalar(
             text("""
             SELECT EXISTS(
-                SELECT FROM source_record r JOIN source_conversation c ON c.id=r.conversation_id
+                SELECT FROM source_record r JOIN source_conversation c ON
+                    c.id=r.conversation_id
                 WHERE c.provider IN ('codex','claude','nexus')
                   AND r.kind IN ('tool_call','tool_result','memory_reference')
             ) OR EXISTS(
                 SELECT FROM source_record r JOIN memory_retired_source_record t
-                    ON t.id=r.id OR (t.conversation_id,t.native_event_id)=(r.conversation_id,r.native_event_id)
+                    ON t.id=r.id OR (t.conversation_id,
+                        t.native_event_id)=(r.conversation_id,r.native_event_id)
             )
         """)
         ),
@@ -117,10 +117,12 @@ async def require_target_schema(conn):
     require(
         await conn.scalar(
             text("""
-            SELECT bool_and(has_table_privilege(r,'memory_retired_source_record','SELECT')
+            SELECT bool_and(has_table_privilege(r,'memory_retired_source_record',
+                'SELECT')
                 AND NOT has_table_privilege(r,'memory_retired_source_record',
                     'INSERT, UPDATE, DELETE, TRUNCATE'))
-            FROM (VALUES ('jarvis_runtime'),('jarvis_memory'),('jarvis_backup')) roles(r)
+            FROM (VALUES ('jarvis_runtime'),('jarvis_memory'),('jarvis_backup'))
+                roles(r)
             WHERE to_regrole(r) IS NOT NULL
         """)
         ),

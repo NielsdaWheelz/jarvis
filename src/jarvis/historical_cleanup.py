@@ -1,12 +1,10 @@
 """One stopped rewrite of the pre-conversation-capture corpus at its frozen cut."""
 
 from __future__ import annotations
-
 import json
 from collections import defaultdict
 from typing import TYPE_CHECKING
 from uuid import UUID
-
 from sqlalchemy import select, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -14,7 +12,6 @@ from universal_memory.archive import insert_events
 from universal_memory.policy import BATCH_EVENTS, split_text
 from universal_memory.schema import source_conversation
 from universal_memory.types import Event, normalize_event
-
 from jarvis.tool_results import memory_result_size
 
 if TYPE_CHECKING:
@@ -56,8 +53,10 @@ async def rewrite_history(
     await conn.execute(
         text("""
         CREATE TEMP TABLE cut_retired(
-            id uuid PRIMARY KEY, conversation_id uuid NOT NULL, native_event_id text NOT NULL,
-            native_digest text NOT NULL, part integer NOT NULL, part_count integer NOT NULL,
+            id uuid PRIMARY KEY, conversation_id uuid NOT NULL, native_event_id text
+                NOT NULL,
+            native_digest text NOT NULL, part integer NOT NULL, part_count integer
+                NOT NULL,
             UNIQUE(conversation_id,native_event_id,part)
         ) ON COMMIT DROP
     """)
@@ -69,7 +68,8 @@ async def rewrite_history(
                p.ordinal-1, jsonb_array_length(r.part_ids)
         FROM jsonb_to_recordset(cast(:carriers AS jsonb)) AS r(
             conversation_id uuid,native_event_id text,native_digest text,part_ids jsonb)
-        CROSS JOIN LATERAL jsonb_array_elements_text(r.part_ids) WITH ORDINALITY AS p(id,ordinal)
+        CROSS JOIN LATERAL jsonb_array_elements_text(r.part_ids) WITH ORDINALITY AS
+            p(id,ordinal)
     """),
         {"carriers": json.dumps([r.model_dump(mode="json") for r in plan.retire])},
     )
@@ -80,15 +80,20 @@ async def rewrite_history(
             SELECT FROM cut_retired t LEFT JOIN source_record r ON r.id=t.id
             LEFT JOIN source_conversation c ON c.id=r.conversation_id
             WHERE r.id IS NULL OR c.provider NOT IN ('codex','claude','nexus')
-               OR (r.conversation_id,r.native_event_id,r.native_digest,r.part,r.part_count)
-                   IS DISTINCT FROM (t.conversation_id,t.native_event_id,t.native_digest,t.part,t.part_count)
+               OR (r.conversation_id,r.native_event_id,r.native_digest,r.part,
+                   r.part_count)
+                   IS DISTINCT FROM (t.conversation_id,t.native_event_id,
+                       t.native_digest,t.part,t.part_count)
                OR NOT (r.kind IN ('tool_call','tool_result','memory_reference')
-                       OR (r.kind='text' AND r.role='owner' AND c.provider IN ('codex','claude')))
+                       OR (r.kind='text' AND r.role='owner' AND c.provider IN
+                           ('codex','claude')))
         ) OR EXISTS(
-            SELECT FROM source_record r JOIN source_conversation c ON c.id=r.conversation_id
+            SELECT FROM source_record r JOIN source_conversation c ON
+                c.id=r.conversation_id
             LEFT JOIN cut_retired t ON t.id=r.id
             WHERE c.provider IN ('codex','claude','nexus')
-              AND r.kind IN ('tool_call','tool_result','memory_reference') AND t.id IS NULL
+              AND r.kind IN ('tool_call','tool_result','memory_reference') AND t.id
+                  IS NULL
         ) OR EXISTS(
             SELECT FROM cut_retired t JOIN source_record r ON r.id=t.id
             GROUP BY t.conversation_id,t.native_event_id
@@ -102,7 +107,6 @@ async def rewrite_history(
         ),
         "retirement manifest differs from complete stopped originals",
     )
-
     carriers = {
         (r.conversation_id, r.native_event_id): r
         for r in (
@@ -163,12 +167,12 @@ async def rewrite_history(
         )
         deliveries[key] = (event, old.position, ordinal)
     require(not corrections, "retired conversation text lacks its recovered report")
-
     await conn.execute(
         text("""
         CREATE TEMP TABLE cut_insert(
             conversation_id uuid NOT NULL,native_event_id text NOT NULL,
-            anchor bigint NOT NULL,ordinal integer NOT NULL,PRIMARY KEY(conversation_id,native_event_id)
+            anchor bigint NOT NULL,ordinal integer NOT NULL,PRIMARY
+                KEY(conversation_id,native_event_id)
         ) ON COMMIT DROP
     """)
     )
@@ -198,8 +202,10 @@ async def rewrite_history(
     for r in (
         await conn.execute(
             text("""
-        SELECT r.*, l.position FROM cut_insert i JOIN source_record r USING(conversation_id,native_event_id)
-        LEFT JOIN memory_leaf l ON l.source_record_id=r.id ORDER BY r.conversation_id,r.native_event_id,r.part
+        SELECT r.*, l.position FROM cut_insert i JOIN source_record r
+            USING(conversation_id,native_event_id)
+        LEFT JOIN memory_leaf l ON l.source_record_id=r.id ORDER BY
+            r.conversation_id,r.native_event_id,r.part
     """)
         )
     ).mappings():
@@ -245,7 +251,8 @@ async def rewrite_history(
         text("""
         UPDATE cut_insert i SET anchor=least(i.anchor,l.position)
         FROM source_record r JOIN memory_leaf l ON l.source_record_id=r.id
-        WHERE (r.conversation_id,r.native_event_id)=(i.conversation_id,i.native_event_id) AND r.part=0
+        WHERE (r.conversation_id,r.native_event_id)=(i.conversation_id,
+            i.native_event_id) AND r.part=0
     """)
     )
     pending: dict[UUID, list[Event]] = defaultdict(list)
@@ -269,16 +276,17 @@ async def rewrite_history(
             batch = events[offset : offset + BATCH_EVENTS]
             await insert_events(conn, conversation, position, batch, memory_result_size)
             position += sum(len(split_text(e.text)) for e in batch)
-
     # Put every recovered event at its first carrier, once, with all parts together.
     await conn.execute(
         text("""
         CREATE TEMP TABLE cut_layout ON COMMIT DROP AS
         WITH ordered AS (
-            SELECT l.source_record_id,l.note_id,l.position AS anchor,0 AS ordinal,0 AS part
+            SELECT l.source_record_id,l.note_id,l.position AS anchor,0 AS ordinal,0
+                AS part
             FROM memory_leaf l LEFT JOIN cut_retired t ON t.id=l.source_record_id
             LEFT JOIN source_record r ON r.id=l.source_record_id
-            LEFT JOIN cut_insert i ON (i.conversation_id,i.native_event_id)=(r.conversation_id,r.native_event_id)
+            LEFT JOIN cut_insert i ON (i.conversation_id,
+                i.native_event_id)=(r.conversation_id,r.native_event_id)
             WHERE t.id IS NULL AND i.anchor IS NULL
             UNION ALL
             SELECT l.source_record_id,l.note_id,i.anchor,i.ordinal,r.part
@@ -313,7 +321,8 @@ async def rewrite_history(
             FROM cut_layout l JOIN source_record r ON r.id=l.source_record_id
             WHERE r.conversation_id IN (SELECT conversation_id FROM cut_insert)
         )
-        SELECT id,wanted,wanted+greatest(max(sequence) OVER (),max(wanted) OVER ())+1 AS temporary
+        SELECT id,wanted,wanted+greatest(max(sequence) OVER (),max(wanted) OVER
+            ())+1 AS temporary
         FROM ordered
     """)
     )
@@ -325,17 +334,21 @@ async def rewrite_history(
         "ALTER TABLE memory_leaf ENABLE TRIGGER memory_leaf_universal_guard",
         "ALTER TABLE source_record DISABLE TRIGGER source_record_universal_guard",
         "DELETE FROM source_record r USING cut_retired t WHERE r.id=t.id",
-        "UPDATE source_record r SET sequence=s.temporary FROM cut_sequence s WHERE r.id=s.id AND r.sequence<>s.wanted",
-        "UPDATE source_record r SET sequence=s.wanted FROM cut_sequence s WHERE r.id=s.id AND r.sequence=s.temporary",
+        "UPDATE source_record r SET sequence=s.temporary FROM cut_sequence s "
+        "WHERE r.id=s.id AND r.sequence<>s.wanted",
+        "UPDATE source_record r SET sequence=s.wanted FROM cut_sequence s "
+        "WHERE r.id=s.id AND r.sequence=s.temporary",
         "ALTER TABLE source_record ENABLE TRIGGER source_record_universal_guard",
-        "INSERT INTO memory_leaf(position,source_record_id,note_id) SELECT position,source_record_id,note_id FROM cut_layout",
+        "INSERT INTO memory_leaf(position,source_record_id,note_id) "
+        "SELECT position,source_record_id,note_id FROM cut_layout",
         "DELETE FROM memory_node",
     ):
         await conn.execute(text(statement))
     await conn.execute(
         text("""
         UPDATE memory_state SET leaf_count=:count,dream_through=:dream,view_through=0,
-            compaction_error=NULL,main_parts='[]',compact_parts='[]',main_shrinking=false,compact_shrinking=false
+            compaction_error=NULL,main_parts='[]',compact_parts='[]',
+                main_shrinking=false,compact_shrinking=false
         WHERE id=1
     """),
         {"count": count, "dream": dream},
@@ -349,13 +362,15 @@ async def rewrite_history(
             WHERE r.id IS NULL OR r.sequence<>coalesce(q.wanted,s.sequence)
                OR sha256(convert_to((to_jsonb(r)-'sequence')::text,'UTF8'))<>s.digest
         ) OR EXISTS(
-            SELECT FROM source_record r LEFT JOIN memory_leaf l ON l.source_record_id=r.id
+            SELECT FROM source_record r LEFT JOIN memory_leaf l ON
+                l.source_record_id=r.id
             GROUP BY r.id HAVING count(l.position)<>1
         ) OR EXISTS(
             SELECT FROM (SELECT r.sequence,lag(r.sequence) OVER (
                 PARTITION BY r.conversation_id ORDER BY l.position) AS previous
                 FROM source_record r JOIN memory_leaf l ON l.source_record_id=r.id
-                WHERE r.conversation_id IN (SELECT conversation_id FROM cut_insert)) ordered
+                WHERE r.conversation_id IN (SELECT conversation_id FROM cut_insert))
+                    ordered
             WHERE previous>=sequence
         )
     """)

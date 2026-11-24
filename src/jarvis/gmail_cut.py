@@ -177,6 +177,13 @@ async def _observe_recorded_send(
         identifier = provider_id(value, "sent_message_id")
         expected = provider_id(value, "thread_id")
         marker = provider_id(value, "jarvis_effect_id")
+        arguments = _object(row["arguments"])
+        captured = _object(arguments.get("arguments", arguments))
+        if (
+            captured.get("thread_id", expected) != expected
+            or captured.get("jarvis_effect_id", marker) != marker
+        ):
+            return None
         message = await mail.request(
             "GET",
             f"messages/{quote(identifier, safe='')}",
@@ -212,16 +219,25 @@ async def audit_mail_cut(
     account: str | None = None
     for index, row in enumerate(history):
         identifier = cast(UUID, row["id"])
-        if row["status"] in {"queued", "awaiting_approval", "executing"}:
+        entered_send = (
+            row["tool_name"] == "gmail.send_draft"
+            and row["status"] == "executing"
+            and row["attempts"] > 0
+        )
+        if not entered_send and row["status"] in {
+            "queued",
+            "awaiting_approval",
+            "executing",
+        }:
             results[str(identifier)] = {
                 "outcome": "unfinished",
                 "evidence": row["status"],
             }
             continue
-        if row["tool_name"] != "gmail.send_draft" or row["status"] not in {
-            "succeeded",
-            "uncertain",
-        }:
+        if not entered_send and (
+            row["tool_name"] != "gmail.send_draft"
+            or row["status"] not in {"succeeded", "uncertain"}
+        ):
             continue
         result: dict[str, object] = {
             "outcome": "unknown",
@@ -256,7 +272,13 @@ async def audit_mail_cut(
                         result["evidence"] = proof.evidence
         except (ValueError, KeyError, WriteConnectorFailure, TimeoutError):
             pass
-        if result["outcome"] == "unknown" and identifier in dispositions:
+        if entered_send:
+            result = {
+                "outcome": "unfinished",
+                "evidence": "entered",
+                "observation": result,
+            }
+        elif result["outcome"] == "unknown" and identifier in dispositions:
             result = {
                 **dispositions.pop(identifier).model_dump(mode="json"),
                 "owner": True,

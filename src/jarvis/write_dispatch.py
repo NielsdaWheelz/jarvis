@@ -838,7 +838,11 @@ class ActionRecovery:
                     "evidence_code": reconciliation.evidence,
                     "recorded_at": datetime.now(UTC).isoformat(),
                     **(
-                        {"mail_progress": current.mail_progress.model_dump(mode="json")}
+                        {
+                            "reconciliation_basis": current.mail_progress.model_dump(
+                                mode="json"
+                            )
+                        }
                         if str(current.tool_name) in GMAIL_WRITE_NAMES
                         else {}
                     ),

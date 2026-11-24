@@ -292,7 +292,9 @@ class StoredAction:
             "action_uncertainty_v1",
         }:
             return MailProgress()
-        return MailProgress.model_validate(self.result.get("mail_progress") or {})
+        return MailProgress.model_validate(
+            self.result.get("reconciliation_basis") or {}
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -770,15 +772,12 @@ class ActionStore:
                 result={
                     "type": "action_recovery_v1",
                     "actual_external_attempts": cumulative_attempts,
-                    "reconciliation_basis": None,
-                    **(
-                        {
-                            "mail_progress": MailProgress(
-                                basis=stored.mail_progress.basis,
-                            ).model_dump(mode="json")
-                        }
+                    "reconciliation_basis": (
+                        MailProgress(basis=stored.mail_progress.basis).model_dump(
+                            mode="json"
+                        )
                         if stored.current_execution_contract.mail is not None
-                        else {}
+                        else None
                     ),
                 },
             )
@@ -2137,24 +2136,21 @@ async def _stage_mail_progress(
         result={
             "type": "action_recovery_v1",
             "actual_external_attempts": attempts,
-            "reconciliation_basis": None,
-            "mail_progress": progress.model_dump(mode="json"),
+            "reconciliation_basis": progress.model_dump(mode="json"),
         },
     )
 
 
 def _recovery_state(result: dict[str, object]) -> dict[str, object]:
     canonical = _json_object(result, "action recovery state")
-    keys = {"type", "actual_external_attempts", "reconciliation_basis"}
-    if "mail_progress" in canonical:
-        keys.add("mail_progress")
-        MailProgress.model_validate(canonical["mail_progress"])
-    if (
-        set(canonical) != keys
-        or canonical.get("type") != "action_recovery_v1"
-        or canonical["reconciliation_basis"] is not None
-    ):
+    if set(canonical) != {
+        "type",
+        "actual_external_attempts",
+        "reconciliation_basis",
+    } or (canonical.get("type") != "action_recovery_v1"):
         raise ActionPersistenceDefect("action recovery state is invalid")
+    if canonical["reconciliation_basis"] is not None:
+        MailProgress.model_validate(canonical["reconciliation_basis"])
     attempts = canonical["actual_external_attempts"]
     if type(attempts) is not int or attempts < 0:
         raise ActionPersistenceDefect("action recovery attempts are invalid")
@@ -2166,9 +2162,12 @@ def _uncertainty_result(
 ) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
     keys = {"type", "evidence_code", "recorded_at"}
-    if "mail_progress" in canonical and str(stored.tool_name) in GMAIL_WRITE_NAMES:
-        keys.add("mail_progress")
-        MailProgress.model_validate(canonical["mail_progress"])
+    if (
+        "reconciliation_basis" in canonical
+        and str(stored.tool_name) in GMAIL_WRITE_NAMES
+    ):
+        keys.add("reconciliation_basis")
+        MailProgress.model_validate(canonical["reconciliation_basis"])
     if canonical.get("type") == "agent_uncertainty_v1":
         keys.add("control")
         _agent_evidence(stored, canonical.get("control"))
@@ -2448,7 +2447,9 @@ def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
         raise RuntimeError("resolved action has no durable result")
     if stored.status == "uncertain" and str(stored.tool_name) in GMAIL_WRITE_NAMES:
         return {
-            key: value for key, value in stored.result.items() if key != "mail_progress"
+            key: value
+            for key, value in stored.result.items()
+            if key != "reconciliation_basis"
         }
     if stored.tool_name in WORK_MUTATION_IDS and stored.status in {
         "succeeded",

@@ -12,13 +12,12 @@ import os
 import re
 import shutil
 import stat
-import subprocess
 import sys
 import tempfile
 import time
 import unicodedata
 from collections.abc import Collection, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, BinaryIO, Literal, cast
@@ -28,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from pydantic_core import SchemaValidator, core_schema
 
 from jarvis._secrets import SECRET_MARKER, contains_secret
-from jarvis._thread_io import joined_thread
+from jarvis._thread_io import finish_entered, joined_thread
 
 if TYPE_CHECKING:
     from jarvis.attachments import AttachmentStore
@@ -41,6 +40,7 @@ INTAKE_SECONDS = 60
 _MANIFEST_BYTES = 4_096
 _CHUNK_BYTES = 1024 * 1024
 _SECRET_FOUND = 10
+_BYTES_CHANGED = 11
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 _MEDIA_TYPE = re.compile(
     r"(?:application|audio|font|haptics|image|model|text|video)/"
@@ -338,6 +338,11 @@ class MailFiles:
                 except asyncio.CancelledError:
                     await self.discard(action_id)
                     raise
+                try:
+                    await self._inspect(action_id, copies, deadline)
+                except BaseException:
+                    await self.discard(action_id)
+                    raise
         except MailFileFailure as exc:
             if isinstance(exc.detail, FileUnavailable):
                 logging.getLogger(__name__).info(
@@ -415,66 +420,93 @@ class MailFiles:
                 try:
                     with _directory(str(action_id), root_fd) as staged:
                         for copy, original in opened:
-                            self._stage_slot(
-                                staged, copy.slot, original, copy.file, deadline
-                            )
+                            self._copy_slot(staged, copy, original, deadline)
                         os.fsync(staged)
                     os.fsync(root_fd)
+                    if time.monotonic() >= deadline:
+                        raise MailFileFailure(
+                            FileUnavailable(slot=copies[-1].slot, reason="local_io")
+                        )
                 except BaseException:
                     self._discard(action_id)
                     raise
 
-    def _stage_slot(
-        self,
-        directory: int,
-        slot: int,
-        source: BinaryIO,
-        descriptor: MailFile,
-        deadline: float,
+    @staticmethod
+    def _copy_slot(
+        directory: int, copy: _SourceCopy, source: BinaryIO, deadline: float
     ) -> None:
         try:
             fd = os.open(
-                str(slot), os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=directory
+                str(copy.slot),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+                dir_fd=directory,
             )
-            with os.fdopen(fd, "w+b") as output:
-                size, digest = _copy(source, output, descriptor.size_bytes, deadline)
-                if (size, digest) != (descriptor.size_bytes, descriptor.sha256):
+            with os.fdopen(fd, "wb") as output:
+                size, digest = _copy(source, output, copy.file.size_bytes, deadline)
+                if (size, digest) != (copy.file.size_bytes, copy.file.sha256):
                     raise MailFileFailure(
-                        FileUnavailable(slot=slot, reason="digest_mismatch")
+                        FileUnavailable(slot=copy.slot, reason="digest_mismatch")
                     )
                 output.flush()
                 os.fsync(fd)
-                output.seek(0)
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError("mail file intake deadline")
-                # The Rust validator holds the GIL for the full search.
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-I",
-                        "-m",
-                        "jarvis.mail_files",
-                        "_scan",
-                        str(fd),
-                        str(size),
-                    ],
-                    env={},
-                    input=json.dumps(self._secrets).encode(),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    pass_fds=(fd,),
-                    timeout=remaining,
-                    check=False,
-                )
-            if result.returncode == _SECRET_FOUND:
-                raise MailFileFailure(FileUnavailable(slot=slot, reason="secret"))
-            if result.returncode != 0:
-                raise OSError("mail file scan failed")
-        except (OSError, TimeoutError, subprocess.SubprocessError) as exc:
+        except OSError as exc:
             raise MailFileFailure(
-                FileUnavailable(slot=slot, reason="local_io")
+                FileUnavailable(slot=copy.slot, reason="local_io")
             ) from exc
+
+    async def _inspect(
+        self, action_id: UUID, copies: list[_SourceCopy], deadline: float
+    ) -> None:
+        # The Rust validator holds the GIL for the whole-file search.
+        secrets = json.dumps(self._secrets).encode()
+        with (
+            _directory(self._stage) as root,
+            _directory(str(action_id), root) as staged,
+        ):
+            for copy in copies:
+                try:
+                    async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+                        with _regular(staged, str(copy.slot)) as stream:
+                            worker = await asyncio.create_subprocess_exec(
+                                sys.executable,
+                                "-I",
+                                "-m",
+                                "jarvis.mail_files",
+                                "_scan",
+                                str(stream.fileno()),
+                                str(copy.file.size_bytes),
+                                copy.file.sha256,
+                                env={},
+                                stdin=asyncio.subprocess.PIPE,
+                                stdout=asyncio.subprocess.DEVNULL,
+                                stderr=asyncio.subprocess.DEVNULL,
+                                pass_fds=(stream.fileno(),),
+                            )
+                            try:
+                                await worker.communicate(secrets)
+                            finally:
+                                if worker.returncode is None:
+                                    with suppress(ProcessLookupError):
+                                        worker.kill()
+                                    await finish_entered(
+                                        asyncio.create_task(worker.wait())
+                                    )
+                    verdict = worker.returncode
+                    if verdict == _SECRET_FOUND:
+                        raise MailFileFailure(
+                            FileUnavailable(slot=copy.slot, reason="secret")
+                        )
+                    if verdict == _BYTES_CHANGED:
+                        raise MailFileFailure(
+                            FileUnavailable(slot=copy.slot, reason="digest_mismatch")
+                        )
+                    if verdict != 0 or time.monotonic() >= deadline:
+                        raise OSError("mail file scan failed")
+                except OSError as exc:
+                    raise MailFileFailure(
+                        FileUnavailable(slot=copy.slot, reason="local_io")
+                    ) from exc
 
     async def read(self, action_id: UUID, slot: int, expected: MailFile) -> bytes:
         if not 1 <= slot <= MAIL_MAX_FILES or expected.size_bytes > MAIL_MAX_BYTES:
@@ -525,13 +557,14 @@ class MailFiles:
         await joined_thread(remove_orphans)
 
 
-def _scan(fd: int, size: int) -> int:
+def _scan(fd: int, size: int, digest: str) -> int:
     if not 0 <= size <= MAIL_MAX_BYTES:
-        return 2
+        return _BYTES_CHANGED
     with os.fdopen(fd, "rb") as stream:
+        stream.seek(0)
         data = stream.read(size + 1)
-    if len(data) != size:
-        return 2
+    if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+        return _BYTES_CHANGED
     secrets = cast(list[str], json.load(sys.stdin))
     if any(secret and secret.encode() in data for secret in secrets):
         return _SECRET_FOUND
@@ -548,8 +581,8 @@ def _scan(fd: int, size: int) -> int:
 
 
 def main() -> None:
-    if len(sys.argv) == 4 and sys.argv[1] == "_scan":
-        raise SystemExit(_scan(int(sys.argv[2]), int(sys.argv[3])))
+    if len(sys.argv) == 5 and sys.argv[1] == "_scan":
+        raise SystemExit(_scan(int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]))
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     prepare = commands.add_parser("prepare")

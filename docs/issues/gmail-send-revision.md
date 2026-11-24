@@ -1,6 +1,6 @@
 # an edit can change the message after send approval
 
-the sender checks the live draft against the approved recipients and content, then sends only the stable draft id. a second gmail client can replace the message in that interval. the success receipt records the digest of the approved content. [sender](../../src/jarvis/write_connectors.py#L694) · [send contract](../../SPEC.md#55-gmail-send)
+the sender checks the live draft against the approved recipients and content, then sends only the stable draft id. a second gmail client can replace the message in that interval. the success receipt records the digest of the approved content. [sender](https://github.com/NielsdaWheelz/jarvis/blob/cfd82ec/src/jarvis/write_connectors.py#L694) · [send contract](../../SPEC.md#55-gmail-send)
 
 an offline provider fixture at `cfd82ec` returned the approved text on the draft read and replaced it before handling the send. the actual connector posted only `id`. the fixture's send-as-is operation selected the edit. this reproduces the request sequence locally. production occurrence is unknown.
 

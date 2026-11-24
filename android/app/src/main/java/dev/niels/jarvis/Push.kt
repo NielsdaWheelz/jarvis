@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -233,7 +234,8 @@ internal class PhoneAlerts private constructor(context: Context) {
         if (!manager.alertsAllowed()) return "notifications are blocked on this phone"
         val messaging = FirebaseMessaging.getInstance()
         val fid = withTimeoutOrNull(15_000) {
-            messaging.isAutoInitEnabled = true
+            // Firebase can synchronously wait for its installation ID here.
+            runInterruptible(Dispatchers.IO) { messaging.isAutoInitEnabled = true }
             messaging.register().await()
             val latest = FirebaseInstallations.getInstance().id.await()
             registered.filterNotNull().first { it == latest }

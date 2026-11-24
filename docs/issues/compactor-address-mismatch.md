@@ -107,3 +107,28 @@ retirement of a removed id, and traversed a generation-2 range.
 private candidate manifest `adr0100-current-main-20261124/artifact-final/candidate.json`,
 sha-256 `6079c082d1dbb900631eb8956a03ab0bfeb8e5dd5682a0e858d408167d55cec6`.
 production progress and the two user outcome checks remain open.
+
+## production writer cut
+
+on november 24, `ea2b825` at schema `0022` passed the exact x64 install,
+independent opus review and generation 2 postgres proof. one malformed
+two-field call was corrected once. the isolated run committed all seven
+expected nodes, including an inferred parent from a 2,581-byte frame.
+the existing capture/retry regression passed.
+
+owner web pause 41 committed at 06:47:56 utc. both writers were stopped
+at 06:48:38. the baseline held 20,070 admitted positions, a ready prefix
+of 7,760 and 15,390 tree nodes. the mark was clear and no retry ran.
+the selected release and both services were verified at 06:49:32 under
+the retained pause. the new backup reopened an event, a note and a
+retired reference from both the remote and held copies. its timer was
+active at 06:52:10. both v5 collectors retained their installed pins.
+all 5,784 original checkpoint boundaries survived, and a later event
+was admitted with exactly its declared distinct parts.
+
+the private mac cut receipt is
+`adr0100-final-20261124/production/cut-receipt.json`, sha-256
+`ab1493c6182ff407a683b67eeff00f0538c60afa810f155daa31c9f761da6cda`.
+the 06:56 read still showed pause 41, a clear mark and a prefix of 7,760.
+owner resume and the production writer proof remain open. the capacity
+window and recall verdict remain separate.

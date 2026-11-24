@@ -1,6 +1,6 @@
 # claude transcript metadata and post-cut recovery
 
-recover every eligible parked claude chat under v3 before adr 0098 freezes workers. both releases use the same reader rule for existing and future chats. codex, missing devbox sources and compaction retain their own work. [incident and replay](issues/macbook-claude-data-flow-capture.md) · [v3 contract](decisions/0089-native-capture-repair.md) · [v4 contract](decisions/0098-conversation-capture.md)
+recover every eligible parked claude chat under v3 before adr 0098 freezes workers. both releases use the same reader rule for existing and future chats. codex, missing devbox sources and compaction retain their own work. [installed verification](#installed-verification) · [v3 contract](decisions/0089-native-capture-repair.md) · [v4 contract](decisions/0098-conversation-capture.md)
 
 ## 1. classify at the source
 
@@ -47,4 +47,39 @@ hold the release lock, stop `jarvis-memory.service`, compare each stopped row to
 
 compare every ordered native id/digest to central from its original cut or checkpoint. these 39 include zero forks. an additional fork permits omission only with native direct-origin proof and complete central parts matching that origin digest. verify prior parts, unique contiguous parts, one leaf per part and acknowledged advancement to the frozen terminal pair or a verified extension. reopen each witness through installed paged `memory_open` and compare its normalized text hash. verify a fresh ordinary reply in one unaffected same-lane chat.
 
-before `0020`, require each closure receipt or an owner exception naming the outstanding ids, plus a qualified v4 collector with this fix. `3841c0f` predates it. report recovered, still parked and missing-source counts separately with totals and hashes. [stopped cut](operations.md#stopped-conversation-capture-cut-from-0019-to-0020) · [separate nul and missing-source cases](issues/macbook-claude-data-flow-capture.md)
+four workers already retain their terminal checkpoint pair. when replay finds an empty suffix, require a new caught-up acknowledgement at that same pair, a cleared diagnostic and identical prior parts and leaves. count these separately from the 35 chats with missing post-cut data.
+
+before `0020`, require each closure receipt or an owner exception naming the outstanding ids, plus a qualified v4 collector with this fix. `3841c0f` predates it. report recovered, still parked and missing-source counts separately with totals and hashes. [stopped cut](operations.md#stopped-conversation-capture-cut-from-0019-to-0020) · [command output](issues/adr0098-installed-capture.md) · [missing devbox sources](issues/devbox-work2-native-source.md)
+
+## installed verification
+
+on november 24, macbook and devbox selected v3 jarvis `74b616a`, provider
+`3dc3fb7`, kernel `32ca343` and fleet `e093061`. their active processes
+authenticated all six lanes each. independent opus review passed v3 and v4
+after the detached mac reader, postgres, http and mcp checks. temporary
+probes and fixtures were removed. v4 qualified at jarvis `403b1f7`, provider
+`36c5b34`, kernel `8f10cdf` and fleet `8aee9cf` for the separate `0020` cut.
+
+central stayed on `43ed919` / `0019`. the `0020` operator held its cut and
+handed back pause `33` before the scoped memory stop. the 39 stopped retry
+receipts changed only their named diagnostics. the memory stop was requested
+at 02:48:19.872669 utc, the unit was active at 02:50:57.269493, and
+authenticated reads returned by 02:51:13. the assistant stayed active.
+
+all 39 cases closed. 35 yielded 4,197 ordered native ids and digests,
+4,641 complete unique parts and one leaf per part. the 994 prior parts and
+their leaves matched. four workers acknowledged the same terminal pairs
+with zero additional parts. all five prior checkpoint pairs matched
+inclusively. all 27 later witnesses and a fresh reply in the same unaffected
+chat reopened through installed paged `memory_open` with the expected hashes.
+the ordinary projection retained gaps, branch events and context references
+and clipped 198,028 tool-output characters under the existing cap.
+
+backfill arrived from 02:54:34.104869 to 03:29:30.698749 utc. devbox
+authenticated the new release at 03:31:54 utc. these precede the declared
+november 24–25 capacity window. no metadata parks remain. one separate
+claude nul park and 21 missing-source devbox baselines remain open.
+
+the closed incident record is preserved at git commit `9c5fc56`. the
+private per-conversation closure receipt has sha256
+`186f0a94ad1d1069bc67b26e494a745653425ddc31d719d9c912d3b4d3d87f41`.

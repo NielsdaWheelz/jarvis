@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
@@ -306,7 +306,7 @@ internal fun JarvisPaper(
         headlineLarge = type.headlineLarge.copy(fontFamily = FontFamily.Serif),
         headlineSmall = type.headlineSmall.copy(fontFamily = FontFamily.Serif),
     )) {
-        Column(modifier.background(colors.background), content = { content() })
+        Surface(modifier, color = colors.background, contentColor = colors.onBackground, content = content)
     }
 }
 

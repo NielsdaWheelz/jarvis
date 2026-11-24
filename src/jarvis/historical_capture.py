@@ -282,8 +282,8 @@ async def _probe_codex(
 async def observe_native(
     cohort: HistoricalCohort, config: CollectorConfig
 ) -> HistoricalEvidence:
-    if ARCHIVE_CONTRACT_REVISION != "native-archive.v4":
-        raise ValueError("historical recovery requires the selected native v4 adapter")
+    if ARCHIVE_CONTRACT_REVISION != "native-archive.v5":
+        raise ValueError("historical recovery requires the selected native adapter")
     calls = _invocations(cohort.events)
     candidates: dict[UUID, list[HistoricalEvent]] = defaultdict(list)
     for event in cohort.events:

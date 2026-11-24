@@ -1,0 +1,5 @@
+# adr 0103. capture the selected codex history after a rewind
+
+the owner replaced the earlier all-version recovery plan with selected-history capture. the mac found five divergent edges across three parked roots. codex serves each selected history. intermediate versions can contain replies outside that view. their uncaptured replies may remain absent from shared memory. [incident](../issues/macbook-codex-work-capture.md#three-changed-histories)
+
+keep the original admission cut and all archive addresses. for paginated `macbook/codex-work` capture, a confirmed missing checkpoint permits a reread from that cut. preserve complete originals with matching ids and digests, append new occurrences once, and continue from the committed receipt. a missing cut or a changed digest still parks. the [feature contract](../codex-history-recovery.md) amends the confirmed-missing case in [0089](0089-native-capture-repair.md) and retains [0098](0098-conversation-capture.md)'s accounting rules. hard-cut to `native-archive.v5` with a receipt generation. it fences delayed uploads across checkpoints restored by a rewind.

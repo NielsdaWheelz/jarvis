@@ -817,7 +817,7 @@ def inspect_database(idle, online):
 
 
 def check_source_idle(release, schema):
-    observed = subprocess.check_output(
+    result = subprocess.run(
         [
             "systemd-run",
             "--quiet",
@@ -832,9 +832,19 @@ def check_source_idle(release, schema):
             "inspect-database",
             "--idle",
         ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
         text=True,
-    ).strip()
-    require(observed == schema, "database schema does not match the selected source")
+        check=False,
+    )
+    require(
+        result.returncode == 0,
+        result.stderr.strip() or "database idle inspection failed",
+    )
+    require(
+        result.stdout.strip() == schema,
+        "database schema does not match the selected source",
+    )
 
 
 def main():

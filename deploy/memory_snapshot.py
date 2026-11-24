@@ -27,6 +27,7 @@ STOPPED_TABLE_KEYS = {
     "memory_log": "id",
     "memory_summary": "id",
     "source_record": "id",
+    "memory_retired_source_record": "id",
     "source_conversation": "id",
     "memory_lane": 'machine COLLATE "C", account COLLATE "C"',
     "memory_leaf": "position",
@@ -44,7 +45,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0020"
+SCHEMA_REVISION = "0021"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")

@@ -129,8 +129,42 @@ the merged source at `41d8c62` passed a detached pg16 migration and rejected
 altered notice receipts, unrelated changed work, retired pending questions and
 excess database grants. the checkout and database fixture were removed.
 see `~/.local/state/jarvis/qualification/adr0105-maintenance-pg16/receipt.json`.
-the installed android cut, exclusive gmail journey,
-backup handoff and discord revocation remain open. remaining device and
-identity gates include a fresh browser session and otherwise unauthorized
-account, administrator revocation of the phone grant, a real canvas handoff
-and withdrawal, physical page six, grant expiry, reboot/unlock and reinstall.
+
+## installed release on november 24 utc
+
+- `c8d1751` serves schema `0023` after named change
+  `03036a5a-ec6d-4447-81e7-3611cd7f2a87`. a macbook postgres 16.16 restore
+  of the protected stopped snapshot verified the original database and private
+  state before migrating. the packaged target returned zero compatibility
+  findings. all five parked requests, resume 42 and all 118 accepted discord
+  notice ids matched across the cut. the three intended units restarted and
+  the backup timer stayed enabled. its service published off-host generation
+  `20261124T085841972151Z-12f9d7cbbffd4fe9ae4b260dd85c6567`. the macbook's
+  pinned reader restored it in about 20 minutes and reopened an event, a note
+  and a retired record. the verified restore replaced the held recovery copy.
+- adversarial review found a same-change retry failure after target selection.
+  the real postgres entry reproduced the failure, verified the fix at `f70454e`
+  and rejected mismatched selection, missing custody and changed evidence.
+  the temporary checks were removed. independent codex reviewed the repair
+  and the live rehearsal helper after opus reached its provider limit.
+- during the hold, an isolated candidate used the real connected gmail
+  account to create and edit one self-addressed unsent draft with the exact
+  seven-page pdf. its linked todo reopened the earlier revision with zero
+  gmail reads. scripted native invocations exercised the real dispatcher
+  and settlement. the probe verified draft deletion and zero sends.
+  production google state bytes matched. the rehearsal guest, gmail database,
+  temporary credentials and probe sources were removed.
+- before the cut, signed version 4 opened an exact old reply. during the
+  hold it saved a real pdf share from android files and returned to files.
+  the selected service reopened the same reply by id. live alert setup showed
+  “push setup required” and the phone disconnected from usb before diagnosis.
+  the owner chose to skip further handset checks. the staged share stayed a
+  local draft. prior isolated notification delivery remains separately verified.
+
+private evidence is under
+`~/.local/state/jarvis/qualification/{adr0105-installed-cut,adr0105-stopped-cut-03036a5a,adr0105-named-retry-pg16}`.
+remaining device and identity gates include a fresh browser session and
+otherwise unauthorized account, administrator grant revocation, a real canvas
+handoff and withdrawal, physical page six, file grant expiry, reboot/unlock and
+reinstall. [installed phone handoff](../issues/mobile-share-handoff.md) and
+[discord retirement](../issues/discord-alert-channel.md) remain open.

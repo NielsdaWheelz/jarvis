@@ -52,4 +52,23 @@ on 2026-11-20, opus 5.5 signed off on design, red, green, refactor and live evid
 - real stock against a controlled backend emitted the typed context failure. the predecessor lost the cause. the final codec, precedence controls and exact kernel seal passed. real postgres proved the per-input deadline, both crash edges, late seals and one notice after a spent retry. the retained capture/retry regression passed.
 - on macbook, a controlled lower threshold produced a real compaction and a correct later answer within one stock turn. separate runs used a controlled failed seal and a live fresh model. web chat verified all 73 records in one run and reported the gap at 40 in the blocked run. the original uncertain action remained byte-identical with one entry. the blocked rerun used a grader that recognizes “unresolved” after the first grader rejected that wording.
 - three live worker journeys passed through skid and real restarts. the completed and pending-parent runs used slightly different owner wording from the predecessor. in both, one registered wait produced one event and evidence-backed web handling. a still-pending parent retains its ordinary due turn and jarvis can speak on that later turn. a confirmed launch without a wait recovered its original receipt with one entry and no registered watch.
-- scoped probes and fixtures were removed. [one clean setup checkout](../issues/adr0094-rehearsal-checkout-hold.md) remains under a virtualization read hold. the optional linux fixture failed during setup and was cleaned. installed acceptance remains a separate cut.
+- scoped probes and fixtures were removed. the initial clean setup checkout was held by virtualization until the [november 24 cleanup](#rehearsal-cleanup-on-november-24). the optional linux fixture failed during setup and was cleaned. installed acceptance remains a separate cut.
+
+## rehearsal cleanup on november 24
+
+the mac cleared the checkout holds from 0094, 0095, 0097, 0101 and 0105.
+all 34 detached rehearsal registrations and paths are gone. ordinary cleanup
+removed 27. the seven obsolete failed runs were archived in full with their
+git metadata and original failed receipts before retirement. six additional
+empty scratch directories were removed. the older `jarvis-0097` checkout
+and registration were also verified absent.
+
+the private mac evidence is `~/.local/state/jarvis/evidence/detached-cleanup-20261124T184046Z/`.
+`cleanup.json` has sha-256
+`94624e043d9d482f0a4fc9a51f9980e5c8fb6b91657c5e5feffeed157cc60321`.
+`abandoned-failures/retirement.json` has sha-256
+`e92983a50e870b9974280edc69c943d8d0037e6d70153a7b66f7ab6d411c065e`.
+
+`virtualization-holds.json` records the original receipts and the absence of
+all 15 paths named by these holds. its sha-256 is
+`357c94af8a2fca74754346b665d462c6019b5780ec586d99dca5b4c52e276e99`.

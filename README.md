@@ -1,16 +1,17 @@
 # Jarvis
 
-jarvis is a persistent personal assistant. this branch implements its private home at
-`jarvis.nielseriknandal.com` behind google sign-in. production still uses discord chat. the sidebar holds conversation,
-todos and decisions. jarvis publishes the main canvas from its private notes repo.
-discord delivers short private links. [web home and release status](docs/decisions/0087-private-web-home.md)
+jarvis is a persistent personal assistant with a private web home at
+`jarvis.nielseriknandal.com` and a signed android client. the home opens a
+published page or the todo overview. chat holds the conversation and approvals.
+the enrolled phone receives firebase notices that open the corresponding reply.
+[installed android and web handoff](docs/decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc)
 
 this repository is specification-first. native cognition and shared memory are
 installed and owner-resumed. the online memory rollout is qualified with the
 [named profile deferrals](docs/implementation-plan.md#memory-installed-rollout);
 installed worker observation remains separate. the [feature roadmap](docs/implementation-plan.md) owns remaining
 product work, missing specs, external repository handoffs and operational tasks.
-backup and restore remain deferred.
+central memory has [scheduled off-host backups and verified restores](docs/decisions/0088-storage-and-memory-recovery.md#scheduled-production-backups).
 
 the native main cutover in [adr 0065](docs/decisions/0065-native-agent-supervision.md)
 replaces the bounded main loop and file-backed control. it preserves isolated
@@ -44,7 +45,7 @@ optional notes use the same append-only tree. nightly dreaming quietly
 appends attributed syntheses, which create no new seeds or proactive turns.
 realistic-load
 and usefulness evaluation belongs to a [later pr](docs/issues/memory-usefulness-evaluation.md),
-as does broader personal acceptance; this delivery adds no backup or history import.
+as do broader personal acceptance and historical import.
 
 ## implemented source
 
@@ -79,9 +80,9 @@ reservation or arbitrary main cutoff remains. finite operation limits and effect
 uncertainty barriers remain. skid owns independent worker launch/control; jarvis
 owns durable observation and integration.
 
-the source has nineteen application tables. schema `0017` adds `home_notice` for
-delivery of private links. canonical conversation and work stay in their existing
-tables.
+schema `0023` has twenty application tables. `home_notice` records delivery of
+private notices, and `memory_retired_source_record` keeps identities retired by
+the historical cleanup.
 
 ```text
 message
@@ -96,6 +97,7 @@ native_input_delivery
 memory_lane
 source_conversation
 source_record
+memory_retired_source_record
 memory_leaf
 memory_node
 memory_state
@@ -195,9 +197,9 @@ receipts qualify only their named artifacts and boundaries.
 - deployment administration runs from the operator workstation through the
   separately keyed `dev-server-deploy` ssh alias with `sudo -n`. `dev-server`
   is the unprivileged developer connection; it has no administrative fallback.
-- Intended deployment: isolated host-native service on the existing Hetzner
-  `dev-server`, with native loopback PostgreSQL; no v1 backup
-- the private web home is the primary client. one discord channel receives notification links.
+- the host-native service runs on `dev-server` with native loopback postgres and
+  off-host central memory backups. [deployment operations](docs/operations.md)
+- the private web home and android client share one conversation. firebase carries phone alerts.
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
 - worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
@@ -243,7 +245,7 @@ without adopting every later roadmap contract.
 - General subagent delegation or a model-generated program runtime in v1
 - A project-management database or personal knowledge graph
 - A workflow-engine deployment
-- A mobile application in v1
+- a native ios client
 - Authenticated browsing, browser automation, or unrestricted Web access
 - Rebuilding integrations that already work
 - Broad speculative integration work
@@ -260,8 +262,8 @@ these describe current source trade-offs; installed behavior is qualified separa
   delay stopping. A first SIGINT retains exit status 130; the existing 360-second
   systemd deadline or a second interrupt can force termination and crash recovery.
   Shutdown does not stop independently running Codex workers or shared servers.
-- cloudflare carries authenticated web traffic. discord receives a fixed reply or decision
-  label and the private link. google handles sign-in.
+- cloudflare carries authenticated traffic and google handles sign-in. firebase
+  receives opaque notice and message ids and a generic alert kind.
 - The complete raw memory corpus and every semantic-search query are disclosed
   to the embedding processor; see
   [ADR 0008](docs/decisions/0008-embedding-source.md). Ingestion, backfill, and
@@ -283,12 +285,6 @@ these describe current source trade-offs; installed behavior is qualified separa
   does not prove that the model interpreted the owner's meaning correctly.
 - owner speech and approvals share one web conversation. the newest published home
   opens on a fresh visit. open tabs retain the revision they were reading.
-- The reused Discord role has 25 inherited permissions beyond the four Jarvis
-  needs. V1 accepts that dormant authority by owner choice: Administrator and
-  management/moderation authority remain prohibited, Discord is absent from the
-  model tool catalog, and the narrow host adapter suppresses mentions and link
-  embeds. A compromised bot token or host process nevertheless has more Discord
-  authority than Jarvis needs.
 - Public search queries are disclosed to Brave, and public page reads disclose
   the requested URL and host IP to the destination. The tools send no connector
   credentials or cookies and do not provide authenticated or JavaScript browsing.
@@ -356,9 +352,8 @@ these describe current source trade-offs; installed behavior is qualified separa
 - Every action has a finite lifetime executor-entry ceiling. A proven-absent
   effect can end failed when that capacity is exhausted rather than retrying
   forever.
-- discord deduplicates each persisted notice nonce for a short window. a delayed
-  retry after a lost acknowledgement can repeat the phone alert. its link resolves
-  to the one canonical reply or decision.
+- firebase acceptance settles dispatch. a delayed retry can repeat the phone
+  alert after dismissal. the notice opens the same canonical message.
 - Some providers cannot prove whether every timed-out external effect committed.
   Jarvis exhausts provider-specific automatic reconciliation first, then records
   terminal `uncertain` with the original evidence. main explains the limitation;

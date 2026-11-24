@@ -115,4 +115,6 @@ containment passed. the managed instructions from dev-server `144ba08` matched o
 
 owner web resume 20 committed at 05:32:51 utc as `1ab75e88-77cf-4e74-ba67-9912f78259a2`. canonical reply `c9901b68-5dde-5277-914e-5d1acc1775a5` has a discord notice receipt. a calendar-attention wake preempted compression, completed in native attempt `d1871393-d71f-4fc5-8d80-c82450f2aee1` at 05:33:21 utc, and returned through foreground admission to compression. both units remained active with zero restarts.
 
-[installed acceptance](../issues/memory-freshness-installed.md) tracks genuine correction recall. [historical capacity](../issues/memory-usefulness-evaluation.md) awaits an ordinary busy and quiet interval.
+at the november 23 preflight, a fresh session saw four recent exchanges with a ready prefix of 8,184 of 76,689. the complete november 19 incident reopened. installed index status counted 4,209 eligible records, all embedded, and zero pending canonical publications.
+
+[genuine correction recall](0100-host-bound-summary-fields.md#installed-correction-recall) passed in a fresh session. [historical capacity](../issues/memory-usefulness-evaluation.md) awaits an ordinary busy and quiet interval.

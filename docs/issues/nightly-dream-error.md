@@ -13,3 +13,9 @@ reproduced failure and fix its owning layer. close this incident on identified
 cause, a representative corrective check and installed completion with
 consistent notes, references and seed progress. retain the historical
 uncertainty if reproduction cannot identify the cause.
+
+the production archive contains six synthesis notes committed together on
+november 21 at 11:05:08 utc. at the november 23 readback the nightly seed
+cursor had reached 8,184, the full ready prefix. newer captured material was
+still waiting on the [parked compactor](compactor-native-event-buffer.md).
+the november 20 failure cause remains unknown.

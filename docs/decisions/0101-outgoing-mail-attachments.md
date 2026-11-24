@@ -1,6 +1,6 @@
 # adr 0101 — files in outgoing gmail
 
-status — source, detached rehearsal and isolated connected-account acceptance passed. the [production cut and installed smoke](../issues/outgoing-mail-installed-cutover.md) are pending. this narrows the outgoing-file deferral in [0075](0075-v2-completion-and-subscription-model.md), amends the draft and recovery rules in spec §§5 and 9, and retains [0024’s creation-derived effect header](0024-use-a-stable-gmail-effect-header.md).
+status — source, detached rehearsal, isolated connected-account acceptance and [installed smoke](#production-cut) passed. this narrows the outgoing-file deferral in [0075](0075-v2-completion-and-subscription-model.md), amends the draft and recovery rules in spec §§5 and 9, and retains [0024’s creation-derived effect header](0024-use-a-stable-gmail-effect-header.md).
 
 ## what the owner can do
 
@@ -142,5 +142,33 @@ deployment lock handed back to the adr 0098 operator. the test thread and
 full-size macbook file remain for inspection. cleanup removed the extra
 unsent draft, temporary r2 original, isolated host runtime and postgres
 database. the temporary integration and live probes were deleted after green. the
-[earlier detached checkout residue](../issues/outgoing-mail-rehearsal-residue.md)
-is tracked separately.
+the [november 24 cleanup](0094-worker-tools-and-native-context.md#rehearsal-cleanup-on-november-24) removed the four earlier detached checkouts.
+
+## production cut
+
+on november 24 utc, the completed adr 0103 cut handed back release
+`3e87705` on schema `0022`. release `a612c518380445b75ae96008265b638f0d38aa27`
+composes both changes. hosted ci, independent opus, frozen runtime
+composition and the disposable `0022` capture regression passed.
+
+owner web pause 39 was recorded at 06:01:51 utc. the stopped old-send audit
+found zero historical gmail actions and wrote a clear receipt. activation
+found zero incompatible or in-flight actions. both writers and the contained
+host were serving the selected release by 06:03:08. the schema remained
+`0022`. containment and private home checks passed. web resume 40 was
+recorded at 06:07:28. gmail polling succeeded immediately after resume.
+
+the owner asked the installed contained native role to publish the
+hash-verified scp transfer and draft a self-addressed message. the draft
+readback verified the 47-byte attachment. the transfer, native publication
+and action stage were absent before the owner separately approved in chat.
+gmail accepted one send. an independent read-only gmail request verified
+the approved envelope and body, exact attachment hash and `SENT` and
+`INBOX` labels on the received message. the test message was retained.
+
+the private evidence directory is
+`~/.local/state/jarvis/qualification/adr0101/production-20261124T054249Z`.
+the installed smoke readback sha-256 is
+`d725297820b93f5606970943a3fa490cde7023e98fbacc42548237cccd46ccab`.
+the shared candidate slot was handed back at 06:11:57 with both writers
+and the backup timer active.

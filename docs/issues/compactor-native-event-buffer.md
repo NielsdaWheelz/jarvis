@@ -30,6 +30,15 @@ drain passed independent socket and ordinary compactor checks. the isolated
 `7e9d887` guest closed synthetic `0+8` after one clear, with xid 1179
 followed by independent xid 1180. [candidate evidence](../decisions/0093-subscription-model-refresh.md#candidate-evidence)
 
+on november 23 at 17:56 utcthe selected production release was still
+`e7f5916` at schema `0018`. the database held the same park, 16,308 tree
+nodes and a ready prefix of 8,184 out of 76,689 admitted positions. the
+first uncovered original arrived november 19 at 00:00:20 utc. every 12-hour
+backup from november 21 00:00 through november 23 12:00 recorded the same
+prefix and node count. the protected archive grew from 67,128 to 76,044
+positions between those two backups. the subsequent live read adds 645
+more positions. [scheduled backups](../decisions/0088-storage-and-memory-recovery.md#scheduled-production-backups)
+
 at 19:38 utc on november 23, a repeatable-read production snapshot found
 the original `invalid_completion` at `8112+8`, its parent `(3,1014)`
 absent, 8,184 of 80,291 positions covered, and 16,308 committed nodes.
@@ -74,4 +83,4 @@ and `recovery-commit-journal.log`. [busy and quiet capacity measurement](memory-
 
 at 20:57:50 the worker parked at a different address after a completed
 model turn returned the wrong address set. both recovery transactions
-remained visible. [new park at 8232+8](compactor-address-mismatch.md)
+remained visible. [new park at 8232+8](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/compactor-address-mismatch.md)

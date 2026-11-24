@@ -52,7 +52,7 @@ at spec sha256 `179dd9956107a5549574131cadcf1e7a8752db72d779fac70d255c978414706b
 the predecessor can still send a message while draining its calendar queue.
 the implementation and isolated qualification are recorded in
 [0096 evidence](decisions/0096-calendar-on-demand.md#implementation-evidence).
-real google verification is owner-deferred. installation remains separate.
+the [live calendar check](decisions/0096-calendar-on-demand.md#live-google-calendar) passed. production selected `43ed919/0019`, and gmail polled after owner resume 32. [installed cut](decisions/0096-calendar-on-demand.md#installed-calendar-cut)
 
 ## terminal-only worker cutover — source implemented and isolated-qualified
 
@@ -69,14 +69,13 @@ does not replace the separate worker observation journey.
 collector cut and its installed recovery evidence. the [claude reader repair](claude-data-flow-capture.md)
 owns the november 23 metadata parks and their recovery before the v4 worker cut.
 the [codex rewind repair](codex-history-recovery.md) follows historical
-archive cleanup at schema `0022`.
+archive cleanup. the [installed recovery](codex-history-recovery.md#installed-closure) passed at schema `0022`.
 
 [adr 0105](decisions/0105-native-android.md) owns the android and discord cut.
 qualify access and the release signer first. handset, linked results and push
 use their frozen interfaces in parallel. the final integration composes the
 new schema and both clients against the selected predecessor. the
-[installed handoff](issues/mobile-share-handoff.md) remains open through the
-real phone, backup and retirement checks.
+[installed handoff](issues/mobile-share-handoff.md) records the verified phone journey, backup restores, discord retirement and remaining handset checks.
 
 ## destination and rules
 
@@ -124,10 +123,9 @@ at the longest installed owner zone. independent opus 5.5 accepted source and ev
 the macbook receipt is `~/.local/state/jarvis/qualification/adr0097-implementation/acceptance.json`,
 sha256 `71551bec10b68e435c77aa354cfbe3c2a0958b98f92267e197bfc586895b586d`.
 the sibling `cleanup.json`, sha256 `cbf8393ccbddc9c6a3ee66d0791afd14ac74e9389ad2c11d683f8076c95d3e20`,
-records probe and fixture deletion and the [retained clean checkout](issues/adr0094-rehearsal-checkout-hold.md).
+records probe and fixture deletion. the [november 24 cleanup](decisions/0094-worker-tools-and-native-context.md#rehearsal-cleanup-on-november-24) confirmed removal of the intermediate checkout.
 the [installed issue](issues/default-home-work.md) stays open through acceptance.
-the [dedicated mobile pr](issues/mobile-share-handoff.md) would deliver native
-iphone and android clients, inbound sharing and native push, then retire discord alert delivery.
+the [private android client](decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc) handles sharing and push. iphone uses web access.
 
 ## full answers in web chat
 
@@ -144,8 +142,8 @@ independent opus 5.5 at max accepted the revised design on web-chat main
 mac rehearsal workflow, host capacity signal and jarvis backup/restore units.
 deliver against the installed memory baseline. qualify the first isolated
 off-host restore before enabling the recurring job. the source and isolated
-journeys passed, and local disk sampling is installed. the first production recovery passed.
-scheduled-run proof remains open. the [restore issue](issues/memory-backup-restore.md) tracks acceptance.
+journeys passed, and local disk sampling is installed. the first production recovery and
+[seven scheduled backups](decisions/0088-storage-and-memory-recovery.md#scheduled-production-backups) are verified.
 
 ## shared memory freshness
 
@@ -156,7 +154,7 @@ actual collector and service pins. installation and the
 [historical cleanup](decisions/0102-historical-capture-cleanup.md) ship in order. the latter scans all records at deployment after the v4 filter is active. the
 macbook claude data-flow preflight identified four parked top-level chats and
 30 child/workflow sessions. reconcile these by proven identity at the cut.
-the four roots remain in scope for source repair.
+[installed verification](claude-data-flow-capture.md#installed-verification) subsequently closed all 39 cases, including the four roots.
 
 the owner selected the 30,000-character cap on new built-in call arguments.
 independent claude opus 5.5 at max passed that design at sha256
@@ -175,16 +173,15 @@ historical capacity and genuine installed recall earn separate evidence.
 and single batch correction. its current-main candidate follows the separate
 `0020` capture rollout and [archive rewrite](decisions/0102-historical-capture-cleanup.md).
 the old `8232+8` replay is retired. the armed november 24–25 samples keep their
-actual generation. production progress, overnight capacity and genuine
-recall need their own receipts after the writer cut.
+actual generation. [installed writer progress and blinded recall](decisions/0100-host-bound-summary-fields.md#installed-writer-recovery) passed. [overnight capacity](issues/memory-usefulness-evaluation.md#installed-terra-observation) is still under observation.
 
 [adr 0101](decisions/0101-outgoing-mail-attachments.md) owns outgoing gmail files. integrate file intake, draft revisions and approved send in that order. three content designers supplied the feature contracts. independent claude opus 5.5 at max effort passed the design at sha256 `20f4beb484dd0a6a90e54879980a8a90dd81ec62bae87cb2e8dd8a9e564db97b`. the macbook receipt is `~/.local/state/jarvis/qualification/adr0101/design-20f4beb484dd.txt`, sha256 `c1ec88e4d51fb066618f46d3ebc809947c6992a17847276b47f3750d0922deca`.
 
 source and the detached macbook rehearsal passed. the isolated candidate passed
 the actual phone upload, approval, approved-content send during a gmail edit,
 and 25,000,000-byte self-bcc reply with lost-ack recovery. the adr records
-scanner and service measurements. the [production cut and installed smoke](issues/outgoing-mail-installed-cutover.md)
-remain open.
+scanner and service measurements. the [production cut and installed smoke](decisions/0101-outgoing-mail-attachments.md#production-cut)
+passed on schema `0022` after adr 0103.
 
 ## subscription model refresh
 
@@ -1259,7 +1256,6 @@ separately specify [historical imports](issues/memory-historical-import.md)
 (pre-activation lanes, legacy codex homes,
 old canonical jarvis messages and old-note lineage), including deduplication,
 provenance, extraction cost and order; nexus historical import;
-[backup/restore](issues/memory-backup-restore.md);
 broader [usefulness/load evaluation](issues/memory-usefulness-evaluation.md); and disabling or
 reconciling native automatic memories. retained native history preserves an import
 opportunity, not proof of capture. preserve existing messages/notes in the meantime.

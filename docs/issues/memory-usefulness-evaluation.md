@@ -63,7 +63,7 @@ terra ran for just over three minutes under resume 30. eight commits built
 61 free leaves, 77 free parents, 24 inferred leaves and 40 inferred parents.
 the prefix advanced by 85 positions. of 185.292 seconds offered to the
 compactor, inference occupied 180.985, preparation 0.495 and commits 3.531.
-the tenth model turn completed with a [mismatched address set](compactor-address-mismatch.md)
+the tenth model turn completed with a [mismatched address set](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/compactor-address-mismatch.md)
 and parked the worker. this short interval supplies a timing breakdown.
 the day and night observer remains armed to measure admissions and parked
 time at the declared boundaries. the capture operator confirmed the
@@ -74,7 +74,7 @@ before the first scheduled sample. at 01:34:15 utc the same sampler
 invocation was active with zero phase files. production was under web
 pause 31 with 93,770 admitted positions, 8,269 covered and 16,510 built
 nodes. the packaged compactor was still terra/medium v6. its [second
-park](compactor-address-mismatch.md) survived the cut. at 01:36:43 utc
+park](https://github.com/NielsdaWheelz/jarvis/blob/52366146562855ce7e0b148da87c75af6a9f3598/docs/issues/compactor-address-mismatch.md) survived the cut. at 01:36:43 utc
 the exact query from the running sampler succeeded as its postgres user on
 `0019`. all three scheduled samples remained pending. this separate mac
 preflight is `window/sampler-prewindow-43ed919.json`, sha-256
@@ -96,6 +96,42 @@ positions, 88,640 retired records, zero nodes and a clear mark under owner
 web pause 33. keep the pre-window rewrite in the observation record.
 compare quiet-end progress only within the same generation. measure
 construction on the actual selected release and annotate any later switch.
+
+the installed writer on `ea2b825/0022` resumed at 06:58:17 utc on
+november 24. the [two-commit recovery read](../decisions/0100-host-bound-summary-fields.md#installed-writer-recovery)
+at 06:59:17 found a ready prefix of 7,854 of 20,234 admitted, with a
+clear mark. the rewrite, v5 capture repair, mail rollout and writer cut
+all preceded the first scheduled sample. use the already declared
+november 24 17:00 utc → november 25 02:00 utc → november 25 17:00 utc
+window for this exact writer if the release and generation stay stable.
+the busy-end cutoff and overnight result remain unmeasured.
+
+the adr 0104 maintenance adoption selected `4d05a92/0022` before the
+first boundary. generation 2, web resume 42, and the compactor code,
+model and dependency lock were preserved. the new process completed
+contained eight-field inference and committed new nodes before the
+08:36:20 utc read. that read found prefix 15,020 of 22,003 admitted,
+with a clear mark. keep the declared window and report the release
+at each boundary. the two pre-window releases do not constitute a
+mixed sample.
+
+adr 0105 stopped both services before the first boundary and selected
+`c8d1751/0023`. the 09:08:48 utc read found prefix 16,693 of 22,730
+admitted, a clear mark, and both services and sampler active. generation
+2 and the writer implementation continued. the [blinded recall case](../decisions/0100-host-bound-summary-fields.md#installed-correction-recall)
+passed on the restored read service using an ancestor built under
+`4d05a92`. the capacity result still requires the three declared samples
+on their actual release.
+
+at busy start on november 24 at 17:00 utc, `0bb2540/0023` covered all
+24,292 admitted positions and all 48,575 aligned nodes. the production
+phase receipt `window/busy-start.production.json` has sha-256
+`bf1b17481d8e240ea7210c147ab4e23097d4c79de70cf8a8fbbbe5d1e17203d9`.
+the sampler continues across the planned same-schema v7 → v8 compactor
+change (`8310a2f4-2835-4d5e-ba40-e2a4ac0a4d62`). use the named
+maintenance receipt for the actual release boundary. if the cut occurs
+inside this window, attribute throughput only after a further stable window.
+the next two samples determine the busy-end cutoff and quiet-end result.
 
 ## broader usefulness evaluation
 
@@ -154,4 +190,4 @@ resolved when: a separately scoped later pr evaluates representative owner-appro
 content and activity, records missed evidence and operational costs, and states
 what the results support. use a small meaningful evaluation; no framework or
 standing model tournament is implied. [historical import](memory-historical-import.md)
-and [backup/restore](memory-backup-restore.md) remain separate deferred work.
+remains separate deferred work.

@@ -34,7 +34,7 @@ stopped android cut. preserve the original owner scope and archive addresses.
 
 ## outgoing gmail attachments
 
-[adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. source, detached rehearsal and isolated connected-account phone acceptance passed under adr 0046. the production cut and installed smoke are pending.
+[adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. source, detached rehearsal and isolated connected-account phone acceptance passed under adr 0046. the [production cut and installed smoke](docs/decisions/0101-outgoing-mail-attachments.md#production-cut) passed on schema `0022`.
 
 ## accepted operational target — storage and memory recovery
 
@@ -42,7 +42,7 @@ stopped android cut. preserve the original owner scope and archive addresses.
 development to the mac and defines production headroom and off-host central
 memory recovery. it supersedes the v1 backup deferral for this scope and grants
 the named temporary integration/live proof exception to adr 0046. the first
-production off-host restore is verified. scheduled-run proof remains open.
+production off-host restore and [seven scheduled generations](docs/decisions/0088-storage-and-memory-recovery.md#scheduled-production-backups) are verified.
 
 ## shared memory freshness after the private web home
 
@@ -60,13 +60,14 @@ database at deployment, including records received after merge.
 
 [adr 0103](docs/decisions/0103-codex-history-admission.md) specifies selected
 codex history capture after a rewind. preserve the original admission cut,
-saved records and the historical cut's retired identities.
+saved records and the historical cut's retired identities. the [installed recovery](docs/codex-history-recovery.md#installed-closure) passed on schema `0022`.
 
 [adr 0100](docs/decisions/0100-host-bound-summary-fields.md) binds summary
 fields to sources in jarvis. the compactor can repeat one completed malformed
 call per atomic batch, within the existing per-source limit. its current-main
-release follows the archive rewrite. production progress, overnight capacity
-and genuine recall each require evidence on the selected generation.
+release followed the archive rewrite. generation 2 has [installed writer and recall
+proof](docs/decisions/0100-host-bound-summary-fields.md#installed-writer-recovery). the
+[overnight capacity measurement](docs/issues/memory-usefulness-evaluation.md#installed-terra-observation) continues on its actual releases.
 
 [adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
 `0018`. one frozen startup view combines the complete ready prefix with bounded,
@@ -331,7 +332,8 @@ copies up to the existing 2,048-byte hard node bound and serial inference batche
 of at most eight independent ready nodes. the library owns immutable sources,
 readiness and atomic whole-batch completion; deterministic free progress commits
 before newly enabled parents are selected. preserve the 512-byte inferred target,
-fixed models, full-history coverage, originals and current isolated-role ceilings.
+fixed models, full-history coverage, originals and isolated-role ceilings,
+with adr 0100 setting the compactor’s internal protocol repairs to zero.
 initial and retry calls pack complete sources/feedback under the unchanged actual
 request ceiling. one shared earlier context
 prefix grounds references; visible sibling sources cannot contribute unrelated

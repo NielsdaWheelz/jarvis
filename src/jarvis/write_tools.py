@@ -664,6 +664,17 @@ class GoogleWriteProvider(Protocol):
     ) -> WriteResponse[CalendarDeleteEventSuccess]: ...
 
 
+_GMAIL_FILE_GUIDANCE = (
+    "If OriginalNeedsOpen is returned, open those originals with attachment.open "
+    "and retry. For a machine file, use a worker and scp into a 0700 request "
+    "directory under /var/lib/jarvis-notes/.git/jarvis-mail/incoming on dev-server. "
+    "Verify source and copy size and SHA-256, then publish the copy with the "
+    "selected release's deploy/jarvis-mail-file prepare PATH. Use its returned "
+    "native ref. If the source is unavailable, give the machine, file and one "
+    "recovery. Never substitute a link for a requested attachment."
+)
+
+
 GMAIL_CREATE_DRAFT_SPEC = ToolSpec[
     GmailCreateDraftInput, GmailDraftSuccess, GmailCreateDraftError
 ](
@@ -671,13 +682,7 @@ GMAIL_CREATE_DRAFT_SPEC = ToolSpec[
     summary="Create an unsent Gmail draft.",
     documentation=PromptDocument(
         "Save an unsent draft using verified source refs. Supply files: [] for text "
-        "alone. Use reply_to only from live Gmail evidence. If OriginalNeedsOpen is "
-        "returned, open those originals with attachment.open and retry. For a "
-        "machine file, use a worker and scp into a 0700 request directory under "
-        "/var/lib/jarvis-notes/.git/jarvis-mail/incoming on dev-server. Verify "
-        "source and copy size and SHA-256, then publish the copy with the selected "
-        "release's deploy/jarvis-mail-file prepare PATH. Use its returned native "
-        "ref. If the source is unavailable, give the machine, file and one recovery."
+        "alone. Use reply_to only from live Gmail evidence. " + _GMAIL_FILE_GUIDANCE
     ),
     input_type=GmailCreateDraftInput,
     success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),
@@ -693,7 +698,8 @@ GMAIL_UPDATE_DRAFT_SPEC = ToolSpec[
     documentation=PromptDocument(
         "Replace a verified unsent draft_ref in the same thread and with the same "
         "reply parent. Set files to null to keep them all, [] to remove them all, "
-        "or list the final order with new refs and kind existing for one-based slots."
+        "or list the final order with new refs and kind existing for one-based slots. "
+        + _GMAIL_FILE_GUIDANCE
     ),
     input_type=GmailUpdateDraftInput,
     success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),

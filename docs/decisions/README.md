@@ -142,7 +142,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0096](0096-calendar-on-demand.md) | calendar on demand and quiet background work | retire calendar polling, retain deliberate calendar access, and make routine background work quiet in chat and notifications |
 | [0097](0097-todo-home.md) | todo home | one owner todo list on the default canvas. questions, proposals and answers live in conversation |
 | [0098](0098-conversation-capture.md) | conversation capture | prospective design. only jarvis main archives ordinary tools. external conversations retain source-proven answers and reports |
-| [0101](0101-outgoing-mail-attachments.md) | files in outgoing gmail | verified source bytes, gmail draft revisions, conversational consent and positive sent evidence. design only |
+| [0101](0101-outgoing-mail-attachments.md) | files in outgoing gmail | verified source bytes, gmail draft revisions, conversational consent and positive sent evidence. source and detached proof qualified |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

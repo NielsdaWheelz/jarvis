@@ -1,6 +1,6 @@
 # adr 0101 — files in outgoing gmail
 
-status — owner-selected design, pending implementation. this narrows the outgoing-file deferral in [0075](0075-v2-completion-and-subscription-model.md), amends the draft and recovery rules in spec §§5 and 9, and retains [0024’s creation-derived effect header](0024-use-a-stable-gmail-effect-header.md).
+status — implemented in source and qualified in the detached rehearsal. connected-account phone acceptance and production cut remain open. this narrows the outgoing-file deferral in [0075](0075-v2-completion-and-subscription-model.md), amends the draft and recovery rules in spec §§5 and 9, and retains [0024’s creation-derived effect header](0024-use-a-stable-gmail-effect-header.md).
 
 ## what the owner can do
 
@@ -75,3 +75,31 @@ each designer freezes good and bad content examples before red. independent clau
 **live acceptance.** use isolated state and one authorized mailbox actor. address mail only to the connected account itself with subject `[jarvis attachment test <run-id>]`. approve on the actual phone after the temporary source copies have gone. interpose a distinct, self-addressed edit between preflight and the real send. use an independent gmail reader to download/hash the received attachments and compare from/to/cc/bcc, approved text, thread and sent id. self-mail can be one message carrying both `SENT` and `INBOX`. this proves this account’s stored delivery. use a self-bcc’d reply in that thread for lost-ack recovery at exactly 25,000,000 bytes. reject 25,000,001 bytes and an eleventh file before mutation. retain the thread and near-limit file for inspection. record red/green/refactor results, message ids, digests, timings and peak service memory outside scratch. reopen and hash the evidence. delete the new probes and test fixtures after final green. report cleanup separately. installed smoke has its own receipt.
 
 **hard cut.** pause admission, cancel unentered old proposals through existing controls and wait for entered calls to quiesce. the old result does not distinguish direct from recovered success. in a stopped, read-only cutover check, look up every old successful send’s recorded message id in its account. a missing/unreadable id, thread mismatch, missing `SENT`, present `DRAFT` or contrary evidence disputes the outcome. inspect disputed and entered/uncertain sends with c’s positive or complete absence evidence, using the old captured envelope. record the owner’s evidence and disposition in the cut receipt, preserving the original action history. the audit never invokes the old executor. an old send of genuinely unknown outcome holds the entire jarvis mail cut, including unrelated mail, until the owner resolves it. gmail remains available manually. require zero incompatible unfinished actions before replacement. preserve terminal receipts with their original certainty, classified before payload decoding. old drafts stay in gmail for manual use. a fresh jarvis draft starts a new verified lineage. old approvals never execute on the new binding.
+
+## implementation evidence
+
+the exact `4faedd43892d171e49fbc4e35d6c48549a677578` source passed the
+detached macbook rehearsal. `detached-refactor-4faedd4-r3/receipt.json`
+records exit 0 and checkout removal in the private adr 0101 evidence directory.
+its reopened `checks.log` has sha-256
+`66a7624c604863ba0db7cb0d87b002aeca5c2b4cea0644c7edc18169ddd88fd6`.
+it covers build and static checks, the home http projection, native journal
+and postgres 0020 approval, provider fault injection, 25,000,000-byte multipart
+send and recovery, first-refused limits, the cut audit and bounded intake.
+
+opus found lossy headers that could leave an unverifiable draft. the shared
+header round trip now rejects them before a write and rfc 2231 filenames keep
+literal encoded-word text. the probe killed all 13 targeted mutations. the
+exact regex runs in one short-lived process per staged file so the service loop
+can continue while it scans. at the byte ceiling, the detached intake took
+4.23 seconds and the maximum sampled home read was 18.5 ms. peak scanner rss
+was 248 mb. format controls that can disguise filenames are refused.
+
+the isolated installed-style candidate passed publication and cross-identity
+readback of both native fixtures and completed a real native turn. its first
+startup exceeded the existing main prompt bound. placing attachment guidance
+with the mail tools preserved the bound and repaired startup. independent opus accepted the technical implementation and startup delta.
+the live gmail
+profile and primary send-as reads returned 200. they confirmed the connected
+account and no configured primary reply-to. the connected-account send,
+dropped-ack recovery and actual phone proof have separate evidence.

@@ -29,7 +29,7 @@ per-feature design, opus review and live proof.
 
 ## outgoing gmail attachments
 
-[adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. the delivery uses scoped temporary integration/live proof under adr 0046. implementation and production qualification are pending.
+[adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. the delivery uses scoped temporary integration/live proof under adr 0046. source and detached qualification are complete. connected-account phone acceptance and production cut are pending.
 
 ## accepted operational target — storage and memory recovery
 

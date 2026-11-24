@@ -13,6 +13,8 @@ dependencies = [
   "boto3==1.44.3",
   "cryptography==50.0.1",
   "fastapi==0.143.0",
+  "google-auth[requests]==2.57.1",
+  "requests==2.34.2",
   "httpx==0.28.1",
   "llm-agent-kernel @ git+https://github.com/NielsdaWheelz/llm-agent-kernel.git@a3b37282771bf363bc39d224dd50f11e0ad7adc9",
   "llm-tools @ git+https://github.com/NielsdaWheelz/llm-tools.git@37b7688381161d398b8094795d43bb7c87ca1885",

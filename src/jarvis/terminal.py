@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -30,7 +28,7 @@ type TerminalOutcome = Literal[
 type ConclusionKind = Literal["conversation", "silent"]
 
 PROGRESS_MAX_BYTES = 2_000
-NATIVE_OUTPUT_NAME = "jarvis_home_message"
+NATIVE_OUTPUT_NAME = "jarvis_home_message_v2"
 
 
 class _StrictModel(BaseModel):
@@ -54,6 +52,12 @@ class Presentation(_StrictModel):
     ref: ViewRef | FilePageRef | FileRef
 
 
+class TodoResult(_StrictModel):
+    todo_id: CanonicalUuid
+    request_id: CanonicalUuid
+    draft_ref: CanonicalUuid | None
+
+
 class _Visible[KindT: str](_StrictModel):
     # Stock chooses a branch as it emits fields. Keep its discriminator first.
     # Canonical hashing ignores property order; rotate main on a wire reordering.
@@ -65,6 +69,7 @@ class Answered(_Visible[Literal["answered"]]):
     """A complete answer from observed facts with no uncommitted later-work promise."""
 
     text: Annotated[str, Field(min_length=1)]
+    todo_result: TodoResult | None
 
     _valid_text = field_validator("text")(_terminal_text)
 
@@ -75,6 +80,7 @@ class Partial(_Visible[Literal["partial"]]):
     text: Annotated[str, Field(min_length=1)]
     limitation: Annotated[str, Field(min_length=1)]
     question: Annotated[str, Field(min_length=1)] | None
+    todo_result: TodoResult | None
 
     _valid_text = field_validator("text")(_terminal_text)
     _valid_limitation = field_validator("limitation")(_terminal_text)
@@ -174,18 +180,14 @@ class _Message[ResponseT: _StrictModel](_StrictModel):
     input_outcomes: list[InputOutcome]
 
     @model_validator(mode="after")
-    def valid_outcomes(self, info: ValidationInfo) -> Self:
+    def valid_outcomes(self) -> Self:
         ids = [item.input_id for item in self.input_outcomes]
         if len(ids) != len(set(ids)):
             raise PydanticCustomError(
                 "jarvis_input_dispositions_duplicate",
                 "input dispositions must be unique",
             )
-        if (
-            self.waits_for_owner
-            and not self.has_question
-            and info.context != "historical_seal"
-        ):
+        if self.waits_for_owner and not self.has_question:
             raise ValueError(
                 "owner_input wait requires a needs_input or partial question"
             )
@@ -209,17 +211,9 @@ class JarvisTerminal(
 
     @classmethod
     def from_seal(cls, name: str, value: object) -> Self:
-        if name == NATIVE_OUTPUT_NAME:
-            return cls.model_validate(value)
-        if name != "jarvis_native_message" or not isinstance(value, dict):
+        if name != NATIVE_OUTPUT_NAME:
             raise ValueError("unrecognized native seal contract")
-        document = cast(dict[str, JsonValue], value)
-        response = document.get("response")
-        if not isinstance(response, dict) or "present" in response:
-            raise ValueError("invalid historical native response")
-        if response.get("type") != "silent":
-            document = {**document, "response": {**response, "present": None}}
-        return cls.model_validate(document, context="historical_seal")
+        return cls.model_validate(value)
 
 
 class JarvisNativeMessage(

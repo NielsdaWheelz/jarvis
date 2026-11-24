@@ -22,7 +22,7 @@ from pydantic import (
 from universal_memory.policy import EMBEDDING_DIMENSIONS
 
 from jarvis.codex_config import CodexHostConfig
-from jarvis.config import ConfigurationError, DiscordSettings
+from jarvis.config import ConfigurationError
 
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
 EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
@@ -161,7 +161,9 @@ def embedding_key_from_env(environ: Mapping[str, str] | None = None) -> SecretSt
 class Settings(MemoryJobSettings):
     """Assistant runtime configuration."""
 
-    discord: DiscordSettings
+    fcm_project: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    )
     home_socket_path: AbsolutePath = HOME_SOCKET_PATH
     agent_cli_path: Path
     agent_state_directory: Path
@@ -238,7 +240,6 @@ class Settings(MemoryJobSettings):
     def host_secrets(self) -> tuple[str, ...]:
         values = (
             self.database_url.get_secret_value(),
-            self.discord.bot_token.get_secret_value(),
             self.google_oauth_client_id.get_secret_value(),
             self.google_oauth_client_secret.get_secret_value(),
             self.connector_encryption_secret.get_secret_value(),
@@ -264,18 +265,6 @@ class Settings(MemoryJobSettings):
             raise ConfigurationError(
                 "private Codex state is retired; configure the host mapping"
             )
-        for name in (
-            "JARVIS_DISCORD_OWNER_USER_ID",
-            "JARVIS_DISCORD_GUILD_ID",
-            "JARVIS_DISCORD_CATCH_UP_LIMIT",
-            "JARVIS_DISCORD_REQUEST_TIMEOUT_SECONDS",
-            "JARVIS_DISCORD_DELIVERY_RETRY_DELAYS_SECONDS",
-        ):
-            if name in source:
-                raise ConfigurationError(
-                    f"{name} is retired; owner identity uses JARVIS_OWNER_SCOPE "
-                    "and JARVIS_OWNER_ARCHIVE_KEY"
-                )
         if "JARVIS_MAXIMUM_PROCESSING_ATTEMPTS" in source:
             raise ConfigurationError(
                 "JARVIS_MAXIMUM_PROCESSING_ATTEMPTS is fixed by the Slice 1 kernel"
@@ -319,7 +308,7 @@ class Settings(MemoryJobSettings):
         try:
             return cls(
                 database_url=SecretStr(required("JARVIS_DATABASE_URL")),
-                discord=DiscordSettings.from_env(source),
+                fcm_project=source.get("JARVIS_FCM_PROJECT_ID"),
                 owner_scope=required("JARVIS_OWNER_SCOPE"),
                 owner_archive_key=required("JARVIS_OWNER_ARCHIVE_KEY"),
                 home_socket_path=Path(

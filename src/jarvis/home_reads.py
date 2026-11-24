@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter
 from datetime import datetime
 from functools import cache
@@ -15,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.concurrency import run_in_threadpool
 
 from jarvis.action_requests import action_request_spec
+from jarvis.actions import ActionPersistenceDefect, recorded_action
 from jarvis.attachment_tools import ATTACHMENT_DELETE_SPEC
 from jarvis.db import action, attachment, message, work
+from jarvis.gmail_drafts import VerifiedDraft, verified_draft
 from jarvis.home_pages import HomePages
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
@@ -27,6 +30,8 @@ from jarvis.write_tools import (
 )
 
 type Record = dict[str, Any]
+
+LOGGER = logging.getLogger(__name__)
 
 # Extract only owner-facing columns. In particular, never load a native request.
 # Older control replies have the transaction's start time. Their receipt records
@@ -84,6 +89,60 @@ async def conversation(
     return {"items": page[::-1], "next_before": before}
 
 
+async def todo_results(
+    connection: AsyncConnection, scope: str, identifier: UUID, before: str | None
+) -> Record | None:
+    at, previous = _cursor(before) if before is not None else (None, None)
+    result = await connection.execute(
+        text("""
+            SELECT r.message_id, r.at, r.label FROM work w
+            LEFT JOIN LATERAL (
+                SELECT m.id AS message_id, m.created_at AS at,
+                       m.home #>> '{todo_result,label}' AS label
+                FROM message m
+                WHERE m.source_conversation_id = :scope
+                  AND m.role = 'assistant' AND m.source = 'native_final'
+                  AND m.home #>> '{todo_result,todo_id}' = w.id::text
+                  AND (CAST(:at AS timestamptz) IS NULL
+                       OR (m.created_at,m.id) < (:at,:previous))
+                ORDER BY m.created_at DESC, m.id DESC LIMIT 51
+            ) r ON TRUE
+            WHERE w.id = :identifier
+            ORDER BY r.at DESC, r.message_id DESC
+        """),
+        {"identifier": identifier, "scope": scope, "at": at, "previous": previous},
+    )
+    rows = result.mappings().all()
+    if not rows:
+        return None
+    items = [dict(row) for row in rows[:50] if row["message_id"] is not None]
+    next_before = None
+    if len(rows) > 50:
+        last = items[-1]
+        next_before = f"{last['at'].isoformat()}~message~{last['message_id']}"
+    return {"items": items, "next_before": next_before}
+
+
+async def draft_for_request(
+    connection: AsyncConnection, request_id: UUID, draft_ref: UUID
+) -> VerifiedDraft | None:
+    """Only a successful compose at this already-verified origin can be evidence."""
+    candidate = await connection.scalar(
+        select(action.c.id).where(
+            action.c.id == draft_ref,
+            action.c.origin_message_id == request_id,
+            action.c.status == "succeeded",
+            action.c.tool_name.in_(("gmail.create_draft", "gmail.update_draft")),
+        )
+    )
+    if candidate is None:
+        return None
+    stored = await recorded_action(connection, candidate)
+    if stored is None:
+        raise ActionPersistenceDefect("saved draft action disappeared")
+    return verified_draft(stored)
+
+
 async def visible_message(
     connection: AsyncConnection,
     scope: str,
@@ -92,7 +151,13 @@ async def visible_message(
     include_mail_body: bool = False,
 ) -> Record | None:
     result = await connection.execute(
-        text(_MESSAGES + " AND m.id = :id"), {"scope": scope, "id": identifier}
+        text(
+            "SELECT visible.*, CASE WHEN visible.source = 'native_final' "
+            "THEN m.home #> '{todo_result}' END AS todo_result "
+            f"FROM ({_MESSAGES} AND m.id = :id) visible "
+            "JOIN message m ON m.id=visible.id"
+        ),
+        {"scope": scope, "id": identifier},
     )
     row = result.mappings().one_or_none()
     if row is None:
@@ -100,7 +165,40 @@ async def visible_message(
     proposals = await _proposals(
         connection, scope, [identifier], include_mail_body=include_mail_body
     )
-    return {**row, "proposals": proposals[identifier]}
+    detail = dict(row)
+    linked = detail.pop("todo_result")
+    saved_draft = None
+    saved_draft_error = None
+    if linked is not None:
+        saved_draft_error = linked.get("draft_error")
+        if linked["draft_ref"] is not None:
+            try:
+                verified = await draft_for_request(
+                    connection, UUID(linked["request_id"]), UUID(linked["draft_ref"])
+                )
+                if verified is None:
+                    raise ActionPersistenceDefect("linked saved draft has no receipt")
+            except ActionPersistenceDefect:
+                LOGGER.error(
+                    "saved draft receipt failed integrity checks: message=%s",
+                    identifier,
+                )
+                saved_draft_error = "integrity"
+            else:
+                fields = {"subject", "to", "cc", "bcc", "files"}
+                if include_mail_body:
+                    fields.add("body_text")
+                saved_draft = {
+                    "draft_ref": verified.receipt.draft_ref,
+                    "observed_at": verified.receipt.observed_at,
+                    **verified.snapshot.model_dump(mode="json", include=fields),
+                }
+    return {
+        **detail,
+        "proposals": proposals[identifier],
+        "saved_draft": saved_draft,
+        "saved_draft_error": saved_draft_error,
+    }
 
 
 def proposal_presented(scope: str) -> ColumnElement[bool]:

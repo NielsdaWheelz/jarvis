@@ -44,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0022"
+APPLICATION_SCHEMA_REVISION = "0023"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -315,7 +315,15 @@ home_notice = Table(
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     ),
-    Column("discord_message_id", Text),
+    Column("provider_id", Text),
+    Column("provider", Text),
+    CheckConstraint(
+        "(provider IS NULL AND provider_id IS NULL AND kind IN ('reply', 'question')) "
+        "OR (provider IS NOT NULL AND provider_id IS NOT NULL "
+        "AND provider IN ('discord', 'fcm') "
+        "AND (provider = 'discord' OR kind IN ('reply', 'question')))",
+        name="provider",
+    ),
     CheckConstraint(
         "(kind IN ('reply','question') AND message_id IS NOT NULL "
         "AND action_id IS NULL) OR "
@@ -327,7 +335,7 @@ Index(
     "ix_home_notice_pending",
     home_notice.c.created_at,
     home_notice.c.id,
-    postgresql_where=home_notice.c.discord_message_id.is_(None),
+    postgresql_where=home_notice.c.provider_id.is_(None),
 )
 Index("ix_action_status_execute_after", action.c.status, action.c.execute_after)
 

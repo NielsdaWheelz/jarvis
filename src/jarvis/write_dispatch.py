@@ -65,7 +65,7 @@ from jarvis.attachment_tools import ATTACHMENT_WRITE_IDS
 from jarvis.attachments import AttachmentStore
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
-from jarvis.gmail_drafts import compose_snapshot, content_digest, gmail_effect_id
+from jarvis.gmail_drafts import verified_draft
 from jarvis.mail_files import MailFileFailure, MailFiles
 from jarvis.native_journal import PostgresNativeJournal
 from jarvis.read_dispatch import ReadDispatchPort
@@ -81,7 +81,6 @@ from jarvis.write_tools import (
     ExistingMailPart,
     GmailComposeContract,
     GmailCreateDraftInput,
-    GmailCurrentDraft,
     GmailRetainedPart,
     GmailSendContract,
     GmailSendDraftInput,
@@ -395,57 +394,19 @@ class WriteToolDispatcher:
             requested = payload.files
         else:
             source = await self._actions.get(payload.draft_ref)
-            if source is None or not isinstance(
-                source.execution_contract, ExecutionContract
-            ):
+            if source is None or (verified := verified_draft(source)) is None:
                 return None
-            authority = source.execution_contract.mail
-            receipt = action_replay_result(source)
-            if (
-                not isinstance(authority, GmailComposeContract)
-                or receipt is None
-                or (
-                    receipt["type"] != "Success"
-                    or not isinstance(receipt["value"], dict)
-                    or cast(dict[str, object], receipt["value"]).get("state") != "draft"
-                )
-            ):
-                return None
-            base = GmailCurrentDraft.model_validate(receipt["value"])
-            revision = base.revision
-            creation_id = authority.creation_id
-            if (
-                base.draft_ref != source.id
-                or gmail_effect_id(creation_id) != revision.jarvis_effect_id
-            ):
-                raise ActionPersistenceDefect(
-                    "draft receipt has a different creation identity"
-                )
-            content = (
-                GmailCreateDraftInput.model_validate(source.payload).content
-                if source.tool_name == ToolId("gmail.create_draft")
-                else GmailUpdateDraftInput.model_validate(source.payload).replacement
-            )
-            snapshot = compose_snapshot(
-                content,
-                revision.account,
-                base.files,
-                base.in_reply_to,
-                base.references,
-            )
-            if content_digest(snapshot) != revision.content_digest:
-                raise ActionPersistenceDefect(
-                    "verified draft content changed in the ledger"
-                )
+            revision = verified.receipt.revision
+            creation_id = verified.creation_id
             if isinstance(payload, GmailSendDraftInput):
                 return GmailSendContract(
                     creation_id=creation_id,
                     revision=revision,
-                    snapshot=snapshot,
+                    snapshot=verified.snapshot,
                 )
-            if payload.replacement.reply_to != content.reply_to:
+            if payload.replacement.reply_to != verified.reply_to:
                 return None
-            old_files = base.files
+            old_files = verified.receipt.files
             requested = (
                 tuple(
                     ExistingMailPart(kind="existing", existing_part=number)

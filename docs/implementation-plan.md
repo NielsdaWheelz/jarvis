@@ -66,6 +66,13 @@ owns the november 23 metadata parks and their recovery before the v4 worker cut.
 the [codex rewind repair](codex-history-recovery.md) follows historical
 archive cleanup at schema `0022`.
 
+[adr 0105](decisions/0105-native-android.md) owns the android and discord cut.
+qualify access and the release signer first. handset, linked results and push
+use their frozen interfaces in parallel. the final integration composes the
+new schema and both clients against the selected predecessor. the
+[installed handoff](issues/mobile-share-handoff.md) remains open through the
+real phone, backup and retirement checks.
+
 ## destination and rules
 
 one visible jarvis remembers context, keeps useful working records and carries

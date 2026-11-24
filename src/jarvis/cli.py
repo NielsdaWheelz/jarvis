@@ -52,9 +52,7 @@ from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleReadConnector
 from jarvis.db import (
     ASSISTANT_MEMORY_READS,
-    action,
     create_engine,
-    home_notice,
     normalize_database_url,
 )
 from jarvis.definitions import (
@@ -63,9 +61,9 @@ from jarvis.definitions import (
     build_definitions,
     build_dreamer,
 )
-from jarvis.discord import DiscordCreateMessageClient
 from jarvis.embeddings import EmbeddingFailure, OpenAIEmbedder
 from jarvis.events import EventStore
+from jarvis.fcm import FcmSender
 from jarvis.gmail_cut import (
     CUT_RECEIPT,
     audit_mail_cut,
@@ -105,6 +103,7 @@ from jarvis.ownership import (
     deployment_ownership,
     maintenance_ownership,
 )
+from jarvis.phone import PHONE_DIRECTORY, PhoneSlot
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
@@ -534,7 +533,7 @@ async def _serve(
                     brave_http = await clients.enter_async_context(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
-                    discord_http = await clients.enter_async_context(
+                    fcm_http = await clients.enter_async_context(
                         httpx.AsyncClient(trust_env=False, follow_redirects=False)
                     )
                     memory = await clients.enter_async_context(
@@ -636,8 +635,10 @@ async def _serve(
                         ),
                         memory=memory,
                     )
-                    delivery = DiscordCreateMessageClient(
-                        settings.discord, discord_http
+                    delivery = FcmSender(fcm_http, settings.fcm_project)
+                    phone = PhoneSlot(
+                        PHONE_DIRECTORY / "slot.json",
+                        lambda: service.request_delivery(),
                     )
                     action_recovery = ActionRecovery(
                         actions=actions,
@@ -660,6 +661,7 @@ async def _serve(
                         database=database,
                         paused=paused,
                         delivery=delivery,
+                        phone=phone,
                         runner=runner,
                         background=compactor,
                         memory=memory,
@@ -698,6 +700,7 @@ async def _serve(
                         submit=service.submit,
                         spool=settings.runtime_state_directory / "uploads",
                         pages=DEFAULT_EXPORT,
+                        phone=phone,
                     )
                     await run_service(service, app, settings.home_socket_path, shutdown)
             finally:
@@ -898,30 +901,6 @@ async def check_activation(
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
-            async with database.connect() as connection:
-                pending = await connection.scalar(
-                    select(home_notice.c.id)
-                    .where(
-                        home_notice.c.discord_message_id.is_(None),
-                        home_notice.c.kind != "reply",
-                    )
-                    .limit(1)
-                )
-                if pending is not None:
-                    raise StartupDefect(
-                        "predecessor must drain pending question and approval notices"
-                    )
-                old_approval = await connection.scalar(
-                    select(action.c.id)
-                    .join(home_notice, home_notice.c.action_id == action.c.id)
-                    .where(
-                        action.c.status == "awaiting_approval",
-                        home_notice.c.kind == "approval",
-                    )
-                    .limit(1)
-                )
-            if old_approval is not None:
-                raise StartupDefect("the predecessor must settle its open approvals")
             require_native_files(settings.runtime_state_directory)
             scope = settings.owner_scope
             await require_native_data(database, conversation_id=scope)

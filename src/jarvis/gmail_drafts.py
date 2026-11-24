@@ -23,6 +23,12 @@ from uuid import UUID
 
 from llm_tools import canonical_json_bytes
 
+from jarvis.actions import (
+    ActionPersistenceDefect,
+    ExecutionContract,
+    StoredAction,
+    action_replay_result,
+)
 from jarvis.connectors import provider_string
 from jarvis.mail_files import (
     MAIL_MAX_BYTES,
@@ -38,13 +44,16 @@ from jarvis.write_tools import (
     GmailComposeBasis,
     GmailComposeContract,
     GmailContent,
+    GmailCreateDraftInput,
     GmailCurrentDraft,
     GmailDraftIdentity,
     GmailDraftSuccess,
+    GmailReplyTo,
     GmailRevision,
     GmailSendDraftSuccess,
     GmailSnapshot,
     GmailStagedPart,
+    GmailUpdateDraftInput,
     Mailbox,
     ReconciliationResult,
     WriteConnectorFailure,
@@ -108,6 +117,60 @@ def content_digest(snapshot: GmailSnapshot) -> str:
     return hashlib.sha256(
         canonical_json_bytes(snapshot.model_dump(mode="json"))
     ).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedDraft:
+    receipt: GmailCurrentDraft
+    snapshot: GmailSnapshot
+    reply_to: GmailReplyTo | None
+    creation_id: UUID
+
+
+def verified_draft(stored: StoredAction) -> VerifiedDraft | None:
+    """Reconstruct a successful compose receipt using only immutable evidence."""
+    if (
+        stored.status != "succeeded"
+        or stored.tool_name not in {"gmail.create_draft", "gmail.update_draft"}
+        or not isinstance(stored.execution_contract, ExecutionContract)
+    ):
+        return None
+    authority = stored.execution_contract.mail
+    if not isinstance(authority, GmailComposeContract):
+        raise ActionPersistenceDefect("compose action lacks its frozen authority")
+    receipt = action_replay_result(stored)
+    if receipt is None or receipt["type"] != "Success":
+        raise ActionPersistenceDefect("successful compose lacks its receipt")
+    value = receipt["value"]
+    if (
+        isinstance(value, dict)
+        and cast(dict[str, object], value).get("state") == "already_sent"
+    ):
+        return None
+    try:
+        draft = GmailCurrentDraft.model_validate(value)
+        content = (
+            GmailCreateDraftInput.model_validate(stored.payload).content
+            if stored.tool_name == "gmail.create_draft"
+            else GmailUpdateDraftInput.model_validate(stored.payload).replacement
+        )
+        snapshot = compose_snapshot(
+            content,
+            draft.revision.account,
+            draft.files,
+            draft.in_reply_to,
+            draft.references,
+        )
+    except ValueError as exc:
+        raise ActionPersistenceDefect("verified draft receipt is invalid") from exc
+    if (
+        draft.draft_ref != stored.id
+        or gmail_effect_id(authority.creation_id) != draft.revision.jarvis_effect_id
+    ):
+        raise ActionPersistenceDefect("draft receipt has a different creation identity")
+    if content_digest(snapshot) != draft.revision.content_digest:
+        raise ActionPersistenceDefect("verified draft content changed in the ledger")
+    return VerifiedDraft(draft, snapshot, content.reply_to, authority.creation_id)
 
 
 def _body(text: str) -> str:

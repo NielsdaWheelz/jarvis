@@ -173,7 +173,7 @@ async def cutover_native(
               AND (m.request_state IN ('pending','waiting','stopped')
                 OR m.processing_parked_at IS NOT NULL) ORDER BY m.created_at,m.id""",
             "pending_notices": """SELECT to_jsonb(n) FROM home_notice n
-              WHERE n.discord_message_id IS NULL ORDER BY n.created_at,n.id""",
+              WHERE n.provider_id IS NULL ORDER BY n.created_at,n.id""",
             "unsettled_attempts": """SELECT to_jsonb(a) FROM native_attempt a
               WHERE a.conversation_id=:scope AND a.product_outcome IS NULL
               ORDER BY a.attempt_seq""",

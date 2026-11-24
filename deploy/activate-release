@@ -48,7 +48,7 @@ receipt="$(receipt_json "$2")"
 source_receipt=none
 if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
 operation="$4"
-snapshot="/var/lib/jarvis-cutover/adr0103/$commit"
+snapshot="/var/lib/jarvis-cutover/adr0105/$commit"
 hold=/etc/systemd/system/jarvis-cutover.hold
 source="/opt/jarvis/releases/${3%%:*}"
 selected=''
@@ -70,7 +70,7 @@ if [[ "$operation" == prepare || -e "$hold" ]]; then
   fi
 fi
 if [[ "$operation" == prepare ]]; then
-  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0021 source release"
+  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0022 source release"
   if [[ ! -e "$hold" ]]; then
     systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
       --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \

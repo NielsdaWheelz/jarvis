@@ -14,13 +14,14 @@ from llm_tools import FrozenToolPlan
 
 from jarvis.agent_control import AgentController
 from jarvis.attachments import AttachmentStore, WebUpload
-from jarvis.discord import DiscordCreateMessageClient
 from jarvis.event_polling import EventPoller
+from jarvis.fcm import FcmSender
 from jarvis.home_notices import deliver_pending
 from jarvis.memory_service import MemoryService
 from jarvis.messages import IngressUnavailable, MessageStore
 from jarvis.native_runtime import NativeRunOutcome
 from jarvis.ownership import Database
+from jarvis.phone import PhoneSlot
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
@@ -56,7 +57,8 @@ class JarvisService:
         settings: Settings,
         database: Database,
         paused: PausedState,
-        delivery: DiscordCreateMessageClient,
+        delivery: FcmSender,
+        phone: PhoneSlot,
         runner: NativeRunnerPort,
         background: BackgroundWorkerPort,
         dreamer: BackgroundWorkerPort,
@@ -68,7 +70,6 @@ class JarvisService:
         work_timer: WorkWakeTimer,
         event_poller: EventPoller,
         attachments: AttachmentStore,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
@@ -84,13 +85,13 @@ class JarvisService:
         self._store = MessageStore(database)
         self._paused = paused
         self._delivery = delivery
+        self._phone = phone
         self._runner = runner
         self._background = background
         self._dreamer = dreamer
         self._action_plan = action_plan
         self._action_recovery = action_recovery
         self._agent_waits = agent_waits
-        self._sleep = sleep
         self._dream_sleep = dream_sleep
         self._work = asyncio.Event()
         self._shutdown = asyncio.Event()
@@ -204,7 +205,7 @@ class JarvisService:
                     return
                 if self._delivery_task.done():
                     self._delivery_task.result()
-                    raise RuntimeError("the Discord delivery task stopped unexpectedly")
+                    raise RuntimeError("the push delivery task stopped unexpectedly")
                 if self._agent_wait_task.done():
                     self._agent_wait_task.result()
                     raise RuntimeError("agent wait observer stopped unexpectedly")
@@ -292,24 +293,39 @@ class JarvisService:
         self._delivery_work.set()
 
     async def _deliver(self) -> None:
+        backoff = 2.0
         while not self._shutdown.is_set():
             await self._delivery_work.wait()
             self._delivery_work.clear()
             failure = await deliver_pending(
-                self._database, self._delivery, self._settings.delivery_batch_size
+                self._database,
+                self._delivery,
+                self._phone,
+                self._settings.delivery_batch_size,
             )
-            if failure is not None:
-                delay = max(
-                    failure.retry_after_seconds or 0, 2 if failure.retryable else 60
-                )
-                LOGGER.warning(
-                    "notification pending: kind=%s status=%s retry_in=%ss",
-                    failure.kind,
-                    failure.http_status,
-                    delay,
-                )
-                await self._sleep(delay)
-                self.request_delivery()
+            if failure is None:
+                backoff = 2.0
+                continue
+            delay = (
+                max(backoff, failure.retry_after)
+                if failure.kind == "temporary"
+                else 60.0
+            )
+            LOGGER.warning(
+                "notification pending: kind=%s status=%s retry_in=%ss",
+                failure.kind,
+                failure.status,
+                delay,
+            )
+            if failure.kind == "temporary":
+                backoff = min(backoff * 2, 300)
+                await asyncio.sleep(delay)
+            else:
+                try:
+                    await asyncio.wait_for(self._delivery_work.wait(), timeout=delay)
+                except TimeoutError:
+                    pass
+            self.request_delivery()
 
     async def _drain(self) -> None:
         if not self._startup_ready:

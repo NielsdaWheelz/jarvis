@@ -6,35 +6,41 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import home_notice
-from jarvis.discord import DeliveryFailed, DiscordCreateMessageClient
-from jarvis.home_pages import HOME_ORIGIN
+from jarvis.fcm import FcmSender, NoticeKind, PushFailure
 from jarvis.ownership import Database
+from jarvis.phone import PhoneSlot
 
 
 async def enqueue_notice(
     connection: AsyncConnection,
     message_id: UUID,
+    *,
+    kind: NoticeKind = "reply",
 ) -> None:
     await connection.execute(
         insert(home_notice).values(
             id=uuid5(message_id, "jarvis-home-notice:reply"),
-            kind="reply",
+            kind=kind,
             message_id=message_id,
         )
     )
 
 
 async def deliver_pending(
-    database: Database, sender: DiscordCreateMessageClient, limit: int
-) -> DeliveryFailed | None:
+    database: Database, sender: FcmSender, phone: PhoneSlot, limit: int
+) -> PushFailure | None:
     """Drain committed notices in order. An unacknowledged send stays pending."""
     while True:
         async with database.connect() as connection:
             notices = (
                 (
                     await connection.execute(
-                        select(home_notice)
-                        .where(home_notice.c.discord_message_id.is_(None))
+                        select(
+                            home_notice.c.id,
+                            home_notice.c.message_id,
+                            home_notice.c.kind,
+                        )
+                        .where(home_notice.c.provider_id.is_(None))
                         .order_by(home_notice.c.created_at, home_notice.c.id)
                         .limit(limit)
                     )
@@ -43,19 +49,33 @@ async def deliver_pending(
                 .all()
             )
         for notice in notices:
-            if notice["kind"] != "reply":
-                raise RuntimeError("pending notice requires predecessor delivery")
-            result = await sender.create_message(
-                persisted_message_id=notice["id"],
-                content=f"jarvis replied\n{HOME_ORIGIN}/m/{notice['message_id']}",
+            try:
+                state = await phone.read()
+            except OSError:
+                return PushFailure("slot")
+            if state.fid is None:
+                return None
+            result = await sender.send(
+                state.fid, notice["id"], notice["message_id"], notice["kind"]
             )
-            if isinstance(result, DeliveryFailed):
-                return result
+            if isinstance(result, PushFailure):
+                if result.kind != "unregistered":
+                    return result
+                try:
+                    await phone.unregister(state.generation)
+                except OSError:
+                    return PushFailure("slot")
+                # Re-read the same pending notice against the current generation.
+                break
             async with database.begin() as connection:
                 await connection.execute(
                     update(home_notice)
-                    .where(home_notice.c.id == notice["id"])
-                    .values(discord_message_id=result.discord_message_id)
+                    .where(
+                        home_notice.c.id == notice["id"],
+                        home_notice.c.provider_id.is_(None),
+                    )
+                    .values(provider="fcm", provider_id=result)
                 )
-        if len(notices) < limit:
-            return None
+        else:
+            if len(notices) < limit:
+                return None

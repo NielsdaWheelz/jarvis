@@ -643,6 +643,8 @@ deploy/verify-containment
 
 ### stopped conversation capture cut from 0019 to 0020
 
+before the `0020` worker freeze, require per-conversation v3 [claude recovery receipts](claude-data-flow-capture.md#3-release-and-verify-recovery) and the separately qualified v4 collector containing the reader fix. an outstanding case requires an explicit owner decision naming the affected uuid. keep historical backfill arrivals and service downtime visible in the capacity sample.
+
 1. verify the installed `0019` predecessor and its
    [live google proof](issues/adr0096-google-live.md). record both installed
    collector revisions. obtain the predeclared before sample under `0019`.

@@ -28,8 +28,8 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from universal_memory import RangeReference, RecordReference, Reference
-from universal_memory.tools import MEMORY_READ_IDS, MEMORY_VIEW_SPEC
-from universal_memory.types import ViewPage
+from universal_memory.tools import MEMORY_READ_IDS, MEMORY_VIEW_SPEC, MEMORY_ZOOM_SPEC
+from universal_memory.types import ViewPage, ZoomResult
 
 from jarvis.tool_results import NoTelemetry, completed_tool_result
 
@@ -98,11 +98,14 @@ class MemoryToolDispatcher:
                         )
                     )
                     self._references[reference] = None
-            for node in output.get("nodes", ()):
-                reference = RangeReference(start=node["start"], count=node["count"])
-                self._references[reference] = None
-            if tool_id == MEMORY_VIEW_SPEC.id:
-                page = ViewPage.model_validate_json(canonical_json_bytes(output))
+            if tool_id in (MEMORY_VIEW_SPEC.id, MEMORY_ZOOM_SPEC.id):
+                page_type = ViewPage if tool_id == MEMORY_VIEW_SPEC.id else ZoomResult
+                page = page_type.model_validate_json(canonical_json_bytes(output))
+                for node in page.nodes:
+                    self._references[node.reference_for(page.generation)] = None
+            else:
+                page = None
+            if isinstance(page, ViewPage):
                 for exchange in page.recent:
                     for excerpt in (
                         exchange.preceding,

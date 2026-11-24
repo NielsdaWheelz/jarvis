@@ -99,6 +99,36 @@ fixtures and rehearsal checkouts were removed. cleanup receipts are
 `adr0096/background/final-grade/temporary-cleanup.json` and
 `adr0096/cut-probe-cleanup.json`.
 
-[real google reads and the private fixture write](../issues/adr0096-google-live.md)
-remain open by owner decision. the live linux systemd hold and activation belong
-to the separately authorized installed cut.
+### live google calendar
+
+on november 24 the owner authorized an attendee-free fixture on the real
+calendar. the frozen `43ed919` candidate ran on macbook with an isolated copy
+of the repaired grant. the provisioned primary calendar had one active access
+rule, for the authenticated owner. the candidate read calendar metadata,
+verified that its new event id was free, created a past event with no
+attendees or reminders and `sendUpdates=none`, then reopened its exact snapshot.
+its conditional delete returned 204. google returned the matching cancellation
+on reread and the complete event listing contained no active fixture.
+
+the provider check used the candidate read/write connectors and write policy
+with a local attempt recorder. the provisioning files retained their original
+digests. the detached checkout was removed. macbook evidence is
+`qualification/adr0096/google-live-20261124T0054Z/calendar.json`,
+sha256 `0f02c135a65fde04d38d5c375badd560f637d0de5d035d074ae99f11a14e399f`.
+the sibling `receipt.json` records the release, successful check and cleanup.
+
+### installed calendar cut
+
+on november 24 the owner disabled calendar observation, kept gmail enabled
+and requested fresh status after the last parked calendar input completed.
+owner web pause 31 supplied the stopped `0018` cut. the mac rehearsal matched
+all nineteen inventories and passed `43ed919` activation. the installed
+migration retained the enabled gmail cursor. the matching host and both
+services passed containment and startup checks under the same pause.
+
+the first schema `0019` off-host backup and its held mac copy each reopened
+an original event and an explicit note. both readers reported 93,770
+admitted positions and ready coverage through 8,269. the private receipts
+are `qualification/capture-production-20261124/restore-0019-{r2,held}/restore-report.json`.
+the backup timer returned to its twice-daily schedule. owner web resume 32
+committed at 01:38:26 utc. gmail's next successful poll was at 01:38:27.

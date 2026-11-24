@@ -123,8 +123,13 @@ start matched application/memory units under recorded control, complete the inst
 
 receipts and independent opus reviews are under
 `~/.local/state/jarvis/qualification/{adr0105-implementation,adr0105-results}`.
-these checks distinguish candidate, installed and cleanup evidence. production
-still serves `ea2b825` / `0022`. the installed cut, exclusive gmail journey,
+the earlier physical checks ran while production served `ea2b825` / `0022`.
+after [0104 adoption](0104-maintenance-without-owner-pause.md#implementation-evidence),
+the merged source at `41d8c62` passed a detached pg16 migration and rejected
+altered notice receipts, unrelated changed work, retired pending questions and
+excess database grants. the checkout and database fixture were removed.
+see `~/.local/state/jarvis/qualification/adr0105-maintenance-pg16/receipt.json`.
+the installed android cut, exclusive gmail journey,
 backup handoff and discord revocation remain open. remaining device and
 identity gates include a fresh browser session and otherwise unauthorized
 account, administrator revocation of the phone grant, a real canvas handoff

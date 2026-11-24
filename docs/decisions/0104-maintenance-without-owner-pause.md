@@ -72,5 +72,7 @@ production adoption selected `4d05a9267d123deb4327470606b28145f47bbb12` at
 schema `0022` in committed change `5581545e-79a3-4b1e-97cf-3e2d69ea343f`.
 all units served, owner resume 42 and the five parked requests matched their
 before-cut inventory, and the qualified reader was active with the next
-backup scheduled. evidence is in
+backup scheduled. generation `20261124T083855000254Z-770d10f78cfc4cbd8860e615e2defc2b`
+published and passed an isolated restore on macbook with the selected reader.
+evidence is in
 `~/.local/state/jarvis/qualification/adr0104-installed-adoption/`.

@@ -97,6 +97,15 @@ web pause 33. keep the pre-window rewrite in the observation record.
 compare quiet-end progress only within the same generation. measure
 construction on the actual selected release and annotate any later switch.
 
+the installed writer on `ea2b825/0022` resumed at 06:58:17 utc on
+november 24. the [two-commit recovery read](compactor-address-mismatch.md#production-writer-cut)
+at 06:59:17 found a ready prefix of 7,854 of 20,234 admitted, with a
+clear mark. the rewrite, v5 capture repair, mail rollout and writer cut
+all preceded the first scheduled sample. use the already declared
+november 24 17:00 utc → november 25 02:00 utc → november 25 17:00 utc
+window for this exact writer if the release and generation stay stable.
+the busy-end cutoff and overnight result remain unmeasured.
+
 ## broader usefulness evaluation
 
 after the [conversation capture cut](../decisions/0098-conversation-capture.md),

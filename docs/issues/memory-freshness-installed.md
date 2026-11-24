@@ -64,3 +64,9 @@ original and reopened all ten parts over two pages. a surviving direct
 identity still reopened; older range and retired-original lookups reported
 retirement. a genuine installed correction and a fresh answer using a
 target-inferred ancestor remain required.
+
+the `ea2b825/0022` writer passed [installed recovery](compactor-address-mismatch.md#production-writer-cut)
+on november 24. an authenticated owner correction and its grading key
+were sealed privately before the fresh session. the first post-resume
+read showed it beyond the ready prefix. an inferred ancestor from
+the target and the blinded answer and original read are still pending.

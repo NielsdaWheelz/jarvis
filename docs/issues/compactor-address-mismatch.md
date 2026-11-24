@@ -129,6 +129,16 @@ was admitted with exactly its declared distinct parts.
 the private mac cut receipt is
 `adr0100-final-20261124/production/cut-receipt.json`, sha-256
 `ab1493c6182ff407a683b67eeff00f0538c60afa810f155daa31c9f761da6cda`.
-the 06:56 read still showed pause 41, a clear mark and a prefix of 7,760.
-owner resume and the production writer proof remain open. the capacity
-window and recall verdict remain separate.
+owner web resume 42 committed at 06:58:17 utc. the new writer committed
+absent parent `7628+4` (level 2, index 1907) in transaction `2485198`
+at 06:58:32. its two immutable children framed to 2,305 bytes. the
+batch completed one contained call with eight fields and committed
+all eight inferred parents. disjoint parent `7632+8` (level 3, index
+954) committed in transaction `2485200` at 06:58:48. the 06:59:17
+read showed prefix 7,854 of 20,234 admitted positions, a clear mark
+and both services active. no retry ran.
+
+private mac proof `adr0100-final-20261124/production/live-writer-progress.json`,
+sha-256 `c0bb96fb93fe8c240e4dab0a94bbbfe3574e855e0e0cbbba39f6cd12133b907c`.
+installed recovery passed. the [capacity window](memory-usefulness-evaluation.md#installed-terra-observation)
+and [recall verdict](memory-freshness-installed.md) remain open.

@@ -1,10 +1,12 @@
 """One stopped rewrite of the pre-conversation-capture corpus at its frozen cut."""
 
 from __future__ import annotations
+
 import json
 from collections import defaultdict
 from typing import TYPE_CHECKING
 from uuid import UUID
+
 from sqlalchemy import select, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -12,6 +14,7 @@ from universal_memory.archive import insert_events
 from universal_memory.policy import BATCH_EVENTS, split_text
 from universal_memory.schema import source_conversation
 from universal_memory.types import Event, normalize_event
+
 from jarvis.tool_results import memory_result_size
 
 if TYPE_CHECKING:

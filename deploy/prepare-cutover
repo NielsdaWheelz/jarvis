@@ -12,11 +12,13 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
 from alembic import command
 from alembic.config import Config
 from memory_snapshot import STOPPED_TABLE_KEYS, table_inventory
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+
 from jarvis._atomic_json import replace_private_json
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,

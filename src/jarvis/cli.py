@@ -90,7 +90,7 @@ from jarvis.memory_server import serve_memory
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import compose_memory_catalog
 from jarvis.memory_workers import DreamerRunCompleted, DreamerWorker, MemoryWorker
-from jarvis.messages import MessageStore
+from jarvis.messages import MessageStore, ParkedInput
 from jarvis.native_cutover import (
     MaintenanceWork,
     NativeActivationDefect,
@@ -851,15 +851,58 @@ async def reconcile_gmail_action(
         await engine.dispose()
 
 
+async def list_parked(settings: PausedSettings) -> str:
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        inputs = await MessageStore(engine).list_parked(settings.owner_scope)
+    finally:
+        await engine.dispose()
+
+    if not inputs:
+        return "no parked requests"
+
+    groups: dict[tuple[datetime, UUID | None, UUID | None], list[ParkedInput]] = {}
+    for item in inputs:
+        # Uncorroborated and inspection-only rows stand alone.
+        singleton = None if item.attempt_id and item.releasable else item.id
+        groups.setdefault((item.parked_at, item.attempt_id, singleton), []).append(item)
+
+    blocks: list[str] = []
+    for (parked_at, attempt_id, _), members in groups.items():
+        if attempt_id is not None:
+            provenance = f"attempt {attempt_id}"
+        elif (claim := members[0].claimed_attempt_id) is not None:
+            provenance = f"claims attempt {claim} (unverified)"
+        else:
+            provenance = "attempt provenance unverified"
+        lines = [f"{parked_at.isoformat()} · {provenance}"]
+        for item in members:
+            reason = (
+                json.dumps(item.reason, ensure_ascii=False)
+                if item.reason is not None
+                else "reason unavailable"
+            )
+            lines.append(f"  {item.id} {item.role}/{item.source} · {reason}")
+        if members[0].releasable:
+            identifiers = " ".join(str(item.id) for item in members)
+            lines.append(f"  jarvis release-parked {identifiers}")
+        else:
+            lines.append("  inspection only · release requires a live parked request")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 async def release_parked(
-    settings: DatabaseSettings, message_ids: tuple[UUID, ...]
+    settings: PausedSettings, message_ids: tuple[UUID, ...]
 ) -> None:
     """Clear only the named parked markers while holding deployment ownership."""
 
     engine = create_engine(settings.database_url.get_secret_value())
     try:
         async with deployment_ownership(engine) as database:
-            await MessageStore(database).clear_parked(message_ids=message_ids)
+            await MessageStore(database).clear_parked(
+                source_conversation_id=settings.owner_scope, message_ids=message_ids
+            )
     finally:
         await engine.dispose()
 
@@ -1682,6 +1725,7 @@ def _parser() -> argparse.ArgumentParser:
     memory_commands.add_parser(
         "retry-compression", help="retry a corrected parked compression"
     )
+    commands.add_parser("list-parked", help="inspect parked inputs and their commands")
     release = commands.add_parser(
         "release-parked",
         help="release explicitly named parked input after operator correction",
@@ -1721,11 +1765,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "original boundaries and completed progress preserved"
                 )
             return 0
+        if arguments.command == "list-parked":
+            print(asyncio.run(list_parked(PausedSettings.from_env())))
+            return 0
         if arguments.command == "release-parked":
             message_ids = tuple(arguments.message_ids)
             if len(set(message_ids)) != len(message_ids):
                 raise StartupDefect("release IDs must be unique")
-            asyncio.run(release_parked(DatabaseSettings.from_env(), message_ids))
+            asyncio.run(release_parked(PausedSettings.from_env(), message_ids))
             print(f"Released {len(message_ids)} parked message(s).")
             return 0
         if arguments.command == "check-paused":
@@ -1861,6 +1908,7 @@ __all__ = [
     "check_paused",
     "dream_once",
     "initialize_state",
+    "list_parked",
     "main",
     "rebuild_memory",
     "release_parked",

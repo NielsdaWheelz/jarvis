@@ -97,6 +97,7 @@ from jarvis.messages import (
     cancel_unentered_actions,
     causal_component_ids,
 )
+from jarvis.native_failure_notice import record_parking_notice
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 from jarvis.terminal import (
     Answered,
@@ -1936,24 +1937,27 @@ async def _fail_inputs(
     attempt_id: str | None,
 ) -> None:
     """A waking input shares one fresh opening across contact and context failures."""
-    if reason in {"lost_contact", "context_window_exceeded"}:
-        unused = {
-            key for key, row in inputs.items() if row["native_retry_after"] is None
-        }
-        if unused:
-            schedule = (
-                update(message)
-                .where(message.c.id.in_(unused))
-                .values(native_retry_after=func.now() + timedelta(seconds=30))
+    retry: set[UUID] = (
+        {key for key, row in inputs.items() if row["native_retry_after"] is None}
+        if reason in {"lost_contact", "context_window_exceeded"}
+        else set()
+    )
+    parked = {key: row for key, row in inputs.items() if key not in retry}
+    if retry:
+        schedule = (
+            update(message)
+            .where(message.c.id.in_(retry))
+            .values(native_retry_after=func.now() + timedelta(seconds=30))
+        )
+        if reason == "context_window_exceeded":
+            schedule = schedule.values(
+                trace=message.c.trace.op("||")({"native_context_retry": True})
             )
-            if reason == "context_window_exceeded":
-                schedule = schedule.values(
-                    trace=message.c.trace.op("||")({"native_context_retry": True})
-                )
-            await connection.execute(schedule)
-            inputs = {key: row for key, row in inputs.items() if key not in unused}
+        await connection.execute(schedule)
+    if not parked:
+        return
     timestamp = datetime.now(UTC)
-    for identifier, row in inputs.items():
+    for identifier, row in parked.items():
         if reason == "context_window_exceeded":
             failure = "the model reached its context limit while retrying"
         elif reason == "lost_contact":
@@ -1979,43 +1983,14 @@ async def _fail_inputs(
                 trace=trace,
             )
         )
-        failure_id = uuid4()
-        pending = tuple(
-            await connection.scalars(
-                select(action.c.id)
-                .where(
-                    action.c.origin_message_id == identifier,
-                    action.c.status == "awaiting_approval",
-                )
-                .order_by(action.c.created_at, action.c.id)
-            )
-        )
-        repair = (
-            " its pending proposals need this repair before a decision."
-            if pending
-            else ""
-        )
-        await connection.execute(
-            insert(message).values(
-                id=failure_id,
-                role="assistant",
-                text=(
-                    f"{failure} on request {identifier}. "
-                    f"its actions and reads are recorded.{repair} "
-                    "to resume, stop jarvis, "
-                    f"run `jarvis release-parked {identifier}`, then start jarvis."
-                ),
-                source="native_failure",
-                home={"proposal_ids": list(map(str, pending))} if pending else None,
-                source_conversation_id=owner.scope_id,
-                memory_admitted=memory_is_admitted(connection),
-                processed_at=timestamp,
-                trace={"native_attempt_id": attempt_id}
-                if attempt_id is not None
-                else {},
-            )
-        )
-        await enqueue_notice(connection, failure_id)
+    await record_parking_notice(
+        connection,
+        scope=owner.scope_id,
+        origins=tuple(parked),
+        reason=reason,
+        timestamp=timestamp,
+        attempt_id=attempt_id,
+    )
 
 
 async def park_oversized_input(

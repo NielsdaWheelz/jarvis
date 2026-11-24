@@ -197,6 +197,11 @@ opus 5.5 at high effort accepted all three units on 2026-11-20, spec sha256
 
 ## native recovery and memory availability
 
+[adr 0106](decisions/0106-interrupted-answers-and-parked-work.md) owns
+interrupted final answers, grouped parking notices and operator inspection.
+provider-runtime owns the protocol rule. qualify the exact provider, kernel and
+jarvis pins in isolation before the separately authorized installed cut.
+
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) owns the
 interfaces, schemas, file boundaries, trade-offs and per-unit acceptance.
 integrate a (bounded recovery), b (provider → kernel → jarvis retry), then c

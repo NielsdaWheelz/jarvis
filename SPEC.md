@@ -91,6 +91,12 @@ describe their original releases.
 
 ## accepted native recovery and memory availability target
 
+[adr 0106](docs/decisions/0106-interrupted-answers-and-parked-work.md) amends
+native completion and parking at schema `0023`. a proved superseded assistant
+draft can coexist with a valid final. each parking operation records one private
+notice with original receipt evidence. operators inspect and release named
+inputs under the existing stopped controls. installed acceptance is separate.
+
 [adr 0094](docs/decisions/0094-worker-tools-and-native-context.md) amends
 sealed native failure recovery. confirmed context exhaustion shares the current
 per-input retry allowance with loss of contact. a due retry opens a fresh turn

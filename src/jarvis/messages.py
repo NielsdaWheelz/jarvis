@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,8 @@ from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4, uuid5
 
 from llm_tools import canonical_json_bytes
-from sqlalchemy import RowMapping, case, func, select, update
+from sqlalchemy import RowMapping, Text, case, func, select, update
+from sqlalchemy import cast as sql_cast
 from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -19,6 +21,7 @@ from jarvis.db import (
     control_sequence,
     message,
     native_attempt,
+    native_input_delivery,
     native_invocation,
 )
 from jarvis.home_notices import enqueue_notice
@@ -76,6 +79,30 @@ class StoredMessage:
 class InboundInsert:
     message: StoredMessage
     inserted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ParkedInput:
+    id: UUID
+    role: str
+    source: str
+    reason: str | None
+    parked_at: datetime
+    attempt_id: UUID | None
+    claimed_attempt_id: UUID | None
+    releasable: bool
+
+
+_parked_input = message.c.role.in_(("owner", "host")) & (
+    message.c.processing_parked_at.is_not(None)
+)
+_releasable_parked_input = _parked_input & (
+    (message.c.request_state == "pending")
+    | (
+        (message.c.request_state == "waiting")
+        & (message.c.wait_reason == "configuration")
+    )
+)
 
 
 async def append_waking_input(
@@ -650,65 +677,129 @@ class MessageStore:
             )
         return None if row is None else _stored_message(row)
 
+    async def list_parked(self, source_conversation_id: str) -> tuple[ParkedInput, ...]:
+        """Read parked inputs and corroborate their attempt in one snapshot."""
+        notice = message.alias("park_notice")
+        attempt_ref = message.c.trace["native_attempt_id"].as_string()
+        has_delivery = (
+            select(native_input_delivery.c.message_id)
+            .where(
+                native_input_delivery.c.attempt_id == native_attempt.c.id,
+                native_input_delivery.c.message_id == message.c.id,
+            )
+            .exists()
+        )
+        has_notice = (
+            select(notice.c.id)
+            .where(
+                notice.c.source_conversation_id == message.c.source_conversation_id,
+                notice.c.role == "assistant",
+                notice.c.source == "native_failure",
+                notice.c.processed_at == message.c.processing_parked_at,
+                notice.c.trace["native_attempt_id"].as_string() == attempt_ref,
+            )
+            .exists()
+        )
+        async with self._engine.begin() as connection:
+            await connection.execute(
+                sql_text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            )
+            rows = (
+                (
+                    await connection.execute(
+                        select(
+                            message.c.id,
+                            message.c.role,
+                            message.c.source,
+                            message.c.trace,
+                            message.c.processing_parked_at,
+                            native_attempt.c.id.label("attempt_id"),
+                            native_attempt.c.attempt_seq,
+                            _releasable_parked_input.label("releasable"),
+                        )
+                        .select_from(message)
+                        .outerjoin(
+                            native_attempt,
+                            (native_attempt.c.conversation_id == source_conversation_id)
+                            & (sql_cast(native_attempt.c.id, Text) == attempt_ref)
+                            & has_delivery
+                            & has_notice,
+                        )
+                        .where(
+                            message.c.source_conversation_id == source_conversation_id,
+                            _parked_input,
+                        )
+                        .order_by(message.c.processing_parked_at, message.c.id)
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        inputs: list[ParkedInput] = []
+        for row in rows:
+            watermark = row["trace"].get("released_through_native_attempt", 0)
+            sequence = row["attempt_seq"]
+            reason = row["trace"].get("failure_code")
+            claim = row["trace"].get("native_attempt_id")
+            claimed_attempt_id = None
+            if isinstance(claim, str):
+                with suppress(ValueError):
+                    claimed_attempt_id = UUID(claim)
+            inputs.append(
+                ParkedInput(
+                    id=row["id"],
+                    role=row["role"],
+                    source=row["source"],
+                    reason=reason if isinstance(reason, str) else None,
+                    parked_at=row["processing_parked_at"],
+                    attempt_id=row["attempt_id"]
+                    if sequence is not None
+                    and type(watermark) is int
+                    and 0 <= watermark < sequence
+                    else None,
+                    claimed_attempt_id=claimed_attempt_id,
+                    releasable=bool(row["releasable"]),
+                )
+            )
+        return tuple(inputs)
+
     async def clear_parked(
         self,
         *,
+        source_conversation_id: str,
         message_ids: tuple[UUID, ...],
     ) -> None:
         if not message_ids or len(set(message_ids)) != len(message_ids):
             msg = "operator release IDs must be non-empty and unique"
             raise ValueError(msg)
         async with self._engine.begin() as connection:
-            scopes = tuple(
-                (
-                    await connection.execute(
-                        select(message.c.source_conversation_id)
-                        .where(message.c.id.in_(message_ids))
-                        .distinct()
-                        .order_by(message.c.source_conversation_id)
-                    )
-                ).scalars()
-            )
-            for scope in scopes:
-                await lock_conversation(connection, scope)
+            await lock_conversation(connection, source_conversation_id)
             rows = (
                 await connection.execute(
                     select(
-                        message.c.id,
-                        message.c.source_conversation_id,
                         message.c.processing_parked_at,
-                        message.c.role,
-                        message.c.request_state,
-                        message.c.wait_reason,
+                        _releasable_parked_input.label("releasable"),
                     )
-                    .where(message.c.id.in_(message_ids))
+                    .where(
+                        message.c.source_conversation_id == source_conversation_id,
+                        message.c.id.in_(message_ids),
+                    )
                     .with_for_update()
                 )
             ).all()
             if len(rows) != len(message_ids):
-                msg = "operator release references a missing message"
+                msg = "operator release references a missing or out-of-scope message"
                 raise PersistenceDefect(msg)
             if any(row.processing_parked_at is None for row in rows):
                 msg = "operator release references an unparked message"
                 raise PersistenceDefect(msg)
-            if any(
-                row.role not in {"owner", "host"}
-                or row.request_state not in {"pending", "waiting"}
-                or (
-                    row.request_state == "waiting"
-                    and row.wait_reason != "configuration"
-                )
-                for row in rows
-            ):
+            if any(not row.releasable for row in rows):
                 raise PersistenceDefect(
                     "operator repair requires live configuration-parked input"
                 )
             release_cut = (
                 select(func.coalesce(func.max(native_attempt.c.attempt_seq), 0))
-                .where(
-                    native_attempt.c.conversation_id == message.c.source_conversation_id
-                )
-                .correlate(message)
+                .where(native_attempt.c.conversation_id == source_conversation_id)
                 .scalar_subquery()
             )
             await connection.execute(

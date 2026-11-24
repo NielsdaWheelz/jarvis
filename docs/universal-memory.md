@@ -426,6 +426,10 @@ later masquerading as a new one. no history backfill or reset is authorized.
 
 ### provider contract
 
+[adr 0103](decisions/0103-codex-history-admission.md) specifies the
+post-cleanup policy for selected-history capture on macbook codex-work.
+a confirmed missing checkpoint allows a reread from the original cut.
+
 [adr 0098](decisions/0098-conversation-capture.md#b-native-transport-and-storage)
 replaces the producer and collector wire with accounted native occurrences.
 proven workers have identity-only inventory, including historical parked or

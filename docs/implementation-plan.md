@@ -63,6 +63,8 @@ does not replace the separate worker observation journey.
 [adr 0089](decisions/0089-native-capture-repair.md) owns the independent native
 collector cut and its installed recovery evidence. the [claude reader repair](claude-data-flow-capture.md)
 owns the november 23 metadata parks and their recovery before the v4 worker cut.
+the [codex rewind repair](codex-history-recovery.md) follows historical
+archive cleanup at schema `0022`.
 
 ## destination and rules
 

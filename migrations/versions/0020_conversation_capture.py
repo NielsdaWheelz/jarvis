@@ -5,7 +5,7 @@ import os
 from alembic import op
 from sqlalchemy import text, update
 from universal_memory.archive import historical_workers
-from universal_memory.schema import SOURCE_GUARD, source_conversation
+from universal_memory.schema import source_conversation
 
 from jarvis.ownership import DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY
 
@@ -13,6 +13,69 @@ revision = "0020"
 down_revision = "0019"
 branch_labels = None
 depends_on = None
+
+
+SOURCE_GUARD = """
+        CREATE OR REPLACE FUNCTION memory_guard_original() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF TG_OP IN ('DELETE','TRUNCATE') THEN
+            RAISE EXCEPTION 'memory originals are append-only';
+          END IF;
+          IF TG_OP = 'INSERT' THEN
+            IF TG_TABLE_NAME = 'memory_log' THEN
+              IF (NEW.agent_submission IS NULL) = (NEW.synthesis IS NULL) THEN
+                RAISE EXCEPTION 'new notes require exactly one provenance variant';
+              END IF;
+            END IF;
+            RETURN NEW;
+          END IF;
+          IF TG_TABLE_NAME = 'memory_lane' THEN
+            IF (to_jsonb(NEW) - 'last_inventory_at') IS DISTINCT FROM
+               (to_jsonb(OLD) - 'last_inventory_at') THEN
+              RAISE EXCEPTION 'memory lane identity is immutable';
+            END IF;
+          ELSIF TG_TABLE_NAME = 'source_conversation' THEN
+            IF OLD.worker_excluded THEN
+              IF NEW IS DISTINCT FROM OLD THEN
+                RAISE EXCEPTION 'excluded worker progress is immutable';
+              END IF;
+            ELSIF NEW.worker_excluded THEN
+              IF (to_jsonb(NEW) - 'worker_excluded') IS DISTINCT FROM
+                 (to_jsonb(OLD) - 'worker_excluded') THEN
+                RAISE EXCEPTION 'worker exclusion must freeze existing progress';
+              END IF;
+            ELSIF OLD.baseline_error IS NOT NULL THEN
+              IF NEW.baseline_error IS NOT NULL THEN
+                IF (to_jsonb(NEW) - 'baseline_error') IS DISTINCT FROM
+                   (to_jsonb(OLD) - 'baseline_error') THEN
+                  RAISE EXCEPTION 'pending baseline permits only an error update';
+                END IF;
+              ELSIF (to_jsonb(NEW) - ARRAY['baseline_error','capture_after_event_id',
+                       'captured_from']) IS DISTINCT FROM
+                    (to_jsonb(OLD) - ARRAY['baseline_error','capture_after_event_id',
+                       'captured_from']) THEN
+                RAISE EXCEPTION 'baseline resolution cannot change source progress';
+              END IF;
+            ELSIF (to_jsonb(NEW) - ARRAY['checkpoint_event_id',
+                 'checkpoint_native_digest','checkpoint_capture_digest',
+                 'last_read_at','capture_error'])
+                 IS DISTINCT FROM
+               (to_jsonb(OLD) - ARRAY['checkpoint_event_id','checkpoint_native_digest',
+                 'checkpoint_capture_digest','last_read_at','capture_error']) THEN
+              RAISE EXCEPTION 'source conversation identity is immutable';
+            END IF;
+          ELSIF TG_TABLE_NAME IN ('source_record','memory_log') THEN
+            IF (to_jsonb(NEW) - 'embedding') IS DISTINCT FROM
+               (to_jsonb(OLD) - 'embedding') THEN
+              RAISE EXCEPTION 'memory original is immutable';
+            END IF;
+          ELSE
+            RAISE EXCEPTION 'memory leaf links are immutable';
+          END IF;
+          RETURN NEW;
+        END $$
+    """
 
 
 def upgrade() -> None:

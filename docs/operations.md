@@ -672,7 +672,28 @@ before the `0020` worker freeze, require per-conversation v3 [claude recovery re
    delivered report, skipped span, fresh recall and one contained main observation.
    [acceptance](decisions/0098-conversation-capture.md#proof-and-cutover)
 
+### stopped native capture cut from 0021 to 0022
+
+1. close the installed historical archive cut. verify the selected `0021`
+   release, protected originals, retired addresses and restored backup. freeze
+   the three parked receipts and all selected native occurrence hashes privately.
+2. stage the matching `0022` service and v5 collectors. drain v4 collectors.
+   record the owner web pause, disable the backup timer and prepare the stopped
+   copy in `/var/lib/jarvis-cutover/adr0103/`. on macbook, restore that copy and
+   qualify the stopped migration.
+3. migrate with both exact release receipts. preserve all stopped table
+   inventories, including retired source addresses. verify the new zero
+   generation, guard and grants. activate the matching sender and receiver.
+   verify v4 rejection and the new backup/restore before returning the timer.
+4. clear only the three verified parks under stopped external-memory ownership.
+   restore that service on every exit. confirm the selected replies reopen once
+   under their original conversation ids and later capture advances.
+   [repair scope](codex-history-recovery.md#verification-and-repair)
+
 ### stopped historical cleanup from 0020 to 0021
+
+run this one-time procedure with the exact historical `0021` release's
+commands and dependencies. later releases have their own stopped transition.
 
 use the repaired v4 sender and receiver first. keep the owner's web pause
 through both cuts when possible. disable the backup timer, let an active

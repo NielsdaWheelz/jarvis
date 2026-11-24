@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -19,21 +18,19 @@ from alembic.config import Config
 from memory_snapshot import STOPPED_TABLE_KEYS, table_inventory
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from universal_memory.schema import SOURCE_GUARD
 
-from jarvis._atomic_json import replace_bytes, replace_private_json
+from jarvis._atomic_json import replace_private_json
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
     create_engine,
     normalize_database_url,
 )
-from jarvis.historical_capture_manifest import HistoricalCaptureManifest
-from jarvis.historical_cleanup import rewrite_history
 from jarvis.ownership import maintenance_ownership
 
-SOURCE = "0020"
+SOURCE = "0021"
 TARGET = APPLICATION_SCHEMA_REVISION
-RETIRED = "memory_retired_source_record"
-REWRITTEN = {"source_record", "memory_leaf", "memory_node", "memory_state", RETIRED}
+NEW_COLUMNS = {"source_conversation": ("capture_generation",)}
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
@@ -90,46 +87,76 @@ async def inventory(conn, scope, version):
         == ("pause", "owner", "web"),
         "conversation capture requires the recorded owner web pause",
     )
-    keys = dict(STOPPED_TABLE_KEYS)
-    if version == SOURCE:
-        keys.pop(RETIRED)
+    projections = {}
+    if version == TARGET:
+        for table, added in NEW_COLUMNS.items():
+            columns = (
+                await conn.execute(
+                    text("""
+                        SELECT quote_ident(attname) FROM pg_attribute
+                        WHERE attrelid = to_regclass(:relation)
+                        AND attnum > 0 AND NOT attisdropped
+                        AND NOT attname = ANY(:added)
+                        ORDER BY attnum
+                    """),
+                    {"relation": f"public.{table}", "added": list(added)},
+                )
+            ).scalars()
+            projections[table] = f"(SELECT {', '.join(columns)} FROM public.{table})"
     return {
-        "tables": await table_inventory(conn, stopped_keys=keys),
+        "tables": await table_inventory(
+            conn, stopped_keys=STOPPED_TABLE_KEYS, projections=projections
+        ),
         "last_control": list(control),
     }
 
 
 async def require_target_schema(conn):
     require(
-        not await conn.scalar(
-            text("""
-            SELECT EXISTS(
-                SELECT FROM source_record r JOIN source_conversation c ON
-                    c.id=r.conversation_id
-                WHERE c.provider IN ('codex','claude','nexus')
-                  AND r.kind IN ('tool_call','tool_result','memory_reference')
-            ) OR EXISTS(
-                SELECT FROM source_record r JOIN memory_retired_source_record t
-                    ON t.id=r.id OR (t.conversation_id,
-                        t.native_event_id)=(r.conversation_id,r.native_event_id)
-            )
-        """)
-        ),
-        "target contains a live trace or reused retired address",
-    )
-    require(
         await conn.scalar(
             text("""
-            SELECT bool_and(has_table_privilege(r,'memory_retired_source_record',
-                'SELECT')
-                AND NOT has_table_privilege(r,'memory_retired_source_record',
-                    'INSERT, UPDATE, DELETE, TRUNCATE'))
-            FROM (VALUES ('jarvis_runtime'),('jarvis_memory'),('jarvis_backup'))
-                roles(r)
-            WHERE to_regrole(r) IS NOT NULL
-        """)
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                        AND table_name = 'source_conversation'
+                        AND column_name = 'capture_generation'
+                        AND data_type = 'bigint' AND is_nullable = 'NO'
+                        AND column_default = '0'
+                )
+                AND NOT EXISTS (
+                    SELECT FROM source_conversation WHERE capture_generation <> 0
+                )
+                AND EXISTS (
+                    SELECT FROM pg_constraint
+                    WHERE conrelid = 'public.source_conversation'::regclass
+                        AND conname = 'ck_source_conversation_capture_generation'
+                        AND contype = 'c' AND convalidated
+                )
+                AND has_column_privilege(
+                    'jarvis_memory', 'source_conversation',
+                    'capture_generation', 'UPDATE')
+                AND NOT has_column_privilege(
+                    'jarvis_runtime', 'source_conversation',
+                    'capture_generation', 'UPDATE')
+                AND EXISTS (
+                    SELECT FROM pg_trigger
+                    WHERE tgrelid = 'public.source_conversation'::regclass
+                        AND tgfoid = 'public.memory_guard_original()'::regprocedure
+                        AND tgenabled IN ('O','A') AND NOT tgisinternal
+                )
+            """)
         ),
-        "retirement receipt privileges differ",
+        "native capture generation schema, defaults or grants differ from the target",
+    )
+    body = await conn.scalar(
+        text("""
+            SELECT prosrc FROM pg_proc
+            WHERE oid = 'public.memory_guard_original()'::regprocedure
+        """)
+    )
+    require(
+        body == SOURCE_GUARD.split("$$")[1],
+        "native capture generation guard differs from the target",
     )
 
 
@@ -173,107 +200,7 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
             shutil.rmtree(stage)
 
 
-def manifest_path(destination, digest):
-    require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid manifest digest")
-    return destination / f"historical-capture.{digest}.json"
-
-
-def receive_manifest(commit, digest, stream):
-    require(
-        Path(__file__).resolve().parent.parent == ROOT / "releases" / commit,
-        "wrong receiving release",
-    )
-    subprocess.run(
-        [Path(__file__).with_name("cutover-hold"), "check", commit],
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
-    destination = Path("/var/lib/jarvis-cutover/historical-capture") / commit
-    snapshot = destination / "SNAPSHOT.json"
-    require(
-        json.loads(snapshot.read_bytes())["target"]["commit"] == commit,
-        "manifest needs the held release snapshot",
-    )
-    path = manifest_path(destination, digest)
-    payload = stream.read()
-    require(hashlib.sha256(payload).hexdigest() == digest, "manifest transfer differs")
-    replace_bytes(path, payload, 0o600)
-
-
-async def migrate_archive(
-    conn,
-    destination,
-    target_dir,
-    scope,
-    source,
-    target,
-    version,
-    facts,
-    manifest_digest,
-):
-    """Apply or verify the bound manifest in the caller's stopped transaction."""
-    result_file = destination / "historical-result.json"
-    if version == TARGET:
-        result = json.loads(result_file.read_bytes())
-        if manifest_digest == "none":
-            manifest_digest = result["manifest_sha256"]
-    plan_file = manifest_path(destination, manifest_digest)
-    plan_bytes = plan_file.read_bytes()
-    plan = HistoricalCaptureManifest.model_validate_json(plan_bytes)
-    bindings = {
-        "snapshot_sha256": file_digest(destination / "SNAPSHOT.json"),
-        "manifest_sha256": hashlib.sha256(plan_bytes).hexdigest(),
-        "source": source,
-        "target": target,
-    }
-    require(
-        manifest_digest == bindings["manifest_sha256"]
-        and plan.source_schema == SOURCE
-        and plan.snapshot_sha256 == bindings["snapshot_sha256"],
-        "historical manifest does not identify this stopped snapshot",
-    )
-    if version == TARGET:
-        require(
-            all(result.get(k) == v for k, v in bindings.items())
-            and result["target_facts"] == facts,
-            "committed historical cut differs from its bound result",
-        )
-        await require_target_schema(conn)
-        return
-    result = await rewrite_history(conn, plan)
-
-    def upgrade(connection):
-        config = Config(str(target_dir / "alembic.ini"))
-        config.attributes.update(connection=connection, historical_rewrite=True)
-        command.upgrade(config, TARGET)
-
-    await conn.run_sync(upgrade)
-    require(
-        await conn.scalar(text("SELECT version_num FROM alembic_version")) == TARGET,
-        "historical migration did not select target",
-    )
-    await require_target_schema(conn)
-    after = await inventory(conn, scope, TARGET)
-    require(
-        facts["last_control"] == after["last_control"]
-        and all(
-            after["tables"][k] == v
-            for k, v in facts["tables"].items()
-            if k not in REWRITTEN
-        )
-        and after["tables"][RETIRED][0] == result["retired_parts"],
-        "historical cut changed protected inventory",
-    )
-    # Persist the readback before committing. After an interruption a 0020
-    # source rewrites it; a 0021 target must match it without replay.
-    replace_private_json(
-        result_file, {**bindings, "counts": result, "target_facts": after}
-    )
-
-
-async def cut(
-    operation, destination, source, target, system_stop, manifest_digest="none"
-):
+async def cut(operation, destination, source, target, system_stop):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrator = make_url(migration_url)
@@ -365,34 +292,29 @@ async def cut(
             )
             facts = await inventory(conn, scope, version)
             evidence = {
-                "format": "jarvis-stopped-historical-capture.v1",
+                "format": "jarvis-stopped-cut.v6",
                 "source": source,
                 "target": target,
                 "owner_scope": scope,
                 "database": endpoint,
                 "schemas": [SOURCE, TARGET],
             }
+            evidence["original_facts"] = facts
+            if version == TARGET:
+                await require_target_schema(conn)
             if operation == "snapshot":
                 sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
-                write_snapshot(
-                    destination,
-                    {**evidence, "source_facts": facts},
-                    system_stop,
-                    args,
-                    sql_snapshot,
-                )
+                write_snapshot(destination, evidence, system_stop, args, sql_snapshot)
                 return
-            snapshot_file = destination / "SNAPSHOT.json"
-            snapshot = json.loads(snapshot_file.read_bytes())
+            manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
             require(
-                all(snapshot.get(k) == v for k, v in evidence.items())
-                and (version != SOURCE or snapshot["source_facts"] == facts),
+                all(manifest.get(k) == v for k, v in evidence.items()),
                 "stopped facts or release receipts changed",
             )
             require(
-                file_digest(destination / "database.dump") == snapshot["dump_sha256"]
+                file_digest(destination / "database.dump") == manifest["dump_sha256"]
                 and all(
-                    copy_digest(destination / k) == snapshot["copies"][k]
+                    copy_digest(destination / k) == manifest["copies"][k]
                     for k in ("private-state", "declarations")
                 ),
                 "damaged recovery copy",
@@ -402,28 +324,28 @@ async def cut(
                 == (destination / "declarations" / "jarvis.env").read_bytes(),
                 "installed assistant declaration changed during cut",
             )
-            if operation == "verify" and version == SOURCE:
-                return
-            await migrate_archive(
-                conn,
-                destination,
-                target_dir,
-                scope,
-                source,
-                target,
-                version,
-                facts,
-                manifest_digest,
-            )
+            if operation == "migrate" and version == SOURCE:
+                # Alembic uses this exact connection and transaction. There is
+                # no unlock between the final comparison and the schema change.
+                def upgrade(connection):
+                    config = Config(str(target_dir / "alembic.ini"))
+                    config.attributes["connection"] = connection
+                    command.upgrade(config, TARGET)
+
+                await conn.run_sync(upgrade)
+                require(
+                    await conn.scalar(text("SELECT version_num FROM alembic_version"))
+                    == TARGET
+                    and await inventory(conn, scope, TARGET)
+                    == manifest["original_facts"],
+                    "migration did not preserve the stopped database",
+                )
+                await require_target_schema(conn)
     finally:
         await engine.dispose()
 
 
 def main():
-    os.umask(0o077)
-    if len(sys.argv) == 4 and sys.argv[1] == "receive-manifest":
-        receive_manifest(sys.argv[2], sys.argv[3], sys.stdin.buffer)
-        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "operation",
@@ -437,7 +359,6 @@ def main():
     parser.add_argument("destination", type=Path)
     parser.add_argument("source_receipt", type=json.loads)
     parser.add_argument("target_receipt", type=json.loads)
-    parser.add_argument("manifest_digest")
     args = parser.parse_args()
     stop = json.loads(
         subprocess.check_output(
@@ -456,7 +377,6 @@ def main():
             args.source_receipt,
             args.target_receipt,
             stop,
-            args.manifest_digest,
         )
     )
     print("stopped cut validated:", args.operation)

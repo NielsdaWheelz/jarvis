@@ -143,6 +143,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0097](0097-todo-home.md) | todo home | one owner todo list on the default canvas. questions, proposals and answers live in conversation |
 | [0098](0098-conversation-capture.md) | conversation capture | prospective design. only jarvis main archives ordinary tools. external conversations retain source-proven answers and reports |
 | [0102](0102-historical-capture-cleanup.md) | historical capture cleanup | remove external tool traffic at deployment while preserving conversations and the identity of older references |
+| [0103](0103-codex-history-admission.md) | selected codex history after rewind | preserve saved originals and resume from the proved cut |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

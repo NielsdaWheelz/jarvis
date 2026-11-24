@@ -160,9 +160,11 @@ class Collector:
                 receipt.native_id,
                 after=receipt.capture_after_event_id,
                 from_event_id=checkpoint,
+                resume_selected=(lane.machine, lane.account)
+                == ("macbook", "codex-work"),
             )
             pending = batch.occurrences
-            if checkpoint is not None:
+            if checkpoint is not None and not batch.replayed_from_cut:
                 if not pending or pending[0].native_event_id != checkpoint:
                     raise ArchiveError("history_changed")
                 first, pending = pending[0], pending[1:]
@@ -176,6 +178,7 @@ class Collector:
                 contract_revision=ARCHIVE_CONTRACT_REVISION,
                 conversation_id=receipt.id,
                 expected_checkpoint=checkpoint,
+                expected_capture_generation=receipt.capture_generation,
                 checkpoint_native_digest=receipt.checkpoint_native_digest,
                 checkpoint_capture_digest=receipt.checkpoint_capture_digest,
                 occurrences=(),
@@ -235,13 +238,14 @@ class Collector:
                             ),
                         )
                     )
-                    checkpoint = receipt.checkpoint_event_id
                 except MemoryError as error:
                     if error.code != "event_too_large" or len(accepted) < 2:
                         raise
                     # The receiver checks final read rendering, including host-specific
                     # wrappers. The rejected transaction made no progress.
                     for index, occurrence in enumerate(accepted):
+                        checkpoint = receipt.checkpoint_event_id
+                        generation = receipt.capture_generation
                         native_digest = receipt.checkpoint_native_digest
                         capture_digest = receipt.checkpoint_capture_digest
                         receipt = ConversationReceipt.model_validate_json(
@@ -250,6 +254,7 @@ class Collector:
                                 request.model_copy(
                                     update={
                                         "expected_checkpoint": checkpoint,
+                                        "expected_capture_generation": generation,
                                         "checkpoint_native_digest": native_digest,
                                         "checkpoint_capture_digest": capture_digest,
                                         "occurrences": (occurrence,),
@@ -259,7 +264,6 @@ class Collector:
                                 ),
                             )
                         )
-                        checkpoint = receipt.checkpoint_event_id
             if reason is None:
                 return caught_up
         except ArchiveMissing:
@@ -284,7 +288,8 @@ class Collector:
                 "lane": lane,
                 "contract_revision": ARCHIVE_CONTRACT_REVISION,
                 "conversation_id": receipt.id,
-                "expected_checkpoint": checkpoint,
+                "expected_checkpoint": receipt.checkpoint_event_id,
+                "expected_capture_generation": receipt.capture_generation,
                 "error": reason,
             }
         )

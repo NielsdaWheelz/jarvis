@@ -518,6 +518,7 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
                     value.conversation_id,
                     value.expected_checkpoint,
                     value.error,
+                    expected_capture_generation=value.expected_capture_generation,
                 )
                 response = {"parked": value.error}
             else:
@@ -532,6 +533,7 @@ def create_memory_app(memory: MemoryService, config: MemoryConfig) -> FastAPI:
                     value.occurrences,
                     value.caught_up,
                     value.observed_at,
+                    expected_capture_generation=value.expected_capture_generation,
                 )
                 response = receipt.model_dump(mode="json")
         return JSONResponse(response)

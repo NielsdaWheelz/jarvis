@@ -49,6 +49,10 @@ broader capture rules below at the prospective cut.
 one-time cleanup of all historical external tool traffic in the stopped
 database at deployment, including records received after merge.
 
+[adr 0103](docs/decisions/0103-codex-history-admission.md) specifies selected
+codex history capture after a rewind. preserve the original admission cut,
+saved records and the historical cut's retired identities.
+
 [adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
 `0018`. one frozen startup view combines the complete ready prefix with bounded,
 source-attributed recent owner exchanges. the memory service owns online vector

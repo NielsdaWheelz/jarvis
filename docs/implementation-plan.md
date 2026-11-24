@@ -109,7 +109,7 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
 records the source, candidate and stopped `0017` production proofs. the owner
-accepted the installed web home. [discord channel administration](issues/discord-alert-channel.md) remains open.
+accepted the installed web home. [adr 0105](decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc) records discord retirement.
 [adr 0097](decisions/0097-todo-home.md) owns the independent todo home cut.
 qualify the todo read and conversational proposals, then the integrated web shell.
 on 2026-11-23 utc, independent claude opus 5.5 at max passed all three designs

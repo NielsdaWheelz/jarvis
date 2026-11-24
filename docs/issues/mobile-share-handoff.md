@@ -1,17 +1,12 @@
 # mobile share handoff
 
-android release `c8d1751` serves schema `0023` as of november 24 utc.
-the private web endpoint serves the exact old reply. the new backup restored
-on macbook. the phone slot is empty.
-[the installed cut](../decisions/0105-native-android.md#installed-release-on-november-24-utc)
-records the preserved work and old notice receipts.
+the signed s22+ enrolled at version 5, submitted the quote pdf, received the
+reply while locked and opened its exact message after unlock. its todo links
+to that exact result. the reply's citation opened the original on page six.
+the installed app disconnected and re-enrolled through cloudflare.
+[installed handset proof](../decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc)
 
-on signed version 4, opening alerts on the galaxy s22+ showed “phone
-disconnected.” tapping “enable alerts on this phone” showed “push setup
-required.” usb disconnected before an exact app-process diagnostic could
-identify the cause. the owner chose to skip the remaining handset checks.
-prior isolated firebase delivery and physical display passed separately.
-
-close after the normal enable action confirms the live slot, a locked-phone
-alert opens its exact reply, and both clients reopen the linked quote result
-and page six. complete the remaining identity and device gates in adr 0105.
+remaining installed checks are a fresh browser sign-in, an unauthorized
+account, administrator grant revocation, a real canvas handoff and withdrawal,
+file grant expiry, reboot/unlock and a fresh reinstall. retain saved owner
+state when exercising the device lifecycle.

@@ -428,7 +428,7 @@ the selected recovery dump passed its sha256 and a full archive read. both priva
 copies matched their recorded hashes. across both snapshots, the original 18 table
 inventories, owner scope, pause and private-copy hashes matched. the superseded
 `344abf9` rehearsal snapshot was removed and the selected copy was checked again.
-[discord channel administration](../issues/discord-alert-channel.md) remains open.
+[adr 0105](0105-native-android.md#installed-phone-follow-up-on-november-24-utc) records later discord retirement.
 
 final review found that cancelling an automatic action could make its id look like
 an approval. release `95423ff` requires an open approval, a proposal message or

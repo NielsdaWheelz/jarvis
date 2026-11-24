@@ -1,0 +1,595 @@
+#!/usr/bin/env python3
+"""Apply private-state or backup provisioning under the operator's release flock."""
+
+import argparse
+import asyncio
+import grp
+import hashlib
+import json
+import os
+import pwd
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from uuid import UUID
+
+import httpx
+from memory_backup_storage import producer_settings
+from memory_credentials import ETC, publish, split_environment
+
+from jarvis.connectors import GMAIL_API_BASE_URL, GoogleTokenManager, google_profile
+from jarvis.db import APPLICATION_SCHEMA_REVISION
+from jarvis.memory_config import MemoryConfig
+
+RELEASE = Path(__file__).resolve().parents[1]
+STATE = Path("/var/lib/jarvis-cutover")
+GOOGLE = Path("/var/lib/jarvis/connectors/google-oauth-state.json")
+AGENT_CLI = Path("/usr/local/libexec/skidbladnir")
+AGENT_STATE = Path("/run/jarvis-skid-state")
+HOLD = RELEASE / "deploy/cutover-hold"
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def release_check(function, *args, **options):
+    return subprocess.run(
+        [
+            "bash",
+            "-ec",
+            'source "$1"; shift; "$@"',
+            "provision",
+            RELEASE / "deploy/release-functions",
+            function,
+            *args,
+        ],
+        **options,
+    )
+
+
+def digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def env_values(raw):
+    return dict(
+        line.split(b"=", 1)
+        for line in raw.splitlines()
+        if line and not line.lstrip().startswith(b"#")
+    )
+
+
+def root_command(script, *args, source_env=False, input=None):
+    command = [
+        "systemd-run",
+        "--quiet",
+        "--wait",
+        "--pipe",
+        "--collect",
+        "--property=Type=oneshot",
+        f"--property=WorkingDirectory={RELEASE}",
+        "--property=EnvironmentFile=/etc/jarvis/migration.env",
+    ]
+    if source_env:
+        command.append("--property=EnvironmentFile=/etc/jarvis/jarvis.env")
+    subprocess.run(
+        [*command, RELEASE / ".venv/bin/python", RELEASE / "deploy" / script, *args],
+        input=input,
+        check=True,
+    )
+
+
+def materialize(stage, payload, bootstrap):
+    require(
+        set(payload)
+        == {"agent", "memory.json", "jarvis.env", "google-oauth-state.json"},
+        "unexpected private inputs",
+    )
+    owner, state, cli = payload["agent"]
+    require(
+        re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", owner)
+        and all(re.fullmatch(r"/[a-zA-Z0-9_./-]+", p) for p in (cli, state)),
+        "invalid enrolled worker origin",
+    )
+    account = pwd.getpwnam(owner)
+    origin = Path(state)
+    require(
+        origin.resolve(strict=True) == origin
+        and origin.is_dir()
+        and origin.stat().st_uid == account.pw_uid
+        and stat.S_IMODE(origin.stat().st_mode) == 0o700,
+        "enrolled worker state is unavailable",
+    )
+    binary = Path(cli)
+    require(
+        binary.resolve(strict=True) == binary
+        and binary.is_file()
+        and binary.stat().st_uid in {0, account.pw_uid}
+        and stat.S_IMODE(binary.stat().st_mode) == 0o755,
+        "enrolled worker executable is unavailable",
+    )
+    for name in ("jarvis.env", "memory.json", "google-oauth-state.json"):
+        publish(stage / name, payload[name].encode())
+    MemoryConfig.load(stage / "memory.json")
+    json.loads((stage / "google-oauth-state.json").read_bytes())
+    assistant, embedding, memory = split_environment(
+        (stage / "jarvis.env").read_bytes()
+    )
+    publish(stage / "assistant.env", assistant)
+    if not bootstrap:
+        group = grp.getgrnam("jarvis-memory").gr_gid
+        os.chown(stage / "memory.json", 0, group)
+        (stage / "memory.json").chmod(0o640)
+        service = pwd.getpwnam("jarvis")
+        os.chown(stage / "google-oauth-state.json", service.pw_uid, service.pw_gid)
+        old, new = env_values((ETC / "jarvis.env").read_bytes()), env_values(assistant)
+        require(
+            all(
+                old[k] == new[k]
+                for k in (b"JARVIS_OWNER_SCOPE", b"JARVIS_OWNER_ARCHIVE_KEY")
+            ),
+            "private provisioning requires the original owner identities",
+        )
+    return [owner, state, cli, digest(binary)], (assistant, embedding, memory)
+
+
+async def google_authority(stage, old, new):
+    async def require_fresh():
+        raise RuntimeError("maintenance never refreshes a provider credential")
+
+    async def identity(client, codec, state, client_id):
+        try:
+            token, _ = await codec.access_token(before_request=require_fresh)
+            observed = await client.post(
+                "https://www.googleapis.com/oauth2/v2/tokeninfo",
+                params={"access_token": token},
+            )
+            if not observed.is_success:
+                return None
+            info = observed.json()
+            granted = set(info.get("scope", "").split())
+            if (
+                info.get("issued_to") != client_id
+                or not info.get("user_id")
+                or granted != set(json.loads(state.read_bytes())["granted_scopes"])
+            ):
+                return None
+            profile = await client.get(
+                f"{GMAIL_API_BASE_URL}/users/me/profile",
+                params={"fields": "emailAddress,historyId"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if profile.is_success:
+                return info["user_id"], google_profile(profile.json()).account, granted
+        except (
+            RuntimeError,
+            httpx.HTTPError,
+            KeyError,
+            TypeError,
+            ValueError,
+            OSError,
+        ):
+            pass
+        return None
+
+    candidate = stage / "google-oauth-state.json"
+    async with httpx.AsyncClient(
+        trust_env=False, follow_redirects=False, timeout=5
+    ) as client:
+
+        def codec(env, path):
+            return GoogleTokenManager(
+                state_path=path,
+                client=client,
+                client_id=env[b"JARVIS_GOOGLE_OAUTH_CLIENT_ID"].decode(),
+                client_secret=env[b"JARVIS_GOOGLE_OAUTH_CLIENT_SECRET"].decode(),
+                active_key_version=env[
+                    b"JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION"
+                ].decode(),
+                single_secret=env[b"JARVIS_CONNECTOR_ENCRYPTION_SECRET"].decode(),
+            )
+
+        try:
+            source = codec(old, GOOGLE)
+            target = codec(new, candidate)
+            same = target.state_for_same_grant(source)
+        except (RuntimeError, KeyError, TypeError, ValueError, OSError):
+            same = None
+        if same is not None:
+            # The exact effective credential also survives an interrupted private cut.
+            candidate.write_bytes((json.dumps(same, sort_keys=True) + "\n").encode())
+            return set(), {}
+        ids = []
+        for env, path in ((old, GOOGLE), (new, candidate)):
+            try:
+                ids.append(
+                    await identity(
+                        client,
+                        codec(env, path),
+                        path,
+                        env[b"JARVIS_GOOGLE_OAUTH_CLIENT_ID"].decode(),
+                    )
+                )
+            except (RuntimeError, KeyError, TypeError, ValueError):
+                ids.append(None)
+        source_id, target_id = ids
+        paired = {}
+        if source_id and target_id:
+            paired = {
+                "gmail_source_account": source_id[1],
+                "gmail_candidate_account": target_id[1],
+            }
+        return (
+            set()
+            if source_id and source_id == target_id
+            else {"gmail", "calendar", "events"}
+        ), paired
+
+
+def changed_authority(stage, agent, assistant, embedding):
+    old = env_values((ETC / "jarvis.env").read_bytes())
+    new = env_values(assistant)
+    changed = {k.decode() for k in set(old) | set(new) if old.get(k) != new.get(k)}
+    domains = set()
+    document = {"source_scope": old[b"JARVIS_OWNER_SCOPE"].decode()}
+    google = any(
+        k.startswith(("JARVIS_GOOGLE_", "JARVIS_CONNECTOR_ENCRYPTION")) for k in changed
+    )
+    if (
+        google
+        or (stage / "google-oauth-state.json").read_bytes() != GOOGLE.read_bytes()
+    ):
+        domains, paired = asyncio.run(google_authority(stage, old, new))
+        document.update(paired)
+    if "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS" in changed:
+        domains.add("calendar")
+    if any(k.startswith("JARVIS_ATTACHMENT_") for k in changed):
+        domains.add("attachments")
+    if any(k.startswith("JARVIS_DISCORD_") for k in changed):
+        domains.add("notice")
+    if any(k.startswith("JARVIS_CODEX_") for k in changed):
+        domains.add("native")
+    if embedding != (ETC / "embedding.env").read_bytes() or json.loads(
+        (stage / "memory.json").read_bytes()
+    ) != json.loads((ETC / "memory.json").read_bytes()):
+        domains.add("memory")
+    if not (
+        AGENT_CLI.exists()
+        and digest(AGENT_CLI) == agent[-1]
+        and AGENT_STATE.exists()
+        and os.path.samefile(AGENT_STATE, agent[1])
+    ):
+        domains.add("worker")
+    return {**document, "authority_changes": sorted(domains)}
+
+
+def activation(stage, document, private):
+    source = stage / "authority.json"
+    report = stage / "compatibility.json"
+    publish(source, json.dumps(document).encode())
+    env = dict(os.environ)
+    extra = []
+    if private:
+        env.update(
+            MAINTENANCE_MEMORY_CONFIG=str(stage / "memory.json"),
+            MAINTENANCE_GOOGLE_STATE=str(stage / "google-oauth-state.json"),
+        )
+        extra = [stage / "assistant.env"]
+    succeeded = (
+        release_check(
+            "check_maintenance", RELEASE, source, report, *extra, env=env
+        ).returncode
+        == 0
+    )
+    try:
+        output = json.loads(report.read_bytes())
+    except (OSError, ValueError):
+        output = {}
+    if not succeeded or output.get("outcome") != "compatible":
+        for finding in output.get("findings", []):
+            if finding.get("verdict") != "compatible":
+                print(
+                    f"{finding.get('id')} {finding.get('verdict')}: "
+                    f"{finding.get('detail')}",
+                    file=sys.stderr,
+                )
+        return False
+    return True
+
+
+def apply_private(stage, agent, expected, change, bootstrap):
+    publish(
+        stage / "agent.json", json.dumps({"change": change, "agent": agent}).encode()
+    )
+    root_command(
+        "memory_credentials.py",
+        stage,
+        *(["--bootstrap"] if bootstrap else []),
+        source_env=not bootstrap,
+    )
+    for name, contents in zip(
+        ("jarvis.env", "embedding.env", "memory.env"), expected, strict=True
+    ):
+        require((ETC / name).read_bytes() == contents, f"{name} publication differs")
+    require(
+        (ETC / "memory.json").read_bytes() == (stage / "memory.json").read_bytes()
+        and GOOGLE.read_bytes() == (stage / "google-oauth-state.json").read_bytes(),
+        "private state verification failed",
+    )
+
+
+def apply_backup(payload):
+    raw = json.dumps(payload).encode()
+    root_command("memory_backup_credentials.py", source_env=True, input=raw)
+    for name in ("jarvis-backup.service", "jarvis-backup.timer"):
+        subprocess.run(
+            [
+                "install",
+                "-m",
+                "0644",
+                "-o",
+                "root",
+                "-g",
+                "root",
+                RELEASE / "deploy" / name,
+                "/etc/systemd/system/" + name,
+            ],
+            check=True,
+        )
+    subprocess.run(["systemctl", "daemon-reload"], check=True)
+    require(
+        producer_settings((ETC / "backup.json").read_bytes()) == payload,
+        "backup declaration verification failed",
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "operation", choices=["bootstrap", "private-state", "backup", "backup-reader"]
+    )
+    parser.add_argument("change")
+    parser.add_argument("commit")
+    parser.add_argument("--repair-of")
+    args = parser.parse_args()
+    change, operation, commit = args.change, args.operation, args.commit
+    bootstrap = operation == "bootstrap"
+    require(
+        os.geteuid() == 0
+        and re.fullmatch(r"[0-9a-f]{40}", commit)
+        and RELEASE == Path("/opt/jarvis/releases") / commit,
+        "wrong provisioning release or identity",
+    )
+    if bootstrap:
+        release_check("require_no_cutover_hold", check=True)
+        require(
+            not os.path.lexists("/opt/jarvis/current")
+            and change == commit
+            and not args.repair_of,
+            "bootstrap requires a new installation",
+        )
+    else:
+        require(str(UUID(change)) == change, "invalid change id")
+        if args.repair_of:
+            require(str(UUID(args.repair_of)) == args.repair_of, "invalid parent id")
+        require(
+            Path("/opt/jarvis/current").resolve(strict=True) == RELEASE,
+            "selected release changed",
+        )
+    os.umask(0o077)
+    STATE.mkdir(mode=0o700, exist_ok=True)
+    raw = sys.stdin.buffer.read(2_097_153)
+    require(len(raw) <= 2_097_152, "provisioning inputs too large")
+    payload = json.loads(raw)
+    bound = dict(payload)
+    private = bootstrap or operation == "private-state"
+    reader = operation == "backup-reader"
+    with tempfile.TemporaryDirectory(prefix="provision-", dir=STATE) as work:
+        stage = Path(work)
+        if private:
+            agent, expected = materialize(stage, payload, bootstrap)
+            origin = Path(agent[1]).stat()
+            bound["agent"] = [*agent, origin.st_dev, origin.st_ino]
+        else:
+            proof = payload if reader else payload["reader"]
+            reader_check = [sys.executable, RELEASE / "deploy/qualified-reader"]
+            reader_input = stage / "reader.json"
+            publish(reader_input, json.dumps(proof).encode())
+            subprocess.run([*reader_check, "check", RELEASE, reader_input], check=True)
+            if reader:
+                producer_settings((ETC / "backup.json").read_bytes())
+            else:
+                payload = producer_settings(json.dumps(payload["settings"]).encode())
+                require(
+                    payload["reader_image"] == proof["reader_image"],
+                    "backup settings select another reader",
+                )
+                require(
+                    shutil.which("age") is not None, "backup provisioning requires age"
+                )
+        if bootstrap:
+            apply_private(stage, agent, expected, change, True)
+            print("bootstrap declarations installed. awaiting first owner enablement.")
+            return
+        digest_input = hashlib.sha256(
+            json.dumps(bound, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        units = "jarvis-backup.service"
+        if not reader:
+            units = "jarvis.service,jarvis-memory.service," + units
+        phase = subprocess.check_output([HOLD, "status", change], text=True).strip()
+        if phase == "unknown":
+            if not args.repair_of:
+                release_check("require_no_cutover_hold", check=True)
+                subprocess.run([HOLD, "install-guards", units], check=True)
+            live = release_check(
+                "check_release_schema",
+                RELEASE,
+                "--online",
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            require(
+                live.stdout.strip() == APPLICATION_SCHEMA_REVISION,
+                "installed schema mismatch",
+            )
+        command = [
+            HOLD,
+            "begin",
+            change,
+            operation,
+            commit,
+            commit,
+            digest_input,
+            units,
+            "--source-schema",
+            APPLICATION_SCHEMA_REVISION,
+            "--target-schema",
+            APPLICATION_SCHEMA_REVISION,
+        ]
+        if not reader and not args.repair_of:
+            command.append("--idle-check")
+        if args.repair_of:
+            command += ["--repair-of", args.repair_of]
+        phase = subprocess.check_output(command, text=True).strip()
+        require(
+            phase in {"held", "applying", "committed", "not-applied"},
+            "unexpected hold phase or startup failure; inspect the held change",
+        )
+        if phase in {"committed", "not-applied"}:
+            subprocess.run([HOLD, "start", change], check=True)
+            require(phase == "committed", "change was not applied")
+            return
+        evidence = STATE / "held/provisioning.json"
+        credential = evidence.parent / "staged-secrets" / f"google-{change}.json"
+        previous = json.loads(evidence.read_bytes()) if evidence.is_file() else {}
+        if phase == "held" or previous.get("change") != change:
+            domains = (
+                changed_authority(stage, agent, *expected[:2])
+                if private
+                else {"authority_changes": []}
+            )
+            if phase == "applying" and args.repair_of:
+                # Earlier mutation can make the source settings insufficient proof.
+                prior = previous.get("authority_changes", [])
+                if private:
+                    prior = [
+                        *prior,
+                        "gmail",
+                        "calendar",
+                        "events",
+                        "worker",
+                        "attachments",
+                        "notice",
+                        "memory",
+                    ]
+                    domains.pop("gmail_source_account", None)
+                    domains.pop("gmail_candidate_account", None)
+                domains["authority_changes"] = sorted(
+                    set(domains["authority_changes"]) | set(prior)
+                )
+            if not reader and not activation(stage, domains, private):
+                if (
+                    phase == "held"
+                    and not args.repair_of
+                    and release_check(
+                        "safe_source_return", stage / "compatibility.json"
+                    ).returncode
+                    == 0
+                    and release_check("check_source_activation", RELEASE).returncode
+                    == 0
+                ):
+                    subprocess.run(
+                        [
+                            HOLD,
+                            "not-applied",
+                            change,
+                            "--evidence",
+                            stage / "compatibility.json",
+                        ],
+                        check=True,
+                    )
+                    subprocess.run([HOLD, "start", change], check=True)
+                    raise RuntimeError(
+                        "change not applied; source service restored for the decision"
+                    )
+                raise RuntimeError(
+                    "change held; inspect original obligations before a repair"
+                )
+            details = {
+                "change": change,
+                "operation": operation,
+                "authority_changes": domains["authority_changes"],
+            }
+            if not reader:
+                details["control"] = json.loads(
+                    (stage / "compatibility.json").read_bytes()
+                )["control"]
+            if reader:
+                details["reader_image"] = payload["reader_image"]
+            details["authority"] = domains
+            if private:
+                credential.parent.mkdir(mode=0o700, exist_ok=True)
+                publish(credential, (stage / "google-oauth-state.json").read_bytes())
+            publish(evidence, json.dumps(details).encode())
+            subprocess.run([HOLD, "applying", change], check=True)
+        require(
+            phase in {"held", "applying"} and evidence.is_file(),
+            "missing stopped preflight",
+        )
+        if private:
+            (stage / "google-oauth-state.json").write_bytes(credential.read_bytes())
+            apply_private(stage, agent, expected, change, False)
+        elif reader:
+            subprocess.run(
+                [*reader_check, "publish", RELEASE, reader_input], check=True
+            )
+            observed = release_check(
+                "check_release_schema",
+                RELEASE,
+                "--online",
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            require(
+                observed.stdout.strip() == APPLICATION_SCHEMA_REVISION,
+                "backup reader schema changed",
+            )
+        else:
+            apply_backup(payload)
+            subprocess.run(
+                [*reader_check, "publish", RELEASE, reader_input], check=True
+            )
+        details = json.loads(evidence.read_bytes())
+        if not reader:
+            require(
+                activation(stage, details["authority"], False),
+                "published configuration failed its stopped compatibility check",
+            )
+            after = json.loads((stage / "compatibility.json").read_bytes())
+            require(
+                after["control"] == details["control"],
+                "owner control changed during provisioning",
+            )
+        subprocess.run([HOLD, "commit", change, "--evidence", evidence], check=True)
+        subprocess.run([HOLD, "start", change], check=True)
+        print(f"{operation} committed for {commit}. backup timer policy retained.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        # Only deliberate validation errors are suitable for operator output.
+        raise SystemExit(
+            str(error) if type(error) is RuntimeError else type(error).__name__
+        ) from None

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Run the existing stopped command, with its documented service identity and keys.
+set -euo pipefail
+(( EUID == 0 && $# > 0 ))
+exec flock --shared /opt/jarvis/.deploy.lock bash -ec '
+  source /opt/jarvis/current/deploy/release-functions
+  require_no_cutover_hold
+  exec "$@"
+' independent-maintenance "$@"

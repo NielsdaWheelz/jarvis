@@ -53,6 +53,16 @@ broader capture rules below at the prospective cut.
 one-time cleanup of all historical external tool traffic in the stopped
 database at deployment, including records received after merge.
 
+[adr 0103](docs/decisions/0103-codex-history-admission.md) specifies selected
+codex history capture after a rewind. preserve the original admission cut,
+saved records and the historical cut's retired identities.
+
+[adr 0100](docs/decisions/0100-host-bound-summary-fields.md) binds summary
+fields to sources in jarvis. the compactor can repeat one completed malformed
+call per atomic batch, within the existing per-source limit. its current-main
+release follows the archive rewrite. production progress, overnight capacity
+and genuine recall each require evidence on the selected generation.
+
 [adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
 `0018`. one frozen startup view combines the complete ready prefix with bounded,
 source-attributed recent owner exchanges. the memory service owns online vector
@@ -327,8 +337,9 @@ throughput change. source and installed proof remain separate.
 
 [adr 0080](docs/decisions/0080-first-valid-compaction.md) retains the 512-byte prompt
 target and accepts the first valid inferred summary within the existing
-2,048-byte hard bound. retry only hard oversize or transient failures under the
-same per-node ceilings; malformed output still parks with no partial batch commit.
+2,048-byte hard bound. hard oversize and transient failures retain their
+per-node ceilings. adr 0100 allows one form correction within those ceilings.
+an exhausted or repeated malformed reply parks the entire batch.
 this replaces shortest-candidate selection and soft-target retries. larger
 inferred nodes may coarsen older detail earlier; net parent cost and general
 quality remain unmeasured. existing nodes, originals and source cuts stay intact.
@@ -2222,14 +2233,15 @@ activation removes old releases only after its existing startup checks pass.
 rollback and one-time migration releases are rebuilt from their exact commits
 when needed, then removed after use; they are not retained as recovery copies.
 
-routine replacement of a cleanly stopped initialized release preserves canonical
-pause/resume. activation requires deployment ownership, valid native state and
-the current execution-contract checks; it creates no owner control. a retained
-resume preserves startup action recovery; new main reasoning and background memory
-work wait for validated discord catch-up. fresh initialization, pause-required migrations and
-private-configuration/authority changes retain their separate canonical-pause
-prerequisites. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
-records this distinction; no force flag or recovery bypass is provided.
+named maintenance on an initialized installation follows
+[adr 0104](docs/decisions/0104-maintenance-without-owner-pause.md). deployment
+holds the affected services across restart and uses their postgres ownership
+keys for stopped changes. activation requires valid native state, exact target
+and authority checks, and preservation of compatible obligations. the stopped
+checks precede release of the hold and live readiness checks follow. a retained
+resume preserves startup action recovery. new main reasoning and background
+memory work wait for validated discord catch-up. only the owner changes
+canonical pause/resume, including the first enablement of a new installation.
 
 Production activation requires the installed PostgreSQL and pgvector identities
 to be recorded and qualified against the release. It does not require a host
@@ -2560,14 +2572,14 @@ approval, execution, reconciliation, and receipts.
   the original arguments, contract and receipts remain immutable. stopping
   cancels unentered work, never an entered effect's settlement obligation.
 
-Queued or approval-bearing rows whose `tool_name` is unsupported or whose stored
-arguments or execution contract no longer validate fail closed as `cancelled`
-and are reported. before an incompatible cutover, the original release reconciles
-entered/unknown effects; unentered work is cancelled and requires fresh consent.
-after cutover there is one current decoder/executor, with no legacy fallback or
-compatibility path. historical terminal rows retain their original bytes and
-receipts. the per-row contract makes one occupied effect replay-safe; it is not
-a registry for dispatching multiple implementation versions.
+named maintenance holds publication if a queued or approval-bearing action
+cannot retain its original contract and authority. the operator reports the
+action and waits for its exact disposition. the original release's approved
+reconciliation procedure settles entered effects using original evidence.
+cancelling unentered work requires its own authorized disposition, and any
+replacement requires fresh consent. the selected release has one current
+decoder and executor. historical terminal rows retain their original bytes
+and receipts.
 
 The action ledger must not become a duplicate message or memory store.
 
@@ -2576,8 +2588,10 @@ The action ledger must not become a duplicate message or memory store.
 existing connector credentials, cursors and adapter state remain in their
 owned stores. canonical pause is a postgres control message. native request,
 attempt, invocation and input-delivery facts use the existing database and owner
-lock; provider sessions/history are disposable. no local pause/session/admission
-journal survives cutover. the original sealed terminal includes its frozen output
+lock. provider sessions and history are disposable. the operator's disk-backed
+service hold and receipts bind maintenance to exact inputs and releases.
+canonical requests, controls and effect evidence stay in postgres. the
+original sealed terminal includes its frozen output
 schema and input lineage, so local product settlement does not reconstruct a
 current plan or repeat a model call. current request/owner fences still govern
 publication. alembic owns its migration table.

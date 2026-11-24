@@ -83,6 +83,7 @@ class Events(CaptureRequest):
     type: Literal["events"] = "events"
     conversation_id: UUID
     expected_checkpoint: str | None
+    expected_capture_generation: int = Field(ge=0, le=2**63 - 1)
     checkpoint_native_digest: str | None
     checkpoint_capture_digest: CaptureDigest | None
     occurrences: tuple[Occurrence, ...] = Field(max_length=BATCH_EVENTS)
@@ -94,6 +95,7 @@ class CaptureError(CaptureRequest):
     type: Literal["error"] = "error"
     conversation_id: UUID
     expected_checkpoint: str | None
+    expected_capture_generation: int = Field(ge=0, le=2**63 - 1)
     error: Literal[
         "native_missing",
         "unsupported",

@@ -1,258 +1,360 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-operation=activate
-case "${1:-}" in --prepare|--migrate) operation="${1#--}"; shift ;; esac
-manifest=""
-if [[ "$operation" == migrate ]]; then
-  [[ "${1:-}" == --manifest && $# == 4 ]] || {
-    echo 'usage: deploy/activate-release --migrate --manifest FILE SOURCE TARGET' >&2
+if [[ "${1:-}" != --on-host ]]; then
+  repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+  change=bootstrap
+  repair_of=none
+  qualification=none
+  reader_image=none
+  if [[ "${1:-}" == --change && $# -ge 3 ]]; then
+    change="$2"
+    shift 2
+    while (( $# >= 3 )); do
+      case "$1" in
+        --repair-of) [[ "$repair_of" == none ]]; repair_of="$2" ;;
+        --qualification) [[ "$qualification" == none ]]; qualification="$2" ;;
+        --reader-image) [[ "$reader_image" == none && "$2" =~ ^sha256:[0-9a-f]{64}$ ]]; reader_image="$2" ;;
+        *) break ;;
+      esac
+      shift 2
+    done
+    uuid_pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    [[ "$change" =~ $uuid_pattern && ( "$repair_of" == none || "$repair_of" =~ $uuid_pattern ) ]]
+  fi
+  if [[ $# != 1 || ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'usage: deploy/activate-release --change UUID [--repair-of UUID] [--qualification FILE] [--reader-image DIGEST] TARGET\n' >&2
     exit 64
-  }
-  manifest="$2"
-  shift 2
-fi
-if [[ $# != 2 && ( $# != 1 || "$operation" != activate ) ]]; then
-  printf 'usage: deploy/activate-release [--prepare | --migrate --manifest FILE] [SOURCE] TARGET\n' >&2
-  exit 64
-fi
-commit="${!#}"
-receipt_for() {
-  local sha="$1" tree lock
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
-  tree="$(git -C "$repo_dir" rev-parse --verify "$sha^{tree}")" || return 1
-  lock="$(git -C "$repo_dir" show "$sha:uv.lock" | shasum -a 256 | awk '{print $1}')" || return 1
-  printf '%s:%s:%s' "$sha" "$tree" "$lock"
-}
-target_fields="$(receipt_for "$commit")"
-source_fields=none
-if [[ $# == 2 ]]; then source_fields="$(receipt_for "$1")"; fi
-manifest_digest=none
-if [[ "$operation" == migrate ]]; then
-  manifest_digest="$(python3 - "$manifest" <<'PYCODE'
-import hashlib, os, stat, sys
-with open(sys.argv[1], "rb") as stream:
-    info = os.fstat(stream.fileno())
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-        raise SystemExit("select an owner-private regular manifest file")
-    print(hashlib.file_digest(stream, "sha256").hexdigest())
+  fi
+  commit="$1"
+  if ! git -C "$repo_dir" cat-file -e "$commit:deploy/qualified-reader" 2>/dev/null; then
+    printf 'target lacks the named maintenance contract; use a qualified adr 0104 build\n' >&2
+    exit 1
+  fi
+  tree="$(git -C "$repo_dir" rev-parse --verify "$commit^{tree}")"
+  lock="$(git -C "$repo_dir" show "$commit:uv.lock" | shasum -a 256 | awk '{print $1}')"
+  incoming=none
+  if [[ "$reader_image" != none ]]; then
+    local_proof="$(mktemp "${TMPDIR:-/tmp}/jarvis-reader.XXXXXX")"
+    trap 'rm -f -- "$local_proof"' EXIT
+    "$repo_dir/deploy/qualified-reader" "$reader_image" >"$local_proof"
+  fi
+  if [[ "$qualification" != none ]]; then
+    python3 - "$qualification" <<'PYCODE'
+import os
+import stat
+import sys
+
+entry = os.lstat(sys.argv[1])
+if not stat.S_ISREG(entry.st_mode) or entry.st_uid != os.getuid() or entry.st_mode & 0o077:
+    raise SystemExit("select an owner-private rehearsal receipt")
+if entry.st_size > 2 * 1024 * 1024:
+    raise SystemExit("rehearsal receipt exceeds its maximum size")
 PYCODE
-)"
-  remote="/opt/jarvis/releases/$commit"
+  fi
+  if [[ "$qualification" != none || "$reader_image" != none ]]; then
+    incoming="$(ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy mktemp -d /tmp/jarvis-qualification.XXXXXX)"
+    [[ "$incoming" =~ ^/tmp/jarvis-qualification\.[a-zA-Z0-9]+$ ]]
+    if [[ "$qualification" != none ]]; then
+      scp -q -o BatchMode=yes -o ForwardAgent=no "$qualification" "dev-server-deploy:$incoming/rehearsal.json"
+    fi
+    if [[ "$reader_image" != none ]]; then
+      scp -q -o BatchMode=yes -o ForwardAgent=no "$local_proof" "dev-server-deploy:$incoming/reader.json"
+    fi
+  fi
   ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-    sudo -n flock /opt/jarvis/.deploy.lock "$remote/.venv/bin/python" \
-    "$remote/deploy/prepare-cutover" receive-manifest "$commit" "$manifest_digest" < "$manifest"
+    sudo -n bash -s -- "$commit" "$tree" "$lock" "$change" "$repair_of" "$incoming" <<'REMOTE'
+set -euo pipefail
+release="/opt/jarvis/releases/$1"
+python3 - "$release/RELEASE.json" "$1" "$2" "$3" <<'PYCODE'
+import json
+import sys
+from pathlib import Path
+
+expected = dict(zip(("commit", "tree", "uv_lock_sha256"), sys.argv[2:], strict=True))
+if json.loads(Path(sys.argv[1]).read_bytes()) != expected:
+    raise SystemExit("installed receipt differs from externally selected release")
+PYCODE
+unit="jarvis-activate-$4-$RANDOM"
+incoming=none
+if [[ "$6" != none ]]; then
+  [[ "$6" =~ ^/tmp/jarvis-qualification\.[a-zA-Z0-9]+$ ]]
+  mkdir -p -m 0700 /var/lib/jarvis-cutover
+  incoming="$(mktemp -d /var/lib/jarvis-cutover/.qualification-$4.XXXXXX)"
+  for name in rehearsal.json reader.json; do
+    if [[ -e "$6/$name" || -L "$6/$name" ]]; then
+      [[ -f "$6/$name" && ! -L "$6/$name" ]]
+      install -m 0600 -- "$6/$name" "$incoming/$name"
+    fi
+  done
+  rm -rf -- "$6"
+fi
+result=0
+systemd-run --quiet --wait --collect --unit="$unit" --property=Type=exec \
+  /usr/bin/flock --exclusive /opt/jarvis/.deploy.lock \
+  "$release/deploy/activate-release" --on-host "$1" "$4" "$5" "$incoming" || result=$?
+journalctl --quiet --no-pager --output=cat --unit="$unit"
+exit "$result"
+REMOTE
+  exit
 fi
 
-{
-cat "$repo_dir/deploy/release-functions"
-cat <<'REMOTE'
-set -euo pipefail
-commit="$1"
-release="/opt/jarvis/releases/$commit"
+[[ $EUID == 0 && $# == 5 ]]
+commit="$2"
+change="$3"
+repair_of="$4"
+incoming="$5"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+release="/opt/jarvis/releases/$commit"
+source "$release/deploy/release-functions"
+custody="$release/deploy/cutover-hold"
+rehearsal=none
+incoming_reader=none
+if [[ "$incoming" != none ]]; then
+  [[ "$incoming" =~ ^/var/lib/jarvis-cutover/\.qualification-[0-9a-f-]+\.[a-zA-Z0-9]+$ ]]
+  trap 'rm -rf -- "$incoming"' EXIT
+  if [[ -f "$incoming/rehearsal.json" ]]; then rehearsal="$incoming/rehearsal.json"; fi
+  if [[ -f "$incoming/reader.json" ]]; then incoming_reader="$incoming/reader.json"; fi
+fi
 
 refuse() {
   printf '%s\n' "$1" >&2
   exit 1
 }
 
-sudo -n test -f "$release/RELEASE.json" || refuse "release is not installed"
-receipt_json() {
-  python3 - "$1" <<'PYCODE'
-import json, pathlib, sys
-commit, tree, lock = sys.argv[1].split(":")
-expected = {"commit": commit, "tree": tree, "uv_lock_sha256": lock}
-if json.loads((pathlib.Path("/opt/jarvis/releases") / commit / "RELEASE.json").read_bytes()) != expected:
-    raise SystemExit("installed receipt differs from externally selected release")
-print(json.dumps(expected, separators=(",", ":")))
-PYCODE
+schema_of() {
+  "$1/.venv/bin/python" -c 'from jarvis.db import APPLICATION_SCHEMA_REVISION; print(APPLICATION_SCHEMA_REVISION)'
 }
-receipt="$(receipt_json "$2")"
-source_receipt=none
-if [[ "$3" != none ]]; then source_receipt="$(receipt_json "$3")"; fi
-operation="$4"
-manifest_digest="$5"
-snapshot="/var/lib/jarvis-cutover/historical-capture/$commit"
-hold=/etc/systemd/system/jarvis-cutover.hold
-source="/opt/jarvis/releases/${3%%:*}"
-selected=''
-if [[ -e /opt/jarvis/current || -L /opt/jarvis/current ]]; then
-  selected="$(readlink -e /opt/jarvis/current)"
+
+persist() {
+  local input="$1" path="$2"
+  install -m 0600 -- "$input" "$path.tmp"
+  sync -f "$path.tmp"
+  mv -Tf "$path.tmp" "$path"
+  sync -f "$path"
+}
+
+backup_hashes() {
+  local path
+  for path in /etc/jarvis/backup.json /etc/jarvis/backup-reader.json; do
+    if [[ -f "$path" ]]; then
+      sha256sum "$path" | cut -d' ' -f1
+    else
+      printf '%s\n' absent
+    fi
+  done
+}
+
+install_selection() {
+  for unit in jarvis.service jarvis-memory.service jarvis-backup.service jarvis-backup.timer; do
+    if [[ "$unit" == jarvis-backup.* && ! -f "/etc/systemd/system/$unit" ]]; then continue; fi
+    case "$(systemctl is-enabled "$unit" || true)" in masked|masked-runtime) continue ;; esac
+    install -m 0644 -o root -g root "$release/deploy/$unit" "/etc/systemd/system/$unit"
+  done
+  sync -f /etc/systemd/system
+  systemctl daemon-reload
+  local temporary="/opt/jarvis/.current-$commit"
+  rm -f -- "$temporary"
+  ln -s "releases/$commit" "$temporary"
+  mv -Tf "$temporary" /opt/jarvis/current
+  sync -f /opt/jarvis
+}
+
+target_schema="$(schema_of "$release")"
+if [[ "$change" == bootstrap ]]; then
+  require_no_cutover_hold
+  [[ ! -e /opt/jarvis/current && ! -L /opt/jarvis/current ]] ||
+    refuse "established releases require a named --change"
+  [[ "$(check_release_schema "$release")" == "$target_schema" ]] ||
+    refuse "bootstrap schema does not match the selected release"
+  systemctl is-active --quiet jarvis-codex-contained.service
+  check_source_activation "$release"
+  install_selection
+  systemctl enable --now jarvis-memory.service jarvis.service
+  "$custody" verify-serving "$commit" jarvis-memory.service,jarvis.service
+  prune_releases
+  exit
 fi
-cutover() {
+
+phase="$("$custody" status "$change")"
+if [[ "$phase" == startup-failed ]]; then
+  refuse "startup failed for $change. inspect its status and use a newly authorized --repair-of $change"
+fi
+if [[ "$phase" == committed || "$phase" == not-applied ]]; then
+  retry=()
+  if [[ "$rehearsal" != none ]]; then retry+=(--qualification "$rehearsal"); fi
+  if [[ "$incoming_reader" != none ]]; then retry+=(--reader "$incoming_reader"); fi
+  "$custody" verify-release-retry "$change" "$commit" "$repair_of" "${retry[@]}"
+  "$custody" start "$change"
+  if [[ "$phase" == committed ]]; then prune_releases; else exit 1; fi
+  exit
+fi
+
+source_commit="$("$custody" source "$change")"
+source_release="/opt/jarvis/releases/$source_commit"
+if [[ "$phase" == unknown ]]; then
+  source_schema="$(schema_of "$source_release")"
+else
+  source_schema="$("$custody" source-schema "$change")"
+fi
+if [[ "$phase" == unknown && "$repair_of" != none ]]; then
+  parent="$("$custody" repair-source "$repair_of")"
+  mapfile -t prior <<<"$parent"
+  observed="$(check_release_schema "$release")"
+  [[ "$observed" == "$target_schema" ]] ||
+    refuse "repair target must match the held database revision $observed; retry the original change for its migration"
+  if [[ "$observed" != "$source_schema" ]]; then
+    [[ "$source_commit" == "${prior[0]}" && "$source_schema" == "${prior[1]}" && "$observed" == "${prior[3]}" ]] ||
+      refuse "held database and selected code require the exact predecessor migration receipt"
+    previous_release="/opt/jarvis/releases/${prior[2]}"
+    systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+      "--property=WorkingDirectory=$previous_release" \
+      --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
+      --property=EnvironmentFile=/etc/jarvis/migration.env \
+      "$previous_release/.venv/bin/python" "$previous_release/deploy/prepare-cutover" \
+      verify-target "$repair_of" "${prior[0]}" "${prior[2]}" "${prior[1]}" "${prior[3]}" \
+      "/var/lib/jarvis-cutover/held/qualification-$repair_of.json" </dev/null
+    source_schema="$observed"
+  fi
+fi
+if [[ "$source_schema" == "$target_schema" && "$rehearsal" != none ]]; then
+  refuse "schema is unchanged, so no migration qualification receipt applies"
+fi
+
+migration() {
+  local step="$1"
+  shift
   systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
     "--property=WorkingDirectory=$release" \
     --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
     --property=EnvironmentFile=/etc/jarvis/migration.env \
-    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$1" "$snapshot" "$source_receipt" "$receipt" "$manifest_digest" </dev/null
+    "$release/.venv/bin/python" "$release/deploy/prepare-cutover" "$step" "$change" \
+    "$source_commit" "$commit" "$source_schema" "$target_schema" "$@" </dev/null
 }
-if [[ "$operation" == prepare || -e "$hold" ]]; then
-  if systemctl is-enabled --quiet jarvis-backup.timer ||
-     systemctl is-active --quiet jarvis-backup.timer ||
-     systemctl is-active --quiet jarvis-backup.service; then
-    refuse "disable the backup timer and let any running backup finish before the cut"
+
+mapping=/etc/jarvis/codex-host.json
+[[ "$(stat -c '%U:%G:%a' "$mapping")" == root:root:644 ]] ||
+  refuse "installed native mapping has unexpected ownership or mode"
+units=jarvis.service,jarvis-memory.service,jarvis-codex-contained.service,jarvis-backup.service
+mapping_digest="$(sha256sum "$mapping" | cut -d' ' -f1)"
+digest="$mapping_digest"
+held=/var/lib/jarvis-cutover/held
+stored_reader="$held/reader-$change.json"
+backup_facts="$held/backup-facts-$change.json"
+reader="$incoming_reader"
+if [[ -f "$stored_reader" ]]; then
+  if [[ "$incoming_reader" != none ]]; then
+    cmp -s "$incoming_reader" "$stored_reader" || refuse "change $change already binds another reader proof"
+  fi
+  reader="$stored_reader"
+fi
+backup_config=/etc/jarvis/backup.json
+if [[ "$reader" != none ]]; then
+  [[ -f "$backup_config" ]] || refuse "no backup is configured for reader replacement"
+  "$release/.venv/bin/python" "$release/deploy/qualified-reader" check "$release" "$reader" >/dev/null
+  reader_digest="$(sha256sum "$reader" | cut -d' ' -f1)"
+  digest="$(printf '%s\n' "$mapping_digest" "$reader_digest" | sha256sum | cut -d' ' -f1)"
+elif [[ -f "$backup_config" ]]; then
+  "$release/.venv/bin/python" "$release/deploy/qualified-reader" current "$release" >/dev/null ||
+    refuse "configured backup needs a qualified target --reader-image; installed reader proof is missing or mismatched"
+fi
+repair=()
+if [[ "$repair_of" != none ]]; then repair=(--repair-of "$repair_of"); fi
+if [[ "$phase" == unknown && "$repair_of" == none ]]; then
+  require_no_cutover_hold
+  if [[ "$(systemctl is-enabled jarvis-codex-contained.service)" != enabled ]] ||
+      ! systemctl is-active --quiet jarvis-codex-contained.service; then
+    refuse "contained host needs an explicit intended state before release replacement"
   fi
 fi
-if [[ "$operation" == prepare ]]; then
-  [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0020 source release"
-  if [[ ! -e "$hold" ]]; then
-    systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
-      --property=User=jarvis --property=Group=jarvis "--property=WorkingDirectory=$source" \
-      --property=EnvironmentFile=/etc/jarvis/database-runtime.env \
-      --property=EnvironmentFile=/etc/jarvis/jarvis.env \
-      "$source/.venv/bin/jarvis" check-paused </dev/null ||
-      refuse "record the ordinary owner pause on the source release before preparing this cut"
+phase="$("$custody" begin "$change" release "$source_commit" "$commit" "$digest" "$units" \
+  --source-schema "$source_schema" --target-schema "$target_schema" --idle-check "${repair[@]}")"
+case "$phase" in held|applying) ;; *) refuse "custody returned an unexpected phase for $change" ;; esac
+
+report_hold() {
+  if [[ -d /var/lib/jarvis-cutover/held ]]; then
+    printf 'held %s. selected release %s. inspect the stopped operation before retrying.\n' \
+      "$change" "$(basename "$(readlink -e /opt/jarvis/current)")" >&2
   fi
-  "$release/deploy/cutover-hold" stop "$commit"
-  if [[ -d "$snapshot" ]]; then cutover verify; else cutover snapshot; fi
-  exit
-fi
-if [[ -e "$hold" ]]; then
-  [[ "$source_receipt" != none ]] || refuse "supply both selected release commits for the held cut"
-elif [[ "$source_receipt" != none ]]; then
-  refuse "first prepare the stopped schema cut"
+}
+trap report_hold ERR
+
+observed_schema="$(check_release_schema "$release")"
+[[ "$observed_schema" == "$source_schema" || ( "$phase" == applying && "$observed_schema" == "$target_schema" ) ]] ||
+  refuse "held $change. selected database schema changed"
+umask 077
+scratch="$(mktemp -d /tmp/jarvis-activation.XXXXXX)"
+trap 'rm -rf -- "$scratch"; if [[ "$incoming" != none ]]; then rm -rf -- "$incoming"; fi' EXIT
+if [[ "$reader" != none ]]; then
+  if [[ ! -f "$stored_reader" ]]; then persist "$reader" "$stored_reader"; fi
+  if [[ ! -f "$backup_facts" ]]; then
+    "$release/.venv/bin/python" "$release/deploy/qualified-reader" facts "$release" "$stored_reader" >"$scratch/backup.json"
+    persist "$scratch/backup.json" "$backup_facts"
+  fi
 else
-  for unit in jarvis-memory.service jarvis.service; do
-    if [[ -z "$selected" && "$(systemctl show -p LoadState --value "$unit")" == not-found ]]; then continue; fi
-    [[ "$(systemctl show -p ActiveState --value "$unit")" == inactive &&
-       "$(systemctl show -p Result --value "$unit")" == success &&
-       "$(systemctl show -p MainPID --value "$unit")" == 0 ]] || refuse "cleanly stop $unit"
-  done
-fi
-
-if [[ "$operation" == migrate ]]; then
-  cutover migrate
-  exit
-fi
-
-if [[ -e "$hold" ]]; then
-  cutover verify-target
-fi
-
-for file in embedding.env database-memory.env memory.env; do
-  [[ "$(stat -c '%U:%G:%a' "/etc/jarvis/$file")" == root:root:600 ]] ||
-    refuse "provision the protected memory settings before activation"
-done
-runtime_properties=(
-  --property=Type=oneshot --property=User=jarvis --property=Group=jarvis
-  "--property=SupplementaryGroups=codex-clients jarvis-memory"
-  --property=ProtectHome=true --property=ProtectSystem=strict
-  --property=PrivateTmp=true --property=PrivateDevices=true
-  --property=NoNewPrivileges=true
-  --property=BindsTo=jarvis-codex-contained.service
-  --property=After=jarvis-codex-contained.service
-  --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
-  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
-  "--property=ReadWritePaths=/var/lib/jarvis /run/jarvis-codex-cognition /var/cache/jarvis/attachments"
-  "--property=WorkingDirectory=$release"
-  --property=EnvironmentFile=/etc/jarvis/database-runtime.env
-  --property=EnvironmentFile=/etc/jarvis/jarvis.env
-)
-schema_unit="jarvis-schema-${commit:0:12}-$RANDOM"
-schema="$(sudo -n systemd-run --quiet --wait --pipe --collect \
-  --unit="$schema_unit" --property=Type=oneshot \
-  "--property=WorkingDirectory=$release" \
-  --property=EnvironmentFile=/etc/jarvis/migration.env \
-  "$release/.venv/bin/python" - <<'PY'
-import os
-
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
-
-from jarvis.db import APPLICATION_SCHEMA_REVISION, normalize_database_url
-from jarvis.ownership import DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY
-
-try:
-    engine = create_engine(normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"]))
-    with engine.begin() as connection:
-        for key in (DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY):
-            if not connection.scalar(
-                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
-            ):
-                raise SystemExit("schema inspection requires both writers stopped")
-        revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    engine.dispose()
-except (KeyError, SQLAlchemyError, ValueError):
-    raise SystemExit("schema inspection failed") from None
-if revision != APPLICATION_SCHEMA_REVISION:
-    raise SystemExit("commit the paused schema cut before activating")
-print(revision)
-PY
-)"
-if [[ -n "$selected" && ! -e "$hold" ]]; then
-  "$selected/.venv/bin/python" -c '
-import sys
-from jarvis.db import APPLICATION_SCHEMA_REVISION
-raise SystemExit(APPLICATION_SCHEMA_REVISION != sys.argv[1])
-' "$schema" || refuse "prepare the stopped cut before replacing the selected schema"
-fi
-[[ "$(stat -c '%U:%G:%a' /run/jarvis-home)" == jarvis:jarvis-home:2750 ]] ||
-  refuse "install the private home connector and runtime directory before activation"
-if grep -q '^JARVIS_EMBEDDING_' /etc/jarvis/jarvis.env; then
-  refuse "finish the postmigration credential handoff before activation"
-fi
-
-sudo -n systemctl is-active --quiet jarvis-codex-contained.service ||
-  refuse "the separate native host is not active; leave service stopped"
-host_check_unit="jarvis-host-check-${commit:0:12}-$RANDOM"
-sudo -n systemd-run --quiet --wait --pipe --collect --unit="$host_check_unit" \
-  "${runtime_properties[@]}" \
-  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
-  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null ||
-  refuse "the same-release native host did not qualify; leave service stopped"
-
-check_unit="jarvis-check-${commit:0:12}-$RANDOM"
-sudo -n systemd-run --quiet --wait --pipe --collect --unit="$check_unit" \
-  "${runtime_properties[@]}" "$release/.venv/bin/jarvis" check-activation </dev/null ||
-  refuse "activation check failed; leave service stopped"
-
-started=0
-stop_failed_activation() {
-  status=$?
-  if ((status != 0 && started)); then
-    sudo -n systemctl stop jarvis.service jarvis-memory.service || true
+  backup_hashes >"$scratch/backup.sha256"
+  if [[ ! -f "$held/backup-before-$change.sha256" ]]; then
+    persist "$scratch/backup.sha256" "$held/backup-before-$change.sha256"
   fi
-  exit "$status"
-}
-trap stop_failed_activation EXIT
-for unit in jarvis.service jarvis-memory.service; do
-  sudo -n install -m 0644 -o root -g root "$release/deploy/$unit" "/etc/systemd/system/$unit"
-done
-sudo -n systemctl daemon-reload
-temporary="/opt/jarvis/.current-$commit"
-sudo -n rm -f -- "$temporary"
-sudo -n ln -s "releases/$commit" "$temporary"
-sudo -n mv -Tf "$temporary" /opt/jarvis/current
-if [[ -e "$hold" ]]; then "$release/deploy/cutover-hold" release "$commit"; fi
-started=1
-sudo -n systemctl enable --now jarvis-memory.service jarvis.service
-# Linux reports elapsed boot time in seconds with two decimal places.
-read -r uptime _ </proc/uptime
-deadline_cs=$((10#${uptime/./} + 300 * 100))
-until sudo -n -u jarvis-tunnel curl --silent --fail --max-time 2 --noproxy '*' \
-  --unix-socket /run/jarvis-home/http.sock http://jarvis.nielseriknandal.com/api/home >/dev/null; do
-  systemctl is-active --quiet jarvis.service || refuse "assistant stopped before its web listener was ready"
-  read -r uptime _ </proc/uptime
-  (( 10#${uptime/./} < deadline_cs )) || refuse "assistant web listener was unready after five minutes"
-  sleep 1
-done
-for unit in jarvis-memory.service jarvis.service; do
-  [[ "$(systemctl show --property=SubState --value "$unit")" == running &&
-     "$(systemctl show --property=NRestarts --value "$unit")" == 0 ]] ||
-    refuse "$unit did not remain running"
-  pid="$(systemctl show -p MainPID --value "$unit")"
-  [[ "$pid" =~ ^[1-9][0-9]*$ && "$(readlink -e "/proc/$pid/cwd")" == "$release" ]] ||
-    refuse "$unit does not own the selected release"
-done
-[[ "$(stat -c '%U:%G:%a' /run/jarvis-memory/internal.sock)" == jarvis-memory:jarvis-memory:660 ]] ||
-  refuse "private memory socket is missing or incorrectly published"
-[[ "$(stat -c '%U:%G:%a' /run/jarvis-home/http.sock)" == jarvis:jarvis-home:660 ]] ||
-  refuse "private web socket is missing or incorrectly published"
+  cmp -s "$scratch/backup.sha256" "$held/backup-before-$change.sha256" || refuse "held $change. backup declaration changed"
+fi
+printf '%s\n' '{"authority_changes":[]}' >"$scratch/unchanged-authority.json"
+if [[ "$source_schema" != "$target_schema" ]]; then
+  qualification="/var/lib/jarvis-cutover/held/qualification-$change.json"
+  if [[ "$phase" == held ]]; then
+    migration snapshot
+    if [[ "$rehearsal" != none ]]; then
+      if [[ -f "$qualification" ]]; then
+        cmp -s "$rehearsal" "$qualification" ||
+          refuse "held $change already binds another qualification receipt"
+      else
+        migration verify-rehearsal "$rehearsal"
+        persist "$rehearsal" "$qualification"
+      fi
+    fi
+    [[ -f "$qualification" ]] || refuse "held $change. rehearse the bound stopped copy before continuing"
+    migration verify-rehearsal "$qualification"
+  fi
+  [[ -f "$qualification" ]] || refuse "held $change. bound qualification receipt missing"
+  if [[ "$rehearsal" != none ]]; then
+    cmp -s "$rehearsal" "$qualification" || refuse "held $change already binds another qualification receipt"
+  fi
+elif [[ "$phase" == held && "$repair_of" == none ]] &&
+    ! check_maintenance "$release" "$scratch/unchanged-authority.json" "$scratch/source-check.json"; then
+  if [[ -s "$scratch/source-check.json" ]]; then cat "$scratch/source-check.json"; fi
+  if safe_source_return "$scratch/source-check.json" && check_source_activation "$source_release"; then
+    "$custody" not-applied "$change" --evidence "$scratch/source-check.json"
+    "$custody" start "$change"
+  fi
+  refuse "change $change blocked by stopped compatibility checks"
+fi
+if [[ "$phase" == held && -f "$scratch/source-check.json" ]]; then
+  "$custody" applying "$change" --evidence "$scratch/source-check.json"
+else
+  "$custody" applying "$change"
+fi
+if [[ "$source_schema" != "$target_schema" ]]; then migration migrate "$qualification"; fi
+"$release/deploy/install-contained-host" --held "$change" "$commit" "$mapping"
+if [[ "$repair_of" != none ]]; then
+  check_maintenance "$release" "$scratch/unchanged-authority.json" "$scratch/repair-check.json"
+  "$custody" applying "$change" --evidence "$scratch/repair-check.json"
+fi
+install_selection
+[[ "$(sha256sum "$mapping" | cut -d' ' -f1)" == "$mapping_digest" ]] ||
+  refuse "held $change. target native mapping changed"
+[[ "$(check_release_schema "$release")" == "$target_schema" ]] ||
+  refuse "held $change. target database schema changed"
+check_maintenance "$release" "$scratch/unchanged-authority.json" "$scratch/target-check.json"
+if [[ "$source_schema" != "$target_schema" ]]; then migration verify-target "$qualification"; fi
+if [[ "$reader" != none ]]; then
+  "$release/.venv/bin/python" "$release/deploy/qualified-reader" publish "$release" "$stored_reader" "$backup_facts" >/dev/null
+else
+  [[ "$(backup_hashes)" == "$(cat "$held/backup-before-$change.sha256")" ]] ||
+    refuse "held $change. backup declaration changed"
+fi
+if [[ -f "$backup_config" ]]; then
+  "$release/.venv/bin/python" "$release/deploy/qualified-reader" current "$release" >/dev/null
+fi
+"$custody" commit "$change" --evidence "$scratch/target-check.json"
+"$custody" start "$change"
 prune_releases
-printf 'activated jarvis release: %s\n' "$commit"
-printf 'canonical control was retained; owner chat is on the private web home.\n'
-REMOTE
-} | ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
-  sudo -n flock /opt/jarvis/.deploy.lock bash -s -- "$commit" "$target_fields" "$source_fields" "$operation" "$manifest_digest"

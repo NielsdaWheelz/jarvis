@@ -75,6 +75,7 @@ from jarvis.work_tools import WORK_MUTATION_IDS
 from jarvis.write_connectors import GoogleWriteConnector
 from jarvis.write_policy import classify_write
 from jarvis.write_tools import (
+    WRITE_TOOL_IDS,
     CalendarCreateEventInput,
     CalendarDeleteEventInput,
     CalendarUpdateEventInput,
@@ -375,6 +376,7 @@ class WriteToolDispatcher:
             binding=binding,
             plan=plan,
             budgets=budgets,
+            source_conversation_id=self._source_conversation_id,
         )
         if isinstance(mail, GmailComposeContract) and not isinstance(
             result, DispatchSuspended
@@ -553,11 +555,12 @@ async def execute_recorded_action(
     binding: ToolBinding[Any, Any, Any],
     plan: FrozenToolPlan,
     budgets: BudgetState,
+    source_conversation_id: str,
 ) -> DispatchResult:
     """Enter the same durable position for immediate, approved and recovered work."""
-    stored = await actions.get(action_id)
+    stored = await actions.get(action_id, source_conversation_id=source_conversation_id)
     if stored is None:
-        raise ToolDispatchDefect("recorded action disappeared")
+        raise ToolDispatchDefect("recorded action is unavailable in the owner's scope")
     require_current_action_binding(stored, plan)
     grant = plan.grant(binding.spec.id)
     recorder = ActionPositionRecorder(
@@ -565,6 +568,7 @@ async def execute_recorded_action(
         action_id=action_id,
         implementation_revision=binding.implementation_revision,
         max_external_attempts=grant.limits.max_attempts,
+        source_conversation_id=source_conversation_id,
     )
     try:
         result = await ToolExecutor.execute(
@@ -587,6 +591,12 @@ async def execute_recorded_action(
     except RecoveryRequired:
         return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
     return completed_tool_result(result, HostRef(str(action_id)))
+
+
+# These are the durable actions with an original settlement path below.
+RECOVERABLE_ACTION_IDS = WRITE_TOOL_IDS.union(
+    ATTACHMENT_WRITE_IDS, AGENT_WRITE_IDS, WORK_MUTATION_IDS, EVENT_MUTATION_IDS
+)
 
 
 class ActionRecovery:
@@ -620,6 +630,7 @@ class ActionRecovery:
             raise ValueError("queued recovery selection must be boolean")
         recovered: set[UUID] = set()
         while candidates := await self._actions.recovery_candidates(
+            source_conversation_id=self._source_conversation_id,
             include_queued=allow_queued_execution,
             limit=100,
         ):
@@ -669,6 +680,13 @@ class ActionRecovery:
         stored = await self._require(action_id)
         if retired_worker_action(stored):
             raise RuntimeError("retired unfinished worker action blocks activation")
+        if (
+            stored.status == "executing"
+            and stored.tool_name not in RECOVERABLE_ACTION_IDS
+        ):
+            raise RuntimeError(
+                "entered action has no supported reconciliation procedure"
+            )
         if (
             stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce
             and stored.status == "executing"
@@ -863,6 +881,7 @@ class ActionRecovery:
             binding=binding,
             plan=self._plan,
             budgets=ExactToolBudgetFactory().create(self._plan),
+            source_conversation_id=self._source_conversation_id,
         )
         self._wait_changed()
         return (
@@ -890,9 +909,11 @@ class ActionRecovery:
         return require_current_action_binding(stored, self._plan)
 
     async def _require(self, action_id: UUID) -> StoredAction:
-        stored = await self._actions.get(action_id)
+        stored = await self._actions.get(
+            action_id, source_conversation_id=self._source_conversation_id
+        )
         if stored is None:
-            raise RuntimeError("recovering action disappeared")
+            raise RuntimeError("recovering action is unavailable in the owner's scope")
         return stored
 
 
@@ -932,6 +953,7 @@ async def _discard_mail_stage(mail_files: MailFiles, action_id: UUID) -> None:
 
 
 __all__ = [
+    "RECOVERABLE_ACTION_IDS",
     "ActionRecovery",
     "NoTelemetry",
     "WriteToolDispatcher",

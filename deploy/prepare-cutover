@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -16,24 +15,24 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from memory_snapshot import STOPPED_TABLE_KEYS, table_inventory
+from memory_snapshot import (
+    RESTORE_ROLES,
+    database_identity,
+    pg_environment,
+    row_inventory,
+    schema_inventory,
+)
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from jarvis._atomic_json import replace_bytes, replace_private_json
+from jarvis._atomic_json import replace_private_json
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
     create_engine,
     normalize_database_url,
 )
-from jarvis.historical_capture_manifest import HistoricalCaptureManifest
-from jarvis.historical_cleanup import rewrite_history
 from jarvis.ownership import maintenance_ownership
 
-SOURCE = "0020"
-TARGET = APPLICATION_SCHEMA_REVISION
-RETIRED = "memory_retired_source_record"
-REWRITTEN = {"source_record", "memory_leaf", "memory_node", "memory_state", RETIRED}
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
@@ -73,64 +72,106 @@ def copy_digest(root):
     return digest.hexdigest()
 
 
-async def inventory(conn, scope, version):
+def json_digest(value):
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+async def inventory(conn, scope):
+    await conn.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    await conn.execute(text("SET LOCAL DateStyle TO 'ISO, YMD'"))
+    await conn.execute(text("SET LOCAL IntervalStyle TO postgres"))
+    await conn.execute(text("SET LOCAL extra_float_digits TO 3"))
+    await conn.execute(text("SET LOCAL bytea_output TO hex"))
     control = (
-        await conn.execute(
-            text("""
-        SELECT id::text,control_kind,control_sequence,role,source FROM message
-        WHERE source_conversation_id=:scope AND control_kind IS NOT NULL
+        (
+            await conn.execute(
+                text("""
+        SELECT id::text AS id, control_kind AS kind, control_sequence AS sequence,
+            to_json(control_targets) AS targets
+        FROM message WHERE source_conversation_id=:scope AND control_kind IS NOT NULL
         ORDER BY control_sequence DESC LIMIT 1
     """),
-            {"scope": scope},
-        )
-    ).one_or_none()
-    require(
-        control is not None
-        and (control.control_kind, control.role, control.source)
-        == ("pause", "owner", "web"),
-        "conversation capture requires the recorded owner web pause",
-    )
-    keys = dict(STOPPED_TABLE_KEYS)
-    if version == SOURCE:
-        keys.pop(RETIRED)
-    return {
-        "tables": await table_inventory(conn, stopped_keys=keys),
-        "last_control": list(control),
-    }
-
-
-async def require_target_schema(conn):
-    require(
-        not await conn.scalar(
-            text("""
-            SELECT EXISTS(
-                SELECT FROM source_record r JOIN source_conversation c ON
-                    c.id=r.conversation_id
-                WHERE c.provider IN ('codex','claude','nexus')
-                  AND r.kind IN ('tool_call','tool_result','memory_reference')
-            ) OR EXISTS(
-                SELECT FROM source_record r JOIN memory_retired_source_record t
-                    ON t.id=r.id OR (t.conversation_id,
-                        t.native_event_id)=(r.conversation_id,r.native_event_id)
+                {"scope": scope},
             )
-        """)
-        ),
-        "target contains a live trace or reused retired address",
+        )
+        .mappings()
+        .one_or_none()
     )
     require(
-        await conn.scalar(
-            text("""
-            SELECT bool_and(has_table_privilege(r,'memory_retired_source_record',
-                'SELECT')
-                AND NOT has_table_privilege(r,'memory_retired_source_record',
-                    'INSERT, UPDATE, DELETE, TRUNCATE'))
-            FROM (VALUES ('jarvis_runtime'),('jarvis_memory'),('jarvis_backup'))
-                roles(r)
-            WHERE to_regrole(r) IS NOT NULL
-        """)
-        ),
-        "retirement receipt privileges differ",
+        control is not None and control["kind"] in {"pause", "resume"},
+        "stopped snapshot requires initialized owner control",
     )
+    tables = (
+        (
+            await conn.execute(
+                text("""
+        SELECT format('%I.%I', nspname, relname)
+        FROM pg_class JOIN pg_namespace n ON relnamespace=n.oid
+        WHERE nspname='public' AND relkind='r' ORDER BY relname COLLATE "C"
+    """)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Sorting fixed-size hashes compares complete multisets, including a new table
+    # whose key definition did not exist in the source release.
+    rows = {table: await row_inventory(conn, table, "1") for table in tables}
+    sequences = (
+        (
+            await conn.execute(
+                text("""
+        SELECT format('%I.%I', nspname, relname)
+        FROM pg_class JOIN pg_namespace n ON relnamespace=n.oid
+        WHERE nspname='public' AND relkind='S' ORDER BY relname COLLATE "C"
+    """)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cursors = {
+        seq: list(
+            (await conn.execute(text(f"SELECT last_value,is_called FROM {seq}"))).one()
+        )
+        for seq in sequences
+    }
+    roles = {"roles": list(RESTORE_ROLES)}
+    privileges = [
+        list(row)
+        for row in await conn.execute(
+            text("""
+        SELECT rolname,rolcanlogin,rolsuper,rolcreaterole,rolcreatedb,
+               rolreplication,rolbypassrls,rolinherit,rolconnlimit,rolvaliduntil::text
+        FROM pg_roles WHERE rolname=ANY(:roles) ORDER BY rolname
+    """),
+            roles,
+        )
+    ]
+    members = [
+        list(row)
+        for row in await conn.execute(
+            text("""
+        SELECT pg_get_userbyid(roleid),pg_get_userbyid(member),pg_get_userbyid(grantor),
+               admin_option,inherit_option,set_option
+        FROM pg_auth_members
+        WHERE pg_get_userbyid(roleid)=ANY(:roles) OR pg_get_userbyid(member)=ANY(:roles)
+        ORDER BY 1,2,3
+    """),
+            roles,
+        )
+    ]
+    return {
+        "tables": rows,
+        "sequences": cursors,
+        "database": await database_identity(conn),
+        "roles": privileges,
+        "memberships": members,
+        "schema": await schema_inventory(conn),
+        "control": dict(control),
+    }
 
 
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
@@ -173,107 +214,153 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
             shutil.rmtree(stage)
 
 
-def manifest_path(destination, digest):
-    require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid manifest digest")
-    return destination / f"historical-capture.{digest}.json"
-
-
-def receive_manifest(commit, digest, stream):
+def check_qualification(document, manifest):
+    expected = rehearsal_binding(manifest)
     require(
-        Path(__file__).resolve().parent.parent == ROOT / "releases" / commit,
-        "wrong receiving release",
+        all(document.get(k) == v for k, v in expected.items()),
+        "rehearsal differs from the selected releases or stopped dump",
     )
-    subprocess.run(
-        [Path(__file__).with_name("cutover-hold"), "check", commit],
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
-    destination = Path("/var/lib/jarvis-cutover/historical-capture") / commit
-    snapshot = destination / "SNAPSHOT.json"
+    report = document.get("compatibility", {})
     require(
-        json.loads(snapshot.read_bytes())["target"]["commit"] == commit,
-        "manifest needs the held release snapshot",
+        report.get("outcome") == "compatible"
+        and report.get("control") == manifest["original_facts"]["control"]
+        and isinstance(report.get("findings"), list)
+        and all(f.get("verdict") == "compatible" for f in report["findings"]),
+        "candidate rehearsal has no compatible stopped verdict",
     )
-    path = manifest_path(destination, digest)
-    payload = stream.read()
-    require(hashlib.sha256(payload).hexdigest() == digest, "manifest transfer differs")
-    replace_bytes(path, payload, 0o600)
+    require(
+        isinstance(document.get("target_facts_sha256"), str)
+        and len(document["target_facts_sha256"]) == 64,
+        "candidate rehearsal lacks target inventory",
+    )
 
 
-async def migrate_archive(
-    conn,
-    destination,
-    target_dir,
-    scope,
-    source,
-    target,
-    version,
-    facts,
-    manifest_digest,
-):
-    """Apply or verify the bound manifest in the caller's stopped transaction."""
-    result_file = destination / "historical-result.json"
-    if version == TARGET:
-        result = json.loads(result_file.read_bytes())
-        if manifest_digest == "none":
-            manifest_digest = result["manifest_sha256"]
-    plan_file = manifest_path(destination, manifest_digest)
-    plan_bytes = plan_file.read_bytes()
-    plan = HistoricalCaptureManifest.model_validate_json(plan_bytes)
-    bindings = {
-        "snapshot_sha256": file_digest(destination / "SNAPSHOT.json"),
-        "manifest_sha256": hashlib.sha256(plan_bytes).hexdigest(),
-        "source": source,
-        "target": target,
+def rehearsal_binding(manifest):
+    return {
+        "format": "jarvis-migration-rehearsal.v1",
+        "change": manifest["change"],
+        "source": manifest["source"],
+        "target": manifest["target"],
+        "dump_sha256": manifest["dump_sha256"],
+        "copies": manifest["copies"],
+        "source_facts_sha256": json_digest(manifest["original_facts"]),
     }
+
+
+def check_private_inputs(snapshot, manifest):
     require(
-        manifest_digest == bindings["manifest_sha256"]
-        and plan.source_schema == SOURCE
-        and plan.snapshot_sha256 == bindings["snapshot_sha256"],
-        "historical manifest does not identify this stopped snapshot",
+        all(
+            copy_digest(snapshot / name) == manifest["copies"][name]
+            for name in ("private-state", "declarations")
+        ),
+        "damaged private recovery copy",
     )
-    if version == TARGET:
+    google = Path("connectors/google-oauth-state.json")
+    require(
+        all(
+            copy_digest(DECLARATIONS / name)
+            == copy_digest(snapshot / "declarations" / name)
+            for name in ("jarvis.env", "memory.json", "codex-host.json")
+        )
+        and copy_digest(STATE / google)
+        == copy_digest(snapshot / "private-state" / google),
+        "authority differs from the stopped declarations or google state",
+    )
+
+
+def restored_compatibility(proof):
+    release = Path(__file__).resolve().parents[1]
+    runtime_url = os.environ["JARVIS_DATABASE_URL"]
+    urls = [
+        make_url(normalize_database_url(os.environ[name]))
+        for name in ("JARVIS_DATABASE_URL", "JARVIS_MIGRATION_DATABASE_URL")
+    ]
+    require(
+        urls[0].username == "jarvis_runtime"
+        and urls[1].username == "jarvis_migrator"
+        and (urls[0].host, urls[0].port or 5432, urls[0].database)
+        == (urls[1].host, urls[1].port or 5432, urls[1].database)
+        and urls[0].host
+        and urls[0].database
+        and not any(c.isspace() or ord(c) in (34, 39, 92) for c in runtime_url),
+        "invalid rehearsal runtime and migration endpoints",
+    )
+    with tempfile.TemporaryDirectory(dir=proof) as scratch:
+        root = Path(scratch)
+        (root / "runtime.env").write_text("JARVIS_DATABASE_URL=" + runtime_url + "\n")
+        (root / "input.json").write_text('{"authority_changes":[]}')
+        subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1/deploy/release-functions"; '
+                "unset MAINTENANCE_GOOGLE_STATE MAINTENANCE_MEMORY_CONFIG; "
+                'check_maintenance "$1" "$2/input.json" "$2/result.json" '
+                '"$2/runtime.env"',
+                "rehearsal",
+                release,
+                root,
+            ],
+            check=True,
+        )
+        return json.loads((root / "result.json").read_bytes())
+
+
+async def inspect_restored(operation, snapshot, proof):
+    manifest = json.loads((snapshot / "SNAPSHOT.json").read_bytes())
+    require(
+        file_digest(snapshot / "database.dump") == manifest["dump_sha256"],
+        "damaged rehearsal dump",
+    )
+    check_private_inputs(snapshot, manifest)
+    target = manifest["target"]
+    require(
+        target["schema"] == APPLICATION_SCHEMA_REVISION
+        and json.loads(
+            (Path(__file__).resolve().parents[1] / "RELEASE.json").read_bytes()
+        )
+        == {k: v for k, v in target.items() if k != "schema"},
+        "wrong rehearsal target release",
+    )
+    engine = create_engine(
+        normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
+    )
+    try:
+        async with maintenance_ownership(engine) as db, db.begin() as conn:
+            await conn.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
+            version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
+            facts = await inventory(conn, manifest["owner_scope"])
+        original = rehearsal_binding(manifest)
+        proof.mkdir(mode=0o700, exist_ok=True)
+        source_proof = proof / "restored-source.json"
+        if operation == "verify-restored-source":
+            require(
+                version == manifest["source"]["schema"]
+                and facts == manifest["original_facts"],
+                "restored source differs from the stopped database",
+            )
+            replace_private_json(source_proof, original)
+            return
         require(
-            all(result.get(k) == v for k, v in bindings.items())
-            and result["target_facts"] == facts,
-            "committed historical cut differs from its bound result",
+            version == target["schema"]
+            and facts["control"] == manifest["original_facts"]["control"]
+            and json.loads(source_proof.read_bytes()) == original,
+            "restored target or control differs",
         )
-        await require_target_schema(conn)
-        return
-    result = await rewrite_history(conn, plan)
-
-    def upgrade(connection):
-        config = Config(str(target_dir / "alembic.ini"))
-        config.attributes.update(connection=connection, historical_rewrite=True)
-        command.upgrade(config, TARGET)
-
-    await conn.run_sync(upgrade)
-    require(
-        await conn.scalar(text("SELECT version_num FROM alembic_version")) == TARGET,
-        "historical migration did not select target",
-    )
-    await require_target_schema(conn)
-    after = await inventory(conn, scope, TARGET)
-    require(
-        facts["last_control"] == after["last_control"]
-        and all(
-            after["tables"][k] == v
-            for k, v in facts["tables"].items()
-            if k not in REWRITTEN
-        )
-        and after["tables"][RETIRED][0] == result["retired_parts"],
-        "historical cut changed protected inventory",
-    )
-    # Persist the readback before committing. After an interruption a 0020
-    # source rewrites it; a 0021 target must match it without replay.
-    replace_private_json(
-        result_file, {**bindings, "counts": result, "target_facts": after}
-    )
+        document = {
+            **original,
+            "target_facts_sha256": json_digest(facts),
+            "compatibility": restored_compatibility(proof),
+        }
+        check_qualification(document, manifest)
+        replace_private_json(proof / "qualification.json", document)
+    finally:
+        await engine.dispose()
 
 
-async def cut(
-    operation, destination, source, target, system_stop, manifest_digest="none"
-):
+async def cut(operation, destination, binding, stop, qualification):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrator = make_url(migration_url)
@@ -281,139 +368,115 @@ async def cut(
     require(
         endpoint == [migrator.host, migrator.port or 5432, migrator.database]
         and migrator.host
-        and migrator.database
-        and not (set(migrator.query) - {"sslmode"}),
-        "migration and runtime database endpoints differ or are unsupported",
+        and migrator.database,
+        "migration and runtime database endpoints differ",
     )
     scopes = [
-        value.decode("ascii")
-        for key, _, value in (
-            row.partition(b"=")
-            for row in (DECLARATIONS / "jarvis.env").read_bytes().splitlines()
-        )
-        if key == b"JARVIS_OWNER_SCOPE"
+        row.partition(b"=")[2].decode("ascii")
+        for row in (DECLARATIONS / "jarvis.env").read_bytes().splitlines()
+        if row.partition(b"=")[0] == b"JARVIS_OWNER_SCOPE"
     ]
     require(len(scopes) == 1 and scopes[0].isdigit(), "invalid installed owner scope")
     scope = scopes[0]
     os.environ["JARVIS_OWNER_SCOPE"] = scope
-    require(
-        destination.name == target["commit"],
-        "target release or schema mismatch",
-    )
-    source_file = ROOT / "releases" / source["commit"] / "RELEASE.json"
-    require(
-        json.loads(source_file.read_bytes()) == source,
-        "source release receipt mismatch",
-    )
-    selected = (ROOT / "current").resolve(strict=True)
-    allowed = [source_file.parent]
-    if operation == "verify-target":
-        allowed.append(ROOT / "releases" / target["commit"])
-    require(selected in allowed, "selected source changed")
+    source, target = binding["source"], binding["target"]
+    for identity in (source, target):
+        actual = json.loads(
+            (ROOT / "releases" / identity["commit"] / "RELEASE.json").read_bytes()
+        )
+        require(
+            actual == {k: v for k, v in identity.items() if k != "schema"},
+            "release receipt mismatch",
+        )
     target_dir = ROOT / "releases" / target["commit"]
+    allowed = {ROOT / "releases" / source["commit"]}
+    if operation == "verify-target":
+        allowed.add(target_dir)
     require(
-        json.loads((target_dir / "RELEASE.json").read_bytes()) == target
-        and Path(__file__).resolve().parent.parent == target_dir,
-        "wrong target receipt",
-    )
-    args = dict(
-        env={
-            "PATH": os.defpath,
-            "PGHOST": migrator.host,
-            "PGPORT": str(migrator.port or 5432),
-            "PGDATABASE": migrator.database,
-            "PGUSER": migrator.username or "",
-            "PGPASSWORD": migrator.password or "",
-            **(
-                {"PGSSLMODE": migrator.query["sslmode"]}
-                if "sslmode" in migrator.query
-                else {}
-            ),
-        },
-        check=True,
-        stderr=subprocess.DEVNULL,
+        (ROOT / "current").resolve(strict=True) in allowed
+        and Path(__file__).resolve().parents[1] == target_dir
+        and APPLICATION_SCHEMA_REVISION == target["schema"],
+        "selected release or target differs",
     )
     engine = create_engine(migration_url)
     try:
         async with maintenance_ownership(engine) as db, db.begin() as conn:
-            if operation == "snapshot":
-                await conn.execute(
-                    text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-                )
+            await conn.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-            expected = {
-                "snapshot": (SOURCE,),
-                "verify": (SOURCE,),
-                "migrate": (SOURCE, TARGET),
-                "verify-target": (TARGET,),
-            }
-            require(
-                version in expected[operation],
-                "unexpected stopped schema",
-            )
-            require(
-                not await conn.scalar(
-                    text("""
-                        SELECT EXISTS(SELECT FROM native_attempt
-                            WHERE conversation_id=:scope AND product_outcome IS NULL
-                            AND (terminal_at IS NOT NULL OR fenced_at IS NULL
-                                 OR recovery_pending))
-                    """),
-                    {"scope": scope},
-                ),
-                "settle unfinished native attempts on the selected release",
-            )
-            facts = await inventory(conn, scope, version)
+            allowed = {source["schema"]}
+            if operation in {"migrate", "verify-target"}:
+                allowed = (
+                    {target["schema"]}
+                    if operation == "verify-target"
+                    else {source["schema"], target["schema"]}
+                )
+            require(version in allowed, "unexpected stopped schema")
+            facts = await inventory(conn, scope)
             evidence = {
-                "format": "jarvis-stopped-historical-capture.v1",
+                "format": "jarvis-stopped-snapshot.v1",
+                "change": binding["id"],
                 "source": source,
                 "target": target,
                 "owner_scope": scope,
                 "database": endpoint,
-                "schemas": [SOURCE, TARGET],
             }
-            if operation == "snapshot":
-                sql_snapshot = await conn.scalar(text("SELECT pg_export_snapshot()"))
+            if operation == "snapshot" and not destination.exists():
+                require(
+                    not (destination.parent / "applying").exists(),
+                    "mutation may have begun before snapshot",
+                )
+                snapshot_id = await conn.scalar(text("SELECT pg_export_snapshot()"))
                 write_snapshot(
                     destination,
-                    {**evidence, "source_facts": facts},
-                    system_stop,
-                    args,
-                    sql_snapshot,
+                    {**evidence, "original_facts": facts},
+                    stop,
+                    {
+                        "env": pg_environment(migrator),
+                        "check": True,
+                        "stderr": subprocess.DEVNULL,
+                    },
+                    snapshot_id,
                 )
                 return
-            snapshot_file = destination / "SNAPSHOT.json"
-            snapshot = json.loads(snapshot_file.read_bytes())
+            manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
             require(
-                all(snapshot.get(k) == v for k, v in evidence.items())
-                and (version != SOURCE or snapshot["source_facts"] == facts),
-                "stopped facts or release receipts changed",
+                all(manifest.get(k) == v for k, v in evidence.items()),
+                "snapshot belongs to a different change",
             )
             require(
-                file_digest(destination / "database.dump") == snapshot["dump_sha256"]
-                and all(
-                    copy_digest(destination / k) == snapshot["copies"][k]
-                    for k in ("private-state", "declarations")
-                ),
-                "damaged recovery copy",
+                file_digest(destination / "database.dump") == manifest["dump_sha256"],
+                "damaged stopped recovery copy",
             )
-            require(
-                (DECLARATIONS / "jarvis.env").read_bytes()
-                == (destination / "declarations" / "jarvis.env").read_bytes(),
-                "installed assistant declaration changed during cut",
-            )
-            if operation == "verify" and version == SOURCE:
+            check_private_inputs(destination, manifest)
+            if version == source["schema"]:
+                require(
+                    facts == manifest["original_facts"], "stopped source facts changed"
+                )
+            if operation in {"snapshot", "verify"}:
                 return
-            await migrate_archive(
-                conn,
-                destination,
-                target_dir,
-                scope,
-                source,
-                target,
-                version,
-                facts,
-                manifest_digest,
+            document = json.loads(qualification.read_bytes())
+            check_qualification(document, manifest)
+            if operation == "verify-rehearsal":
+                return
+            require(
+                (destination.parent / "applying").exists(),
+                "mutation requires an applying hold",
+            )
+            if operation == "migrate" and version == source["schema"]:
+
+                def upgrade(connection):
+                    cfg = Config(str(target_dir / "alembic.ini"))
+                    cfg.attributes["connection"] = connection
+                    command.upgrade(cfg, target["schema"])
+
+                await conn.run_sync(upgrade)
+                facts = await inventory(conn, scope)
+            require(
+                await conn.scalar(text("SELECT version_num FROM alembic_version"))
+                == target["schema"]
+                and json_digest(facts) == document["target_facts_sha256"]
+                and facts["control"] == manifest["original_facts"]["control"],
+                "production migration differs from the qualified target",
             )
     finally:
         await engine.dispose()
@@ -421,45 +484,67 @@ async def cut(
 
 def main():
     os.umask(0o077)
-    if len(sys.argv) == 4 and sys.argv[1] == "receive-manifest":
-        receive_manifest(sys.argv[2], sys.argv[3], sys.stdin.buffer)
+    if len(sys.argv) >= 2 and sys.argv[1] in {
+        "verify-restored-source",
+        "record-rehearsal",
+    }:
+        parser = argparse.ArgumentParser(
+            description="Observe an isolated restored migration rehearsal."
+        )
+        parser.add_argument("operation")
+        parser.add_argument("snapshot", type=Path)
+        parser.add_argument("proof", type=Path)
+        args = parser.parse_args()
+        asyncio.run(
+            inspect_restored(
+                args.operation, args.snapshot.resolve(), args.proof.resolve()
+            )
+        )
         return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "operation",
-        choices=[
-            "snapshot",
-            "verify",
-            "migrate",
-            "verify-target",
-        ],
+        choices=["snapshot", "verify", "verify-rehearsal", "migrate", "verify-target"],
     )
-    parser.add_argument("destination", type=Path)
-    parser.add_argument("source_receipt", type=json.loads)
-    parser.add_argument("target_receipt", type=json.loads)
-    parser.add_argument("manifest_digest")
+    parser.add_argument("change")
+    parser.add_argument("source")
+    parser.add_argument("target")
+    parser.add_argument("source_schema")
+    parser.add_argument("target_schema")
+    parser.add_argument("qualification", type=Path, nargs="?")
     args = parser.parse_args()
-    stop = json.loads(
-        subprocess.check_output(
-            [
-                Path(__file__).with_name("cutover-hold"),
-                "check",
-                args.target_receipt["commit"],
-            ]
-        )
+    subprocess.run(
+        [Path(__file__).with_name("cutover-hold"), "check", args.change], check=True
     )
-    os.umask(0o077)
+    held = Path("/var/lib/jarvis-cutover/held")
+    stop = json.loads((held / "receipt.json").read_bytes())
+    binding = stop["binding"]
+    require(
+        binding["id"] == args.change
+        and binding["operation"] == "release"
+        and {"jarvis.service", "jarvis-memory.service"} <= set(binding["units"])
+        and (
+            binding["source"]["commit"],
+            binding["target"]["commit"],
+            binding["source"]["schema"],
+            binding["target"]["schema"],
+        )
+        == (args.source, args.target, args.source_schema, args.target_schema)
+        and args.source_schema != args.target_schema,
+        "schema transition differs from the active release hold",
+    )
+    require(
+        (args.operation not in {"snapshot", "verify"})
+        == (args.qualification is not None),
+        "qualified migration input is required",
+    )
     asyncio.run(
-        cut(
-            args.operation,
-            args.destination,
-            args.source_receipt,
-            args.target_receipt,
-            stop,
-            args.manifest_digest,
-        )
+        cut(args.operation, held / "snapshot", binding, stop, args.qualification)
     )
-    print("stopped cut validated:", args.operation)
+    print(
+        f"{args.operation} verified for {args.change}. "
+        f"stopped copy: {held / 'snapshot'}"
+    )
 
 
 if __name__ == "__main__":

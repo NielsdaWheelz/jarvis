@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Qualify a recovery reader on the workstation, or verify it on the stopped host."""
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+RELEASE = Path(__file__).resolve().parents[1]
+IMAGE = r"sha256:[0-9a-f]{64}"
+
+
+def require(value, message):
+    if not value:
+        raise RuntimeError(message)
+
+
+def qualify(image):
+    from memory_backup_restore import load_reader
+
+    require(re.fullmatch(IMAGE, image), "invalid reader image digest")
+    archive = Path(os.environ["JARVIS_RECOVERY_KIT"]) / "readers" / (image[7:] + ".tar")
+    require(
+        archive.is_file() and not archive.is_symlink(),
+        "qualified reader archive is missing",
+    )
+    load_reader(archive, image)
+    query = (
+        "import hashlib,json;from pathlib import Path;"
+        "from jarvis.db import APPLICATION_SCHEMA_REVISION as schema;"
+        "print(json.dumps(dict(schema=schema,"
+        "lock=hashlib.sha256(Path('/opt/jarvis/uv.lock').read_bytes()).hexdigest())))"
+    )
+    actual = subprocess.check_output(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--pull",
+            "never",
+            "--network",
+            "none",
+            "--read-only",
+            "--entrypoint",
+            "/opt/jarvis/.venv/bin/python",
+            image,
+            "-Bc",
+            query,
+        ]
+    )
+    return {**json.loads(actual), "reader_image": image}
+
+
+def host(operation, release, proof=None, facts_file=None):
+    from memory_backup_storage import producer_settings
+    from memory_credentials import ETC, publish
+
+    from jarvis.db import APPLICATION_SCHEMA_REVISION
+
+    require(
+        Path(release).resolve(strict=True) == RELEASE,
+        "wrong release for backup reader proof",
+    )
+    target = json.loads((RELEASE / "RELEASE.json").read_bytes())
+    config = ETC / "backup.json"
+    installed = ETC / "backup-reader.json"
+    if operation == "current":
+        require(
+            installed.is_file(), "configured backup reader needs a qualified archive"
+        )
+        proof = installed
+    reader = json.loads(Path(proof).read_bytes())
+    image = reader.get("reader_image", "")
+    require(
+        re.fullmatch(IMAGE, image)
+        and reader
+        == {
+            "schema": APPLICATION_SCHEMA_REVISION,
+            "lock": target["uv_lock_sha256"],
+            "reader_image": image,
+        },
+        "reader archive differs from the release lock or schema",
+    )
+    if operation == "check":
+        return image
+    current = config.read_bytes()
+    if operation == "current":
+        require(
+            producer_settings(current)["reader_image"] == image,
+            "configured backup and qualified reader differ",
+        )
+        return image
+    after = (
+        json.dumps(
+            {**producer_settings(current), "reader_image": image}, sort_keys=True
+        ).encode()
+        + b"\n"
+    )
+    actual = {
+        "before_sha256": hashlib.sha256(current).hexdigest(),
+        "after_sha256": hashlib.sha256(after).hexdigest(),
+        "reader_image": image,
+    }
+    if operation == "facts":
+        return actual
+    hold = Path("/var/lib/jarvis-cutover/held")
+    binding = json.loads((hold / "receipt.json").read_bytes())["binding"]
+    require(
+        "jarvis-backup.service" in binding["units"]
+        and binding["operation"] in {"backup", "backup-reader", "release"}
+        and binding["target"]["commit"] == target["commit"]
+        and subprocess.check_output(
+            [RELEASE / "deploy/cutover-hold", "status", binding["id"]], text=True
+        ).strip()
+        == "applying",
+        "reader publication needs its applying change",
+    )
+    subprocess.run(
+        [RELEASE / "deploy/cutover-hold", "check", binding["id"]], check=True
+    )
+    if facts_file:
+        saved = json.loads(Path(facts_file).read_bytes())
+        require(
+            saved["reader_image"] == image
+            and saved["after_sha256"] == actual["after_sha256"]
+            and actual["before_sha256"]
+            in {saved["before_sha256"], saved["after_sha256"]},
+            "stopped backup settings differ from the qualified publication",
+        )
+    if current != after:
+        publish(config, after)
+    require(config.read_bytes() == after, "reader publication did not verify")
+    encoded = (json.dumps(reader, sort_keys=True) + "\n").encode()
+    if not installed.is_file() or installed.read_bytes() != encoded:
+        publish(installed, encoded)
+    return host("current", release)
+
+
+def main():
+    args = sys.argv[1:]
+    if len(args) == 1:
+        require(re.fullmatch(IMAGE, args[0]), "invalid reader image digest")
+        os.execvp(
+            "uv",
+            [
+                "uv",
+                "run",
+                "--project",
+                str(RELEASE),
+                "--frozen",
+                "--no-dev",
+                "python",
+                __file__,
+                "qualify",
+                args[0],
+            ],
+        )
+    if len(args) == 2 and args[0] == "qualify":
+        result = qualify(args[1])
+    elif len(args) == 2 and args[0] == "current":
+        result = host(*args)
+    else:
+        require(
+            (len(args) == 3 and args[0] in {"check", "publish", "facts"})
+            or (len(args) == 4 and args[0] == "publish"),
+            "expected DIGEST or check|facts|publish RELEASE PROOF [FACTS]",
+        )
+        result = host(*args)
+    print(result if isinstance(result, str) else json.dumps(result, sort_keys=True))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(
+            str(error) if type(error) is RuntimeError else type(error).__name__,
+            file=sys.stderr,
+        )
+        sys.exit(1)

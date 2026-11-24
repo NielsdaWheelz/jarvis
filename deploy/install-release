@@ -70,6 +70,7 @@ cleanup_archive() {
   rm -f -- "$archive"
 }
 trap cleanup_archive EXIT HUP INT TERM
+require_no_cutover_hold
 
 # Prove the builder's ordinary Git access before discarding any candidate.
 if ! sudo -n test -e "$release" && ! sudo -n -u "$builder_user" env GIT_TERMINAL_PROMPT=0 \

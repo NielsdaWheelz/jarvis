@@ -25,6 +25,78 @@ aligned nodes pending. the oldest uncovered arrival was almost 30 hours old.
 preflight is outside the measurement window. use the [operations procedure](../operations.md#chronological-capacity-observation)
 to assess scheduler time and the fixed cutoff after the final sample.
 
+on november 23 the original observer samples were recovered from dev-server's
+rotated `/var/log/syslog.1`. all three ran on `e7f5916` under web resume 24
+and recorded the park. the busy interval admitted 11,169 positions, from
+56,303 to 67,472. at busy end the observer counted 8,184 covered positions
+and 16,308 of 134,938 aligned nodes through that cutoff. none of the 118,630
+missing nodes committed in the next 15 hours. 59,288 busy-end positions
+remained uncovered and the oldest aged from 49h59m40s to 64h59m40s. 122
+later positions arrived. the observer counted zero owner web requests in
+both intervals. this window measures the parked release. the mac retains
+the samples in `~/.local/state/jarvis/qualification/adr0093-production-20261123/20261120-observer.log`
+(sha-256 `764fbc39f9741c9568a02fbde06744b2e7899192483726c34cbb5a488ef4d367`).
+
+the same syslog covers the predecessor before the park, from 05:53:00 to
+14:16:35 utc on november 20. its 172 commits built 2,383 leaves and 2,352
+parents. of 28,795 seconds offered to the compactor, 28,674 seconds were
+inside native inference, including setup and cleanup. preparation took 8
+seconds and commits took 78. the 193 observed turns included 21 without
+output usage. the installed terra rate still needs its own observation.
+
+## installed terra observation
+
+on november 23, before the first sample, the operator selected tuesday
+november 24, 09:00–18:00 pacific as the busy period and wednesday 09:00
+as quiet end. the three utc boundaries are november 24 17:00, november 25
+02:00 and november 25 17:00. freeze the admitted count at the second
+boundary. report the oldest uncovered age, complete aligned-node count,
+later arrivals and actual scheduler time. judge representativeness from
+the observed workload and record any capture release or catch-up burst.
+the read-only transient `jarvis-0093-capacity-20261124.service` was armed
+on dev-server at 20:47:33 utc on november 23. its invocation is
+`93e88d5228a843d297f7a32032f0cd11`. the unit retains each phase snapshot
+and hourly scheduler journals under `/var/lib/jarvis-0093-capacity-20261124/`.
+
+the dates were confirmed after recovery of `8112+8`. before the window,
+terra ran for just over three minutes under resume 30. eight commits built
+61 free leaves, 77 free parents, 24 inferred leaves and 40 inferred parents.
+the prefix advanced by 85 positions. of 185.292 seconds offered to the
+compactor, inference occupied 180.985, preparation 0.495 and commits 3.531.
+the tenth model turn completed with a [mismatched address set](compactor-address-mismatch.md)
+and parked the worker. this short interval supplies a timing breakdown.
+the day and night observer remains armed to measure admissions and parked
+time at the declared boundaries. the capture operator confirmed the
+november 23 mac replay added zero central records.
+
+the november 24 calendar cut selected `43ed919/0019` at 01:32:13 utc,
+before the first scheduled sample. at 01:34:15 utc the same sampler
+invocation was active with zero phase files. production was under web
+pause 31 with 93,770 admitted positions, 8,269 covered and 16,510 built
+nodes. the packaged compactor was still terra/medium v6. its [second
+park](compactor-address-mismatch.md) survived the cut. at 01:36:43 utc
+the exact query from the running sampler succeeded as its postgres user on
+`0019`. all three scheduled samples remained pending. this separate mac
+preflight is `window/sampler-prewindow-43ed919.json`, sha-256
+`ea9e96a7561f3d0cb3ddf2357e33cc347cb40a7057760cb06978f63eea488276`.
+keep the original schedule and attribute each boundary and interval to
+the actual release and control state. the recovered `7e9d887` interval above has its own
+timing evidence. the capture team's separate `0019` baseline uses the
+same dates to count incoming records and retained bytes.
+
+the [adr 0100](../decisions/0100-host-bound-summary-fields.md#c-production-recovery-and-capacity)
+fixture exercised the same postgres snapshot query. it held cutoff 8 through
+quiet end, with prefix 8 and 14 of 15 aligned nodes. the one-parent deficit
+and three later arrivals were measured separately. the
+candidate's production window waits for a separately verified recovery.
+
+the generation-2 archive was selected on `58b9ebe/0021` at 04:13:25 utc,
+before the first scheduled sample. at 04:15:05 it contained 18,507 active
+positions, 88,640 retired records, zero nodes and a clear mark under owner
+web pause 33. keep the pre-window rewrite in the observation record.
+compare quiet-end progress only within the same generation. measure
+construction on the actual selected release and annotate any later switch.
+
 ## broader usefulness evaluation
 
 after the [conversation capture cut](../decisions/0098-conversation-capture.md),

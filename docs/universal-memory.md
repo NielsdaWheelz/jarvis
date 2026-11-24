@@ -426,6 +426,10 @@ later masquerading as a new one. no history backfill or reset is authorized.
 
 ### provider contract
 
+[adr 0103](decisions/0103-codex-history-admission.md) specifies the
+post-cleanup policy for selected-history capture on macbook codex-work.
+a confirmed missing checkpoint allows a reread from the original cut.
+
 [adr 0098](decisions/0098-conversation-capture.md#b-native-transport-and-storage)
 replaces the producer and collector wire with accounted native occurrences.
 proven workers have identity-only inventory, including historical parked or
@@ -1031,16 +1035,20 @@ window. copies can wait for the same batch's inference. only a subsequent
 selection after commit may enable their parents; rollback never teaches the
 ready cache about a node. a nonempty free-only batch is ordinary progress.
 
-jarvis returns the exact set of addressed inferred results
-`{nodes:[{start,count,text}]}`. the library validates every address, complete
-source identity and node bound before any insert, then inserts the whole batch
+under [adr 0100](decisions/0100-host-bound-summary-fields.md) the model fills
+one required text field per selected source. jarvis maps those fields back to
+the exact sequence of addressed `Node` results. the library validates every
+address, complete source identity and node bound before any insert, then
+inserts the whole batch
 and advances frontiers once in the caller's transaction. malformed, duplicate,
 missing or unexpected results cannot partially commit. the old single-task
 producer contract is removed; a one-node batch uses the same interface.
 provider/kernel objects stay outside the library.
 
-reuse the existing empty-plan ceilings per isolated call: three provider turns, two
-protocol repairs, three no-progress attempts, 300 cooperative seconds, 100,000
+the compactor has zero internal protocol repairs. jarvis owns one fresh
+form correction shared by the atomic batch and charged to every selected
+node's existing five-call ceiling. the empty plan retains its ceilings of
+three provider turns, three no-progress attempts, 300 cooperative seconds, 100,000
 input tokens, 20,000 output tokens and 262,144 rendered new-context bytes. token
 ceilings are safe-boundary checks, not hard generation limits. source/context is
 data; the compactor has no tool authority regardless of its output.
@@ -1056,7 +1064,7 @@ task's source may import unrelated facts into the covered range.
 
 for inferred candidates, trim outer whitespace, reject empty text and count utf-8
 bytes. free copies retain exact source bytes. show a 512-dash ruler and prompt
-for the 512-byte target, but accept the FIRST structurally valid addressed
+for the 512-byte target, but accept the first structurally valid
 candidate within the existing 2,048-byte hard bound. do not spend another call
 optimizing an already-valid candidate. [adr 0080](decisions/0080-first-valid-compaction.md)
 supersedes shortest-candidate retention and retries after soft-target overshoot.
@@ -1068,12 +1076,15 @@ unfinished subset and retain full original sources and feedback. measure the
 complete prepared request against the unchanged 262,144-byte ceiling, including
 framing/escaping, through the existing kernel preparation primitive. use that
 same whole-entry packing for initial and retry calls. never crop input to fit.
-invalid completion, exhausting five appearances without an acceptable candidate,
-or three transient failures park construction with one
-content-free `{start,count,code}` diagnostic for the failed task. invalid addressed
-output discards the whole batch. retry waits are cancellable and
-need no owner message. preemption discards unfinished inference; built nodes
-survive. an interrupted batch may repeat up to eight uncommitted summaries.
+an invalid form with no correction or appearance left, five exhausted
+appearances, or three transient failures park construction. the single
+content-free `{start,count,code}` records the failed task or, for an invalid
+form, the first task in that call. a parked batch commits nothing. retry waits
+are cancellable and need no owner message. preemption rolls back any node or
+park writes still awaiting commit and preserves previously committed nodes. provider or submission uncertainty retries under its existing limits.
+cancellation discards this batch. configuration, budget and [quota stops](issues/compactor-quota-park.md)
+park with the specific kernel stop in the journal and consume no form correction.
+strict decoding can reject invalid utf-8 without knowing a field. an interrupted batch may repeat up to eight uncommitted summaries.
 larger free nodes and first valid inferred nodes may consume view budget and
 coarsen older detail sooner. net parent-call cost and general quality are unmeasured.
 no durable job or retry ledger is needed.

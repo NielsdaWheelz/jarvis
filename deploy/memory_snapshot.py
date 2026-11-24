@@ -45,7 +45,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0021"
+SCHEMA_REVISION = "0022"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
@@ -156,6 +156,15 @@ async def database_inventory(conn):
             "unsupported PostgreSQL, vector extension, or Alembic revision"
         )
 
+    return {
+        "postgres_major": version,
+        "vector_version": vector,
+        "schema_revision": revision,
+        "database": await database_identity(conn),
+    }
+
+
+async def database_identity(conn):
     db = dict(
         (
             await conn.execute(
@@ -197,12 +206,7 @@ async def database_inventory(conn):
         for role, grantor, privilege, _ in db["acl"]
     ):
         raise RuntimeError("unexpected database-level grant")
-    return {
-        "postgres_major": version,
-        "vector_version": vector,
-        "schema_revision": revision,
-        "database": db,
-    }
+    return db
 
 
 async def schema_inventory(conn):

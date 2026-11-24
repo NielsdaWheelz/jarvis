@@ -96,7 +96,9 @@ These instructions govern all work in this repository.
   installed proof remain separate.
 - [adr 0080](docs/decisions/0080-first-valid-compaction.md) accepts the first valid
   inferred node within the existing 2,048-byte hard bound while prompting for
-  512. retry only hard oversize/transient failures within existing ceilings;
+  512. hard oversize and transient failures retry within existing ceilings.
+  [adr 0100](docs/decisions/0100-host-bound-summary-fields.md) adds one shared
+  malformed-reply correction per prepared batch.
   remove shortest-candidate tracking and soft-target retries. preserve whole-batch
   atomicity, strict validation, fixed models, originals and source cuts. larger
   nodes may coarsen earlier; qualify the changed stopping boundary before replacement.
@@ -374,8 +376,9 @@ These instructions govern all work in this repository.
   routine stopped-release replacement preserves initialized canonical control;
   activation creates no pause/resume. startup action recovery retains existing
   authority; main reasoning and background memory wait for validated discord
-  catch-up. separate migration and private-configuration/authority pause
-  requirements remain.
+  catch-up. [adr 0104](docs/decisions/0104-maintenance-without-owner-pause.md)
+  supersedes its prospective migration and private-configuration pause
+  requirements with named operator custody and stopped compatibility checks.
 - [adr 0052](docs/decisions/0052-cut-worker-control-to-current-skid.md) governs
   installed worker control; [adr 0064](docs/decisions/0064-simple-worker-orchestration.md)
   owns the implemented next target contract and current qualification record.

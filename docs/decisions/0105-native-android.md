@@ -163,8 +163,46 @@ see `~/.local/state/jarvis/qualification/adr0105-maintenance-pg16/receipt.json`.
 
 private evidence is under
 `~/.local/state/jarvis/qualification/{adr0105-installed-cut,adr0105-stopped-cut-03036a5a,adr0105-named-retry-pg16}`.
-remaining device and identity gates include a fresh browser session and
-otherwise unauthorized account, administrator grant revocation, a real canvas
-handoff and withdrawal, physical page six, file grant expiry, reboot/unlock and
-reinstall. [installed phone handoff](../issues/mobile-share-handoff.md) and
-[discord retirement](../issues/discord-alert-channel.md) remain open.
+
+## installed phone follow-up on november 24 utc
+
+- signed v4 reproduced failed enrollment on warm and cold app launches. a
+  temporary same-signer probe found firebase's auto-init setter blocking on its
+  installation id on the ui thread. signed v5 runs that setter on the io
+  dispatcher within the existing timeout. ordinary enable worked twice at
+  version 5, including after disconnecting the slot through the installed origin.
+- the signed s22+ submitted the saved seven-page pdf once. the installed
+  reader matched the original bytes. one todo creation succeeded and linked
+  the result. firebase accepted the notice and android displayed it while the
+  handset was locked. tapping followed by owner unlock opened the exact reply.
+  its quote numbers matched the fixture. the private page-six link opened page
+  six on the phone. the original reply linked the file and named pages in prose.
+- the occupied phone response reached android with a weak tag, causing the
+  app's disconnect request to fail with 422. the origin keeps the strict tag
+  comparison and asks the edge to leave this response untransformed. the live
+  disconnect and re-enrollment then passed through cloudflare. the phone is
+  linked. [edge compression](https://developers.cloudflare.com/cache/reference/etag-headers/)
+- the exact predecessor plus the android repairs serves at `0bb2540` after
+  named change `b2ba87e2-5b6b-46ef-ae64-072507baefc5`. resume 42, all five parked
+  requests and the 119 existing notice records matched across the restart.
+  main v26 authors verified pdf citations using the existing page route and
+  owns the format in one place. a typed follow-up on the existing todo linked
+  its new result and cited page six. tapping that citation opened page six in
+  the signed native reader. independent codex review caught the competing tool
+  instruction and verified its removal after opus reached its limit.
+- the owner confirmed bot removal. discord rejected the old token with 401.
+  the installed and operator declarations dropped exactly the two retired
+  settings. other bytes matched, including the stored owner identities. the
+  restarted assistant's environment contains neither retired assignment.
+- the physical dark-mode reply rendered its heading and prose at 1.21:1
+  contrast on signed v5. v6 pairs the shared paper background with its
+  foreground color. the same reply measured 15.41:1 after the signed upgrade.
+  v6 retained the phone enrollment. apk sha-256
+  `eb89c56878680af577a5d6412f3dfa559419887284148dc6cd985c28ff2b537e`.
+  temporary tests and the phone's generated downloads copy were removed.
+
+private follow-up evidence is under
+`~/.local/state/jarvis/qualification/{adr0105-installed-cut,adr0105-android-live-repair,adr0105-alert-enrollment,adr0105-page-citations}`.
+
+remaining device and identity gates are tracked in the
+[installed phone handoff](../issues/mobile-share-handoff.md).

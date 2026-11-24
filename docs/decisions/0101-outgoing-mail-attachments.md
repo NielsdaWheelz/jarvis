@@ -142,8 +142,7 @@ deployment lock handed back to the adr 0098 operator. the test thread and
 full-size macbook file remain for inspection. cleanup removed the extra
 unsent draft, temporary r2 original, isolated host runtime and postgres
 database. the temporary integration and live probes were deleted after green. the
-[earlier detached checkout residue](../issues/outgoing-mail-rehearsal-residue.md)
-is tracked separately.
+the [november 24 cleanup](0094-worker-tools-and-native-context.md#rehearsal-cleanup-on-november-24) removed the four earlier detached checkouts.
 
 ## production cut
 
@@ -172,4 +171,4 @@ the private evidence directory is
 the installed smoke readback sha-256 is
 `d725297820b93f5606970943a3fa490cde7023e98fbacc42548237cccd46ccab`.
 the shared candidate slot was handed back at 06:11:57 with both writers
-and the backup timer active. four earlier checkouts were still held by virtualization at handback.
+and the backup timer active.

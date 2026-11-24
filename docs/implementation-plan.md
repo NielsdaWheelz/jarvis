@@ -123,7 +123,7 @@ at the longest installed owner zone. independent opus 5.5 accepted source and ev
 the macbook receipt is `~/.local/state/jarvis/qualification/adr0097-implementation/acceptance.json`,
 sha256 `71551bec10b68e435c77aa354cfbe3c2a0958b98f92267e197bfc586895b586d`.
 the sibling `cleanup.json`, sha256 `cbf8393ccbddc9c6a3ee66d0791afd14ac74e9389ad2c11d683f8076c95d3e20`,
-records probe and fixture deletion and the [retained clean checkout](issues/adr0094-rehearsal-checkout-hold.md).
+records probe and fixture deletion. the [november 24 cleanup](decisions/0094-worker-tools-and-native-context.md#rehearsal-cleanup-on-november-24) confirmed removal of the intermediate checkout.
 the [installed issue](issues/default-home-work.md) stays open through acceptance.
 the [private android client](decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc) handles sharing and push. iphone uses web access.
 

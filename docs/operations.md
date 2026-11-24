@@ -1,6 +1,6 @@
 # production operations
 
-at schema `0022`, two cpython 3.12 services run one selected release against
+at schema `0023`, two cpython 3.12 services run one selected release against
 the same postgres database. `jarvis.service` owns the private web conversation,
 canonical work, compaction and dreaming. it uses the separate contained native
 host for cognition. `jarvis-memory.service` owns external capture, online

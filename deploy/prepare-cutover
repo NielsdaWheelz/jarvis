@@ -209,6 +209,77 @@ def receive_manifest(commit, digest, stream):
             temporary.unlink(missing_ok=True)
 
 
+async def migrate_archive(
+    conn,
+    destination,
+    target_dir,
+    scope,
+    source,
+    target,
+    version,
+    facts,
+    manifest_digest,
+):
+    """Apply or verify the bound manifest in the caller's stopped transaction."""
+    result_file = destination / "historical-result.json"
+    if version == TARGET:
+        result = json.loads(result_file.read_bytes())
+        if manifest_digest == "none":
+            manifest_digest = result["manifest_sha256"]
+    plan_file = manifest_path(destination, manifest_digest)
+    plan_bytes = plan_file.read_bytes()
+    plan = HistoricalCaptureManifest.model_validate_json(plan_bytes)
+    bindings = {
+        "snapshot_sha256": file_digest(destination / "SNAPSHOT.json"),
+        "manifest_sha256": hashlib.sha256(plan_bytes).hexdigest(),
+        "source": source,
+        "target": target,
+    }
+    require(
+        manifest_digest == bindings["manifest_sha256"]
+        and plan.source_schema == SOURCE
+        and plan.snapshot_sha256 == bindings["snapshot_sha256"],
+        "historical manifest does not identify this stopped snapshot",
+    )
+    if version == TARGET:
+        require(
+            all(result.get(k) == v for k, v in bindings.items())
+            and result["target_facts"] == facts,
+            "committed historical cut differs from its bound result",
+        )
+        await require_target_schema(conn)
+        return
+    result = await rewrite_history(conn, plan)
+
+    def upgrade(connection):
+        config = Config(str(target_dir / "alembic.ini"))
+        config.attributes.update(connection=connection, historical_rewrite=True)
+        command.upgrade(config, TARGET)
+
+    await conn.run_sync(upgrade)
+    require(
+        await conn.scalar(text("SELECT version_num FROM alembic_version")) == TARGET,
+        "historical migration did not select target",
+    )
+    await require_target_schema(conn)
+    after = await inventory(conn, scope, TARGET)
+    require(
+        facts["last_control"] == after["last_control"]
+        and all(
+            after["tables"][k] == v
+            for k, v in facts["tables"].items()
+            if k not in REWRITTEN
+        )
+        and after["tables"][RETIRED][0] == result["retired_parts"],
+        "historical cut changed protected inventory",
+    )
+    # Persist the readback before committing. After an interruption a 0020
+    # source rewrites it; a 0021 target must match it without replay.
+    replace_private_json(
+        result_file, {**bindings, "counts": result, "target_facts": after}
+    )
+
+
 async def cut(
     operation, destination, source, target, system_stop, manifest_digest="none"
 ):
@@ -342,64 +413,16 @@ async def cut(
             )
             if operation == "verify" and version == SOURCE:
                 return
-            result_file = destination / "historical-result.json"
-            if version == TARGET:
-                result = json.loads(result_file.read_bytes())
-                if manifest_digest == "none":
-                    manifest_digest = result["manifest_sha256"]
-            plan_file = manifest_path(destination, manifest_digest)
-            plan_bytes = plan_file.read_bytes()
-            plan = HistoricalCaptureManifest.model_validate_json(plan_bytes)
-            bindings = {
-                "snapshot_sha256": file_digest(snapshot_file),
-                "manifest_sha256": hashlib.sha256(plan_bytes).hexdigest(),
-                "source": source,
-                "target": target,
-            }
-            require(
-                manifest_digest == bindings["manifest_sha256"]
-                and plan.source_schema == SOURCE
-                and plan.snapshot_sha256 == bindings["snapshot_sha256"],
-                "historical manifest does not identify this stopped snapshot",
-            )
-            if version == TARGET:
-                require(
-                    all(result.get(k) == v for k, v in bindings.items())
-                    and result["target_facts"] == facts,
-                    "committed historical cut differs from its bound result",
-                )
-                await require_target_schema(conn)
-                return
-            require(operation == "migrate", "historical migration was not selected")
-            result = await rewrite_history(conn, plan)
-
-            def upgrade(connection):
-                config = Config(str(target_dir / "alembic.ini"))
-                config.attributes.update(connection=connection, historical_rewrite=True)
-                command.upgrade(config, TARGET)
-
-            await conn.run_sync(upgrade)
-            require(
-                await conn.scalar(text("SELECT version_num FROM alembic_version"))
-                == TARGET,
-                "historical migration did not select target",
-            )
-            await require_target_schema(conn)
-            after = await inventory(conn, scope, TARGET)
-            require(
-                facts["last_control"] == after["last_control"]
-                and all(
-                    after["tables"][k] == v
-                    for k, v in facts["tables"].items()
-                    if k not in REWRITTEN
-                )
-                and after["tables"][RETIRED][0] == result["retired_parts"],
-                "historical cut changed protected inventory",
-            )
-            # Persist the readback before committing. After an interruption a 0020
-            # source rewrites it; a 0021 target must match it without replay.
-            replace_private_json(
-                result_file, {**bindings, "counts": result, "target_facts": after}
+            await migrate_archive(
+                conn,
+                destination,
+                target_dir,
+                scope,
+                source,
+                target,
+                version,
+                facts,
+                manifest_digest,
             )
     finally:
         await engine.dispose()

@@ -69,6 +69,21 @@ if [[ "$operation" == prepare || -e "$hold" ]]; then
     refuse "disable the backup timer and let any running backup finish before the cut"
   fi
 fi
+if [[ "$operation" == prepare || ( "$operation" == activate && -e "$hold" ) ]]; then
+  systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
+    --property=User=jarvis --property=Group=jarvis \
+    "--property=SupplementaryGroups=jarvis-memory" \
+    --property=EnvironmentFile=/etc/jarvis/fcm.env \
+    "$release/.venv/bin/python" - <<'PY'
+import os
+from jarvis.fcm import load_sender_account
+
+try:
+    load_sender_account(os.environ.get("JARVIS_FCM_PROJECT_ID"))
+except Exception:
+    raise SystemExit("the phone cut needs a valid dedicated FCM service account") from None
+PY
+fi
 if [[ "$operation" == prepare ]]; then
   [[ "$selected" == "$source" ]] || refuse "cut requires the selected 0022 source release"
   if [[ ! -e "$hold" ]]; then

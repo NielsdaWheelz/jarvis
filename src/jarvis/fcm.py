@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -23,6 +24,25 @@ type NoticeKind = Literal["reply", "question"]
 PROJECT_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 CREDENTIALS = Path("/var/lib/jarvis/connectors/fcm-sender.json")
+
+
+def load_sender_account(project: str | None, path: Path = CREDENTIALS) -> Credentials:
+    if project is None:
+        raise ValueError("Firebase project is required for cutover")
+    raw: object = json.loads(path.read_bytes())
+    if not isinstance(raw, dict):
+        raise ValueError("expected one service account")
+    info = cast("dict[str, object]", raw)
+    if (
+        info.get("type") != "service_account"
+        or info.get("project_id") != project
+        or info.get("token_uri") != TOKEN_URL
+        or info.get("universe_domain", "googleapis.com") != "googleapis.com"
+    ):
+        raise ValueError("unexpected FCM service account")
+    return Credentials.from_service_account_info(  # pyright: ignore[reportUnknownMemberType]
+        info, scopes=[PROJECT_SCOPE]
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,20 +65,7 @@ class FcmSender:
 
     def _access_token(self) -> str:
         if self._credentials is None:
-            raw: object = json.loads(self._account.read_bytes())
-            if not isinstance(raw, dict):
-                raise ValueError("expected one service account")
-            info = cast("dict[str, object]", raw)
-            if (
-                info.get("type") != "service_account"
-                or info.get("project_id") != self._project
-                or info.get("token_uri") != TOKEN_URL
-                or info.get("universe_domain", "googleapis.com") != "googleapis.com"
-            ):
-                raise ValueError("unexpected FCM service account")
-            self._credentials = Credentials.from_service_account_info(  # pyright: ignore[reportUnknownMemberType]
-                info, scopes=[PROJECT_SCOPE]
-            )
+            self._credentials = load_sender_account(self._project, self._account)
         if not self._credentials.valid:
             with Session() as session:
                 session.trust_env = False
@@ -146,14 +153,15 @@ class FcmSender:
             if raw := response.headers.get("Retry-After"):
                 try:
                     seconds: float = (
-                        int(raw)
+                        float(int(raw))
                         if raw.isascii() and raw.isdecimal()
                         else (
                             cast(datetime, parsedate_to_datetime(raw))
                             - datetime.now(UTC)
                         ).total_seconds()
                     )
-                    retry_after = max(retry_after, seconds)
+                    if math.isfinite(seconds):
+                        retry_after = max(retry_after, seconds)
                 except (ValueError, TypeError, OverflowError):
                     pass
             return PushFailure("temporary", status, retry_after)

@@ -56,6 +56,19 @@ send non-collapsing data to the current fid, restricted to `dev.niels.jarvis`, w
 
 reuse ordered serial delivery. retry timeouts/429/transients with backoff and `Retry-After`. absent credentials, sender/project mismatch, unreadable slot or no phone leave rows pending for repair. registration wakes delivery. `UNREGISTERED` clears only the attempted generation, retaining the notice. an admitted old-phone send may finish. record positive acceptance once while the row is pending. stale failures cannot clear a replacement. chat, owner control and native recovery stay available throughout.
 
+before the stopped cut, verify the configured project and sender key under the
+service identity without depending on a live google request. after activation,
+delivery failures leave web and native work available. the phone reports a
+confirmed enrollment and android channel settings. provider acceptance remains
+a separate receipt. an expired address or lost slot asks for explicit
+re-enrollment and cannot silently reclaim a revoked phone. a provider rejection
+holds the ordered queue for repair, including a sender/project mismatch.
+
+the native pdf reader uses the platform-backed android x sandboxed loader. this
+keeps original pdf parsing out of the process holding owner credentials. the
+selected library is beta and requires the build sdk extension, qualified
+separately from the phone's runtime extension.
+
 ## ownership, red/green/refactor and exit
 
 each row has an engineer and its own content designer. before red, the designer defines good/bad examples, copy and evidence within its schema. independent claude opus reviews each feature’s design and red/green/refactored evidence. the scoped 0046 exception requires temporary integration/live tests. prove red through the normal entry, implement, prove green, simplify and rerun. retain named evidence outside scratch, reopen/hash it, then delete these probes and fixtures. record checks and cleanup separately. run large databases and restores on macbook. use dev-server’s `scripts/rehearse-worktree` for detached rehearsals. [evidence practice](0088-storage-and-memory-recovery.md#a-development-placement-and-evidence)

@@ -28,6 +28,7 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from universal_memory import RangeReference, RecordReference, Reference
+from universal_memory.policy import ARCHIVE_GENERATION
 from universal_memory.tools import MEMORY_READ_IDS, MEMORY_VIEW_SPEC
 from universal_memory.types import ViewPage
 
@@ -99,7 +100,7 @@ class MemoryToolDispatcher:
                     )
                     self._references[reference] = None
             for node in output.get("nodes", ()):
-                reference = RangeReference(start=node["start"], count=node["count"])
+                reference = RangeReference(generation=ARCHIVE_GENERATION, start=node["start"], count=node["count"])
                 self._references[reference] = None
             if tool_id == MEMORY_VIEW_SPEC.id:
                 page = ViewPage.model_validate_json(canonical_json_bytes(output))

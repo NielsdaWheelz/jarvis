@@ -25,6 +25,7 @@ from universal_memory.policy import (
     MemoryError,
 )
 from universal_memory.tools import (
+    MEMORY_DATE_SPEC,
     MEMORY_OPEN_SPEC,
     MEMORY_READ_SPECS,
     MEMORY_SAVE_NOTE_SPEC,
@@ -74,10 +75,10 @@ def memory_family(service: MemoryService) -> ToolFamily:
                     result = await service.library.view(value.cursor, cutoff=cutoff)
                 case ZoomInput():
                     result = await service.library.zoom(
-                        value.start, value.count, cutoff=cutoff
+                        value.start, value.count, cutoff=cutoff, generation=value.generation
                     )
                 case DateInput():
-                    result = await service.library.date(value.position, cutoff=cutoff)
+                    result = await service.library.date(value.position, cutoff=cutoff, generation=value.generation)
         except MemoryError as exc:
             attempts = exc.actual_attempts if isinstance(exc, MemoryServiceError) else 0
             raise DeclaredToolFailure(
@@ -111,9 +112,11 @@ def memory_family(service: MemoryService) -> ToolFamily:
         "paging": "complete-source-content-and-lineage",
     }
     revisions = {
-        MEMORY_VIEW_SPEC.id: 6,
-        MEMORY_OPEN_SPEC.id: 4,
-        MEMORY_ZOOM_SPEC.id: 4,
+        MEMORY_VIEW_SPEC.id: 7,
+        MEMORY_OPEN_SPEC.id: 5,
+        MEMORY_ZOOM_SPEC.id: 5,
+        MEMORY_DATE_SPEC.id: 4,
+        MEMORY_SEARCH_SPEC.id: 4,
     }
     bindings: list[ToolBinding[Any, Any, Any]] = [
         ToolBinding(

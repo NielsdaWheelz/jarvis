@@ -44,8 +44,10 @@ delivered through tools. proven worker traces stay at their source. main adds
 best-effort stock observations alongside its canonical receipts. the archive
 caps every tool result and each new built-in call’s arguments at 30,000 unicode
 code points after redaction, including the omission marker. this supersedes the
-broader capture rules below at the prospective cut. historical redesign is a
-separate decision.
+broader capture rules below at the prospective cut.
+[adr 0102](docs/decisions/0102-historical-capture-cleanup.md) governs the
+one-time cleanup of all historical external tool traffic in the stopped
+database at deployment, including records received after merge.
 
 [adr 0092](docs/decisions/0092-memory-freshness.md) governs installed schema
 `0018`. one frozen startup view combines the complete ready prefix with bounded,

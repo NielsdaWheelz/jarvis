@@ -31,7 +31,7 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from universal_memory import MemoryError, MemoryStore
-from universal_memory.policy import EMBEDDING_BATCH_SIZE, bounded_text
+from universal_memory.policy import ARCHIVE_GENERATION, EMBEDDING_BATCH_SIZE, bounded_text
 from universal_memory.schema import source_conversation
 
 from jarvis.actions import ActionPersistenceDefect, ActionStore, archived_worker_action
@@ -966,13 +966,16 @@ async def dream_once(
 
 
 async def rebuild_memory(
-    settings: MemoryJobSettings, host: CodexHostConfig, node: str | None = None
+    settings: MemoryJobSettings, host: CodexHostConfig, node: str | None = None,
+    generation: int = 1,
 ) -> None:
     """Refold admitted originals while stopped; preserve capture and dream progress."""
     _validate_runtime_layout(settings, host)
     config = MemoryConfig.load(settings.memory_config_path)
     start = count = None
     if node is not None:
+        if generation != ARCHIVE_GENERATION:
+            raise ValueError(f"retired range; select a current node with --generation {ARCHIVE_GENERATION}")
         values = node.split("+")
         if len(values) != 2 or any(not value.isdecimal() for value in values):
             raise ValueError("node must be START+COUNT")
@@ -1031,7 +1034,7 @@ async def rebuild_memory(
                 memory=memory,
             )
             async with database.begin() as connection:
-                await memory.library.rebuild(connection, start, count)
+                await memory.library.rebuild(connection, start, count, generation=generation)
             await worker.ensure_ready(
                 await memory.library.cutoff(), CancellationToken()
             )
@@ -1181,6 +1184,7 @@ def _parser() -> argparse.ArgumentParser:
         "rebuild-memory", help="refold derived memory while stopped"
     )
     rebuild.add_argument("--node", metavar="START+COUNT")
+    rebuild.add_argument("--generation", type=int, default=1, help="archive generation shown with the selected node")
     memory = commands.add_parser("memory", help="inspect or repair shared memory")
     memory_commands = memory.add_subparsers(dest="memory_command", required=True)
     memory_commands.add_parser(
@@ -1279,7 +1283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.command == "rebuild-memory":
             job = MemoryJobSettings.from_env()
-            asyncio.run(rebuild_memory(job, job.codex_host_config, arguments.node))
+            asyncio.run(rebuild_memory(job, job.codex_host_config, arguments.node, arguments.generation))
             print("memory rebuild completed")
             return 0
         settings = Settings.from_env()

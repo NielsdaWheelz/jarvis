@@ -23,11 +23,13 @@ digests, including those that end on a removed event.
 keep surviving original and note ids. maintain one content-free table of
 retired part ids with their original event and part so an old direct or
 full-event link reports removal. insertions cannot reuse those identities.
-the compactor reads only live leaves. archive generation 2 assigns contiguous positions to surviving records
-and recovered deliveries in source-carrier order. old bare range and date
-lookups report retirement, old pagination expires, and saved synthesis keeps
+the compactor reads only live leaves. archive generation 2 assigns contiguous
+positions to surviving records and recovered deliveries in source-carrier
+order. old bare range and date lookups report retirement, old pagination
+expires, and saved synthesis keeps
 its original seed bounds and references. translate consumed dream progress,
-retain unchanged embeddings, and rebuild the tree from surviving evidence.
+retain unchanged embeddings, and discard summaries built over old positions.
+the ordinary compactor then builds the new tree from surviving evidence.
 
 prove a record admitted after the candidate was built is removed. prove an
 older direct original reopens, a removed id reports retirement, a bare old

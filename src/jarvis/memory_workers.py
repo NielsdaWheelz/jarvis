@@ -477,7 +477,12 @@ class DreamerWorker:
                     PromptSectionKind("historical_memory_view"),
                     (),
                     PromptText(
-                        render_dream_view(seed.nodes, seed.seed_start, seed.seed_end)
+                        render_dream_view(
+                            seed.nodes,
+                            seed.seed_start,
+                            seed.seed_end,
+                            generation=seed.generation,
+                        )
                     ),
                 )
             ]

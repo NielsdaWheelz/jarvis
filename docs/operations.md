@@ -646,10 +646,10 @@ deploy/verify-containment
 before the `0020` worker freeze, require per-conversation v3 [claude recovery receipts](claude-data-flow-capture.md#3-release-and-verify-recovery) and the separately qualified v4 collector containing the reader fix. an outstanding case requires an explicit owner decision naming the affected uuid. keep historical backfill arrivals and service downtime visible in the capacity sample.
 
 1. verify the installed `0019` predecessor and its
-   [live google proof](issues/adr0096-google-live.md). record both installed
-   collector revisions. obtain the predeclared before sample under `0019`.
+   [live google proof](decisions/0096-calendar-on-demand.md#live-google-calendar). record both installed
+   collector revisions. the owner waived the installed before/after samples.
    qualify the target release, pinned collectors, nexus release and restore
-   reader together. keep the comparable postcut sample pending until resume.
+   reader together.
 2. suspend new nexus sends and retries while the old admitted runs settle.
    drain every v1 export through the old producer and receiver. check the
    outbox, including parked items, and compare its next sequence to central
@@ -658,7 +658,7 @@ before the `0020` worker freeze, require per-conversation v3 [claude recovery re
    declarations, registrations and the outbox, and keep capture disabled.
 3. under the existing owner web pause, stop both jarvis writers and prepare
    `/var/lib/jarvis-cutover/adr0098/$to` with the two exact release receipts.
-   restore that copy in isolation on macbook and rehearse `0019→0020`.
+   verify the stopped copy. the owner waived a further rehearsal on this cut.
    migrate on the selected stopped deployment, using the same receipts.
    the migration compares original table inventories and verifies the new
    defaults, privileges and retained evidence for excluded workers. reopen an
@@ -670,8 +670,40 @@ before the `0020` worker freeze, require per-conversation v3 [claude recovery re
    schema `0020` backup and isolated restore before returning the backup timer.
 5. resume through the ordinary owner control. prove an admitted external root,
    delivered report, skipped span, fresh recall and one contained main observation.
-   compare the matched after sample by lane, kind and date.
    [acceptance](decisions/0098-conversation-capture.md#proof-and-cutover)
+
+### stopped historical cleanup from 0020 to 0021
+
+use the repaired v4 sender and receiver first. keep the owner's web pause
+through both cuts when possible. disable the backup timer, let an active
+backup finish, and stop both jarvis writers cleanly. run this release's
+`deploy/activate-release --prepare "$from" "$to"`. it takes the recovery copy
+at `/var/lib/jarvis-cutover/historical-capture/$to` and binds the release
+receipts and table inventories. retain the copy under its existing permissions.
+
+use the candidate's python and `deploy/historical-capture` for all three steps
+below. keep the outputs owner-private. the cohort contains event ids and part
+ids. the observations and manifest can contain private, recovered conversation.
+
+1. use the held database's read-only connection to run
+   `cohort SNAPSHOT.json --output cohort.json` for the actual stopped snapshot.
+2. on macbook and devbox, as the ordinary collector owner, run
+   `observe cohort.json ~/.config/jarvis-memory/collector.json --output host.json`.
+   collect each host's output. check the previously proved worker reports and
+   inspect the counts of recovered speech and unresolved source evidence.
+3. run `plan cohort.json macbook.json devbox.json --output manifest.json`.
+   the manifest binds the snapshot and includes complete events.
+
+run `deploy/activate-release --migrate --manifest manifest.json "$from" "$to"`.
+the stopped transaction checks every eligible row again, applies the deletion
+and verifies protected data before committing. a retry with the same manifest
+and release receipts verifies any already committed result. install the matching
+contained host, activate with both shas and verify containment. verify zero
+external calls, results and inspection wrappers, a surviving conversation, a
+retired original and an old positional lookup through the installed service.
+use the target's sealed reader to verify the new backup from both copies,
+restart under the retained pause, restore the backup timer and use the ordinary
+owner resume. evidence and closure belong to [adr 0102](decisions/0102-historical-capture-cleanup.md).
 
 ### installed memory cut from 0017 to 0018
 
@@ -1192,7 +1224,7 @@ service stops are independent. select the owning service before stopping it.
 | `memory status` | neither | read-only status |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
-| schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
+| schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT --generation 2]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
 
 the private unix socket is available to assistant jobs in group `jarvis-memory`.
 the memory service owns the one embedding slot and search-rate limit. failure

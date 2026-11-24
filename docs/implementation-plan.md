@@ -139,7 +139,7 @@ scheduled-run proof remains open. the [restore issue](issues/memory-backup-resto
 capture cut. freeze the source and storage contracts, qualify native conversation
 capture, main built-in observations and nexus exports, then integrate on the
 actual collector and service pins. installation and the
-[historical corpus pr](issues/historical-tool-corpus.md) are separate. the
+[historical cleanup](decisions/0102-historical-capture-cleanup.md) ship in order. the latter scans all records at deployment after the v4 filter is active. the
 macbook claude data-flow preflight identified four parked top-level chats and
 30 child/workflow sessions. reconcile these by proven identity at the cut.
 the four roots remain in scope for source repair.

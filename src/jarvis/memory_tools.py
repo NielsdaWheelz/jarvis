@@ -75,10 +75,15 @@ def memory_family(service: MemoryService) -> ToolFamily:
                     result = await service.library.view(value.cursor, cutoff=cutoff)
                 case ZoomInput():
                     result = await service.library.zoom(
-                        value.start, value.count, cutoff=cutoff, generation=value.generation
+                        value.start,
+                        value.count,
+                        cutoff=cutoff,
+                        generation=value.generation,
                     )
                 case DateInput():
-                    result = await service.library.date(value.position, cutoff=cutoff, generation=value.generation)
+                    result = await service.library.date(
+                        value.position, cutoff=cutoff, generation=value.generation
+                    )
         except MemoryError as exc:
             attempts = exc.actual_attempts if isinstance(exc, MemoryServiceError) else 0
             raise DeclaredToolFailure(

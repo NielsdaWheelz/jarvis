@@ -169,7 +169,7 @@ async def enumerate_cut(
         )
         != leaf_count
     ):
-        raise ValueError("restored archive does not match the stopped cut")
+        raise ValueError("archive does not match the stopped cut")
     rows = (await connection.execute(_COHORT_SQL)).mappings()
     return HistoricalCohort(
         snapshot_sha256=snapshot_sha256,
@@ -347,6 +347,15 @@ async def observe_native(
                     try:
                         speech = _delivered(member, occurrence)
                         status = "matched"
+                        if not speech and member.kind in ("tool_call", "tool_result"):
+                            if any(
+                                record.kind == "gap" for record in occurrence.records
+                            ):
+                                status = "source_unsupported"
+                            elif any(
+                                record.kind == "text" for record in occurrence.records
+                            ):
+                                status = "delivery_unproven"
                     except (ValueError, ValidationError):
                         status = "source_conflict"
             if member.kind != "text" or speech:
@@ -472,7 +481,7 @@ def build_manifest(
         if (
             speech
             or _routine(event, related)
-            or (observation and observation.status == "worker_excluded")
+            or (observation and observation.status in ("matched", "worker_excluded"))
         ):
             continue
         if event.kind == "tool_call" and any(
@@ -480,7 +489,7 @@ def build_manifest(
         ):
             continue
         status = observation.status if observation else "source_unavailable"
-        reason = "delivery_unproven" if status == "matched" else cast(GapReason, status)
+        reason = cast(GapReason, status)
         gaps.append(_gap(event, reason))
         counts[f"gaps_{reason}"] += 1
     return HistoricalCaptureManifest(

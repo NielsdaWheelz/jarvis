@@ -55,7 +55,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     cohort = commands.add_parser(
-        "cohort", help="enumerate an isolated stopped-copy restore"
+        "cohort", help="enumerate the held archive identified by its stopped snapshot"
     )
     cohort.add_argument("snapshot", type=Path, metavar="SNAPSHOT_JSON")
     observe = commands.add_parser(

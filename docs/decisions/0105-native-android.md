@@ -93,8 +93,9 @@ start matched application/memory units under recorded control, complete the inst
 - the edge and the signed s22+ verified the public association, exact claimed
   callback, warm owner sign-in, exact older reply and bearer refresh. macbook
   firefox reopened the same reply with its existing cookie. the owner policy
-  and signed connector audience matched their original values. the signing key
-  has a verified encrypted macbook recovery copy.
+  and signed connector audience matched their original values. signed upgrades
+  kept the draft and original. device grant revocation and sign-in again passed.
+  the signing key has a verified encrypted macbook recovery copy.
 - the pinned postgres 16 rehearsal showed the old revision failing, preserved
   accepted discord ids, moved pending replies once, and verified the role
   grants. the pinned schema 0023 reader reopened one original event and one
@@ -104,12 +105,27 @@ start matched application/memory units under recorded control, complete the inst
   seal recovered once with one notice. controlled gmail mime and chromium
   checks proved the frozen draft read and exact-result navigation. the real
   connected-account unsent draft needs an exclusive mailbox window.
-- the handset emulator ran normal share intents, cross-app uri grants, an
-  offline draft across process death and isolated pdf page six. physical fcm
-  accepted generic notices and opened two distinct older replies. the first
-  forced-idle run observed an awake screen and therefore leaves locked-phone
-  proof open.
+- android source `81dfad9` built signed version 4, apk sha-256
+  `c5466738c77743404a018fdcb82b6048020d7984a76ab10fea6ddad718d9766b`.
+  the handset emulator ran cross-app shares, an offline draft across process
+  death and isolated pdf page six. the signed s22+ saved a real chrome share,
+  returned to its tab and reopened the exact draft. the only pre-cut pdf has
+  one page. the physical reader reopened it and granted a temporary recipient
+  read access to the verified r2 bytes. the receiver lacked write permission.
+  the post-finish grant check did not complete.
+- an isolated schema 0023 service left the committed notice pending until
+  registration, recorded one real firebase acceptance, and displayed it on
+  signed version 4. tapping opened the exact existing reply. a separate real
+  sender run after key rotation displayed the opaque alert with the s22+
+  locked and deep idle throughout, using android's simulated unplug. real fid
+  rotation passed. the staged sender's private key lives on dev-server. the
+  qualification key was revoked and local copies removed.
 
 receipts and independent opus reviews are under
 `~/.local/state/jarvis/qualification/{adr0105-implementation,adr0105-results}`.
-these checks distinguish candidate, installed and cleanup evidence.
+these checks distinguish candidate, installed and cleanup evidence. production
+still serves `ea2b825` / `0022`. the installed cut, exclusive gmail journey,
+backup handoff and discord revocation remain open. remaining device and
+identity gates include a fresh browser session and otherwise unauthorized
+account, administrator revocation of the phone grant, a real canvas handoff
+and withdrawal, physical page six, grant expiry, reboot/unlock and reinstall.

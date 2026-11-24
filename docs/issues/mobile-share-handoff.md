@@ -10,8 +10,9 @@ selected release, the new backup restores, and the old bot and installed grant
 are revoked.
 
 on november 24 utc, the selected service still ran `ea2b825` / `0022`.
-native identity and generic delivery have physical evidence against that
-predecessor. the cut needs an exclusive mailbox window and a maintenance
-decision. the installed web pause would move five parked inputs to stopped
+the signed app and isolated 0023 service proved native identity, chrome
+sharing, private file reads and real firebase handoff. see
+[qualification](../decisions/0105-native-android.md#qualification-on-november-24-utc).
+the cut needs an exclusive mailbox window and a maintenance decision. the installed web pause would move five parked inputs to stopped
 and clear their retry state. the separately qualified adr 0104 hold would
 preserve that state.

@@ -20,7 +20,8 @@ def upgrade() -> None:
             part integer NOT NULL CHECK (part >= 0),
             UNIQUE(conversation_id,native_event_id,part)
         );
-        INSERT INTO memory_retired_source_record(id,conversation_id,native_event_id,part)
+        INSERT INTO memory_retired_source_record
+            (id,conversation_id,native_event_id,part)
         SELECT id,conversation_id,native_event_id,part FROM pg_temp.cut_retired;
         GRANT SELECT ON memory_retired_source_record TO jarvis_runtime,jarvis_memory;
     """)

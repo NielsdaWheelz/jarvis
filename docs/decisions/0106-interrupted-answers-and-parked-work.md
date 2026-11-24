@@ -52,3 +52,50 @@ each unit has a content designer and an engineer. before implementation the desi
 **cut and closure.** use dev-server's `scripts/rehearse-worktree` on macbook for the detached rehearsal. retain named red/green/refactor and opus evidence outside scratch, reopen/hash it, then delete only this cut's temporary probes. report proof and fixture/resource cleanup separately. at a separately authorized [0104 cut](0104-maintenance-without-owner-pause.md), qualify the recovery reader for the changed lock and finish named activation. verify the selected release and services. then stop the assistant for independent maintenance, refresh `list-parked`, inspect and release under `deploy/with-independent-maintenance`, then restart and verify service. never nest independent maintenance inside an activation hold. release the [original four ids](../issues/native-steer-interrupted-message.md) only if still eligible and consistent with owner controls. the owner chose to keep all four parked for the cut. if the november 25, 2026 visit at 11 am pacific has passed, first inspect the original receipts and obtain the owner’s disposition before releasing any of the four. do the same if state or effects have changed. for deferral or owner-directed retirement, close only the isolated qualification and record the owner disposition; installed delivery of the old answer remains unproved. leave unrelated parks alone. following an actual release, verify the same event and original create/update receipts, zero new calendar writes for this repair, delivered research answer and per-input settlement. report installed evidence separately. historical alerts stay visible.
 
 **trade-offs.** strict corroboration can still park a genuine answer. deterministic copy exposes less nuance than a generated explanation. a grouped notice reduces interruptions while full diagnosis requires the cli. named release costs downtime and human inspection. production-matched loopback traffic costs more than an http stub and makes the rare timing repeatable. the owner accepts possible delay past the visit; installed recovery then needs a new disposition. deleting the temporary tests reduces ongoing regression coverage; retain the cases and evidence here for dependency changes.
+
+## source qualification · 2026-11-24
+
+the macbook rehearsed jarvis `9e19e4f8`, kernel `a6e06de4`, provider
+`cbd64ee3`, stock `0.171.0` and postgres 16 at `0023`. git resolved the
+two dependency commits from local worktrees under the normal immutable urls.
+the lock check, wheel install and runtime provenance check passed. candidate
+publication still requires publishing those commits.
+
+- **provider.** under default responses websocket settings the predecessor
+  recorded the steer, one intercepted calendar create and one paid read, then
+  rejected the exact final summary with one abandoned assistant draft. four
+  parks produced four failure replies. the candidate settled one final and
+  all four inputs. balanced and upstream-only turns settled too. partial tool
+  arguments yielded zero stale callbacks. a fully published calendar update
+  entered and closed before the steer, and its output reached the next sample.
+  summary disagreement, late draft activity, unrecorded input, unresolved
+  callback, exhausted identity history and identity reuse fenced the terminal.
+  [interrupted reasoning](../issues/native-steer-interrupted-reasoning.md)
+  also fenced the terminal in stock's observed item sequence.
+- **notices and inspection.** postgres verified four parks with one failure
+  message and one matching push row, mixed retry/park, uncertain effects,
+  rollback and restart, and two notices for two singleton transitions.
+  intercepted firebase delivery contained kind and ids. chromium and android
+  displayed the exact literal excerpts and pending proposal card. inventory
+  verified exact group corroboration and showed a valid unverified trace
+  claim for inspection. partial named release, stale and mixed-set refusal,
+  writer-lock independence, query failure and an empty list all passed.
+- **recovery.** a stock turn parked after the steer stranded one reasoning
+  item, reported as `open_authority`. stopped named release reopened two
+  action receipts and the original paid read, replayed both original action
+  refs, and delivered one sourced fixture answer. all four inputs settled.
+  the same event and original receipts survived with zero additional calendar
+  calls, and an unrelated park remained. after process death following a valid
+  seal, startup published that final once with zero model calls. the scripted
+  model proof establishes the receipt and dispatch contracts. production
+  behavior also depends on the live model's choice to reuse receipts.
+
+existing provider (192) and kernel (176) checks passed. claude opus reviewed
+the predecessor evidence, each unit and the integrated candidate. the
+reopened manifest at
+`~/.local/state/jarvis/qualification/adr0106/qualified-evidence.sha256`
+has sha-256 `01916aef942ddc3e56770b6f2428d98bbbe42107a8249eee8173758636918dd2`.
+the detached receipts separately record checks and successful teardown.
+the temporary probes were deleted after evidence verification. installed
+verification of the four original requests remains open under the cut and
+owner disposition rule above.

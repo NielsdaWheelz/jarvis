@@ -1,5 +1,10 @@
 # an interrupted answer item prevented a later answer from settling
 
+the [adr 0106 source candidate](../decisions/0106-interrupted-answers-and-parked-work.md#source-qualification--2026-11-24)
+settled the reproduced interrupted draft over stock's default websocket.
+this incident stays open for the separately authorized installed cut and
+the owner's disposition of the original four requests.
+
 open. on 2026-11-24 jarvis release `74bfcaba` ran one five-minute turn on stock
 codex `0.171.0` and provider-runtime `1faa4912`. it completed two calendar
 writes and produced a later answer item. jarvis could not accept the terminal

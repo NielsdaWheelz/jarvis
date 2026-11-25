@@ -281,7 +281,7 @@ if [[ "$change" == bootstrap ]]; then
 else
   "$release/deploy/cutover-hold" open-native "$change"
 fi
-sudo -n systemctl start "${CODEX_HOST_UNITS[@]}"
+sudo -n systemctl start "${CODEX_HOST_UNITS[0]}"
 for ((i=0; i<3; i++)); do
   systemctl is-active --quiet "${CODEX_HOST_UNITS[i]}"
   verify_native_account "$release" "${CODEX_PROFILES[i]}"

@@ -316,7 +316,9 @@ running until the owner selects a separate maintenance window.
 
 the host must provision the jarvis account, `codex-clients` group, private skid
 client and empty mode-02750 cognition parent. three contained stock hosts serve
-the ordered `personal`, `work` and `work2` accounts. the ordinary coding server
+the ordered `personal`, `work` and `work2` accounts. the enabled primary unit
+pulls in both standby units at boot. each standby shares the native custody
+guard and stops with the primary. the ordinary coding server
 retains its own controls and sessions.
 
 the root-owned schema-6 file `/etc/jarvis/codex-host.json` carries common

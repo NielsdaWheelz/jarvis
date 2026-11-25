@@ -2015,29 +2015,33 @@ async def _fail_inputs(
     account_profile: str | None = None,
 ) -> None:
     """A waking input shares one fresh opening across contact and context failures."""
-    retry: set[UUID] = (
-        {key for key, row in inputs.items() if row["native_retry_after"] is None}
-        if reason
-        in {"lost_contact", "context_window_exceeded", "codex_quota_before_activity"}
-        else set()
-    )
+    retry: set[UUID] = set()
+    if reason in {
+        "lost_contact",
+        "context_window_exceeded",
+        "codex_quota_before_activity",
+    }:
+        if attempt_id is None or account_profile is None:
+            reason = "retired_native_retry"
+        else:
+            retry = {
+                key for key, row in inputs.items() if row["native_retry_after"] is None
+            }
     parked = {key: row for key, row in inputs.items() if key not in retry}
     if retry:
-        trace = message.c.trace
+        trace = message.c.trace.op("||")(
+            {
+                "native_retry": {
+                    "attempt_id": attempt_id,
+                    "profile": None
+                    if reason == "codex_quota_before_activity"
+                    else account_profile,
+                    "reason": reason,
+                }
+            }
+        )
         if reason == "context_window_exceeded":
             trace = trace.op("||")({"native_context_retry": True})
-        if account_profile is not None:
-            trace = trace.op("||")(
-                {
-                    "native_retry": {
-                        "attempt_id": attempt_id,
-                        "profile": None
-                        if reason == "codex_quota_before_activity"
-                        else account_profile,
-                        "reason": reason,
-                    }
-                }
-            )
         await connection.execute(
             update(message)
             .where(message.c.id.in_(retry))
@@ -2347,6 +2351,7 @@ async def fail_native_product(
             attempt is None or attempt["terminal_at"] is None
         ):
             raise NativeDefect("provider failure settlement requires its original seal")
+        account_profile = None if attempt is None else attempt["account_profile"]
         already_charged = (
             not isinstance(failure, str)
             and attempt is not None
@@ -2364,25 +2369,22 @@ async def fail_native_product(
                     or row["trace"]["native_retry"].get("attempt_id") == attempt_id
                 )
             }
-            if inputs and quota:
+            if inputs and (quota or account_profile is None):
                 await _fail_inputs(
                     connection, owner, inputs, reason, attempt_id=attempt_id
                 )
                 refined = True
             elif inputs:
-                trace = message.c.trace
-                if context_exhausted:
-                    trace = trace.op("||")({"native_context_retry": True})
-                if attempt is not None and attempt["account_profile"] is not None:
-                    trace = trace.op("||")(
-                        {
-                            "native_retry": {
-                                "attempt_id": attempt_id,
-                                "profile": attempt["account_profile"],
-                                "reason": reason,
-                            }
-                        }
-                    )
+                trace = message.c.trace.op("||")(
+                    {
+                        "native_context_retry": True,
+                        "native_retry": {
+                            "attempt_id": attempt_id,
+                            "profile": account_profile,
+                            "reason": reason,
+                        },
+                    }
+                )
                 await connection.execute(
                     update(message).where(message.c.id.in_(inputs)).values(trace=trace)
                 )
@@ -2393,7 +2395,7 @@ async def fail_native_product(
                 inputs,
                 reason,
                 attempt_id=attempt_id,
-                account_profile=None if attempt is None else attempt["account_profile"],
+                account_profile=account_profile,
             )
         status: Literal["failed", "stale"] | None = None
         if attempt is not None:

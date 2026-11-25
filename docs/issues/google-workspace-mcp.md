@@ -6,12 +6,19 @@ open, november 24, 2026. installed release `74bfcab` uses direct rest for both p
 
 anonymous `tools/list` returned 23 gmail and nine calendar tools from google’s public `/mcp/v1` endpoints on november 24. account-specific access and user-approval challenges remain untested. the alternative `/mcp/v1self` endpoint can filter read results to those the policy allows without a prompt. [google’s approval behavior](https://developers.google.com/workspace/guides/mcp-elicitation)
 
-the implementation branch uses a separate qualification project
-`jarvis-workspace-test-20261124`. billing is disabled. the gmail and calendar
-apis and both mcp services are enabled. live qualification still needs the
-agent-marked desktop client and the owner's consent for the dedicated mailbox.
-keep only constructed mail and events in that test. keep the installed
-workspace credentials outside every rehearsal.
+on november 25, the owner chose to skip the live google test and merge the
+source. candidate `9ab594e` passed isolated installation, migration, restore
+and independent review. the packaged subscription check passed match, no-match
+and incomplete-result cases with constructed calendar data. live google
+behavior is unverified. draft replacement and discard stay disabled, as do
+calendar text clears and all-day-to-timed edits. physical-phone delivery and
+the history-permission decision remain open. production activation is a
+separate decision under [0107](../decisions/0107-google-workspace.md).
+
+the qualification project `jarvis-workspace-test-20261124` has billing
+disabled and the gmail and calendar services enabled. if live testing resumes,
+use constructed data in the dedicated mailbox and a separate agent-marked
+client. keep installed workspace credentials outside rehearsals.
 
 after the installed calendar poller retired, cloud monitoring counted 1,252 gmail rest requests, including 1,006 history calls, and four calendar rest requests on the active project between 02:00 and 21:00 utc on november 24. to reproduce, sum `serviceruntime.googleapis.com/api/request_count` on `consumed_api` by service and method for that interval. this measures project traffic across clients. future mcp daily units depend on the tools selected.
 

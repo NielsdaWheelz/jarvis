@@ -406,7 +406,10 @@ def verify_notes_acl(config: CodexHostConfig) -> None:
             capture_output=True,
             text=True,
         )
-        if not required.issubset(result.stdout.splitlines()):
+        entries = set(result.stdout.splitlines())
+        if not required.issubset(entries) or not entries.intersection(
+            {"group::r-x", "group::r--", "group::--x", "group::---"}
+        ):
             raise RuntimeError(
                 "a shared notes directory lacks the inherited account ACL"
             )

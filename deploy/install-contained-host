@@ -166,18 +166,23 @@ SUMS
     sudo -n tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
 fi
 notes=/var/lib/jarvis-notes
+incoming="$notes/.git/jarvis-mail/incoming"
 primary_author=
 primary_committer=
 for ((i=2; i<8; i+=2)); do
   account_user="${layout[i]}"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/objects"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/refs"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/jarvis-pages"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/jarvis-mail"
-  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/jarvis-mail/incoming"
-  sudo -n -u "$account_user" -g codex-clients test -x "$notes/.git/jarvis-mail/incoming"
+  sudo -n -u "$account_user" -g codex-clients test -w "$incoming"
+  sudo -n -u "$account_user" -g codex-clients test -x "$incoming"
+  # Git object data is immutable. Its directories need write access for new objects.
+  denied="$(sudo -n -u "$account_user" -g codex-clients find "$notes" \
+    -path "$incoming" -prune -o \
+    \( -type d \( ! -readable -o ! -writable -o ! -executable \) -o \
+       -type f \( ! -readable -o \( ! -path "$notes/.git/objects/*" -a ! -writable \) \) \) \
+    -print -quit)"
+  if [[ -n "$denied" ]]; then
+    printf 'an existing notes path lacks native writer access for %s\n' "$account_user" >&2
+    exit 1
+  fi
   sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" rev-parse --show-toplevel >/dev/null
   author="$(sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" var GIT_AUTHOR_IDENT)"
   committer="$(sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" var GIT_COMMITTER_IDENT)"
@@ -194,13 +199,16 @@ for ((i=2; i<8; i+=2)); do
   sudo -n -H -u "$account_user" -g codex-clients \
     timeout 60s git -C "$notes" ls-remote --exit-code origin refs/heads/main >/dev/null
 done
-for path in "$notes" "$notes/.git"; do
-  sudo -n -u jarvis -g codex-clients test -r "$path"
-  sudo -n -u jarvis -g codex-clients test -x "$path"
-done
-sudo -n -u jarvis -g codex-clients test ! -w "$notes"
-sudo -n -u jarvis -g codex-clients test ! -w "$notes/.git"
-sudo -n -u jarvis -g codex-clients test ! -x "$notes/.git/jarvis-mail/incoming"
+denied="$(sudo -n -u jarvis -g codex-clients find "$notes" \
+  -path "$incoming" -prune -o \
+  \( -type d \( ! -readable -o -writable -o ! -executable \) -o \
+     -type f \( ! -readable -o -writable \) \) \
+  -print -quit)"
+if [[ -n "$denied" ]]; then
+  printf 'an existing notes path violates the application reader access\n' >&2
+  exit 1
+fi
+sudo -n -u jarvis -g codex-clients test ! -x "$incoming"
 
 # Existing access ACLs do not establish the permissions of the next write.
 # Use the native service umask and check the actual inherited writer/reader grant.

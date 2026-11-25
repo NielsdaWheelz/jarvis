@@ -333,9 +333,12 @@ subjects and plan types using the actual enrolled hosts.
 
 provision scoped access and default acl entries on every existing directory
 in the notes checkout, including nested `.git` directories. give each native uid
-default `rwx`, the jarvis uid default `r-x`, and keep other access empty.
-this needs the host’s `acl` package. keep the app's read/traverse-only access and deny
-its traversal into `.git/jarvis-mail/incoming`. each native host needs
+default `rwx`, the jarvis uid default `r-x`, the default group at most `r-x`, and
+no default access for others. this needs the host's `acl` package. the stopped
+installer checks current access as each service identity. native hosts need
+read/write on existing regular files, read/write/traverse on directories, and
+read access on git object data. jarvis needs read/traverse access with writes
+denied. keep its traversal into `.git/jarvis-mail/incoming` denied. each native host needs
 write/traverse access to that incoming parent without widening a per-request
 private directory. configure exact-checkout git safety and author identity in
 each native user's own configuration. all three identities must use the same

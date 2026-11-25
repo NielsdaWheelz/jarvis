@@ -596,11 +596,7 @@ async def _confirm_unsubmitted_quota(
     for identifier, profile in rows:
         if profile not in CODEX_PROFILES:
             raise NativeDefect("unsubmitted attempt lacks its prepared account")
-        evidence = await standby.observe(profile)
-        if (
-            not isinstance(evidence, CodexBlocked)
-            and evidence.state == "included_exhausted"
-        ):
+        if await standby.included_exhausted(profile):
             confirmed.add(identifier)
     return frozenset(confirmed)
 

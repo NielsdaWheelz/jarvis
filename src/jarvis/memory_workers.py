@@ -328,13 +328,11 @@ class MemoryWorker:
                 )
                 if cancellation.cancelled or outcome.type is OneShotStopKind.cancelled:
                     return False
-                if outcome.type is OneShotStopKind.quota_exhausted:
-                    evidence = await self.standby.observe(selected.profile)
-                    if (
-                        not isinstance(evidence, CodexBlocked)
-                        and evidence.state == "included_exhausted"
-                    ):
-                        return False
+                if (
+                    outcome.type is OneShotStopKind.quota_exhausted
+                    and await self.standby.included_exhausted(selected.profile)
+                ):
+                    return False
                 if outcome.type is not OneShotStopKind.protocol_error:
                     break
                 if correction_spent or any(

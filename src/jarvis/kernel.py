@@ -29,7 +29,12 @@ from provider_runtime.agent_runtime import (
     UnsafeConfirmation,
 )
 
-from jarvis.codex_config import CodexHostConfig, CodexProfile, canonical_absolute_path
+from jarvis.codex_config import (
+    CodexAccount,
+    CodexHostConfig,
+    CodexProfile,
+    canonical_absolute_path,
+)
 from jarvis.definitions import load_session_manifest, verify_runtime_dependencies
 
 LOGGER = logging.getLogger(__name__)
@@ -57,7 +62,9 @@ class CodexStandby:
         self._runtime = runtime
         self._host = host
         self._primary = host.accounts[0]
-        self._accounts = {account.key: account for account in host.accounts}
+        self._accounts: dict[CodexProfile, CodexAccount] = {
+            account.key: account for account in host.accounts
+        }
         self._primary_available: tuple[datetime, int, int] | None = None
         self._status: dict[tuple[CodexRole, CodexProfile | None], tuple[str, str]] = {}
 
@@ -95,6 +102,13 @@ class CodexStandby:
             elif result.state != "unavailable":
                 self._primary_available = None
         return result
+
+    async def included_exhausted(self, profile: CodexProfile) -> bool:
+        evidence = await self.observe(profile)
+        return isinstance(evidence, CodexAllowance) and evidence.state in {
+            "included_exhausted",
+            "credits_available",
+        }
 
     def opening_failed(self, profile: CodexProfile) -> None:
         if profile == self._primary.key:
@@ -163,9 +177,10 @@ class CodexStandby:
                     role,
                     pinned_profile,
                     profile,
-                    "selected_credit_eligible"
-                    if evidence.state in {"credits_available", "available_with_credits"}
-                    else "selected",
+                    {
+                        "credits_available": "selected_existing_credits",
+                        "available_with_credits": "selected_included_funded",
+                    }.get(evidence.state, "selected"),
                     evidence.observed_at,
                 )
                 return SelectedCodex(profile, selected)
@@ -181,13 +196,7 @@ class CodexStandby:
 
     async def _included_exhausted_elsewhere(self, profile: CodexProfile) -> bool:
         for other in self._accounts:
-            if other == profile:
-                continue
-            evidence = await self.observe(other)
-            if isinstance(evidence, CodexBlocked) or evidence.state not in {
-                "included_exhausted",
-                "credits_available",
-            }:
+            if other != profile and not await self.included_exhausted(other):
                 return False
         return True
 

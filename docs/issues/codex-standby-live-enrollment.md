@@ -1,0 +1,7 @@
+# codex standby live enrollment and installed acceptance
+
+on november 25, 2026 the owner kept live enrollment in scope and later authorized use of existing paid credits on all three accounts. [adr 0109](../decisions/0109-existing-codex-credits.md)
+
+stock `0.171.0` observe-only reads on `dev-server` at 18:39 utc confirmed three distinct authenticated subjects. `personal` and `work` reported included exhaustion and zero credits. `work2` reported ordinary allowance and a finite paid balance. all three observed logins belong to the development user. the installed jarvis mapping is schema 5 and has only `personal`. stock does not expose automatic purchase or reset settings. no generation was started. the redacted readback sha256 is `148d49336fe5475991e8a734b7eb034977d0887612606640cef2d8115a5d89da`.
+
+closure requires official sign-ins for both standby service identities, per-account billing settings verified under adr 0109, scoped notes and git access, a backup reader qualified for the release lock, and live contained turns with exact role and account proof. record a genuine allowance read when an enrolled funded account naturally exhausts its included usage. that combination has synthetic proof so far. complete the separately authorized named cut, verify one ordinary owner turn, and inspect pending or parked requests under the original receipt rules. [adr 0108](../decisions/0108-codex-quota-standby.md)

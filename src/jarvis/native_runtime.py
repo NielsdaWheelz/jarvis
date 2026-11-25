@@ -6,9 +6,9 @@ import asyncio
 import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
@@ -48,6 +48,7 @@ from llm_tools import (
 from provider_runtime.agent_runtime import (
     AgentMessage,
     AgentNotSubmitted,
+    AgentRuntimeError,
     AgentSubmissionRejected,
     AgentTerminal,
     NativeTerminalEvidence,
@@ -60,6 +61,7 @@ from universal_memory import MemoryError, render_ready_view
 
 from jarvis.actions import ActionStore, retired_worker_predicate
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
+from jarvis.codex_config import CODEX_PROFILES, CodexProfile
 from jarvis.db import (
     action,
     message,
@@ -72,7 +74,7 @@ from jarvis.db import (
 from jarvis.definitions import RoleDefinitions
 from jarvis.home_reads import proposal_presented
 from jarvis.input_framing import home_context, host_input
-from jarvis.kernel import KernelRuntime
+from jarvis.kernel import CodexBlocked, CodexStandby, KernelRuntime
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
     MessageStore,
@@ -90,7 +92,9 @@ from jarvis.native_journal import (
     consume_fenced_losses,
     fail_native_product,
     native_loss_product,
+    never_submitted_v3,
     park_oversized_input,
+    park_quota_pinned_retry,
     recover_sealed_turn,
     yield_workspace_input,
 )
@@ -207,6 +211,7 @@ class NativeInputs:
         memory_cutoff: int,
         cancellation: CancellationToken,
         maximum_batch_size: int,
+        accept_steers: bool,
         workspace: WorkspaceHost | None,
         opened_workspace_check: bool,
     ) -> None:
@@ -221,6 +226,7 @@ class NativeInputs:
         self._pending: tuple[UUID, ...] = ()
         self._opening_only: set[UUID] = set()
         self.cancellation, self.maximum_batch_size = cancellation, maximum_batch_size
+        self.accept_steers = accept_steers
 
     async def poll(self, request: NativeRequest, through_checkpoint: Checkpoint | None):
         del through_checkpoint
@@ -243,6 +249,8 @@ class NativeInputs:
                 or attempt["fenced_at"] is not None
             ):
                 return Preempt("owner_fenced")
+            if not self.accept_steers and not self._opened_workspace_check:
+                return NoNewInput()
             deliveries = {
                 row.message_id: row.state
                 for row in await connection.execute(
@@ -350,6 +358,7 @@ class NativeRunner:
         store: MessageStore,
         owner: JarvisOwner,
         kernel_runtime: KernelRuntime,
+        standby: CodexStandby,
         definitions: RoleDefinitions,
         memory: MemoryService,
         dispatcher_factory: Callable[
@@ -361,6 +370,7 @@ class NativeRunner:
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
         self.kernel, self.definitions = kernel_runtime, definitions
+        self.standby = standby
         self.memory, self.actions = memory, actions
         self.workspace, self.notify_workspace_match = workspace, notify_workspace_match
         self.dispatcher_factory = dispatcher_factory
@@ -384,19 +394,66 @@ class NativeRunner:
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome:
         self._dispatchers = [item for item in self._dispatchers if item.check_effects()]
-        await recover_native_products(self.owner, workspace=self.workspace)
+        standby = (
+            None
+            if cancellation.cancelled or await self.store.paused(self.owner.scope_id)
+            else self.standby
+        )
+        await recover_native_products(
+            self.owner, standby=standby, workspace=self.workspace
+        )
         await self.recover_memory()
         if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
             return NativeRunOutcome("stopped")
-        pending = await self.store.pending_inputs(
-            source_conversation_id=self.owner.scope_id,
-            limit=self.settings.maximum_batch_size,
+        excluded: tuple[str | None, ...] = ()
+        while True:
+            pending = await self.store.pending_inputs(
+                source_conversation_id=self.owner.scope_id,
+                limit=self.settings.maximum_batch_size,
+                exclude_retry_profiles=excluded,
+            )
+            if not pending:
+                return NativeRunOutcome("blocked" if excluded else "no_work")
+            await self.owner.require_current(
+                self.owner.permit("jarvis-codex-admission")
+            )
+            if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
+                return NativeRunOutcome("stopped")
+            first_retry = _retry_route(pending[0])
+            profile = None if first_retry is None else first_retry[1]
+            selected = await self.standby.choose_codex("main", pinned_profile=profile)
+            if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
+                return NativeRunOutcome("stopped")
+            if not isinstance(selected, CodexBlocked):
+                break
+            if (
+                first_retry is not None
+                and profile is not None
+                and selected.reason == "included_exhausted"
+                and await park_quota_pinned_retry(self.owner, first_retry[0], profile)
+            ):
+                self.notify_delivery()
+                return NativeRunOutcome("progressed")
+            excluded += (profile,)
+        pending = tuple(
+            item
+            for item in pending
+            if (None if (route := _retry_route(item)) is None else route[1]) == profile
         )
-        if not pending:
-            return NativeRunOutcome("no_work")
         scoped = _workspace_input(pending[0])
         definition = (
             self.definitions.workspace_check if scoped else self.definitions.main
+        )
+        definition = replace(
+            definition,
+            provider=replace(
+                definition.provider,
+                auth=selected.provider.auth,
+                model_key=selected.provider.model_key,
+                reasoning=selected.provider.reasoning,
+                agent_definition_revision=selected.provider.agent_definition_revision,
+                row_fingerprint=selected.provider.row_fingerprint,
+            ),
         )
         plan = self.definitions.plans["workspace_check" if scoped else "main"]
         try:
@@ -447,9 +504,25 @@ class NativeRunner:
         observations = None
         try:
             try:
-                self._session = await self.kernel.provider.acquire_native(
-                    definition, plan, permit, None
-                )
+                await self.owner.require_current(permit)
+                if cancellation.cancelled or await self.store.paused(
+                    self.owner.scope_id
+                ):
+                    return NativeRunOutcome("stopped")
+                try:
+                    self._session = await self.kernel.provider.acquire_native(
+                        definition, plan, permit, None
+                    )
+                except (AgentRuntimeError, OSError) as error:
+                    self.standby.opening_failed(selected.profile)
+                    LOGGER.warning(
+                        "codex opening blocked: account=%s type=%s",
+                        selected.profile,
+                        type(error).__name__,
+                    )
+                    return NativeRunOutcome("blocked")
+                if self._session.session.ref.profile_key != selected.profile:
+                    raise NativeDefect("acquired session changed the selected account")
                 journal = PostgresNativeJournal(
                     self.owner.database,
                     definition=definition,
@@ -466,6 +539,7 @@ class NativeRunner:
                     memory_cutoff=cutoff,
                     cancellation=cancellation,
                     maximum_batch_size=self.settings.maximum_batch_size,
+                    accept_steers=profile is None,
                     workspace=self.workspace,
                     opened_workspace_check=scoped,
                 )
@@ -509,7 +583,11 @@ class NativeRunner:
                 or not isinstance(terminal.evidence, NativeTerminalEvidence)
             ):
                 result = await _settle_failed_opening(
-                    self.owner, request, protocol_fault, workspace=self.workspace
+                    self.owner,
+                    request,
+                    protocol_fault,
+                    standby=self.standby,
+                    workspace=self.workspace,
                 )
             else:
                 try:
@@ -583,11 +661,55 @@ class NativeRunner:
             self._session = None
 
 
+def _retry_route(value: StoredMessage) -> tuple[str, CodexProfile | None] | None:
+    if value.native_retry_after is None:
+        return None
+    stored = value.trace.get("native_retry")
+    if not isinstance(stored, dict):
+        raise NativeDefect("a due retry has no prepared account evidence")
+    retry = cast(dict[str, object], stored)
+    identifier = retry.get("attempt_id")
+    if not isinstance(identifier, str):
+        raise NativeDefect("a due retry has no prepared attempt")
+    profile = retry.get("profile")
+    if "profile" not in retry or (
+        profile is not None and profile not in CODEX_PROFILES
+    ):
+        raise NativeDefect("a due retry has an unknown account")
+    return identifier, profile
+
+
+async def _confirm_unsubmitted_quota(
+    owner: JarvisOwner, standby: CodexStandby, *, attempt_id: UUID | None = None
+) -> frozenset[UUID]:
+    query = select(
+        native_attempt.c.id, native_attempt.c.request["account_profile"].as_string()
+    ).where(
+        native_attempt.c.conversation_id == owner.scope_id,
+        native_attempt.c.fenced_at.is_not(None),
+        native_attempt.c.recovery_pending,
+        native_attempt.c.terminal_at.is_(None),
+        never_submitted_v3,
+    )
+    if attempt_id is not None:
+        query = query.where(native_attempt.c.id == attempt_id)
+    async with owner.database.connect() as connection:
+        rows = (await connection.execute(query)).all()
+    confirmed: set[UUID] = set()
+    for identifier, profile in rows:
+        if profile not in CODEX_PROFILES:
+            raise NativeDefect("unsubmitted attempt lacks its prepared account")
+        if await standby.included_exhausted(profile):
+            confirmed.add(identifier)
+    return frozenset(confirmed)
+
+
 async def _settle_failed_opening(
     owner: JarvisOwner,
     request: NativeRequest,
     protocol_fault: bool,
     *,
+    standby: CodexStandby,
     workspace: WorkspaceHost | None,
 ) -> ProductSettlement:
     identifier = UUID(request.attempt_id)
@@ -611,11 +733,19 @@ async def _settle_failed_opening(
         return await _settle_native_product(
             owner, request.attempt_id, recovering=True, workspace=workspace
         )
-    return await consume_fenced_losses(owner, attempt_id=identifier)
+    confirmed = await _confirm_unsubmitted_quota(owner, standby, attempt_id=identifier)
+    return await consume_fenced_losses(
+        owner,
+        attempt_id=identifier,
+        confirmed_unsubmitted_quota=confirmed,
+    )
 
 
 async def recover_native_products(
-    owner: JarvisOwner, *, workspace: WorkspaceHost | None = None
+    owner: JarvisOwner,
+    *,
+    standby: CodexStandby | None = None,
+    workspace: WorkspaceHost | None = None,
 ) -> tuple[UUID, ...]:
     """Fence abandoned authority, drain original seals, then account for lost turns."""
     async with owner.database.begin() as connection:
@@ -668,7 +798,12 @@ async def recover_native_products(
             if result.status is not None:
                 counts[result.status] += 1
             completed.extend(result.completed)
-        await consume_fenced_losses(owner)
+        confirmed = (
+            None
+            if standby is None
+            else await _confirm_unsubmitted_quota(owner, standby)
+        )
+        await consume_fenced_losses(owner, confirmed_unsubmitted_quota=confirmed)
     finally:
         if fenced or counts:
             LOGGER.info(
@@ -718,6 +853,7 @@ async def _settle_native_product(
             attempt_id,
             turn.input_ids,
             turn.terminal.failure,
+            initial_delivery_proven=turn.initial_delivery_proven,
         )
     if turn.output is None:
         raise NativeDefect("original output schema is absent")

@@ -208,7 +208,7 @@ the original release; no old watcher, model fallback or effect replay is added.
 [slice 4](private-notes-and-rolodex.md) implements general files/commands/git in
 the new private `NielsdaWheelz/jarvis-notes` checkout, including helpers and visual
 artifacts. source and a separate temporary candidate are qualified with the
-schema-5 mapping; production acceptance remains separate. final v2 cutover
+contained account mapping; production acceptance remains separate. final v2 cutover
 bootstraps the persistent checkout and host git access, installs the qualified
 host/application pair and preserves dirty work thereafter. use named private provisioning for an authority change. release pruning preserves the repo.
 
@@ -224,7 +224,7 @@ proves every native command or child terminated gracefully.
 
 final bootstrap requires an existing private `NielsdaWheelz/jarvis-notes` remote
 with a `main` branch and a brief readme. creating that remote is a separate final-
-cutover operation, never an installer/runtime action. `codex-host bootstrap-notes`
+cutover operation, never an installer/runtime action. `codex-host bootstrap-notes personal`
 uses the same clean host `HOME`/`PATH`/account environment as native startup:
 ordinary ssh authentication must work without forwarded `SSH_AUTH_SOCK`, copied
 credentials or login. it first proves selected-origin existence/access with
@@ -237,7 +237,7 @@ available during installation.
 `install-contained-host` runs bootstrap in a temporary unit derived from the
 same rendered host unit, preserving identity, namespace, instruction masks and
 privilege restrictions before replacing the final mapping/units. it renders and
-installs both host and application units from the same immutable release; the
+installs the contained host units from the same immutable release; the
 application remains stopped until f2's separate qualified activation.
 new checkout
 root `/var/lib/jarvis-notes` belongs to the native uid and `codex-clients` with
@@ -248,7 +248,7 @@ the installer never pulls, resets, cleans, rewrites origin or recursively change
 permissions. a failed bootstrap leaves the application/host stopped and
 retains any checkout files for inspection. never delete this directory while
 pruning releases. app preflight needs read/traversal of the root and `.git`
-directories, not access to every git file. native writes may remain mode 0600.
+directories, not access to every git file. native writes in private handoff directories may remain mode 0600.
 
 ## Approved production target
 
@@ -314,17 +314,58 @@ shared host boundary from the `dev-server` repository. An apply may report a
 deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
-the host must provision the jarvis account, `codex-clients` group, the private
-skid client and the empty mode-02750 cognition parent. main and isolated cognition
-use a separate contained personal endpoint; the existing coding server is unchanged.
-install that host from the same immutable application release with
-`deploy/install-contained-host`. supply the explicit non-secret schema-5 mapping
-through `JARVIS_SOURCE_CODEX_HOST_CONFIG`; it names the development account, its
-existing personal account home, exact stock binary, client group and cognition
-parent and required canonical `notes_repository` path `/var/lib/jarvis-notes`.
-schema 4 is rejected. the installed mapping is `/etc/jarvis/codex-host.json`. the host unit exposes
-that single public file at `/run/jarvis-contained/codex-host.json` through a
-read-only bind; `/etc/jarvis` keeps its private traversal permissions.
+the host must provision the jarvis account, `codex-clients` group, private skid
+client and empty mode-02750 cognition parent. three contained stock hosts serve
+the ordered `personal`, `work` and `work2` accounts. the enabled primary unit
+pulls in both standby units at boot. each standby shares the native custody
+guard and stops with the primary. the ordinary coding server
+retains its own controls and sessions.
+
+the root-owned schema-6 file `/etc/jarvis/codex-host.json` carries common
+`development_user`, `jarvis_user`, `client_group`, `binary`,
+`cognition_cwd_parent`, and `notes_repository` plus three ordered `accounts`.
+each entry sets `key`, `account_home`, `host_user`, `endpoint`,
+`expected_user_id`, `expected_account_id`, and `expected_plan_type`.
+the endpoint directories are `/run/jarvis-contained`, `/run/jarvis-contained-work`,
+and `/run/jarvis-contained-work2`. each endpoint has the form
+`unix:///run/.../app-server.sock`. the primary keeps the development checkout
+identity. both standby identities are distinct non-root users with private,
+officially enrolled homes. the service masks each peer's credential home. each
+stock socket lives under its owner's mode-0700 `exec` directory. the global
+endpoint is a mode-000 placeholder and only the app binds the socket into it.
+do not copy account credentials. validate expected subjects and plan types using
+the actual enrolled hosts.
+
+check automatic credit purchases and automatic reset use on all three accounts
+before enrolling them. both must be off. a finite paid balance is eligible on
+the enrolled personal plans under [adr 0109](decisions/0109-existing-codex-credits.md).
+stock can report a balance without reporting the account's purchase settings.
+
+provision scoped access and default acl entries on every existing directory
+in the notes checkout, including nested `.git` directories. give each native uid
+default `rwx`, the jarvis uid default `r-x`, the default group at most `r-x`, and
+no default access for others. this needs the host's `acl` package. the stopped
+installer checks current access as each service identity. native hosts need
+read/write on existing regular files, read/write/traverse on directories, and
+read access on git object data. jarvis needs read/traverse access with writes
+denied. keep its traversal into `.git/jarvis-mail/incoming` denied. each native host needs
+write/traverse access to that incoming parent without widening a per-request
+private directory. configure exact-checkout git safety and author identity in
+each native user's own configuration. all three identities must use the same
+git author and committer and can read the existing origin’s `main` ref. the
+stopped installer reads every default acl and creates and removes empty probes
+with the native umask. its scan excludes the private incoming subtree. existing
+checkout files retain their bytes and modes.
+
+use `deploy/activate-release --change "$id" --codex-host-config "$mapping" "$to"`
+for a staged account mapping under [0104 custody](decisions/0104-maintenance-without-owner-pause.md).
+the held operation binds the mapping digest, runs the predecessor's existing
+check against installed inputs, then stops the native units and publishes the
+complete new layout. it removes the retired `JARVIS_CODEX_PROFILE_KEY`
+assignment in the same hold. the target check uses the fresh bindings. retry
+with the same change and exact mapping bytes. the virgin bootstrap command
+`deploy/install-contained-host` takes schema 6 via
+`JARVIS_SOURCE_CODEX_HOST_CONFIG`. activation is separate. [standby contract](decisions/0108-codex-quota-standby.md)
 
 for the [0093 candidate](decisions/0093-subscription-model-refresh.md), map
 `binary` to `/opt/jarvis-codex/0.171.0/bin/codex`. the x86-64 installer
@@ -342,8 +383,7 @@ outstanding. preserve the boot journal, unit result, restart counter and
 start-limit state. repair the cause. if the stock unit reached its three-start
 limit, wait out the 900-second window or reset the recorded failure on that
 unit alone with `systemctl reset-failed jarvis-codex-contained.service`.
-this also clears its start history. repeat `deploy/install-contained-host "$to"`
-and require its verification to finish before activating.
+this also clears its start history. repeat the named activation with the bound mapping and require verification to finish.
 verify a native workspace operation during the installed journey.
 [official distribution](https://www.npmjs.com/package/@openai/codex/v/0.171.0-linux-x64)
 
@@ -351,28 +391,28 @@ the contained endpoint requires stock 0.171.0 and the provider-owned complete
 restricted model catalogue at HOST STARTUP. unsupported versions and missing
 startup policy fail before thread creation. per-thread overrides do not provide
 containment. catalogue updates require explicit qualification; this supersedes
-adr 0042's latest-stable rule for this endpoint only. the native host unit owns
-its private mount namespace. `/run/jarvis-contained` stays mode 0710;
-its owned `exec` directory stays 0700 and is bound as the ancestor `/tmp` in the
+adr 0042's latest-stable rule for this endpoint only. each native host owns a private mount namespace. each declared socket directory
+stays mode 0710. its owned `exec` directory stays 0700 and is bound as the ancestor `/tmp` in the
 native namespace. stock creates its physical `codex-daemon-uid` child at 0700;
 never bind that reserved child directly or widen its permissions. after private
 qualification, only the socket becomes 0660. private alias
 `exec/app-server.sock` points relatively to `codex-daemon-uid/hashedsocket`, so
 the root service manager resolves the same inode outside that namespace.
 
-globally `/run/jarvis-contained/app-server.sock` is an empty regular mode-000
-placeholder. it is never a public socket, symlink or hardlink. root-owned
+globally each declared `app-server.sock` is an empty regular mode-000 placeholder. it is never a public socket, symlink or hardlink. root-owned
 `jarvis.service` binds only the private socket FILE read-only over that endpoint
 inside the application namespace. native commands see the placeholder and the
 private alias targets stock's masked daemon child; actual native authority proof
 remains required. provider handshake proves application access; `os.access(W_OK)`
 is redundant and may return true even for the read-only socket bind.
 
-application `BindsTo` and `After` depend on the native host. host loss/replacement
-stops the application through its existing graceful SIGINT/settlement path;
-the operator must explicitly restart the application after host recovery to
-mount the new socket inode. there is no automatic application start, proxy,
-root publisher, idmap, `PartOf` or `Upholds`. stopped release/host replacement
+application `BindsTo` remains on the primary native host. its loss stops the
+application through the existing graceful SIGINT/settlement path. the standby
+units participate in the primary's deployment stop and inherit the named
+custody marker. their ordinary loss leaves the application running. the
+operator must stop and restart the application to bind every replacement socket
+inode. `verify-containment` compares mounted device/inode pairs with current
+host publication and reports the lane requiring a stopped remount. stopped release/host replacement
 preserves canonical waits, seals and entered effects; inspect original evidence
 and issue an explicit repair wake where needed. never replay native commands.
 bootstrap derives the same host mount layout while that host is stopped and
@@ -953,9 +993,9 @@ remain authoritative; unresolved action/read outcomes retain their barriers.
 provider history is disposable. a sealed original terminal is settled locally
 before current model/plan reconstruction, with current request/publication fences.
 
-set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json`. the schema-5
-root-owned mapping names the personal endpoint, mode-02750 disposable cognition
-parent and persistent notes checkout. main gets native workspace writes and
+set `JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json`. the schema-6 root-owned mapping names
+the ordered accounts, mode-02750 disposable cognition parent and persistent
+notes checkout. main gets native workspace writes and
 unrestricted network with approval denied, web disabled and no mcp. `.git` is its
 only additional writable root. compactor/dreamer retain disposable empty read-only
 directories and disabled native/network tools. no native authentication belongs
@@ -1013,10 +1053,9 @@ supported route or switch Jarvis to API-key authentication.
 outside `jarvis.service`, cognitive operator commands `jarvis check-activation`,
 `jarvis dream` and `jarvis rebuild-memory` (including `--node`) must run in
 root-managed units with the existing application identity/private environment
-and restrictions, `BindsTo=jarvis-codex-contained.service`,
-`After=jarvis-codex-contained.service` and
-`BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock`.
-the global endpoint is only a placeholder; these commands open the native
+and restrictions. use the primary host `BindsTo`, all host `After` dependencies
+and the same per-account file binds as `jarvis.service`. the global endpoints
+are placeholders; these commands open the native
 channel for catalog selection or isolated inference. capture/status/retry-only
 commands do not open that runtime and need no native socket bind.
 `install-contained-host` and `verify-containment` already give their verification

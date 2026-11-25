@@ -116,16 +116,24 @@ def host_input(value: StoredMessage) -> HostInput:
         for attribute in attributes
     )
     if value.native_retry_after is not None:
+        retry = value.trace.get("native_retry")
+        cause = "work on this input lost contact with the model."
+        if value.trace.get("native_context_retry") is True:
+            cause = (
+                "work on this input hit the model's context limit. "
+                "its original receipts are available through receipt.read."
+            )
+        elif (
+            isinstance(retry, dict)
+            and cast(dict[str, object], retry).get("reason")
+            == "codex_quota_before_activity"
+        ):
+            cause = "codex ran out of usage before doing work on this input."
         sections.append(
             PromptSection(
                 PromptSectionKind("native_retry"),
                 host_attributes,
-                PromptText(
-                    "work on this input hit the model's context limit. "
-                    "its original receipts are available through receipt.read."
-                    if value.trace.get("native_context_retry") is True
-                    else "work on this input lost contact with the model."
-                ),
+                PromptText(cause),
             )
         )
     manifest = render_attachment_manifest(value.trace)

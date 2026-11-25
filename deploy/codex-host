@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Systemd entry points for the separate personal Codex host."""
+"""Systemd entry points for the separate contained Codex hosts."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import grp
 import json
 import os
 import pwd
+import re
 import stat
 import subprocess
 import sys
@@ -21,20 +22,20 @@ from provider_runtime.agent_runtime import (
     qualify_codex_containment_host,
 )
 
-from jarvis.codex_config import CodexHostConfig
+from jarvis.codex_config import CodexAccount, CodexHostConfig
 
 
-def _host_identity(config: CodexHostConfig) -> None:
+def _host_identity(config: CodexHostConfig, account: CodexAccount) -> None:
     if (
-        os.geteuid() != pwd.getpwnam(config.development_user).pw_uid
+        os.geteuid() != pwd.getpwnam(account.host_user).pw_uid
         or os.getegid() != grp.getgrnam(config.client_group).gr_gid
     ):
         raise RuntimeError("contained host must use its configured host identity/group")
 
 
-def host_environment(config: CodexHostConfig) -> dict[str, str]:
+def host_environment(account: CodexAccount) -> dict[str, str]:
     return {
-        "CODEX_HOME": config.profiles["personal"].account_home,
+        "CODEX_HOME": account.account_home,
         "HOME": pwd.getpwuid(os.geteuid()).pw_dir,
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "LANG": "C.UTF-8",
@@ -42,9 +43,9 @@ def host_environment(config: CodexHostConfig) -> dict[str, str]:
     }
 
 
-def bootstrap_notes(config: CodexHostConfig) -> None:
-    _host_identity(config)
-    environment = host_environment(config)
+def bootstrap_notes(config: CodexHostConfig, account: CodexAccount) -> None:
+    _host_identity(config, account)
+    environment = host_environment(account)
 
     def run(*arguments: str) -> str:
         try:
@@ -72,10 +73,14 @@ def bootstrap_notes(config: CodexHostConfig) -> None:
         )
     subprocess.run(
         [
-            config.binary, "sandbox",
-            "-c", 'sandbox_mode="workspace-write"',
-            "-c", "sandbox_workspace_write.network_access=true",
-            "--", "/bin/true",
+            config.binary,
+            "sandbox",
+            "-c",
+            'sandbox_mode="workspace-write"',
+            "-c",
+            "sandbox_workspace_write.network_access=true",
+            "--",
+            "/bin/true",
         ],
         cwd=repository,
         env=environment,
@@ -148,14 +153,14 @@ def bootstrap_notes(config: CodexHostConfig) -> None:
     config.verify_notes_repository()
 
 
-def private_alias(config: CodexHostConfig) -> Path:
-    return config.endpoints["personal"].parent / "exec" / "app-server.sock"
+def private_alias(account: CodexAccount) -> Path:
+    return account.socket.parent / "exec" / "app-server.sock"
 
 
-def remove_alias(config: CodexHostConfig) -> None:
-    _host_identity(config)
-    public = config.endpoints["personal"]
-    for path in (private_alias(config), public):
+def remove_alias(config: CodexHostConfig, account: CodexAccount) -> None:
+    _host_identity(config, account)
+    public = account.socket
+    for path in (private_alias(account), public):
         try:
             metadata = path.lstat()
         except FileNotFoundError:
@@ -180,9 +185,9 @@ def remove_alias(config: CodexHostConfig) -> None:
         path.unlink()
 
 
-def start(config: CodexHostConfig) -> None:
-    _host_identity(config)
-    public = config.endpoints["personal"]
+def start(config: CodexHostConfig, account: CodexAccount) -> None:
+    _host_identity(config, account)
+    public = account.socket
     directory = public.parent
     metadata = directory.lstat()
     if (
@@ -194,7 +199,7 @@ def start(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "contained host socket directory has the wrong ownership/mode"
         )
-    alias = private_alias(config)
+    alias = private_alias(account)
     execution = alias.parent
     metadata = execution.lstat()
     if (
@@ -205,10 +210,10 @@ def start(config: CodexHostConfig) -> None:
     ):
         raise RuntimeError("native exec directory has the wrong ownership/mode")
     execution.chmod(0o700)
-    remove_alias(config)
+    remove_alias(config, account)
     os.close(os.open(public, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0))
     catalog = materialize_codex_containment_catalog(directory)
-    environment = host_environment(config)
+    environment = host_environment(account)
     version = subprocess.run(
         [config.binary, "--version"],
         env=environment,
@@ -248,10 +253,10 @@ def start(config: CodexHostConfig) -> None:
     )
 
 
-async def publish(config: CodexHostConfig) -> None:
-    _host_identity(config)
-    public = config.endpoints["personal"]
-    alias = private_alias(config)
+async def publish(config: CodexHostConfig, account: CodexAccount) -> None:
+    _host_identity(config, account)
+    public = account.socket
+    alias = private_alias(account)
     execution = alias.parent
     async with asyncio.timeout(15):
         for _ in range(300):
@@ -296,11 +301,11 @@ async def publish(config: CodexHostConfig) -> None:
         alias.symlink_to(Path(child.name) / target.name)
 
 
-async def verify(config: CodexHostConfig) -> None:
+async def verify(config: CodexHostConfig, account: CodexAccount) -> None:
     config.verify_notes_repository()
-    alias = config.endpoints["personal"]
+    alias = account.socket
     directory = alias.parent
-    host_uid = pwd.getpwnam(config.development_user).pw_uid
+    host_uid = pwd.getpwnam(account.host_user).pw_uid
     client_gid = grp.getgrnam(config.client_group).gr_gid
     metadata = alias.lstat()
     parent = directory.stat()
@@ -317,16 +322,42 @@ async def verify(config: CodexHostConfig) -> None:
         raise RuntimeError(
             "contained host socket is not published to the configured group"
         )
-    if os.access(Path(config.profiles["personal"].account_home) / "auth.json", os.R_OK):
+    if os.access(Path(account.account_home) / "auth.json", os.R_OK):
         raise RuntimeError(
             "application needs socket access without account credentials"
         )
-    await qualify_codex_containment_host(
-        CodexUnixEndpoint(alias), required_service_tier="default"
-    )
+    endpoint = CodexUnixEndpoint(alias)
+    await qualify_codex_containment_host(endpoint, required_service_tier="default")
+    from provider_runtime.agent_runtime import CodexControl, CodexSubject
+
+    # This runs as Jarvis through the same application-private mount. A
+    # structurally valid endpoint is insufficient without its enrolled subject.
+    control = CodexControl({account.key: endpoint}, lambda _: False, native_owners=True)
+    try:
+        async with asyncio.timeout(10):
+            allowance = await control.observe_codex_allowance(
+                account.key,
+                CodexSubject(
+                    account.expected_user_id,
+                    account.expected_account_id,
+                    account.expected_plan_type,
+                ),
+                allow_existing_credits=account.allow_existing_credits,
+            )
+    finally:
+        await control.close()
+    if allowance.state not in {
+        "available",
+        "available_with_credits",
+        "credits_available",
+        "included_exhausted",
+    }:
+        raise RuntimeError(f"{account.key}: account allowance is unverified")
+    print(f"{account.key}: qualified contained host, standard tier, {allowance.state}")
 
 
-def verify_release() -> None:
+def verify_release(account: CodexAccount) -> None:
+    unit_path = account.unit.replace("-", "_2d").replace(".", "_2e")
     release = Path(__file__).resolve().parent.parent
     response = subprocess.run(
         [
@@ -334,7 +365,7 @@ def verify_release() -> None:
             "--json=short",
             "get-property",
             "org.freedesktop.systemd1",
-            "/org/freedesktop/systemd1/unit/jarvis_2dcodex_2dcontained_2eservice",
+            f"/org/freedesktop/systemd1/unit/{unit_path}",
             "org.freedesktop.systemd1.Service",
             "ExecStart",
         ],
@@ -349,35 +380,197 @@ def verify_release() -> None:
         raise RuntimeError("systemd returned an unsupported ExecStart property")
     data = value["data"]
     executable = str(release / ".venv/bin/python")
-    argv = [executable, str(release / "deploy/codex-host"), "start"]
+    argv = [executable, str(release / "deploy/codex-host"), "start", account.key]
     if len(data) != 1 or data[0][:2] != [executable, argv]:
         raise RuntimeError("contained host unit does not select this immutable release")
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in (
-        "start",
-        "publish",
-        "verify",
-        "cleanup",
-        "bootstrap-notes",
-    ):
-        raise SystemExit(
-            "usage: codex-host start|publish|verify|cleanup|bootstrap-notes"
+def verify_notes_acl(config: CodexHostConfig) -> None:
+    config.verify_notes_repository()
+    notes = Path(config.notes_repository)
+    required = {
+        "user::rwx",
+        "mask::rwx",
+        "other::---",
+        f"user:{pwd.getpwnam(config.jarvis_user).pw_uid}:r-x",
+        *(f"user:{pwd.getpwnam(row.host_user).pw_uid}:rwx" for row in config.accounts),
+    }
+    for path, directories, _ in notes.walk():
+        if path == notes / ".git/jarvis-mail" and "incoming" in directories:
+            directories.remove("incoming")
+        result = subprocess.run(
+            [
+                "getfacl",
+                "--default",
+                "--numeric",
+                "--omit-header",
+                "--no-effective",
+                "--",
+                path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
         )
+        entries = set(result.stdout.splitlines())
+        if not required.issubset(entries) or not entries.intersection(
+            {"group::r-x", "group::r--", "group::--x", "group::---"}
+        ):
+            raise RuntimeError(
+                "a shared notes directory lacks the inherited account ACL"
+            )
+
+
+def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
+    release = Path(__file__).resolve().parent.parent
+    primary = config.accounts[0]
+    expected_sockets = (
+        Path("/run/jarvis-contained/app-server.sock"),
+        Path("/run/jarvis-contained-work/app-server.sock"),
+        Path("/run/jarvis-contained-work2/app-server.sock"),
+    )
+    if (
+        config.jarvis_user != "jarvis"
+        or config.client_group != "codex-clients"
+        or primary.host_user != config.development_user
+        or tuple(account.socket for account in config.accounts) != expected_sockets
+        or config.cognition_cwd_parent != "/run/jarvis-codex-cognition"
+        or config.notes_repository != "/var/lib/jarvis-notes"
+    ):
+        raise RuntimeError("contained hosts require the fixed deployment layout")
+    uids = {pwd.getpwnam(config.jarvis_user).pw_uid, 0}
+    for account in config.accounts:
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", account.host_user):
+            raise RuntimeError(f"{account.key}: invalid host user")
+        uid = pwd.getpwnam(account.host_user).pw_uid
+        if uid in uids:
+            raise RuntimeError("services require distinct non-root UIDs")
+        uids.add(uid)
+        home = Path(account.account_home)
+        metadata = home.lstat()
+        auth = (home / "auth.json").lstat()
+        if (
+            home.resolve(strict=True) != home
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != uid
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+            or not stat.S_ISREG(auth.st_mode)
+            or auth.st_uid != uid
+            or stat.S_IMODE(auth.st_mode) != 0o600
+        ):
+            raise RuntimeError(
+                f"{account.key}: enrollment must be private and host-owned"
+            )
+    notes = Path(config.notes_repository)
+    if notes.exists() or notes.is_symlink():
+        metadata = notes.lstat()
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != pwd.getpwnam(primary.host_user).pw_uid
+            or metadata.st_gid != grp.getgrnam(config.client_group).gr_gid
+            or metadata.st_mode & 0o007
+        ):
+            raise RuntimeError("notes checkout requires its existing owner and group")
+
+    template = (release / "deploy/jarvis-codex-contained.service").read_text()
+
+    def quote(value: str | Path) -> str:
+        return json.dumps(str(value).replace("%", "%%"), ensure_ascii=False)
+
+    for account in config.accounts:
+        directory = account.socket.parent
+        inaccessible = [
+            quote(f"-{account.account_home}/{name}")
+            for name in ("AGENTS.override.md", "AGENTS.md")
+        ]
+        for other in config.accounts:
+            if other != account:
+                inaccessible.append(quote(other.account_home))
+        coupling = (
+            "Wants=" + " ".join(row.unit for row in config.accounts[1:])
+            if account == primary
+            else (
+                f"PartOf={primary.unit}\n"
+                f"ConditionPathExists=!/var/lib/jarvis-cutover/held/{primary.unit}"
+            )
+        )
+        unit = template
+        for marker, value in {
+            "@ACCOUNT@": account.key,
+            "@HOST_USER@": account.host_user,
+            "@RELEASE@": str(release),
+            "@ACCOUNT_HOME@": quote(account.account_home),
+            "@INACCESSIBLE@": " ".join(inaccessible),
+            "@COUPLING@": coupling,
+            "@SOCKET_ROOT@": str(directory),
+            "@SOCKET_DIRECTORY@": directory.name,
+        }.items():
+            unit = unit.replace(marker, value)
+        (output / account.unit).write_text(unit)
+        if account == primary:
+            bootstrap = unit
+            for source, replacement in (
+                ("Type=exec\n", "Type=oneshot\n"),
+                (coupling + "\n", ""),
+                ("Restart=on-failure\n", "Restart=no\n"),
+                ("TimeoutStartSec=20\n", "TimeoutStartSec=180\n"),
+                (
+                    "deploy/codex-host start personal\n",
+                    "deploy/codex-host bootstrap-notes personal\n",
+                ),
+                (
+                    "BindReadOnlyPaths=/etc/jarvis/codex-host.json:",
+                    f"BindReadOnlyPaths={mapping}:",
+                ),
+            ):
+                if bootstrap.count(source) != 1:
+                    raise RuntimeError("notes bootstrap template mismatch")
+                bootstrap = bootstrap.replace(source, replacement)
+            bootstrap = (
+                "\n".join(
+                    line
+                    for line in bootstrap.splitlines()
+                    if not line.startswith(("ExecStartPost=", "ExecStopPost="))
+                )
+                + "\n"
+            )
+            (output / "jarvis-notes-bootstrap.service").write_text(bootstrap)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) not in (2, 3):
+        raise SystemExit(
+            "usage: codex-host start|publish|verify|cleanup|bootstrap-notes PROFILE"
+            " | render DIR | verify-notes-acl"
+        )
+    command, *arguments = sys.argv[1:]
     mapping = Path(
         os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH", "/etc/jarvis/codex-host.json")
     )
     config = CodexHostConfig.load(mapping)
-    match sys.argv[1]:
+    if command == "verify-notes-acl" and not arguments:
+        verify_notes_acl(config)
+        raise SystemExit(0)
+    if len(arguments) != 1:
+        raise SystemExit("contained Codex host operation requires one argument")
+    argument = arguments[0]
+    if command == "render":
+        render_units(config, mapping, Path(argument))
+        raise SystemExit(0)
+    account = next((row for row in config.accounts if row.key == argument), None)
+    if account is None:
+        raise SystemExit("unknown contained Codex account")
+    match command:
         case "start":
-            start(config)
+            start(config, account)
         case "publish":
-            asyncio.run(publish(config))
+            asyncio.run(publish(config, account))
         case "verify":
-            verify_release()
-            asyncio.run(verify(config))
+            verify_release(account)
+            asyncio.run(verify(config, account))
         case "cleanup":
-            remove_alias(config)
-        case "bootstrap-notes":
-            bootstrap_notes(config)
+            remove_alias(config, account)
+        case "bootstrap-notes" if account == config.accounts[0]:
+            bootstrap_notes(config, account)
+        case _:
+            raise SystemExit("unknown contained Codex host operation")

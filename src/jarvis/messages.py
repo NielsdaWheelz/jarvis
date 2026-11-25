@@ -583,9 +583,9 @@ class MessageStore:
                         native_retry_after=None,
                         wait_reason=None,
                         processed_at=timestamp,
-                        trace=message.c.trace.op("-")("waiting_action_ids").op("-")(
-                            "native_context_retry"
-                        ),
+                        trace=message.c.trace.op("-")("waiting_action_ids")
+                        .op("-")("native_context_retry")
+                        .op("-")("native_retry"),
                     )
                 )
                 await cancel_unentered_actions(connection, targets, timestamp)
@@ -629,6 +629,7 @@ class MessageStore:
         limit: int,
         steer: bool = False,
         exclude_ids: tuple[UUID, ...] = (),
+        exclude_retry_profiles: tuple[str | None, ...] = (),
     ) -> tuple[StoredMessage, ...]:
         """Only opening batches may include due retries."""
         _positive(limit, "input limit")
@@ -645,6 +646,12 @@ class MessageStore:
             ),
             message.c.processing_parked_at.is_(None),
             message.c.id.not_in(exclude_ids),
+            *(
+                message.c.trace["native_retry"]["profile"]
+                .as_string()
+                .is_distinct_from(profile)
+                for profile in exclude_retry_profiles
+            ),
             ~select(attachment.c.id)
             .where(
                 attachment.c.origin_message_id == message.c.id,
@@ -850,6 +857,7 @@ class MessageStore:
                     processed_at=None,
                     trace=message.c.trace.op("-")("waiting_action_ids")
                     .op("-")("native_context_retry")
+                    .op("-")("native_retry")
                     .op("||")(
                         func.jsonb_build_object(
                             "released_through_native_attempt", release_cut

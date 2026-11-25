@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from time import perf_counter
 from typing import cast
@@ -55,11 +55,12 @@ from universal_memory.policy import (
     NODE_TARGET_BYTES,
     clip_utf8,
 )
+from universal_memory.schema import memory_state
 
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import message
 from jarvis.definitions import COMPACTION_FIELDS
-from jarvis.kernel import EmptyToolDispatcher
+from jarvis.kernel import CodexBlocked, CodexStandby, EmptyToolDispatcher
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_service import MemoryService
 from jarvis.messages import latest_control
@@ -158,9 +159,11 @@ class MemoryWorker:
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
+        standby: CodexStandby,
     ) -> None:
         self.definitions, self.plan = definitions, plan
         self.owner, self.provider, self.memory = owner, provider, memory
+        self.standby = standby
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
         cancellation.cancel()
@@ -214,6 +217,24 @@ class MemoryWorker:
         correction_spent = False
         permit = self.owner.permit("jarvis-compaction:" + str(uuid4()))
         as_of = datetime.now(UTC)
+        if batch.copies:
+            await self.owner.require_current(permit)
+            async with self.memory.database.begin() as connection:
+                latest = await connection.scalar(control_sequence)
+                if cancellation.cancelled or latest != control:
+                    return False
+                await self.memory.library.complete_compaction(
+                    connection, batch.model_copy(update={"tasks": ()}), ()
+                )
+                if cancellation.cancelled:
+                    await connection.rollback()
+                    return False
+            if not pending:
+                return True
+            batch = batch.model_copy(update={"copies": ()})
+        selected = await self.standby.choose_codex("compactor")
+        if isinstance(selected, CodexBlocked):
+            return False
         while pending:
             if cancellation.cancelled:
                 return False
@@ -221,7 +242,9 @@ class MemoryWorker:
             inputs = (HostInput(InputId(str(run_id)), PromptSections(()), as_of),)
             packet = None
             for arity in range(1, len(pending) + 1):
-                definition = self.definitions[arity - 1]
+                definition = replace(
+                    self.definitions[arity - 1], provider=selected.provider
+                )
                 slots = tuple(
                     zip(COMPACTION_FIELDS[:arity], pending[:arity], strict=True)
                 )
@@ -304,6 +327,11 @@ class MemoryWorker:
                     cancellation.cancelled,
                 )
                 if cancellation.cancelled or outcome.type is OneShotStopKind.cancelled:
+                    return False
+                if (
+                    outcome.type is OneShotStopKind.quota_exhausted
+                    and await self.standby.included_exhausted(selected.profile)
+                ):
                     return False
                 if outcome.type is not OneShotStopKind.protocol_error:
                     break
@@ -440,11 +468,13 @@ class DreamerWorker:
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
+        standby: CodexStandby,
         owner_timezone: str,
         nightly_time: time,
     ) -> None:
         self.definition, self.plan = definition, plan
         self.owner, self.provider, self.memory = owner, provider, memory
+        self.standby = standby
         self.timezone, self.nightly_time = ZoneInfo(owner_timezone), nightly_time
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
@@ -472,26 +502,26 @@ class DreamerWorker:
         run_id = str(uuid4())
         permit = self.owner.permit("jarvis-dream:" + run_id)
         await self.owner.require_current(permit)
-        async with self.memory.database.begin() as connection:
-            control = await connection.scalar(
-                select(func.max(message.c.control_sequence)).where(
-                    message.c.source_conversation_id == self.owner.scope_id
-                )
+        control_query = select(func.max(message.c.control_sequence)).where(
+            message.c.source_conversation_id == self.owner.scope_id
+        )
+        occurrence = None
+        if nightly:
+            local = as_of.astimezone(self.timezone)
+            occurrence = datetime.combine(
+                local.date(), self.nightly_time, self.timezone
             )
-            if nightly:
-                local = as_of.astimezone(self.timezone)
+            if occurrence > local:
                 occurrence = datetime.combine(
-                    local.date(), self.nightly_time, self.timezone
+                    local.date() - timedelta(days=1), self.nightly_time, self.timezone
                 )
-                if occurrence > local:
-                    occurrence = datetime.combine(
-                        local.date() - timedelta(days=1),
-                        self.nightly_time,
-                        self.timezone,
-                    )
-                if not await self.memory.library.claim_nightly(
-                    connection, occurrence, attempted_at=as_of
-                ):
+        async with self.memory.database.connect() as connection:
+            control = await connection.scalar(control_query)
+            if occurrence is not None:
+                previous = await connection.scalar(
+                    select(memory_state.c.last_nightly_attempt_at)
+                )
+                if previous is not None and previous >= occurrence:
                     return None
         pending = await self.memory.pending_publication()
         await self.memory.project_pending(pending)
@@ -499,11 +529,25 @@ class DreamerWorker:
         if cancellation.cancelled:
             return None
         seed = await self.memory.library.dream_input(cutoff)
+        selected = None
+        if seed.nodes:
+            selected = await self.standby.choose_codex("dreamer")
+            if isinstance(selected, CodexBlocked):
+                return None
+        await self.owner.require_current(permit)
+        async with self.memory.database.begin() as connection:
+            latest = await connection.scalar(control_query)
+            if cancellation.cancelled or latest != control:
+                return None
+            if occurrence is not None and not await self.memory.library.claim_nightly(
+                connection, occurrence, attempted_at=as_of
+            ):
+                return None
         if seed.seed_start == seed.seed_end:
             return DreamerRunCompleted(run_id, (), seed.seed_start, seed.seed_end, 0)
         result, turns = DreamResult(notes=()), 0
         dispatcher = MemoryToolDispatcher(cutoff=cutoff)
-        if seed.nodes:
+        if selected is not None:
             sections = [
                 PromptSection(
                     PromptSectionKind("historical_memory_view"),
@@ -532,7 +576,7 @@ class DreamerWorker:
             outcome = await run_one_shot(
                 decisions=TransientModelDecisions(),
                 run_id=RunId(run_id),
-                definition=self.definition,
+                definition=replace(self.definition, provider=selected.provider),
                 inputs=(HostInput(InputId(run_id), PromptSections(()), as_of),),
                 as_of=as_of,
                 plan=self.plan,
@@ -546,6 +590,11 @@ class DreamerWorker:
                 event_sink=_MemoryFailureEvents(),
             )
             if not isinstance(outcome, OneShotCompleted):
+                if (
+                    not cancellation.cancelled
+                    and outcome.type is OneShotStopKind.quota_exhausted
+                ):
+                    await self.standby.observe(selected.profile)
                 LOGGER.warning(
                     "dream stopped %s",
                     canonical_json_bytes(
@@ -572,11 +621,7 @@ class DreamerWorker:
             turns = outcome.metrics.provider_turns
         await self.owner.require_current(permit)
         async with self.memory.database.begin() as connection:
-            latest = await connection.scalar(
-                select(func.max(message.c.control_sequence)).where(
-                    message.c.source_conversation_id == self.owner.scope_id
-                )
-            )
+            latest = await connection.scalar(control_query)
             if cancellation.cancelled or latest != control:
                 return None
             identifiers = await self.memory.library.complete_dream(

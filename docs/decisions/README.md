@@ -148,6 +148,8 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0103](0103-codex-history-admission.md) | selected codex history after rewind | preserve saved originals and resume from the proved cut |
 | [0104](0104-maintenance-without-owner-pause.md) | maintenance without an owner pause | installed. named operator custody preserves canonical controls and compatible work |
 | [0105](0105-native-android.md) | native android and discord retirement | implementation authorized. installed acceptance remains open. |
+| [0108](0108-codex-quota-standby.md) | ordered codex standby accounts | source and isolated qualification complete. installed acceptance remains open. |
+| [0109](0109-existing-codex-credits.md) | use existing paid codex credits | accepted. amends the billing and selection rules in 0108. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

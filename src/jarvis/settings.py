@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping
 from datetime import time
 from pathlib import Path
-from typing import Annotated, Final, Literal, Self, cast
+from typing import Annotated, Final, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -111,11 +111,23 @@ class CutoverSettings(NativeStateSettings):
 
 class IsolatedRoleSettings(SharedMemorySettings):
     owner_timezone: str = Field(min_length=1, max_length=255)
-    codex_profile_key: Literal["personal"]
     memory_nightly_time: time = time(3)
     codex_host_config_path: AbsolutePath
     runtime_state_directory: AbsolutePath
     attachment_cache_directory: AbsolutePath
+
+    @staticmethod
+    def _check_retired_profile(source: Mapping[str, str]) -> None:
+        if "JARVIS_CODEX_PROFILE_KEY" in source:
+            raise ConfigurationError(
+                "remove JARVIS_CODEX_PROFILE_KEY; the host mapping orders the accounts"
+            )
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
+        source = os.environ if environ is None else environ
+        cls._check_retired_profile(source)
+        return super().from_env(source)
 
     @property
     def codex_host_config(self) -> CodexHostConfig:
@@ -218,7 +230,7 @@ class Settings(MemoryJobSettings):
             raise ValueError("R2 bucket must be an ordinary S3 bucket name")
         return value
 
-    @field_validator("codex_profile_key", "connector_encryption_key_version")
+    @field_validator("connector_encryption_key_version")
     @classmethod
     def _nonempty_text(cls, value: str) -> str:
         if not value.strip() or value != value.strip():
@@ -253,6 +265,7 @@ class Settings(MemoryJobSettings):
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
         source = os.environ if environ is None else environ
+        cls._check_retired_profile(source)
         if "JARVIS_DREAM_INTERVAL_SECONDS" in source:
             raise ConfigurationError(
                 "dream intervals are retired; configure JARVIS_MEMORY_NIGHTLY_TIME"
@@ -305,9 +318,6 @@ class Settings(MemoryJobSettings):
                     source.get("JARVIS_HOME_SOCKET_PATH", str(HOME_SOCKET_PATH))
                 ),
                 owner_timezone=required("JARVIS_OWNER_TIMEZONE"),
-                codex_profile_key=cast(
-                    Literal["personal"], required("JARVIS_CODEX_PROFILE_KEY")
-                ),
                 agent_cli_path=Path(required("JARVIS_AGENT_CLI_PATH")),
                 agent_state_directory=Path(required("JARVIS_AGENT_STATE_DIRECTORY")),
                 codex_host_config_path=Path(required("JARVIS_CODEX_HOST_CONFIG_PATH")),

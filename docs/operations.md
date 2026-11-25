@@ -330,8 +330,11 @@ the endpoint directories are `/run/jarvis-contained`, `/run/jarvis-contained-wor
 and `/run/jarvis-contained-work2`. each endpoint has the form
 `unix:///run/.../app-server.sock`. the primary keeps the development checkout
 identity. both standby identities are distinct non-root users with private,
-officially enrolled homes. do not copy account credentials. validate expected
-subjects and plan types using the actual enrolled hosts.
+officially enrolled homes. the service masks each peer's credential home. each
+stock socket lives under its owner's mode-0700 `exec` directory. the global
+endpoint is a mode-000 placeholder and only the app binds the socket into it.
+do not copy account credentials. validate expected subjects and plan types using
+the actual enrolled hosts.
 
 provision scoped access and default acl entries on every existing directory
 in the notes checkout, including nested `.git` directories. give each native uid

@@ -127,20 +127,22 @@ for ((i=0; i<3; i++)); do
     findmnt --target "$cache" --noheadings --output VFS-OPTIONS)"
   [[ ",$cache_mount_options," == *,ro,* ]]
   physical="$(stat -Lc '%d:%i' "$root/exec/app-server.sock")"
-  nsenter --target "$app_pid" --mount test -S "$root/app-server.sock"
-  mounted="$(nsenter --target "$app_pid" --mount stat -c '%d:%i' "$root/app-server.sock")"
-  [[ "$physical" == "$mounted" ]] || {
+  if ! nsenter --target "$app_pid" --mount test -S "$root/app-server.sock" ||
+      [[ "$physical" != "$(nsenter --target "$app_pid" --mount stat -c '%d:%i' "$root/app-server.sock")" ]]; then
     printf '%s: application socket requires a stopped remount\n' "${CODEX_PROFILES[i]}" >&2
     exit 1
-  }
+  fi
   verify_native_account "$release" "${CODEX_PROFILES[i]}"
 done
 for ((i=0; i<3; i++)); do
   for ((j=0; j<3; j++)); do
     if ((i != j)); then
-      masked_root="$(nsenter --target "${pids[i]}" --mount \
-        stat -c '%u:%a' "${CODEX_SOCKET_ROOTS[j]}")"
-      [[ "$masked_root" == 0:0 ]]
+      if ! nsenter --target "${pids[i]}" --mount runuser -u "${users[i]}" -g codex-clients -- \
+          test ! -x "${CODEX_SOCKET_ROOTS[j]}/exec"; then
+        printf '%s: could not verify peer %s socket traversal denial\n' \
+          "${CODEX_PROFILES[i]}" "${CODEX_PROFILES[j]}" >&2
+        exit 1
+      fi
       sudo -n -u "${users[i]}" test ! -r "/proc/${pids[j]}/environ"
     fi
   done

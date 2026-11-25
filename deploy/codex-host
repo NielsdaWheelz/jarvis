@@ -479,9 +479,7 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
         ]
         for other in config.accounts:
             if other != account:
-                inaccessible.extend(
-                    (quote(other.account_home), quote(f"-{other.socket.parent}"))
-                )
+                inaccessible.append(quote(other.account_home))
         coupling = (
             "Wants=" + " ".join(row.unit for row in config.accounts[1:])
             if account == primary
